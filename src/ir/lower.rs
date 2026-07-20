@@ -3585,22 +3585,28 @@ fn lower_expression_with_expected(
             line,
             column,
         } => {
-            // A negated decimal literal in a Money slot (`LET a AS Money = -1.25`)
-            // must lower its operand as a Money const so the raw negate operates on
-            // the base-10 scaled i64, not an f64 bit pattern, and the node is
-            // annotated Money to match the binding (plan-29-A §4.4). Only the Money
-            // case propagates expected — Fixed/Byte keep their existing
-            // (Float/Integer-const) operand shape so their goldens are unchanged.
-            let money_literal_negation = operator == "-"
-                && expected == Some("Money")
+            // A negated decimal literal in an exact-numeric slot (`LET a AS Money =
+            // -1.25`, `LET a AS Fixed = -1.25`) must lower its operand as a const of
+            // that type, so the raw negate operates on the scaled i64 rather than an
+            // f64 bit pattern, and the node is annotated to match the binding
+            // (plan-29-A §4.4).
+            //
+            // `Fixed` was originally excluded here "so their goldens are unchanged".
+            // That was silent corruption, not a neutral choice: the operand stayed a
+            // *Float* const, so `LET a AS Fixed = -1.25` stored the f64 bit pattern
+            // of 1.25, negated, into a Q32.32 slot and read back as
+            // -1074528256.0 (bug-367). Every negative `Fixed` literal was affected;
+            // the positive form was always correct, which is why it went unnoticed.
+            let exact_literal_negation = operator == "-"
+                && matches!(expected, Some("Money") | Some("Fixed"))
                 && matches!(operand.as_ref(), Expression::Number(_));
-            let result_type = if money_literal_negation {
-                "Money".to_string()
+            let result_type = if exact_literal_negation {
+                expected.unwrap_or("Unknown").to_string()
             } else {
                 expression_type(expression, locals, context)
                     .unwrap_or_else(|| "Unknown".to_string())
             };
-            let lowered_operand = if money_literal_negation {
+            let lowered_operand = if exact_literal_negation {
                 lower_expression_with_expected(operand, expected, locals, context)
             } else {
                 lower_expression(operand, locals, context)

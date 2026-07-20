@@ -1,0 +1,44 @@
+{
+  "project": "bug366_money_float_invalid_format",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "applyRate",
+      "line": 17,
+      "params": [
+      { "name": "amount", "type": "Money", "default": null, "line": 17 },
+      { "name": "rate", "type": "Float", "default": null, "line": 17 }
+      ],
+      "returnType": "Money",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "amount" }, "right": { "kind": "identifier", "value": "rate" } }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "applyRate", "arguments": [{ "kind": "number", "value": "10.00m" }, { "kind": "number", "value": "2.5" }] }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "3.0f" }, "right": { "kind": "number", "value": "4.00m" } }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "/", "left": { "kind": "number", "value": "10.00m" }, "right": { "kind": "number", "value": "4.0f" } }] }] }, "line": 24 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 25 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug366_money_float_invalid_format",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "applyRate",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "amount", "line": 17, "type": "Money", "default": null },
+    { "name": "rate", "line": 17, "type": "Float", "default": null }
+    ],
+    "returns": "Money",
+    "body": [
+    { "op": "return", "line": 18, "value": { "kind": "binary", "type": "Money", "op": "*", "left": { "kind": "local", "name": "amount" }, "right": { "kind": "local", "name": "rate" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Money", "target": "applyRate", "args": [{ "kind": "const", "type": "Money", "value": "10.00" }, { "kind": "const", "type": "Float", "value": "2.5" }] }] }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Money", "op": "*", "left": { "kind": "const", "type": "Float", "value": "3.0" }, "right": { "kind": "const", "type": "Money", "value": "4.00" } }] }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Money", "op": "/", "left": { "kind": "const", "type": "Money", "value": "10.00" }, "right": { "kind": "const", "type": "Float", "value": "4.0" } }] }] } },
+    { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

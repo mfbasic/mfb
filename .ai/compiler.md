@@ -24,6 +24,34 @@ Guidelines:
 - Treat any backend helper named like `*_default_result`, or any backend path that stores default values for a built-in operation, as unsupported unless a runtime test proves the actual requested behavior.
 - For any requested feature, do not implement or present a simulation, approximation, cooperative fallback, lazy substitute, single-step substitute, metadata-only substitute, queue-only substitute, or behavior-compatible shortcut as real support unless the user explicitly asks for that kind of simulation. If the real feature requires runtime helpers, OS/library integration, scheduler work, platform ABI changes, persistence, networking, concurrency, or other integration pieces, implement those pieces and validate the real behavior at runtime, or report the task as incomplete.
 
+## A Bug You Find Is a Bug You Fix
+
+Compiler work surfaces unrelated defects constantly — you probe one predicate and
+three others turn out to be wrong. **Fix them in the same change.** See AGENTS.md
+("Never leave a bug in place"); the compiler-specific points:
+
+- **A silent wrong value is the worst class here, and it is the one this codebase
+  produces.** A predicate that under-reports does not fail loudly — it omits a data
+  object, mis-types a literal, or drops a check, and the program computes a wrong
+  number forever. Treat "the build succeeded and printed something" as no evidence
+  at all: check the *value*. bug-367 (`LET a AS Fixed = -1.25` storing an f64 bit
+  pattern, printing `-1074528256.0`) survived because nothing asserted the value.
+- **When you fix one type seam, probe the siblings before you stop.** These gaps
+  come in families: `static_nir_value_type`, `static_type_name_with_types`, and
+  `CodeBuilder::static_type_name` are three separate walks over the same NIR, and a
+  missing `MemberAccess`/variant arm in one is nearly always missing in the others
+  (bug-363 → bug-366 found exactly this, one seam at a time). Grep for the sibling
+  walks and test each directly.
+- **Probe the whole matrix, not the one case you were handed.** Vary the numeric
+  type (Integer/Float/Fixed/Money), the operand position (left/right), and the
+  operand *shape* (literal, local, param, record field, union-variant field, map
+  entry). bug-366's Money half fails with plain locals and would have been missed
+  by testing record fields alone.
+- **Confirm pre-existing vs. regression with `git worktree add --detach <path> HEAD`**
+  and build there. Never `git stash` this tree to check (other clients share it).
+  Being able to *state* "pre-existing, verified at HEAD" is worth the 60s build —
+  but it changes only the commit message, never whether you fix it.
+
 ## Validation
 
 After completing any code or golden-output change, the acceptance suite must pass.

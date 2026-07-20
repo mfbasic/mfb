@@ -1,0 +1,55 @@
+IMPORT io
+
+' Arithmetic whose operands are RECORD FIELDS, across all four numeric types.
+'
+' A `MemberAccess` operand is the shape that broke two module-level codegen
+' walks: neither `static_nir_value_type` (bug-363) nor `static_type_name_with_types`
+' (bug-366) could type one, so each answered "no" for the message data object the
+' lowering then went on to load, and the build aborted with "has no data object".
+' Every line below is therefore a compile-time assertion as much as a value check.
+TYPE Counts
+  a AS Integer
+  b AS Integer
+END TYPE
+TYPE Dims
+  w AS Float
+  h AS Float
+END TYPE
+TYPE Rates
+  base AS Fixed
+  delta AS Fixed
+END TYPE
+TYPE Ledger
+  debit AS Money
+  credit AS Money
+END TYPE
+
+FUNC main AS Integer
+  LET c AS Counts = Counts[17, 5]
+  LET d AS Dims = Dims[2.5, 4.0]
+  LET r AS Rates = Rates[1.5, 0.25]
+  LET l AS Ledger = Ledger[10.00m, 2.50m]
+
+  ' Same-type arithmetic through fields, every operator the type admits.
+  io::print("int " & toString(c.a + c.b) & " " & toString(c.a - c.b) & " " & toString(c.a * c.b))
+  io::print("int " & toString(c.a / c.b) & " " & toString(c.a MOD c.b) & " " & toString(c.b ^ 2))
+  io::print("flt " & toString(d.w + d.h) & " " & toString(d.w * d.h) & " " & toString(d.h / d.w))
+  io::print("fix " & toString(r.base + r.delta) & " " & toString(r.base * r.delta))
+  io::print("mny " & toString(l.debit + l.credit) & " " & toString(l.debit - l.credit))
+  io::print("mny " & toString(l.debit * 3) & " " & toString(l.debit / 4))
+
+  ' A Float field promoted into an exact result type, both operand orders. These
+  ' are the shapes that need the ERR_INVALID_FORMAT object (bug-366).
+  io::print("promote " & toString(d.w * r.base) & " " & toString(r.delta * d.h))
+  io::print("promote " & toString(l.debit * d.w) & " " & toString(d.h * l.credit))
+  io::print("promote " & toString(l.debit / d.w))
+
+  ' Field mixed with a literal, both orders.
+  io::print("mixed " & toString(c.a + 3) & " " & toString(2 * c.b))
+  io::print("mixed " & toString(d.w - 0.5) & " " & toString(1.5 * d.h))
+
+  ' typeName over a record field: the builder could not name a field's type at
+  ' all before bug-366, so this failed to lower.
+  io::print("type " & typeName(c.a) & " " & typeName(d.w) & " " & typeName(r.base) & " " & typeName(l.debit))
+  RETURN 0
+END FUNC

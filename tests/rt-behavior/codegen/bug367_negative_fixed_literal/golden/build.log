@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/rt-behavior/codegen/bug367_negative_fixed_literal
+Wrote AST to tests/rt-behavior/codegen/bug367_negative_fixed_literal/bug367_negative_fixed_literal.ast
+Wrote IR to tests/rt-behavior/codegen/bug367_negative_fixed_literal/bug367_negative_fixed_literal.ir
+[exit 0]
+$ mfb build tests/rt-behavior/codegen/bug367_negative_fixed_literal
+Wrote executable to tests/rt-behavior/codegen/bug367_negative_fixed_literal/build/bug367_negative_fixed_literal.out
+[exit 0]
+$ tests/rt-behavior/codegen/bug367_negative_fixed_literal/build/bug367_negative_fixed_literal.out
+let -1.25 1.25
+pos 1.25
+ctor -1.25 -0.50
+math 0.00 -2.50 -2.50
+min -2147483648.0
+[exit 0]

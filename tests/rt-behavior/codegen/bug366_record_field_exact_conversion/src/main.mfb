@@ -1,0 +1,24 @@
+IMPORT io
+
+' bug-366 (seam half): the module's ONLY expression that consumes a Float into an
+' exact result type runs through a RECORD FIELD. `static_type_name_with_types`
+' could not type a `MemberAccess`, so `value_may_return_invalid_format` answered
+' false, the ERR_INVALID_FORMAT message object was never emitted, and the
+' lowering — which does know the field's type — aborted the build loading it.
+'
+' Keep this module minimal. Any OTHER Float-into-exact expression (notably one
+' with plain locals, or a Money/Float pair) turns the message on by another route
+' and masks the gap this fixture exists to hold open.
+TYPE Rate
+  factor AS Fixed
+END TYPE
+
+FUNC scale(r AS Rate, x AS Float) AS Fixed
+  RETURN x * r.factor
+END FUNC
+
+FUNC main AS Integer
+  LET r AS Rate = Rate[1.5]
+  io::print(toString(scale(r, 2.0)))
+  RETURN 0
+END FUNC

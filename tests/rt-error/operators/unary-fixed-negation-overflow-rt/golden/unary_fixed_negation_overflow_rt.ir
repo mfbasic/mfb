@@ -19,7 +19,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 2, "mutable": false, "name": "value", "type": "Fixed", "value": { "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2147483648.0" } } },
+    { "op": "bind", "line": 2, "mutable": false, "name": "value", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "-2147483648.0" } },
     { "op": "bind", "line": 3, "mutable": false, "name": "negated", "type": "Fixed", "value": { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "local", "name": "value" } } },
     { "op": "return", "line": 4, "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "negated" }] } }
     ]

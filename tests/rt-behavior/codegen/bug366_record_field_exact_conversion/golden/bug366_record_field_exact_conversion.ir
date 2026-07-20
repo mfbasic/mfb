@@ -1,0 +1,51 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug366_record_field_exact_conversion",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 12,
+    "visibility": "public",
+    "name": "Rate",
+    "fields": [
+    { "visibility": null, "line": 13, "name": "factor", "type": "Fixed" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "scale",
+    "line": 16,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "r", "line": 16, "type": "Rate", "default": null },
+    { "name": "x", "line": 16, "type": "Float", "default": null }
+    ],
+    "returns": "Fixed",
+    "body": [
+    { "op": "return", "line": 17, "value": { "kind": "binary", "type": "Fixed", "op": "*", "left": { "kind": "local", "name": "x" }, "right": { "kind": "memberAccess", "type": "Fixed", "target": { "kind": "local", "name": "r" }, "member": "factor" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 21, "mutable": false, "name": "r", "type": "Rate", "value": { "kind": "constructor", "type": "Rate", "args": [{ "kind": "const", "type": "Fixed", "value": "1.5" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "scale", "args": [{ "kind": "local", "name": "r" }, { "kind": "const", "type": "Float", "value": "2.0" }] }] }] } },
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

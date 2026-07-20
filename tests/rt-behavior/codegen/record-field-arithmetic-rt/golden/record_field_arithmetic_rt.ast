@@ -1,0 +1,82 @@
+{
+  "project": "record_field_arithmetic_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Counts",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "a", "type": "Integer", "line": 11 },
+      { "visibility": null, "name": "b", "type": "Integer", "line": 12 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Dims",
+      "line": 14,
+      "fields": [
+      { "visibility": null, "name": "w", "type": "Float", "line": 15 },
+      { "visibility": null, "name": "h", "type": "Float", "line": 16 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Rates",
+      "line": 18,
+      "fields": [
+      { "visibility": null, "name": "base", "type": "Fixed", "line": 19 },
+      { "visibility": null, "name": "delta", "type": "Fixed", "line": 20 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Ledger",
+      "line": 22,
+      "fields": [
+      { "visibility": null, "name": "debit", "type": "Money", "line": 23 },
+      { "visibility": null, "name": "credit", "type": "Money", "line": 24 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 27,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Counts", "value": { "kind": "constructor", "type": "Counts", "arguments": [{ "kind": "number", "value": "17" }, { "kind": "number", "value": "5" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Dims", "value": { "kind": "constructor", "type": "Dims", "arguments": [{ "kind": "number", "value": "2.5" }, { "kind": "number", "value": "4.0" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Rates", "value": { "kind": "constructor", "type": "Rates", "arguments": [{ "kind": "number", "value": "1.5" }, { "kind": "number", "value": "0.25" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "l", "type": "Ledger", "value": { "kind": "constructor", "type": "Ledger", "arguments": [{ "kind": "number", "value": "10.00m" }, { "kind": "number", "value": "2.50m" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "b" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "b" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "b" } }] } }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "/", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "b" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "a" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "b" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "^", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "b" }, "right": { "kind": "number", "value": "2" } }] } }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "flt " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "h" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "h" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "/", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "h" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "w" } }] } }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fix " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "base" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "delta" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "base" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "delta" } }] } }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mny " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "debit" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "credit" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "debit" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "credit" } }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mny " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "debit" }, "right": { "kind": "number", "value": "3" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "/", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "debit" }, "right": { "kind": "number", "value": "4" } }] } }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "promote " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "w" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "base" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "delta" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "h" } }] } }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "promote " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "debit" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "w" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "h" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "credit" } }] } }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "promote " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "/", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "debit" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "w" } }] } }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mixed " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "a" }, "right": { "kind": "number", "value": "3" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "2" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "b" } }] } }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mixed " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "w" }, "right": { "kind": "number", "value": "0.5" } }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "1.5" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "h" } }] } }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "type " }, "right": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "a" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "w" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "base" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "l" }, "member": "debit" }] } }] }, "line": 53 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 54 }
+      ]
+    }
+    ]
+  }
+  ]
+}

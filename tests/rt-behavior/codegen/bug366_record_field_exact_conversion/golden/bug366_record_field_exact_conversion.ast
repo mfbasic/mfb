@@ -1,0 +1,52 @@
+{
+  "project": "bug366_record_field_exact_conversion",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Rate",
+      "line": 12,
+      "fields": [
+      { "visibility": null, "name": "factor", "type": "Fixed", "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "scale",
+      "line": 16,
+      "params": [
+      { "name": "r", "type": "Rate", "default": null, "line": 16 },
+      { "name": "x", "type": "Float", "default": null, "line": 16 }
+      ],
+      "returnType": "Fixed",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "factor" } }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Rate", "value": { "kind": "constructor", "type": "Rate", "arguments": [{ "kind": "number", "value": "1.5" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "scale", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "2.0" }] }] }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

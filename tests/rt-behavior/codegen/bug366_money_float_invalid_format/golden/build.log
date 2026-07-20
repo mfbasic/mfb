@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/codegen/bug366_money_float_invalid_format
+Wrote AST to tests/rt-behavior/codegen/bug366_money_float_invalid_format/bug366_money_float_invalid_format.ast
+Wrote IR to tests/rt-behavior/codegen/bug366_money_float_invalid_format/bug366_money_float_invalid_format.ir
+[exit 0]
+$ mfb build tests/rt-behavior/codegen/bug366_money_float_invalid_format
+Wrote executable to tests/rt-behavior/codegen/bug366_money_float_invalid_format/build/bug366_money_float_invalid_format.out
+[exit 0]
+$ tests/rt-behavior/codegen/bug366_money_float_invalid_format/build/bug366_money_float_invalid_format.out
+25.00
+12.00
+2.50
+[exit 0]

@@ -1,0 +1,38 @@
+IMPORT io
+
+' bug-367: a NEGATIVE `Fixed` literal was stored as the f64 bit pattern of its
+' magnitude instead of the Q32.32 raw, so `-1.25` read back as `-1074528256.0`.
+' The build succeeded and printed a number — nothing failed loudly.
+'
+' `ir::lower` propagated the expected type into a negated literal only for
+' `Money`, deliberately skipping `Fixed` "so their goldens are unchanged". The
+' operand therefore stayed a Float const under a Float-typed unary minus, and
+' codegen stored that into a Fixed slot. The positive form was always correct,
+' which is why this survived.
+'
+' The min-`Fixed` boundary is bug-07's case and must keep trapping on negation;
+' `rt-error/operators/unary-fixed-negation-overflow-rt` covers that.
+TYPE Rates
+  base AS Fixed
+END TYPE
+
+FUNC main AS Integer
+  LET a AS Fixed = -1.25
+  io::print("let " & toString(a) & " " & toString(-a))
+
+  LET b AS Fixed = 1.25
+  io::print("pos " & toString(b))
+
+  ' Through a record field, positional and named construction.
+  LET p AS Rates = Rates[-1.25]
+  LET n AS Rates = Rates[base := -0.5]
+  io::print("ctor " & toString(p.base) & " " & toString(n.base))
+
+  ' Arithmetic on a negative Fixed literal must use the raw, not a bit pattern.
+  io::print("math " & toString(a + b) & " " & toString(a * 2) & " " & toString(a - b))
+
+  ' The min Fixed still materializes exactly (bug-07's fold).
+  LET mn AS Fixed = -2147483648.0
+  io::print("min " & toString(mn))
+  RETURN 0
+END FUNC

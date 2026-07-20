@@ -719,6 +719,25 @@ impl CodeBuilder<'_> {
                         return Some(format!("Result OF {output_type}"));
                     }
                 }
+                // A record or union-variant field, read from the same tables the
+                // field-access lowering itself uses. Without this arm the builder
+                // could not name the type of `rec.field`, so `typeName(rec.field)`
+                // failed to lower at all with "cannot determine typeName argument
+                // type" (bug-366).
+                let field_type = self
+                    .type_model
+                    .record_fields
+                    .get(&target_type)
+                    .or_else(|| self.type_model.union_variant_fields.get(&target_type))
+                    .and_then(|fields| {
+                        fields
+                            .iter()
+                            .find(|(name, _)| name == member)
+                            .map(|(_, type_)| type_.clone())
+                    });
+                if field_type.is_some() {
+                    return field_type;
+                }
                 let (key_type, value_type) = parse_map_entry_type(&target_type)?;
                 match member.as_str() {
                     "key" => Some(key_type),

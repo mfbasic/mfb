@@ -1,0 +1,38 @@
+IMPORT io
+IMPORT math
+
+' `math::*` calls whose arguments are RECORD FIELDS, across every overload
+' family the package documents: abs/min/max/clamp take all four numeric types,
+' floor/ceil/round take Float/Fixed/Money and return Integer, and the
+' transcendentals take Float or Fixed only.
+'
+' Transcendental arguments are chosen to have exact results (sqrt(4), pow(2,3),
+' exp(0), log(1), sin(0), cos(0), atan2(0,1)) so this golden is identical on
+' every target rather than depending on the last ULP of a kernel.
+TYPE Sample
+  i AS Integer
+  f AS Float
+  x AS Fixed
+  m AS Money
+END TYPE
+
+FUNC main AS Integer
+  LET s AS Sample = Sample[-7, -2.5, -1.25, -3.50m]
+  LET t AS Sample = Sample[4, 4.0, 4.0, 10.00m]
+
+  io::print("abs " & toString(math::abs(s.i)) & " " & toString(math::abs(s.f)) & " " & toString(math::abs(s.x)) & " " & toString(math::abs(s.m)))
+  io::print("min " & toString(math::min(s.i, t.i)) & " " & toString(math::min(s.f, t.f)) & " " & toString(math::min(s.x, t.x)) & " " & toString(math::min(s.m, t.m)))
+  io::print("max " & toString(math::max(s.i, t.i)) & " " & toString(math::max(s.f, t.f)) & " " & toString(math::max(s.x, t.x)) & " " & toString(math::max(s.m, t.m)))
+  io::print("clamp " & toString(math::clamp(s.i, 0, 3)) & " " & toString(math::clamp(s.f, 0.0, 3.0)) & " " & toString(math::clamp(s.m, 0.00m, 3.00m)))
+
+  io::print("floor " & toString(math::floor(s.f)) & " " & toString(math::floor(s.x)) & " " & toString(math::floor(s.m)))
+  io::print("ceil " & toString(math::ceil(s.f)) & " " & toString(math::ceil(s.x)) & " " & toString(math::ceil(s.m)))
+  io::print("round " & toString(math::round(s.f)) & " " & toString(math::round(s.x)) & " " & toString(math::round(s.m)))
+
+  LET two AS Fixed = 2.0
+  io::print("sqrt " & toString(math::sqrt(t.f)) & " " & toString(math::sqrt(t.x)))
+  io::print("pow " & toString(math::pow(t.f, 0.5)) & " " & toString(math::pow(t.x, two)))
+  io::print("exp " & toString(math::exp(0.0)) & " " & toString(math::log(1.0)))
+  io::print("trig " & toString(math::sin(0.0)) & " " & toString(math::cos(0.0)) & " " & toString(math::atan2(0.0, 1.0)))
+  RETURN 0
+END FUNC

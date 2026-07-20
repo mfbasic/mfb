@@ -1,0 +1,26 @@
+IMPORT io
+
+' bug-366 (modelling half): `Money * Float` needs the ERR_INVALID_FORMAT message
+' object for the same reason `Float * Fixed` does — the spec gives a non-finite
+' Float operand the same ErrInvalidFormat failure (77050003) when it is consumed
+' into an exact type. The predicate only asked whether the result was `Fixed`, so
+' every Money-with-Float expression under-reported and its module aborted with
+' "has no data object".
+'
+' This half needs no record field: it fails with plain locals, which is exactly
+' why it is a separate fixture from the seam half. Keep the module free of any
+' Float-into-Fixed expression, which would turn the message on by that route.
+'
+' The `f` suffixes are deliberate: a bare decimal scaling a Money warns
+' MONEY_INEXACT_FLOAT_LITERAL, and `f` is how the language says "the Float is
+' intentional" — which it is, since a Float operand is the whole subject here.
+FUNC applyRate(amount AS Money, rate AS Float) AS Money
+  RETURN amount * rate
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(applyRate(10.00m, 2.5)))
+  io::print(toString(3.0f * 4.00m))
+  io::print(toString(10.00m / 4.0f))
+  RETURN 0
+END FUNC

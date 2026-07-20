@@ -68,11 +68,14 @@ pub(super) fn push_error_message_address(
 
 pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     let mut values = Vec::new();
+    // The module's record / union-variant field types, so every walk below can
+    // type a `MemberAccess` (bug-363, bug-366).
+    let fields = module_field_types(module);
     if module_uses_type_name(module) {
         collect_type_name_values(module, &mut values);
     }
     for function in &module.functions {
-        collect_string_values_from_function(function, &mut values);
+        collect_string_values_from_function(function, &mut values, &fields);
     }
     // Source file paths back `ErrorLoc.filename` for errors that originate in
     // each function; emit them as string constants so the origin can load them.
@@ -605,6 +608,7 @@ pub(super) fn unicode_string_call_is_static(
     args: &[NirValue],
     constants: &HashMap<String, NirValue>,
     types: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> bool {
     matches!(
         target,
@@ -614,7 +618,7 @@ pub(super) fn unicode_string_call_is_static(
             | "strings.normalizeNfc"
             | "strings.graphemes"
     ) && args.len() == 1
-        && static_string_value_with_constants(&args[0], constants, types).is_some()
+        && static_string_value_with_constants(&args[0], constants, types, fields).is_some()
 }
 
 pub(super) fn unicode_runtime_data_objects() -> Vec<CodeDataObject> {
@@ -747,7 +751,11 @@ fn raw_data_object(
 /// weaker than the builder's, so a fold the builder performed produced a literal
 /// this pass had never seen and the build aborted with no data object for it
 /// (bug-361B).
-fn collect_string_values_from_function(function: &NirFunction, values: &mut Vec<String>) {
+fn collect_string_values_from_function(
+    function: &NirFunction,
+    values: &mut Vec<String>,
+    fields: &FieldTypes,
+) {
     let mut constants = HashMap::new();
     let mut types: HashMap<String, String> = function
         .params
@@ -759,6 +767,7 @@ fn collect_string_values_from_function(function: &NirFunction, values: &mut Vec<
         values,
         &mut constants,
         &mut types,
+        fields,
     );
 }
 
@@ -767,6 +776,7 @@ fn collect_string_values_from_ops_with_constants(
     values: &mut Vec<String>,
     constants: &mut HashMap<String, NirValue>,
     types: &mut HashMap<String, String>,
+    fields: &FieldTypes,
 ) {
     for op in ops {
         match op {
@@ -775,9 +785,9 @@ fn collect_string_values_from_ops_with_constants(
             } => {
                 types.insert(name.clone(), type_.clone());
                 if let Some(value) = value {
-                    collect_string_values_from_value(value, values, constants, types);
+                    collect_string_values_from_value(value, values, constants, types, fields);
                     if let Some(constant) =
-                        local_constant_value_with_constants(value, constants, types)
+                        local_constant_value_with_constants(value, constants, types, fields)
                     {
                         constants.insert(name.clone(), constant);
                     } else {
@@ -789,27 +799,28 @@ fn collect_string_values_from_ops_with_constants(
             }
             NirOp::StoreGlobal { value, .. } => {
                 if let Some(value) = value {
-                    collect_string_values_from_value(value, values, constants, types);
+                    collect_string_values_from_value(value, values, constants, types, fields);
                 }
             }
             NirOp::Return { value } => {
                 if let Some(value) = value {
-                    collect_string_values_from_value(value, values, constants, types);
+                    collect_string_values_from_value(value, values, constants, types, fields);
                 }
             }
             NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
             NirOp::ExitProgram { code } => {
-                collect_string_values_from_value(code, values, constants, types);
+                collect_string_values_from_value(code, values, constants, types, fields);
             }
             NirOp::Fail { error } => {
-                collect_string_values_from_value(error, values, constants, types);
+                collect_string_values_from_value(error, values, constants, types, fields);
             }
             NirOp::StateAssign { value, .. } => {
-                collect_string_values_from_value(value, values, constants, types);
+                collect_string_values_from_value(value, values, constants, types, fields);
             }
             NirOp::Assign { name, value } => {
-                collect_string_values_from_value(value, values, constants, types);
-                if let Some(constant) = local_constant_value_with_constants(value, constants, types)
+                collect_string_values_from_value(value, values, constants, types, fields);
+                if let Some(constant) =
+                    local_constant_value_with_constants(value, constants, types, fields)
                 {
                     constants.insert(name.clone(), constant);
                 } else {
@@ -817,14 +828,14 @@ fn collect_string_values_from_ops_with_constants(
                 }
             }
             NirOp::Eval { value } => {
-                collect_string_values_from_value(value, values, constants, types);
+                collect_string_values_from_value(value, values, constants, types, fields);
             }
             NirOp::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                collect_string_values_from_value(condition, values, constants, types);
+                collect_string_values_from_value(condition, values, constants, types, fields);
                 let mut then_constants = constants.clone();
                 let mut else_constants = constants.clone();
                 let mut then_types = types.clone();
@@ -834,16 +845,18 @@ fn collect_string_values_from_ops_with_constants(
                     values,
                     &mut then_constants,
                     &mut then_types,
+                    fields,
                 );
                 collect_string_values_from_ops_with_constants(
                     else_body,
                     values,
                     &mut else_constants,
                     &mut else_types,
+                    fields,
                 );
             }
             NirOp::Match { value, cases } => {
-                collect_string_values_from_value(value, values, constants, types);
+                collect_string_values_from_value(value, values, constants, types, fields);
                 for case in cases {
                     // Exhaustive on purpose: an `if let` here silently skipped
                     // `OneOf`, so `CASE "B", "C"` reached codegen with no data
@@ -852,11 +865,15 @@ fn collect_string_values_from_ops_with_constants(
                     // rather than another silent miss.
                     match &case.pattern {
                         NirMatchPattern::Value(value) => {
-                            collect_string_values_from_value(value, values, constants, types);
+                            collect_string_values_from_value(
+                                value, values, constants, types, fields,
+                            );
                         }
                         NirMatchPattern::OneOf(patterns) => {
                             for pattern in patterns {
-                                collect_string_values_from_value(pattern, values, constants, types);
+                                collect_string_values_from_value(
+                                    pattern, values, constants, types, fields,
+                                );
                             }
                         }
                         NirMatchPattern::Else => {}
@@ -865,7 +882,7 @@ fn collect_string_values_from_ops_with_constants(
                     // literals; without walking it, `fs::exists("/tmp/x")` in a
                     // `WHEN` guard has no data object at codegen (bug-118).
                     if let Some(guard) = &case.guard {
-                        collect_string_values_from_value(guard, values, constants, types);
+                        collect_string_values_from_value(guard, values, constants, types, fields);
                     }
                     let mut case_constants = constants.clone();
                     let mut case_types = types.clone();
@@ -874,13 +891,14 @@ fn collect_string_values_from_ops_with_constants(
                         values,
                         &mut case_constants,
                         &mut case_types,
+                        fields,
                     );
                 }
             }
             NirOp::While {
                 condition, body, ..
             } => {
-                collect_string_values_from_value(condition, values, constants, types);
+                collect_string_values_from_value(condition, values, constants, types, fields);
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 collect_string_values_from_ops_with_constants(
@@ -888,6 +906,7 @@ fn collect_string_values_from_ops_with_constants(
                     values,
                     &mut body_constants,
                     &mut body_types,
+                    fields,
                 );
             }
             NirOp::For {
@@ -899,9 +918,9 @@ fn collect_string_values_from_ops_with_constants(
                 body,
                 ..
             } => {
-                collect_string_values_from_value(start, values, constants, types);
-                collect_string_values_from_value(end, values, constants, types);
-                collect_string_values_from_value(step, values, constants, types);
+                collect_string_values_from_value(start, values, constants, types, fields);
+                collect_string_values_from_value(end, values, constants, types, fields);
+                collect_string_values_from_value(step, values, constants, types, fields);
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
@@ -911,6 +930,7 @@ fn collect_string_values_from_ops_with_constants(
                     values,
                     &mut body_constants,
                     &mut body_types,
+                    fields,
                 );
             }
             NirOp::DoUntil { body, condition } => {
@@ -921,8 +941,9 @@ fn collect_string_values_from_ops_with_constants(
                     values,
                     &mut body_constants,
                     &mut body_types,
+                    fields,
                 );
-                collect_string_values_from_value(condition, values, constants, types);
+                collect_string_values_from_value(condition, values, constants, types, fields);
             }
             NirOp::ForEach {
                 name,
@@ -930,7 +951,7 @@ fn collect_string_values_from_ops_with_constants(
                 iterable,
                 body,
             } => {
-                collect_string_values_from_value(iterable, values, constants, types);
+                collect_string_values_from_value(iterable, values, constants, types, fields);
                 let mut body_constants = constants.clone();
                 let mut body_types = types.clone();
                 body_constants.remove(name);
@@ -940,6 +961,7 @@ fn collect_string_values_from_ops_with_constants(
                     values,
                     &mut body_constants,
                     &mut body_types,
+                    fields,
                 );
             }
             NirOp::Trap { body, .. } => {
@@ -950,6 +972,7 @@ fn collect_string_values_from_ops_with_constants(
                     values,
                     &mut trap_constants,
                     &mut trap_types,
+                    fields,
                 );
             }
         }
@@ -961,8 +984,9 @@ fn collect_string_values_from_value(
     values: &mut Vec<String>,
     constants: &HashMap<String, NirValue>,
     types: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) {
-    if let Some(value) = static_string_value_with_constants(value, constants, types) {
+    if let Some(value) = static_string_value_with_constants(value, constants, types, fields) {
         push_string_value(values, value);
     }
     if let NirValue::Call { target, args, .. }
@@ -970,7 +994,9 @@ fn collect_string_values_from_value(
     | NirValue::RuntimeCall { target, args, .. } = value
     {
         if target == "strings.graphemes" && args.len() == 1 {
-            if let Some(value) = static_string_value_with_constants(&args[0], constants, types) {
+            if let Some(value) =
+                static_string_value_with_constants(&args[0], constants, types, fields)
+            {
                 for grapheme in crate::unicode_backend::graphemes(&value) {
                     push_string_value(values, grapheme);
                 }
@@ -984,7 +1010,7 @@ fn collect_string_values_from_value(
             push_string_value(values, "/".to_string());
         }
     }
-    if value_may_return_invalid_format(value, constants, types) {
+    if value_may_return_invalid_format(value, constants, types, fields) {
         push_string_value(values, ERR_INVALID_FORMAT_MESSAGE.to_string());
     }
     match value {
@@ -996,7 +1022,7 @@ fn collect_string_values_from_value(
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => {
             for arg in args {
-                collect_string_values_from_value(arg, values, constants, types);
+                collect_string_values_from_value(arg, values, constants, types, fields);
             }
         }
         NirValue::UnionWrap { value, .. }
@@ -1004,40 +1030,40 @@ fn collect_string_values_from_value(
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
         | NirValue::ResultError { value } => {
-            collect_string_values_from_value(value, values, constants, types)
+            collect_string_values_from_value(value, values, constants, types, fields)
         }
         NirValue::WithUpdate {
             target, updates, ..
         } => {
-            collect_string_values_from_value(target, values, constants, types);
+            collect_string_values_from_value(target, values, constants, types, fields);
             for update in updates {
-                collect_string_values_from_value(&update.value, values, constants, types);
+                collect_string_values_from_value(&update.value, values, constants, types, fields);
             }
         }
         NirValue::ListLiteral { values: items, .. } => {
             for item in items {
-                collect_string_values_from_value(item, values, constants, types);
+                collect_string_values_from_value(item, values, constants, types, fields);
             }
         }
         NirValue::MapLiteral { entries, .. } => {
             for (key, value) in entries {
-                collect_string_values_from_value(key, values, constants, types);
-                collect_string_values_from_value(value, values, constants, types);
+                collect_string_values_from_value(key, values, constants, types, fields);
+                collect_string_values_from_value(value, values, constants, types, fields);
             }
         }
         NirValue::MemberAccess { target, .. } => {
-            collect_string_values_from_value(target, values, constants, types)
+            collect_string_values_from_value(target, values, constants, types, fields)
         }
         NirValue::Binary { left, right, .. } => {
-            collect_string_values_from_value(left, values, constants, types);
-            collect_string_values_from_value(right, values, constants, types);
+            collect_string_values_from_value(left, values, constants, types, fields);
+            collect_string_values_from_value(right, values, constants, types, fields);
         }
         NirValue::Unary { operand, .. } => {
-            collect_string_values_from_value(operand, values, constants, types)
+            collect_string_values_from_value(operand, values, constants, types, fields)
         }
         NirValue::Closure { captures, .. } => {
             for value in captures {
-                collect_string_values_from_value(value, values, constants, types);
+                collect_string_values_from_value(value, values, constants, types, fields);
             }
         }
         NirValue::Capture { .. }
@@ -1059,12 +1085,13 @@ pub(super) fn static_string_value_with_constants(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
     types: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> Option<String> {
     match value {
         NirValue::Const { type_, value } if type_ == "String" => Some(value.clone()),
-        NirValue::Local(name) => constants
-            .get(name)
-            .and_then(|constant| static_string_value_with_constants(constant, constants, types)),
+        NirValue::Local(name) => constants.get(name).and_then(|constant| {
+            static_string_value_with_constants(constant, constants, types, fields)
+        }),
         NirValue::Call { target, args, .. } if target == "toString" && args.len() == 1 => {
             static_primitive_text_with_constants(&args[0], constants)
         }
@@ -1076,18 +1103,18 @@ pub(super) fn static_string_value_with_constants(
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
-            static_type_name_with_types(&args[0], types)
+            static_type_name_with_types(&args[0], types, fields)
         }
         NirValue::Call { target, args, .. }
         | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. } => {
-            strings_package_static_string_value(target, args, constants, types)
+            strings_package_static_string_value(target, args, constants, types, fields)
         }
         NirValue::Binary {
             op, left, right, ..
         } if op == "&" => {
-            let left = static_string_value_with_constants(left, constants, types)?;
-            let right = static_string_value_with_constants(right, constants, types)?;
+            let left = static_string_value_with_constants(left, constants, types, fields)?;
+            let right = static_string_value_with_constants(right, constants, types, fields)?;
             Some(format!("{left}{right}"))
         }
         _ => None,
@@ -1097,6 +1124,7 @@ pub(super) fn static_string_value_with_constants(
 pub(super) fn static_type_name_with_types(
     value: &NirValue,
     types: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> Option<String> {
     match value {
         NirValue::Const { type_, .. } => Some(type_.clone()),
@@ -1146,9 +1174,9 @@ pub(super) fn static_type_name_with_types(
             _ => None,
         },
         NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
-        NirValue::ResultValue { value } => static_type_name_with_types(value, types)
+        NirValue::ResultValue { value } => static_type_name_with_types(value, types, fields)
             .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string))
-            .or_else(|| static_type_name_with_types(value, types)),
+            .or_else(|| static_type_name_with_types(value, types, fields)),
         NirValue::ResultError { .. } => Some("Error".to_string()),
         NirValue::Binary {
             op, left, right, ..
@@ -1162,23 +1190,32 @@ pub(super) fn static_type_name_with_types(
             if op == "&" {
                 return Some("String".to_string());
             }
-            let left = static_type_name_with_types(left, types)?;
-            let right = static_type_name_with_types(right, types)?;
+            let left = static_type_name_with_types(left, types, fields)?;
+            let right = static_type_name_with_types(right, types, fields)?;
             Some(numeric_binary_result_type(op, &left, &right).to_string())
         }
         NirValue::Unary { op, operand, .. } => {
             if op == "NOT" {
                 Some("Boolean".to_string())
             } else {
-                static_type_name_with_types(operand, types)
+                static_type_name_with_types(operand, types, fields)
             }
         }
         NirValue::MemberAccess { target, member } => {
-            let target_type = static_type_name_with_types(target, types)?;
+            let target_type = static_type_name_with_types(target, types, fields)?;
             if member == "result" {
                 if let Some(output_type) = builtins::thread::parent_thread_output(&target_type) {
                     return Some(format!("Result OF {output_type}"));
                 }
+            }
+            // Record and union-variant fields, then the two `MapEntry` members —
+            // the same sources `static_nir_value_type` consults. Without the
+            // field table this arm answered `None` for every record field, which
+            // silently under-reported in every predicate built on this seam:
+            // `typeName(rec.field)` failed to lower at all, and the
+            // ERR_INVALID_FORMAT gate missed a promoting Float operand (bug-366).
+            if let Some(field_type) = fields.get(&(target_type.clone(), member.clone())) {
+                return Some(field_type.clone());
             }
             let (key_type, value_type) = parse_map_entry_type(&target_type)?;
             match member.as_str() {

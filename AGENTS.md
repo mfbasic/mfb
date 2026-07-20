@@ -58,6 +58,29 @@ recorded as expected output, and the suite defended it. That is real, and it is 
 bug-309 was proven: reproduce the failure, fix the cause, show before/after. bug-288
 was merely asserted. Same sentence, opposite epistemic status.
 
+### The other half of this rule: once proven, you MUST fix it
+
+Everything above is a **burden of proof**, not a shield for bugs. It does not say
+"never touch a test." It says "do not touch a test until you have proven it wrong."
+**Once you have that proof, updating the test or golden is required, not merely
+permitted** — and so is fixing the underlying bug. A proven-wrong assertion left in
+place is the same failure as a silenced correct one: the suite now certifies
+something false.
+
+So when a test or golden blocks you, there are exactly two honest outcomes:
+
+1. You cannot prove it wrong → **the test wins, your change is suspect.** Stop.
+2. You can prove it wrong (reproduction + root cause + before/after) → **fix the
+   bug, then update the test/golden, and say so plainly in the commit** with the
+   evidence. Preserve every assertion the proof does not cover: correct the one
+   line you disproved, never re-baseline the whole file.
+
+Show the proof in the commit message: what the old assertion encoded, the concrete
+reproduction that shows it is wrong, and what is unchanged. bug-367 is the worked
+example — `LET a AS Fixed = -1.25` silently stored an f64 bit pattern and read back
+as `-1074528256.0`; one `.ir` golden had frozen that shape, the runtime `build.log`
+golden was untouched by the fix, and the diff was a single line.
+
 ---
 
 ## Always
@@ -82,7 +105,32 @@ was merely asserted. Same sentence, opposite epistemic status.
   file. A failing test is evidence your change is wrong; disprove it with git history,
   a tree-wide search for other consumers, and independent evidence before you touch
   it. Same rule for goldens: regenerating one while a bug is live enshrines the bug
-  and the suite then defends it (bug-309).
+  and the suite then defends it (bug-309). The converse is equally binding: once you
+  *have* disproved it, fixing the bug and correcting the assertion is mandatory —
+  see "The other half of this rule" in that section.
+- **Never leave a bug in place. Finding it makes it yours.** A bug you discovered,
+  reproduced, and root-caused gets **fixed in this change** — not filed for later,
+  not worked around, not dodged by writing the test so it avoids the broken path.
+  Silent wrong answers (a corrupted value, a mis-typed literal, a dropped error)
+  outrank every other consideration in this file, including scope.
+  None of the following is a reason to leave one in place:
+  - "It is out of scope / not what I was asked for." The user asked for working
+    software. Fix it, then say clearly what you fixed and why it was in the way.
+  - "It belongs to another bug/plan document." Documents track work; they do not
+    own the defect. Fix it and cross-reference.
+  - "It will churn goldens." Churn caused by a *correction* is the point — see the
+    STOP section. Justify each changed line; never re-baseline wholesale.
+  - "It is pre-existing, so not my regression." Irrelevant. Verify with a detached
+    worktree at HEAD (`git worktree add --detach`) so you can *state* it is
+    pre-existing, then fix it.
+  - "It is a silent wrong value, not a crash." That is worse, not better: nothing
+    downstream will ever tell the user.
+  The only legitimate stop is a genuine blocker — an irreversible action you are
+  unsure about, a real ambiguity that changes the outcome, or an external
+  dependency you cannot resolve. State it plainly and keep going on the rest.
+  If a fix is genuinely too large to land in this change, that is a *blocker to
+  report before you finish*, never a silent omission: say so on the first line of
+  your response, with the reproduction.
 - **Production-ready only.** Implement the complete behavior with real error
   handling and integration. No stubs, placeholders, mocks, default-result
   fallbacks, simulations, or "unsupported" stand-ins unless explicitly asked. If

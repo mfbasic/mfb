@@ -62,9 +62,9 @@ pub(super) fn static_nir_value_type(
                 }
             }
             // Record and union-variant fields, then the two `MapEntry` members —
-            // the same three sources `CodeBuilder::static_type_name` consults, so
-            // this walk types a member read exactly as the lowering that follows
-            // it will (bug-363).
+            // the same three sources `CodeBuilder::static_type_name` consults
+            // (it grew its record/union arm in bug-366), so this walk types a
+            // member read exactly as the lowering that follows it will (bug-363).
             if let Some(field_type) = fields.get(&(target_type.clone(), member.clone())) {
                 return Some(field_type.clone());
             }
@@ -123,6 +123,7 @@ pub(super) fn local_constant_value_with_constants(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
     types: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> Option<NirValue> {
     match value {
         NirValue::Const { .. } => Some(value.clone()),
@@ -144,7 +145,7 @@ pub(super) fn local_constant_value_with_constants(
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
-            static_type_name_with_types(&args[0], types).map(|value| NirValue::Const {
+            static_type_name_with_types(&args[0], types, fields).map(|value| NirValue::Const {
                 type_: "String".to_string(),
                 value,
             })
@@ -152,17 +153,18 @@ pub(super) fn local_constant_value_with_constants(
         NirValue::Call { target, args, .. }
         | NirValue::CallResult { target, args, .. }
         | NirValue::RuntimeCall { target, args, .. }
-            if strings_package_static_string_value(target, args, constants, types).is_some() =>
+            if strings_package_static_string_value(target, args, constants, types, fields)
+                .is_some() =>
         {
-            strings_package_static_string_value(target, args, constants, types).map(|value| {
-                NirValue::Const {
+            strings_package_static_string_value(target, args, constants, types, fields).map(
+                |value| NirValue::Const {
                     type_: "String".to_string(),
                     value,
-                }
-            })
+                },
+            )
         }
         NirValue::Binary { op, .. } if op == "&" => {
-            static_string_value_with_constants(value, constants, types).map(|value| {
+            static_string_value_with_constants(value, constants, types, fields).map(|value| {
                 NirValue::Const {
                     type_: "String".to_string(),
                     value,
@@ -178,10 +180,11 @@ pub(super) fn strings_package_static_string_value(
     args: &[NirValue],
     constants: &HashMap<String, NirValue>,
     types: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> Option<String> {
     let value = args
         .first()
-        .and_then(|arg| static_string_value_with_constants(arg, constants, types))?;
+        .and_then(|arg| static_string_value_with_constants(arg, constants, types, fields))?;
     match target {
         "strings.upper" if args.len() == 1 => Some(crate::unicode_backend::upper(&value)),
         "strings.lower" if args.len() == 1 => Some(crate::unicode_backend::lower(&value)),
@@ -193,22 +196,34 @@ pub(super) fn strings_package_static_string_value(
     }
 }
 
-pub(super) fn binary_may_promote_float_to_fixed(
+/// Whether this binary op consumes a `Float` operand into an exact result type
+/// (`Fixed` or `Money`), which makes the operand's finiteness observable and so
+/// requires the `ERR_INVALID_FORMAT` message object.
+///
+/// Both exact types are in scope, not just `Fixed`: the spec gives `Money * Float`
+/// and `Money / Float` the same non-finite-operand failure as the `Float`->`Fixed`
+/// promotions (`ErrInvalidFormat`, 77050003 — see `mfb spec language types` §4.1
+/// "Money"). Checking only for a `Fixed` result meant every `Money`-with-`Float`
+/// expression under-reported and its module aborted at lowering with
+/// "has no data object", even with plain locals for both operands (bug-366).
+pub(super) fn binary_may_consume_float_into_exact(
     op: &str,
     left: &NirValue,
     right: &NirValue,
     types: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> bool {
     if !matches!(op, "+" | "-" | "*" | "/" | "MOD" | "^") {
         return false;
     }
-    let Some(left_type) = static_type_name_with_types(left, types) else {
+    let Some(left_type) = static_type_name_with_types(left, types, fields) else {
         return false;
     };
-    let Some(right_type) = static_type_name_with_types(right, types) else {
+    let Some(right_type) = static_type_name_with_types(right, types, fields) else {
         return false;
     };
-    numeric_binary_result_type(op, &left_type, &right_type) == numeric::TYPE_FIXED
+    let result = numeric_binary_result_type(op, &left_type, &right_type);
+    (result == numeric::TYPE_FIXED || result == numeric::TYPE_MONEY)
         && (left_type == numeric::TYPE_FLOAT || right_type == numeric::TYPE_FLOAT)
 }
 
