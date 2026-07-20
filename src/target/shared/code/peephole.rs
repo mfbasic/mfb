@@ -214,6 +214,10 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
             .map(|(_, src)| src.clone())
     };
 
+    // Indexed on purpose: the body rewrites `instructions[index]` in place while
+    // `classify` is still borrowing that same element, so an `iter_mut` borrow
+    // cannot span both halves.
+    #[allow(clippy::needless_range_loop)]
     for index in 0..instructions.len() {
         match classify(&instructions[index], is_x86) {
             Effect::StoreSp { src, offset } => {

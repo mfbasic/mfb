@@ -417,14 +417,10 @@ fn build_cfg(instructions: &[CodeInstruction]) -> Vec<Block> {
     let starts: Vec<usize> = (0..n).filter(|&i| is_leader[i]).collect();
     let mut block_of = vec![0usize; n];
     for (block_index, window) in starts.windows(2).enumerate() {
-        for i in window[0]..window[1] {
-            block_of[i] = block_index;
-        }
+        block_of[window[0]..window[1]].fill(block_index);
     }
     if let Some(&last_start) = starts.last() {
-        for i in last_start..n {
-            block_of[i] = starts.len() - 1;
-        }
+        block_of[last_start..n].fill(starts.len() - 1);
     }
     let mut label_block = HashMap::new();
     for (i, instruction) in instructions.iter().enumerate() {
@@ -549,12 +545,12 @@ pub(super) fn integer_live_out(
     }
 
     let mut live_out: Vec<PhysMask> = vec![0; n];
-    for b in 0..nb {
+    for block in &blocks {
         let mut live = 0u64;
-        for &s in &blocks[b].succ {
+        for &s in &block.succ {
             live |= phys_in[s];
         }
-        for i in (blocks[b].start..blocks[b].end).rev() {
+        for i in (block.start..block.end).rev() {
             live_out[i] = live;
             live = (live & !phys_def[i]) | phys_use[i];
         }
@@ -634,12 +630,12 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
         }
     }
     let mut phys_busy_at: Vec<PhysMask> = vec![0; n];
-    for b in 0..nb {
+    for block in &blocks {
         let mut live = 0u64;
-        for &s in &blocks[b].succ {
+        for &s in &block.succ {
             live |= phys_in[s];
         }
-        for i in (blocks[b].start..blocks[b].end).rev() {
+        for i in (block.start..block.end).rev() {
             let live_in_i = (live & !phys_def[i]) | phys_use[i];
             phys_busy_at[i] = live_in_i | phys_def[i];
             live = live_in_i;
@@ -674,14 +670,14 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
     }
     // Expand to virtual-register intervals: busy(i) = live-in(i) ∪ def(i).
     let mut vreg_interval: HashMap<u32, (usize, usize)> = HashMap::new();
-    for b in 0..nb {
+    for block in &blocks {
         let mut live: std::collections::HashSet<u32> = std::collections::HashSet::new();
-        for &s in &blocks[b].succ {
+        for &s in &block.succ {
             for &id in &vin[s] {
                 live.insert(id);
             }
         }
-        for i in (blocks[b].start..blocks[b].end).rev() {
+        for i in (block.start..block.end).rev() {
             for &d in &vdef[i] {
                 live.remove(&d);
             }

@@ -12,8 +12,8 @@
 //! encodings are
 //!
 //!   * private key = `0x04 ‖ X ‖ Y ‖ K`  (SEC1 uncompressed point followed by the
-//!                    big-endian scalar) — self-contained so every backend can
-//!                    reconstruct the key without deriving the public point;
+//!     big-endian scalar) — self-contained so every backend can reconstruct the
+//!     key without deriving the public point;
 //!   * public key  = `0x04 ‖ X ‖ Y`      (SEC1 uncompressed point);
 //!   * signature   = ASN.1 DER `Ecdsa-Sig-Value` (X9.62).
 //!

@@ -2615,7 +2615,7 @@ mod cross_package_tests {
             pin: false,
             flags: 0,
         }];
-        let lowered = lower_package_project(&consumer, &metadata, &[dep_path.clone()])
+        let lowered = lower_package_project(&consumer, &metadata, std::slice::from_ref(&dep_path))
             .expect("lower package");
         // The import table records the used symbol `helper`.
         let used = &lowered.imports.entries[0].used_symbols;
@@ -2646,8 +2646,9 @@ mod cross_package_tests {
         let dep_path = write_dep_mfp();
         let consumer = empty_project("app");
         let metadata = BinaryReprMetadata::new("app".to_string(), "1.0.0".to_string());
-        let bytes = build_package_binary_repr_bytes(&consumer, &metadata, &[dep_path.clone()])
-            .expect("build");
+        let bytes =
+            build_package_binary_repr_bytes(&consumer, &metadata, std::slice::from_ref(&dep_path))
+                .expect("build");
         assert!(read_binary_repr_package(&bytes).is_ok());
         let _ = std::fs::remove_file(&dep_path);
     }
@@ -2722,7 +2723,8 @@ mod package_info_and_validation_tests {
         let dep = dep_mfp();
         let (consumer, metadata) = consumer_with_import_and_docs();
         let inner =
-            build_package_binary_repr_bytes(&consumer, &metadata, &[dep.clone()]).expect("build");
+            build_package_binary_repr_bytes(&consumer, &metadata, std::slice::from_ref(&dep))
+                .expect("build");
         let path = temp_mfp(&wrap_mfp(&inner, "app", "app", "1.0.0"));
         (path, dep)
     }

@@ -2775,7 +2775,7 @@ mod tests {
             std::slice::from_ref(&library),
             root,
             OWN_UNIT,
-            &[out.clone()],
+            std::slice::from_ref(&out),
         )
         .expect("copy succeeds");
 
@@ -2808,7 +2808,7 @@ mod tests {
             std::slice::from_ref(&library),
             root,
             OWN_UNIT,
-            &[out.clone()],
+            std::slice::from_ref(&out),
         )
         .expect("copy succeeds");
         assert_eq!(
@@ -2833,8 +2833,13 @@ mod tests {
         assert_ne!(a.dlopen_name, b.dlopen_name);
 
         let out = root.join("out");
-        copy_vendor_libraries(&[a.clone(), b.clone()], root, OWN_UNIT, &[out.clone()])
-            .expect("copy");
+        copy_vendor_libraries(
+            &[a.clone(), b.clone()],
+            root,
+            OWN_UNIT,
+            std::slice::from_ref(&out),
+        )
+        .expect("copy");
         assert!(out.join("sqlite3-libfoo.so").is_file());
         assert!(out.join("imaging-libfoo.so").is_file());
         assert_eq!(std::fs::read_dir(&out).unwrap().count(), 2);
@@ -2877,7 +2882,8 @@ mod tests {
     fn no_vendor_locators_writes_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("out");
-        copy_vendor_libraries(&[], dir.path(), OWN_UNIT, &[out.clone()]).expect("no-op");
+        copy_vendor_libraries(&[], dir.path(), OWN_UNIT, std::slice::from_ref(&out))
+            .expect("no-op");
         assert!(
             !out.exists(),
             "an empty vendor set must not create the directory"

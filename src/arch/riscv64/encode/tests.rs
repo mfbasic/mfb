@@ -893,8 +893,8 @@ fn scalar_fp_ops_encode_as_op_fp() {
         ci("scvtf_d_from_x", &[("dst", "fa0"), ("src", "a1")]),
         ci("ret", &[]),
     ]));
-    for i in 0..3 {
-        assert_eq!(w[i] & 0x7f, 0x53, "fp move/convert {i} is OP-FP");
+    for (i, word) in w.iter().take(3).enumerate() {
+        assert_eq!(word & 0x7f, 0x53, "fp move/convert {i} is OP-FP");
     }
     for op in [
         "fcvtzs_x_from_d",

@@ -91,8 +91,9 @@ impl CodeBuilder<'_> {
     /// (the O(n²) `flatten`/`append_batch` path). It is the list-RHS sibling of
     /// [`Self::try_inplace_append_assign`]: that helper commits only for a single
     /// element of the list's *element* type, so a `List OF T` RHS falls through to
-    /// here. Soundness is identical to the single-element append (value semantics
-    /// + copy insertion give the buffer no live alias; the grow writes only beyond
+    /// here. Soundness is identical to the single-element append (value
+    /// semantics plus copy insertion give the buffer no live alias; the grow
+    /// writes only beyond
     /// the live count). The `append(name, name)` self-alias — where the grow would
     /// free the RHS out from under the copy — is excluded and takes the value
     /// path. Returns `true` when handled.

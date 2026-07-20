@@ -685,10 +685,10 @@ pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 40;
 /// offset, `READ_FILL` the valid bytes in the block, and `READ_AT_EOF` a flag set
 /// once the underlying `read()` returns 0. The fd position runs *ahead* of the
 /// logical read position by `READ_FILL - READ_POS` unconsumed bytes; whole-file
-/// reads (`fs::readAll`/`readAllBytes`) and `fs::writeAll` reconcile that (seek back
-/// + invalidate) before touching the fd. Zeroed at every File alloc and in the
-/// thread-transfer copy, so a fresh/moved handle starts with an empty cache at the
-/// fd's current position.
+/// reads (`fs::readAll`/`readAllBytes`) and `fs::writeAll` reconcile that
+/// (seek back + invalidate) before touching the fd. Zeroed at every File alloc
+/// and in the thread-transfer copy, so a fresh/moved handle starts with an empty
+/// cache at the fd's current position.
 pub(crate) const FILE_OFFSET_READ_PTR: usize = 48;
 pub(crate) const FILE_OFFSET_READ_POS: usize = 56;
 pub(crate) const FILE_OFFSET_READ_FILL: usize = 64;

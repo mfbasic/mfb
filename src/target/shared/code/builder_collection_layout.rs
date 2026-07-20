@@ -459,6 +459,7 @@ impl CodeBuilder<'_> {
     ///   - `Error`/`ErrorLoc`: the fallible-call ABI, trap materialization, `FAIL`.
     ///   - `Address`/`Datagram`/`DatagramText`: the `net::` socket helpers
     ///     (`emit_address_from_sockaddr`, etc.).
+    ///
     /// Every other record inlines its `String` fields.
     pub(super) fn is_pointer_string_record(&self, type_: &str) -> bool {
         matches!(
