@@ -2,7 +2,13 @@
 
 Last updated: 2026-07-19
 Effort: large (3h–1d)  — the top of the sub-plan band; the four phases below are individually medium and land separately.
-Depends on: plan-47-C
+Depends on: **per phase — the single header dependency was wrong.**
+  - F1 (collapse 3 emission routes onto one `sync_symbol`): **nothing**
+  - F2 (rename-compatible Win32 arms + init-check gating): **nothing**
+  - F3 (spawn / release / timed wait): **plan-47-A** — the shadow space + outgoing
+    stack-arg tail. This document already said so at §Phase 3 and §Open Decisions;
+    the header contradicted its own body.
+  - F4 (advertise `thread.*`, kernel32 imports, fixtures): **plan-47-C**
 
 Make the `thread::` surface work on `windows-x86_64` by adding a **platform switch**
 to the shared thread trampoline and sync helpers, so that every place that today
@@ -18,9 +24,18 @@ linux-x86_64 build of the same programs — including the resource-plane and
 `thread-transfer-state-rt`, `thread-send-file-ownership-rt`) — while every existing
 target's emitted bytes stay unchanged.
 
-This sub-plan is different in kind from 47-D/E/G: those add *new* methods to the
-Windows `CodegenPlatform`. **This one edits shared lowering code that every backend
-compiles through** — `src/target/shared/code/runtime_helpers.rs`,
+**Correction (2026-07-20): this sub-plan is NOT different in kind from 47-E/G.**
+The original text claimed those "add *new* methods to the Windows `CodegenPlatform`"
+while only F edits shared lowering. Measured, that is false: there is no `emit_socket`
+or `emit_connect` on the trait at all — G rewrites **32** hardcoded POSIX symbol
+literals across `shared/code/net/{mod,io,poll}.rs`, and E rewrites **6** across
+`io_helpers.rs` and `term.rs`. G is the same work as this sub-plan at 38% the scale;
+only 47-B touches no shared code. The technique below (collapse to one chokepoint,
+prove zero-byte diff, then add the Windows arm) is **the reusable pattern for the whole
+feature**, not an F-specific device — clone it as G1 and E1.
+
+What remains true is the consequence: **this edits shared lowering code that every
+backend compiles through** — `src/target/shared/code/runtime_helpers.rs`,
 `runtime_helpers_thread.rs`, `stdin_broadcast.rs`, and `os.rs`. A mistake here is
 not a Windows bug, it is a *linux-aarch64* bug. The byte-identical guard
 (`scripts/artifact-gate.sh`) is therefore load-bearing on every commit of this
@@ -118,8 +133,8 @@ Shared lowering emits pthread symbols from four files:
 | file | `"pthread_*"` literals |
 | --- | --- |
 | `src/target/shared/code/runtime_helpers_thread.rs` | 41 |
-| `src/target/shared/code/stdin_broadcast.rs` | 27 |
-| `src/target/shared/code/runtime_helpers.rs` | 17 |
+| `src/target/shared/code/stdin_broadcast.rs` | 27 literals across **32** `emit_libc` call sites |
+| `src/target/shared/code/runtime_helpers.rs` | **21** (draft said 17) |
 | `src/target/shared/code/os.rs` | 2 |
 
 They reach the encoder through **three** routes, not one:

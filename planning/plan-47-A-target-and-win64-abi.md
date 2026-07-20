@@ -2,8 +2,9 @@
 
 Last updated: 2026-07-19
 Overall Effort: huge (>3d)
-Effort: large (3h–1d)
-Depends on: nothing
+Effort: large (3h–1d) — **over the sub-plan band; split into A1 (ABI realization) / A2 (the 54-method stub wall) / A3 (registration + manifest widening) before starting.**
+Depends on: plan-47-P (the exhaustive platform-family match — registration without it gives Windows 20 silent POSIX arms; see the master §3.2)
+Supersedes the old `Depends on: nothing` — see the line above.
 
 This sub-plan lands the **codegen half** of the Windows target: a registered
 `windows-x86_64` `BuildTarget`, a `src/target/win_x86_64/` backend skeleton, and a
@@ -581,13 +582,17 @@ Commit: —
   failing with an explanatory error, never emit a wrong call.
 - **Regression guard — the load-bearing one.** `scripts/artifact-gate.sh
   target/release/mfb` (execution-free, ~5 min, `.ai/compiler.md`'s fast codegen
-  gate) after **every** phase, expecting `0 diff(s)`. Note its real coverage
-  honestly: it diffs goldens for the **host** target only
-  (`scripts/artifact-gate.sh:9`–`:10` derive one `TGT`). Non-host byte-identity
-  is therefore proven separately, by building a representative fixture with
-  `-target linux-x86_64`, `-target linux-aarch64` and `-target linux-riscv64`
-  `-ncode -nobj` before and after the change and `cmp`-ing the dumps. Do this at
-  minimum after Phase 1 (the only phase touching shared frame code) and Phase 5.
+  gate) after **every** phase, expecting `0 diff(s)`.
+
+  **Corrected 2026-07-20.** The 2026-07-19 draft said the gate "diffs goldens for the
+  **host** target only (`:9`–`:10` derive one `TGT`)" and prescribed a manual per-target
+  `-ncode -nobj` `cmp` workaround. That is **false**: `scripts/artifact-gate.sh:7`–`:12`
+  states in its own header that it is MULTI-TARGET — a `$pkg.linux-aarch64.ncode` golden
+  is regenerated with `-target linux-aarch64` even from a macOS host (`ff163ddeb`,
+  2026-07-20). The workaround is redundant work built on a false premise; delete it and
+  rely on the gate. What the gate genuinely does **not** cover is `linux-riscv64`, which
+  has **zero** native goldens (master §Prerequisites row 3) — seed them before any phase
+  that edits shared frame code.
 - **Runtime proof.** None is possible in 47-A and none is claimed — there is no
   executable until 47-B/47-C. Per `.ai/compiler.md`, compiler plumbing and golden
   output are not proof of runtime support; the Windows runtime claim is made in
