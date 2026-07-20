@@ -366,6 +366,28 @@ golden, verified to catch a semantically-identical `mul` operand swap in
 `emit_element_value_offset` that the rest of the gate missed entirely. Do not
 proceed with any further conversion without checking that anchor.
 
+### Track 2 (construction): 13 sites, not ~30; 3 folded
+
+Measured rather than estimated: **13** open-coded constructors (a `KIND` write
+followed by an entry-fill loop writing `COLLECTION_ENTRY_FLAG_USED`) across 10
+files. §2's "~30" was high, the same way plan-57-A's "38 indexed read sites" was.
+
+Three are now one: `emit_alloc_byte_list` was verbatim in `audio/alsa.rs` and
+`audio/macos.rs` (moved to `audio/mod.rs`), and `crypto::randomBytes`'s
+open-coded constructor was a verbatim copy of
+`crypto_ec::emit_build_byte_list`'s body — first 36 emitted instructions
+identical — and now calls it.
+
+Both consolidations changed **label names only** in the `-ncode` dump, which the
+gate cannot see for these files anyway. Both were verified the right way: build a
+probe and compare the **executable's sha256** before and after. Bit-identical in
+all three cases (macos audio, linux-aarch64 audio glibc+musl, crypto). That is
+the verification pattern for the remaining 10.
+
+A general `emit_alloc_list` — parameterized on `element_type` rather than
+hardcoding `payloadSize = 1` — is **still to be built**, and is what plan-57-D
+needs (it is one of D's six edit sites, currently missing).
+
 ### Track 1 (iteration): `element_type` threaded; `lower_for_each` cannot convert
 
 - `initialize_collection_loop_slots` and `advance_collection_loop` now take
