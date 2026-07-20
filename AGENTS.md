@@ -83,6 +83,41 @@ golden was untouched by the fix, and the diff was a single line.
 
 ---
 
+## 🛑🛑🛑 STOP — A CLAIM IS MEASURED OR IT IS A GUESS 🛑🛑🛑
+
+> ### **<ins>IF YOU STATE A NUMBER, A COUNT, A STATUS, OR "X DOES Y" —</ins>**
+> ### **<ins>STATE THE COMMAND THAT PRODUCED IT, IN THE SAME SENTENCE.</ins>**
+
+**If you cannot, say "guess" out loud.** Not "roughly", not "~", not a confident
+sentence with no command behind it. A reader cannot tell your measurements from
+your inferences unless you mark them, and **you are wrong far more often on the
+unmarked ones.**
+
+These are guesses that read like findings. All of them have shipped here:
+
+- *"~30 construction sites"* — it was 13. Repeated seven times until it was fact.
+- *"38 indexed read sites"* — it was 2.
+- *"this is covered by tests"* — a green gate means *nothing covered changed*,
+  not *nothing changed*. Check the denominator.
+- *"it will get worse" / "that's the failure mode of X"* — extrapolation from one
+  data point, stated like a diagnosis.
+- *"re-verified on <date>"* — 8 of 10 line numbers were wrong 11 days later. At
+  ~50 commits/day a line number has a half-life of about a week. **Cite the
+  symbol and the command that finds it, never the line alone.**
+
+**Your first answer is the unreliable one.** The recurring failure here is not
+ignorance, it is asserting before checking and being right on the second pass.
+When two sources disagree — two reviewers, a memory and the tree, a plan and the
+code — do not pick. Run the command.
+
+**Before calling any citation dangling**, check every place it can resolve: a
+`bug-N` cite lives in `bugs/` (open), `bugs/completed-bugs/`, **or**
+`bugs/skipped/`; a `plan-N` cite lives in `planning/` or `planning/old-plans/`.
+A fixed bug need not have a document at all. Concluding "wrong" from one
+directory is the same error as concluding "~30" from a glance.
+
+---
+
 ## Always
 
 - **Done means verified.** Asked if work is done/complete/verified: answer **yes**
@@ -167,11 +202,6 @@ golden was untouched by the fix, and the diff was a single line.
   `pgrep -f "a|b"`, never `"a\|b"`, which never matches). On resume, treat any
   no-completion-record job as dead: re-derive state and continue, don't wait.
 
-- **Where a citation resolves.** A `bug-N` cite in source or docs resolves in
-  **one of three** directories — `bugs/` (open), `bugs/completed-bugs/`, or
-  `bugs/skipped/`. A `plan-N` cite resolves in `planning/` (live) or
-  `planning/old-plans/` (finished). Check all of them before calling a citation
-  dangling.
 
 ## Read before that kind of work
 
