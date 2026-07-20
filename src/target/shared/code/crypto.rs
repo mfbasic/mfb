@@ -41,8 +41,6 @@ pub(super) fn lower_crypto_random_bytes_helper(
     let fill_loop = format!("{symbol}_fill_loop");
     let fill_done = format!("{symbol}_fill_done");
     let chunk_ok = format!("{symbol}_chunk_ok");
-    let entry_loop = format!("{symbol}_entry_loop");
-    let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![abi::label("entry")];
@@ -113,56 +111,21 @@ pub(super) fn lower_crypto_random_bytes_helper(
         abi::label(&fill_done),
     ]);
 
-    // Build the List OF Byte with `count` elements, copying from the buffer.
-    instructions.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
-        abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v12", "%v10", "%v11"),
-        abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
-        abi::add_registers(abi::return_register(), "%v12", "%v10"),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
-    ]);
-    emit_arena_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-    instructions.extend([
-        abi::store_u64(abi::RET[1], abi::stack_pointer(), COLLECTION_OFFSET),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
-        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KIND),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_KEY_TYPE),
-        abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate("%v9", "Byte", "1"),
-        abi::store_u8("%v9", abi::RET[1], COLLECTION_OFFSET_FLAGS_VERSION),
-        abi::load_u64("%v10", abi::stack_pointer(), COUNT_OFFSET),
-        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_COUNT),
-        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_CAPACITY),
-        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("%v10", abi::RET[1], COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_immediate("%v11", abi::RET[1], COLLECTION_HEADER_SIZE),
-        abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v13", "%v10", "%v12"),
-        abi::add_registers("%v14", "%v11", "%v13"),
-        abi::load_u64("%v15", abi::stack_pointer(), BUF_OFFSET),
-        abi::move_immediate("%v9", "Integer", "0"),
-        abi::label(&entry_loop),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_eq(&entry_done),
-        abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate("%v12", "Integer", "1"),
-        abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        abi::add_registers("%v12", "%v14", "%v9"),
-        abi::load_u8("%v13", "%v15", 0),
-        abi::store_u8("%v13", "%v12", 0),
-        abi::add_immediate("%v15", "%v15", 1),
-        abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::branch(&entry_loop),
-        abi::label(&entry_done),
-    ]);
+    // Build the `List OF Byte` with `count` elements, copying from the entropy
+    // buffer. Shared with the EC helpers (plan-57-B): this routine allocates the
+    // block, writes the header, and fills the lookup table with the identity
+    // mapping while copying each byte — one of the places that must stop writing
+    // a lookup table when plan-57-D lands.
+    crypto_ec::emit_build_byte_list(
+        symbol,
+        "rand",
+        BUF_OFFSET,
+        COUNT_OFFSET,
+        COLLECTION_OFFSET,
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
+    );
 
     // Wipe the entropy scratch buffer now that its bytes have been copied into the
     // returned List OF Byte, so a later same-program arena allocation cannot be
