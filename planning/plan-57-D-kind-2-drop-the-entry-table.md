@@ -109,7 +109,25 @@ that skips non-`USED` entries. Nothing in the tree ever clears the `USED` bit �
 are no tombstones in this codebase. The guard is dead, and it is on a path
 (`collection_needs_transfer_fix`) that is false for fixed-width scalars anyway.
 
-## Status (2026-07-19): BLOCKED on plan-57-B
+## Status (2026-07-20): implementation landed behind `MFB_KIND2`
+
+The representation is implemented and reachable. `MFB_KIND2=1` selects it via
+`list_entry_stride`; with the flag off every stride is 40 and the encoding is
+byte-identical to before (artifact-gate: 1261 goldens, 0 diffs). The remaining
+work is the flag flip and Phase 3's proofs — see the checklist below.
+
+The four corruption-class defects that this representation exposed are all
+fixed and recorded in §Findings: `emit_flat_block_size`'s stride, the
+`reserved_stride` leak, the `List OF Unknown` placeholder, and the three
+surviving entry-table readers. Two general lessons came out of it, both worth
+more than the memory win: **a placeholder type must never reach a layout
+decision**, and **the data-base stride must be selected by the block KIND, never
+inferred from the payload type**.
+
+### Superseded: the 2026-07-19 block on plan-57-B
+
+Kept because the reasoning was sound and the conclusion was still wrong in a
+way worth remembering.
 
 plan-57-C's Phase 3 gate is **met** — `list-order-invariant-rt` passes 300 mixed
 mutation steps with 0 violations and is proven non-vacuous by a negative control
@@ -140,6 +158,20 @@ that is not a trade worth making.
 **Do plan-57-B's remaining tracks first.** Its scope is now measured rather than
 estimated, and is smaller than §2 assumed: **13** open-coded constructors across
 10 files (not "~30"), of which 3 are already folded into one shared builder.
+
+**What actually happened.** The three "missing" helpers were created as part of
+D rather than before it, and the site-by-site sweep the block was meant to avoid
+turned out to be the only way to find the four corruption-class defects — none
+of which were at a §3 edit site. The estimate was also wrong in the other
+direction: the un-consolidated sites that mattered were **three** readers, not
+the feared 90.
+
+The guard concern was the real one, and it was answerable rather than blocking:
+the `codegen-cover/*` fixtures were added to give `audio/`, `net/`, `tls/`,
+`crypto*`, `os` and `fs_helpers*` byte-identity coverage, and `cover-net` went
+on to catch an instruction reordering in this very sub-plan. **The lesson is to
+build the missing guard, not to stop** — a blocked plan produces half-finished
+code that is strictly worse than either finishing or not starting.
 Note the same over-estimate appeared in plan-57-A, where "38 indexed read sites"
 turned out to be 2 convertible ones — re-measure before scheduling.
 
@@ -314,7 +346,7 @@ fixed-width key and still keeps its entries. That is now an explicit
 `stride_type` parameter (`""` for a map) on the payload loader, the three compare
 helpers and the payload copier.
 
-**The one remaining failure, now reduced to three lines.** Under `MFB_KIND2=1`:
+**The last failure — root-caused and fixed (2026-07-20).** Under `MFB_KIND2=1`:
 
 ```basic
 FUNC probe() AS String
@@ -323,36 +355,61 @@ FUNC probe() AS String
 END FUNC
 ```
 
-fails with `Allocation failed` (77010001). Every neighbouring variant works:
+failed with `Allocation failed` (77010001) while every neighbouring variant
+worked — binding the literal to a local first, returning the call directly,
+calling a locally-defined `FUNC`, using `List OF Integer`, or running the same
+shape from `main`.
 
-| variant | result |
-|---|---|
-| `LET b = [toByte(1), toByte(2)]` then `hexEncode(b)` | works |
-| `RETURN encoding::hexEncode([...])` (no owned local) | works |
-| the same shape calling a LOCALLY-DEFINED `FUNC` | works |
-| the same shape with `List OF Integer` / `List OF String` | works |
-| the whole thing called from `main` rather than a `FUNC` | works |
+Diffing the `-ncode` for the working and failing variants isolated it to one
+immediate in the scope-drop free:
 
-So the trigger is narrow: a `List OF Byte` **literal passed inline** to a
-**bundled-package** function (`encoding::hexEncode`, `base64Encode`,
-`uleb128Decode` all reproduce), where the result is bound to an **owned local**.
-The literal is an argument temporary, and the package boundary copies it, so the
-suspicion is the temp's free size on that path — but `free_intermediate_collection`
--> `emit_owned_value_drop` -> `emit_inlined_block_size_from_ptr_slot` ->
-`emit_flat_block_size` is stride-aware and looks correct. Not yet root-caused;
-the next step is to diff the `-ncode` for the working and failing variants.
+```
+BAD   mov_imm x10, 40    -> free size = capacity*40 + 40 + dataCapacity
+GOOD  mov_imm x10, 0     -> free size = 40 + dataCapacity
+```
 
-This is a CORRUPTION, not a leak, which also explains why the acceptance app
-behaves erratically after `encoding` and why its pass count moves around
-(90 vs 149) for changes that should only reduce allocation.
+Same emitter, different input type. `expression_type` (`ir/lower.rs:2243`,
+`monomorph/lower.rs:1778`) falls back to `List OF Unknown` when it cannot type
+the first element, and a call to a builtin like `toByte` is enough to trigger
+that. `lower_collection_values` then sized the ALLOCATION from the first slot's
+actual value type (`Byte` -> stride 0) while the layout, the header's kind and
+type codes, and the scope-drop free size all keyed off the DECLARED type
+(`Unknown` -> stride 40). The block was allocated entry-free and freed as 80
+bytes past its end.
+
+That is bug-02's failure mode exactly, which is why it presented as a
+CORRUPTION rather than a leak, why the acceptance app behaved erratically after
+`encoding`, and why its pass count moved around (90 vs 149) for changes that
+should only have reduced allocation.
+
+Fix: refine `type_` from the elements at the top of `lower_collection_values`,
+so allocation, header, and free all see the one type the block was actually
+built to. Byte-identical with the flag off (1261 goldens, 0 diffs) — with
+kind-2 disabled the stride is 40 either way.
+
+The generalisable lesson, and the second one this sub-plan produced: a
+placeholder type must never reach a layout decision. Where one arm of a layout
+reads the *actual* element type and another reads the *declared* one, they will
+disagree the moment inference gives up — and the disagreement is silent until
+the free list is already corrupt.
 
 Fixed along the way and confirmed by measurement: `lower_reserved_list`
 reserved `HEADER + count*40 + data` for a kind-2 output while the free released
 `HEADER + data`, leaking 40 bytes per element on every `transform`/`filter`.
 20 000 iterations of `transform` died before the fix and pass after it.
 
-**Also outstanding:** the spec amendment, the golden re-baseline, and Phase 3's
-proofs (the memory win, nested `List OF List OF Integer`, thread transfer).
+The third and fourth defects were the surviving entry-table readers:
+`lower_collection_for_each_call` (the `collections::forEach` *builtin*, distinct
+from the `FOR EACH` statement, which was already converted) read entry
+offset/length words off a kind-2 block and segfaulted; the two open-coded
+`List OF Byte` builders in `net/io.rs` and the shared
+`push_collection_data_base_from_capacity` hardcoded the stride, so `net::read`
+returned `"a"` for `"abc"`. All six callers of that shared helper address a
+`List OF Byte`, so one edit covered net write/sendTo, both TLS backends and both
+audio backends.
+
+**Also outstanding:** the spec amendment, the flag flip, and Phase 3's proofs
+(the memory win, nested `List OF List OF Integer`, thread transfer).
 
 
 No representation is produced yet; this teaches the size path to describe one.

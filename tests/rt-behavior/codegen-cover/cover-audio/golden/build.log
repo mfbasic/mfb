@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/rt-behavior/codegen-cover/cover-audio
+Wrote AST to tests/rt-behavior/codegen-cover/cover-audio/audio_codegen_cover_rt.ast
+Wrote IR to tests/rt-behavior/codegen-cover/cover-audio/audio_codegen_cover_rt.ir
+[exit 0]

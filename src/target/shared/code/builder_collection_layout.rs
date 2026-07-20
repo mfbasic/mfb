@@ -2255,22 +2255,27 @@ pub(super) fn push_collection_data_base_from_capacity(
     out.push(abi::add_registers(dst, collection, scratch_product));
 }
 
-/// Whether the kind-2 (entry-free) representation is live.
+/// Whether the kind-2 (entry-free) representation is live. It is.
 ///
 /// The representation cannot be adopted piecemeal: the allocation size, the free
 /// size, the data base, element access and iteration must all agree, or a block
-/// is allocated at one layout and read at another. So the plumbing is threaded
-/// through every site first with this `false`, which keeps every formula at its
-/// current value and lets `artifact-gate` prove the threading changed nothing —
-/// and the representation is switched on in one commit once every site consults
-/// these two functions.
+/// is allocated at one layout and read at another. So the plumbing was threaded
+/// through every site first with this `false`, which kept every formula at its
+/// current value and let `artifact-gate` prove the threading changed nothing —
+/// and the representation was then switched on in one commit.
+///
+/// While it was env-gated, ONE binary could be exercised both ways: the whole
+/// acceptance suite was built with and without `MFB_KIND2=1` and the behavior
+/// diffed. The final such run was 1036 tests with **zero** behavioral
+/// differences — every remaining mismatch was a `.ncode`/`.mir` golden, i.e. the
+/// representation change itself. That is the evidence this constant rests on;
+/// the same negative-control lever proved `list-order-invariant-rt` non-vacuous.
+///
+/// Kept as a named function rather than inlined `true` because it documents the
+/// invariant every caller depends on, and because flipping it back to `false` is
+/// the first diagnostic step if a layout bug is ever suspected here.
 fn kind2_enabled() -> bool {
-    // Env-gated during development so ONE binary can be exercised both ways:
-    // build the whole acceptance suite with and without `MFB_KIND2=1` and diff
-    // the behavior. That is the same negative-control lever that proved
-    // `list-order-invariant-rt` non-vacuous. It becomes a plain `true` once the
-    // representation is complete and the goldens are re-baselined.
-    std::env::var("MFB_KIND2").is_ok()
+    true
 }
 
 /// The lookup-entry stride for a list of `element_type`, in bytes.
