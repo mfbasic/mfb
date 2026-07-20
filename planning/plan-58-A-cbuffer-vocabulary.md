@@ -118,7 +118,7 @@ it.)
 Execution is topological over this graph, not alphabetical. Every letter is
 gated behind the plan-57 precondition above; past that, A is first.
 
-Letters are identifiers, not an order. Do not re-letter.
+Letters are in dependency order: A lands first. Do not re-letter once anything has landed.
 
 ## 1. Goal
 

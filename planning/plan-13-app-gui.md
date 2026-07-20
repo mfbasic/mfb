@@ -266,7 +266,7 @@ than being a phase inside a larger one.
 
 ## Feature map
 
-**Letters are identifiers, not an order.** Execution is topological over the graph below.
+**Letters are in dependency order: A lands first.** Execution is topological over the graph below.
 Every unit is additionally gated behind §Prerequisites.
 
 ```

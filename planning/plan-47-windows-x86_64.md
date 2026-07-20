@@ -293,7 +293,7 @@ question with no precedent in this tree, and it should be settled by a cheap spi
 
 ## Feature map (the whole `47`)
 
-**Letters are identifiers, not an order.** Execution is topological over the graph
+**Letters are in dependency order: A lands first.** Execution is topological over the graph
 below. Every letter is additionally gated behind §Prerequisites.
 
 ```
