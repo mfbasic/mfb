@@ -1,0 +1,147 @@
+' plan-57-C Phase 3: machine-check the ordering invariant, across a long mixed
+' sequence rather than a handful of hand-picked cases.
+'
+' The invariant (bug-365, and `05_collections.md` §Payload Order): for a
+' fixed-width element type, `entry[i].valueOffset == i * payloadSize` after EVERY
+' operation. plan-57-D deletes the lookup table for exactly these types **on the
+' strength of this check** — so it has to be checked, not argued.
+'
+' MFBASIC cannot read a lookup entry, so the invariant is checked through its one
+' observable consequence: a reader that walks the ENTRY TABLE and a reader that
+' walks the DATA REGION linearly must produce the same sequence. `FOR EACH` is
+' the first; the vectorized `math::` array overloads are the second. Where they
+' agree, the entries are the identity mapping; where they disagree, they are not.
+' That is precisely how bug-365 was found.
+'
+' The sequence below mixes prepend / insert / append / removeAt / value-set and
+' re-checks after every single step, so the invariant is asserted after
+' COMBINATIONS — which is where an off-by-one in the data shift hides. Lengths
+' run past 64 so the shift overlaps itself.
+IMPORT io
+IMPORT math
+IMPORT collections
+
+MUT failures AS Integer = 0
+
+' TRUE when the data-region reader agrees with the entry-table reader.
+FUNC agreeInt(xs AS List OF Integer) AS Boolean
+  MUT expected AS String = ""
+  FOR EACH v IN xs
+    expected = expected & toString(math::abs(v)) & ","
+  NEXT
+  MUT kernel AS String = ""
+  FOR EACH v IN math::abs(xs)
+    kernel = kernel & toString(v) & ","
+  NEXT
+  RETURN kernel = expected
+END FUNC
+
+FUNC agreeFloat(xs AS List OF Float) AS Boolean
+  MUT expected AS String = ""
+  FOR EACH v IN xs
+    expected = expected & toString(math::abs(v)) & ","
+  NEXT
+  MUT kernel AS String = ""
+  FOR EACH v IN math::abs(xs)
+    kernel = kernel & toString(v) & ","
+  NEXT
+  RETURN kernel = expected
+END FUNC
+
+FUNC agreeFixed(xs AS List OF Fixed) AS Boolean
+  MUT expected AS String = ""
+  FOR EACH v IN xs
+    expected = expected & toString(math::abs(v)) & ","
+  NEXT
+  MUT kernel AS String = ""
+  FOR EACH v IN math::abs(xs)
+    kernel = kernel & toString(v) & ","
+  NEXT
+  RETURN kernel = expected
+END FUNC
+
+' Taking the list as a parameter defeats the in-place `set` fast path, so this
+' reaches the value path — the third operation that used to permute.
+FUNC valueSet(xs AS List OF Integer, at AS Integer, v AS Integer) AS List OF Integer
+  RETURN collections::set(xs, at, v)
+END FUNC
+
+FUNC main() AS Integer
+  ' ---- Integer: 120 steps of mixed mutation, checked after every one ----
+  MUT xs AS List OF Integer = []
+  MUT bad AS Integer = 0
+  FOR i = 1 TO 120
+    LET op = i MOD 5
+    IF op = 0 THEN
+      xs = collections::append(xs, -i)
+    ELSE
+      IF op = 1 THEN
+        xs = collections::prepend(xs, -i)
+      ELSE
+        IF op = 2 THEN
+          xs = collections::insert(xs, len(xs) / 2, -i)
+        ELSE
+          IF op = 3 AND len(xs) > 2 THEN
+            xs = collections::removeAt(xs, 1)
+          ELSE
+            IF len(xs) > 1 THEN
+              xs = valueSet(xs, len(xs) / 2, -i)
+            END IF
+          END IF
+        END IF
+      END IF
+    END IF
+    IF NOT agreeInt(xs) THEN
+      bad = bad + 1
+    END IF
+  NEXT
+  io::print("Integer 120 mixed steps, len " & toString(len(xs)) & ": " & toString(bad) & " violation(s)")
+  failures = failures + bad
+
+  ' ---- Float ----
+  MUT fs AS List OF Float = []
+  bad = 0
+  FOR i = 1 TO 90
+    IF i MOD 3 = 0 THEN
+      fs = collections::append(fs, -toFloat(i))
+    ELSE
+      IF i MOD 3 = 1 THEN
+        fs = collections::prepend(fs, -toFloat(i))
+      ELSE
+        fs = collections::insert(fs, len(fs) / 2, -toFloat(i))
+      END IF
+    END IF
+    IF NOT agreeFloat(fs) THEN
+      bad = bad + 1
+    END IF
+  NEXT
+  io::print("Float   90 mixed steps, len " & toString(len(fs)) & ": " & toString(bad) & " violation(s)")
+  failures = failures + bad
+
+  ' ---- Fixed ----
+  MUT xf AS List OF Fixed = []
+  bad = 0
+  FOR i = 1 TO 90
+    IF i MOD 3 = 0 THEN
+      xf = collections::append(xf, -toFixed(i))
+    ELSE
+      IF i MOD 3 = 1 THEN
+        xf = collections::prepend(xf, -toFixed(i))
+      ELSE
+        xf = collections::insert(xf, len(xf) / 2, -toFixed(i))
+      END IF
+    END IF
+    IF NOT agreeFixed(xf) THEN
+      bad = bad + 1
+    END IF
+  NEXT
+  io::print("Fixed   90 mixed steps, len " & toString(len(xf)) & ": " & toString(bad) & " violation(s)")
+  failures = failures + bad
+
+  IF failures = 0 THEN
+    io::print("ordering invariant holds")
+  ELSE
+    io::print("ORDERING INVARIANT VIOLATED: " & toString(failures))
+  END IF
+  RETURN 0
+END FUNC

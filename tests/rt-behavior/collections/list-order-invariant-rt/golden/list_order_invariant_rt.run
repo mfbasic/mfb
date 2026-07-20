@@ -1,0 +1,4 @@
+Integer 120 mixed steps, len 49: 0 violation(s)
+Float   90 mixed steps, len 90: 0 violation(s)
+Fixed   90 mixed steps, len 90: 0 violation(s)
+ordering invariant holds
