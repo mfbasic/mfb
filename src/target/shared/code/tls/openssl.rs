@@ -2107,13 +2107,16 @@ pub(crate) fn lower_tls_write_helper(
             // COUNT-sized one: an append-built list carries spare capacity, so
             // COUNT*ENTRY would mis-address it (byte payload base is
             // HEADER + CAPACITY*ENTRY — builder_collection_layout.rs).
-            abi::load_u64("%v14", abi::ARG[1], COLLECTION_OFFSET_CAPACITY),
-            abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("%v13", "%v14", "%v12"),
-            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v11", abi::ARG[1], "%v13"),
-            abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
         ]);
+        push_collection_data_base_from_capacity(
+            &mut instructions,
+            "%v11",
+            abi::ARG[1],
+            "%v14",
+            "%v12",
+            "%v13",
+        );
+        instructions.extend([abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET)]);
     }
     emit_dlopen_libssl(
         &mut EmitCtx {

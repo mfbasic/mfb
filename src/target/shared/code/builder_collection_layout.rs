@@ -1828,27 +1828,27 @@ impl CodeBuilder<'_> {
         ));
     }
 
+    /// The address of a collection's packed data region.
+    ///
+    /// Delegates to [`push_collection_data_pointer_into`] so the layout rule
+    /// lives in exactly one place; plan-57-D changes that one function to make a
+    /// fixed-width list's data base a constant `block + HEADER`.
     pub(super) fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {
         // Scratch as vregs. Pinning these collides with the x86-64 ABI argument
         // registers and yields garbage element addresses.
         let capacity_v = self.temporary_vreg();
         let entry_size_v = self.temporary_vreg();
-        let capacity = capacity_v.as_str();
-        let entry_size = entry_size_v.as_str();
-        self.emit(abi::move_register(capacity, collection));
-        self.emit(abi::add_immediate(dst, collection, COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64(
-            capacity,
-            capacity,
-            COLLECTION_OFFSET_CAPACITY,
-        ));
-        self.emit(abi::move_immediate(
-            entry_size,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(capacity, capacity, entry_size));
-        self.emit(abi::add_registers(dst, dst, capacity));
+        let mut out = Vec::new();
+        push_collection_data_pointer_into(
+            &mut out,
+            dst,
+            collection,
+            capacity_v.as_str(),
+            entry_size_v.as_str(),
+        );
+        for instruction in out {
+            self.emit(instruction);
+        }
     }
 
     pub(super) fn emit_load_collection_payload(
@@ -2009,4 +2009,91 @@ pub(super) fn list_element_is_fixed_width(element_type: &str) -> Option<usize> {
         "Integer" | "Float" | "Fixed" | "Money" => Some(8),
         _ => None,
     }
+}
+
+/// Append the data-region base computation for `collection` into `out`:
+/// `collection + COLLECTION_HEADER_SIZE + capacity * COLLECTION_ENTRY_SIZE`.
+///
+/// **Capacity, never count.** An append-built list has spare capacity, and the
+/// `LookupEntry[capacity]` array precedes the data region, so a count-based base
+/// reads the spare entry slots as payload bytes. That trap is documented at
+/// several call sites individually; this is the one place it has to be right.
+///
+/// The free-function form exists because ~14 sites compute this inside
+/// standalone `CodeFunction` emitters that have no `CodeBuilder`
+/// (`os.rs`, `fs_helpers_*`, `net/io.rs`, `tls/*`, `audio/*`, `crypto*`). That
+/// structural split is why a single helper never absorbed them.
+/// [`CodeBuilder::emit_collection_data_pointer`] delegates here.
+///
+/// Every register is a parameter so a site can keep its own register choice and
+/// stay byte-identical when it is converted.
+pub(super) fn push_collection_data_pointer_into(
+    out: &mut Vec<CodeInstruction>,
+    dst: &str,
+    collection: &str,
+    scratch_capacity: &str,
+    scratch_entry_size: &str,
+) {
+    out.push(abi::move_register(scratch_capacity, collection));
+    out.push(abi::add_immediate(dst, collection, COLLECTION_HEADER_SIZE));
+    out.push(abi::load_u64(
+        scratch_capacity,
+        scratch_capacity,
+        COLLECTION_OFFSET_CAPACITY,
+    ));
+    out.push(abi::move_immediate(
+        scratch_entry_size,
+        "Integer",
+        &COLLECTION_ENTRY_SIZE.to_string(),
+    ));
+    out.push(abi::multiply_registers(
+        scratch_capacity,
+        scratch_capacity,
+        scratch_entry_size,
+    ));
+    out.push(abi::add_registers(dst, dst, scratch_capacity));
+}
+
+/// Append the data-region base computation in the form the standalone runtime
+/// emitters use: `dst = collection + HEADER + capacity * ENTRY_SIZE`, computed
+/// as a product first and the header folded in afterwards.
+///
+/// A second shape rather than a second copy of the rule.
+/// [`push_collection_data_pointer_into`] computes the same address in the order
+/// `CodeBuilder` emits it; these two orders are what exist in the tree, and
+/// forcing one site into the other's order would change its emitted bytes for
+/// no benefit. Both are edited together by plan-57-D, which is the point —
+/// fourteen open-coded copies become two.
+///
+/// `scratch_product` may alias `scratch_entry_size` and/or `dst`; the sites in
+/// `audio/` do exactly that.
+pub(super) fn push_collection_data_base_from_capacity(
+    out: &mut Vec<CodeInstruction>,
+    dst: &str,
+    collection: &str,
+    scratch_capacity: &str,
+    scratch_entry_size: &str,
+    scratch_product: &str,
+) {
+    out.push(abi::load_u64(
+        scratch_capacity,
+        collection,
+        COLLECTION_OFFSET_CAPACITY,
+    ));
+    out.push(abi::move_immediate(
+        scratch_entry_size,
+        "Integer",
+        &COLLECTION_ENTRY_SIZE.to_string(),
+    ));
+    out.push(abi::multiply_registers(
+        scratch_product,
+        scratch_capacity,
+        scratch_entry_size,
+    ));
+    out.push(abi::add_immediate(
+        scratch_product,
+        scratch_product,
+        COLLECTION_HEADER_SIZE,
+    ));
+    out.push(abi::add_registers(dst, collection, scratch_product));
 }

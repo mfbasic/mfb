@@ -869,11 +869,16 @@ fn lower_write(
         // COUNT-sized one: an append-built list carries spare capacity, so
         // HEADER + CAPACITY*ENTRY is the data-region base (byteList + count*ENTRY
         // would land in the middle of the entry array — bug: static playback).
-        abi::load_u64("%v12", abi::ARG[1], COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v14", "%v12", "%v14"),
-        abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE),
-        abi::add_registers("%v14", abi::ARG[1], "%v14"),
+    ]);
+    push_collection_data_base_from_capacity(
+        &mut instructions,
+        "%v14",
+        abi::ARG[1],
+        "%v12",
+        "%v14",
+        "%v14",
+    );
+    instructions.extend([
         abi::store_u64("%v14", abi::stack_pointer(), QUEUE_OFF), // src base
         abi::compare_immediate("%v13", "0"),
         abi::branch_eq(&invalid),

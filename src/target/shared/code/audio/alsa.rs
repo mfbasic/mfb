@@ -1137,11 +1137,16 @@ fn lower_write(
         // src = byteList + HEADER + CAPACITY*ENTRY (the data region starts past
         // the CAPACITY-sized entry array; an append-built list has spare
         // capacity, so COUNT*ENTRY would mis-address it). totalFrames = total/bpf.
-        abi::load_u64("%v12", abi::ARG[1], COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("%v14", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-        abi::multiply_registers("%v14", "%v12", "%v14"),
-        abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE),
-        abi::add_registers("%v14", abi::ARG[1], "%v14"),
+    ]);
+    push_collection_data_base_from_capacity(
+        &mut instructions,
+        "%v14",
+        abi::ARG[1],
+        "%v12",
+        "%v14",
+        "%v14",
+    );
+    instructions.extend([
         abi::store_u64("%v14", abi::stack_pointer(), SRC_OFF),
         abi::unsigned_divide_registers("%v13", "%v13", "%v10"),
         abi::store_u64("%v13", abi::stack_pointer(), TOTAL_OFF), // total frames

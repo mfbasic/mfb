@@ -795,13 +795,16 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         instructions.extend([
             abi::load_u64("%v10", abi::ARG[1], COLLECTION_OFFSET_COUNT),
             abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
-            abi::load_u64("%v14", abi::ARG[1], COLLECTION_OFFSET_CAPACITY),
-            abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("%v13", "%v14", "%v12"),
-            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v11", abi::ARG[1], "%v13"),
-            abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
         ]);
+        push_collection_data_base_from_capacity(
+            &mut instructions,
+            "%v11",
+            abi::ARG[1],
+            "%v14",
+            "%v12",
+            "%v13",
+        );
+        instructions.extend([abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET)]);
     }
     instructions.extend([
         abi::label(&write_loop),
@@ -1777,13 +1780,16 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         instructions.extend([
             abi::load_u64("%v10", abi::ARG[2], COLLECTION_OFFSET_COUNT),
             abi::store_u64("%v10", abi::stack_pointer(), DLEN_OFFSET),
-            abi::load_u64("%v14", abi::ARG[2], COLLECTION_OFFSET_CAPACITY),
-            abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("%v13", "%v14", "%v12"),
-            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
-            abi::add_registers("%v11", abi::ARG[2], "%v13"),
-            abi::store_u64("%v11", abi::stack_pointer(), DATA_OFFSET),
         ]);
+        push_collection_data_base_from_capacity(
+            &mut instructions,
+            "%v11",
+            abi::ARG[2],
+            "%v14",
+            "%v12",
+            "%v13",
+        );
+        instructions.extend([abi::store_u64("%v11", abi::stack_pointer(), DATA_OFFSET)]);
     }
     emit_hints(HINTS_OFFSET, false, SOCK_DGRAM, &mut instructions);
     emit_cstring(
