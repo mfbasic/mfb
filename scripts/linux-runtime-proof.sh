@@ -169,7 +169,13 @@ run_fixture() {
   fi
 }
 export -f run_fixture 2>/dev/null || true
-export WORKDIR=$work MFB ROOT TARGET FLAVOR PORT SSH REMOTE
+# RUN_TIMEOUT belongs in this list: `run_fixture` is invoked through
+# `xargs bash -c`, a fresh shell that sees only exported variables. Setting it
+# without exporting it left `timeout $RUN_TIMEOUT <exe>` expanding to
+# `timeout <exe>`, which busybox parses as a missing DURATION and answers with
+# its usage text — so every fixture "failed" with no output. Caught because a
+# fixture that had just passed in isolation started failing at JOBS=1.
+export WORKDIR=$work MFB ROOT TARGET FLAVOR PORT SSH REMOTE RUN_TIMEOUT
 
 : > "$work/projects"
 find "$ROOT/tests" -name project.json | sort | while IFS= read -r project; do

@@ -169,7 +169,7 @@ depend on load.
 | 2223 Kali aarch64/glibc 2.42 | **467 pass / 0 fail** (was 446 / 21) |
 | 2224 Alpine aarch64/musl | **467 pass / 0 fail** (was 446 / 21) |
 | all three aarch64 verdict lists | byte-identical to each other |
-| 2227 Alpine x86_64/musl | re-run in progress; its own pre-existing set (`json/json-behavior`, `os::userName` on Alpine, the two `listdir-order` fixtures whose goldens encode one directory order) is unrelated to these two harness bugs and is triaged separately below |
+| 2227 Alpine x86_64/musl | **458 pass / 9 fail** (was 453 / 14). The 5 recovered were the harness bugs; the remaining 9 were each re-run individually and are genuine. **Four are a real SIGSEGV, now filed as bug-362** (`fs/func_fs_flush_valid`, `fs/func_fs_isBuffered_valid`, `fs/func_fs_setBuffered_valid`, `resources/resource-reclaim-loop-valid` — dropping a buffered `File` crashes on x86_64). The other five are `json/json-behavior` (ErrOutOfMemory), `json/json-parse-deep-scalar-scan-rt`, `os/func_os_userName_valid` (ErrUnsupported; no matching Alpine passwd entry), and the two `listdir-order` fixtures whose goldens encode one directory iteration order. |
 | macOS `scripts/test-accept.sh` | 1014 / 1014 |
 | `cargo test` | 3096 passed, 0 failed |
 
