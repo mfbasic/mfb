@@ -1,0 +1,119 @@
+' bug-364: runtime proof that a CSTRUCT modelling libsndfile's SF_INFO must
+' declare its leading `sf_count_t frames` field.
+'
+' bindings/libsnd declared SF_INFO WITHOUT `frames`, so `compute_c_layout` sized
+' the struct at 20 bytes where libsndfile writes 32. Two live defects on every
+' `sf_open`: the callee wrote 12 bytes past the marshaling thunk's stack buffer,
+' and every declared field read the PREVIOUS real field's storage.
+'
+' Goldens structurally cannot catch this — the .mfp encoding transports field
+' names and ctypes and RECOMPUTES layout on decode, so a wrong field list
+' round-trips cleanly through every AST/IR/package golden. Reading correct values
+' off a real libsndfile handle is the only available proof, which is why this
+' test vendors the same libsndfile blob bindings/libsnd ships.
+'
+' The probe is a hand-written 4-frame STEREO 16-bit WAV. `channels` is the
+' discriminator: with the old 20-byte layout it read offset 4, the HIGH half of
+' `frames`, which is 0 for any file under 4G frames. A mono or silent probe
+' cannot tell the two layouts apart — only a stereo one can.
+'
+' Old (broken) layout would have printed:
+'   frames:     <absent>
+'   samplerate: 4       (low half of frames)
+'   channels:   0       (high half of frames)
+'   format:     8000    (the real samplerate)
+'   sections:   2       (the real channels)
+'   seekable:   65538   (the real format)
+IMPORT io
+IMPORT fs
+
+RESOURCE SoundFile CLOSE BY snd::closeFile
+
+TYPE FileInfo
+  frames     AS Integer
+  samplerate AS Integer
+  channels   AS Integer
+  format     AS Integer
+  sections   AS Integer
+  seekable   AS Integer
+END TYPE
+
+LINK "libsnd" AS snd
+  ' 32 bytes, align 8: frames@0, samplerate@8, channels@12, format@16,
+  ' sections@20, seekable@24 — sndfile.h:379-388.
+  CSTRUCT SfFileInfo AS FileInfo
+    frames     CInt64
+    samplerate CInt32
+    channels   CInt32
+    format     CInt32
+    sections   CInt32
+    seekable   CInt32
+  END CSTRUCT
+
+  FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
+    SYMBOL "sf_open"
+    ABI (path CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
+    CONST mode = 16 ' SFM_READ
+    BIND STATE file = info
+    ERROR_ON file = NOTHING
+    RETURN file
+  END FUNC
+
+  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
+    SYMBOL "sf_close"
+    ABI (sndfile CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' `sf_error_number`, NOT `sf_error`: the latter takes a SNDFILE* and returns an
+  ' int, so binding it here passed an integer where a pointer was expected and
+  ' then marshaled the returned int back as a CPtr — two wild dereferences on
+  ' every error-path call (bug-364). The pointer is library-owned static storage:
+  ' copy-and-leave is correct and no FREE block is wanted.
+  FUNC errMessage(errNum AS Integer) AS String
+    SYMBOL "sf_error_number"
+    ABI (errNum CInt32) AS message CPtr
+    RETURN message
+  END FUNC
+END LINK
+
+' A 4-frame stereo 16-bit 8000 Hz WAV: 44-byte RIFF header + 16 bytes of PCM.
+' Built as a literal so the byte list is ordered by construction — `prepend` or a
+' mid-list `insert` would permute the data region relative to entry order
+' (bug-365) and `fs::writeBytes` walks the data region linearly.
+FUNC probeWav() AS List OF Byte
+  ' "RIFF" | size 36+16 | "WAVE"
+  ' "fmt " | size 16 | PCM | channels 2 | rate 8000 | byteRate 32000
+  '        | blockAlign 4 | bits 16
+  ' "data" | size 16 | 4 frames of interleaved L R
+  LET bytes AS List OF Byte = [82, 73, 70, 70, 52, 0, 0, 0, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 2, 0, 64, 31, 0, 0, 0, 125, 0, 0, 4, 0, 16, 0, 100, 97, 116, 97, 16, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  RETURN bytes
+END FUNC
+
+FUNC main() AS Integer
+  LET path AS String = "target/libsnd_open_file_info_rt.wav"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  fs::writeBytes(path, probeWav())
+
+  RES h AS SoundFile STATE FileInfo = snd::openFile(path)
+  ' Every one of these reads a distinct SF_INFO offset. Under the old 20-byte
+  ' layout all six were shifted by one field.
+  io::print("frames=" & toString(h.state.frames))
+  io::print("samplerate=" & toString(h.state.samplerate))
+  io::print("channels=" & toString(h.state.channels))
+  io::print("format=" & toString(h.state.format))
+  io::print("sections=" & toString(h.state.sections))
+  io::print("seekable=" & toString(h.state.seekable))
+  snd::closeFile(h)
+
+  ' The error path: errMessage now resolves `sf_error_number`, so this is
+  ' libsndfile's own text rather than the result of dereferencing an int.
+  ' 1 is SF_ERR_UNRECOGNISED_FORMAT.
+  io::print("err1=" & snd::errMessage(1))
+
+  fs::deleteFile(path)
+  io::print("ok")
+  RETURN 0
+END FUNC

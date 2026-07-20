@@ -1,0 +1,8 @@
+frames=4
+samplerate=8000
+channels=2
+format=65538
+sections=1
+seekable=1
+err1=Format not recognised.
+ok

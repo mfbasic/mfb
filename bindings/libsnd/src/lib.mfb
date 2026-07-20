@@ -61,6 +61,7 @@ END TYPE
 RESOURCE SoundFile CLOSE BY sndLink::closeFile
 
 TYPE FileInfo
+  frames     AS Integer
   samplerate AS Integer
   channels   AS Integer
   format     AS Integer
@@ -75,7 +76,12 @@ LINK "libsnd" AS sndLink
     extension  CString
   END CSTRUCT
 
+  ' 32 bytes, align 8: frames@0, samplerate@8, channels@12, format@16,
+  ' sections@20, seekable@24. The leading `sf_count_t frames` is load-bearing —
+  ' without it every field reads 8 bytes early and sf_open writes 12 bytes past
+  ' the thunk's struct buffer (bug-364).
   CSTRUCT SfFileInfo AS FileInfo
+    frames     CInt64
     samplerate CInt32
     channels   CInt32
     format     CInt32
@@ -127,8 +133,13 @@ LINK "libsnd" AS sndLink
     RETURN status
   END FUNC
 
+  ' `sf_error_number`, NOT `sf_error`: the latter takes a SNDFILE* and returns an
+  ' int. Binding it here passed an integer where a pointer was expected and then
+  ' marshaled the returned int as a CPtr — two wild dereferences per call
+  ' (bug-364). The returned pointer is library-owned static storage, so
+  ' copy-and-leave is correct and no FREE block is wanted.
   FUNC errMessage(errNum AS Integer) AS String
-    SYMBOL "sf_error"
+    SYMBOL "sf_error_number"
     ABI (errNum CInt32) AS message CPtr
     RETURN message
   END FUNC
@@ -136,7 +147,7 @@ END LINK
 
 FUNC sndError(RES sndfile AS SoundFile) AS Error
   LET err AS Integer = sndLink::errNum(sndfile)
-  RETURN error(err, "sqlite3: " & sndLink::errMessage(err))
+  RETURN error(err, "libsnd: " & sndLink::errMessage(err))
 END FUNC
 
 DOC

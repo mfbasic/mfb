@@ -1,0 +1,77 @@
+{
+  "name": "libsnd_open_file_info_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "libraries": {
+    "libsnd": [
+      {
+        "os": "macos",
+        "type": "vendor",
+        "source": "libsndfile.1.0.37.dylib",
+        "hash": "9e1f6e3203be910ff0a586c539faeffea055e6084b47e1a27c1bc3d72fc585d3"
+      },
+      {
+        "os": "linux",
+        "arch": "aarch64",
+        "libc": "glibc",
+        "type": "vendor",
+        "source": "libsndfile.so.1.0.37-aarch64-glibc",
+        "hash": "e8515fb15c8153565936e0008de01f75978ee04ad14d9c7cba310bb81521b077"
+      },
+      {
+        "os": "linux",
+        "arch": "aarch64",
+        "libc": "musl",
+        "type": "vendor",
+        "source": "libsndfile.so.1.0.37-aarch64-musl",
+        "hash": "c8d700342040d6106f851cfc83ea834fa8bada448b0372b57e377eb17aac6b53"
+      },
+      {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": "glibc",
+        "type": "vendor",
+        "source": "libsndfile.so.1.0.37-x86_64-glibc",
+        "hash": "35e5398196dcd30442f1488121a2e2739581b7c1e7796b2e70b7462ed18dcf5c"
+      },
+      {
+        "os": "linux",
+        "arch": "x86_64",
+        "libc": "musl",
+        "type": "vendor",
+        "source": "libsndfile.so.1.0.37-x86_64-musl",
+        "hash": "4828952f2f632dddf1494cb771fcc6de72c1c48cecbb61945382f490dca54792"
+      },
+      {
+        "os": "linux",
+        "arch": "riscv64",
+        "libc": "glibc",
+        "type": "vendor",
+        "source": "libsndfile.so.1.0.37-riscv64-glibc",
+        "hash": "f2dcd85259383a6c40b4adb5e16243549ef0d4b2c723e021fbe3fd5009536cb0"
+      },
+      {
+        "os": "linux",
+        "arch": "riscv64",
+        "libc": "musl",
+        "type": "vendor",
+        "source": "libsndfile.so.1.0.37-riscv64-musl",
+        "hash": "29b9e7361566a326a3ea2e162a6df3a4786ecbb50aa2ac76576b07de9025a671"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}
