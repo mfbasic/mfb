@@ -158,12 +158,36 @@ mutation and copy surface, add a thread-transfer case, and re-run the experiment
 Then widen. The win (48→8 bytes per element, 6x) is real and worth having — it
 is the coverage, not the analysis, that is missing.
 
-**One thing found while auditing, not resolved here:** question 2's answer means
-a `List OF FUNC` crossing a thread boundary is copied wholesale, closure pointers
-included, into a different arena. Those pointers address the *source* arena. This
-is pre-existing and orthogonal to kind 2 — it behaves identically under both
-representations — but it is not obviously sound and nothing in the tree tests it.
-Worth its own investigation; not widened in scope here.
+~~**One thing found while auditing, not resolved here:** question 2's answer
+means a `List OF FUNC` crossing a thread boundary is copied wholesale, closure
+pointers included, into a different arena…~~
+
+**RETRACTED (2026-07-20) — this was wrong, and the error is instructive.** A
+function value cannot cross a thread boundary at all. The check is
+`syntaxcheck/resources.rs:is_thread_sendable_type_with_seen:275`:
+
+```rust
+Type::Function { .. } | Type::Thread(..) | Type::ThreadWorker(..) => false,
+```
+
+and `Type::List` / `Type::Map` / record fields all recurse into it, so the
+rejection is transitive. Verified by reproduction, every wrapping route:
+
+| attempted payload | result |
+|---|---|
+| `ThreadWorker OF (List OF FUNC(Integer) AS Integer) TO Integer` | rejected — `SYMBOL_UNKNOWN_TYPE` |
+| record with a `List OF FUNC` field | rejected — `TYPE_THREAD_NOT_SENDABLE` |
+| record with a `Map OF String TO FUNC` field | rejected — `TYPE_THREAD_NOT_SENDABLE` |
+
+Question 2's premise was the mistake. `collection_payload_needs_transfer_fix`
+does return `false` for a function type — that part is accurate — but it is
+unreachable, because the type never gets as far as the transfer path. **"This
+predicate returns false" is a fact about a function; "therefore this unsound
+thing happens" is a claim about a program, and the second does not follow from
+the first without checking what can actually reach it.**
+
+The audit was otherwise sound and its conclusion (do not widen) stands on the
+coverage argument, which is independent of this.
 
 ### 4.3 Documentation
 
