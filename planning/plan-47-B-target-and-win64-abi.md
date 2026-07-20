@@ -1,9 +1,9 @@
-# plan-47-A: Target registration + Windows x64 ABI
+# plan-47-B: Target registration + Windows x64 ABI
 
 Last updated: 2026-07-19
 Overall Effort: huge (>3d)
 Effort: large (3h–1d) — **over the sub-plan band; split into A1 (ABI realization) / A2 (the 54-method stub wall) / A3 (registration + manifest widening) before starting.**
-Depends on: plan-47-P (the exhaustive platform-family match — registration without it gives Windows 20 silent POSIX arms; see the master §3.2)
+Depends on: plan-47-A (the exhaustive platform-family match — registration without it gives Windows 20 silent POSIX arms; see the master §3.2)
 Supersedes the old `Depends on: nothing` — see the line above.
 
 This sub-plan lands the **codegen half** of the Windows target: a registered
@@ -11,7 +11,7 @@ This sub-plan lands the **codegen half** of the Windows target: a registered
 Windows-convention realization of the x86-64 ABI — argument registers
 `rcx`/`rdx`/`r8`/`r9`, a mandatory 32-byte shadow space below every outgoing
 stack argument, a stack tail past the 4th *external* argument, and a Win64
-register model. No PE writer (47-B), no Win32 OS calls (47-C), no `.exe`.
+register model. No PE writer (47-C), no Win32 OS calls (47-D), no `.exe`.
 
 The single checkable behavioral outcome: **for a program lowered through the new
 `win_x86_64` codegen platform, a 6-integer-argument external call places its
@@ -54,7 +54,7 @@ See the master §Prerequisites for the feature-wide gate; and:
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-47-P has landed — registering the target without it gives Windows 29 silent POSIX arms | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
+| plan-47-A has landed — registering the target without it gives Windows 29 silent POSIX arms | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
 | Byte-identity goldens exist for every target whose bytes must not change | `find tests -path '*/golden/*' -name '*.ncode*' \| while read f; do b="${f##*/}"; b="${b%.*}"; echo "${b##*.}"; done \| sort -u` | **PARTIAL — `linux-riscv64` has 0** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -65,7 +65,7 @@ See the master §Prerequisites for the feature-wide gate; and:
 **Row 1 is the one that matters.** This sub-plan's Phase 2 adds `windows-x86_64` to
 `NATIVE_BACKENDS`. The instant it does, 29 binary `platform.target()` branches in shared
 lowering become reachable and every one resolves to a POSIX arm with no compile error
-(master §3.2). Landing 47-P first turns those into 29 compile errors instead.
+(master §3.2). Landing 47-A first turns those into 29 compile errors instead.
 
 
 ## 1. Goal
@@ -99,9 +99,9 @@ lowering become reachable and every one resolves to a POSIX arm with no compile 
   `x86_abi() -> X86Abi::SysV`), and the SysV constants are not edited. The gate
   is `scripts/artifact-gate.sh` reporting 0 diffs, plus a `.ncode` diff for the
   non-host targets (see Validation).
-- **No PE/COFF writer, no `write_executable` implementation, no `.exe`.** 47-B.
+- **No PE/COFF writer, no `write_executable` implementation, no `.exe`.** 47-C.
 - **No `CodegenPlatform` OS methods** (`emit_write`, `emit_arena_map`, entry
-  path, imports). 47-C. This sub-plan supplies the platform only as far as
+  path, imports). 47-D. This sub-plan supplies the platform only as far as
   `backend()` and the fields the skeleton needs to compile.
 - **No language, IR, NIR, native-plan, MIR-schema, layout, or value-semantics
   change.** The MIR stream this backend consumes is the same OS-neutral stream
@@ -177,7 +177,7 @@ symbolic bases (`"outgoing_args"`, `"incoming_args"`) past
 `resolve_stack_arg_sentinels` (`:809`): outgoing keeps its frame-bottom offset
 `[sp + k*8]`, incoming becomes `[sp + frame_size + entry_padding + k*8]`. The
 neutral `sp` is rewritten to `rsp` by the x86 remap. **Nothing about this
-mechanism is AArch64-specific.** This materially reduces 47-A's work versus the
+mechanism is AArch64-specific.** This materially reduces 47-B's work versus the
 master's estimate: what is missing for Win64 is not the tail, it is (a) the
 32-byte shadow space beneath it and (b) starting the tail at external argument
 index 4.
@@ -200,7 +200,7 @@ shared-code edit at the selection sites" (`types.rs:216`–`:220`).
 
 **Windows is presently only a negative.** `src/os/linux/mod.rs:143` is a unit
 test that sets an object plan's `target` to `"windows"` to assert ELF lowering
-rejects it. That test belongs to 47-B and this sub-plan does not touch it.
+rejects it. That test belongs to 47-C and this sub-plan does not touch it.
 
 ## 3. Design Overview
 
@@ -232,7 +232,7 @@ caller knows. Omit the reservation and the callee scribbles over whatever the
 caller put at the bottom of its frame — on this codebase, the outgoing stack
 arguments themselves and the callee-saved save area (`finalize_frame:443`). That
 is a corruption with no crash at the point of the bug and no diagnostic. It is
-also invisible until 47-C makes a real Win32 call, which is exactly why 47-A must
+also invisible until 47-D makes a real Win32 call, which is exactly why 47-B must
 pin it in a unit test rather than wait for a runtime.
 
 **Rejected alternatives.**
@@ -255,7 +255,7 @@ pin it in a unit test rather than wait for a runtime.
 - *Editing `X86_64RegisterModel` in place with `if win64` branches.* Rejected:
   the model is read on every allocation decision, and an in-place branch makes
   "SysV is unchanged" a claim rather than a fact. Two structs, one shared trait.
-- *Deferring target registration to 47-B.* Rejected: without it there is no
+- *Deferring target registration to 47-C.* Rejected: without it there is no
   `CodegenPlatform` to hang the backend on and no way to exercise Win64 lowering
   end-to-end from a test, so the ABI work would land unreachable. Registration is
   cheap and its observable consequences (§2, the 8th coverage slot) are better
@@ -291,7 +291,7 @@ argument register, and Win64 preserves `rbx`, `rbp`, `r15` (and `r13`, `r12`,
 The compiler's own calls keep **8 register homes** on Windows, exactly as they do
 on SysV, so no shared-lowering site changes and `REGISTER_ARGUMENT_COUNT` stays
 8. Win64 binds only where a real Windows callee is on the other side: the LINK
-thunk (`link_thunk.rs:661`) and 47-C's `emit_libc_call` IAT calls.
+thunk (`link_thunk.rs:661`) and 47-D's `emit_libc_call` IAT calls.
 
 `Win64RegisterModel::external_int_argument_registers()` returns **4**, mirroring
 `X86_64RegisterModel`'s 6 (`regmodel.rs:159`) and the bug-296 reasoning verbatim.
@@ -308,14 +308,14 @@ regression and it is accepted here: correctness first, and the pool is a tuning
 knob later (freeing `arena_base` from `r15`, the refinement plan-00-H declined,
 would return a fourth). It is recorded as an Open Decision, not buried.
 
-**Consequence for 47-C, stated here because it constrains 47-A's design and must
+**Consequence for 47-D, stated here because it constrains 47-B's design and must
 not be rediscovered later:** the machine floor's `WriteFile(hFile, lpBuffer,
 nNumberOfBytesToWrite, lpNumberOfBytesWritten, lpOverlapped)` takes **five**
 integer arguments. With `external_int_argument_registers() == 4` and no external
 stack tail, `link_thunk`-style staging would put argument 5 in `rdi` and
 `WriteFile` would read garbage from `[rsp+32]`. So the external stack tail
 (§4.3) is not optional polish deferred to a later letter — the very first Windows
-`print` needs it. 47-A delivers it.
+`print` needs it. 47-B delivers it.
 
 ### 4.3 Shadow space and the outgoing stack tail
 
@@ -351,7 +351,7 @@ Two shared-code changes, both defaulted to today's value:
    default 0. Incoming resolution is unchanged (`frame_size + entry_padding +
    k*8`): our own functions are called by our own code under the internal
    8-register convention, so their incoming tail keeps today's shape. A function
-   called *by Windows* — the entry stub and the 47-F thread trampoline — is a
+   called *by Windows* — the entry stub and the 47-H thread trampoline — is a
    different contract and is explicitly out of scope here.
 
 `body_shift = outgoing_bytes + save_size` (`:421`) then carries the shadow space
@@ -374,13 +374,13 @@ caller-saved clobber model — which the allocator derives from
 `RegisterModel::caller_saved` (bug-350) — is *conservatively correct* for calls
 out to Windows code: it assumes destroyed everything Win64 destroys, plus
 `rdi`/`rsi`/`xmm6–15` which Win64 actually preserves. Nothing is under-saved. The
-cost is a few unnecessary spills around calls; the benefit is that 47-A does not
+cost is a few unnecessary spills around calls; the benefit is that 47-B does not
 have to get a widened clobber mask right to be safe.
 
 The direction that is *not* automatically safe is the reverse — our code being
 called **by** Windows, where we must preserve Win64's set. That happens in
-exactly two places, both later letters: the program entry (47-C) and the thread
-trampoline callback (47-F). This document states the obligation so those letters
+exactly two places, both later letters: the program entry (47-D) and the thread
+trampoline callback (47-H). This document states the obligation so those letters
 inherit it rather than discover it.
 
 `Win64RegisterModel` therefore differs from `X86_64RegisterModel` in four
@@ -478,7 +478,7 @@ Separately valuable and separately reviewable, with a user-visible outcome.
       `{os:"windows", arch:"x86_64"}`, `capabilities()` = all `false` /
       `runtime_calls: &[]`, `supports_app_mode()` = `false`, and every
       `write_*` method returning an explicit
-      "not yet supported on windows-x86_64" error naming 47-B/47-C. Mirror the
+      "not yet supported on windows-x86_64" error naming 47-C/47-D. Mirror the
       shape of `src/target/linux_x86_64/mod.rs:15`.
 - [ ] Register it in `NATIVE_BACKENDS` (`src/target.rs:197`) and declare the
       module.
@@ -519,7 +519,7 @@ A pure data structure with no callers yet, so it lands behind unit tests alone.
       and the spill/reload/move emitters identical.
 - [ ] Document on the struct why the *clobber* masks are unchanged (§4.4:
       Win64's preserved set is a superset of SysV's), and the reverse obligation
-      inherited by 47-C/47-F.
+      inherited by 47-D/47-H.
 - [ ] Tests: in `src/arch/x86_64/regmodel.rs` — no allocatable register is a
       Win64 argument register or a pinned register; `rdi`/`rsi`/`xmm6`–`xmm15`
       are callee-saved; `external_int_argument_registers() == 4`; and a test
@@ -549,8 +549,8 @@ The table swap. Behind Phase 1's parameter, so SysV cannot be affected.
       (`src/target/shared/code/types.rs:212`) returning `Win64Backend` from
       `backend()`, `target()` = `"windows-x86_64"`, `arch()` = `"x86_64"` — only
       enough to make Win64 lowering reachable from a test. Every OS-call method
-      is 47-C's; leave the trait's own defaults or an explicit
-      "47-C" error, never a silent stub.
+      is 47-D's; leave the trait's own defaults or an explicit
+      "47-D" error, never a silent stub.
 - [ ] Tests: `src/arch/x86_64/select.rs` — a call staging `%arg0`–`%arg3`
       realizes `rcx`/`rdx`/`r8`/`r9`; a result bank realizes `rax`/`rdx`/`r8`/`r9`
       with no `rcx` aliasing; a `svc` under `X86Abi::Win64` errors; and a
@@ -574,7 +574,7 @@ test rather than a shape assertion.
       ≥ 4 into the outgoing tail in `src/target/shared/code/link_thunk.rs:661`,
       or — if that staging is larger than this sub-plan — leave the existing
       explicit refusal (`:667`) in place for the Windows target and record it as
-      47-C's precondition. Decide against §4.2's `WriteFile` finding, and state
+      47-D's precondition. Decide against §4.2's `WriteFile` finding, and state
       the decision in the commit; do not leave it implicit.
 - [ ] Tests: a lowering test through the Win64 platform asserting the exact
       resolved offsets for a 6-integer-argument external call — `rcx`, `rdx`,
@@ -613,10 +613,10 @@ Commit: —
   rely on the gate. What the gate genuinely does **not** cover is `linux-riscv64`, which
   has **zero** native goldens (master §Prerequisites row 3) — seed them before any phase
   that edits shared frame code.
-- **Runtime proof.** None is possible in 47-A and none is claimed — there is no
-  executable until 47-B/47-C. Per `.ai/compiler.md`, compiler plumbing and golden
+- **Runtime proof.** None is possible in 47-B and none is claimed — there is no
+  executable until 47-C/47-D. Per `.ai/compiler.md`, compiler plumbing and golden
   output are not proof of runtime support; the Windows runtime claim is made in
-  47-C, not here. The behavioral outcome this sub-plan *does* prove is the exact
+  47-D, not here. The behavioral outcome this sub-plan *does* prove is the exact
   register/offset realization asserted in Phase 5.
 - **Doc sync.** `src/docs/spec/memory/06_native-calling-convention.md` — add the
   Win64 divergence beside the existing stack-tail section (`:14`–`:38` already
@@ -644,10 +644,10 @@ Commit: —
   Windows-only spill-pressure cost. Alternative: keep `rdi`/`rsi` allocatable and
   cap the *internal* convention at 6 on Windows, which would require a
   backend-dependent `REGISTER_ARGUMENT_COUNT` — rejected in §3. (§4.2)
-- **Where the external stack tail lands.** Recommend implementing it in 47-A
+- **Where the external stack tail lands.** Recommend implementing it in 47-B
   Phase 5, because `WriteFile`'s five arguments make it a hard precondition of
-  47-C's very first `print`. Alternative: leave `link_thunk`'s refusal in place
-  and let 47-C do it — acceptable only if Phase 5's frame reservation still
+  47-D's very first `print`. Alternative: leave `link_thunk`'s refusal in place
+  and let 47-D do it — acceptable only if Phase 5's frame reservation still
   lands here, since that is the silent-corruption half. (§4.2, Phase 5)
 - **`RETS_WIN64` = `[rax, rdx, r8, r9]`** vs. reusing `[rax, rdx, r10, r11]`.
   Recommend `r8`/`r9`: they are caller-saved, unpinned, and the bank is consumed
@@ -675,7 +675,7 @@ tail is **already ISA-neutral and already functional on x86**
 different external split point, not a new mechanism. And because Win64's
 callee-saved set is a strict superset of SysV's, the existing clobber masks are
 conservatively correct for calls out to Windows — the reverse obligation (our
-code called *by* Windows) is deferred, in writing, to 47-C's entry and 47-F's
+code called *by* Windows) is deferred, in writing, to 47-D's entry and 47-H's
 thread trampoline.
 
 Untouched: every existing target's emitted bytes, `REGISTER_ARGUMENT_COUNT`, the
@@ -697,13 +697,13 @@ pipeline, and the entire language layer.
   compile.** Only **11 of 65** methods have defaults; **54 are required** (master §2.1).
   This sub-plan must author ~51 stubs, and the 8 `termios_*` plus the offset/constant
   accessors return plain `usize`/`u64` — they cannot carry an "unimplemented" error, so
-  they must return fabricated values. 47-C §Phase 3 specifies those as **poison** values
+  they must return fabricated values. 47-D §Phase 3 specifies those as **poison** values
   that crash on use rather than plausible zeros. Give the stub wall its own phase (A2).
 - 2026-07-20 — **Effort `large` is over the sub-plan band**; split into A1 (ABI
   realization) / A2 (the stub wall) / A3 (registration + manifest widening) before
   starting.
-- 2026-07-20 — **This sub-plan now depends on 47-P.** Registration is what makes 29
-  silent POSIX arms reachable; 47-P converts them to compile errors first.
+- 2026-07-20 — **This sub-plan now depends on 47-A.** Registration is what makes 29
+  silent POSIX arms reachable; 47-A converts them to compile errors first.
 - 2026-07-20 — **`mir::Backend` has 4 methods, not "exactly three interesting" ones.**
   `is_aarch64()` (`mir.rs:541`) is an existing ISA-dispatch hook this document never
   mentions, and it is exactly the kind of seam a new backend must answer.

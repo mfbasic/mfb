@@ -1,13 +1,13 @@
-# plan-13-T: `text::AttributeString`
+# plan-13-B: `text::AttributeString`
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
 Depends on: **nothing.** This is pure worker-side value code with no host seam and no
-window. It can land before 13-L.
+window. It can land before 13-A.
 Produces: `text::AttributeString`, the `[ON]`/`[OFF]` span encoding + per-value LUT, the
 typed `Attribute` descriptors, and `setAttribute`/`removeAttribute`/`clearAttributes`/
-`getAttributes`/`toString`/`toAttributeString`/`&`. Consumed by 13-B (TextArea) and
-optionally 13-C (a `TextArea` table cell).
+`getAttributes`/`toString`/`toAttributeString`/`&`. Consumed by 13-H (TextArea) and
+optionally 13-I (a `TextArea` table cell).
 
 A rich-text value type: a `String` plus overlapping character-attribute spans (bold,
 italic, underline, strike, font, foreground, background, size).
@@ -16,8 +16,8 @@ The single behavioral outcome: styled text round-trips through construction,
 concatenation, attribute add/remove and flattening with overlapping spans preserved and
 precedence resolved — verified entirely headless.
 
-**This unit was buried.** It was plan-13-B's Phase 1, under a header reading "Depends on
-plan-13-A (the base `app::` shadow/`sync`/seam) being landed" — while the phase itself
+**This unit was buried.** It was plan-13-H's Phase 1, under a header reading "Depends on
+plan-13-C (the base `app::` shadow/`sync`/seam) being landed" — while the phase itself
 says it is *"independently valuable"* and *"genuinely headless: `text::` is pure
 worker-side value code with no host seam."* The header was wrong. Splitting it out means
 a `term::` ANSI renderer, or anything else wanting attributed text, can consume it without
@@ -25,7 +25,7 @@ a GUI existing.
 
 References (read first):
 
-- `planning/plan-13-B-app-textarea.md` §3 — the design this preserves: the `[ON]<id>` /
+- `planning/old-plans/superseded-plan-13-B-app-textarea.md` §3 — the design this preserves: the `[ON]<id>` /
   `[OFF]<id>` span encoding over the reserved block `U+F0000`–`U+F01FF`, the per-value
   LUT, and the highest-id-wins same-name rule resolved at read/flatten.
 - `src/builtins/strings.rs` — the existing `text::`/`strings::` surface this extends.
@@ -60,7 +60,7 @@ None — that is the point of splitting it out.
 ### Non-goals (explicit constraints)
 
 - **No widget, no window, no host seam.** If this unit needs one, the split is wrong.
-- **No rendering.** This is a value type; drawing it is 13-B's (or a future `term::`
+- **No rendering.** This is a value type; drawing it is 13-H's (or a future `term::`
   renderer's) job.
 - **No attribute semantics beyond storage and precedence.** `size` is a number, `font` is
   a name — this unit does not resolve fonts or validate colors against a display.
@@ -75,21 +75,21 @@ None — that is the point of splitting it out.
 |---|---|---|
 | Typed attribute descriptors to add | **8** | `bold`, `italic`, `underline`, `strike`, `font`, `foreground`, `background`, `size` |
 | New `text::` functions | **7** | `setAttribute`, `removeAttribute`, `clearAttributes`, `getAttributes`, `toString`, `toAttributeString`, `plain` (+ the `&` operator overload) |
-| Reserved private-use scalars for the encoding | **512** (`U+F0000`–`U+F01FF`) | the block plan-13-B §3.1 reserves |
+| Reserved private-use scalars for the encoding | **512** (`U+F0000`–`U+F01FF`) | the block plan-13-H §3.1 reserves |
 | `strings.rs` size, for scale | *(measure before starting)* | `wc -l src/builtins/strings.rs` |
 
 ### 2.2 Verified properties
 
 | Claim | Verdict | How checked |
 |---|---|---|
-| `text::` is pure worker-side value code with no host seam | **CONFIRMED** | plan-13-B's own Phase 1 acceptance says so; nothing in the surface touches a window |
+| `text::` is pure worker-side value code with no host seam | **CONFIRMED** | plan-13-H's own Phase 1 acceptance says so; nothing in the surface touches a window |
 | Builtin record types need the high reserved ID range | **CONFIRMED** | `FIRST_TABLE_TYPE_ID`, `binary_repr/builder.rs:244` — the `term::` `TermColor`/`TermSize` precedent |
-| This unit depends on plan-13-A | **FALSE** | plan-13-B's header said so; its Phase 1 body contradicts it. Nothing here needs the shadow tree, `sync`, or the seam |
-| The encoding survives `toString` correctly | **UNVERIFIED — an acceptance criterion** | plan-13-B §3.1 explicitly calls out the bug where id carriers are not stripped |
+| This unit depends on plan-13-C | **FALSE** | plan-13-H's header said so; its Phase 1 body contradicts it. Nothing here needs the shadow tree, `sync`, or the seam |
+| The encoding survives `toString` correctly | **UNVERIFIED — an acceptance criterion** | plan-13-H §3.1 explicitly calls out the bug where id carriers are not stripped |
 
 ## 3. Design Overview
 
-Preserved from plan-13-B §3 unchanged: text plus an out-of-band span stream, encoded as
+Preserved from plan-13-H §3 unchanged: text plus an out-of-band span stream, encoded as
 paired `[ON]<id>` / `[OFF]<id>` markers drawn from a reserved private-use block, with a
 per-value lookup table mapping id → attribute.
 
@@ -99,7 +99,7 @@ markers interleaved. An off-by-one here does not crash — it applies bold to th
 character, which is exactly the kind of wrongness that survives casual testing. Phase 1
 therefore leads with the mapping and its invariants, not with the descriptors.
 
-**Where correctness risk concentrates:** three specific traps plan-13-B already
+**Where correctness risk concentrates:** three specific traps plan-13-H already
 identified, all of which are easy to get subtly wrong and hard to notice:
 
 1. **`toString` must strip the whole block, id carriers included.** Stripping only the
@@ -112,7 +112,7 @@ identified, all of which are easy to get subtly wrong and hard to notice:
    mapping must clamp deterministically rather than splitting one.
 
 **Rejected alternative:** *a parallel array of `(start, end, attr)` ranges alongside the
-string.* Rejected in plan-13-B and the rejection stands: every string operation
+string.* Rejected in plan-13-H and the rejection stands: every string operation
 (`concat`, `slice`, insert) would have to maintain the array in lockstep, and the first
 one that forgets silently desynchronizes text from style. Inline markers move with the
 text by construction.
@@ -199,8 +199,8 @@ Commit: —
 
 <!-- Filled in during execution. -->
 
-- 2026-07-20 — **Split out of plan-13-B, where it was Phase 1 under a false header
-  dependency.** plan-13-B's header says "Depends on plan-13-A (the base `app::`
+- 2026-07-20 — **Split out of plan-13-H, where it was Phase 1 under a false header
+  dependency.** plan-13-H's header says "Depends on plan-13-C (the base `app::`
   shadow/`sync`/seam) being landed"; its own Phase 1 says this layer is "independently
   valuable" and "genuinely headless: `text::` is pure worker-side value code with no host
   seam". The body was right. This unit blocks on nothing.

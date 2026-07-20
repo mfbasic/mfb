@@ -1,8 +1,8 @@
-# plan-13-Z: polish, docs, and the worked example
+# plan-13-K: polish, docs, and the worked example
 
 Last updated: 2026-07-20
 Effort: small (<1h)
-Depends on: everything (13-L, 13-T, 13-A, 13-S, 13-M, 13-G, 13-E, 13-D, 13-B, 13-C).
+Depends on: everything (13-A, 13-B, 13-C, 13-D, 13-E, 13-F, 13-G, 13-J, 13-H, 13-I).
 Feature-wide precondition: plan-13 master §Prerequisites.
 Produces: the calculator example, the `app::` spec topic and man pages, and the remaining
 property polish.
@@ -17,14 +17,14 @@ References (read first):
 - `.ai/man_template.md`, `.ai/man_type_template.md`, `.ai/man_package_template.md` — the
   DOC authoring rules.
 - `scripts/update_man.sh`.
-- `planning/plan-13-A-app-builtin.md` §13 — the calculator worked example this ships.
+- `planning/old-plans/superseded-plan-13-A-app-builtin.md` §13 — the calculator worked example this ships.
 
 ## Prerequisites
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
 | Every other plan-13 unit has landed and been archived | `ls planning/plan-13-*` → only this file and the master | **NOT MET** |
-| Both backends run the canonical program | 13-M and 13-G acceptance | **NOT MET** |
+| Both backends run the canonical program | 13-E and 13-F acceptance | **NOT MET** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
 > before continuing and again before deciding to stop; report every row if you stop.
@@ -51,7 +51,7 @@ References (read first):
 
 | What | Count | Command |
 |---|---|---|
-| `app::` callables to document | **79** family-wide (A 32, B 25, C 22) | master §2.1 |
+| `app::` callables to document | **79** family-wide (base 32, TextArea 25, Table 22) | master §2.1 |
 | Spec topics under `src/docs/spec/stdlib/` today | **15** | `ls src/docs/spec/stdlib/ \| wc -l` |
 | Man package dirs today | 24 | `ls src/docs/man/builtins/ \| wc -l` |
 | Backends the example must run on | 2 | macOS, GTK4 |
@@ -71,7 +71,7 @@ Nothing to design. This unit exists so that the property polish and the document
 themselves finished.
 
 **Where correctness risk concentrates:** the documentation destination. Five tasks across
-the 2026-07-09 plan-13-B and -C send `app::` documentation to `mfb spec package`. That
+the 2026-07-09 plan-13-H and -C send `app::` documentation to `mfb spec package`. That
 directory is the `.mfp` binary container format specification. Following those tasks would
 put a GUI package's surface documentation inside the file-format spec.
 
@@ -145,12 +145,12 @@ Commit: —
 
 <!-- Filled in during execution. -->
 
-- 2026-07-20 — **Documentation destination corrected.** The 2026-07-09 plan-13-B and -C
+- 2026-07-20 — **Documentation destination corrected.** The 2026-07-09 plan-13-H and -C
   sent `app::` documentation to `mfb spec package` in five places; that is the `.mfp`
   binary container format. Package surfaces belong in `src/docs/spec/stdlib/` and
   `src/docs/man/builtins/` (master §2.5).
 - 2026-07-20 — **Split out as its own unit.** Docs and deferred properties were the tail of
-  plan-13-A's Phase 7; giving them their own acceptance is what stops them being dropped
+  plan-13-C's Phase 7; giving them their own acceptance is what stops them being dropped
   when the interesting work is done.
 
 ## Summary

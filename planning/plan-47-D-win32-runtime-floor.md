@@ -1,9 +1,9 @@
-# plan-47-C: the Win32 console runtime floor
+# plan-47-D: the Win32 console runtime floor
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-47-A (a Win64 backend and the `CodegenPlatform` stub wall to fill in),
-plan-47-B2 (a PE writer wired to that backend — needed for the *proof*, not the code).
+Depends on: plan-47-B (a Win64 backend and the `CodegenPlatform` stub wall to fill in),
+plan-47-C2 (a PE writer wired to that backend — needed for the *proof*, not the code).
 Feature-wide precondition: master §Prerequisites.
 Produces: `src/target/win_x86_64/{code,plan}.rs` — a working `emit_libc_call` IAT path
 (**every later surface's only mechanism**), the Win32 entry/arena/write/exit floor, the
@@ -40,9 +40,9 @@ See the master §Prerequisites for the feature-wide gate; and:
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-47-P has landed (branches are exhaustive) | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
-| plan-47-A has landed (Win64 backend + stub wall) | `ls src/target/win_x86_64/` | **NOT MET** |
-| plan-47-B2 has landed (PE writer reachable from the backend) | `ls src/os/windows/` | **NOT MET** |
+| plan-47-A has landed (branches are exhaustive) | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
+| plan-47-B has landed (Win64 backend + stub wall) | `ls src/target/win_x86_64/` | **NOT MET** |
+| plan-47-C2 has landed (PE writer reachable from the backend) | `ls src/os/windows/` | **NOT MET** |
 | The Win11 box answers | `ssh -p 2230 test@127.0.0.1 true` | **UNVERIFIED — run it** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -72,7 +72,7 @@ See the master §Prerequisites for the feature-wide gate; and:
 - **No app mode.** `supports_app_mode()` returns `false`; the 8 app-mode trait methods
   are defaulted (master §2.1) and stay that way.
 - **Do not touch `emit_libc_call`'s shared contract.** Windows reuses it verbatim.
-- **Do not fill in `unreachable!` arms plan-47-P left for other sub-plans.** If this
+- **Do not fill in `unreachable!` arms plan-47-A left for other sub-plans.** If this
   sub-plan needs one, that is a signal the floor is bigger than scoped — record it in
   §Corrections rather than reaching into E/G's territory.
 
@@ -84,7 +84,7 @@ See the master §Prerequisites for the feature-wide gate; and:
 |---|---|---|
 | `CodegenPlatform` methods a new OS must author | **54** required of 65 (11 defaulted) | master §2.1 |
 | — of those, the machine floor this sub-plan implements for real | **9** | the list in §1 |
-| — POSIX ABI constants (fabricated here, corrected by 47-S) | **21** | master §2.1 |
+| — POSIX ABI constants (fabricated here, corrected by 47-E) | **21** | master §2.1 |
 | — app-mode (defaulted; Windows inherits free) | 8 | `… \| grep -c '^app_\|^emit_app_'` |
 | `NativePlanPlatform` methods | 8 (7 required + `app_mode_imports` defaulted) | `awk '/trait NativePlanPlatform/,/^}/' src/target/shared/plan/mod.rs \| grep -cE '^\s+fn '` |
 | kernel32/shell32/bcrypt imports the floor needs | **9** | §4.4 |
@@ -148,7 +148,7 @@ this sub-plan changes.
 
 - **The 21 fabricated POSIX constants.** This sub-plan must return *something* from
   `termios_size()`, `stat_mode_offset()`, `sol_socket()` and the rest, because they are
-  required and return plain `usize`. Every value is a lie until 47-S removes them. Make
+  required and return plain `usize`. Every value is a lie until 47-E removes them. Make
   them loudly wrong (a poison value like `usize::MAX`) rather than plausibly wrong (`0`),
   so a path that reaches one crashes instead of silently mis-addressing.
 - **`skip_entry_arena_destroy`** (§3.2) — a use-after-free question currently answered by
@@ -196,13 +196,13 @@ cap so no stack tail is needed here.
 
 - `emit_write`: `GetStdHandle(STD_OUTPUT_HANDLE / STD_ERROR_HANDLE)` then
   `WriteFile(h, buf, len, &written, NULL)` — **5 arguments, so the 5th goes on the stack
-  above the shadow space.** This is the floor's dependency on 47-A's outgoing tail.
+  above the shadow space.** This is the floor's dependency on 47-B's outgoing tail.
 - `emit_program_exit`: `ExitProcess(code)`.
 - `emit_random_bytes`: `BCryptGenRandom(NULL, buf, len, BCRYPT_USE_SYSTEM_PREFERRED_RNG)`.
 - `emit_errno`: **there is no `errno`.** Windows reports failure via `GetLastError()`.
   The shared EINTR-retry constructs that read `errno` are POSIX-shaped; the floor's
   calls do not need retry, so `emit_errno` returns a `GetLastError()` call here and the
-  divergence is documented for 47-D/G to confront properly.
+  divergence is documented for 47-F/G to confront properly.
 
 ### 4.4 The import set (9)
 
@@ -253,7 +253,7 @@ Commit: —
 ### Phase 2 — arena, write, exit
 
 - [ ] `emit_arena_map`/`emit_arena_unmap` over `VirtualAlloc`/`VirtualFree`.
-- [ ] `emit_write` over `GetStdHandle` + `WriteFile` — **exercises 47-A's stack-arg tail
+- [ ] `emit_write` over `GetStdHandle` + `WriteFile` — **exercises 47-B's stack-arg tail
       (5 arguments)**.
 - [ ] `emit_program_exit` over `ExitProcess`.
 - [ ] `plan.rs`: `NativePlanPlatform`'s 7 required methods, kernel32 imports.
@@ -267,7 +267,7 @@ Commit: —
 
 - [ ] Fill the 21 POSIX constant accessors with **poison values** (`usize::MAX`-style),
       never plausible ones, each with a comment naming the sub-plan that will remove it
-      (47-S). A path that reaches one must crash, not mis-address.
+      (47-E). A path that reaches one must crash, not mis-address.
 - [ ] `emit_random_bytes` over `BCryptGenRandom`; `emit_errno` over `GetLastError`.
 - [ ] Decide `skip_entry_arena_destroy` for Windows explicitly (§3.2) and comment the
       reasoning — it is a use-after-free question.
@@ -317,7 +317,7 @@ Commit: —
    value turns the same bug into an immediate, attributable crash. (§Phase 3)
 3. **`skip_entry_arena_destroy` for Windows.** Recommended `false` (matching the
    fallthrough) **only after** confirming no Windows thread path exists yet — which is
-   true until 47-F4. Re-decide when F4 lands; record the dependency here. (§3.2)
+   true until 47-H4. Re-decide when F4 lands; record the dependency here. (§3.2)
 
 ## Corrections
 
@@ -343,7 +343,7 @@ is a spike against exactly that.
 
 The second risk is quieter: this sub-plan must return fabricated values from 21 required
 POSIX constant accessors, because they cannot be left unimplemented and cannot carry an
-error. Making them poison rather than plausible is what keeps 47-D/E/G honest until 47-S
+error. Making them poison rather than plausible is what keeps 47-F/E/G honest until 47-E
 removes them.
 
 What is left untouched: `emit_libc_call`'s contract, the PE writer, every other

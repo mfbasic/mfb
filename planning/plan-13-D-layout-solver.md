@@ -1,12 +1,12 @@
-# plan-13-S: the shadow tree, the emitted layout solver, and the headless host
+# plan-13-D: the shadow tree, the emitted layout solver, and the headless host
 
 Last updated: 2026-07-20
 Effort: **UNMEASURED — Phase 0 measures it.** Provisionally medium–large; if Phase 0
 returns large, split by axis before continuing (§Phase 0).
-Depends on: plan-13-A. Feature-wide precondition: plan-13 master §Prerequisites.
+Depends on: plan-13-C. Feature-wide precondition: plan-13 master §Prerequisites.
 Produces: the worker-side shadow tree + dirty model, `_mfb_rt_app_layout` (the 125th
-runtime helper), and the `headless` host + `--app-host headless`. Consumed by 13-M, 13-G,
-13-B, 13-C.
+runtime helper), and the `headless` host + `--app-host headless`. Consumed by 13-E, 13-F,
+13-H, 13-I.
 
 The worker-side model, the emitted solver, and the backend that makes both testable
 without a display.
@@ -28,14 +28,14 @@ References (read first):
   stated comparator ("several times `float_format.rs`").
 - `src/target/shared/runtime/mod.rs` — `RuntimeHelperSpec`. **The registry the draft never
   mentions** (§3.2).
-- `planning/plan-13-A-app-builtin.md` §7, §8.1, §8.3 — the shadow/dirty model and the
+- `planning/old-plans/superseded-plan-13-A-app-builtin.md` §7, §8.1, §8.3 — the shadow/dirty model and the
   measurement contract this preserves.
 
 ## Prerequisites
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-13-A has landed | `ls src/builtins/app.rs` | **NOT MET** |
+| plan-13-C has landed | `ls src/builtins/app.rs` | **NOT MET** |
 | The runtime-helper registry has room and a known shape | `rg -n 'struct RuntimeHelperSpec' src/target/shared/runtime/mod.rs` | **MET** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -57,8 +57,8 @@ References (read first):
 
 ### Non-goals (explicit constraints)
 
-- **No native backend.** macOS is 13-M, GTK is 13-G.
-- **No events, no Input.** 13-E.
+- **No native backend.** macOS is 13-E, GTK is 13-F.
+- **No events, no Input.** 13-G.
 - **No caching of measured sizes.** The solver *calls* the measure fn-ptr (single-pass per
   leaf in v1) rather than baking a size, so a future multi-pass solver is a change of
   strategy, not of contract.
@@ -84,13 +84,13 @@ References (read first):
 | An emitted helper of this scale has a precedent | **CONFIRMED** | `term_grid.rs`, 1202 lines |
 | That precedent solves a *simpler* problem | **CONFIRMED** | fixed cell grid; no measure callback, no nested flex, no fill distribution |
 | The solver needs a registry entry | **CONFIRMED** | 124 helpers each have a `RuntimeHelperSpec`; the draft never mentions the registry |
-| The solver must be re-entrant | **CONFIRMED, and the reason is 13-C** | plan-13-C: its scroll handler is a *third* caller, and it says "'re-entrant on the main thread' is a hard constraint that **this plan, not plan-13-A, is the reason for**" |
+| The solver must be re-entrant | **CONFIRMED, and the reason is 13-I** | plan-13-I: its scroll handler is a *third* caller, and it says "'re-entrant on the main thread' is a hard constraint that **this plan, not plan-13-C, is the reason for**" |
 | No atomic instruction encoders exist (and none are needed) | **CONFIRMED** | `rg -n 'ldaxr\|stlxr\|cmpxchg' src/arch/` → one comment only. The design uses a pipe + idle-post, no shared mutable memory |
 | The solver is 1500–2500 lines | **UNMEASURED** | Phase 0 |
 
-**On re-entrancy:** this is a **reverse dependency**. 13-S must build a property whose only
-justification lives in 13-C. Build it anyway and record why — dropping it because "nothing
-here needs it" would silently break 13-C much later, and re-entrancy is not something that
+**On re-entrancy:** this is a **reverse dependency**. 13-D must build a property whose only
+justification lives in 13-I. Build it anyway and record why — dropping it because "nothing
+here needs it" would silently break 13-I much later, and re-entrancy is not something that
 can be retrofitted into an emitted helper cheaply.
 
 ## 3. Design Overview
@@ -112,7 +112,7 @@ Without gating, every program pays for the solver.
 
 **Where design uncertainty concentrates: the size, and it is the whole point of Phase 0.**
 The solver decides whether plan-13 is `huge` or worse, and its only stated number has no
-derivation. Everything downstream — 13-M, 13-G, 13-B, 13-C — waits on it.
+derivation. Everything downstream — 13-E, 13-F, 13-H, 13-I — waits on it.
 
 **Where correctness risk concentrates:** the fill (`Size < 0`) distribution across a
 `Justification × Align` matrix. It is the case with the most interacting rules, it is
@@ -172,7 +172,7 @@ shadow-tree knowledge. They share only the flat node array's layout.
 - [ ] Tests: mutations update links and dirty flags as specified.
 
 Acceptance: shadow-tree mutations behave as specified, headless, with no solver. **Landing
-this alone gives 13-B and 13-C something to build nodes against before the solver exists.**
+this alone gives 13-H and 13-I something to build nodes against before the solver exists.**
 Commit: —
 
 ### Phase 2 — the headless host
@@ -189,7 +189,7 @@ Commit: —
 
 ### Phase 3 — the solver
 
-- [ ] `_mfb_rt_app_layout`: allocation-free, **re-entrant** (§2.2 — the reason is 13-C),
+- [ ] `_mfb_rt_app_layout`: allocation-free, **re-entrant** (§2.2 — the reason is 13-I),
       main-thread-callable, walking a flat node array + an indirect `host_measure`.
 - [ ] Row / Column / Stack across the full `Justification × Align × Size`(`<0` fill)
       matrix, honoring padding/margin, skipping `display:none`.
@@ -210,7 +210,7 @@ Commit: —
   denominator before relying on them. A green gate over a directory with no goldens proves
   nothing.
 - Runtime proof: the headless host *is* the runtime proof for this sub-plan; a display is
-  not required and deliberately not used. On-device proof arrives in 13-M/13-G, and its
+  not required and deliberately not used. On-device proof arrives in 13-E/13-F, and its
   acceptance is that it matches these frames.
 - Doc sync: none — the solver is internal. `--app-host headless` needs a CLI mention.
 - Acceptance: the project's full suite.
@@ -236,12 +236,12 @@ Commit: —
 - 2026-07-20 — **The solver's size is the only unmeasured number in plan-13**, and it sizes
   the feature. `term_grid.rs` does a simpler job in 1202 lines, so "~1500–2500" is a floor
   with no derivation. Phase 0 now measures it before anything is scheduled behind it.
-- 2026-07-20 — **Re-entrancy is a reverse dependency on 13-C**, which the draft did not
+- 2026-07-20 — **Re-entrancy is a reverse dependency on 13-I**, which the draft did not
   record on A's side. Building it here is correct; dropping it as unneeded would break
-  13-C much later and cannot be retrofitted cheaply.
+  13-I much later and cannot be retrofitted cheaply.
 - 2026-07-20 — **The shadow tree and the solver are separable** and are now separate
   phases: the tree has no emitter, the solver has no tree knowledge. Landing the tree alone
-  unblocks 13-B and 13-C early.
+  unblocks 13-H and 13-I early.
 
 ## Summary
 

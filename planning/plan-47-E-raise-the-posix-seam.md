@@ -1,8 +1,8 @@
-# plan-47-S: raise the platform seam off POSIX
+# plan-47-E: raise the platform seam off POSIX
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-47-P (branches already exhaustive), plan-47-C (one real Windows surface
+Depends on: plan-47-A (branches already exhaustive), plan-47-D (one real Windows surface
 to validate the raised seam against). Feature-wide precondition: master §Prerequisites.
 Produces: intent-level `CodegenPlatform` methods replacing 21 POSIX constant accessors,
 and the deletion of C's poison-value wall. **Blocks E and G.**
@@ -18,7 +18,7 @@ constants cannot be parameterized — the seam has to move up, from "tell me you
 offsets" to "do the thing".
 
 The single behavioral outcome: no `CodegenPlatform` method describes a POSIX struct
-layout or constant, every existing target emits byte-identical code, and 47-C's 21
+layout or constant, every existing target emits byte-identical code, and 47-D's 21
 poison values are gone.
 
 References (read first):
@@ -28,24 +28,24 @@ References (read first):
   insufficient.
 - `src/target/shared/code/net/{mod,io,poll}.rs`, `tls/{mod,openssl}.rs` — the socket
   constant consumers.
-- `planning/plan-47-C-win32-runtime-floor.md` §Phase 3 — the poison-value wall this
+- `planning/plan-47-D-win32-runtime-floor.md` §Phase 3 — the poison-value wall this
   sub-plan removes.
-- `planning/plan-47-P-platform-family-match.md` — lands first; its exhaustive matches are
+- `planning/plan-47-A-platform-family-match.md` — lands first; its exhaustive matches are
   what make this sub-plan's edits safe.
 
 ## Prerequisites
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-47-P has landed | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
-| plan-47-C has landed (a real Windows surface to validate against) | `ls src/target/win_x86_64/code.rs` | **NOT MET** |
+| plan-47-A has landed | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
+| plan-47-D has landed (a real Windows surface to validate against) | `ls src/target/win_x86_64/code.rs` | **NOT MET** |
 | Byte-identity goldens exist for all four existing targets | `find tests -path '*/golden/*' -name '*.ncode*' \| while read f; do b="${f##*/}"; b="${b%.*}"; echo "${b##*.}"; done \| sort -u` | **NOT MET — `linux-riscv64` has 0** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
 > every row before continuing and again before deciding to stop. If you stop, report all
 > three statuses.
 
-Row 3 is a hard blocker here for the same reason as in 47-P: this sub-plan's acceptance
+Row 3 is a hard blocker here for the same reason as in 47-A: this sub-plan's acceptance
 is byte-identity across all four targets, and a target with no goldens cannot produce a
 diff.
 
@@ -56,10 +56,10 @@ diff.
 - Shared lowering contains no `termios`, `dirent` or `struct stat` layout knowledge.
 - All four existing targets emit **byte-identical** code — this is the whole acceptance
   criterion.
-- 47-C's poison-value wall is deleted; no fabricated constant remains in the Windows
+- 47-D's poison-value wall is deleted; no fabricated constant remains in the Windows
   platform.
 - Windows implementations are **not** written here — E and G write them. This sub-plan
-  leaves `unreachable!("47-E owns this")` arms, exactly as 47-P did.
+  leaves `unreachable!("47-G owns this")` arms, exactly as 47-A did.
 
 ### Non-goals (explicit constraints)
 
@@ -153,14 +153,14 @@ struct with per-field offsets, and folding it into one method means re-emitting 
 sequence from inside the platform impl rather than from shared code.
 
 **Rejected alternative:** *branch in the consumer* (`if platform.has_termios()`).
-Rejected: it is the same binary shape 47-P just removed, and it grows a new fork per
+Rejected: it is the same binary shape 47-A just removed, and it grows a new fork per
 surface. It also leaves POSIX struct knowledge in shared code permanently.
 
 **Rejected alternative:** *have Windows return synthetic offsets into a fake struct it
 then interprets.* Rejected on sight — it encodes a lie in the platform seam, and the
 first person to read `termios_size()` on Windows would reasonably believe it.
 
-**Rejected alternative:** *do this before 47-C.* Rejected: without one real Windows
+**Rejected alternative:** *do this before 47-D.* Rejected: without one real Windows
 surface, the raised seam is designed against an imagined implementation. C's poison-value
 wall is uncomfortable but short-lived, and it makes the requirements concrete.
 
@@ -179,7 +179,7 @@ caller still owns the storage and the platform only decides what to write into i
 ### 4.2 `emit_read_dir_entry` / `emit_stat_is_dir`
 
 Same move: `fs_helpers_paths.rs:922`/`:1039`'s `d_namlen`-vs-strlen fork moves into the
-two platform impls. The `if platform.family() == Linux` that 47-P created here
+two platform impls. The `if platform.family() == Linux` that 47-A created here
 disappears entirely — which is the tell that this raise is correct rather than cosmetic.
 
 ### 4.3 The socket methods
@@ -217,10 +217,10 @@ Commit: —
 ### Phase 2 — the dirent/stat group (3 constants, smallest blast radius)
 
 - [ ] Add `emit_read_dir_entry`, `emit_stat_is_dir`; move the POSIX sequences verbatim
-      into the two impls; delete the 3 constants and the 47-P branches at
+      into the two impls; delete the 3 constants and the 47-A branches at
       `fs_helpers_paths.rs:922`, `:1039`.
 - [ ] Delete the corresponding poison values from `win_x86_64/code.rs`; leave
-      `unreachable!("47-D owns this")`.
+      `unreachable!("47-F owns this")`.
 
 Acceptance: `scripts/artifact-gate.sh` 0 diffs on all four existing targets.
 Commit: —
@@ -229,7 +229,7 @@ Commit: —
 
 - [ ] Add `emit_set_raw_mode`; move the enter/exit sequence verbatim from
       `io_helpers.rs:866` into the two impls; delete the 8 constants.
-- [ ] Delete the poison values; leave `unreachable!("47-E owns this")`.
+- [ ] Delete the poison values; leave `unreachable!("47-G owns this")`.
 
 Acceptance: 0 diffs on all four targets. This sequence is a read-modify-write of a struct
 with per-field offsets — diff the `.ncode` for a `term::`-using fixture explicitly, not
@@ -241,7 +241,7 @@ Commit: —
 - [ ] Add `emit_set_nonblocking` + `emit_classify_socket_error` per the Phase 1 split;
       lift the 4 non-portable constants; **keep the 6 portable ones**.
 - [ ] Update `net/mod.rs`, `net/io.rs`, `net/poll.rs`, `tls/mod.rs`, `tls/openssl.rs`.
-- [ ] Delete the poison values; leave `unreachable!("47-G owns this")`.
+- [ ] Delete the poison values; leave `unreachable!("47-I owns this")`.
 
 Acceptance: 0 diffs on all four targets, plus an explicit `.ncode` diff for a `net::`-
 and a `tls::`-using fixture. Confirm no poison constant remains anywhere in

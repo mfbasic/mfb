@@ -1,4 +1,4 @@
-# plan-47-P: make every platform branch exhaustive
+# plan-47-A: make every platform branch exhaustive
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
@@ -19,14 +19,14 @@ about it**, and zero behavior change for the four existing targets — proven by
 
 This is the highest-leverage sub-plan in plan-47 and it delivers no Windows code at all.
 It converts the feature's dominant silent-failure class into a build failure, *before*
-47-A registers the target and makes all 29 sites reachable.
+47-B registers the target and makes all 29 sites reachable.
 
 References (read first):
 
 - `src/target/shared/code/types.rs:212` — `CodegenPlatform`, whose `target()` returns
   the `String` every one of these sites compares against.
 - The master, §3.2 — the enumeration of what Windows silently inherits today.
-- `planning/plan-47-F-threads.md` §Phase 1 — the same "collapse to one chokepoint, prove
+- `planning/plan-47-H-threads.md` §Phase 1 — the same "collapse to one chokepoint, prove
   zero-byte diff" technique, applied to pthread symbol selection. This sub-plan is that
   technique applied to the branch sites rather than the symbol literals.
 
@@ -61,7 +61,7 @@ riscv64 `.ncodesum` goldens first, mirroring the six `codegen-cover` fixtures th
   with no `_ =>` fallthrough anywhere in the converted set.
 - **Zero behavior change.** All four existing targets emit byte-identical code.
 - No Windows arm is added here — every `Windows` arm is `unreachable!()` or a compile
-  error until 47-A registers the target. This sub-plan is pure mechanism.
+  error until 47-B registers the target. This sub-plan is pure mechanism.
 
 ### Non-goals (explicit constraints)
 
@@ -146,13 +146,13 @@ Each of the 29 sites becomes:
 match platform.family() {
     PlatformFamily::MacOS => DARWIN_TIOCGWINSZ,
     PlatformFamily::Linux => LINUX_TIOCGWINSZ,
-    PlatformFamily::Windows => unreachable!("47-E owns the Windows console path"),
+    PlatformFamily::Windows => unreachable!("47-G owns the Windows console path"),
 }
 ```
 
 **The `unreachable!` is the point.** It is not a placeholder to tidy up later — it is the
-marker that says "this site has an unanswered Windows question, and 47-E owns it".
-When 47-A registers the target, any site still holding `unreachable!` that a Windows
+marker that says "this site has an unanswered Windows question, and 47-G owns it".
+When 47-B registers the target, any site still holding `unreachable!` that a Windows
 program actually reaches panics loudly in a test rather than emitting a wrong constant.
 Sites Windows genuinely never reaches keep it permanently.
 
@@ -170,7 +170,7 @@ each, so a mistake is attributable to a 3-line change rather than a 29-site swee
 Rejected: it is the same binary shape with a new name. A third OS with a fourth answer
 reintroduces the problem, and booleans do not produce exhaustiveness errors.
 
-**Rejected alternative:** *do this inside 47-A, as part of registration.* Rejected:
+**Rejected alternative:** *do this inside 47-B, as part of registration.* Rejected:
 A is already `large` and its acceptance is byte-identity; folding a 29-site sweep into it
 makes any diff unattributable. Landing P first means A's diff is only the ABI change.
 

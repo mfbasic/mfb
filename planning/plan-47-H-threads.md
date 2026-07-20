@@ -1,14 +1,14 @@
-# plan-47-F: Threads (thread:: over CreateThread + SRWLOCK/CONDITION_VARIABLE)
+# plan-47-H: Threads (thread:: over CreateThread + SRWLOCK/CONDITION_VARIABLE)
 
 Last updated: 2026-07-19
 Effort: large (3h–1d)  — the top of the sub-plan band; the four phases below are individually medium and land separately.
 Depends on: **per phase — the single header dependency was wrong.**
-  - F1 (collapse 3 emission routes onto one `sync_symbol`): **nothing**
-  - F2 (rename-compatible Win32 arms + init-check gating): **nothing**
-  - F3 (spawn / release / timed wait): **plan-47-A** — the shadow space + outgoing
+  - H1 (collapse 3 emission routes onto one `sync_symbol`): **nothing**
+  - H2 (rename-compatible Win32 arms + init-check gating): **nothing**
+  - H3 (spawn / release / timed wait): **plan-47-B** — the shadow space + outgoing
     stack-arg tail. This document already said so at §Phase 3 and §Open Decisions;
     the header contradicted its own body.
-  - F4 (advertise `thread.*`, kernel32 imports, fixtures): **plan-47-C**
+  - H4 (advertise `thread.*`, kernel32 imports, fixtures): **plan-47-D**
 
 Make the `thread::` surface work on `windows-x86_64` by adding a **platform switch**
 to the shared thread trampoline and sync helpers, so that every place that today
@@ -24,13 +24,13 @@ linux-x86_64 build of the same programs — including the resource-plane and
 `thread-transfer-state-rt`, `thread-send-file-ownership-rt`) — while every existing
 target's emitted bytes stay unchanged.
 
-**Correction (2026-07-20): this sub-plan is NOT different in kind from 47-E/G.**
+**Correction (2026-07-20): this sub-plan is NOT different in kind from 47-G/G.**
 The original text claimed those "add *new* methods to the Windows `CodegenPlatform`"
 while only F edits shared lowering. Measured, that is false: there is no `emit_socket`
 or `emit_connect` on the trait at all — G rewrites **32** hardcoded POSIX symbol
 literals across `shared/code/net/{mod,io,poll}.rs`, and E rewrites **6** across
 `io_helpers.rs` and `term.rs`. G is the same work as this sub-plan at 38% the scale;
-only 47-B touches no shared code. The technique below (collapse to one chokepoint,
+only 47-C touches no shared code. The technique below (collapse to one chokepoint,
 prove zero-byte diff, then add the Windows arm) is **the reusable pattern for the whole
 feature**, not an F-specific device — clone it as G1 and E1.
 
@@ -71,16 +71,16 @@ Per phase, matching the dependency split in the header:
 
 | Phase | Must be true | Command | Status 2026-07-20 |
 |---|---|---|---|
-| F1, F2 | Byte-identity goldens for all four existing targets | `find tests -path '*/golden/*' -name '*.ncode*' \| while read f; do b="${f##*/}"; b="${b%.*}"; echo "${b##*.}"; done \| sort -u` | **NOT MET — `linux-riscv64` has 0** |
-| F3 | plan-47-A has landed (shadow space + outgoing stack-arg tail) | `rg -n 'shadow_space_bytes' src/` | **NOT MET** |
-| F4 | plan-47-C has landed (a runnable `.exe` and import tables) | `ls src/target/win_x86_64/plan.rs` | **NOT MET** |
+| H1, H2 | Byte-identity goldens for all four existing targets | `find tests -path '*/golden/*' -name '*.ncode*' \| while read f; do b="${f##*/}"; b="${b%.*}"; echo "${b##*.}"; done \| sort -u` | **NOT MET — `linux-riscv64` has 0** |
+| H3 | plan-47-B has landed (shadow space + outgoing stack-arg tail) | `rg -n 'shadow_space_bytes' src/` | **NOT MET** |
+| H4 | plan-47-D has landed (a runnable `.exe` and import tables) | `ls src/target/win_x86_64/plan.rs` | **NOT MET** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
 > every row before you continue and again before you decide to stop. Never act on a
 > status you did not just verify. **If you stop, report the status of every row**, not
 > only the one that blocked you.
 
-**F1 and F2 block on nothing but row 1** — they are inert shared refactors whose entire
+**H1 and H2 block on nothing but row 1** — they are inert shared refactors whose entire
 proof is a zero-byte diff, so a target with no goldens makes that proof vacuous.
 
 
@@ -279,7 +279,7 @@ Three fixed-size reserves, all currently sized for the largest
 a 13-symbol import list bound to `self.libpthread()`;
 `src/target/macos_aarch64/plan.rs:620` is the second precedent. Nothing shared
 needs to change to give Windows a different list — `src/target/win_x86_64/plan.rs`
-declares its own, exactly as 47-C did for the floor.
+declares its own, exactly as 47-D did for the floor.
 
 ### 2.7 What `_mfb_shutdown` does — and does not do
 
@@ -336,7 +336,7 @@ is where almost all of the byte-identity risk is retired.
   queue. This is a silent-wrong-value class, the worst one per `.ai/compiler.md`.
 - **Frame shadow space (§5.5).** The thread helpers use hand-managed frames with
   hardcoded `sp`-relative local offsets and then make external calls. Under Win64
-  the caller must reserve 32 bytes at `[rsp+0..31]` at the call. If 47-A does not
+  the caller must reserve 32 bytes at `[rsp+0..31]` at the call. If 47-B does not
   supply a shadow-aware locals base, every one of these frames silently
   corrupts its own locals on the first external call.
 - **The four-queue invariant (§6).** Any Windows arm that handles the data queues
@@ -458,9 +458,9 @@ Differences from the `pthread_create` sequence at `runtime_helpers.rs:612`–`:6
 
 - **Six arguments, two on the stack.** Args 5 and 6 go above the shadow space.
   This is the first consumer in shared lowering of the x86 outgoing stack-arg
-  tail that 47-A must implement (`abi.rs:39`–`:58`, `OUTGOING_ARGS_BASE`;
-  `abi.rs:16`–`:24` currently errors past the register cap). If 47-A has not
-  landed that, 47-F is blocked — this is the concrete dependency.
+  tail that 47-B must implement (`abi.rs:39`–`:58`, `OUTGOING_ARGS_BASE`;
+  `abi.rs:16`–`:24` currently errors past the register cap). If 47-B has not
+  landed that, 47-H is blocked — this is the concrete dependency.
 - **No attr object.** The `pthread_attr_init` / `pthread_attr_setstacksize` pair
   (`:635`–`:646`) is skipped entirely; the 8 MiB value moves from
   `setstacksize`'s argument into `dwStackSize`. The rationale comment at
@@ -489,14 +489,14 @@ pointer-sized argument in `rcx`, return value in `eax`.
 
 The trampoline as written is *already* both. It reads its single argument from
 `abi::ARG[0]` (`:756`) and returns by `move_immediate(abi::RET[0], "Integer", "0")`
-(`:1049`). Once 47-A realizes `abi::ARG[0]` as `rcx` and `abi::RET[0]` as `rax`
+(`:1049`). Once 47-B realizes `abi::ARG[0]` as `rcx` and `abi::RET[0]` as `rax`
 for this target, the C-level signature difference **disappears** — `DWORD` is the
 low 32 bits of the same `rax` the pthread version returns `NULL` in, and the value
 written is `0` either way. **No separate `DWORD` shim function is required**, and
 none should be added; a shim would be a second machine-floor frame that the
 plan-34-D physical-register assertion (`:1060`) would have to police as well.
 
-Two things *do* have to be true, and both are 47-A's contract (§5.5):
+Two things *do* have to be true, and both are 47-B's contract (§5.5):
 
 1. The trampoline's hand-managed frame must reserve Win64 shadow space for the
    external calls it makes (it makes at least six: one lock, two broadcasts, one
@@ -511,7 +511,7 @@ Two things *do* have to be true, and both are 47-A's contract (§5.5):
    register model (they are `x13`/`x14` → `r9`/`r10` under SysV per the comment
    at `:735`–`:736`); `r9`/`r10` are caller-saved under Win64 too, so the
    confinement argument survives — but it must be *checked*, not assumed, because
-   47-A changes `map_scratch_register`.
+   47-B changes `map_scratch_register`.
 
 ### 5.4 Timed wait — the highest-risk conversion
 
@@ -567,7 +567,7 @@ there.
 serve this deadline; on Windows it is replaced by `GetTickCount64` and
 `clock_gettime` never appears in the Windows import list.
 
-### 5.5 Frame shadow space — the contract this plan needs from 47-A
+### 5.5 Frame shadow space — the contract this plan needs from 47-B
 
 Three helpers in scope use hand-written `sp`-relative local offsets *and* make
 external calls:
@@ -585,12 +585,12 @@ the first external call.** The trampoline's `LR_OFFSET = 0`, `ARENA_OFFSET = 8`,
 build without shadow handling loses its return address on the first
 `AcquireSRWLockExclusive`.
 
-47-F does **not** solve this locally by hand-adding 32 to every constant (that
+47-H does **not** solve this locally by hand-adding 32 to every constant (that
 would fork three frame layouts and re-open byte identity). The requirement on
-47-A is: `abi::subtract_stack` / the frame finalizer must place hand-managed
+47-B is: `abi::subtract_stack` / the frame finalizer must place hand-managed
 locals above a platform-sized outgoing-args reservation, so a helper's
 `sp+K` local addressing stays written as `sp+K` in shared code and is *realized*
-at `sp+32+K` on Win64. Phase 3's first task is to **verify** 47-A provides this
+at `sp+32+K` on Win64. Phase 3's first task is to **verify** 47-B provides this
 and to stop with a stated blocker if it does not — per AGENTS.md, that is a
 genuine external dependency, not a thing to paper over.
 
@@ -721,13 +721,13 @@ Commit: —
 The correctness concentrator; lands behind the Phase 2 mapping and in front of
 the fixtures.
 
-- [ ] **Verify the 47-A shadow-space contract first** (§5.5): confirm that
+- [ ] **Verify the 47-B shadow-space contract first** (§5.5): confirm that
       hand-managed `sp+K` locals in `lower_thread_trampoline`,
       `lower_thread_start_helper`, and `simple_thread_handle_helper` are realized
       above the Win64 32-byte outgoing reservation, and that
       `abi::SCRATCH[4]`/`[5]` do not alias `abi::CURRENT_THREAD` under the Win64
       register model (the hazard documented at `runtime_helpers.rs:728`–`:736`).
-      If either does not hold, stop and report it as a 47-A blocker.
+      If either does not hold, stop and report it as a 47-B blocker.
 - [ ] Windows spawn arm in `lower_thread_start_helper`
       (`runtime_helpers.rs:612`–`:691`): skip the attr pair; stage
       `CreateThread(NULL, 8 MiB, trampoline, cb, 0, NULL)` — args 5/6 via the
@@ -852,10 +852,10 @@ Commit: —
   `SleepConditionVariableSRW`'s `dwMs`. `QueryPerformanceCounter` buys resolution
   the `thread::` timeout API cannot express. (§5.4)
 - **Where the shadow-space reservation lands for hand-managed frames.** Recommend
-  47-A own it (a shadow-aware locals base in the frame finalizer) so shared
-  lowering keeps writing `sp+K`. The alternative — 47-F adding 32 to every
+  47-B own it (a shadow-aware locals base in the frame finalizer) so shared
+  lowering keeps writing `sp+K`. The alternative — 47-H adding 32 to every
   hardcoded offset behind a platform `const` — forks three frame layouts and
-  re-opens byte identity. If 47-A did not deliver it, Phase 3 stops and reports a
+  re-opens byte identity. If 47-B did not deliver it, Phase 3 stops and reports a
   blocker. (§5.5)
 
 ## 7. `TerminateThread` and the shutdown path
@@ -882,7 +882,7 @@ What the three teardown paths actually do:
 - **`_mfb_shutdown`** does **nothing thread-related** on any platform: it drains
   the stdout buffer, turns the terminal off, and destroys the main arena
   (`entry_and_arena.rs:1907`–`:1918`). Remaining worker threads are terminated by
-  process exit — `ExitProcess` on Windows (47-C's `emit_program_exit`), which
+  process exit — `ExitProcess` on Windows (47-D's `emit_program_exit`), which
   terminates every thread in the process, exactly as `exit`/`_exit` does on
   Linux/macOS. That equivalence is why the shutdown path needs no Windows arm at
   all, and it is the correct place for "kill the threads" to happen: at process
@@ -905,8 +905,8 @@ and an **inverted success polarity** that would silently turn every timeout into
 a spurious "ready". Spawn (handle returned rather than written through a pointer,
 inverted failure test, two stack args) and release (`CloseHandle` for
 `pthread_detach`) are mechanical by comparison. The trampoline needs **no
-`DWORD` shim** — once 47-A realizes `ARG[0]`/`RET[0]` as `rcx`/`rax`, the existing
-body already *is* an `LPTHREAD_START_ROUTINE` — but it does depend on 47-A
+`DWORD` shim** — once 47-B realizes `ARG[0]`/`RET[0]` as `rcx`/`rax`, the existing
+body already *is* an `LPTHREAD_START_ROUTINE` — but it does depend on 47-B
 supplying Win64 shadow space for hand-managed frames, which Phase 3 verifies
 before writing any code.
 
@@ -921,16 +921,16 @@ shipping targets.
 
 <!-- Filled in during execution. -->
 
-- 2026-07-20 — **The header's single `Depends on: plan-47-C` contradicted this
+- 2026-07-20 — **The header's single `Depends on: plan-47-D` contradicted this
   document's own body, three times** (§Phase 3's first task, §Phase 3's opening, and
-  §Open Decisions all say the blocker is 47-A's shadow space). Dependencies are now
-  declared per phase: F1 nothing, F2 nothing, F3 47-A, F4 47-C. **F1+F2 blocking on
+  §Open Decisions all say the blocker is 47-B's shadow space). Dependencies are now
+  declared per phase: H1 nothing, H2 nothing, H3 47-B, H4 47-D. **H1+H2 blocking on
   nothing is the single biggest de-risking move available in this feature** — they are
-  inert shared refactors that can land before 47-A exists.
-- 2026-07-20 — **"different in kind from 47-D/E/G" is false.** There is no
-  `emit_socket`/`emit_connect` on `CodegenPlatform` at all, so 47-G rewrites 37 hardcoded
-  POSIX socket literals in `shared/code/net/` and 47-E rewrites 6 in `io_helpers.rs`/
-  `term.rs`. G is this sub-plan's shape at 38% the scale; E at 7%. Only 47-B1 touches no
+  inert shared refactors that can land before 47-B exists.
+- 2026-07-20 — **"different in kind from 47-F/E/G" is false.** There is no
+  `emit_socket`/`emit_connect` on `CodegenPlatform` at all, so 47-I rewrites 37 hardcoded
+  POSIX socket literals in `shared/code/net/` and 47-G rewrites 6 in `io_helpers.rs`/
+  `term.rs`. G is this sub-plan's shape at 38% the scale; E at 7%. Only 47-C1 touches no
   shared code. **Phase 1's chokepoint technique is the reusable pattern for the whole
   feature** and has been cloned as G1 and E1.
 - 2026-07-20 — **Effort `large` is over the sub-plan band.** The split rule says large
@@ -944,7 +944,7 @@ shipping targets.
   "58 call sites" figure is **57**. The aggregate "85 call sites" is **91** routed sites
   (86 pthread-bearing). Re-derive before using any of these as a completion checklist.
 - 2026-07-20 — **"compiled for all five targets" is four today.** A fifth exists only
-  after 47-A registers Windows.
+  after 47-B registers Windows.
 - 2026-07-20 — **`thread_symbol` is not "the only platform switch in the thread path".**
   There are three: `:62` plus inline `== "macos-aarch64"` tests at `:612` and `:617`.
   (§Phase 1 later names those two correctly — the summary contradicted itself.)

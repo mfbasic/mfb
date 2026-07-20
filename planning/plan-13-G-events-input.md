@@ -1,11 +1,11 @@
-# plan-13-E: events, pacing, and Input I/O
+# plan-13-G: events, pacing, and Input I/O
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-13-M (a live window and the event pipe). Feature-wide precondition:
+Depends on: plan-13-E (a live window and the event pipe). Feature-wide precondition:
 plan-13 master §Prerequisites.
 Produces: click/double-click/close/resize events, `app::poll`, the `Input` round-trip.
-Consumed by 13-B (TextArea reuses the Input shape) and 13-C (cell activation).
+Consumed by 13-H (TextArea reuses the Input shape) and 13-I (cell activation).
 
 Native events drained at `sync`, the `poll` wait primitive, and the `Input` value
 round-trip.
@@ -17,7 +17,7 @@ freezes the window or loses a click.
 
 References (read first):
 
-- `planning/plan-13-A-app-builtin.md` §7 and §9 — the locked pacing decisions this
+- `planning/old-plans/superseded-plan-13-A-app-builtin.md` §7 and §9 — the locked pacing decisions this
   preserves: non-blocking `sync`, `poll` returns FALSE before that window's first `sync`
   and never parks.
 - `src/target/macos_aarch64/app/` and `src/target/linux_gtk/` — the `O_NONBLOCK` pipe with
@@ -27,7 +27,7 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-13-M has landed (live window + event pipe) | `rg -n 'host_wait_events' src/` | **NOT MET** |
+| plan-13-E has landed (live window + event pipe) | `rg -n 'host_wait_events' src/` | **NOT MET** |
 | A macOS machine is available for on-device proof | build host | **MET** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -75,7 +75,7 @@ References (read first):
 | Events must be polled, not delivered | **CONFIRMED** | zero native→MFBASIC callback mechanisms exist; the audio callbacks are producer/consumer shims where MFBASIC polls down (master §2.4) |
 | The `O_NONBLOCK` + coalescing-fallback pattern is proven | **CONFIRMED** | bug-114, both platforms |
 | The system double-click interval is a toolkit value | **CONFIRMED** | `NSEvent.doubleClickInterval` / `gtk-double-click-time`. The draft correctly says do not hardcode |
-| `poll` must return FALSE before the first `sync` | **LOCKED DESIGN** | plan-13-A §9 — prevents parking on a window that has never presented |
+| `poll` must return FALSE before the first `sync` | **LOCKED DESIGN** | plan-13-C §9 — prevents parking on a window that has never presented |
 | A stalled worker cannot freeze the UI or lose clicks | **UNVERIFIED — an acceptance criterion** | proven by filling the pipe, not by reasoning |
 
 ## 3. Design Overview
@@ -157,7 +157,7 @@ Commit: —
 - Coverage check: `tests/syntax/app/` is golden-backed. The event behavior is not
   golden-testable — it is proven on-device, and that is stated rather than papered over.
 - Runtime proof: macOS on-device for all three phases; the click/Input behavior is
-  re-proven on GTK when 13-G lands.
+  re-proven on GTK when 13-F lands.
 - Doc sync: the event and `poll` surface in `src/docs/spec/stdlib/` + man pages.
 - Acceptance: the project's full suite.
 

@@ -13,7 +13,7 @@ ELF/Mach-O writers), a **Windows x64 calling-convention** realization (rcx/rdx/r
 (kernel32/ucrt/ws2_32/bcrypt via an Import Address Table — Windows has no stable
 syscall ABI, so *every* OS call becomes an imported-DLL call).
 
-The single behavioral outcome of the foundation (47-A..C): `mfb build -target
+The single behavioral outcome of the foundation (47-B..C): `mfb build -target
 windows-x86_64 hello` produces `hello.exe` that, run on Windows x86-64, prints the same
 bytes the Linux/macOS builds of the same program print and exits `0`. Later sub-plans
 grow the OS surface (files, console, threads, sockets, TLS) until the target advertises
@@ -37,7 +37,7 @@ References (read first — these are the seams this plan parameterizes):
 - `src/os/linux/link/{mod,elf}.rs` + `src/os/linux/object.rs` — the ELF writer the PE
   writer parallels; `src/os/macos/link/macho.rs` — the second precedent.
 - `src/target/shared/code/io_helpers.rs:866` and `src/target/shared/code/net/` — the
-  **shared, POSIX-shaped** lowering that §3.1 is about. Read before scoping E/F/G.
+  **shared, POSIX-shaped** lowering that §3.1 is about. Read before scoping G/H/I.
 - `mfb spec linker …` (`src/docs/spec/linker/**`), `mfb spec memory 08_program-startup`
   and `06_native-calling-convention` — the startup/ABI contracts to extend.
 
@@ -61,10 +61,10 @@ does not finish, port, or work around any of them.
 
 **On row 3.** §1's first non-goal is "no change to any existing target's output bytes",
 guarded by golden diff. That guard covers `macos-aarch64` (66 goldens), `linux-x86_64`
-(6) and `linux-aarch64` (6) — and **`linux-riscv64` not at all** (§2.1). 47-A only
-touches the x86 path, so its guard exists. But **E, F and G edit shared lowering that
+(6) and `linux-aarch64` (6) — and **`linux-riscv64` not at all** (§2.1). 47-B only
+touches the x86 path, so its guard exists. But **G, H and I edit shared lowering that
 riscv64 compiles through** (§3.1), and there the guard is absent. Seed riscv64
-byte-identity goldens before starting E, F or G — not before A or B.
+byte-identity goldens before starting G, H or I — not before B or C.
 
 **On row 4 — a baseline conflict, not a file conflict.** plan-57 edits
 `builder_collection_{layout,mutate,queries,query}.rs` and `link_thunk.rs`. **No plan-47
@@ -109,7 +109,7 @@ non-goal costs Windows nothing — it inherits all 8.
 Of the 54 required, **21 are POSIX ABI constants** for structures Windows does not have
 (§3.1). That is the part of this plan nobody scoped.
 
-This also refutes 47-A's own Phase 4, which says `win_x86_64/code.rs` is "a minimal
+This also refutes 47-B's own Phase 4, which says `win_x86_64/code.rs` is "a minimal
 `CodegenPlatform` … leave the trait's own defaults." With 54 required methods that does
 not compile, and the `termios_*`/offset accessors return plain `usize` — they cannot
 even carry an "unimplemented" error, so they must return fabricated values. The stub
@@ -136,8 +136,8 @@ wall is real work currently hidden inside A.
   `lower_program_entry` (`shared/code/entry_and_arena.rs:4`) branches on
   `platform.entry_args_in_registers()`; Windows needs a third path (raw entry, args via
   `GetCommandLineW`). Threads are hardcoded pthreads
-  (`shared/code/runtime_helpers.rs:600`, `runtime_helpers_thread.rs`) — 47-F. TLS is
-  `code/tls/{openssl,macos}.rs` — Windows adds a third — 47-H.
+  (`shared/code/runtime_helpers.rs:600`, `runtime_helpers_thread.rs`) — 47-H. TLS is
+  `code/tls/{openssl,macos}.rs` — Windows adds a third — 47-J.
 - **The linkable-image type is shared.** `EncodedImage` and friends live in
   `src/arch/aarch64/encode/` and are reused verbatim by the x86 encoder, so the PE
   writer consumes the *same* `EncodedImage` the ELF writer does.
@@ -153,7 +153,7 @@ Claims a `file:line` cannot settle.
 | The x86 ISA layer is OS-neutral and reusable unchanged | **CONFIRMED** | `linux_x86_64` consumes `arch/x86_64/` with no OS conditionals in the encoder |
 | "linux-x86_64 implements both traits" | **MISLEADING** | `CodegenPlatform` is implemented in `linux_common/code.rs:302` for all three Linux arches; `linux_x86_64` supplies only the `LinuxArch` delta and `NativePlanPlatform` (`plan.rs:53`) |
 | "The traits gain no new required methods (Windows implements the existing surface)" | **FALSE** | §3.1 — 21 of the required methods describe POSIX structs Windows lacks, and their *consumers* in shared lowering build those structs inline |
-| 47-F is the only sub-plan that edits shared lowering | **FALSE** | §3.1 — E (`io_helpers.rs:866`) and G (`shared/code/net/`, `tls/`) do too |
+| 47-H is the only sub-plan that edits shared lowering | **FALSE** | §3.1 — E (`io_helpers.rs:866`) and G (`shared/code/net/`, `tls/`) do too |
 | Existing targets are guarded byte-identical | **PARTIAL** | 28/1021 fixtures carry native goldens; `linux-riscv64` has **zero** (§2.1) |
 | A Windows box is available for runtime proof | **CONFIRMED** | `.ai/remote_systems.md:11`, ssh port 2230 |
 | Stack args past the register cap are unimplemented on x86 | **CONFIRMED** | `shared/abi.rs:16-24` errors past the cap; sentinels exist but are AArch64-resolved |
@@ -163,19 +163,19 @@ Claims a `file:line` cannot settle.
 Three independent new pieces, layered under the existing pipeline
 (NIR → NativePlan → NativeCodePlan → EncodedImage → container):
 
-1. **ABI realization (47-A)** — an `X86Abi` selector (SysV | Win64) threaded from the
+1. **ABI realization (47-B)** — an `X86Abi` selector (SysV | Win64) threaded from the
    backend through `mir::Backend::select`, so the Windows backend picks Win64:
    `CALL_ARGS = [rcx, rdx, r8, r9]` then a stack tail above the 32-byte shadow space,
    return `rax`, callee-saved `{rbx, rbp, rdi, rsi, r12–r15, xmm6–xmm15}`. **There is no
    syscall path on Windows** — the `AbiBoundary::Syscall` arm is unreachable for this
    target. Requires implementing the x86 outgoing stack-arg tail (`shared/abi.rs:16-24`
    currently errors past the cap).
-2. **PE/COFF writer (47-B)** — a self-contained `src/os/windows/` consuming
+2. **PE/COFF writer (47-C)** — a self-contained `src/os/windows/` consuming
    `EncodedImage`; DOS stub, `PE\0\0`, COFF header (`machine 0x8664`), PE32+ optional
    header (`magic 0x20b`, `Subsystem 3 = CONSOLE`), section table, and `.idata`
    import directory + IAT built from `EncodedImage.imports` grouped by DLL. External
    calls become `call [rip+IAT_slot]`. Fixed `ImageBase`, no `.reloc` initially.
-3. **Win32 OS-interface (47-C..H)** — the platform impls in
+3. **Win32 OS-interface (47-D..H)** — the platform impls in
    `src/target/win_x86_64/{code,plan}.rs`. `emit_libc_call` is reused verbatim; only the
    import *library* differs. Each surface is gated behind its `runtime_calls`
    advertisement, so an unimplemented surface is a clean compile-time rejection, never a
@@ -220,14 +220,14 @@ error codes are `WSAE*`, not `EAGAIN`.
 
 So there is **no set of integers a Windows platform can return that makes
 `io_helpers.rs:866` correct**. The consumer must branch, which means editing shared
-lowering — and that is why E, F and G are all in the same risk class, not just F.
+lowering — and that is why G, H and I are all in the same risk class, not just H.
 
 ### 3.2 The dominant failure mode: 20 silent wrong arms
 
 Every `platform.target()` branch in shared lowering is **binary** — `if macos { … } else
 { …POSIX… }` or `if linux { … } else { …macOS… }`. Not one has an `else if windows`.
 
-**The moment `windows-x86_64` is registered in `NATIVE_BACKENDS` (47-A), all 20 become
+**The moment `windows-x86_64` is registered in `NATIVE_BACKENDS` (47-B), all 20 become
 reachable and every one silently resolves to a POSIX arm — with no compile error, no
 diagnostic, and no failing test** (the Windows fixtures don't exist yet). A sample of
 what Windows would inherit:
@@ -244,7 +244,7 @@ what Windows would inherit:
 | `crypto_ec.rs:113`, `tls/openssl.rs` ×7 | the **OpenSSL** backend |
 | `mod.rs:712` (`skip_entry_arena_destroy`) | `false` — an undeliberated answer about destroying the arena while workers live |
 
-This is the same silent-wrong-value class 47-F correctly identifies for its timed-wait
+This is the same silent-wrong-value class 47-H correctly identifies for its timed-wait
 polarity, replicated across C, D, E, G and H. It is the single largest risk in the
 feature and the original plan does not name it.
 
@@ -252,7 +252,7 @@ feature and the original plan does not name it.
 branches to an exhaustive `match` on a platform-family enum, so that adding Windows
 produces **20 compile errors** instead of 20 silent wrong arms. That turns the dominant
 silent-failure class into a build failure. It is inert (no behavior change, provable by
-byte-identical goldens) and it blocks on nothing — see sub-plan **47-P**.
+byte-identical goldens) and it blocks on nothing — see sub-plan **47-A**.
 
 ### 3.3 Ways out of the constant seam
 
@@ -267,13 +267,13 @@ Three ways out, to be decided before E/F/G start (§Open Decisions 1):
 - **(c) Emulate.** Have Windows return synthetic offsets into a fake struct it then
   interprets. Rejected on sight — it encodes a lie in the platform seam.
 
-Recommended **(a)**, scoped as its own sub-plan (**47-S**) landing *before* E/F/G,
+Recommended **(a)**, scoped as its own sub-plan (**47-E**) landing *before* E/F/G,
 because it edits shared code that every backend compiles and must stay byte-identical
 for the four existing targets. That is new work the original letter map has no room for.
 
-**Where correctness risk concentrates:** 47-A (ABI — shadow space, callee-saved xmm,
-stack args; a mistake corrupts every non-trivial call), 47-B (PE layout — a wrong field
-silently fails to load), and **47-S plus E/F/G (shared lowering — a mistake here is not
+**Where correctness risk concentrates:** 47-B (ABI — shadow space, callee-saved xmm,
+stack args; a mistake corrupts every non-trivial call), 47-C (PE layout — a wrong field
+silently fails to load), and **47-E plus E/F/G (shared lowering — a mistake here is not
 a Windows bug, it is a linux-aarch64 or riscv64 bug)**. The 2026-07-14 master named only
 the first two.
 
@@ -298,11 +298,11 @@ below. Every letter is additionally gated behind §Prerequisites.
 
 ```
   BLOCKS ON NOTHING — land these first, all inert, all provable by 0-diff goldens:
-    P  (exhaustive platform-family match — turns 20 silent arms into 20 compile errors)
-    F1 (collapse pthread emission onto one sync_symbol chokepoint)
-    G1 (collapse 32 net/ call sites onto one net_symbol chokepoint)
-    E1 (collapse 6 termios call sites onto one term_symbol chokepoint)
-    B1 (src/os/windows/ PE writer, standalone — touches zero shared code)
+    A  (exhaustive platform-family match — turns 20 silent arms into 20 compile errors)
+    C1 (src/os/windows/ PE writer, standalone — touches zero shared code)
+    G1 (collapse 6 termios call sites onto one term_symbol chokepoint)
+    H1 (collapse pthread emission onto one sync_symbol chokepoint)
+    I1 (collapse 32 net/ call sites onto one net_symbol chokepoint)
 
   A (Win64 ABI + register model + the 54-method stub wall)
         │
@@ -328,16 +328,16 @@ byte-identity alone. The original map had *everything* behind A, which put the w
 feature behind its riskiest phase. Landing P first is what makes the rest safe, because
 after it the 20 silent arms are compile errors.
 
-- **47-P — Exhaustive platform-family match.** §3.2. Convert the 20 binary
+- **47-A — Exhaustive platform-family match.** §3.2. Convert the 20 binary
   `platform.target()` branches in shared lowering to an exhaustive `match` on a
   platform-family enum, so adding a new OS is a compile error at every site instead of a
   silent POSIX arm. Inert; zero behavior change; proven by 0-diff goldens on all four
   targets. **New; not in the 2026-07-14 map.** Depends on: nothing. **Land first.**
-- **47-A — Win64 ABI + register model.** The `X86Abi` selector, the Win64 register
+- **47-B — Win64 ABI + register model.** The `X86Abi` selector, the Win64 register
   model, the shadow space and outgoing stack-arg tail, target registration, and the
   `CodegenPlatform` stub wall (see below). Codegen-only, proven by selection/encoder
   unit tests. *Declared `large` — must be split (§Corrections).* Depends on: P.
-  - **Undeclared cost the draft hid:** 47-A Phase 4 says `win_x86_64/code.rs` is "a
+  - **Undeclared cost the draft hid:** 47-B Phase 4 says `win_x86_64/code.rs` is "a
     minimal `CodegenPlatform` … leave the trait's own defaults." **That does not
     compile.** Only 11 of 65 methods have defaults; **54 are required.** A must author
     ~51 stubs, and the 8 `termios_*` plus the offset/constant accessors return plain
@@ -348,7 +348,7 @@ after it the 20 silent arms are compile errors.
     to 6 at `x86_64/regmodel.rs:159`, refusal at `link_thunk.rs:661-672`) is the
     existing mechanism for expressing Win64's 4-register external cap. The master's §4
     predates it and discusses `REGISTER_ARGUMENT_COUNT` instead.
-- **47-B — PE/COFF executable writer.** `src/os/windows/{mod,object,link/}`; a minimal
+- **47-C — PE/COFF executable writer.** `src/os/windows/{mod,object,link/}`; a minimal
   PE32+ image Windows runs. **Splits in two:** *B1* (the writer itself — Phases 1–3,
   touching only the new `src/os/windows/` leaf and one line of `src/os/mod.rs`) depends
   on **nothing** and is the only unit in the feature that touches zero shared code;
@@ -360,40 +360,40 @@ after it the 20 silent arms are compile errors.
     `CALL_ARGS_WIN64` makes `rax` an argument slot. The `internal` guard at `:706` saves
     it today, but A introducing `X86Abi` is the natural moment to drop the marker for
     Win64 — which B's new test would forbid. Decide in whichever lands first.
-- **47-C — Windows console runtime floor.** The Win32 machine floor: entry
+- **47-D — Windows console runtime floor.** The Win32 machine floor: entry
   (`GetCommandLineW` + `CommandLineToArgvW`), arena (`VirtualAlloc`/`VirtualFree`),
   stdout/stderr (`GetStdHandle` + `WriteFile`), exit (`ExitProcess`), RNG seed
   (`BCryptGenRandom`). `hello.exe` prints and exits. Depends on: A, B.
-- **47-S — Raise the platform seam off POSIX.** §3.1. Replaces the 21 POSIX constant
+- **47-E — Raise the platform seam off POSIX.** §3.1. Replaces the 21 POSIX constant
   accessors with intent-level methods across all existing backends, byte-identically.
   **New; not in the 2026-07-14 map.** Depends on: C (needs one real Windows surface to
   validate the new seam against). **Blocks E, F, G.**
-- **47-D — Filesystem surface.** `fs::*` over Win32 + UTF-8↔UTF-16 path marshaling.
+- **47-F — Filesystem surface.** `fs::*` over Win32 + UTF-8↔UTF-16 path marshaling.
   Depends on: C. *(Consumes `dirent_*`/`stat_mode_offset`, so it is affected by S — see
   §Open Decisions 2.)*
-- **47-E — Console/terminal surface.** `term::*` + `io::` terminal queries over the
+- **47-G — Console/terminal surface.** `term::*` + `io::` terminal queries over the
   Console API. **Splits:** *E1* (collapse the 6 termios call sites onto one
   `term_symbol` chokepoint — inert) depends on **nothing**; *E2* (Console API arms,
   `GetConsoleMode`/`SetConsoleMode`, and the three `TIOCGWINSZ` branches at
   `term.rs:233/316/800`) depends on S + E1.
-- **47-F — Threads.** `thread::*` over `CreateThread`/`WaitForSingleObject` +
+- **47-H — Threads.** `thread::*` over `CreateThread`/`WaitForSingleObject` +
   `SRWLOCK`/`CONDITION_VARIABLE`. **Its four phases have four different dependencies**,
-  which is why the single header `Depends on: plan-47-C` was wrong:
+  which is why the single header `Depends on: plan-47-D` was wrong:
   | Phase | Real dependency |
   |---|---|
   | F1 — collapse 3 emission routes onto one `sync_symbol` | **nothing** — inert refactor, lands today |
   | F2 — rename-compatible Win32 arms + init-check gating | **nothing** — needs only a target string |
-  | F3 — spawn / release / timed wait | **47-A** (shadow space + outgoing tail; `CreateThread` takes six args, two on the stack) |
-  | F4 — advertise `thread.*`, kernel32 imports, fixtures | **47-C** |
+  | F3 — spawn / release / timed wait | **47-B** (shadow space + outgoing tail; `CreateThread` takes six args, two on the stack) |
+  | F4 — advertise `thread.*`, kernel32 imports, fixtures | **47-D** |
   *Declared `large` — this split is the required one (§Corrections).*
-- **47-G — Networking.** `net::*` over Winsock2. **Same shape as F, at 38% the scale:**
+- **47-I — Networking.** `net::*` over Winsock2. **Same shape as F, at 38% the scale:**
   32 hardcoded POSIX symbol literals across `net/mod.rs` (14), `net/io.rs` (16),
   `net/poll.rs` (2), plus `WSAGetLastError` diverging from `errno`. **Splits:** *G1*
   (collapse onto one `net_symbol` chokepoint — inert) depends on **nothing**; *G2*
   (Winsock arms: `closesocket`, `ioctlsocket`, `WSAPoll`, `WSAStartup`) depends on
   S + G1. The draft declared G as "just add methods" — there are **no** `emit_socket` /
   `emit_connect` methods on the trait at all; the net surface is constants only.
-- **47-H — Crypto + TLS transport.** `crypto::*` over CNG/BCrypt and a `tls::*` Schannel
+- **47-J — Crypto + TLS transport.** `crypto::*` over CNG/BCrypt and a `tls::*` Schannel
   backend. Depends on: G2. **Not a "third sibling" as the draft says:**
   `crypto_ec.rs:113` is `if target.contains("macos") { macos } else { openssl }`, so
   Windows falls into the **OpenSSL** arm; `tls/openssl.rs` is the *default* backend with
@@ -401,7 +401,7 @@ after it the 20 silent arms are compile errors.
   Adding Schannel means editing that dispatch and the data-object emission at
   `mod.rs:680`/`:703` — otherwise Windows bakes OpenSSL sonames into its `.rdata`.
 
-Bounded-surface evidence: the machine floor (47-C) needs **seven** kernel32 imports —
+Bounded-surface evidence: the machine floor (47-D) needs **seven** kernel32 imports —
 `GetStdHandle`, `WriteFile`, `VirtualAlloc`, `VirtualFree`, `ExitProcess`,
 `GetCommandLineW`, `GetSystemTimePreciseAsFileTime` — plus `CommandLineToArgvW`
 (shell32) and `BCryptGenRandom` (bcrypt): **9 total**, a tiny fixed IAT. (The
@@ -437,7 +437,7 @@ imports on the same mechanism.
   box (ssh port 2230) or under Wine in CI.
 - **No dual-flavor split.** Windows emits a single `.exe`; no `Flavor::ALL` loop.
 
-## 4. Windows x64 ABI (47-A detail)
+## 4. Windows x64 ABI (47-B detail)
 
 - Argument registers: `rcx, rdx, r8, r9`; FP args `xmm0–xmm3` (positionally aliased with
   the int slot — arg *n* is either `rN` or `xmmN`, never both). Return `rax` / `xmm0`.
@@ -453,7 +453,7 @@ imports on the same mechanism.
   zero register, `%thread`/closure homes) — verify none collide with a Win64 arg or the
   shadow space.
 
-## 5. Import Address Table & relocations (47-B detail)
+## 5. Import Address Table & relocations (47-C detail)
 
 - Group `EncodedImage.imports` by DLL. Build `.idata`: an import-directory table, import
   lookup + address tables, and the hint/name table.
@@ -470,7 +470,7 @@ imports on the same mechanism.
 - **New:** a `windows-x86_64` target; a `container:"pe"` object plan; `<name>.exe`
   artifact naming; new import libraries in plan tables; an internal `X86Abi` parameter on
   the x86 selection path.
-- **Changed (47-S):** the `CodegenPlatform` trait loses 21 POSIX constant accessors and
+- **Changed (47-E):** the `CodegenPlatform` trait loses 21 POSIX constant accessors and
   gains intent-level methods; every existing backend is updated. Emitted bytes for all
   four existing targets must be **identical** — the byte-identity guard's hardest test in
   this plan, and the reason §Prerequisites row 3 exists.
@@ -493,17 +493,17 @@ imports on the same mechanism.
 ## Open Decisions
 
 1. **How to de-POSIX the platform seam** (§3.1) — **must be settled before E/F/G, and it
-   creates the new sub-plan 47-S.** Recommended **(a) raise the seam** to intent-level
+   creates the new sub-plan 47-E.** Recommended **(a) raise the seam** to intent-level
    methods. Alternatives: (b) branch in the shared consumer; (c) emulate POSIX offsets
    (rejected on sight). Settle it with a one-surface spike (`term::` raw mode) rather
    than by argument.
-2. **Whether 47-D lands before or after 47-S.** D consumes `dirent_*`/`stat_mode_offset`,
+2. **Whether 47-F lands before or after 47-E.** D consumes `dirent_*`/`stat_mode_offset`,
    so the seam change affects it. Recommended: land D *after* S, so it is written once
    against the raised seam. If D lands first, budget a rewrite.
 3. **Whether the 8 app-mode methods get a shared no-app default** on the trait rather
    than 8 stubs in the Windows impl. Recommended: add defaults returning "unsupported",
    so every future console-only OS gets them free. Touches shared code, so it belongs
-   with 47-S.
+   with 47-E.
 
 ## Corrections
 
@@ -513,16 +513,16 @@ imports on the same mechanism.
   macOS impl 63 (§2.1). More usefully, the draft never split them by kind — 8 are
   app-mode (an explicit non-goal) and 21 are POSIX constants (§3.1).
 - 2026-07-20 — **"The traits gain no new required methods" is false**, and it was the
-  claim hiding this plan's biggest design problem. §3.1 and sub-plan 47-S are new.
-- 2026-07-20 — **"47-F is the only sub-plan that edits shared lowering" is false.**
+  claim hiding this plan's biggest design problem. §3.1 and sub-plan 47-E are new.
+- 2026-07-20 — **"47-H is the only sub-plan that edits shared lowering" is false.**
   E consumes `termios_*` at `shared/code/io_helpers.rs:866`; G consumes socket constants
   in `shared/code/net/` and `tls/`. The risk model named only A and B; it now names the
   shared-lowering group as a third, equal risk.
-- 2026-07-20 — **47-F's declared dependency contradicted its own body.** Header said
-  `Depends on: plan-47-C`; `plan-47-F:429` says "If 47-A has not landed that, 47-F is
+- 2026-07-20 — **47-H's declared dependency contradicted its own body.** Header said
+  `Depends on: plan-47-D`; `plan-47-H:429` says "If 47-B has not landed that, 47-H is
   blocked — this is the concrete dependency." The graph now shows F depending on A
   **and** C.
-- 2026-07-20 — **47-A and 47-F are declared `large`**, above the sub-plan band; the
+- 2026-07-20 — **47-B and 47-H are declared `large`**, above the sub-plan band; the
   split rule says large plans are split into small/medium sub-plans before starting.
   Both need splitting. F's own header admits it ("the four phases below are individually
   medium and land separately").
@@ -540,13 +540,13 @@ imports on the same mechanism.
   `windows-x86_64` makes all 20 resolve to a POSIX arm with no compile error and no
   failing test. Windows would inherit Darwin `O_*` bits, `LINUX_TIOCGWINSZ`, bare
   `pthread_*`, `clock_gettime`, ALSA sonames in `.rdata`, and the OpenSSL crypto
-  backend. New sub-plan **47-P** converts these to an exhaustive match so they become
+  backend. New sub-plan **47-A** converts these to an exhaustive match so they become
   compile errors. This is a larger finding than the constant seam and subsumes it.
 - 2026-07-20 — **The POSIX coupling is four categories, not one** (§3.1). The trait
   constants (21) are the only one the trait can reach. The bigger one is ~125 hardcoded
   POSIX **symbol literals** passed to `emit_libc_call` — the trait changes how a symbol
   is called, never which symbol. Sockets alone are 32 sites.
-- 2026-07-20 — **"47-G just adds methods" is false.** There is no `emit_socket` /
+- 2026-07-20 — **"47-I just adds methods" is false.** There is no `emit_socket` /
   `emit_connect` on the trait; the net surface is *constants only*, and all 32 socket
   calls are string literals in shared code. G is the same kind of work as F at 38% the
   scale — the draft classed it with D.
@@ -555,9 +555,9 @@ imports on the same mechanism.
   compares the target as a *string*, not against the registry. Only B Phase 4 needs A.
   B1 is the one unit in the feature touching zero shared code.
 - 2026-07-20 — **F's four phases have four different dependencies** (nothing / nothing /
-  A / C), not the single `Depends on: plan-47-C` in its header. F1+F2 block on nothing
+  A / C), not the single `Depends on: plan-47-D` in its header. F1+F2 block on nothing
   and are the biggest available de-risking move.
-- 2026-07-20 — **47-A's "minimal `CodegenPlatform`" does not compile.** Only 11 of 65
+- 2026-07-20 — **47-B's "minimal `CodegenPlatform`" does not compile.** Only 11 of 65
   methods have defaults; 54 are required. A must author ~51 stubs, and the `termios_*` /
   offset accessors return plain `usize` so they cannot even carry an error — they must
   return fabricated values. Real work hidden inside A.
@@ -570,7 +570,7 @@ imports on the same mechanism.
   **that was wrong**; plan-57 edits `builder_collection_*.rs` and `link_thunk.rs`, which
   no plan-47 phase touches. The real constraint is not straddling the `MFB_KIND2` flip
   with a zero-diff phase. Prerequisite row 4 corrected.
-- 2026-07-20 — **47-A's Validation Plan is stale in the good direction.** It prescribes
+- 2026-07-20 — **47-B's Validation Plan is stale in the good direction.** It prescribes
   a manual cross-target `-ncode -nobj` `cmp` workaround because "the gate diffs the host
   target only". `ff163ddeb` (2026-07-20) made the gate multi-target; delete the
   workaround and rely on the gate.
@@ -595,28 +595,28 @@ imports on the same mechanism.
   Recorded here because the disagreement is the reason to trust the command in §2.1 over
   any prose number, including this document's.
 - 2026-07-20 — **`mir::Backend` has 4 methods, not "exactly three interesting" ones**
-  (47-A:171). `is_aarch64()` (`mir.rs:541`) is an existing ISA-dispatch hook the plan
+  (47-B:171). `is_aarch64()` (`mir.rs:541`) is an existing ISA-dispatch hook the plan
   never mentions, and it is exactly the kind of seam a new backend must answer.
 - 2026-07-20 — **`REGISTER_ARGUMENT_COUNT` is read at 7 shared-lowering sites, not 3**
-  (`builder_emit_helpers.rs:81,87,91`; `function_lowering.rs:577,580,661,674`). 47-A's
+  (`builder_emit_helpers.rs:81,87,91`; `function_lowering.rs:577,580,661,674`). 47-B's
   argument for *not* making it backend-dependent understates the blast radius it is
   arguing about.
-- 2026-07-20 — **47-A's "~90% of `select_x86` is ISA, not ABI" is likely inverted.**
+- 2026-07-20 — **47-B's "~90% of `select_x86` is ISA, not ABI" is likely inverted.**
   Measured: `select.rs` non-test is 780 lines, of which `remap_x86_abi` alone
   (`:107-621`) is 515 — roughly **71% ABI-specific**. Re-derive before using it to argue
   the Win64 delta is small.
 - 2026-07-20 — **`src/os/{linux,macos}/mod.rs` expose 6 and 4 public fns, not "the same
-  three wrappers"** (47-B:112). The three named do exist in both, but a PE sibling
+  three wrappers"** (47-C:112). The three named do exist in both, but a PE sibling
   should be scoped against the real surface.
 
 ## Summary
 
 The engineering risk is in three places, not the two the original named: the Win64 ABI
-(47-A), the PE image layout (47-B), and **the POSIX-shaped shared layer (§3.1–3.2)**.
+(47-B), the PE image layout (47-C), and **the POSIX-shaped shared layer (§3.1–3.2)**.
 The third is the one with no precedent, no plan, and the nastiest failure mode — 20
 binary branches that hand Windows a POSIX arm with no compile error the instant the
-target is registered. It gets two new sub-plans: **47-P** (make them exhaustive, so they
-become compile errors) and **47-S** (raise the constant seam).
+target is registered. It gets two new sub-plans: **47-A** (make them exhaustive, so they
+become compile errors) and **47-E** (raise the constant seam).
 
 The re-cut's payoff: **five units block on nothing** — P, F1, G1, E1, B1 — all inert,
 all provable by byte-identical goldens alone. The original map put every one of them

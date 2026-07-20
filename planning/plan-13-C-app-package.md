@@ -1,8 +1,8 @@
-# plan-13-A: the `app::` package surface
+# plan-13-C: the `app::` package surface
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-13-L (resource-union parameters). Feature-wide precondition:
+Depends on: plan-13-A (resource-union parameters). Feature-wide precondition:
 plan-13 master §Prerequisites.
 Produces: `src/builtins/app.rs`, 11 types, 32 functions as overload sets, `WIDGET_VARIANTS`,
 the close-op registrations, and **the ability for an emitted helper to mint a `RES` record
@@ -30,7 +30,7 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-13-L has landed (union params accepted on all three paths) | `rg -n 'resource-union-param-valid' tests/` | **NOT MET** |
+| plan-13-A has landed (union params accepted on all three paths) | `rg -n 'resource-union-param-valid' tests/` | **NOT MET** |
 | The high reserved type-ID range is free | `rg -n 'FIRST_TABLE_TYPE_ID' src/binary_repr/` | **MET** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -54,7 +54,7 @@ References (read first):
 
 ### Non-goals (explicit constraints)
 
-- **No shadow tree, no solver, no host seam, no native window.** Those are 13-S/13-M/13-G.
+- **No shadow tree, no solver, no host seam, no native window.** Those are 13-D/13-E/13-F.
 - **No `app::destroy` in the user-callable table.** It is a close op only.
 - **Do not add `app::Widget` to `is_c_abi_type`** or any FFI surface — it is an MFBASIC
   type, not a C one.
@@ -108,9 +108,9 @@ list — pinned by a `#[test]` against the registered union so it cannot rot.
 
 **The overload-name `#[test]` is an A-owned contract with B and C as clients.** Two
 `app::` overloads sharing an arity must share parameter names or differ in argument type,
-or `select_param_name_overload` cannot separate them. 13-B adds `addTextArea` /
-`addAttributedTextArea`; 13-C adds table `add*` forms. **Write the test to cover names
-those units have not added yet**, and say so in its comment — plan-13-C hedged this as
+or `select_param_name_overload` cannot separate them. 13-H adds `addTextArea` /
+`addAttributedTextArea`; 13-I adds table `add*` forms. **Write the test to cover names
+those units have not added yet**, and say so in its comment — plan-13-I hedged this as
 "keeps *most of them* clear", and "most" is exactly the wrong word for a property the test
 must enforce absolutely.
 
@@ -173,7 +173,7 @@ Commit: —
 - [ ] Declare the 32 functions as arity × type overload sets, optional params trailing.
 - [ ] `WIDGET_VARIANTS` + the `widget_or` predicate, with the `#[test]` pinning it against
       the registered union.
-- [ ] The overload-name `#[test]` per §3.1 — **written to cover names 13-B and 13-C will
+- [ ] The overload-name `#[test]` per §3.1 — **written to cover names 13-H and 13-I will
       add**, with a comment saying so.
 
 Acceptance: a program naming every `app::` function typechecks; `cargo check --all-targets`
@@ -202,7 +202,7 @@ Commit: —
   it creates nothing, so acceptance is entirely accept/reject.
 - Coverage check: `tests/syntax/app/` is golden-backed and in the gate's denominator.
   `tests/acceptance/` has **no** `golden/` dir by design — do not put the proof there.
-- Runtime proof: none applicable; nothing runs yet. Runtime proof begins at 13-M.
+- Runtime proof: none applicable; nothing runs yet. Runtime proof begins at 13-E.
 - Doc sync: a new `src/docs/spec/stdlib/` topic and `src/docs/man/builtins/app/` pages —
   **not `src/docs/spec/package/`**, which is the binary container format (master §2.5).
 - Acceptance: the project's full suite.
@@ -225,8 +225,8 @@ Commit: —
 - 2026-07-20 — **Resource records with close ops are `LINK`-only today** (§3.2). The draft
   assumes widget handles are resources — right — without noticing the only route to one is
   closed to emitted helpers. New capability, now Phase 1.
-- 2026-07-20 — **The overload-name `#[test]` is a contract with 13-B and 13-C**, which the
-  draft did not say. plan-13-C hedged it as keeping "*most* of them" clear of A's forms;
+- 2026-07-20 — **The overload-name `#[test]` is a contract with 13-H and 13-I**, which the
+  draft did not say. plan-13-I hedged it as keeping "*most* of them" clear of A's forms;
   the test must enforce all.
 - 2026-07-20 — **A review pass claimed `TYPE_CALL_ARITY_MISMATCH` is not emitted from
   `syntaxcheck/builtins.rs`. False** — `:397`, `:446`. The draft was right; checked before

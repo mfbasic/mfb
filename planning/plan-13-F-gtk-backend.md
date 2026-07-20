@@ -1,21 +1,21 @@
-# plan-13-G: the GTK4 backend
+# plan-13-F: the GTK4 backend
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-13-S (the solver) **and** plan-13-M (the seam contract). **Not on the
+Depends on: plan-13-D (the solver) **and** plan-13-E (the seam contract). **Not on the
 macOS backend's widgets** — it implements the same contract independently.
 Feature-wide precondition: plan-13 master §Prerequisites.
 Produces: the GTK4 implementation of the 26-op seam, flavor-correct GTK imports.
-Consumed by 13-D.
+Consumed by 13-J.
 
 Implements the same seam on GTK4, reusing the emitted solver unchanged.
 
 The single behavioral outcome: the canonical program runs on the Debian aarch64 box with
 frames **identical to macOS and to the headless host**.
 
-**This unit is a fan-out sibling of 13-M, not its successor.** The 2026-07-09 draft
+**This unit is a fan-out sibling of 13-E, not its successor.** The 2026-07-09 draft
 numbered it Phase 5 after macOS's Phase 3, while its own text says it "reuses the emitted
-`_mfb_rt_app_layout` unchanged". Both consume 13-S; neither consumes the other.
+`_mfb_rt_app_layout` unchanged". Both consume 13-D; neither consumes the other.
 
 References (read first):
 
@@ -30,8 +30,8 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-13-S has landed | `rg -n '_mfb_rt_app_layout' src/` | **NOT MET** |
-| plan-13-M has landed (the seam contract exists) | `rg -n 'host_present' src/` | **NOT MET** |
+| plan-13-D has landed | `rg -n '_mfb_rt_app_layout' src/` | **NOT MET** |
+| plan-13-E has landed (the seam contract exists) | `rg -n 'host_present' src/` | **NOT MET** |
 | The GTK4 Debian box is reachable | `grep -n 'GTK4' .ai/remote_systems.md` → `:39`, box 2232 | **MET** |
 | The flavored-import mechanism is understood | `rg -n 'musl\|glibc' src/target/linux_gtk/mod.rs` | **MET — and mandatory reading, §3.1** |
 
@@ -51,7 +51,7 @@ References (read first):
 ### Non-goals (explicit constraints)
 
 - **No solver changes.** If GTK needs one, the seam is wrong, not the solver.
-- **No new seam ops.** GTK implements the contract 13-M defined; a GTK-shaped addition
+- **No new seam ops.** GTK implements the contract 13-E defined; a GTK-shaped addition
   would break the three-way identity claim.
 - **No GTK3 fallback.** The tree binds GTK4 (`libgtk-4.so.1`) and stays there.
 - **Do not regress transcript mode** on any Linux target.
@@ -63,12 +63,12 @@ References (read first):
 | What | Count | Command |
 |---|---|---|
 | Existing GTK app-mode code to extend | **3417 LOC** | `wc -l src/target/linux_gtk/*.rs` |
-| Seam ops to implement | **26** (39 family-wide) | plan-13-M §2.1 |
+| Seam ops to implement | **26** (39 family-wide) | plan-13-E §2.1 |
 | `g_idle_add` call sites already proven | **8** | `rg -c 'g_idle_add' src/target/linux_gtk/app_io.rs` |
 | `g_signal_connect_data` sites already proven | **4** | `rg -c 'g_signal_connect_data' src/target/linux_gtk/bootstrap.rs` |
 | Linux targets supporting app mode | **2** (aarch64, x86_64) | riscv64 explicitly excluded — `rg -n 'supports_app_mode' src/target/linux_riscv64/mod.rs` |
 | libc worlds each Linux app ships for | **2** (glibc, musl) | plan-51 — one AppImage each |
-| Occurrences of "AppImage" in the 2026-07-09 plan-13 docs | **0** | `rg -c AppImage planning/plan-13-[ABC]-*.md` |
+| Occurrences of "AppImage" in the 2026-07-09 plan-13 docs | **0** | `rg -c AppImage planning/old-plans/superseded-plan-13-[ABC]-*.md` |
 
 ### 2.2 Verified properties
 
@@ -137,7 +137,7 @@ identity checkable.
 
 Acceptance: hand-supplied rects place widgets exactly. If `GtkFixed` cannot express them,
 stop — the three-way identity claim depends on this and the seam may need renegotiating
-with 13-M.
+with 13-E.
 Commit: —
 
 ### Phase 2 — the widget set and events
@@ -165,7 +165,7 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: frame equality against 13-S's headless goldens and 13-M's on-device frames.
+- Tests: frame equality against 13-D's headless goldens and 13-E's on-device frames.
 - Coverage check: this sub-plan adds no shared-lowering branch, so the byte-identity gate
   is not the guard here — the guard is the three-way frame comparison.
 - Runtime proof: the Debian aarch64 GTK4 box (`.ai/remote_systems.md:39`, box 2232), plus
@@ -188,7 +188,7 @@ Commit: —
 
 - 2026-07-20 — **GTK is a fan-out sibling of macOS, not its successor.** The draft
   numbered it Phase 5 after macOS's Phase 3 while stating it "reuses the emitted solver
-  unchanged". Both consume 13-S; neither consumes the other.
+  unchanged". Both consume 13-D; neither consumes the other.
 - 2026-07-20 — **AppImage and libc flavors are entirely absent from the 2026-07-09 docs**
   (`rg -c AppImage` → 0), though plan-51 and plan-56 landed on 2026-07-18/19. Every new
   GTK symbol must be flavor-declared, and the failure is silent — a wrongly-linked musl

@@ -1,9 +1,9 @@
-# plan-13-C: `app::Table`
+# plan-13-I: `app::Table`
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-13-S (the shadow tree, and specifically a **re-entrant** solver — §3.1)
-and plan-13-D's detach rules. **Not on plan-13-B** — see §Open Decisions 1.
+Depends on: plan-13-D (the shadow tree, and specifically a **re-entrant** solver — §3.1)
+and plan-13-J's detach rules. **Not on plan-13-H** — see §Open Decisions 1.
 Feature-wide precondition: plan-13 master §Prerequisites.
 Produces: `app::Table`, the widget-cell grid, and native-side virtualization.
 
@@ -17,10 +17,10 @@ exactly once.
 
 References (read first):
 
-- `planning/plan-13-C-app-table.md` §3–§5 (the 2026-07-09 original) — the design this
+- `planning/old-plans/superseded-plan-13-C-app-table.md` §3–§5 (the 2026-07-09 original) — the design this
   preserves, including its 2026-07-02 redesign note replacing a template+data virtualized
   table with a grid of ordinary widgets.
-- `planning/plan-13-S-layout-solver.md` §2.2 — **re-entrancy, which exists for this unit.**
+- `planning/plan-13-D-layout-solver.md` §2.2 — **re-entrancy, which exists for this unit.**
 - `src/docs/spec/language/15_resource-management.md` — §15.6 resources in collections, and
   the loop-body ownership float this unit's §6 pattern depends on.
 
@@ -28,8 +28,8 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-13-S has landed **and its solver is re-entrant** | `rg -n '_mfb_rt_app_layout' src/` | **NOT MET** |
-| plan-13-A has landed (union params, `WIDGET_VARIANTS`) | `ls src/builtins/app.rs` | **NOT MET** |
+| plan-13-D has landed **and its solver is re-entrant** | `rg -n '_mfb_rt_app_layout' src/` | **NOT MET** |
+| plan-13-C has landed (union params, `WIDGET_VARIANTS`) | `ls src/builtins/app.rs` | **NOT MET** |
 | A backend exists to render into | `rg -n 'host_present' src/target/` | **NOT MET** |
 | Loop-body ownership float behaves as §6 assumes | `rg -n 'escape' src/docs/spec/language/` — read the escape-analysis topic | **UNVERIFIED — confirm before Phase 2** |
 
@@ -56,7 +56,7 @@ References (read first):
   model and its table-owned "second lifetime regime" deliberately; do not reintroduce it.
 - **No nested tables.** `setWidget` with a `Table` is `ErrInvalidArgument`.
 - **No solver change.** The scroll path *calls* the solver; it does not alter it.
-- **No dependency on 13-B.** The `addTextArea` table overload waits for it; nothing else
+- **No dependency on 13-H.** The `addTextArea` table overload waits for it; nothing else
   does (§Open Decisions 1).
 
 ## 2. Current State
@@ -65,7 +65,7 @@ References (read first):
 
 | What | Count | Command |
 |---|---|---|
-| New seam ops | **8** (`host_create_table`, `_set_extent`, `_set_column_width`, `_set_row_height`, `_place_cell`, `_clear_cell`, `_set_selection_mode`, `_set_selection`) | 2026-07-09 plan-13-C §5.3 |
+| New seam ops | **8** (`host_create_table`, `_set_extent`, `_set_column_width`, `_set_row_height`, `_place_cell`, `_clear_cell`, `_set_selection_mode`, `_set_selection`) | 2026-07-09 plan-13-I §5.3 |
 | — × 3 backends | **24 implementations** | macOS, GTK4, headless |
 | `app::` callables this unit adds | **22** | the 2026-07-09 surface section |
 | Solver callers after this lands | **3** (`host_present`, native resize, **this unit's scroll handler**) | §3.1 |
@@ -75,7 +75,7 @@ References (read first):
 
 | Claim | Verdict | How checked |
 |---|---|---|
-| The solver must be re-entrant, and this unit is the reason | **CONFIRMED** | the 2026-07-09 plan-13-C says so in its own words: *"'re-entrant on the main thread' is a hard constraint that **this plan, not plan-13-A, is the reason for**"* |
+| The solver must be re-entrant, and this unit is the reason | **CONFIRMED** | the 2026-07-09 plan-13-I says so in its own words: *"'re-entrant on the main thread' is a hard constraint that **this plan, not plan-13-C, is the reason for**"* |
 | Cells hold borrows, not owned handles | **CONFIRMED design** | §15.6 resources in collections; a cell slot never owns |
 | B and C are independent | **CONFIRMED** | both 2026-07-09 docs say so, and neither seam block references the other's symbols |
 | Loop-body ownership float supports the §6 pattern | **UNVERIFIED** | a Prerequisites row — confirm against the escape-analysis spec before Phase 2 depends on it |
@@ -92,8 +92,8 @@ This unit's scroll handler is a **third** caller of `_mfb_rt_app_layout`, alongs
 while a present may already be in flight — which is what makes re-entrancy a hard
 requirement rather than a nicety.
 
-**The justification for that property lives here, but the property must be built in 13-S.**
-That is recorded in both documents so nobody drops it from 13-S as unneeded; re-entrancy
+**The justification for that property lives here, but the property must be built in 13-D.**
+That is recorded in both documents so nobody drops it from 13-D as unneeded; re-entrancy
 cannot be retrofitted into an emitted helper cheaply.
 
 **Where design uncertainty concentrates: the virtualizer.** Instantiating only visible rows
@@ -138,7 +138,7 @@ would create 100 000 native peers, which neither toolkit tolerates.
       table close/drop detaches all cells.
 - [ ] **Confirm loop-body ownership float** against the escape-analysis spec before Phase 2
       depends on it.
-- [ ] **Re-run 13-A's overload-name coherence `#[test]`** after adding the arity-3 table
+- [ ] **Re-run 13-C's overload-name coherence `#[test]`** after adding the arity-3 table
       `add*` forms — and enumerate the collisions exhaustively. The 2026-07-09 draft hedged
       this as keeping "*most* of them" clear of A's container forms; the test enforces all.
 - [ ] Tests: `tests/syntax/app/table-*` — arity/types, union widening (`setWidget` accepts
@@ -182,9 +182,9 @@ Commit: —
 
 ## Open Decisions
 
-1. **The `addTextArea` table overload.** The 2026-07-09 draft called plan-13-B "a **soft
+1. **The `addTextArea` table overload.** The 2026-07-09 draft called plan-13-H "a **soft
    dependency**". Soft dependencies are how two plans braid. Recommended: **ship this unit
-   without that overload** and add it when 13-B lands — then the dependency is either
+   without that overload** and add it when 13-H lands — then the dependency is either
    absent or hard, never soft.
 2. **Whether header rows are a separate grid or row 0 with a pin flag.** Recommended
    separate, as designed: a pinned region has different scroll behavior and folding it into
@@ -199,13 +199,13 @@ Commit: —
 - 2026-07-20 — **`Depends on:` moved into the header.** The old document buried it 403
   lines in. Its content was good — it named A's Phase 0 and Phase 2 precisely — but a
   reader deciding what to land first never reached it.
-- 2026-07-20 — **The "soft dependency" on plan-13-B is removed.** This unit now ships
-  without the `addTextArea` overload and gains it when 13-B lands (§Open Decisions 1).
+- 2026-07-20 — **The "soft dependency" on plan-13-H is removed.** This unit now ships
+  without the `addTextArea` overload and gains it when 13-H lands (§Open Decisions 1).
 - 2026-07-20 — **The overload-collision hedge is removed.** The draft said the table `add*`
-  forms keep "*most* of them" clear of plan-13-A's container forms; 13-A's coherence
+  forms keep "*most* of them" clear of plan-13-C's container forms; 13-C's coherence
   `#[test]` enforces **all**, and this unit re-runs it after adding its arity-3 forms.
 - 2026-07-20 — **Re-entrancy recorded as a reverse dependency in both documents** (§3.1),
-  so it cannot be dropped from 13-S as unneeded.
+  so it cannot be dropped from 13-D as unneeded.
 - 2026-07-20 — Documentation destination corrected in three places to `stdlib/` +
   `man/builtins/`.
 
@@ -219,7 +219,7 @@ The correctness risk is narrower and is about ownership direction: cells hold bo
 widget's drop must empty its cell and a table's drop must detach. Backwards, and either the
 table frees what it does not own or a dropped widget leaves a live native peer behind.
 
-The structural point is that this unit is the *reason* 13-S's solver must be re-entrant,
+The structural point is that this unit is the *reason* 13-D's solver must be re-entrant,
 which is why that requirement is written in both places rather than only where it is used.
 
 What is left untouched: the solver's behavior, the seam's existing ops, and the recycling

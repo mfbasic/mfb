@@ -1,13 +1,13 @@
-# plan-13-M: the macOS/AppKit backend
+# plan-13-E: the macOS/AppKit backend
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-13-S (the solver and the shadow tree). Feature-wide precondition:
+Depends on: plan-13-D (the solver and the shadow tree). Feature-wide precondition:
 plan-13 master §Prerequisites.
 Produces: the host-protocol seam contract, the AppKit implementation of its 26 ops, mode
-selection (GUI vs transcript), and the event pipe. Consumed by 13-E, 13-D, 13-B, 13-C.
+selection (GUI vs transcript), and the event pipe. Consumed by 13-G, 13-J, 13-H, 13-I.
 
-Brings up a real macOS window through the seam and the 13-S solver.
+Brings up a real macOS window through the seam and the 13-D solver.
 
 The single behavioral outcome: a `window` + `Column`/`Row` + `Button`/`Label` program lays
 out to **the same frames the headless host produced for the same tree** (asserted via
@@ -31,7 +31,7 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-13-S has landed (solver + headless frames to match) | `rg -n '_mfb_rt_app_layout' src/` | **NOT MET** |
+| plan-13-D has landed (solver + headless frames to match) | `rg -n '_mfb_rt_app_layout' src/` | **NOT MET** |
 | A macOS machine is available for on-device proof | build host | **MET** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -41,7 +41,7 @@ References (read first):
 ## 1. Goal
 
 - The **host-protocol seam** defined once, as a contract, against the `Asm`/`abi` builder:
-  26 ops (§2.1) that 13-G and the headless host implement identically.
+  26 ops (§2.1) that 13-F and the headless host implement identically.
 - The AppKit backend: `NSWindow` + plain `NSView` containers + `NSButton` + `NSTextField`
   (non-editable = `Label`, editable = `Input`).
 - **Mode selection**: static whole-program detection of an `app::window` call picks GUI vs
@@ -58,8 +58,8 @@ References (read first):
 
 ### Non-goals (explicit constraints)
 
-- **No events, no Input round-trip.** 13-E. This sub-plan proves layout and liveness only.
-- **No GTK.** 13-G implements the same seam.
+- **No events, no Input round-trip.** 13-G. This sub-plan proves layout and liveness only.
+- **No GTK.** 13-F implements the same seam.
 - **Do not change the transcript path** for programs that do not call `app::window`.
 - **Do not block in `sync`.** `waitUntilDone:YES` would inherit today's blocking
   round-trip and stall the worker on every frame.
@@ -70,9 +70,9 @@ References (read first):
 
 | What | Count | Command |
 |---|---|---|
-| Host-seam ops this sub-plan defines and implements | **26** | counted from plan-13-A §8 |
-| — plus 13-B's TextArea ops | +5 | plan-13-B §4.3 |
-| — plus 13-C's Table ops | +8 | plan-13-C §5.3 |
+| Host-seam ops this sub-plan defines and implements | **26** | counted from plan-13-C §8 |
+| — plus 13-H's TextArea ops | +5 | plan-13-H §4.3 |
+| — plus 13-I's Table ops | +8 | plan-13-I §5.3 |
 | **Family total × 3 backends** | **39 × 3 = 117 implementations** | master §2.1 |
 | Existing macOS app-mode code to extend | **4372 LOC** | `wc -l src/target/macos_aarch64/app/*.rs` |
 | Runtime Obj-C classes already created from codegen | **2** (`MFBTextView`, `TermView`) | `rg -c 'objc_allocateClassPair' src/target/macos_aarch64/app/bootstrap.rs` |
@@ -134,7 +134,7 @@ every `sync` a blocking main-thread round-trip.
 
 ### Phase 1 — the seam contract and mode selection
 
-- [ ] Define the 26-op seam once, against the `Asm`/`abi` builder, as the contract 13-G and
+- [ ] Define the 26-op seam once, against the `Asm`/`abi` builder, as the contract 13-F and
       the headless host implement. Write it down as a contract, not as macOS's shape.
 - [ ] Static whole-program `app::window` detection selecting GUI vs transcript sub-mode.
       **Account for the `uses_term` coupling** (§3) — do not add a flag beside it blindly.
@@ -173,12 +173,12 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: frame equality against 13-S's headless goldens is the test. A screenshot is not.
+- Tests: frame equality against 13-D's headless goldens is the test. A screenshot is not.
 - Coverage check: mode selection touches shared lowering, so `scripts/artifact-gate.sh`
   must show 0 diffs for non-`app::` programs on every existing target.
 - Runtime proof: on-device macOS. The load-bearing one is **Phase 2 with the worker
   parked** — it is the only proof that layout is genuinely native-owned.
-- Doc sync: none here; the `app::` surface docs land with 13-A/13-Z.
+- Doc sync: none here; the `app::` surface docs land with 13-C/13-K.
 - Acceptance: the project's full suite.
 
 ## Open Decisions
@@ -194,7 +194,7 @@ Commit: —
 <!-- Filled in during execution. -->
 
 - 2026-07-20 — **The seam is 26 ops here, 39 family-wide, 117 implementations across three
-  backends.** plan-13-A §8 calls it "small and stable" and never totals it. It is the
+  backends.** plan-13-C §8 calls it "small and stable" and never totals it. It is the
   feature's largest cost driver after the solver.
 - 2026-07-20 — **Mode selection's citation and mechanism were both wrong in the draft.**
   It pointed at a `module_uses_call` scan while describing a runtime-symbol scan. The

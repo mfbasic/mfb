@@ -1,8 +1,8 @@
-# plan-13-B: `app::TextArea`
+# plan-13-H: `app::TextArea`
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-13-S (shadow tree + solver) **and** plan-13-T (`text::AttributeString`).
+Depends on: plan-13-D (shadow tree + solver) **and** plan-13-B (`text::AttributeString`).
 Feature-wide precondition: plan-13 master §Prerequisites.
 Produces: the `app::TextArea` widget and the attribute serializer on both backends.
 
@@ -11,26 +11,26 @@ A multi-line attributed text editor whose value is a `text::AttributeString`.
 The single behavioral outcome: styled content round-trips through user edits —
 value → native → user edit → value — with spans preserved.
 
-**This document is what remains of the old plan-13-B after its Phase 1 was split out.**
-That phase (`text::AttributeString`) is now plan-13-T and blocks on nothing; the old
-header's "Depends on plan-13-A being landed" was wrong for it.
+**This document is what remains of the old plan-13-H after its Phase 1 was split out.**
+That phase (`text::AttributeString`) is now plan-13-B and blocks on nothing; the old
+header's "Depends on plan-13-C being landed" was wrong for it.
 
 References (read first):
 
-- `planning/plan-13-T-attributestring.md` — the value type this widget carries.
-- `planning/plan-13-B-app-textarea.md` §3–§4 (the 2026-07-09 original) — the design this
+- `planning/plan-13-B-attributestring.md` — the value type this widget carries.
+- `planning/old-plans/superseded-plan-13-B-app-textarea.md` §3–§4 (the 2026-07-09 original) — the design this
   preserves.
-- `planning/plan-13-E-events-input.md` — the `Input` drain protocol TextArea reuses
+- `planning/plan-13-G-events-input.md` — the `Input` drain protocol TextArea reuses
   exactly: text + user-edited + submit latches at `sync`, program-set-wins-this-frame.
 
 ## Prerequisites
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-13-S has landed (shadow tree; solver for the fill case) | `rg -n '_mfb_rt_app_layout' src/` | **NOT MET** |
-| plan-13-T has landed (`AttributeString`) | `rg -n 'AttributeString' src/builtins/` | **NOT MET** |
-| plan-13-E has landed (the Input drain protocol) | `rg -n 'host_input_drain' src/` | **NOT MET** |
-| A backend exists to render into (13-M and/or 13-G) | `rg -n 'host_present' src/target/` | **NOT MET** |
+| plan-13-D has landed (shadow tree; solver for the fill case) | `rg -n '_mfb_rt_app_layout' src/` | **NOT MET** |
+| plan-13-B has landed (`AttributeString`) | `rg -n 'AttributeString' src/builtins/` | **NOT MET** |
+| plan-13-G has landed (the Input drain protocol) | `rg -n 'host_input_drain' src/` | **NOT MET** |
+| A backend exists to render into (13-E and/or 13-F) | `rg -n 'host_present' src/target/` | **NOT MET** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
 > before continuing and again before deciding to stop; report every row if you stop.
@@ -50,11 +50,11 @@ References (read first):
 
 - **No solver change.** TextArea is a leaf. If the solver needs to know about it, the
   design is wrong.
-- **No new `text::` surface.** 13-T owns the value type; this consumes it.
+- **No new `text::` surface.** 13-B owns the value type; this consumes it.
 - **No rich-text editing UI** (toolbars, shortcuts). The widget carries attributed content;
   authoring affordances are the program's.
 - **Adding this variant must require zero per-op edits** — variant→union widening gives
-  the widget-wide ops for free. If it does not, 13-L or 13-A is incomplete.
+  the widget-wide ops for free. If it does not, 13-A or 13-C is incomplete.
 
 ## 2. Current State
 
@@ -62,7 +62,7 @@ References (read first):
 
 | What | Count | Command |
 |---|---|---|
-| New seam ops | **5** (`host_create_textarea`, `_set_value`, `_set_editable`, `_set_wrap`, `_drain`) | 2026-07-09 plan-13-B §4.3 |
+| New seam ops | **5** (`host_create_textarea`, `_set_value`, `_set_editable`, `_set_wrap`, `_drain`) | 2026-07-09 plan-13-H §4.3 |
 | — × 3 backends | **15 implementations** | macOS, GTK4, headless |
 | `app::`/`text::` callables this unit adds | ~10 (the `app::` half of the old B's 25) | the surface section |
 | Widget variants after this lands | 6 concrete + 1 union | master |
@@ -71,8 +71,8 @@ References (read first):
 
 | Claim | Verdict | How checked |
 |---|---|---|
-| `text::AttributeString` is independent of `app::` | **CONFIRMED** | 13-T; the old B's own Phase 1 called it "genuinely headless" |
-| TextArea is a solver *input*, not a solver change | **CONFIRMED, conditional** | true only if the solver already handles `Size < 0` fill — which 13-S delivers. Verify before relying on it |
+| `text::AttributeString` is independent of `app::` | **CONFIRMED** | 13-B; the old B's own Phase 1 called it "genuinely headless" |
+| TextArea is a solver *input*, not a solver change | **CONFIRMED, conditional** | true only if the solver already handles `Size < 0` fill — which 13-D delivers. Verify before relying on it |
 | Variant→union widening gives widget-wide ops for free | **UNVERIFIED — an acceptance criterion** | assert it on **all three** checker paths; "zero per-op edits" is the test |
 | The value⇄native⇄value round trip is a fixed point | **UNVERIFIED — the risk concentration** | proven by round-trip tests, not by construction |
 
@@ -121,8 +121,8 @@ the value would degrade on every read even without edits.
       `getValue` overload-by-argument-type test against the `Input` form.
 
 Acceptance: a plain-text multi-line TextArea builds, sets/gets its value and reports
-`valueChanged`, using only 13-S's model. **Adding the variant required zero per-op edits** —
-if it did not, stop and fix 13-A/13-L rather than patching here.
+`valueChanged`, using only 13-D's model. **Adding the variant required zero per-op edits** —
+if it did not, stop and fix 13-C/13-A rather than patching here.
 Commit: —
 
 ### Phase 2 — the serializer, one backend (the risk)
@@ -170,8 +170,8 @@ Commit: —
 
 <!-- Filled in during execution. -->
 
-- 2026-07-20 — **Phase 1 (`text::AttributeString`) split out as plan-13-T.** The old
-  header said "Depends on plan-13-A being landed"; that phase's own text called it
+- 2026-07-20 — **Phase 1 (`text::AttributeString`) split out as plan-13-B.** The old
+  header said "Depends on plan-13-C being landed"; that phase's own text called it
   "independently valuable" and "genuinely headless". It blocks on nothing.
 - 2026-07-20 — **`Depends on:` moved into the header.** The old document buried it 466
   lines in, inside the Phases section, where a reader deciding what to land first never
@@ -188,6 +188,6 @@ notices until the whole thing is bold.
 
 The widget itself is mechanical: it reuses the `Input` drain shape exactly and is a leaf to
 the solver. Its one interesting assertion is that adding a variant required **zero**
-per-op edits — which is the real test of whether 13-L's widening actually works.
+per-op edits — which is the real test of whether 13-A's widening actually works.
 
 What is left untouched: the solver, `text::AttributeString`, and the seam's existing ops.

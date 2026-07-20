@@ -1,22 +1,22 @@
-# plan-47-B: PE/COFF executable writer
+# plan-47-C: PE/COFF executable writer
 
 Last updated: 2026-07-19
 Effort: medium (1h–2h)
-Depends on: **per phase.** *B1* = Phases 1–3 (`src/os/windows/{mod,object,link/}` plus
+Depends on: **per phase.** *C1* = Phases 1–3 (`src/os/windows/{mod,object,link/}` plus
 one line of `src/os/mod.rs`) depends on **nothing** — `object.rs::validate` compares the
 target as a *string*, not against the registry, and the `ExitProcess(42)` test image is
-hand-built in `link/tests.rs`. *B2* = Phase 4 (wire `write_executable` to the backend)
-depends on plan-47-A.
+hand-built in `link/tests.rs`. *C2* = Phase 4 (wire `write_executable` to the backend)
+depends on plan-47-B.
 
-**B1 is the only unit in the whole feature that touches zero shared code** — it is a new
-leaf sibling of `src/os/{linux,macos}/`. Land it early, in parallel with 47-P/E1/F1/G1.
+**C1 is the only unit in the whole feature that touches zero shared code** — it is a new
+leaf sibling of `src/os/{linux,macos}/`. Land it early, in parallel with 47-A/E1/F1/G1.
 
 Add a third container writer beside the ELF and Mach-O ones: `src/os/windows/`,
 emitting a minimal **PE32+** console executable from the same `EncodedImage` the
 other two consume. Scope is the *format*, not the OS surface — headers, section
 table, the `.idata` import directory + Import Address Table, and the relocation
 patcher that binds an external call to an IAT slot. No `CodegenPlatform` work
-(that is 47-C); this sub-plan proves the container by hand-building one image.
+(that is 47-D); this sub-plan proves the container by hand-building one image.
 
 The single behavioral outcome: an `EncodedImage` whose entry function calls
 `ExitProcess(42)` through a one-entry `kernel32.dll` IAT is written by
@@ -51,14 +51,14 @@ References:
 
 ## Prerequisites
 
-**B1 (Phases 1–3) has no prerequisites** — it is a new leaf under `src/os/windows/` and
-touches no shared code. That is why it can land in parallel with 47-P.
+**C1 (Phases 1–3) has no prerequisites** — it is a new leaf under `src/os/windows/` and
+touches no shared code. That is why it can land in parallel with 47-A.
 
-**B2 (Phase 4)** additionally requires:
+**C2 (Phase 4)** additionally requires:
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-47-A has landed (a backend to wire the writer to) | `ls src/target/win_x86_64/` | **NOT MET** |
+| plan-47-B has landed (a backend to wire the writer to) | `ls src/target/win_x86_64/` | **NOT MET** |
 | The Win11 box answers (to run the produced `.exe`) | `ssh -p 2230 test@127.0.0.1 true` | **UNVERIFIED — run it** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -97,12 +97,12 @@ touches no shared code. That is why it can land in parallel with 47-P.
   `src/arch/x86_64/**`, and every golden are untouched. `scripts/artifact-gate.sh`
   must show all four existing targets byte-identical.
 - **No `CodegenPlatform` / `NativePlanPlatform` work.** No `emit_write`,
-  no `GetCommandLineW` entry path, no arena over `VirtualAlloc` — those are 47-C.
+  no `GetCommandLineW` entry path, no arena over `VirtualAlloc` — those are 47-D.
   This sub-plan's only "program" is a hand-written test image.
 - **No compiler-driven end-to-end build.** `mfb build -target windows-x86_64` is
-  not expected to produce a working `.exe` at the end of 47-B; the backend stays
-  `executable: false` until 47-C. The writer is reached from tests and from a
-  47-C-era `write_executable`.
+  not expected to produce a working `.exe` at the end of 47-C; the backend stays
+  `executable: false` until 47-D. The writer is reached from tests and from a
+  47-D-era `write_executable`.
 - **No external toolchain in the shipped `mfb`.** `link.exe`, `dumpbin`, `clang`,
   and MSVC are **development-time oracles only** — their outputs are transcribed
   into test constants by a human, never invoked by a build or by `cargo test`.
@@ -239,7 +239,7 @@ Four layers, landing in increasing-risk order. Nothing here touches
    concentrates.
 
 4. **Wiring + proof.** `src/os/mod.rs` gains `pub(crate) mod windows;`; the
-   47-A backend's `write_executable` calls through; the hand-built
+   47-B backend's `write_executable` calls through; the hand-built
    `ExitProcess(42)` image is run on Windows/Wine.
 
 **The external-call answer (master §5, resolved).** The encoder emits
@@ -253,16 +253,16 @@ that symbol's IAT slot, `disp32` relative to `thunk + 6` — and resolve the
 `append_import_stubs`' proven fixed-slot layout discipline. The result is one
 extra `jmp` per OS call, which is precisely what a PLT costs on Linux today.
 
-*Rejected: teaching the encoder `FF 15` (`call [rip+disp32]`) in 47-B.* It is the
+*Rejected: teaching the encoder `FF 15` (`call [rip+disp32]`) in 47-C.* It is the
 "purer" PE form and saves an indirection, but (a) the form is chosen in
 `encode_instruction` on a name prefix with no import map in scope
 (`emitter.rs:706`), (b) `instruction_size` is derived from that same function
 (`sizing.rs:11`) and drives symbol layout (`mod.rs:83`), so a length change
-demands a new ABI-parameterized encoder entry point — i.e. it belongs with 47-A's
+demands a new ABI-parameterized encoder entry point — i.e. it belongs with 47-B's
 `X86Abi` threading, not in the container writer, and (c) it would put a byte-level
 change inside `src/arch/x86_64/` in the one sub-plan whose non-goal is "no
 existing target's bytes move". Deferred to a follow-up once `X86Abi` exists; the
-thunk is correct and shippable in the meantime. **Guard:** 47-B adds a test
+thunk is correct and shippable in the meantime. **Guard:** 47-C adds a test
 pinning the current external `bl` bytes, so if a later change makes the call
 indirect, the thunk assumption fails loudly instead of producing a `.exe` that
 jumps to a thunk address as if it were a function pointer.
@@ -275,7 +275,7 @@ complains.
 *Rejected: a shared ELF/Mach-O/PE container trait.* Master §3 already rejected it;
 restated here so the implementer doesn't re-litigate. PE joins as a third sibling.
 
-*Rejected: `.reloc` + `DYNAMIC_BASE` in 47-B.* Master §5. Fixed base is the
+*Rejected: `.reloc` + `DYNAMIC_BASE` in 47-C.* Master §5. Fixed base is the
 simplest correct image. The consequence, which must be encoded deliberately: set
 `IMAGE_FILE_RELOCS_STRIPPED` in COFF `Characteristics` and leave `DYNAMIC_BASE`
 clear in `DllCharacteristics`, so the loader is *told* the image is base-fixed
@@ -591,7 +591,7 @@ Where the format risk concentrates: everything the loader must agree with.
       byte-identical output (determinism).
 - [ ] Tests (`src/arch/x86_64/encode/tests.rs`): pin the current external-`bl`
       bytes `[0xB8,8,0,0,0,0xE8,0,0,0,0]` (already asserted at `:470`) with a
-      comment naming plan-47-B — the thunk design depends on that call staying
+      comment naming plan-47-C — the thunk design depends on that call staying
       **direct**; if it ever becomes `FF 15`, this test must fail before a `.exe`
       does.
 
@@ -602,10 +602,10 @@ Commit: —
 
 ### Phase 4 — Runtime proof + backend wiring + spec
 
-- [ ] Wire the 47-A `src/target/win_x86_64/mod.rs` backend's `write_executable`
+- [ ] Wire the 47-B `src/target/win_x86_64/mod.rs` backend's `write_executable`
       and `write_native_object_plan` to `crate::os::windows::*`. The backend's
       `BackendCapabilities.executable` (`src/target.rs:94`) stays **false** —
-      47-C flips it — so `crate::target::write_executable`'s gate
+      47-D flips it — so `crate::target::write_executable`'s gate
       (`src/target.rs:280`) keeps rejecting a real build with the existing
       "native executable output does not support …" message.
 - [ ] Build the proof image by hand in a test-only helper: `.text` =
@@ -672,13 +672,13 @@ Commit: —
   (`e_lfanew = 0x80`) for tool compatibility. Alternative: no stub
   (`e_lfanew = 0x40`), 64 bytes smaller and still loadable. (§4.1)
 - **IAT thunks vs. an indirect `call [rip+disp32]`** — recommend the synthesized
-  12-byte thunk in `.text` for 47-B (no `src/arch/**` change, reuses the proven
-  ELF stub bytes), and revisit the direct `FF 15` form as a follow-up once 47-A's
+  12-byte thunk in `.text` for 47-C (no `src/arch/**` change, reuses the proven
+  ELF stub bytes), and revisit the direct `FF 15` form as a follow-up once 47-B's
   `X86Abi` gives the encoder an ABI-parameterized entry point. (§3)
 - **`.idata` separate vs. merged into `.rdata`** — recommend separate and
   read-write. Alternative (what MSVC does): merge into `.rdata`, which needs the
   loader's temporary-writability behavior. (§3, §4.4)
-- **Where the `.exe` proof runs** — recommend Wine for 47-B's single
+- **Where the `.exe` proof runs** — recommend Wine for 47-C's single
   `ExitProcess` case (no new infra, and this image touches nothing Wine emulates
   imperfectly), deferring the native-Windows-runner question to the master's
   open decision for the surfaces that need it. (§Validation)
@@ -697,7 +697,7 @@ runtime check as the last confirmation rather than the evidence.
 The master's one open technical question is answered and closed: the x86 encoder
 emits a **direct** `E8 rel32` for an external call
 (`src/arch/x86_64/encode/emitter.rs:706`–`:711`) and has no `FF 15` form at all,
-so 47-B synthesizes a PLT-equivalent thunk in `.text` — the same `FF 25 disp32`
+so 47-C synthesizes a PLT-equivalent thunk in `.text` — the same `FF 25 disp32`
 bytes `src/os/linux/link/mod.rs:504`–`:522` already emits for the ELF GOT — and
 leaves `src/arch/x86_64/` untouched.
 
@@ -712,13 +712,13 @@ as they do today — the Windows plan gets its own container, not a widened ELF 
 
 <!-- Filled in during execution. -->
 
-- 2026-07-20 — **B does not depend on 47-A** the way the header said. Phases 1–3 touch
+- 2026-07-20 — **B does not depend on 47-B** the way the header said. Phases 1–3 touch
   only the new `src/os/windows/` leaf and one line of `src/os/mod.rs`; only Phase 4 needs
-  the backend. Split into B1 (blocks on nothing) and B2.
+  the backend. Split into C1 (blocks on nothing) and C2.
 - 2026-07-20 — **A↔B conflict to settle once.** B Phase 3 adds a test pinning the
   external-call bytes `[0xB8,8,0,0,0,0xE8,0,0,0,0]` (`emitter.rs:710`). That `B8 08` is
   `mov eax,8` — the **SysV variadic vector-count marker** (documented at
-  `emitter.rs:696-705`), meaningless on Win64. 47-A's proposed `CALL_ARGS_WIN64` makes
+  `emitter.rs:696-705`), meaningless on Win64. 47-B's proposed `CALL_ARGS_WIN64` makes
   `rax` an argument slot, so A introducing `X86Abi` is the natural moment to drop the
   marker for Win64 — which this new pinning test would forbid. The `internal` guard at
   `:706` saves it today. Decide in whichever of A/B lands first.

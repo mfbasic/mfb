@@ -1,9 +1,9 @@
-# plan-47-D: the Win32 filesystem surface
+# plan-47-F: the Win32 filesystem surface
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-47-C (the IAT mechanism and a runnable `.exe`). Strongly prefers
-plan-47-S (see §Open Decisions 1). Feature-wide precondition: master §Prerequisites.
+Depends on: plan-47-D (the IAT mechanism and a runnable `.exe`). Strongly prefers
+plan-47-E (see §Open Decisions 1). Feature-wide precondition: master §Prerequisites.
 Produces: the `fs::*` Windows implementations and `fs.*` in `runtime_calls`.
 
 Implements `fs::*` over Win32 — `CreateFileW`/`ReadFile`/`WriteFile`/`GetFileAttributesW`/
@@ -26,7 +26,7 @@ References (read first):
   `:2739-2743` documenting that its wrong arm has already shipped once.
 - `src/target/linux_common/code.rs:302` and `src/target/macos_aarch64/code.rs:38` — the
   two existing implementations of the 17 methods.
-- `planning/plan-47-S-raise-the-posix-seam.md` §4.2 — which removes `dirent_name_offset`,
+- `planning/plan-47-E-raise-the-posix-seam.md` §4.2 — which removes `dirent_name_offset`,
   `dirent_name_length_offset` and `stat_mode_offset` and replaces them with
   `emit_read_dir_entry`/`emit_stat_is_dir`.
 
@@ -34,8 +34,8 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-47-C has landed | `ls src/target/win_x86_64/code.rs` | **NOT MET** |
-| plan-47-S has landed (else see Open Decisions 1) | `rg -n 'fn emit_read_dir_entry' src/` | **NOT MET** |
+| plan-47-D has landed | `ls src/target/win_x86_64/code.rs` | **NOT MET** |
+| plan-47-E has landed (else see Open Decisions 1) | `rg -n 'fn emit_read_dir_entry' src/` | **NOT MET** |
 | The Win11 box answers | `ssh -p 2230 test@127.0.0.1 true` | **UNVERIFIED — run it** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -48,17 +48,17 @@ References (read first):
 - UTF-8 ↔ UTF-16 path marshaling, with a documented policy for paths that are not valid
   Unicode.
 - `fs.*` advertised in `runtime_calls`; before this lands, an `fs::` program is rejected
-  at compile time by 47-C.
+  at compile time by 47-D.
 - Runtime proof: create/write/read/list/rename/delete round-trips byte-identically
   against linux-x86_64, including a non-ASCII path.
 
 ### Non-goals (explicit constraints)
 
 - **No symlink creation, no permissions/mode surface.** Windows `st_mode` has no POSIX
-  analog; `emit_stat_is_dir` (from 47-S) answers the only question shared lowering asks.
+  analog; `emit_stat_is_dir` (from 47-E) answers the only question shared lowering asks.
 - **No path-separator translation in the language.** MFBASIC paths stay as the program
   wrote them; Win32 accepts `/` in most APIs. Do not silently rewrite user paths.
-- **Do not edit `open_flag_set`'s POSIX arms.** 47-P made it exhaustive; D fills the
+- **Do not edit `open_flag_set`'s POSIX arms.** 47-A made it exhaustive; D fills the
   Windows arm only.
 - **No `environ`.** `emit_environ_pointer` has no Windows analog
   (`GetEnvironmentStringsW` is the replacement) and belongs with the `os::` surface, not
@@ -72,9 +72,9 @@ References (read first):
 |---|---|---|
 | fs-related `CodegenPlatform` methods | **20** | `awk '/pub\(crate\) trait CodegenPlatform/,0' src/target/shared/code/types.rs \| awk '/^}/{exit} /^    fn /{sub(/^    fn /,""); sub(/[(<].*/,""); print}' \| grep -cE 'file\|dir\|path\|stat\|realpath\|rename\|mkstemp\|temp\|environ\|current'` |
 | — genuine per-OS emitters this sub-plan writes | **17** | the 20 minus `dirent_name_offset`, `dirent_name_length_offset`, `stat_mode_offset` |
-| — POSIX layout constants (removed by 47-S) | **3** | same three |
+| — POSIX layout constants (removed by 47-E) | **3** | same three |
 | `platform.target()` sites in fs shared lowering | 17 | `rg -c 'platform\.target\(\)' src/target/shared/code/fs_helpers_*.rs` |
-| — of those, branch-shaped (converted by 47-P) | **5** | `rg -c 'platform\.target\(\)\s*(==\|\.starts_with\|\.contains)' src/target/shared/code/fs_helpers_*.rs` |
+| — of those, branch-shaped (converted by 47-A) | **5** | `rg -c 'platform\.target\(\)\s*(==\|\.starts_with\|\.contains)' src/target/shared/code/fs_helpers_*.rs` |
 | `open_flag_set` call sites | 6 | `rg -c 'open_flag_set\(' src/target/shared/code/` |
 
 The 17 emitters: `emit_open_file`, `emit_read_file`, `emit_close_file`, `emit_sync_file`,
@@ -85,13 +85,13 @@ The 17 emitters: `emit_open_file`, `emit_read_file`, `emit_close_file`, `emit_sy
 
 ### 2.2 Where D is *not* method-shaped
 
-Five branch sites in fs shared lowering, which 47-P converts to exhaustive matches and D
+Five branch sites in fs shared lowering, which 47-A converts to exhaustive matches and D
 must then answer:
 
 | Site | Decision | Windows answer |
 |---|---|---|
 | `fs_helpers_io.rs:2744` (`open_flag_set`) | `O_*` bit values | `CreateFileW`'s `dwDesiredAccess`/`dwCreationDisposition` are a **different shape entirely**, not different bits — see §3.1 |
-| `fs_helpers_paths.rs:922`, `:1039` | dirent `d_namlen` vs strlen | removed by 47-S's `emit_read_dir_entry` |
+| `fs_helpers_paths.rs:922`, `:1039` | dirent `d_namlen` vs strlen | removed by 47-E's `emit_read_dir_entry` |
 | `fs_helpers_io.rs:599`, `:938` | `openat2(RESOLVE_NO_SYMLINKS)` nofollow | Windows needs its own whole-path symlink refusal (§3.2) |
 | `fs_helpers_io.rs:33` (`write_uses_raw_syscall`) | raw syscall vs libc | `false` for Windows — correct, but it routes Windows onto the **libc-errno EINTR retry path**, which is meaningless on Win32 (§3.3) |
 
@@ -99,10 +99,10 @@ must then answer:
 
 | Claim | Verdict | How checked |
 |---|---|---|
-| 17 of the 20 fs methods are genuine emitters | **CONFIRMED** | the other 3 are the layout constants 47-S removes |
+| 17 of the 20 fs methods are genuine emitters | **CONFIRMED** | the other 3 are the layout constants 47-E removes |
 | `open_flag_set`'s wrong arm has shipped before | **CONFIRMED** | `fs_helpers_io.rs:2739-2743` documents linux-x86_64 receiving the macOS bits |
 | Windows takes the libc-errno EINTR path | **CONFIRMED** | `write_uses_raw_syscall` is `target == "linux-x86_64"`, so Windows gets `false` |
-| Windows has neither `___error` nor `__errno_location` | **CONFIRMED** | it has `GetLastError`; 47-C routes `emit_errno` there |
+| Windows has neither `___error` nor `__errno_location` | **CONFIRMED** | it has `GetLastError`; 47-D routes `emit_errno` there |
 | `GetFileAttributesW` answers is-dir | **CONFIRMED** | `FILE_ATTRIBUTE_DIRECTORY` in the returned bitmask |
 | Round-trip byte-identity on Windows | **UNVERIFIED — this is the acceptance criterion** | proven on the Win11 box |
 
@@ -133,7 +133,7 @@ document it; silently degrading a security-relevant nofollow is the worst outcom
 
 The shared retry construct reads `errno == EINTR` after a short read/write. Win32 calls
 do not set `errno` and are not interrupted this way. The Windows arms must not emit the
-retry loop — but the loop is in shared code, so this is one more decision 47-P's
+retry loop — but the loop is in shared code, so this is one more decision 47-A's
 exhaustive match will surface. Treat a short `ReadFile`/`WriteFile` as a real short
 transfer and loop on *progress*, not on an error code.
 
@@ -247,7 +247,7 @@ Commit: —
 
 ## Open Decisions
 
-1. **Land D before or after 47-S.** Recommended **after**: D consumes
+1. **Land D before or after 47-E.** Recommended **after**: D consumes
    `dirent_name_offset`/`stat_mode_offset`, which S deletes. Landing D first means
    writing those three against a seam that is about to change, then rewriting them.
    If D must go first, budget the rewrite explicitly rather than discovering it.
@@ -265,7 +265,7 @@ Commit: —
 
 - 2026-07-20 — **D is 17 emitters, not 20.** Three of the fs-related trait methods
   (`dirent_name_offset`, `dirent_name_length_offset`, `stat_mode_offset`) are POSIX
-  layout constants that 47-S removes.
+  layout constants that 47-E removes.
 - 2026-07-20 — **D is not purely additive**, contrary to the master's framing. Five
   branch sites in fs shared lowering need Windows answers, and `open_flag_set`'s return
   *shape* has to change (§3.1) because `CreateFileW` takes three parameters where POSIX
@@ -279,7 +279,7 @@ case), and UTF-16 marshaling, where a wrong conversion produces plausible-lookin
 that only a byte-comparison catches.
 
 The design work is §3.1 — open flags are a different shape on Windows, not different
-values — which is a small echo of the same lesson 47-S learns at scale.
+values — which is a small echo of the same lesson 47-E learns at scale.
 
 What is left untouched: `fs::` language semantics, every other backend's fs behavior, and
 the permissions/symlink-creation surface, which Windows does not model the POSIX way and

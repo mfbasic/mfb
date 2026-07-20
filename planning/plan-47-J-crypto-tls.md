@@ -1,8 +1,8 @@
-# plan-47-H: crypto over CNG and TLS over Schannel
+# plan-47-J: crypto over CNG and TLS over Schannel
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-47-G2 (sockets — TLS is a transport over them), plan-47-C.
+Depends on: plan-47-I2 (sockets — TLS is a transport over them), plan-47-D.
 Feature-wide precondition: master §Prerequisites.
 Produces: the Windows `crypto::*` implementation and a third `tls::` backend;
 `crypto.*`/`tls.*` in `runtime_calls`. Nothing consumes it — this is the last surface.
@@ -30,15 +30,15 @@ References (read first):
   (`rg -c 'contains("macos")'` → 7). This is the default backend, not the Linux one.
 - `src/target/shared/code/tls/{mod,macos}.rs` — the dispatch and the one genuinely
   OS-specific sibling.
-- `planning/plan-47-P-platform-family-match.md` — converts all of the above to exhaustive
+- `planning/plan-47-A-platform-family-match.md` — converts all of the above to exhaustive
   matches; H fills the Windows arms.
 
 ## Prerequisites
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-47-P has landed (dispatches are exhaustive) | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
-| plan-47-G2 has landed (sockets work) | `rg -n 'closesocket' src/target/win_x86_64/` | **NOT MET** |
+| plan-47-A has landed (dispatches are exhaustive) | `rg -n 'enum PlatformFamily' src/` | **NOT MET** |
+| plan-47-I2 has landed (sockets work) | `rg -n 'closesocket' src/target/win_x86_64/` | **NOT MET** |
 | The Win11 box answers, with outbound HTTPS | `ssh -p 2230 test@127.0.0.1 true` | **UNVERIFIED — run it** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -75,7 +75,7 @@ References (read first):
 | — of those, **negated** (the dangerous one) | 1 | `mod.rs:688`, `!contains("macos")` → Windows gets ALSA |
 | `contains("macos")` branches inside `tls/openssl.rs` | **7** | `rg -c 'contains("macos")' src/target/shared/code/tls/openssl.rs` |
 | Existing TLS backends | 2 (`openssl.rs` = default, `macos.rs` = specific) | `ls src/target/shared/code/tls/` |
-| Existing `CodegenPlatform` methods for crypto/TLS | 2 (`emit_random_bytes` — done in 47-C — and `emit_tls_block_trampolines`, defaulted) | master §2.1 |
+| Existing `CodegenPlatform` methods for crypto/TLS | 2 (`emit_random_bytes` — done in 47-D — and `emit_tls_block_trampolines`, defaulted) | master §2.1 |
 
 ### 2.2 What Windows silently gets today
 
@@ -90,7 +90,7 @@ sub-plan means:
 | `mod.rs:703` | OpenSSL EC dlsym names |
 | `mod.rs:1036`, `:1052` | no audio callback (correct by accident) |
 
-47-P converts these to exhaustive matches so they become compile errors; H supplies the
+47-A converts these to exhaustive matches so they become compile errors; H supplies the
 answers.
 
 ### 2.3 Verified properties
@@ -112,13 +112,13 @@ an implementation.
 Four pieces:
 
 1. **A third dispatch arm.** `crypto_ec.rs:113` and `tls/mod.rs` gain a `Windows` arm
-   (47-P made them exhaustive). This is the structural change the master missed.
+   (47-A made them exhaustive). This is the structural change the master missed.
 2. **`crypto::` over CNG/BCrypt** — `BCryptOpenAlgorithmProvider` /
    `BCryptCreateHash` / `BCryptHashData` / `BCryptFinishHash` for digests;
    `BCryptGenerateKeyPair` / `BCryptSignHash` / `BCryptVerifySignature` for EC.
 3. **`tls::` over Schannel** — `AcquireCredentialsHandle` /
    `InitializeSecurityContext` (loop until complete) / `EncryptMessage` /
-   `DecryptMessage` / `DeleteSecurityContext`, over the 47-G socket.
+   `DecryptMessage` / `DeleteSecurityContext`, over the 47-I socket.
 4. **Data objects** — `mod.rs:680`/`:688`/`:703` emit Windows-appropriate strings, or
    none. Windows needs **no** dlsym names: CNG and Schannel are linked through the IAT
    like every other Win32 call, not `dlopen`ed.
@@ -161,7 +161,7 @@ unattributable.
 | Surface | Windows |
 |---|---|
 | digest / HMAC | `BCryptOpenAlgorithmProvider`, `BCryptCreateHash`, `BCryptHashData`, `BCryptFinishHash` |
-| random | `BCryptGenRandom` (already in 47-C's floor) |
+| random | `BCryptGenRandom` (already in 47-D's floor) |
 | EC sign / verify | `BCryptGenerateKeyPair`, `BCryptSignHash`, `BCryptVerifySignature` |
 | TLS handshake | `AcquireCredentialsHandle` + `InitializeSecurityContext` loop |
 | TLS read / write | `DecryptMessage` / `EncryptMessage` |
@@ -206,7 +206,7 @@ Commit: —
 - [ ] Third dispatch arm in `crypto_ec.rs:113` and `tls/mod.rs`; `tls/schannel.rs`
       skeleton.
 - [ ] Drive `AcquireCredentialsHandle` + the `InitializeSecurityContext` loop to a
-      completed handshake against a real HTTPS host, over a 47-G socket. Handshake only —
+      completed handshake against a real HTTPS host, over a 47-I socket. Handshake only —
       no application data.
 - [ ] Handle the partial-record case explicitly (`SEC_E_INCOMPLETE_MESSAGE`).
 

@@ -1,8 +1,8 @@
-# plan-13-D: lifetime, detach, and orphan correctness
+# plan-13-J: lifetime, detach, and orphan correctness
 
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-13-M and plan-13-G (both backends must exist — the model must hold on
+Depends on: plan-13-E and plan-13-F (both backends must exist — the model must hold on
 each). Feature-wide precondition: plan-13 master §Prerequisites.
 Produces: the detach-not-destroy model proven end to end, leak-free.
 
@@ -19,7 +19,7 @@ backends exist, because "destroyed exactly once" must hold on each.
 
 References (read first):
 
-- `planning/plan-13-A-app-builtin.md` §2 — the detach-not-destroy model this preserves.
+- `planning/old-plans/superseded-plan-13-A-app-builtin.md` §2 — the detach-not-destroy model this preserves.
 - `src/docs/spec/language/15_resource-management.md` — scope-drop ordering, and the rule
   that a resource union's drop is **tag-dispatched** to the active variant's close op.
   Find with `rg -n 'resource union' src/docs/spec/language/15_resource-management.md`.
@@ -28,8 +28,8 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| plan-13-M has landed | `rg -n 'host_present' src/target/macos_aarch64/` | **NOT MET** |
-| plan-13-G has landed | `rg -n 'host_present' src/target/linux_gtk/` | **NOT MET** |
+| plan-13-E has landed | `rg -n 'host_present' src/target/macos_aarch64/` | **NOT MET** |
+| plan-13-F has landed | `rg -n 'host_present' src/target/linux_gtk/` | **NOT MET** |
 | A leak checker is available for both platforms | `rg -n 'leak' scripts/` | **UNVERIFIED — run it** |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run
@@ -50,7 +50,7 @@ References (read first):
 
 ### Non-goals (explicit constraints)
 
-- **No new surface.** This unit proves the model 13-A registered; it adds no function.
+- **No new surface.** This unit proves the model 13-C registered; it adds no function.
 - **No `app::destroy` in user code.** It is registry-only; an explicit call is an unknown
   function, which is what prevents the double free.
 - **Do not "fix" a leak by weakening a close op.** A close op that stops firing is not a
@@ -62,7 +62,7 @@ References (read first):
 
 | What | Count | Command |
 |---|---|---|
-| Registered close ops family-wide | **7** (1 exported `app::close` + 6 internal `app::destroy` overloads incl. TextArea and Table) | 13-A §1 + 13-B + 13-C |
+| Registered close ops family-wide | **7** (1 exported `app::close` + 6 internal `app::destroy` overloads incl. TextArea and Table) | 13-C §1 + 13-H + 13-I |
 | Backends the model must hold on | **2** (macOS, GTK4) | plus headless for the model tests |
 | Widget kinds | **7 concrete + 1 union** | `Window`, `Container`, `Button`, `Label`, `Input`, `TextArea`, `Table` |
 
@@ -73,7 +73,7 @@ References (read first):
 | A resource union's drop is tag-dispatched to the active variant's close op | **CONFIRMED** | `15_resource-management.md` |
 | A close op must name a concrete type | **CONFIRMED** | which is why there is deliberately no `app::destroy(w AS RES app::Widget)` |
 | A resource union carries no `STATE` | **CONFIRMED** | `15_resource-management.md` |
-| `app::Widget`'s union drop is unreachable | **CONFIRMED by construction** | the type is parameter-only; no binding of it exists. **Assert it anyway** — the assertion is what keeps it true as 13-B/13-C add variants |
+| `app::Widget`'s union drop is unreachable | **CONFIRMED by construction** | the type is parameter-only; no binding of it exists. **Assert it anyway** — the assertion is what keeps it true as 13-H/13-I add variants |
 | Every handle is destroyed exactly once | **UNVERIFIED — this is the acceptance criterion** | proven per backend, under a leak checker |
 
 ## 3. Design Overview
@@ -149,7 +149,7 @@ Commit: —
 - Coverage check: model-level cases run headless and are golden-backed; the native
   destroy-exactly-once cases are on-device and are stated as such.
 - Runtime proof: macOS and the Debian aarch64 GTK4 box, both under the leak checker.
-- Doc sync: none — the model is already specified in 13-A's surface docs.
+- Doc sync: none — the model is already specified in 13-C's surface docs.
 - Acceptance: the project's full suite, no leaks.
 
 ## Open Decisions
@@ -164,12 +164,12 @@ Commit: —
 
 <!-- Filled in during execution. -->
 
-- 2026-07-20 — **Promoted from "plan-13-A Phase 6" to its own unit, and its dependency
+- 2026-07-20 — **Promoted from "plan-13-C Phase 6" to its own unit, and its dependency
   corrected.** It cannot land with one backend: "destroyed exactly once" must hold on
-  each, so it depends on both 13-M and 13-G.
+  each, so it depends on both 13-E and 13-F.
 - 2026-07-20 — **The union-drop-unreachable property must be asserted, not assumed.** It
   holds by construction today because `app::Widget` is parameter-only, and the assertion is
-  what keeps it true as 13-B and 13-C add variants.
+  what keeps it true as 13-H and 13-I add variants.
 
 ## Summary
 

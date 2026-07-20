@@ -1,10 +1,10 @@
-# plan-13-L: resource-union parameters (the language amendment)
+# plan-13-A: resource-union parameters (the language amendment)
 
 Last updated: 2026-07-20
 Effort: small (<1h)
 Depends on: nothing. **This is plan-13's gate — every other unit is behind it.**
 Produces: the `15_resource-management.md` amendment, and all three checkers accepting
-variant→union widening in a borrow-parameter position. Consumed by 13-A and everything
+variant→union widening in a borrow-parameter position. Consumed by 13-C and everything
 after it.
 
 The spec forbids what `app::` needs. `15_resource-management.md:30` says, verbatim:
@@ -90,7 +90,7 @@ The 2026-07-09 draft established this and corrected an earlier draft that had ca
 | 3 | `src/ir/verify/mod.rs:4343` | per plan-20 the sole rejecter on both paths; its own `compatible()` must accept the same widening |
 
 Checker 2 does not exist yet for `app::` (there is no `src/builtins/app.rs`). **This unit
-implements the mechanism generically and 13-A supplies `app::`'s variant table** — so this
+implements the mechanism generically and 13-C supplies `app::`'s variant table** — so this
 sub-plan is testable against a *user-declared* union with no GUI code anywhere.
 
 ### 2.3 Verified properties
@@ -130,7 +130,7 @@ direction is wrong.
 **Rejected alternative:** *materialize a tagged temporary per call.* Rejected as pure
 waste — the handle already carries its kind, so widening changes nothing at runtime.
 
-**Rejected alternative:** *fold this into 13-A.* Rejected: a language spec change inside a
+**Rejected alternative:** *fold this into 13-C.* Rejected: a language spec change inside a
 GUI package's commit series is unreviewable, and it would make `app::` the reason the
 language changed rather than a consumer of a change that stands on its own.
 
@@ -165,7 +165,7 @@ Commit: —
 - [ ] Checker 1 (`src/syntaxcheck/builtins.rs`): per-overload `param_types` table,
       selected by `expression_compatible()`, with `ExprMode::Borrow` for resource args.
 - [ ] Checker 2: the generic variant-predicate mechanism a package's `resolve_call` uses
-      (the `app::` table itself lands in 13-A).
+      (the `app::` table itself lands in 13-C).
 - [ ] Checker 3 (`src/ir/verify/mod.rs:4343`): the same widening in its `compatible()`.
 
 Acceptance: all three accept a variant in a union parameter for a **user-declared**
@@ -212,7 +212,7 @@ Commit: —
 
 <!-- Filled in during execution. -->
 
-- 2026-07-20 — **Promoted from "plan-13-A Phase 0" to its own gating unit.** A language
+- 2026-07-20 — **Promoted from "plan-13-C Phase 0" to its own gating unit.** A language
   spec change that every other unit depends on is a precondition, not phase zero of an
   x-large document.
 - 2026-07-20 — Citations re-derived. The 2026-07-09 draft's numbers had rotted:
