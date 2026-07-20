@@ -163,8 +163,15 @@ pub(super) fn emit_read_byte_list(
         abi::label(&copy_loop),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_eq(&copy_done),
-        // byte = dataBase[entry->value_offset]
-        abi::load_u64("%v16", "%v14", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        // byte = dataBase[entry->value_offset]; for kind 2 element `i` is simply
+        // at offset `i`, with no entry to indirect through (plan-57-D). An `if`
+        // expression rather than a split `extend` keeps the emitted array the
+        // same shape, so the kind-0 build is untouched.
+        if byte_list_entry_stride() != 0 {
+            abi::load_u64("%v16", "%v14", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET)
+        } else {
+            abi::move_register("%v16", "%v9")
+        },
         abi::add_registers("%v16", "%v13", "%v16"),
         abi::load_u8("%v17", "%v16", 0),
         abi::store_u8("%v17", "%v15", 0),
@@ -269,14 +276,16 @@ pub(super) fn emit_build_byte_list(
             abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
             abi::move_immediate("%v12", "Integer", "1"),
             abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-            abi::add_registers("%v12", "%v14", "%v9"),
-            abi::load_u8("%v13", "%v15", 0),
-            abi::store_u8("%v13", "%v12", 0),
-            abi::add_immediate("%v15", "%v15", 1),
-            abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
         ]);
     }
+    // The payload copy runs for BOTH representations — only the entry-field
+    // stores above are kind-0 only.
     instructions.extend([
+        abi::add_registers("%v12", "%v14", "%v9"),
+        abi::load_u8("%v13", "%v15", 0),
+        abi::store_u8("%v13", "%v12", 0),
+        abi::add_immediate("%v15", "%v15", 1),
+        abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
         abi::add_immediate("%v9", "%v9", 1),
         abi::branch(entry_loop),
         abi::label(entry_done),

@@ -1428,14 +1428,15 @@ pub(super) fn lower_tls_read_macos(
                 abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
                 abi::move_immediate("%v12", "Integer", "1"),
                 abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-                abi::add_registers("%v12", "%v14", "%v9"),
-                abi::load_u8("%v13", "%v15", 0),
-                abi::store_u8("%v13", "%v12", 0),
-                abi::add_immediate("%v15", "%v15", 1),
-                abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
             ]);
         }
+        // The payload copy runs for BOTH representations.
         ins.extend([
+            abi::add_registers("%v12", "%v14", "%v9"),
+            abi::load_u8("%v13", "%v15", 0),
+            abi::store_u8("%v13", "%v12", 0),
+            abi::add_immediate("%v15", "%v15", 1),
+            abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
             abi::add_immediate("%v9", "%v9", 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
