@@ -1,0 +1,9 @@
+' Byte-identity coverage for a backend that carried NO generated-code golden.\n' plan-57 rewrites the collection builders these helpers all construct their\n' List OF Byte / List OF String results through, and its acceptance is\n' artifact byte-identity — so each of these needs a .ncode golden or the gate is\n' blind to it. Goldens exist per target because several of these backends are\n' platform-specific (audio/alsa and tls/openssl are Linux-only).\n' Compile-only by design: these open devices and sockets that do not exist in a\n' test run, so there is no .run golden and the harness never executes them.\n
+IMPORT io
+IMPORT crypto
+
+FUNC main() AS Integer
+  LET b = crypto::randomBytes(32)
+  io::print(toString(len(b)))
+  RETURN 0
+END FUNC

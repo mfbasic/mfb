@@ -1,0 +1,49 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "os_codegen_cover_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "forEach",
+      "line": 7,
+      "name": "a",
+      "type": "String",
+      "iterable": { "kind": "call", "type": "List OF String", "target": "os.args", "args": [] },
+      "body": [
+      { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "a" }] } }
+      ]
+    },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.hostName", "args": [] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.userName", "args": [] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.executablePath", "args": [] }] } },
+    {
+      "op": "forEach",
+      "line": 13,
+      "name": "k",
+      "type": "String",
+      "iterable": { "kind": "call", "type": "List OF String", "target": "collections.keys", "args": [{ "kind": "call", "type": "Map OF String TO String", "target": "os.environ", "args": [] }] },
+      "body": [
+      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "k" }] } }
+      ]
+    },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

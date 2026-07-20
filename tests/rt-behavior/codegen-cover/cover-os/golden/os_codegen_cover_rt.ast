@@ -1,0 +1,49 @@
+{
+  "project": "os_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 2 },
+    { "module": "os", "line": 3 },
+    { "module": "collections", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      {
+        "kind": "forEach",
+        "name": "a",
+        "iterable": { "kind": "call", "callee": "os.args", "arguments": [] },
+        "line": 7,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 8 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.hostName", "arguments": [] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.userName", "arguments": [] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.executablePath", "arguments": [] }] }, "line": 12 },
+      {
+        "kind": "forEach",
+        "name": "k",
+        "iterable": { "kind": "call", "callee": "collections.keys", "arguments": [{ "kind": "call", "callee": "os.environ", "arguments": [] }] },
+        "line": 13,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "k" }] }, "line": 14 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "project": "fs_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 2 },
+    { "module": "fs", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": { "kind": "call", "callee": "fs.readAllBytes", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] }, "line": 8 },
+      {
+        "kind": "forEach",
+        "name": "name",
+        "iterable": { "kind": "call", "callee": "fs.listDirectory", "arguments": [{ "kind": "string", "value": "target" }] },
+        "line": 9,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 10 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}
