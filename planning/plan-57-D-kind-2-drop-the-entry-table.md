@@ -314,12 +314,27 @@ fixed-width key and still keeps its entries. That is now an explicit
 `stride_type` parameter (`""` for a map) on the payload loader, the three compare
 helpers and the payload copier.
 
-**The one remaining failure:** `encoding::base64Encode` / `base32Encode` leak
-under kind 2 — a single call is correct (`Zg==`), but 3000 calls exhaust the
-arena. `base64UrlEncode` does not leak, and the difference between them is
-`pad = TRUE`. An inline replica of `__encoding_baseEncode` does NOT leak, so the
-leak is specific to the bundled-package call path rather than the algorithm.
-Not yet root-caused.
+**The one remaining failure: cumulative arena exhaustion in the TESTING app.**
+`tests/acceptance` reaches 149 of its cases and then fails with
+`Allocation failed` — reported at `encoding`, but that is a SYMPTOM, not the
+site. Every one of those operations is correct and leak-free in isolation:
+`base64Encode`/`base32Encode`/`base64UrlEncode`, `json::parse`, and 20k-iteration
+loops of sort / distinct / mid / replace / math::abs / append / prepend / insert /
+removeAt / toBytes / map keys / values / set / split / join / csv::parse /
+regex::findAll all pass under the flag. So something allocates more than it frees
+across a long-running program, and it is not any single operation probed so far.
+
+`lower_reserved_list` (which `transform` and `filter` allocate their output
+through, so it sees every element type) LOOKS like the culprit: it reserves
+`HEADER + count*40 + data` while the kind-2 free releases `HEADER + data`, which
+leaks 40 bytes per element per call. But giving it the kind-2 stride makes the
+app fail EARLIER — 90 cases instead of 149 — so the reservation is load-bearing
+in a way the current implementation depends on, and the change is reverted. That
+contradiction is the thread to pull next: something fills a reserved list
+assuming the entry array is there.
+
+Do not "fix" this by re-applying the stride without explaining the regression;
+the suite is saying the change is wrong.
 
 **Also outstanding:** the spec amendment, the golden re-baseline, and Phase 3's
 proofs (the memory win, nested `List OF List OF Integer`, thread transfer).

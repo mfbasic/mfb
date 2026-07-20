@@ -4057,6 +4057,14 @@ impl CodeBuilder<'_> {
         output_type: &str,
         source_slot: usize,
     ) -> Result<ValueResult, String> {
+        // The reserved result's own entry stride. `transform` and `filter`
+        // allocate their output through here, so this sees every element type —
+        // including the fixed-width ones, whose blocks must be reserved WITHOUT
+        // an entry array or the free (which uses the kind-2 size) releases less
+        // than was taken and leaks on every call (plan-57-D).
+        let reserved_stride = list_element_type(output_type)
+            .map(|element| list_entry_stride(&element))
+            .unwrap_or(COLLECTION_ENTRY_SIZE);
         let layout = CollectionTypeLayout::from_type(output_type).ok_or_else(|| {
             format!("native code collection type '{output_type}' is not supported")
         })?;
