@@ -896,3 +896,39 @@ direction-isolated resource queues and the plan-54 `STATE` deep-copy that closed
 bug-257, `base_resource_name` and every frontend/IR layer above the
 `CodegenPlatform` seam, `_mfb_shutdown`, and the emitted bytes of all four
 shipping targets.
+
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+- 2026-07-20 — **The header's single `Depends on: plan-47-C` contradicted this
+  document's own body, three times** (§Phase 3's first task, §Phase 3's opening, and
+  §Open Decisions all say the blocker is 47-A's shadow space). Dependencies are now
+  declared per phase: F1 nothing, F2 nothing, F3 47-A, F4 47-C. **F1+F2 blocking on
+  nothing is the single biggest de-risking move available in this feature** — they are
+  inert shared refactors that can land before 47-A exists.
+- 2026-07-20 — **"different in kind from 47-D/E/G" is false.** There is no
+  `emit_socket`/`emit_connect` on `CodegenPlatform` at all, so 47-G rewrites 37 hardcoded
+  POSIX socket literals in `shared/code/net/` and 47-E rewrites 6 in `io_helpers.rs`/
+  `term.rs`. G is this sub-plan's shape at 38% the scale; E at 7%. Only 47-B1 touches no
+  shared code. **Phase 1's chokepoint technique is the reusable pattern for the whole
+  feature** and has been cloned as G1 and E1.
+- 2026-07-20 — **Effort `large` is over the sub-plan band.** The split rule says large
+  plans split into small/medium sub-plans before starting; this document's own header
+  already conceded "the four phases below are individually medium and land separately".
+  The per-phase dependency table above *is* that split.
+- 2026-07-20 — Counts re-measured: `runtime_helpers.rs` holds **21** pthread literals,
+  not 17; `stdin_broadcast.rs` has 27 literals across **32** `emit_libc` call sites;
+  `emit_thread_external_call` has **15** call sites in `runtime_helpers.rs` (the 16th
+  match is the definition at `:70`) and 42 in `runtime_helpers_thread.rs`, so the
+  "58 call sites" figure is **57**. The aggregate "85 call sites" is **91** routed sites
+  (86 pthread-bearing). Re-derive before using any of these as a completion checklist.
+- 2026-07-20 — **"compiled for all five targets" is four today.** A fifth exists only
+  after 47-A registers Windows.
+- 2026-07-20 — **`thread_symbol` is not "the only platform switch in the thread path".**
+  There are three: `:62` plus inline `== "macos-aarch64"` tests at `:612` and `:617`.
+  (§Phase 1 later names those two correctly — the summary contradicted itself.)
+- 2026-07-20 — `lower_shutdown` is `entry_and_arena.rs:1868`, not `:1880`.
+  `builtins/thread.rs:757` and `:792` are **not** `base_resource_name` consumers — they
+  are plan-54 unit tests; the invariant argument cites the wrong lines.

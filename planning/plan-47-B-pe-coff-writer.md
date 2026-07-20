@@ -2,7 +2,14 @@
 
 Last updated: 2026-07-19
 Effort: medium (1h–2h)
-Depends on: plan-47-A (target registration; the writer is reached through the win_x86_64 backend)
+Depends on: **per phase.** *B1* = Phases 1–3 (`src/os/windows/{mod,object,link/}` plus
+one line of `src/os/mod.rs`) depends on **nothing** — `object.rs::validate` compares the
+target as a *string*, not against the registry, and the `ExitProcess(42)` test image is
+hand-built in `link/tests.rs`. *B2* = Phase 4 (wire `write_executable` to the backend)
+depends on plan-47-A.
+
+**B1 is the only unit in the whole feature that touches zero shared code** — it is a new
+leaf sibling of `src/os/{linux,macos}/`. Land it early, in parallel with 47-P/E1/F1/G1.
 
 Add a third container writer beside the ELF and Mach-O ones: `src/os/windows/`,
 emitting a minimal **PE32+** console executable from the same `EncodedImage` the
@@ -96,7 +103,10 @@ References:
 
 ## 2. Current State
 
-Every claim below was read in the tree at `c39c2bc3d`.
+**Baseline note (2026-07-20):** the claims below were read at `c39c2bc3d`, which is now
+25 commits behind HEAD. A re-audit found them substantially accurate (26 verified, 5
+line-drifts) — the drifts are recorded in §Corrections. Re-read before relying on any
+single line number. Every claim below was read in the tree at `c39c2bc3d`.
 
 **The linkable-image type is shared and OS-neutral.** `EncodedImage`
 (`src/arch/aarch64/encode/mod.rs:17`) carries `text`, `data`, `rodata_size`
@@ -678,3 +688,31 @@ whole x86-64 encoder, every existing target's bytes, the NIR/plan/MIR pipeline,
 and the entire language layer. `src/os/linux/object.rs`'s Linux-only target
 allowlist and the `"windows"`-rejection test that guards it keep working exactly
 as they do today — the Windows plan gets its own container, not a widened ELF one.
+
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+- 2026-07-20 — **B does not depend on 47-A** the way the header said. Phases 1–3 touch
+  only the new `src/os/windows/` leaf and one line of `src/os/mod.rs`; only Phase 4 needs
+  the backend. Split into B1 (blocks on nothing) and B2.
+- 2026-07-20 — **A↔B conflict to settle once.** B Phase 3 adds a test pinning the
+  external-call bytes `[0xB8,8,0,0,0,0xE8,0,0,0,0]` (`emitter.rs:710`). That `B8 08` is
+  `mov eax,8` — the **SysV variadic vector-count marker** (documented at
+  `emitter.rs:696-705`), meaningless on Win64. 47-A's proposed `CALL_ARGS_WIN64` makes
+  `rax` an argument slot, so A introducing `X86Abi` is the natural moment to drop the
+  marker for Win64 — which this new pinning test would forbid. The `internal` guard at
+  `:706` saves it today. Decide in whichever of A/B lands first.
+- 2026-07-20 — Line drifts found in a re-audit (claims correct, citations stale):
+  `record_reloc` is `emitter.rs:130` (draft said `:138`); `emit_instruction` is `:82`
+  (draft `:107`); the relocation error arm is `linux/link/mod.rs:380` (draft `:378`);
+  `ImportLocations` is `:390` (draft `:389`); `instruction_size` is `sizing.rs:10`
+  (draft `:11`); the linux `.out` naming fn is `linux/link/mod.rs:56` (draft `:70`).
+- 2026-07-20 — **`src/os/{linux,macos}/mod.rs` expose 6 and 4 public fns, not "the same
+  three wrappers"** (draft `:112`). The three named do exist in both; scope the PE
+  sibling against the real surface.
+- 2026-07-20 — **The draft's correction of the master was right and is preserved:** the
+  `"windows"`-rejection negative test is `src/os/linux/mod.rs:141`
+  (`write_native_object_plan_propagates_lowering_error`), not the master's `:87`, and it
+  **must stay** — the master's Phase B said to drop it.
