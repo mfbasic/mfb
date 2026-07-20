@@ -1,0 +1,249 @@
+{
+  "project": "builtin_predicate_as_value_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 26 },
+    { "module": "collections", "line": 27 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "report",
+      "line": 29,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 29 },
+      { "name": "got", "type": "String", "default": null, "line": 29 },
+      { "name": "want", "type": "String", "default": null, "line": 29 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "identifier", "value": "want" } },
+        "line": 30,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": ok" } }] }, "line": 31 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": MISMATCH got=" } }, "right": { "kind": "identifier", "value": "got" } }, "right": { "kind": "string", "value": " want=" } }, "right": { "kind": "identifier", "value": "want" } }] }, "line": 33 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "boolsOf",
+      "line": 37,
+      "params": [
+      { "name": "xs", "type": "List OF Boolean", "default": null, "line": 37 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 38 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 39,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 40 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 42 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "intsOf",
+      "line": 45,
+      "params": [
+      { "name": "xs", "type": "List OF Integer", "default": null, "line": 45 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 46 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 47,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 48 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 50 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "floatsOf",
+      "line": 53,
+      "params": [
+      { "name": "xs", "type": "List OF Float", "default": null, "line": 53 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 54 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 55,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 56 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 58 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fixedsOf",
+      "line": 61,
+      "params": [
+      { "name": "xs", "type": "List OF Fixed", "default": null, "line": 61 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 62 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 63,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 64 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 66 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "textsOf",
+      "line": 69,
+      "params": [
+      { "name": "xs", "type": "List OF String", "default": null, "line": 69 }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 70 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 71,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "identifier", "value": "v" } }, "right": { "kind": "string", "value": "," } }, "line": 72 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 74 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 77,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "ints", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "name": "floats", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2.0" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "0.5" } }, { "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.5" }, { "kind": "number", "value": "2.0" }] }, "line": 79 },
+      { "kind": "binding", "mutable": false, "name": "fixeds", "type": "List OF Fixed", "value": { "kind": "list", "values": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2F" } }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1F" } }, { "kind": "number", "value": "0F" }, { "kind": "number", "value": "1F" }, { "kind": "number", "value": "2F" }] }, "line": 80 },
+      { "kind": "binding", "mutable": false, "name": "texts", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "" }, { "kind": "string", "value": "42" }, { "kind": "string", "value": "-7" }, { "kind": "string", "value": "abc" }, { "kind": "string", "value": "3.5" }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isEven      " }, { "kind": "call", "callee": "intsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isEven" }] }] }, { "kind": "string", "value": "-2,0,2," }] }, "line": 86 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isOdd       " }, { "kind": "call", "callee": "intsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isOdd" }] }] }, { "kind": "string", "value": "-1,1,3," }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isPositive I" }, { "kind": "call", "callee": "intsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "1,2,3," }] }, "line": 88 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isPositive F" }, { "kind": "call", "callee": "floatsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "0.50,2.00," }] }, "line": 89 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isPositive X" }, { "kind": "call", "callee": "fixedsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "1.00,2.00," }] }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isNegative I" }, { "kind": "call", "callee": "intsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "-2,-1," }] }, "line": 91 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isNegative F" }, { "kind": "call", "callee": "floatsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "-2.00,-0.50," }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isNegative X" }, { "kind": "call", "callee": "fixedsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "-2.00,-1.00," }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isZero I    " }, { "kind": "call", "callee": "intsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "0," }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isZero F    " }, { "kind": "call", "callee": "floatsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "0.00," }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isZero X    " }, { "kind": "call", "callee": "fixedsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "0.00," }] }, "line": 96 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isNumeric   " }, { "kind": "call", "callee": "textsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isNumeric" }] }] }, { "kind": "string", "value": "42,-7,3.5," }] }, "line": 97 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isEmpty     " }, { "kind": "call", "callee": "textsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isEmpty" }] }] }, { "kind": "string", "value": "," }] }, "line": 98 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "filter isNotEmpty  " }, { "kind": "call", "callee": "textsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isNotEmpty" }] }] }, { "kind": "string", "value": "42,-7,abc,3.5," }] }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isEven   " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isEven" }] }] }, { "kind": "string", "value": "TRUE,FALSE,TRUE,FALSE,TRUE,FALSE," }] }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isOdd    " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isOdd" }] }] }, { "kind": "string", "value": "FALSE,TRUE,FALSE,TRUE,FALSE,TRUE," }] }, "line": 105 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isPos I  " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "FALSE,FALSE,FALSE,TRUE,TRUE,TRUE," }] }, "line": 106 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isPos F  " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "FALSE,FALSE,FALSE,TRUE,TRUE," }] }, "line": 107 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isPos X  " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "FALSE,FALSE,FALSE,TRUE,TRUE," }] }, "line": 108 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isNeg I  " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "TRUE,TRUE,FALSE,FALSE,FALSE,FALSE," }] }, "line": 109 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isNeg F  " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "TRUE,TRUE,FALSE,FALSE,FALSE," }] }, "line": 110 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isNeg X  " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "TRUE,TRUE,FALSE,FALSE,FALSE," }] }, "line": 111 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isZero I " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "FALSE,FALSE,TRUE,FALSE,FALSE,FALSE," }] }, "line": 112 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isZero F " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "FALSE,FALSE,TRUE,FALSE,FALSE," }] }, "line": 113 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isZero X " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "FALSE,FALSE,TRUE,FALSE,FALSE," }] }, "line": 114 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isNumeric" }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isNumeric" }] }] }, { "kind": "string", "value": "FALSE,TRUE,TRUE,FALSE,TRUE," }] }, "line": 115 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isEmpty  " }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isEmpty" }] }] }, { "kind": "string", "value": "TRUE,FALSE,FALSE,FALSE,FALSE," }] }, "line": 116 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "transform isNotEmpt" }, { "kind": "call", "callee": "boolsOf", "arguments": [{ "kind": "call", "callee": "collections.transform", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isNotEmpty" }] }] }, { "kind": "string", "value": "FALSE,TRUE,TRUE,TRUE,TRUE," }] }, "line": 117 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isEven         " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isEven" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 122 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isOdd          " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isOdd" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 123 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isPositive I   " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 124 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isPositive F   " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 125 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isPositive X   " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isPositive" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 126 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isNegative I   " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 127 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isNegative F   " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 128 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isNegative X   " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isNegative" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 129 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isZero I       " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 130 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isZero F       " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "floats" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 131 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isZero X       " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "fixeds" }, { "kind": "identifier", "value": "isZero" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 132 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isNumeric      " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isNumeric" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 133 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isEmpty        " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isEmpty" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 134 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "any isNotEmpty     " }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.any", "arguments": [{ "kind": "identifier", "value": "texts" }, { "kind": "identifier", "value": "isNotEmpty" }] }] }, { "kind": "string", "value": "TRUE" }] }, "line": 135 },
+      { "kind": "binding", "mutable": false, "name": "fEven", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "identifier", "value": "isEven" }, "line": 142 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isEven         " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fEven", "arguments": [{ "kind": "number", "value": "4" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fEven", "arguments": [{ "kind": "number", "value": "3" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 143 },
+      { "kind": "binding", "mutable": false, "name": "fOdd", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "identifier", "value": "isOdd" }, "line": 145 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isOdd          " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fOdd", "arguments": [{ "kind": "number", "value": "3" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fOdd", "arguments": [{ "kind": "number", "value": "4" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 146 },
+      { "kind": "binding", "mutable": false, "name": "fPosI", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "identifier", "value": "isPositive" }, "line": 148 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isPositive I   " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fPosI", "arguments": [{ "kind": "number", "value": "1" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fPosI", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 149 },
+      { "kind": "binding", "mutable": false, "name": "fPosF", "type": "FUNC(Float) AS Boolean", "value": { "kind": "identifier", "value": "isPositive" }, "line": 150 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isPositive F   " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fPosF", "arguments": [{ "kind": "number", "value": "1.5" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fPosF", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.5" } }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 151 },
+      { "kind": "binding", "mutable": false, "name": "fPosX", "type": "FUNC(Fixed) AS Boolean", "value": { "kind": "identifier", "value": "isPositive" }, "line": 152 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isPositive X   " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fPosX", "arguments": [{ "kind": "number", "value": "1F" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fPosX", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1F" } }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 153 },
+      { "kind": "binding", "mutable": false, "name": "fNegI", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "identifier", "value": "isNegative" }, "line": 155 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isNegative I   " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNegI", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNegI", "arguments": [{ "kind": "number", "value": "1" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 156 },
+      { "kind": "binding", "mutable": false, "name": "fNegF", "type": "FUNC(Float) AS Boolean", "value": { "kind": "identifier", "value": "isNegative" }, "line": 157 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isNegative F   " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNegF", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.5" } }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNegF", "arguments": [{ "kind": "number", "value": "1.5" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 158 },
+      { "kind": "binding", "mutable": false, "name": "fNegX", "type": "FUNC(Fixed) AS Boolean", "value": { "kind": "identifier", "value": "isNegative" }, "line": 159 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isNegative X   " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNegX", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1F" } }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNegX", "arguments": [{ "kind": "number", "value": "1F" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 160 },
+      { "kind": "binding", "mutable": false, "name": "fZeroI", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "identifier", "value": "isZero" }, "line": 162 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isZero I       " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fZeroI", "arguments": [{ "kind": "number", "value": "0" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fZeroI", "arguments": [{ "kind": "number", "value": "1" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 163 },
+      { "kind": "binding", "mutable": false, "name": "fZeroF", "type": "FUNC(Float) AS Boolean", "value": { "kind": "identifier", "value": "isZero" }, "line": 164 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isZero F       " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fZeroF", "arguments": [{ "kind": "number", "value": "0.0" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fZeroF", "arguments": [{ "kind": "number", "value": "1.0" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 165 },
+      { "kind": "binding", "mutable": false, "name": "fZeroX", "type": "FUNC(Fixed) AS Boolean", "value": { "kind": "identifier", "value": "isZero" }, "line": 166 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isZero X       " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fZeroX", "arguments": [{ "kind": "number", "value": "0F" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fZeroX", "arguments": [{ "kind": "number", "value": "1F" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 167 },
+      { "kind": "binding", "mutable": false, "name": "fNumeric", "type": "FUNC(String) AS Boolean", "value": { "kind": "identifier", "value": "isNumeric" }, "line": 169 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isNumeric      " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNumeric", "arguments": [{ "kind": "string", "value": "42" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNumeric", "arguments": [{ "kind": "string", "value": "abc" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 170 },
+      { "kind": "binding", "mutable": false, "name": "fEmpty", "type": "FUNC(String) AS Boolean", "value": { "kind": "identifier", "value": "isEmpty" }, "line": 172 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isEmpty        " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fEmpty", "arguments": [{ "kind": "string", "value": "" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fEmpty", "arguments": [{ "kind": "string", "value": "x" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 173 },
+      { "kind": "binding", "mutable": false, "name": "fNotEmpty", "type": "FUNC(String) AS Boolean", "value": { "kind": "identifier", "value": "isNotEmpty" }, "line": 175 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "let isNotEmpty     " }, { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNotEmpty", "arguments": [{ "kind": "string", "value": "x" }] }] }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fNotEmpty", "arguments": [{ "kind": "string", "value": "" }] }] } }, { "kind": "string", "value": "TRUEFALSE" }] }, "line": 176 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "report", "arguments": [{ "kind": "string", "value": "value passed on    " }, { "kind": "call", "callee": "intsOf", "arguments": [{ "kind": "call", "callee": "collections.filter", "arguments": [{ "kind": "identifier", "value": "ints" }, { "kind": "identifier", "value": "fEven" }] }] }, { "kind": "string", "value": "-2,0,2," }] }, "line": 180 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 182 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 183 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,184 @@
+' bug-368: the general `is*` predicates are usable as function values
+' everywhere an ordinary FUNC is.
+'
+' `isEven`, `isOdd`, `isPositive`, `isNegative`, `isZero`, `isNumeric`,
+' `isEmpty` and `isNotEmpty` are lowered as INLINE code at a direct call site,
+' which is a fine optimization — but before bug-368 no out-of-line body was
+' emitted, so a reference to one in a VALUE position had no symbol to bind to.
+' That implementation detail was visible in the language surface, and which
+' failure a user got depended on the call site rather than on anything they
+' wrote:
+'
+'   collections::filter(xs, isEven)              worked
+'   collections::transform(xs, isEven)           TYPE_UNKNOWN_VALUE
+'   collections::any(xs, isEven)                 NIR local reference does not resolve
+'   LET f AS FUNC(Integer) AS Boolean = isEven   TYPE_UNKNOWN_VALUE
+'
+' `isNumeric` failed even in `filter`, the one position the other seven worked
+' in, because it alone was missing from `builtin_function_id`.
+'
+' The invariant asserted throughout: THE VALUE FORM AND THE DIRECT-CALL FORM
+' AGREE. Every check states the expected result independently, so a fix that
+' merely made the code compile — but bound the wrong predicate — still fails.
+'
+' Float and Fixed results carry `toString`'s two-decimal default precision;
+' that is the formatting contract, not a property of this fix.
+IMPORT io
+IMPORT collections
+
+FUNC report(label AS String, got AS String, want AS String) AS Nothing
+  IF got = want THEN
+    io::print(label & ": ok")
+  ELSE
+    io::print(label & ": MISMATCH got=" & got & " want=" & want)
+  END IF
+END FUNC
+
+FUNC boolsOf(xs AS List OF Boolean) AS String
+  MUT s AS String = ""
+  FOR EACH v IN xs
+    s = s & toString(v) & ","
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC intsOf(xs AS List OF Integer) AS String
+  MUT s AS String = ""
+  FOR EACH v IN xs
+    s = s & toString(v) & ","
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC floatsOf(xs AS List OF Float) AS String
+  MUT s AS String = ""
+  FOR EACH v IN xs
+    s = s & toString(v) & ","
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC fixedsOf(xs AS List OF Fixed) AS String
+  MUT s AS String = ""
+  FOR EACH v IN xs
+    s = s & toString(v) & ","
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC textsOf(xs AS List OF String) AS String
+  MUT s AS String = ""
+  FOR EACH v IN xs
+    s = s & v & ","
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC main() AS Integer
+  LET ints AS List OF Integer = [-2, -1, 0, 1, 2, 3]
+  LET floats AS List OF Float = [-2.0, -0.5, 0.0, 0.5, 2.0]
+  LET fixeds AS List OF Fixed = [-2F, -1F, 0F, 1F, 2F]
+  LET texts AS List OF String = ["", "42", "-7", "abc", "3.5"]
+
+  ' ---------------------------------------------------------------------
+  ' Form 1: collections::filter(xs, <pred>)
+  ' ---------------------------------------------------------------------
+  report("filter isEven      ", intsOf(collections::filter(ints, isEven)), "-2,0,2,")
+  report("filter isOdd       ", intsOf(collections::filter(ints, isOdd)), "-1,1,3,")
+  report("filter isPositive I", intsOf(collections::filter(ints, isPositive)), "1,2,3,")
+  report("filter isPositive F", floatsOf(collections::filter(floats, isPositive)), "0.50,2.00,")
+  report("filter isPositive X", fixedsOf(collections::filter(fixeds, isPositive)), "1.00,2.00,")
+  report("filter isNegative I", intsOf(collections::filter(ints, isNegative)), "-2,-1,")
+  report("filter isNegative F", floatsOf(collections::filter(floats, isNegative)), "-2.00,-0.50,")
+  report("filter isNegative X", fixedsOf(collections::filter(fixeds, isNegative)), "-2.00,-1.00,")
+  report("filter isZero I    ", intsOf(collections::filter(ints, isZero)), "0,")
+  report("filter isZero F    ", floatsOf(collections::filter(floats, isZero)), "0.00,")
+  report("filter isZero X    ", fixedsOf(collections::filter(fixeds, isZero)), "0.00,")
+  report("filter isNumeric   ", textsOf(collections::filter(texts, isNumeric)), "42,-7,3.5,")
+  report("filter isEmpty     ", textsOf(collections::filter(texts, isEmpty)), ",")
+  report("filter isNotEmpty  ", textsOf(collections::filter(texts, isNotEmpty)), "42,-7,abc,3.5,")
+
+  ' ---------------------------------------------------------------------
+  ' Form 2: collections::transform(xs, <pred>)  -> List OF Boolean
+  ' ---------------------------------------------------------------------
+  report("transform isEven   ", boolsOf(collections::transform(ints, isEven)), "TRUE,FALSE,TRUE,FALSE,TRUE,FALSE,")
+  report("transform isOdd    ", boolsOf(collections::transform(ints, isOdd)), "FALSE,TRUE,FALSE,TRUE,FALSE,TRUE,")
+  report("transform isPos I  ", boolsOf(collections::transform(ints, isPositive)), "FALSE,FALSE,FALSE,TRUE,TRUE,TRUE,")
+  report("transform isPos F  ", boolsOf(collections::transform(floats, isPositive)), "FALSE,FALSE,FALSE,TRUE,TRUE,")
+  report("transform isPos X  ", boolsOf(collections::transform(fixeds, isPositive)), "FALSE,FALSE,FALSE,TRUE,TRUE,")
+  report("transform isNeg I  ", boolsOf(collections::transform(ints, isNegative)), "TRUE,TRUE,FALSE,FALSE,FALSE,FALSE,")
+  report("transform isNeg F  ", boolsOf(collections::transform(floats, isNegative)), "TRUE,TRUE,FALSE,FALSE,FALSE,")
+  report("transform isNeg X  ", boolsOf(collections::transform(fixeds, isNegative)), "TRUE,TRUE,FALSE,FALSE,FALSE,")
+  report("transform isZero I ", boolsOf(collections::transform(ints, isZero)), "FALSE,FALSE,TRUE,FALSE,FALSE,FALSE,")
+  report("transform isZero F ", boolsOf(collections::transform(floats, isZero)), "FALSE,FALSE,TRUE,FALSE,FALSE,")
+  report("transform isZero X ", boolsOf(collections::transform(fixeds, isZero)), "FALSE,FALSE,TRUE,FALSE,FALSE,")
+  report("transform isNumeric", boolsOf(collections::transform(texts, isNumeric)), "FALSE,TRUE,TRUE,FALSE,TRUE,")
+  report("transform isEmpty  ", boolsOf(collections::transform(texts, isEmpty)), "TRUE,FALSE,FALSE,FALSE,FALSE,")
+  report("transform isNotEmpt", boolsOf(collections::transform(texts, isNotEmpty)), "FALSE,TRUE,TRUE,TRUE,TRUE,")
+
+  ' ---------------------------------------------------------------------
+  ' Form 3: collections::any(xs, <pred>)  -- a SOURCE GENERIC, unlike filter
+  ' ---------------------------------------------------------------------
+  report("any isEven         ", toString(collections::any(ints, isEven)), "TRUE")
+  report("any isOdd          ", toString(collections::any(ints, isOdd)), "TRUE")
+  report("any isPositive I   ", toString(collections::any(ints, isPositive)), "TRUE")
+  report("any isPositive F   ", toString(collections::any(floats, isPositive)), "TRUE")
+  report("any isPositive X   ", toString(collections::any(fixeds, isPositive)), "TRUE")
+  report("any isNegative I   ", toString(collections::any(ints, isNegative)), "TRUE")
+  report("any isNegative F   ", toString(collections::any(floats, isNegative)), "TRUE")
+  report("any isNegative X   ", toString(collections::any(fixeds, isNegative)), "TRUE")
+  report("any isZero I       ", toString(collections::any(ints, isZero)), "TRUE")
+  report("any isZero F       ", toString(collections::any(floats, isZero)), "TRUE")
+  report("any isZero X       ", toString(collections::any(fixeds, isZero)), "TRUE")
+  report("any isNumeric      ", toString(collections::any(texts, isNumeric)), "TRUE")
+  report("any isEmpty        ", toString(collections::any(texts, isEmpty)), "TRUE")
+  report("any isNotEmpty     ", toString(collections::any(texts, isNotEmpty)), "TRUE")
+
+  ' ---------------------------------------------------------------------
+  ' Form 4: bound to a typed function value, then called indirectly.
+  ' This is the bare case with no higher-order function involved at all, so
+  ' it isolates the reference itself from any call-site special-casing.
+  ' ---------------------------------------------------------------------
+  LET fEven AS FUNC(Integer) AS Boolean = isEven
+  report("let isEven         ", toString(fEven(4)) & toString(fEven(3)), "TRUEFALSE")
+
+  LET fOdd AS FUNC(Integer) AS Boolean = isOdd
+  report("let isOdd          ", toString(fOdd(3)) & toString(fOdd(4)), "TRUEFALSE")
+
+  LET fPosI AS FUNC(Integer) AS Boolean = isPositive
+  report("let isPositive I   ", toString(fPosI(1)) & toString(fPosI(-1)), "TRUEFALSE")
+  LET fPosF AS FUNC(Float) AS Boolean = isPositive
+  report("let isPositive F   ", toString(fPosF(1.5)) & toString(fPosF(-1.5)), "TRUEFALSE")
+  LET fPosX AS FUNC(Fixed) AS Boolean = isPositive
+  report("let isPositive X   ", toString(fPosX(1F)) & toString(fPosX(-1F)), "TRUEFALSE")
+
+  LET fNegI AS FUNC(Integer) AS Boolean = isNegative
+  report("let isNegative I   ", toString(fNegI(-1)) & toString(fNegI(1)), "TRUEFALSE")
+  LET fNegF AS FUNC(Float) AS Boolean = isNegative
+  report("let isNegative F   ", toString(fNegF(-1.5)) & toString(fNegF(1.5)), "TRUEFALSE")
+  LET fNegX AS FUNC(Fixed) AS Boolean = isNegative
+  report("let isNegative X   ", toString(fNegX(-1F)) & toString(fNegX(1F)), "TRUEFALSE")
+
+  LET fZeroI AS FUNC(Integer) AS Boolean = isZero
+  report("let isZero I       ", toString(fZeroI(0)) & toString(fZeroI(1)), "TRUEFALSE")
+  LET fZeroF AS FUNC(Float) AS Boolean = isZero
+  report("let isZero F       ", toString(fZeroF(0.0)) & toString(fZeroF(1.0)), "TRUEFALSE")
+  LET fZeroX AS FUNC(Fixed) AS Boolean = isZero
+  report("let isZero X       ", toString(fZeroX(0F)) & toString(fZeroX(1F)), "TRUEFALSE")
+
+  LET fNumeric AS FUNC(String) AS Boolean = isNumeric
+  report("let isNumeric      ", toString(fNumeric("42")) & toString(fNumeric("abc")), "TRUEFALSE")
+
+  LET fEmpty AS FUNC(String) AS Boolean = isEmpty
+  report("let isEmpty        ", toString(fEmpty("")) & toString(fEmpty("x")), "TRUEFALSE")
+
+  LET fNotEmpty AS FUNC(String) AS Boolean = isNotEmpty
+  report("let isNotEmpty     ", toString(fNotEmpty("x")) & toString(fNotEmpty("")), "TRUEFALSE")
+
+  ' A function value must also survive being passed on, which is the whole
+  ' point of it being a value.
+  report("value passed on    ", intsOf(collections::filter(ints, fEven)), "-2,0,2,")
+
+  io::print("ok")
+  RETURN 0
+END FUNC

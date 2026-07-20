@@ -1,0 +1,16 @@
+endsWithAny hit  : TRUE
+endsWithAny miss : FALSE
+padRight         : [ab   ]
+padRight noop    : [abcdef]
+right            : llo
+right overlong   : hi
+stripPrefix hit  : body
+stripPrefix miss : body
+stripSuffix hit  : body
+stripSuffix miss : body
+trimChars        : [hello]
+trimChars none   : [hello]
+graphemeAt 0     : h
+graphemeAt 1     : é
+graphemeAt 4     : o
+ok

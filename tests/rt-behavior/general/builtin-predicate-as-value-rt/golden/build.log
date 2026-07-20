@@ -1,0 +1,67 @@
+$ mfb build -ast -ir tests/rt-behavior/general/builtin-predicate-as-value-rt
+Wrote AST to tests/rt-behavior/general/builtin-predicate-as-value-rt/builtin_predicate_as_value_rt.ast
+Wrote IR to tests/rt-behavior/general/builtin-predicate-as-value-rt/builtin_predicate_as_value_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/general/builtin-predicate-as-value-rt
+Wrote executable to tests/rt-behavior/general/builtin-predicate-as-value-rt/build/builtin_predicate_as_value_rt.out
+[exit 0]
+$ tests/rt-behavior/general/builtin-predicate-as-value-rt/build/builtin_predicate_as_value_rt.out
+filter isEven      : ok
+filter isOdd       : ok
+filter isPositive I: ok
+filter isPositive F: ok
+filter isPositive X: ok
+filter isNegative I: ok
+filter isNegative F: ok
+filter isNegative X: ok
+filter isZero I    : ok
+filter isZero F    : ok
+filter isZero X    : ok
+filter isNumeric   : ok
+filter isEmpty     : ok
+filter isNotEmpty  : ok
+transform isEven   : ok
+transform isOdd    : ok
+transform isPos I  : ok
+transform isPos F  : ok
+transform isPos X  : ok
+transform isNeg I  : ok
+transform isNeg F  : ok
+transform isNeg X  : ok
+transform isZero I : ok
+transform isZero F : ok
+transform isZero X : ok
+transform isNumeric: ok
+transform isEmpty  : ok
+transform isNotEmpt: ok
+any isEven         : ok
+any isOdd          : ok
+any isPositive I   : ok
+any isPositive F   : ok
+any isPositive X   : ok
+any isNegative I   : ok
+any isNegative F   : ok
+any isNegative X   : ok
+any isZero I       : ok
+any isZero F       : ok
+any isZero X       : ok
+any isNumeric      : ok
+any isEmpty        : ok
+any isNotEmpty     : ok
+let isEven         : ok
+let isOdd          : ok
+let isPositive I   : ok
+let isPositive F   : ok
+let isPositive X   : ok
+let isNegative I   : ok
+let isNegative F   : ok
+let isNegative X   : ok
+let isZero I       : ok
+let isZero F       : ok
+let isZero X       : ok
+let isNumeric      : ok
+let isEmpty        : ok
+let isNotEmpty     : ok
+value passed on    : ok
+ok
+[exit 0]

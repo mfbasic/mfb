@@ -32,8 +32,14 @@ always-in-scope unqualified callables, whitelisting exactly the general built-in
 > binary **operator**, not a built-in
 > function — it is not in this set. [[src/lexer.rs:TokenKind]]
 >
-> The `is*` predicates are **inlined** builtins; [[src/builtins/general.rs:builtin_function_id]] they cannot be passed as a function value directly.
-> Wrap one in a `FUNC`/`LAMBDA` where a predicate argument is required.
+> The `is*` predicates are lowered **inline** at a direct call site and **out of
+> line** where one is named as a function value, [[src/builtins/general.rs:builtin_function_id]] so they may be passed as a
+> predicate anywhere an ordinary `FUNC` may be. The inlining is an optimization,
+> not a restriction on the surface. A value-position reference resolves against
+> the type **expected** at that position — a `FUNC(T) AS Boolean` annotation, or
+> the element type a higher-order call has already bound — because a bare name
+> such as `isPositive` is defined over `Integer`, `Float` and `Fixed` and the
+> reference alone does not choose one (bug-368).
 
 All eighteen except `error` are **overridable** (see §18.3). Every other built-in
 member named below lives in an **import-gated standard package** and is *not*

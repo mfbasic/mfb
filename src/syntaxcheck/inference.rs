@@ -13,6 +13,40 @@ impl<'a> SyntaxChecker<'a> {
         self.infer_expression_with_expected(file, expression, locals, line, None, mode)
     }
 
+    /// The function type of a general built-in predicate (`isEven`, `isPositive`,
+    /// …) named in a value position, given the type expected at that position.
+    ///
+    /// `None` when the name is not a general built-in, when no concrete function
+    /// type is expected, or when the built-in does not accept the expected
+    /// parameter type — so `isEven` resolves against `FUNC(Integer) AS Boolean`
+    /// and not against `FUNC(String) AS Boolean`.
+    ///
+    /// Resolution is expected-type-driven because a bare predicate name is
+    /// genuinely ambiguous: `isPositive` is defined over Integer, Float and
+    /// Fixed, and nothing in the reference itself chooses. `filter` used to get
+    /// this right via a hardcoded special case in `ir::lower`; this is that rule
+    /// generalized to every position (bug-368).
+    fn builtin_predicate_value_type(&self, name: &str, expected: Option<&Type>) -> Option<Type> {
+        let Some(Type::Function {
+            params,
+            return_type,
+            ..
+        }) = expected
+        else {
+            return None;
+        };
+        if params.len() != 1 || **return_type != Type::Boolean {
+            return None;
+        }
+        let param_name = self.type_name(&params[0]);
+        crate::builtins::general::filter_predicate_type(name, &param_name)?;
+        Some(Type::Function {
+            params: params.clone(),
+            return_type: return_type.clone(),
+            isolated: false,
+        })
+    }
+
     pub(super) fn infer_expression_with_expected(
         &mut self,
         file: &AstFile,
@@ -61,6 +95,21 @@ impl<'a> SyntaxChecker<'a> {
                                 self.lookup_visible_function(file, &canonical_name)
                                     .map(function_type)
                             })
+                            // A general built-in predicate named in a VALUE
+                            // position (bug-368). `isEven` and friends are
+                            // lowered inline at a direct call site, which is why
+                            // they have no entry in any of the lookups above —
+                            // but that is an optimization, not a statement about
+                            // the language, and a function must work everywhere a
+                            // function works.
+                            //
+                            // The expected type is what picks the overload: a
+                            // bare `isPositive` is ambiguous across Integer,
+                            // Float and Fixed, so it resolves only where a
+                            // concrete `FUNC(T) AS Boolean` is expected — an
+                            // annotation, or a higher-order parameter whose `T`
+                            // the collection argument has already bound.
+                            .or_else(|| self.builtin_predicate_value_type(name, expected))
                             .unwrap_or(Type::Unknown)
                     }
                 }

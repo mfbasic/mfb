@@ -34,10 +34,13 @@ require an orderable element or key type, and `distinct` requires a comparable
 element type. Map helpers operate on `Map OF K TO V` values, where the key type
 `K` is the map's declared key type.
 
-Predicates and other function arguments are passed as function values (for
-example a named `FUNC`). The numeric/empty filter predicates such as `isEven` are
-inlined builtins and cannot be passed as values; wrap them in a `FUNC` when a
-predicate argument is needed.
+Predicates and other function arguments are passed as function values: a named
+`FUNC`, a `LAMBDA`, or a general built-in predicate such as `isEven`,
+`isPositive` or `isEmpty`. A built-in predicate resolves against the type
+expected at that position — the element type of the list for a higher-order
+call, or the declared type of a `FUNC(T) AS Boolean` binding — because a bare
+name like `isPositive` is defined over `Integer`, `Float` and `Fixed` and nothing
+in the reference alone chooses between them.
 
 Some helpers introduce built-in result types: `zip` produces a `List OF Pair OF
 A, B`, and `partition` produces a `Partition OF T` holding the matched and

@@ -33,6 +33,10 @@ pub(crate) const BUILTIN_FUNCTION_IS_NEGATIVE_FLOAT: u32 = BUILTIN_FUNCTION_ID_B
 pub(crate) const BUILTIN_FUNCTION_IS_NEGATIVE_FIXED: u32 = BUILTIN_FUNCTION_ID_BASE + 11;
 pub(crate) const BUILTIN_FUNCTION_IS_ZERO_FLOAT: u32 = BUILTIN_FUNCTION_ID_BASE + 12;
 pub(crate) const BUILTIN_FUNCTION_IS_ZERO_FIXED: u32 = BUILTIN_FUNCTION_ID_BASE + 13;
+/// `isNumeric` was missing from `builtin_function_id` while the other seven
+/// predicates were present, which is why it alone failed even in `filter` —
+/// the one position that worked for the rest (bug-368).
+pub(crate) const BUILTIN_FUNCTION_IS_NUMERIC: u32 = BUILTIN_FUNCTION_ID_BASE + 14;
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -143,6 +147,7 @@ pub(crate) fn builtin_function_id(name: &str) -> Option<u32> {
         IS_ZERO => Some(BUILTIN_FUNCTION_IS_ZERO),
         IS_EMPTY => Some(BUILTIN_FUNCTION_IS_EMPTY),
         IS_NOT_EMPTY => Some(BUILTIN_FUNCTION_IS_NOT_EMPTY),
+        IS_NUMERIC => Some(BUILTIN_FUNCTION_IS_NUMERIC),
         _ => None,
     }
 }

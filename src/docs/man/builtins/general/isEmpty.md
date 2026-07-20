@@ -36,9 +36,10 @@ no key/value entries. [[src/target/shared/code/builder_collection_layout.rs:lowe
 `isEmpty` reads `value` only; it has no side effects and never mutates its
 argument. The accepted argument type is resolved at compile time: an argument
 that is not a `String`, `List OF T`, or `Map OF K TO V` is rejected during type
-checking rather than at run time. `isEmpty` is an inlined built-in, so it cannot
-be passed as a function value directly; wrap it in a `LAMBDA` (or a named `FUNC`)
-where a predicate argument is needed. The same predicate is also exposed through
+checking rather than at run time. `isEmpty` is lowered inline at a direct call
+site, and out of line where it is named as a function value, so it may be passed
+as a predicate anywhere an ordinary `FUNC` may be. The value form resolves
+against the type expected at that position (bug-368). The same predicate is also exposed through
 the `filters` package. [[src/builtins/general.rs:resolve_call]]
 
 ## Overloads

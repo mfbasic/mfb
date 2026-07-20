@@ -55,8 +55,11 @@ effects: `isNumeric` tests whether a `String` would parse as a number, and the
 numeric and emptiness predicates (`isEven`, `isOdd`, `isPositive`, `isNegative`,
 `isZero`, `isEmpty`, `isNotEmpty`) classify a value by parity, sign, or size.
 `isEmpty` and `isNotEmpty` use the same length rules as `len`. These predicates
-are inlined builtins, so they cannot be passed as function values directly; wrap
-one in a `FUNC` where a predicate argument is needed. The predicates are also
+are lowered inline at a direct call site, and out of line where one is named as a
+function value, so any of them may be passed as a predicate anywhere an ordinary
+`FUNC` may be. A value-position reference resolves against the type expected at
+that position, because a bare name such as `isPositive` is defined over
+`Integer`, `Float` and `Fixed` and the reference alone does not choose. The predicates are also
 exposed through the `filters` package. [[src/builtins/general.rs:filter_predicate_type]]
 
 `error` constructs a read-only `Error` value from an `Integer` code and a

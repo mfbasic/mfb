@@ -1,0 +1,97 @@
+' Artifact coverage for the fourteen `collections::` builtins that were reachable
+' ONLY from `tests/acceptance/`.
+'
+' `tests/acceptance` is a TESTING app: the harness switches on the presence of a
+' `golden/` directory, and a test without one is run via `mfb test` with nothing
+' compared. So none of its surface reaches `scripts/artifact-gate.sh`, and it
+' cannot be given goldens either — it declares no `entry`, so `mfb build` rejects
+' it outright.
+'
+' That left these builtins with zero artifact coverage, which matters because
+' plan-57 rewrites exactly this surface and uses artifact byte-identity as its
+' guard. A gate that is blind to a function reports "0 diffs" for a change that
+' broke it — which is how a real difference in `lower_strings_grapheme_at` was
+' nearly missed (see plan-57-A §Findings).
+IMPORT io
+IMPORT collections
+
+' NOT named `isPositive`: that collides with the inlined general built-in, whose
+' gap-fill resolution keeps it authoritative for Integer, so a same-named wrapper
+' is unselectable and the reference fails to lower (bug-368).
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC isBig(n AS Integer) AS Boolean
+  RETURN n > 100
+END FUNC
+
+FUNC parity(n AS Integer) AS String
+  IF n MOD 2 = 0 THEN
+    RETURN "even"
+  END IF
+  RETURN "odd"
+END FUNC
+
+FUNC itself(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC negate(n AS Integer) AS Integer
+  RETURN -n
+END FUNC
+
+FUNC subtract(acc AS Integer, n AS Integer) AS Integer
+  RETURN acc - n
+END FUNC
+
+FUNC joinInts(xs AS List OF Integer) AS String
+  MUT s AS String = ""
+  FOR EACH v IN xs
+    s = s & toString(v) & " "
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC main() AS Integer
+  LET xs AS List OF Integer = [3, 1, 4, 1, 5, 9, 2, 6]
+
+  io::print("all      : " & toString(collections::all(xs, isPos)))
+  io::print("any      : " & toString(collections::any(xs, isBig)))
+  io::print("distinct : " & joinInts(collections::distinct(xs)))
+  io::print("drop     : " & joinInts(collections::drop(xs, 3)))
+  io::print("findIndex: " & toString(collections::findIndex(xs, isPos)))
+  io::print("findLast : " & toString(collections::findLastIndex(xs, isPos)))
+  io::print("sortBy   : " & joinInts(collections::sortBy(xs, negate)))
+  io::print("reduceR  : " & toString(collections::reduceRight(xs, 0, subtract)))
+
+  LET nested AS List OF List OF Integer = [[1, 2], [3], [4, 5]]
+  io::print("flatten  : " & joinInts(collections::flatten(nested)))
+
+  LET grouped = collections::groupBy(xs, parity, itself)
+  FOR EACH key IN collections::keys(grouped)
+    io::print("groupBy " & key & " : " & joinInts(collections::get(grouped, key)))
+  NEXT
+
+  LET scores = Map OF String TO Integer { "a" := 1, "b" := 2 }
+  LET doubled = collections::mapValues(scores, negate)
+  FOR EACH key IN collections::keys(doubled)
+    io::print("mapValues " & key & " : " & toString(collections::get(doubled, key)))
+  NEXT
+
+  LET split = collections::partition(xs, isBig)
+  io::print("partition matched  : " & joinInts(split.matched))
+  io::print("partition unmatched: " & joinInts(split.unmatched))
+
+  FOR EACH w IN collections::window(xs, 3, 2)
+    io::print("window   : " & joinInts(w))
+  NEXT
+
+  LET letters AS List OF String = ["x", "y", "z"]
+  FOR EACH pair IN collections::zip(xs, letters)
+    io::print("zip      : " & toString(pair.first) & "" & pair.second)
+  NEXT
+
+  io::print("ok")
+  RETURN 0
+END FUNC

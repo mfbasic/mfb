@@ -706,7 +706,12 @@ impl<'a> SyntaxChecker<'a> {
         let member = builtins::collections::native_member_bare(callee).unwrap_or(callee);
         let arguments =
             self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
-        if callee == "collections.filter" && arguments.len() == 2 {
+        // `filter` used to be the ONLY position that accepted a bare built-in
+        // predicate, because it was the only one with this special case — which
+        // is precisely how bug-368 stayed invisible. Every native member taking a
+        // unary callback over the list's element type needs it, so the gate is a
+        // set rather than one name.
+        if builtins::collections::unary_callback_member(callee) && arguments.len() == 2 {
             if let Expression::Identifier(predicate) = &arguments[1] {
                 if builtins::general::builtin_function_id(predicate).is_some() {
                     let collection_type =

@@ -1,0 +1,43 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "strings_artifact_coverage_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": false, "name": "suffixes", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": ".mfb" }, { "kind": "const", "type": "String", "value": ".md" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "endsWithAny hit  : " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.endsWithAny", "args": [{ "kind": "const", "type": "String", "value": "main.mfb" }, { "kind": "local", "name": "suffixes" }] }] } }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "endsWithAny miss : " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.endsWithAny", "args": [{ "kind": "const", "type": "String", "value": "main.rs" }, { "kind": "local", "name": "suffixes" }] }] } }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "padRight         : [" }, "right": { "kind": "call", "type": "String", "target": "strings.padRight", "args": [{ "kind": "const", "type": "String", "value": "ab" }, { "kind": "const", "type": "Integer", "value": "5" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "padRight noop    : [" }, "right": { "kind": "call", "type": "String", "target": "strings.padRight", "args": [{ "kind": "const", "type": "String", "value": "abcdef" }, { "kind": "const", "type": "Integer", "value": "3" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "right            : " }, "right": { "kind": "call", "type": "String", "target": "strings.right", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "3" }] } }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "right overlong   : " }, "right": { "kind": "call", "type": "String", "target": "strings.right", "args": [{ "kind": "const", "type": "String", "value": "hi" }, { "kind": "const", "type": "Integer", "value": "9" }] } }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stripPrefix hit  : " }, "right": { "kind": "call", "type": "String", "target": "strings.stripPrefix", "args": [{ "kind": "const", "type": "String", "value": "prefix-body" }, { "kind": "const", "type": "String", "value": "prefix-" }] } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stripPrefix miss : " }, "right": { "kind": "call", "type": "String", "target": "strings.stripPrefix", "args": [{ "kind": "const", "type": "String", "value": "body" }, { "kind": "const", "type": "String", "value": "prefix-" }] } }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stripSuffix hit  : " }, "right": { "kind": "call", "type": "String", "target": "strings.stripSuffix", "args": [{ "kind": "const", "type": "String", "value": "body.txt" }, { "kind": "const", "type": "String", "value": ".txt" }] } }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stripSuffix miss : " }, "right": { "kind": "call", "type": "String", "target": "strings.stripSuffix", "args": [{ "kind": "const", "type": "String", "value": "body" }, { "kind": "const", "type": "String", "value": ".txt" }] } }] } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "trimChars        : [" }, "right": { "kind": "call", "type": "String", "target": "strings.trimChars", "args": [{ "kind": "const", "type": "String", "value": "xxhelloxx" }, { "kind": "const", "type": "String", "value": "x" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "trimChars none   : [" }, "right": { "kind": "call", "type": "String", "target": "strings.trimChars", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "String", "value": "x" }] } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "graphemeAt 0     : " }, "right": { "kind": "call", "type": "String", "target": "strings.graphemeAt", "args": [{ "kind": "const", "type": "String", "value": "héllo" }, { "kind": "const", "type": "Integer", "value": "0" }] } }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "graphemeAt 1     : " }, "right": { "kind": "call", "type": "String", "target": "strings.graphemeAt", "args": [{ "kind": "const", "type": "String", "value": "héllo" }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "graphemeAt 4     : " }, "right": { "kind": "call", "type": "String", "target": "strings.graphemeAt", "args": [{ "kind": "const", "type": "String", "value": "héllo" }, { "kind": "const", "type": "Integer", "value": "4" }] } }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 41, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -2293,7 +2293,9 @@ fn expression_type(
             if builtins::general::is_general_call(&canonical_callee) {
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
-                if callee == "filter" && normalized.len() == 2 {
+                if builtins::collections::unary_callback_member_bare(callee)
+                    && normalized.len() == 2
+                {
                     if let Expression::Identifier(predicate) = normalized[1] {
                         if let Some(collection_type) =
                             expression_type(normalized[0], locals, context)
@@ -2324,7 +2326,9 @@ fn expression_type(
             if builtins::collections::is_native_member_call(&canonical_callee) {
                 let normalized =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
-                if canonical_callee == "collections.filter" && normalized.len() == 2 {
+                if builtins::collections::unary_callback_member(&canonical_callee)
+                    && normalized.len() == 2
+                {
                     if let Expression::Identifier(predicate) = normalized[1] {
                         if let Some(collection_type) =
                             expression_type(normalized[0], locals, context)
@@ -2862,6 +2866,35 @@ fn lower_expression(
     lower_expression_with_expected(expression, None, locals, context)
 }
 
+/// The function type to give a general built-in predicate named in a value
+/// position, when `expected` is a concrete unary Boolean function type it
+/// accepts (bug-368).
+///
+/// Mirrors `syntaxcheck`'s `builtin_predicate_value_type`: both consult
+/// `filter_predicate_type`, so the type the checker assigns and the type the
+/// `FunctionRef` carries cannot diverge. A divergence would emit a wrapper under
+/// one symbol and reference another.
+fn builtin_predicate_ref_type(name: &str, expected: &str) -> Option<String> {
+    let (params, returns) = function_type_parts_for_predicate(expected)?;
+    if params.len() != 1 || returns != "Boolean" {
+        return None;
+    }
+    builtins::general::filter_predicate_type(name, params[0])
+}
+
+/// Split `FUNC(A) AS R` into its parameter list and return type. Deliberately
+/// local and minimal: it only needs to recognize the unary predicate shape.
+fn function_type_parts_for_predicate(type_: &str) -> Option<(Vec<&str>, &str)> {
+    let rest = type_.strip_prefix("FUNC(")?;
+    let (params, returns) = rest.split_once(") AS ")?;
+    let params: Vec<&str> = if params.trim().is_empty() {
+        Vec::new()
+    } else {
+        params.split(", ").map(str::trim).collect()
+    };
+    Some((params, returns.trim()))
+}
+
 fn lower_expression_with_expected(
     expression: &Expression,
     expected: Option<&str>,
@@ -2971,6 +3004,21 @@ fn lower_expression_with_expected(
                 }
             } else if context.binding_types.contains_key(value) {
                 IrValue::Global(value.clone())
+            } else if let Some(type_) = expected.and_then(|expected| {
+                // A general built-in predicate in a value position (bug-368).
+                // These are lowered inline at a direct call site and so have no
+                // entry in `function_types`; the out-of-line body is emitted on
+                // demand from the `FunctionRef`s collected here
+                // (`builtin_function_refs` -> `lower_builtin_function_wrapper`).
+                // Without this arm the reference survived as a `Local` that
+                // nothing defines, and surfaced to the user as the internal
+                // `NIR local reference '<x>' does not resolve`.
+                builtin_predicate_ref_type(value, expected)
+            }) {
+                IrValue::FunctionRef {
+                    name: value.clone(),
+                    type_,
+                }
             } else {
                 IrValue::Local(value.clone())
             };
@@ -3011,37 +3059,45 @@ fn lower_expression_with_expected(
             }
             let normalized_builtin =
                 normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
-            let args = if canonical_callee == "collections.filter" && normalized_builtin.len() == 2
-            {
-                if let Expression::Identifier(predicate) = normalized_builtin[1] {
-                    let predicate_type = expression_type(normalized_builtin[0], locals, context)
-                        .and_then(|collection_type| {
-                            collection_type
-                                .strip_prefix("List OF ")
-                                .and_then(|element| {
-                                    builtins::general::filter_predicate_type(predicate, element)
+            // A bare general built-in predicate as the callback of a native
+            // higher-order member (bug-368). Only this exact shape diverts: the
+            // callback's parameter type is the list's element type, which is not
+            // written at the call site, so the `FunctionRef` has to be built
+            // here where both are in hand.
+            //
+            // Everything else — a lambda, a named FUNC, an already-typed
+            // function value — MUST fall through to the general path below,
+            // which supplies the expected type and sets `nonescaping_callback`.
+            // Diverting those too silently dropped `forEach`'s licence for a
+            // lambda to slot-borrow a `MUT` capture.
+            let builtin_predicate_arg =
+                (builtins::collections::unary_callback_member(&canonical_callee)
+                    && normalized_builtin.len() == 2)
+                    .then(|| match normalized_builtin[1] {
+                        Expression::Identifier(predicate) => {
+                            expression_type(normalized_builtin[0], locals, context)
+                                .and_then(|collection_type| {
+                                    collection_type
+                                        .strip_prefix("List OF ")
+                                        .and_then(|element| {
+                                            builtins::general::filter_predicate_type(
+                                                predicate, element,
+                                            )
+                                        })
                                 })
-                        });
-                    if let Some(predicate_type) = predicate_type {
-                        vec![
-                            lower_expression(normalized_builtin[0], locals, context),
-                            IrValue::FunctionRef {
-                                name: predicate.clone(),
-                                type_: predicate_type,
-                            },
-                        ]
-                    } else {
-                        normalized_builtin
-                            .iter()
-                            .map(|argument| lower_expression(argument, locals, context))
-                            .collect()
-                    }
-                } else {
-                    normalized_builtin
-                        .iter()
-                        .map(|argument| lower_expression(argument, locals, context))
-                        .collect()
-                }
+                                .map(|predicate_type| IrValue::FunctionRef {
+                                    name: predicate.clone(),
+                                    type_: predicate_type,
+                                })
+                        }
+                        _ => None,
+                    })
+                    .flatten();
+            let args = if let Some(predicate_ref) = builtin_predicate_arg {
+                vec![
+                    lower_expression(normalized_builtin[0], locals, context),
+                    predicate_ref,
+                ]
             } else if context.function_params.contains_key(callee)
                 || context.function_params.contains_key(&canonical_callee)
             {

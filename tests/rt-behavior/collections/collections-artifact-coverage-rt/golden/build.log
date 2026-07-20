@@ -1,0 +1,31 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/collections-artifact-coverage-rt
+Wrote AST to tests/rt-behavior/collections/collections-artifact-coverage-rt/collections_artifact_coverage_rt.ast
+Wrote IR to tests/rt-behavior/collections/collections-artifact-coverage-rt/collections_artifact_coverage_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/collections-artifact-coverage-rt
+Wrote executable to tests/rt-behavior/collections/collections-artifact-coverage-rt/build/collections_artifact_coverage_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/collections-artifact-coverage-rt/build/collections_artifact_coverage_rt.out
+all      : TRUE
+any      : FALSE
+distinct : 3 1 4 5 9 2 6 
+drop     : 1 5 9 2 6 
+findIndex: 0
+findLast : 7
+sortBy   : 9 6 5 4 3 2 1 1 
+reduceR  : -31
+flatten  : 1 2 3 4 5 
+groupBy odd : 3 1 1 5 9 
+groupBy even : 4 2 6 
+mapValues a : -1
+mapValues b : -2
+partition matched  : 
+partition unmatched: 3 1 4 1 5 9 2 6 
+window   : 3 1 4 
+window   : 4 1 5 
+window   : 5 9 2 
+zip      : 3x
+zip      : 1y
+zip      : 4z
+ok
+[exit 0]

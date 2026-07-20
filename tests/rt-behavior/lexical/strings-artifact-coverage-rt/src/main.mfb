@@ -1,0 +1,42 @@
+' Artifact coverage for the seven `strings::` builtins that were reachable ONLY
+' from `tests/acceptance/` — which, being a TESTING app with no `golden/`
+' directory, reaches neither `scripts/artifact-gate.sh` nor any golden compare.
+'
+' `strings::graphemeAt` is the one that proves the point. It was converted during
+' plan-57-A and `artifact-gate` reported 0 diffs across 1211 goldens; building a
+' probe program by hand and diffing `-ncode` showed a real instruction
+' difference. The gate was not wrong — it simply had nothing to compare, because
+' this function appeared in no test that owns a golden.
+IMPORT io
+IMPORT strings
+
+FUNC main() AS Integer
+  LET suffixes AS List OF String = [".mfb", ".md"]
+  io::print("endsWithAny hit  : " & toString(strings::endsWithAny("main.mfb", suffixes)))
+  io::print("endsWithAny miss : " & toString(strings::endsWithAny("main.rs", suffixes)))
+
+  io::print("padRight         : [" & strings::padRight("ab", 5) & "]")
+  io::print("padRight noop    : [" & strings::padRight("abcdef", 3) & "]")
+
+  io::print("right            : " & strings::right("hello", 3))
+  io::print("right overlong   : " & strings::right("hi", 9))
+
+  io::print("stripPrefix hit  : " & strings::stripPrefix("prefix-body", "prefix-"))
+  io::print("stripPrefix miss : " & strings::stripPrefix("body", "prefix-"))
+
+  io::print("stripSuffix hit  : " & strings::stripSuffix("body.txt", ".txt"))
+  io::print("stripSuffix miss : " & strings::stripSuffix("body", ".txt"))
+
+  io::print("trimChars        : [" & strings::trimChars("xxhelloxx", "x") & "]")
+  io::print("trimChars none   : [" & strings::trimChars("hello", "x") & "]")
+
+  ' Multi-byte on purpose: a grapheme is not a byte, and the index is over
+  ' graphemes. A pure-ASCII probe cannot tell a correct implementation from one
+  ' that strides bytes.
+  io::print("graphemeAt 0     : " & strings::graphemeAt("héllo", 0))
+  io::print("graphemeAt 1     : " & strings::graphemeAt("héllo", 1))
+  io::print("graphemeAt 4     : " & strings::graphemeAt("héllo", 4))
+
+  io::print("ok")
+  RETURN 0
+END FUNC

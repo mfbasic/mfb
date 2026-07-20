@@ -103,6 +103,27 @@ pub(crate) fn is_native_member_call(name: &str) -> bool {
 }
 
 /// The bare native name for a `collections.<member>` native-member call, e.g.
+/// Whether a native `collections.<member>` call takes a **unary callback over
+/// the list's element type** as its second argument.
+///
+/// These are the positions where a bare general built-in predicate (`isEven`,
+/// `isPositive`, …) must resolve: the callback's parameter type is not written
+/// at the call site, it is the element type of the first argument, so the
+/// checker has to bind it before the predicate reference can be typed
+/// (bug-368).
+///
+/// `reduce` is deliberately absent — its callback is binary, so no unary
+/// predicate fits it.
+pub(crate) fn unary_callback_member(name: &str) -> bool {
+    unary_callback_member_bare(name.strip_prefix("collections.").unwrap_or(name))
+}
+
+/// The bare-member form of [`unary_callback_member`], for the unqualified call
+/// spelling that reaches `ir::lower` before canonicalization.
+pub(crate) fn unary_callback_member_bare(name: &str) -> bool {
+    matches!(name, "filter" | "transform" | "forEach")
+}
+
 /// `collections.get` -> `get`. Returns `None` for source generic functions and
 /// non-`collections` names.
 pub(crate) fn native_member_bare(name: &str) -> Option<&str> {

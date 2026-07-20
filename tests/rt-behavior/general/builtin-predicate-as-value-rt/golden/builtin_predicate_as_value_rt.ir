@@ -1,0 +1,383 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "builtin_predicate_as_value_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "report",
+    "line": 29,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 29, "type": "String", "default": null },
+    { "name": "got", "line": 29, "type": "String", "default": null },
+    { "name": "want", "line": 29, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "if",
+      "line": 30,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "got" }, "right": { "kind": "local", "name": "want" } },
+      "then": [
+      { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": ": ok" } }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": ": MISMATCH got=" } }, "right": { "kind": "local", "name": "got" } }, "right": { "kind": "const", "type": "String", "value": " want=" } }, "right": { "kind": "local", "name": "want" } }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "boolsOf",
+    "line": 37,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "line": 37, "type": "List OF Boolean", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 38, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 39,
+      "name": "v",
+      "type": "Boolean",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 40, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "v" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+      ]
+    },
+    { "op": "return", "line": 42, "value": { "kind": "local", "name": "s" } }
+    ]
+  },
+  {
+    "name": "intsOf",
+    "line": 45,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "line": 45, "type": "List OF Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 46, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 47,
+      "name": "v",
+      "type": "Integer",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 48, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "v" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+      ]
+    },
+    { "op": "return", "line": 50, "value": { "kind": "local", "name": "s" } }
+    ]
+  },
+  {
+    "name": "floatsOf",
+    "line": 53,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "line": 53, "type": "List OF Float", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 54, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 55,
+      "name": "v",
+      "type": "Float",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 56, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "v" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+      ]
+    },
+    { "op": "return", "line": 58, "value": { "kind": "local", "name": "s" } }
+    ]
+  },
+  {
+    "name": "fixedsOf",
+    "line": 61,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "line": 61, "type": "List OF Fixed", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 62, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 63,
+      "name": "v",
+      "type": "Fixed",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 64, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "v" }] } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+      ]
+    },
+    { "op": "return", "line": 66, "value": { "kind": "local", "name": "s" } }
+    ]
+  },
+  {
+    "name": "textsOf",
+    "line": 69,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "line": 69, "type": "List OF String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "line": 70, "mutable": true, "name": "s", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "forEach",
+      "line": 71,
+      "name": "v",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "line": 72, "name": "s", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "local", "name": "v" } }, "right": { "kind": "const", "type": "String", "value": "," } } }
+      ]
+    },
+    { "op": "return", "line": 74, "value": { "kind": "local", "name": "s" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 77,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 78, "mutable": false, "name": "ints", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "2" } }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "line": 79, "mutable": false, "name": "floats", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2.0" } }, { "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "0.5" } }, { "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "2.0" }] } },
+    { "op": "bind", "line": 80, "mutable": false, "name": "fixeds", "type": "List OF Fixed", "value": { "kind": "list", "type": "List OF Fixed", "values": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "2" } }, { "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "1" } }, { "kind": "const", "type": "Fixed", "value": "0" }, { "kind": "const", "type": "Fixed", "value": "1" }, { "kind": "const", "type": "Fixed", "value": "2" }] } },
+    { "op": "bind", "line": 81, "mutable": false, "name": "texts", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "42" }, { "kind": "const", "type": "String", "value": "-7" }, { "kind": "const", "type": "String", "value": "abc" }, { "kind": "const", "type": "String", "value": "3.5" }] } },
+    { "op": "eval", "line": 86, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isEven      " }, { "kind": "call", "type": "String", "target": "intsOf", "args": [{ "kind": "call", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isEven", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "-2,0,2," }] } },
+    { "op": "eval", "line": 87, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isOdd       " }, { "kind": "call", "type": "String", "target": "intsOf", "args": [{ "kind": "call", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isOdd", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "-1,1,3," }] } },
+    { "op": "eval", "line": 88, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isPositive I" }, { "kind": "call", "type": "String", "target": "intsOf", "args": [{ "kind": "call", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "1,2,3," }] } },
+    { "op": "eval", "line": 89, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isPositive F" }, { "kind": "call", "type": "String", "target": "floatsOf", "args": [{ "kind": "call", "type": "List OF Float", "target": "collections.filter", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "0.50,2.00," }] } },
+    { "op": "eval", "line": 90, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isPositive X" }, { "kind": "call", "type": "String", "target": "fixedsOf", "args": [{ "kind": "call", "type": "List OF Fixed", "target": "collections.filter", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "1.00,2.00," }] } },
+    { "op": "eval", "line": 91, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isNegative I" }, { "kind": "call", "type": "String", "target": "intsOf", "args": [{ "kind": "call", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "-2,-1," }] } },
+    { "op": "eval", "line": 92, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isNegative F" }, { "kind": "call", "type": "String", "target": "floatsOf", "args": [{ "kind": "call", "type": "List OF Float", "target": "collections.filter", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "-2.00,-0.50," }] } },
+    { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isNegative X" }, { "kind": "call", "type": "String", "target": "fixedsOf", "args": [{ "kind": "call", "type": "List OF Fixed", "target": "collections.filter", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "-2.00,-1.00," }] } },
+    { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isZero I    " }, { "kind": "call", "type": "String", "target": "intsOf", "args": [{ "kind": "call", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "0," }] } },
+    { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isZero F    " }, { "kind": "call", "type": "String", "target": "floatsOf", "args": [{ "kind": "call", "type": "List OF Float", "target": "collections.filter", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "0.00," }] } },
+    { "op": "eval", "line": 96, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isZero X    " }, { "kind": "call", "type": "String", "target": "fixedsOf", "args": [{ "kind": "call", "type": "List OF Fixed", "target": "collections.filter", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "0.00," }] } },
+    { "op": "eval", "line": 97, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isNumeric   " }, { "kind": "call", "type": "String", "target": "textsOf", "args": [{ "kind": "call", "type": "List OF String", "target": "collections.filter", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isNumeric", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "42,-7,3.5," }] } },
+    { "op": "eval", "line": 98, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isEmpty     " }, { "kind": "call", "type": "String", "target": "textsOf", "args": [{ "kind": "call", "type": "List OF String", "target": "collections.filter", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isEmpty", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "," }] } },
+    { "op": "eval", "line": 99, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "filter isNotEmpty  " }, { "kind": "call", "type": "String", "target": "textsOf", "args": [{ "kind": "call", "type": "List OF String", "target": "collections.filter", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isNotEmpty", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "42,-7,abc,3.5," }] } },
+    { "op": "eval", "line": 104, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isEven   " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isEven", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE,FALSE,TRUE,FALSE,TRUE,FALSE," }] } },
+    { "op": "eval", "line": 105, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isOdd    " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isOdd", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,TRUE,FALSE,TRUE,FALSE,TRUE," }] } },
+    { "op": "eval", "line": 106, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isPos I  " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,FALSE,FALSE,TRUE,TRUE,TRUE," }] } },
+    { "op": "eval", "line": 107, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isPos F  " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,FALSE,FALSE,TRUE,TRUE," }] } },
+    { "op": "eval", "line": 108, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isPos X  " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,FALSE,FALSE,TRUE,TRUE," }] } },
+    { "op": "eval", "line": 109, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isNeg I  " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE,TRUE,FALSE,FALSE,FALSE,FALSE," }] } },
+    { "op": "eval", "line": 110, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isNeg F  " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE,TRUE,FALSE,FALSE,FALSE," }] } },
+    { "op": "eval", "line": 111, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isNeg X  " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE,TRUE,FALSE,FALSE,FALSE," }] } },
+    { "op": "eval", "line": 112, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isZero I " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,FALSE,TRUE,FALSE,FALSE,FALSE," }] } },
+    { "op": "eval", "line": 113, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isZero F " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,FALSE,TRUE,FALSE,FALSE," }] } },
+    { "op": "eval", "line": 114, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isZero X " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,FALSE,TRUE,FALSE,FALSE," }] } },
+    { "op": "eval", "line": 115, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isNumeric" }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isNumeric", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,TRUE,TRUE,FALSE,TRUE," }] } },
+    { "op": "eval", "line": 116, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isEmpty  " }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isEmpty", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE,FALSE,FALSE,FALSE,FALSE," }] } },
+    { "op": "eval", "line": 117, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "transform isNotEmpt" }, { "kind": "call", "type": "String", "target": "boolsOf", "args": [{ "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isNotEmpty", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "FALSE,TRUE,TRUE,TRUE,TRUE," }] } },
+    { "op": "eval", "line": 122, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isEven         " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isEven", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 123, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isOdd          " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isOdd", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 124, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isPositive I   " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 125, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isPositive F   " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Float", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 126, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isPositive X   " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Fixed", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 127, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isNegative I   " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 128, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isNegative F   " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Float", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 129, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isNegative X   " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Fixed", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 130, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isZero I       " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Integer", "args": [{ "kind": "local", "name": "ints" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Integer) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 131, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isZero F       " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Float", "args": [{ "kind": "local", "name": "floats" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Float) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 132, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isZero X       " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$Fixed", "args": [{ "kind": "local", "name": "fixeds" }, { "kind": "functionRef", "name": "isZero", "type": "FUNC(Fixed) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 133, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isNumeric      " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$String", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isNumeric", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 134, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isEmpty        " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$String", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isEmpty", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "eval", "line": 135, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "any isNotEmpty     " }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "#collections_any$String", "args": [{ "kind": "local", "name": "texts" }, { "kind": "functionRef", "name": "isNotEmpty", "type": "FUNC(String) AS Boolean" }] }] }, { "kind": "const", "type": "String", "value": "TRUE" }] } },
+    { "op": "bind", "line": 142, "mutable": false, "name": "fEven", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "functionRef", "name": "isEven", "type": "FUNC(Integer) AS Boolean" } },
+    { "op": "eval", "line": 143, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isEven         " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fEven", "args": [{ "kind": "const", "type": "Integer", "value": "4" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fEven", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 145, "mutable": false, "name": "fOdd", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "functionRef", "name": "isOdd", "type": "FUNC(Integer) AS Boolean" } },
+    { "op": "eval", "line": 146, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isOdd          " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fOdd", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fOdd", "args": [{ "kind": "const", "type": "Integer", "value": "4" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 148, "mutable": false, "name": "fPosI", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Integer) AS Boolean" } },
+    { "op": "eval", "line": 149, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isPositive I   " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fPosI", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fPosI", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 150, "mutable": false, "name": "fPosF", "type": "FUNC(Float) AS Boolean", "value": { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Float) AS Boolean" } },
+    { "op": "eval", "line": 151, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isPositive F   " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fPosF", "args": [{ "kind": "const", "type": "Float", "value": "1.5" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fPosF", "args": [{ "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.5" } }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 152, "mutable": false, "name": "fPosX", "type": "FUNC(Fixed) AS Boolean", "value": { "kind": "functionRef", "name": "isPositive", "type": "FUNC(Fixed) AS Boolean" } },
+    { "op": "eval", "line": 153, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isPositive X   " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fPosX", "args": [{ "kind": "const", "type": "Fixed", "value": "1" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fPosX", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "1" } }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 155, "mutable": false, "name": "fNegI", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Integer) AS Boolean" } },
+    { "op": "eval", "line": 156, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isNegative I   " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNegI", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNegI", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 157, "mutable": false, "name": "fNegF", "type": "FUNC(Float) AS Boolean", "value": { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Float) AS Boolean" } },
+    { "op": "eval", "line": 158, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isNegative F   " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNegF", "args": [{ "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.5" } }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNegF", "args": [{ "kind": "const", "type": "Float", "value": "1.5" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 159, "mutable": false, "name": "fNegX", "type": "FUNC(Fixed) AS Boolean", "value": { "kind": "functionRef", "name": "isNegative", "type": "FUNC(Fixed) AS Boolean" } },
+    { "op": "eval", "line": 160, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isNegative X   " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNegX", "args": [{ "kind": "unary", "type": "Fixed", "op": "-", "operand": { "kind": "const", "type": "Fixed", "value": "1" } }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNegX", "args": [{ "kind": "const", "type": "Fixed", "value": "1" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 162, "mutable": false, "name": "fZeroI", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "functionRef", "name": "isZero", "type": "FUNC(Integer) AS Boolean" } },
+    { "op": "eval", "line": 163, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isZero I       " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fZeroI", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fZeroI", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 164, "mutable": false, "name": "fZeroF", "type": "FUNC(Float) AS Boolean", "value": { "kind": "functionRef", "name": "isZero", "type": "FUNC(Float) AS Boolean" } },
+    { "op": "eval", "line": 165, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isZero F       " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fZeroF", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fZeroF", "args": [{ "kind": "const", "type": "Float", "value": "1.0" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 166, "mutable": false, "name": "fZeroX", "type": "FUNC(Fixed) AS Boolean", "value": { "kind": "functionRef", "name": "isZero", "type": "FUNC(Fixed) AS Boolean" } },
+    { "op": "eval", "line": 167, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isZero X       " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fZeroX", "args": [{ "kind": "const", "type": "Fixed", "value": "0" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fZeroX", "args": [{ "kind": "const", "type": "Fixed", "value": "1" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 169, "mutable": false, "name": "fNumeric", "type": "FUNC(String) AS Boolean", "value": { "kind": "functionRef", "name": "isNumeric", "type": "FUNC(String) AS Boolean" } },
+    { "op": "eval", "line": 170, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isNumeric      " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNumeric", "args": [{ "kind": "const", "type": "String", "value": "42" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNumeric", "args": [{ "kind": "const", "type": "String", "value": "abc" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 172, "mutable": false, "name": "fEmpty", "type": "FUNC(String) AS Boolean", "value": { "kind": "functionRef", "name": "isEmpty", "type": "FUNC(String) AS Boolean" } },
+    { "op": "eval", "line": 173, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isEmpty        " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fEmpty", "args": [{ "kind": "const", "type": "String", "value": "" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fEmpty", "args": [{ "kind": "const", "type": "String", "value": "x" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "bind", "line": 175, "mutable": false, "name": "fNotEmpty", "type": "FUNC(String) AS Boolean", "value": { "kind": "functionRef", "name": "isNotEmpty", "type": "FUNC(String) AS Boolean" } },
+    { "op": "eval", "line": 176, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "let isNotEmpty     " }, { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNotEmpty", "args": [{ "kind": "const", "type": "String", "value": "x" }] }] }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fNotEmpty", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } }, { "kind": "const", "type": "String", "value": "TRUEFALSE" }] } },
+    { "op": "eval", "line": 180, "value": { "kind": "call", "type": "Nothing", "target": "report", "args": [{ "kind": "const", "type": "String", "value": "value passed on    " }, { "kind": "call", "type": "String", "target": "intsOf", "args": [{ "kind": "call", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "ints" }, { "kind": "local", "name": "fEven" }] }] }, { "kind": "const", "type": "String", "value": "-2,0,2," }] } },
+    { "op": "eval", "line": 182, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 183, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "#collections_any$Fixed",
+    "line": 172,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 172, "type": "List OF Fixed", "default": null },
+    { "name": "predicate", "line": 172, "type": "FUNC(Fixed) AS Boolean", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 173, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 174,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      {
+        "op": "if",
+        "line": 175,
+        "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "Fixed", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
+        "then": [
+        { "op": "return", "line": 176, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 178, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 180, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  },
+  {
+    "name": "#collections_any$Float",
+    "line": 172,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 172, "type": "List OF Float", "default": null },
+    { "name": "predicate", "line": 172, "type": "FUNC(Float) AS Boolean", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 173, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 174,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      {
+        "op": "if",
+        "line": 175,
+        "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "Float", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
+        "then": [
+        { "op": "return", "line": 176, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 178, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 180, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  },
+  {
+    "name": "#collections_any$Integer",
+    "line": 172,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 172, "type": "List OF Integer", "default": null },
+    { "name": "predicate", "line": 172, "type": "FUNC(Integer) AS Boolean", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 173, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 174,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      {
+        "op": "if",
+        "line": 175,
+        "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
+        "then": [
+        { "op": "return", "line": 176, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 178, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 180, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  },
+  {
+    "name": "#collections_any$String",
+    "line": 172,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "value", "line": 172, "type": "List OF String", "default": null },
+    { "name": "predicate", "line": 172, "type": "FUNC(String) AS Boolean", "default": null }
+    ],
+    "returns": "Boolean",
+    "body": [
+    { "op": "bind", "line": 173, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 174,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
+      "body": [
+      {
+        "op": "if",
+        "line": 175,
+        "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
+        "then": [
+        { "op": "return", "line": 176, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 178, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 180, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    ]
+  }
+  ]
+}
