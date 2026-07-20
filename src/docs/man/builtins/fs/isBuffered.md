@@ -67,10 +67,12 @@ Enable buffering only when it is not already on:
 ```
 IMPORT fs
 
-RES log = fs::openFile("events.log", "write")
-IF NOT fs::isBuffered(log) THEN
-  fs::setBuffered(log, TRUE)
-END IF
+SUB main()
+  RES log = fs::openFile("events.log", "write")
+  IF NOT fs::isBuffered(log) THEN
+    fs::setBuffered(log, TRUE)
+  END IF
+END SUB
 ```
 
 ## See also

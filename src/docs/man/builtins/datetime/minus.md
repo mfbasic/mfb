@@ -76,9 +76,11 @@ Subtract a 500-millisecond span from a 90-second span:
 ```
 IMPORT datetime
 
-LET a AS Duration = datetime::duration(90)
-LET b AS Duration = datetime::duration(0, 500_000_000)
-LET rest AS Duration = datetime::minus(a, b)
+SUB main()
+  LET a AS Duration = datetime::duration(90)
+  LET b AS Duration = datetime::duration(0, 500_000_000)
+  LET rest AS Duration = datetime::minus(a, b)
+END SUB
 ```
 
 Measure the elapsed time between two monotonic readings:
@@ -86,9 +88,11 @@ Measure the elapsed time between two monotonic readings:
 ```
 IMPORT datetime
 
-LET start AS Duration = datetime::monotonic()
-LET finish AS Duration = datetime::monotonic()
-LET elapsed AS Duration = datetime::minus(finish, start)
+SUB main()
+  LET start AS Duration = datetime::monotonic()
+  LET finish AS Duration = datetime::monotonic()
+  LET elapsed AS Duration = datetime::minus(finish, start)
+END SUB
 ```
 
 ## See also

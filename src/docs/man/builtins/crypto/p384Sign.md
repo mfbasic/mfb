@@ -78,20 +78,30 @@ Generate a key, sign a message, and verify the signature:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET kp AS crypto::KeyPair = crypto::generateP384()
-LET sig AS List OF Byte = crypto::p384Sign(kp.privateKey, message)
-LET ok AS Boolean = crypto::p384Verify(kp.publicKey, message, sig)
+SUB main()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET kp AS crypto::KeyPair = crypto::generateP384()
+  LET sig AS List OF Byte = crypto::p384Sign(kp.privateKey, message)
+  LET ok AS Boolean = crypto::p384Verify(kp.publicKey, message, sig)
+END SUB
 ```
 
 Display a signature as hex:
 
 ```
 IMPORT crypto
+IMPORT strings
 IMPORT encoding
+IMPORT io
 
-LET sig AS List OF Byte = crypto::p384Sign(kp.privateKey, message)
-PRINT encoding::hexEncode(sig)
+SUB main()
+  LET kp AS crypto::KeyPair = crypto::generateP384()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET sig AS List OF Byte = crypto::p384Sign(kp.privateKey, message)
+  io::print(encoding::hexEncode(sig))
+END SUB
 ```
 
 ## See also

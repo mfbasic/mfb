@@ -68,7 +68,7 @@ Two categories bind the platform instead of computing in source:
 - **Verification** — `constantTimeEqual` compares two byte lists in time
   independent of their contents.
 
-## Security notes
+### Security notes
 
 - **Nonce discipline.** AEAD nonces must be unique per key — this is the single
   most important rule when using `aes256GcmSeal` or `chacha20Poly1305Seal`.
@@ -96,10 +96,3 @@ Two categories bind the platform instead of computing in source:
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | an argument is out of range or the wrong length — an AEAD `key` that is not 32 bytes or `nonce` that is not 12 bytes; an HKDF/PBKDF2 length or iteration count out of range; `randomInt` called with `min > max` or too large a range; a signing private key of the wrong length [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 | `77050016` | `ErrAuthenticationFailed` | AEAD `open` (`aes256GcmOpen`, `chacha20Poly1305Open`) when the authentication tag does not verify — the ciphertext, tag, nonce, or aad was altered or does not belong to the key. Fails closed: no plaintext is returned [[src/docs/spec/diagnostics/02_error-codes.md]] |
-
-## See also
-
-- `mfb man crypto types` — the `crypto::Sealed` and `crypto::KeyPair` record types
-- `mfb man crypto aes256GcmSeal`, `mfb man crypto aes256GcmOpen`
-- `mfb man crypto chacha20Poly1305Seal`, `mfb man crypto chacha20Poly1305Open`
-- `mfb man encoding` — hex/Base64 stringification of digests and keys

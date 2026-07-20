@@ -68,18 +68,24 @@ Decode raw UTF-8 bytes back to text:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8EncodeBytes("héllo")
-io::print(encoding::utf8DecodeBytes(raw))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8EncodeBytes("héllo")
+  io::print(encoding::utf8DecodeBytes(raw))
+END SUB
 ```
 
 Round-trip a string through its UTF-8 bytes:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8EncodeBytes("hi")
-io::print(encoding::utf8DecodeBytes(raw))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8EncodeBytes("hi")
+  io::print(encoding::utf8DecodeBytes(raw))
+END SUB
 ```
 
 ## See also

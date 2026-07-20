@@ -23,8 +23,26 @@ TEMPLATE="$(cat "$REPO_ROOT/.ai/man_template.md")"
 # Loaded from .ai/man_type_template.md.
 TYPE_TEMPLATE="$(cat "$REPO_ROOT/.ai/man_type_template.md")"
 
+# Authoring rules shared with update_man_package.sh (bug-336-S11): the renderer
+# subset, the provenance rule, the Errors-table block, and the correctness rule.
+# shellcheck source=man_rules.sh
+source "$SCRIPT_DIR/man_rules.sh"
+
+# The package a function belongs to, from its listed name.
+#
+# A qualified name carries it (`math::sin` -> `math`). An unqualified one is a
+# bare always-in-scope builtin and belongs to `general` — EXCEPT the `testing`
+# assertions, which are also called bare (`expectEqual(a, b)` inside a `TCASE`)
+# but live in their own package and their own man directory. Without this arm,
+# `update_man.sh testing` routes all twelve to `general`, matches nothing, and
+# exits 1 — the same class of invisibility bug-336-S2 fixed in
+# `list_functions.py`.
 module_of() {
-  if [[ "$1" == *::* ]]; then printf '%s' "${1%%::*}"; else printf 'general'; fi
+  case "$1" in
+    *::*) printf '%s' "${1%%::*}" ;;
+    expect*) printf 'testing' ;;
+    *) printf 'general' ;;
+  esac
 }
 
 # Parse list_functions.py into "kind|name" rows. Lines look like:
@@ -89,8 +107,13 @@ Steps:
    few existing pages (e.g. src/docs/man/unicode/package.md, plus any
    src/docs/man/builtins/**/*.md) for tone and house style, and follow the
    Markdown template below for structure.
-2. Read src/builtins/${module}.rs to understand the function's signature, overloads,
-   parameter types, return type, and error behavior.
+2. Read the package's compiler source — $(man_package_sources "${module}") — to
+   understand the function's signature, overloads, parameter types, return type,
+   and error behavior. When a package has BOTH a .rs and a _package.mfb, the .mfb
+   is where the real signatures, defaults, and error paths live; the .rs carries
+   the name constants, the is_*_call predicate, return-type tables, and
+   call_param_names. Read both; documenting the .rs shim alone gets the
+   signatures wrong.
 3. Determine every error the function can itself raise. Read
    src/target/shared/code/mod.rs for the canonical error registry: each ERR_*_CODE
    constant maps a symbolic name (e.g. ErrInvalidArgument) to its numeric code
@@ -118,39 +141,12 @@ Format rules:
 - Parameters, Return value, and Errors are GFM pipe tables (see the template).
 - Follow the full template below exactly. Bracketed sections are conditional;
   omit them when they do not apply. All other sections are required.
-- Use the renderer's supported Markdown subset only: ATX headings, paragraphs,
-  bullet/ordered lists, fenced code blocks, pipe tables, and inline
-  \`code\`/**bold**/*italic*/[links](url). Wrap identifiers and types in \`code\`.
-- Provenance: back a non-obvious implementation claim (error code, arity, numeric
-  range/bound, magic number, offset, enum variant) with an invisible
-  \`[[src/file.rs:Symbol]]\` citation at claim-cluster granularity — symbol-preferred,
-  \`[[src/file.rs:line]]\` only where no symbol fits. Grep-confirm the symbol exists
-  before citing. The renderer strips \`[[ ]]\` everywhere (including headings), so
-  they never display in 'mfb man' output but keep claims traceable for reviewers.
-  Do not add non-verifiable claims.
+\$MAN_RULE_RENDERER
+\$MAN_RULE_PROVENANCE
 
-Errors table (required, always present):
-- List every error the function can itself raise, one row per error, with the
-  numeric code, the symbolic name, and the condition:
+\$MAN_RULE_ERRORS
 
-    ## Errors
-
-    | Code | Name | Raised when |
-    | --- | --- | --- |
-    | \`77050002\` | \`ErrInvalidArgument\` | <condition> |
-    | \`77050001\` | \`ErrIndexOutOfRange\` | <condition> |
-
-- Use the exact code<->name pairs from src/target/shared/code/mod.rs. Do not
-  invent codes or names.
-- If the function cannot itself raise any error, replace the table with a single
-  line that reads exactly: No errors.
-  (Errors propagating from evaluating arguments before the call do not count as
-  errors this function raises; do not list them.)
-
-Correctness:
-- Existing man page content shuold not be trusted as correct. Verify all existing content
-  against the actual compiler code for correctness.
-- Key to this whole process is that the informaiton in the man pages is valid and correct.
+\$MAN_RULE_CORRECTNESS
 
 $TEMPLATE"
 
@@ -194,16 +190,8 @@ Format rules:
 - Derive each field's description from the source comment (units, ranges,
   defaults, what each value selects).
 - Follow the full template below exactly.
-- Use the renderer's supported Markdown subset only: ATX headings, paragraphs,
-  bullet/ordered lists, fenced code blocks, pipe tables, and inline
-  \`code\`/**bold**/*italic*/[links](url).
-- Provenance: back a non-obvious implementation claim (field type, units, magic
-  number, offset, enum variant) with an invisible \`[[src/file.rs:Symbol]]\`
-  citation at claim-cluster granularity — symbol-preferred, \`[[src/file.rs:line]]\`
-  only where no symbol fits. Grep-confirm the symbol exists before citing. The
-  renderer strips \`[[ ]]\` everywhere (including headings), so they never display
-  in 'mfb man' output but keep claims traceable for reviewers. Do not add
-  non-verifiable claims.
+\$MAN_RULE_RENDERER
+\$MAN_RULE_PROVENANCE
 
 $TYPE_TEMPLATE"
 

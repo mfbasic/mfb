@@ -78,11 +78,13 @@ Read every line until end of input:
 IMPORT fs
 IMPORT io
 
-RES f = fs::openFile("data.txt")
-WHILE NOT fs::eof(f)
-  io::print(fs::readLine(f))
-END WHILE
-' f is closed by lexical drop when this scope ends
+SUB main()
+  RES f = fs::openFile("data.txt")
+  WHILE NOT fs::eof(f)
+    io::print(fs::readLine(f))
+  WEND
+  ' f is closed by lexical drop when this scope ends
+END SUB
 ```
 
 ## See also

@@ -73,7 +73,9 @@ Epoch milliseconds of the current instant:
 ```
 IMPORT datetime
 
-LET ms AS Integer = datetime::toMillis(datetime::now())
+SUB main()
+  LET ms AS Integer = datetime::toMillis(datetime::now())
+END SUB
 ```
 
 Round-trip an instant through its millisecond count:
@@ -81,9 +83,11 @@ Round-trip an instant through its millisecond count:
 ```
 IMPORT datetime
 
-LET at AS Instant = datetime::now()
-LET ms AS Integer = datetime::toMillis(at)
-LET back AS Instant = datetime::fromMillis(ms)
+SUB main()
+  LET at AS Instant = datetime::now()
+  LET ms AS Integer = datetime::toMillis(at)
+  LET back AS Instant = datetime::fromMillis(ms)
+END SUB
 ```
 
 ## See also

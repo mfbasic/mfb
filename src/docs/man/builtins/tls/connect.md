@@ -106,10 +106,12 @@ Connect to an HTTPS server and validate its certificate:
 ```
 IMPORT tls
 
-RES conn = tls::connect("example.com", 443)
-tls::writeText(conn, "GET / HTTP/1.0" + Chr(13) + Chr(10) + Chr(13) + Chr(10))
-LET response = tls::readText(conn, 4096)
-' conn is closed by lexical drop when this scope ends
+SUB main()
+  RES conn = tls::connect("example.com", 443)
+  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
+  LET response = tls::readText(conn, 4096)
+  ' conn is closed by lexical drop when this scope ends
+END SUB
 ```
 
 Connect to a literal IP but validate against a named certificate via SNI:
@@ -117,8 +119,10 @@ Connect to a literal IP but validate against a named certificate via SNI:
 ```
 IMPORT tls
 
-RES conn = tls::connect("93.184.216.34", 443, timeoutMs := 0, serverName := "example.com")
-' conn is closed by lexical drop when this scope ends
+SUB main()
+  RES conn = tls::connect("93.184.216.34", 443, timeoutMs := 0, serverName := "example.com")
+  ' conn is closed by lexical drop when this scope ends
+END SUB
 ```
 
 ## See also

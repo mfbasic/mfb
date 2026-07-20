@@ -109,10 +109,13 @@ The `ok` field follows the status class:
 
 ```
 IMPORT http
+IMPORT io
 
-LET good = http::status(201, "created")
-LET bad = http::status(503, "try later")
-io::print(toString(good.ok) & " " & toString(bad.ok))
+SUB main()
+  LET good = http::status(201, "created")
+  LET bad = http::status(503, "try later")
+  io::print(toString(good.ok) & " " & toString(bad.ok))
+END SUB
 ```
 
 A redirect, with the reason phrase supplied on emit and the location added
@@ -120,9 +123,12 @@ afterwards:
 
 ```
 IMPORT http
+IMPORT io
 
-LET resp = http::withHeader(http::status(302, ""), "location", "/login")
-io::print(toString(resp.status))
+SUB main()
+  LET resp = http::withHeader(http::status(302, ""), "location", "/login")
+  io::print(toString(resp.status))
+END SUB
 ```
 
 ## See also

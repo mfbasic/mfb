@@ -79,9 +79,11 @@ Read all remaining bytes from an open file:
 ```
 IMPORT fs
 
-RES f = fs::openFile("data.bin")
-LET bytes AS List OF Byte = fs::readAllBytes(f)
-' f is closed by lexical drop when this scope ends
+SUB main()
+  RES f = fs::openFile("data.bin")
+  LET bytes AS List OF Byte = fs::readAllBytes(f)
+  ' f is closed by lexical drop when this scope ends
+END SUB
 ```
 
 Skip the first line, then read the remaining bytes of the file:
@@ -89,9 +91,11 @@ Skip the first line, then read the remaining bytes of the file:
 ```
 IMPORT fs
 
-RES f = fs::openFile("data.bin")
-LET header AS String = fs::readLine(f)
-LET body AS List OF Byte = fs::readAllBytes(f)
+SUB main()
+  RES f = fs::openFile("data.bin")
+  LET header AS String = fs::readLine(f)
+  LET body AS List OF Byte = fs::readAllBytes(f)
+END SUB
 ```
 
 ## See also

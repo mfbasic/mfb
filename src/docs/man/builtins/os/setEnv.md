@@ -64,8 +64,10 @@ Set a variable and read it back:
 IMPORT os
 IMPORT io
 
-os::setEnv("GREETING", "hello")
-io::print(os::getEnv("GREETING"))
+SUB main()
+  os::setEnv("GREETING", "hello")
+  io::print(os::getEnv("GREETING"))
+END SUB
 ```
 
 ## See also

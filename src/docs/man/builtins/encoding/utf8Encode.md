@@ -85,18 +85,24 @@ Encode a string to raw UTF-8 bytes:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("héllo")
-io::print(toString(len(raw)))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("héllo")
+  io::print(toString(len(raw)))
+END SUB
 ```
 
 Encode to the `List OF Integer` form and round-trip it back:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET units AS List OF Integer = encoding::utf8Encode("hi")
-io::print(encoding::utf8Decode(units))
+SUB main()
+  LET units AS List OF Integer = encoding::utf8Encode("hi")
+  io::print(encoding::utf8Decode(units))
+END SUB
 ```
 
 ## See also

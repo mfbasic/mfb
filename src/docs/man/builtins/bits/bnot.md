@@ -58,19 +58,25 @@ Invert every bit of a value:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::bnot(255)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::bnot(255)
+  io::print(toString(result))
+END SUB
 ```
 
 Clear the low byte by ANDing with an inverted mask:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET value AS Integer = 0x1234
-LET highOnly AS Integer = bits::band(value, bits::bnot(255))
-PRINT highOnly
+SUB main()
+  LET value AS Integer = 0x1234
+  LET highOnly AS Integer = bits::band(value, bits::bnot(255))
+  io::print(toString(highOnly))
+END SUB
 ```
 
 ## See also

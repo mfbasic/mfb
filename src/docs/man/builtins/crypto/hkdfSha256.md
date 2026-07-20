@@ -80,8 +80,14 @@ Derive a 32-byte key from a shared secret:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET key AS List OF Byte = crypto::hkdfSha256(secret, salt, info, 32)
+SUB main()
+  LET secret AS List OF Byte = crypto::randomBytes(32)
+  LET salt AS List OF Byte = crypto::randomBytes(16)
+  LET info AS List OF Byte = strings::toBytes("app v1")
+  LET key AS List OF Byte = crypto::hkdfSha256(secret, salt, info, 32)
+END SUB
 ```
 
 An empty salt selects the RFC default all-zero salt:
@@ -89,8 +95,11 @@ An empty salt selects the RFC default all-zero salt:
 ```
 IMPORT crypto
 
-LET empty AS List OF Byte = []
-LET key AS List OF Byte = crypto::hkdfSha256(secret, empty, empty, 64)
+SUB main()
+  LET secret AS List OF Byte = crypto::randomBytes(32)
+  LET empty AS List OF Byte = []
+  LET key AS List OF Byte = crypto::hkdfSha256(secret, empty, empty, 64)
+END SUB
 ```
 
 ## See also

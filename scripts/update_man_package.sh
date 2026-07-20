@@ -9,6 +9,10 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$REPO_ROOT"
 
+# Authoring rules shared with update_man.sh (bug-336-S11).
+# shellcheck source=man_rules.sh
+source "$SCRIPT_DIR/man_rules.sh"
+
 # Markdown template for the per-package overview page (mfb man <package>),
 # describing a whole built-in package rather than a single function.
 # Loaded from .ai/man_package_template.md.
@@ -28,25 +32,9 @@ for i in "${!PACKAGES[@]}"; do
   pkg="${PACKAGES[$i]}"
   count=$((i + 1))
 
-  # Locate the package's compiler source. Most packages map to src/builtins/<pkg>.rs;
-  # some also have an .mfb package file, and a few are special-cased.
-  sources=()
-  case "$pkg" in
-    filters)
-      # The predicate helpers (isEven, isEmpty, ...) live in general.rs.
-      sources+=("src/builtins/general.rs")
-      ;;
-    *)
-      [[ -f "src/builtins/${pkg}.rs" ]] && sources+=("src/builtins/${pkg}.rs")
-      [[ -f "src/builtins/${pkg}_package.mfb" ]] && sources+=("src/builtins/${pkg}_package.mfb")
-      ;;
-  esac
-  if [[ ${#sources[@]} -eq 0 ]]; then
-    src_list="(no dedicated source file; infer the package from its function man pages)"
-  else
-    src_list="$(printf '%s, ' "${sources[@]}")"
-    src_list="${src_list%, }"
-  fi
+  # Locate the package's compiler source (shared with update_man.sh, so the two
+  # drivers cannot disagree about where a package lives — bug-336-S11).
+  src_list="$(man_package_sources "$pkg")"
 
   echo "=== [$count/$total] $pkg ==="
 
@@ -84,17 +72,8 @@ Format rules:
   'mfb man ${pkg}' appends the function list and footer automatically.
 - Follow the full template below exactly. Bracketed sections are conditional;
   omit them when they do not apply. All other sections are required.
-- Use the renderer's supported Markdown subset only: ATX headings, paragraphs,
-  bullet/ordered lists, fenced code blocks, pipe tables, and inline
-  \`code\`/**bold**/*italic*/[links](url).
-- Provenance: back a non-obvious implementation claim (error code, shared
-  convention, magic number, offset, enum variant) with an invisible
-  \`[[src/file.rs:Symbol]]\` citation at claim-cluster granularity — symbol-preferred,
-  \`[[src/file.rs:line]]\` only where no symbol fits. Grep-confirm the symbol exists
-  before citing. The renderer strips \`[[ ]]\` everywhere (including headings), so
-  they never display in 'mfb man' output but keep claims traceable for reviewers.
-  Do not add non-verifiable claims.
-
+\$MAN_RULE_RENDERER
+\$MAN_RULE_PROVENANCE
 Errors table (required, always present):
 - This is the package-wide summary of error behavior. List each distinct error
   functions in this package can raise, one row per error, with the numeric code,
@@ -107,12 +86,15 @@ Errors table (required, always present):
     | \`77050002\` | \`ErrInvalidArgument\` | raised by <functions> when <condition> |
     | \`77050010\` | \`ErrOverflow\` | raised by <functions> when <condition> |
 
-- Use the exact code<->name pairs from src/target/shared/code/mod.rs. Do not invent
-  codes or names.
+- Use the exact code<->name pairs from src/target/shared/code/error_constants.rs,
+  which is where the ERR_*_CODE constants are DEFINED (mod.rs only references
+  them). Do not invent codes or names.
 - If no function in this package raises any error, replace the table with a single
   line that reads exactly: No errors.
   (Errors propagating from evaluating arguments before a call do not count; do not
   list them.)
+
+\$MAN_RULE_CORRECTNESS
 
 $TEMPLATE"
 

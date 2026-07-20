@@ -103,9 +103,11 @@ Create a temporary file in the host temporary directory and write to it:
 ```
 IMPORT fs
 
-RES f = fs::createTempFile()
-fs::writeAll(f, "data")
-' f is closed by lexical drop when this scope ends
+SUB main()
+  RES f = fs::createTempFile()
+  fs::writeAll(f, "data")
+  ' f is closed by lexical drop when this scope ends
+END SUB
 ```
 
 Create a temporary file in a specific directory:
@@ -113,9 +115,11 @@ Create a temporary file in a specific directory:
 ```
 IMPORT fs
 
-RES g = fs::createTempFile("target")
-fs::writeAll(g, "data")
-' g is closed by lexical drop when this scope ends
+SUB main()
+  RES g = fs::createTempFile("target")
+  fs::writeAll(g, "data")
+  ' g is closed by lexical drop when this scope ends
+END SUB
 ```
 
 ## See also

@@ -99,9 +99,12 @@ Close an output stream explicitly after playback:
 ```
 IMPORT audio
 
-RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
-audio::write(out, pcm)
-audio::close(out)
+SUB main()
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  LET pcm AS List OF Byte = [0, 0, 0, 0]
+  audio::write(out, pcm)
+  audio::close(out)
+END SUB
 ```
 
 Close a capture stream, dropping any buffered audio:
@@ -109,9 +112,11 @@ Close a capture stream, dropping any buffered audio:
 ```
 IMPORT audio
 
-RES mic AS AudioInput = audio::openInput(48000, 1, 512)
-LET pcm = audio::read(mic, 480)
-audio::close(mic)
+SUB main()
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET pcm = audio::read(mic, 480)
+  audio::close(mic)
+END SUB
 ```
 
 ## See also

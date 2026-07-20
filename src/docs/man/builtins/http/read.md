@@ -117,9 +117,12 @@ A plain GET, reading the status line:
 ```
 IMPORT net
 IMPORT http
+IMPORT io
 
-LET r = http::read(net::toUrl("http://example.com/"))
-io::print(toString(r.status) & " " & r.reason)
+SUB main()
+  LET r = http::read(net::toUrl("http://example.com/"))
+  io::print(toString(r.status) & " " & r.reason)
+END SUB
 ```
 
 A GET with an Authorization header and an explicit method, then a header lookup:
@@ -128,11 +131,14 @@ A GET with an Authorization header and an explicit method, then a header lookup:
 IMPORT net
 IMPORT http
 IMPORT collections
+IMPORT io
 
-LET h = Map OF String TO String { "Authorization" := "Bearer xyz" }
-LET r = http::read(net::toUrl("http://example.com/item/1"), h, "DELETE")
-LET ct = collections::getOr(r.headers, "content-type", "")
-io::print(ct)
+SUB main()
+  LET h = Map OF String TO String { "Authorization" := "Bearer xyz" }
+  LET r = http::read(net::toUrl("http://example.com/item/1"), h, "DELETE")
+  LET ct = collections::getOr(r.headers, "content-type", "")
+  io::print(ct)
+END SUB
 ```
 
 ## See also

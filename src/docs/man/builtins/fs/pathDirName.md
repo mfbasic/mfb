@@ -75,7 +75,9 @@ A directory and a file name yield the directory:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathDirName("target/output.txt"))
+SUB main()
+  io::print(fs::pathDirName("target/output.txt"))
+END SUB
 ```
 
 Leading separators are preserved in the result:
@@ -84,7 +86,9 @@ Leading separators are preserved in the result:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathDirName("/usr/local/bin"))
+SUB main()
+  io::print(fs::pathDirName("/usr/local/bin"))
+END SUB
 ```
 
 A path with no separator yields `"."`:
@@ -93,7 +97,9 @@ A path with no separator yields `"."`:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathDirName("output.txt"))
+SUB main()
+  io::print(fs::pathDirName("output.txt"))
+END SUB
 ```
 
 The root path yields itself:
@@ -102,7 +108,9 @@ The root path yields itself:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathDirName("/"))
+SUB main()
+  io::print(fs::pathDirName("/"))
+END SUB
 ```
 
 ## See also

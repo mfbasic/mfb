@@ -65,18 +65,24 @@ Encode a string to its UTF-8 code units:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET units AS List OF Integer = encoding::utf8EncodeInts("héllo")
-io::print(toString(len(units)))
+SUB main()
+  LET units AS List OF Integer = encoding::utf8EncodeInts("héllo")
+  io::print(toString(len(units)))
+END SUB
 ```
 
 Round-trip a string through its UTF-8 code units:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET units AS List OF Integer = encoding::utf8EncodeInts("hi")
-io::print(encoding::utf8DecodeInts(units))
+SUB main()
+  LET units AS List OF Integer = encoding::utf8EncodeInts("hi")
+  io::print(encoding::utf8DecodeInts(units))
+END SUB
 ```
 
 ## See also

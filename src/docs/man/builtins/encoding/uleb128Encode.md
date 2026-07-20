@@ -65,19 +65,25 @@ Encode a value and round-trip it back through `uleb128Decode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::uleb128Encode(624485)
-io::print(encoding::uleb128Decode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::uleb128Encode(624485)
+  io::print(toString(encoding::uleb128Decode(bytes)))
+END SUB
 ```
 
 Small values fit in a single byte:
 
 ```
 IMPORT encoding
+IMPORT io
 
-io::print(len(encoding::uleb128Encode(0)))
-io::print(len(encoding::uleb128Encode(127)))
-io::print(len(encoding::uleb128Encode(128)))
+SUB main()
+  io::print(toString(len(encoding::uleb128Encode(0))))
+  io::print(toString(len(encoding::uleb128Encode(127))))
+  io::print(toString(len(encoding::uleb128Encode(128))))
+END SUB
 ```
 
 ## See also

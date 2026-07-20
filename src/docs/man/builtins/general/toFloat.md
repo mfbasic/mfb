@@ -102,26 +102,34 @@ unsupported values to one of these types explicitly first. [[src/builtins/genera
 Parse decimal text:
 
 ```
-LET value AS Float = toFloat("1.5")
+SUB main()
+  LET value AS Float = toFloat("1.5")
+END SUB
 ```
 
 Parse text with an exponent:
 
 ```
-LET value AS Float = toFloat("6.022e23")
+SUB main()
+  LET value AS Float = toFloat("6.022e23")
+END SUB
 ```
 
 Convert an Integer:
 
 ```
-LET value AS Float = toFloat(42)
+SUB main()
+  LET value AS Float = toFloat(42)
+END SUB
 ```
 
 Convert a Fixed value:
 
 ```
-LET fixed AS Fixed = toFixed("2.25")
-LET value AS Float = toFloat(fixed)
+SUB main()
+  LET fixed AS Fixed = toFixed("2.25")
+  LET value AS Float = toFloat(fixed)
+END SUB
 ```
 
 ## See also

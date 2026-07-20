@@ -71,9 +71,11 @@ Round-trip an instant through a civil `DateTime` and back:
 ```
 IMPORT datetime
 
-LET at AS Instant = datetime::now()
-LET dt AS DateTime = datetime::inZone(at, datetime::utc())
-LET back AS Instant = datetime::resolve(dt)
+SUB main()
+  LET at AS Instant = datetime::now()
+  LET dt AS DateTime = datetime::inZone(at, datetime::utc())
+  LET back AS Instant = datetime::resolve(dt)
+END SUB
 ```
 
 Resolve a civil `DateTime` built in a fixed +05:30 zone:
@@ -81,9 +83,11 @@ Resolve a civil `DateTime` built in a fixed +05:30 zone:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::fixedOffset(5, 30)
-LET dt AS DateTime = datetime::inZone(datetime::now(), z)
-LET at AS Instant = datetime::resolve(dt)
+SUB main()
+  LET z AS Zone = datetime::fixedOffset(5, 30)
+  LET dt AS DateTime = datetime::inZone(datetime::now(), z)
+  LET at AS Instant = datetime::resolve(dt)
+END SUB
 ```
 
 ## See also

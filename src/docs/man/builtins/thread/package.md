@@ -19,8 +19,11 @@ packages, each in a fresh package instance. Parent code holds a `Thread` value;
 worker code holds a `ThreadWorker` value. Together the pair carries an inbound
 message queue, an outbound message queue, an optional resource plane,
 cancellation state, and the worker's result. Retrieving the result with
-`thread::waitFor(t)` (or the `t.result` field) is one-shot and closes the parent
-`Thread` handle. [[src/builtins/thread.rs:is_thread_call]]
+`thread::waitFor(t)` is one-shot and closes the parent `Thread` handle. There is
+**no `t.result` member**: it was removed from the language, and a `.result`
+member access on a `Thread` is rejected before IR lowering with
+`TYPE_THREAD_RESULT_REMOVED`. `thread::waitFor` is the only way to retrieve a
+worker's outcome. [[src/builtins/thread.rs:is_thread_call]] [[src/rules/table.rs:TYPE_THREAD_RESULT_REMOVED]]
 
 A worker entry point must have the shape
 `ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out` and must be an exported
@@ -56,7 +59,7 @@ and successful reassignment of a `MUT Thread`. Dropping a running `Thread`
 requests cancellation, wakes its queues, and detaches the worker. A `Thread`
 moved out by `RETURN` or another consuming operation is not dropped by the source
 scope. Compiler-generated cleanup is idempotent for handles already closed by
-`thread::waitFor(t)` or `t.result`.
+`thread::waitFor(t)`.
 
 There is intentionally no `thread::stop()` and no separate `thread::detach()`.
 Cancellation is cooperative: `thread::cancel(t)` sets a flag, and the worker
@@ -86,6 +89,6 @@ A thread that reads stdin without a subscription raises `ErrInvalidContext`.
 | `77050004` | `ErrNotFound` | raised by `receive` and `accept` when nothing is available without waiting (`timeoutMs = 0` and the queue is empty), when the queue has been closed, or, for a parent `Thread`, when the worker has completed with an empty outbound queue [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
 | `77050008` | `ErrTimeout` | raised by `send`, `receive`, `transfer`, and `accept` when a positive `timeoutMs` elapses before space frees up or a message or resource arrives [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
 | `77050009` | `ErrInterrupted` | raised by `start` when the underlying OS thread cannot be spawned, and by `send`, `receive`, `transfer`, and `accept` when a wait observes that the thread has ended, the queue has been closed, or cancellation of the worker has been requested [[src/target/shared/code/error_constants.rs:ERR_INTERRUPTED_CODE]] |
-| `77030004` | `ErrResourceClosed` | raised by `cancel`, `isRunning`, `waitFor`, and the parent `Thread` overloads of `poll`, `send`, `receive`, `transfer`, and `accept` when the parent `Thread` handle has already been closed, such as after its result was retrieved with `waitFor` or `t.result` [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
+| `77030004` | `ErrResourceClosed` | raised by `cancel`, `isRunning`, `waitFor`, and the parent `Thread` overloads of `poll`, `send`, `receive`, `transfer`, and `accept` when the parent `Thread` handle has already been closed, such as after its result was retrieved with `waitFor` [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 | `77010001` | `ErrOutOfMemory` | raised by `start` when the thread control block, the worker's arena state, or any of its queue structures and backing message arrays cannot be allocated [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
 | `77050019` | `ErrInvalidContext` | raised by a stdin read (`io::readLine`, `io::input`, `io::readChar`, `io::readByte`) from a thread that has not subscribed with `thread::openStdIn` (the compiler-inserted main-thread subscription exempts a normal single-threaded program) [[src/target/shared/code/error_constants.rs:ERR_INVALID_CONTEXT_CODE]] |

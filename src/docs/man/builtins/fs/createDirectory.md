@@ -83,7 +83,9 @@ Create a single output directory whose parent already exists:
 ```
 IMPORT fs
 
-fs::createDirectory("target/example")
+SUB main()
+  fs::createDirectory("target/example")
+END SUB
 ```
 
 Guard against re-creating a directory that already exists:
@@ -91,9 +93,11 @@ Guard against re-creating a directory that already exists:
 ```
 IMPORT fs
 
-IF NOT fs::directoryExists("target/cache") THEN
-  fs::createDirectory("target/cache")
-END IF
+SUB main()
+  IF NOT fs::directoryExists("target/cache") THEN
+    fs::createDirectory("target/cache")
+  END IF
+END SUB
 ```
 
 ## See also

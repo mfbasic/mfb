@@ -121,26 +121,34 @@ to one of these types explicitly first. [[src/builtins/general.rs:resolve_call]]
 Parse decimal text:
 
 ```
-LET price AS Money = toMoney("3.50")
+SUB main()
+  LET price AS Money = toMoney("3.50")
+END SUB
 ```
 
 Convert a whole-unit Integer:
 
 ```
-LET total AS Money = toMoney(4)
+SUB main()
+  LET total AS Money = toMoney(4)
+END SUB
 ```
 
 Convert a Float rate result:
 
 ```
-LET amount AS Money = toMoney(1.5)
+SUB main()
+  LET amount AS Money = toMoney(1.5)
+END SUB
 ```
 
 Rescale a Fixed value:
 
 ```
-LET rate AS Fixed = toFixed("12.75")
-LET charged AS Money = toMoney(rate)
+SUB main()
+  LET rate AS Fixed = toFixed("12.75")
+  LET charged AS Money = toMoney(rate)
+END SUB
 ```
 
 ## See also

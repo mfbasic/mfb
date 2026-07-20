@@ -55,7 +55,9 @@ Print the process id:
 IMPORT os
 IMPORT io
 
-io::print(toString(os::pid()))
+SUB main()
+  io::print(toString(os::pid()))
+END SUB
 ```
 
 ## See also

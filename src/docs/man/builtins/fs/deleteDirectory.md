@@ -78,7 +78,9 @@ Remove an empty directory:
 ```
 IMPORT fs
 
-fs::deleteDirectory("target/example")
+SUB main()
+  fs::deleteDirectory("target/example")
+END SUB
 ```
 
 Create a directory and then remove it:
@@ -86,8 +88,10 @@ Create a directory and then remove it:
 ```
 IMPORT fs
 
-fs::createDirectory("target/scratch")
-fs::deleteDirectory("target/scratch")
+SUB main()
+  fs::createDirectory("target/scratch")
+  fs::deleteDirectory("target/scratch")
+END SUB
 ```
 
 ## See also

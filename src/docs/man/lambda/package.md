@@ -110,8 +110,11 @@ Accumulate into an outer `MUT` through `forEach` (allowed):
 ```
 IMPORT collections
 
-MUT total AS Integer = 0
-forEach(items, LAMBDA(x AS Integer) -> total = total + x)
+SUB main()
+  LET items AS List OF Integer = [1, 2, 3]
+  MUT total AS Integer = 0
+  collections::forEach(items, LAMBDA(x AS Integer) -> total = total + x)
+END SUB
 ```
 
 A `MUT`-capturing lambda that escapes its scope (rejected):

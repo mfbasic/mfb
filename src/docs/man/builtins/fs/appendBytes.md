@@ -93,7 +93,10 @@ Append a single newline byte to a log file:
 ```
 IMPORT fs
 
-fs::appendBytes("target/log.bin", [10])
+SUB main()
+  LET bytes AS List OF Byte = [10]
+  fs::appendBytes("target/log.bin", bytes)
+END SUB
 ```
 
 Append the contents of one file to the end of another:
@@ -101,8 +104,10 @@ Append the contents of one file to the end of another:
 ```
 IMPORT fs
 
-LET bytes AS List OF Byte = fs::readBytes("source.bin")
-fs::appendBytes("combined.bin", bytes)
+SUB main()
+  LET bytes AS List OF Byte = fs::readBytes("source.bin")
+  fs::appendBytes("combined.bin", bytes)
+END SUB
 ```
 
 ## See also

@@ -70,20 +70,26 @@ Decode a URL-safe Base64 string (no padding) back to text:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::base64UrlDecode("aGVsbG8")
-io::print(encoding::utf8Decode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::base64UrlDecode("aGVsbG8")
+  io::print(encoding::utf8Decode(bytes))
+END SUB
 ```
 
 Round-trip through `base64UrlEncode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hello")
-LET text AS String = encoding::base64UrlEncode(raw)
-io::print(text)
-io::print(encoding::utf8Decode(encoding::base64UrlDecode(text)))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hello")
+  LET text AS String = encoding::base64UrlEncode(raw)
+  io::print(text)
+  io::print(encoding::utf8Decode(encoding::base64UrlDecode(text)))
+END SUB
 ```
 
 ## See also

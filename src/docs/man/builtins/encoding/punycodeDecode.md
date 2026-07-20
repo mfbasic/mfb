@@ -73,18 +73,24 @@ Decode a Punycode label to Unicode:
 
 ```
 IMPORT encoding
+IMPORT io
 
-io::print(encoding::punycodeDecode("xn--mnchen-3ya.de"))
+SUB main()
+  io::print(encoding::punycodeDecode("xn--mnchen-3ya.de"))
+END SUB
 ```
 
 Round-trip through `punycodeEncode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET ace AS String = encoding::punycodeEncode("bücher.example")
-io::print(ace)
-io::print(encoding::punycodeDecode(ace))
+SUB main()
+  LET ace AS String = encoding::punycodeEncode("bücher.example")
+  io::print(ace)
+  io::print(encoding::punycodeDecode(ace))
+END SUB
 ```
 
 ## See also

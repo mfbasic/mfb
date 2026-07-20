@@ -75,11 +75,15 @@ Force buffered data to disk at a checkpoint, then keep writing:
 ```
 IMPORT fs
 
-RES out = fs::openFile("report.txt", "write")
-fs::setBuffered(out, TRUE)
-fs::writeAll(out, header)
-fs::flush(out)             ' header reaches disk before the body is written
-fs::writeAll(out, body)
+SUB main()
+  LET header AS String = "id,name\n"
+  LET body AS String = "1,alice\n"
+  RES out = fs::openFile("report.txt", "write")
+  fs::setBuffered(out, TRUE)
+  fs::writeAll(out, header)
+  fs::flush(out)             ' header reaches disk before the body is written
+  fs::writeAll(out, body)
+END SUB
 ```
 
 ## See also

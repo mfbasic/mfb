@@ -68,33 +68,42 @@ Length of common and leap-year February:
 
 ```
 IMPORT datetime
+IMPORT io
 
-PRINT datetime::daysInMonth(2023, 2)   ' 28
-PRINT datetime::daysInMonth(2024, 2)   ' 29 (leap year)
+SUB main()
+  io::print(toString(datetime::daysInMonth(2023, 2)))   ' 28
+  io::print(toString(datetime::daysInMonth(2024, 2)))   ' 29 (leap year)
+END SUB
 ```
 
 Lengths of the other months ignore the year:
 
 ```
 IMPORT datetime
+IMPORT io
 
-PRINT datetime::daysInMonth(2026, 1)   ' 31
-PRINT datetime::daysInMonth(2026, 4)   ' 30
+SUB main()
+  io::print(toString(datetime::daysInMonth(2026, 1)))   ' 31
+  io::print(toString(datetime::daysInMonth(2026, 4)))   ' 30
+END SUB
 ```
 
 Clamp a day-of-month to the end of its month:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET year AS Integer = 2024
-LET month AS Integer = 2
-LET day AS Integer = 31
-LET last AS Integer = datetime::daysInMonth(year, month)
-IF day > last THEN
-  LET day = last
-END IF
-PRINT day   ' 29
+SUB main()
+  LET year AS Integer = 2024
+  LET month AS Integer = 2
+  MUT day AS Integer = 31
+  LET last AS Integer = datetime::daysInMonth(year, month)
+  IF day > last THEN
+    day = last
+  END IF
+  io::print(toString(day))   ' 29
+END SUB
 ```
 
 ## See also

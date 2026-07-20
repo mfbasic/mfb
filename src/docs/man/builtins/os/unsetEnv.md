@@ -56,9 +56,11 @@ Remove a variable and confirm it is gone:
 IMPORT os
 IMPORT io
 
-os::setEnv("TEMP_FLAG", "1")
-os::unsetEnv("TEMP_FLAG")
-io::print(toString(os::hasEnv("TEMP_FLAG")))
+SUB main()
+  os::setEnv("TEMP_FLAG", "1")
+  os::unsetEnv("TEMP_FLAG")
+  io::print(toString(os::hasEnv("TEMP_FLAG")))
+END SUB
 ```
 
 ## See also

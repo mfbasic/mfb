@@ -56,7 +56,9 @@ Print the CPU count:
 IMPORT os
 IMPORT io
 
-io::print(toString(os::cpuCount()))
+SUB main()
+  io::print(toString(os::cpuCount()))
+END SUB
 ```
 
 ## See also

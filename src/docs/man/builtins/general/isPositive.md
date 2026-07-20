@@ -84,21 +84,33 @@ value types. [[src/builtins/general.rs:resolve_call]]
 Test a literal:
 
 ```
-LET result AS Boolean = isPositive(7)
+SUB main()
+  LET result AS Boolean = isPositive(7)
+END SUB
 ```
 
 Branch on sign:
 
 ```
-IF isPositive(balance) THEN
-  PRINT "balance is positive"
-END IF
+IMPORT io
+
+SUB main()
+  LET balance AS Integer = 5
+  IF isPositive(balance) THEN
+    io::print("balance is positive")
+  END IF
+END SUB
 ```
 
 Use it as a predicate by wrapping it in a `LAMBDA`:
 
 ```
-LET positives AS List OF Integer = collections::filter([-2, -1, 0, 1, 2], LAMBDA(n AS Integer) -> isPositive(n))
+IMPORT collections
+
+SUB main()
+  LET values AS List OF Integer = [-2, -1, 0, 1, 2]
+  LET positives AS List OF Integer = collections::filter(values, LAMBDA(n AS Integer) -> isPositive(n))
+END SUB
 ```
 
 ## See also

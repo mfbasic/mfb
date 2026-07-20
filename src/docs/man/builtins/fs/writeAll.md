@@ -82,9 +82,11 @@ Write text to an open file:
 ```
 IMPORT fs
 
-RES f = fs::openFile("target/output.txt", "write")
-fs::writeAll(f, "Hello")
-' f is closed by lexical drop when this scope ends
+SUB main()
+  RES f = fs::openFile("target/output.txt", "write")
+  fs::writeAll(f, "Hello")
+  ' f is closed by lexical drop when this scope ends
+END SUB
 ```
 
 Write a header line, then the rest of the body:
@@ -92,9 +94,11 @@ Write a header line, then the rest of the body:
 ```
 IMPORT fs
 
-RES f = fs::openFile("target/report.txt", "write")
-fs::writeAll(f, "title\n")
-fs::writeAll(f, "body")
+SUB main()
+  RES f = fs::openFile("target/report.txt", "write")
+  fs::writeAll(f, "title\n")
+  fs::writeAll(f, "body")
+END SUB
 ```
 
 ## See also

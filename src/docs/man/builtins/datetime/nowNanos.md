@@ -73,7 +73,9 @@ Read the current time as a raw nanosecond count:
 ```
 IMPORT datetime
 
-LET ns AS Integer = datetime::nowNanos()
+SUB main()
+  LET ns AS Integer = datetime::nowNanos()
+END SUB
 ```
 
 Derive a millisecond timestamp from the nanosecond reading:
@@ -81,8 +83,10 @@ Derive a millisecond timestamp from the nanosecond reading:
 ```
 IMPORT datetime
 
-LET ns AS Integer = datetime::nowNanos()
-LET ms AS Integer = ns / 1000000
+SUB main()
+  LET ns AS Integer = datetime::nowNanos()
+  LET ms AS Integer = ns / 1000000
+END SUB
 ```
 
 ## See also

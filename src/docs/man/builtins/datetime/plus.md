@@ -75,9 +75,11 @@ Combine a 90-second span with a 500-millisecond span:
 ```
 IMPORT datetime
 
-LET a AS Duration = datetime::duration(90)
-LET b AS Duration = datetime::duration(0, 500_000_000)
-LET total AS Duration = datetime::plus(a, b)
+SUB main()
+  LET a AS Duration = datetime::duration(90)
+  LET b AS Duration = datetime::duration(0, 500_000_000)
+  LET total AS Duration = datetime::plus(a, b)
+END SUB
 ```
 
 Adding a negative `Duration` shortens the total:
@@ -85,8 +87,10 @@ Adding a negative `Duration` shortens the total:
 ```
 IMPORT datetime
 
-LET a AS Duration = datetime::duration(3600)
-LET total AS Duration = datetime::plus(a, datetime::duration(-600))
+SUB main()
+  LET a AS Duration = datetime::duration(3600)
+  LET total AS Duration = datetime::plus(a, datetime::duration(-600))
+END SUB
 ```
 
 ## See also

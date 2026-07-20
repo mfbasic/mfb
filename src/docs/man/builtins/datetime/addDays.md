@@ -70,8 +70,10 @@ Advance a `DateTime` by one week:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toUtc(datetime::now())
-LET nextWeek AS DateTime = datetime::addDays(dt, 7)
+SUB main()
+  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET nextWeek AS DateTime = datetime::addDays(dt, 7)
+END SUB
 ```
 
 A negative count moves the date earlier:
@@ -79,8 +81,10 @@ A negative count moves the date earlier:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toUtc(datetime::now())
-LET yesterday AS DateTime = datetime::addDays(dt, -1)
+SUB main()
+  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET yesterday AS DateTime = datetime::addDays(dt, -1)
+END SUB
 ```
 
 ## See also

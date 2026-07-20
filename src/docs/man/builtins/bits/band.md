@@ -59,20 +59,26 @@ Mask off all but the low byte of a value:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET value AS Integer = 0x1234
-LET low AS Integer = bits::band(value, 255)
-PRINT low
+SUB main()
+  LET value AS Integer = 0x1234
+  LET low AS Integer = bits::band(value, 255)
+  io::print(toString(low))
+END SUB
 ```
 
 Test whether a specific bit is set by ANDing with a single-bit mask:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET flags AS Integer = 6
-LET bit1Set AS Integer = bits::band(flags, 2)
-PRINT bit1Set
+SUB main()
+  LET flags AS Integer = 6
+  LET bit1Set AS Integer = bits::band(flags, 2)
+  io::print(toString(bit1Set))
+END SUB
 ```
 
 ## See also

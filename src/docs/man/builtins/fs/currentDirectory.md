@@ -70,8 +70,10 @@ Read and print the current working directory:
 IMPORT fs
 IMPORT io
 
-LET cwd AS String = fs::currentDirectory()
-io::print(cwd)
+SUB main()
+  LET cwd AS String = fs::currentDirectory()
+  io::print(cwd)
+END SUB
 ```
 
 Resolve a relative path against the working directory:
@@ -80,9 +82,11 @@ Resolve a relative path against the working directory:
 IMPORT fs
 IMPORT io
 
-LET cwd AS String = fs::currentDirectory()
-LET full AS String = fs::pathJoin(cwd, "output.txt")
-io::print(full)
+SUB main()
+  LET cwd AS String = fs::currentDirectory()
+  LET full AS String = fs::pathJoin([cwd, "output.txt"])
+  io::print(full)
+END SUB
 ```
 
 ## See also

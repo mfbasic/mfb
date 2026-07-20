@@ -66,20 +66,26 @@ Decode a Base32 string back to text:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::base32Decode("NBSWY3DP")
-io::print(encoding::utf8Decode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::base32Decode("NBSWY3DP")
+  io::print(encoding::utf8Decode(bytes))
+END SUB
 ```
 
 Round-trip through `base32Encode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hello")
-LET text AS String = encoding::base32Encode(raw)
-io::print(text)
-io::print(encoding::utf8Decode(encoding::base32Decode(text)))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hello")
+  LET text AS String = encoding::base32Encode(raw)
+  io::print(text)
+  io::print(encoding::utf8Decode(encoding::base32Decode(text)))
+END SUB
 ```
 
 ## See also

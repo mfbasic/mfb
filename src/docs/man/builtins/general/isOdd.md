@@ -61,21 +61,32 @@ own value types. [[src/builtins/general.rs:resolve_call]]
 Test a literal:
 
 ```
-LET result AS Boolean = isOdd(7)
+SUB main()
+  LET result AS Boolean = isOdd(7)
+END SUB
 ```
 
 Branch on parity:
 
 ```
-IF isOdd(count) THEN
-  PRINT "count is odd"
-END IF
+IMPORT io
+
+SUB main()
+  LET count AS Integer = 3
+  IF isOdd(count) THEN
+    io::print("count is odd")
+  END IF
+END SUB
 ```
 
 Use it as a predicate by wrapping it in a `LAMBDA`:
 
 ```
-LET odds AS List OF Integer = collections::filter([1, 2, 3, 4], LAMBDA(n AS Integer) -> isOdd(n))
+IMPORT collections
+
+SUB main()
+  LET odds AS List OF Integer = collections::filter([1, 2, 3, 4], LAMBDA(n AS Integer) -> isOdd(n))
+END SUB
 ```
 
 ## See also

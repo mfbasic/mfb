@@ -77,7 +77,9 @@ Build an `Instant` from an epoch-millisecond timestamp:
 ```
 IMPORT datetime
 
-LET at AS Instant = datetime::fromMillis(1_700_000_000_000)
+SUB main()
+  LET at AS Instant = datetime::fromMillis(1_700_000_000_000)
+END SUB
 ```
 
 Select the instant one millisecond before the epoch:
@@ -85,7 +87,9 @@ Select the instant one millisecond before the epoch:
 ```
 IMPORT datetime
 
-LET before AS Instant = datetime::fromMillis(-1)
+SUB main()
+  LET before AS Instant = datetime::fromMillis(-1)
+END SUB
 ```
 
 Round-trip an instant through its millisecond count:
@@ -93,9 +97,11 @@ Round-trip an instant through its millisecond count:
 ```
 IMPORT datetime
 
-LET at AS Instant = datetime::now()
-LET ms AS Integer = datetime::toMillis(at)
-LET back AS Instant = datetime::fromMillis(ms)
+SUB main()
+  LET at AS Instant = datetime::now()
+  LET ms AS Integer = datetime::toMillis(at)
+  LET back AS Instant = datetime::fromMillis(ms)
+END SUB
 ```
 
 ## See also

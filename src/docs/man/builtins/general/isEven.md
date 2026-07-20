@@ -61,21 +61,32 @@ own value types. [[src/builtins/general.rs:resolve_call]]
 Test a literal:
 
 ```
-LET result AS Boolean = isEven(4)
+SUB main()
+  LET result AS Boolean = isEven(4)
+END SUB
 ```
 
 Branch on parity:
 
 ```
-IF isEven(count) THEN
-  PRINT "count is even"
-END IF
+IMPORT io
+
+SUB main()
+  LET count AS Integer = 4
+  IF isEven(count) THEN
+    io::print("count is even")
+  END IF
+END SUB
 ```
 
 Use it as a predicate by wrapping it in a `LAMBDA`:
 
 ```
-LET evens AS List OF Integer = collections::filter([1, 2, 3, 4], LAMBDA(n AS Integer) -> isEven(n))
+IMPORT collections
+
+SUB main()
+  LET evens AS List OF Integer = collections::filter([1, 2, 3, 4], LAMBDA(n AS Integer) -> isEven(n))
+END SUB
 ```
 
 ## See also

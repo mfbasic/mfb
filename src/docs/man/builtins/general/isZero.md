@@ -84,21 +84,33 @@ value types. [[src/builtins/general.rs:resolve_call]]
 Test a literal:
 
 ```
-LET result AS Boolean = isZero(0)
+SUB main()
+  LET result AS Boolean = isZero(0)
+END SUB
 ```
 
 Branch on the value:
 
 ```
-IF isZero(balance) THEN
-  PRINT "balance is zero"
-END IF
+IMPORT io
+
+SUB main()
+  LET balance AS Integer = 0
+  IF isZero(balance) THEN
+    io::print("balance is zero")
+  END IF
+END SUB
 ```
 
 Use it as a predicate by wrapping it in a `LAMBDA`:
 
 ```
-LET zeros AS List OF Integer = collections::filter([-1, 0, 2, 0], LAMBDA(n AS Integer) -> isZero(n))
+IMPORT collections
+
+SUB main()
+  LET values AS List OF Integer = [-1, 0, 2, 0]
+  LET zeros AS List OF Integer = collections::filter(values, LAMBDA(n AS Integer) -> isZero(n))
+END SUB
 ```
 
 ## See also

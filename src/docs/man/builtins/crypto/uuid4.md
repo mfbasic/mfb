@@ -71,19 +71,25 @@ Generate a unique identifier:
 
 ```
 IMPORT crypto
+IMPORT io
 
-LET id AS String = crypto::uuid4()
-PRINT id
+SUB main()
+  LET id AS String = crypto::uuid4()
+  io::print(id)
+END SUB
 ```
 
 Each call yields a distinct value:
 
 ```
 IMPORT crypto
+IMPORT io
 
-LET a AS String = crypto::uuid4()
-LET b AS String = crypto::uuid4()
-PRINT a <> b
+SUB main()
+  LET a AS String = crypto::uuid4()
+  LET b AS String = crypto::uuid4()
+  io::print(toString(a <> b))
+END SUB
 ```
 
 ## See also

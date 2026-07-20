@@ -104,28 +104,37 @@ Find the first occurrence, and the first at or after a start position:
 
 ```
 IMPORT regex
-LET firstL AS Integer = regex::find("hello", "l")
-LET nextL AS Integer = regex::find("hello", "l", 3)
+
+SUB main()
+  LET firstL AS Integer = regex::find("hello", "l")
+  LET nextL AS Integer = regex::find("hello", "l", 3)
+END SUB
 ```
 
 Find the first digit (note the doubled backslash in the String literal):
 
 ```
 IMPORT regex
-LET firstDigit AS Integer = regex::find("a1b2c3", "\\d")
+
+SUB main()
+  LET firstDigit AS Integer = regex::find("a1b2c3", "\\d")
+END SUB
 ```
 
 Handle absence with the `-1` sentinel:
 
 ```
 IMPORT regex
+IMPORT io
 
-LET i AS Integer = regex::find("abc", "\\d")
-IF i >= 0 THEN
-  io::print("matched at " & toString(i))
-ELSE
-  io::print("no match")
-END IF
+SUB main()
+  LET i AS Integer = regex::find("abc", "\\d")
+  IF i >= 0 THEN
+    io::print("matched at " & toString(i))
+  ELSE
+    io::print("no match")
+  END IF
+END SUB
 ```
 
 ## See also

@@ -34,13 +34,22 @@ No errors.
 Post-test loop:
 
 ```
-DO : work = work + 1 : LOOP UNTIL done
+SUB main()
+  MUT work AS Integer = 0
+  LET done AS Boolean = TRUE
+  DO : work = work + 1 : LOOP UNTIL done
+END SUB
 ```
 
 Pre-test loop:
 
 ```
-DO WHILE ready : io::print("tick") : ready = FALSE : LOOP
+IMPORT io
+
+SUB main()
+  MUT ready AS Boolean = TRUE
+  DO WHILE ready : io::print("tick") : ready = FALSE : LOOP
+END SUB
 ```
 
 ## See also

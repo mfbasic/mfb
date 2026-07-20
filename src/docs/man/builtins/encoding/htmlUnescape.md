@@ -78,7 +78,9 @@ Decode named references:
 IMPORT encoding
 IMPORT io
 
-io::print(encoding::htmlUnescape("&lt;a&gt;"))
+SUB main()
+  io::print(encoding::htmlUnescape("&lt;a&gt;"))
+END SUB
 ```
 
 Decode decimal and hexadecimal numeric references:
@@ -87,7 +89,9 @@ Decode decimal and hexadecimal numeric references:
 IMPORT encoding
 IMPORT io
 
-io::print(encoding::htmlUnescape("caf&#233; / caf&#xE9;"))
+SUB main()
+  io::print(encoding::htmlUnescape("caf&#233; / caf&#xE9;"))
+END SUB
 ```
 
 Round-trip through `htmlEscape`:
@@ -96,8 +100,10 @@ Round-trip through `htmlEscape`:
 IMPORT encoding
 IMPORT io
 
-LET esc AS String = encoding::htmlEscape("5 > 3 & 2 < 4")
-io::print(encoding::htmlUnescape(esc))
+SUB main()
+  LET esc AS String = encoding::htmlEscape("5 > 3 & 2 < 4")
+  io::print(encoding::htmlUnescape(esc))
+END SUB
 ```
 
 ## See also

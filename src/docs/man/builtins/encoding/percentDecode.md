@@ -67,7 +67,9 @@ Decode a percent-encoded string containing a space escape:
 IMPORT encoding
 IMPORT io
 
-io::print(encoding::percentDecode("a%20b"))
+SUB main()
+  io::print(encoding::percentDecode("a%20b"))
+END SUB
 ```
 
 Round-trip through `percentEncode`, including a non-ASCII character:
@@ -76,9 +78,11 @@ Round-trip through `percentEncode`, including a non-ASCII character:
 IMPORT encoding
 IMPORT io
 
-LET enc AS String = encoding::percentEncode("café & tea")
-io::print(enc)
-io::print(encoding::percentDecode(enc))
+SUB main()
+  LET enc AS String = encoding::percentEncode("café & tea")
+  io::print(enc)
+  io::print(encoding::percentDecode(enc))
+END SUB
 ```
 
 ## See also

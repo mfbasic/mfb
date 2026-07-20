@@ -61,10 +61,12 @@ IMPORT os
 IMPORT io
 IMPORT collections
 
-LET a AS List OF String = os::args()
-FOR i = 0 TO len(a) - 1
-  io::print(collections::get(a, i))
-NEXT
+SUB main()
+  LET a AS List OF String = os::args()
+  FOR i = 0 TO len(a) - 1
+    io::print(collections::get(a, i))
+  NEXT
+END SUB
 ```
 
 ## See also

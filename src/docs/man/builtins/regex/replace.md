@@ -90,15 +90,21 @@ Replace every match, and reorder capture groups (note the doubled backslashes):
 
 ```
 IMPORT regex
-LET masked AS String = regex::replace("a1b2", "\\d", "#")
-LET ymd AS String = regex::replace("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1")
+
+SUB main()
+  LET masked AS String = regex::replace("a1b2", "\\d", "#")
+  LET ymd AS String = regex::replace("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1")
+END SUB
 ```
 
 `$$` inserts a literal dollar sign:
 
 ```
 IMPORT regex
-LET price AS String = regex::replace("5", "5", "$$")
+
+SUB main()
+  LET price AS String = regex::replace("5", "5", "$$")
+END SUB
 ```
 
 ## See also

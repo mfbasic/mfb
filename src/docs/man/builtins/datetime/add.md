@@ -75,8 +75,10 @@ Advance an `Instant` by a 90-second span:
 ```
 IMPORT datetime
 
-LET base AS Instant = datetime::instant(1_700_000_000)
-LET later AS Instant = datetime::add(base, datetime::duration(90))
+SUB main()
+  LET base AS Instant = datetime::instant(1_700_000_000)
+  LET later AS Instant = datetime::add(base, datetime::duration(90))
+END SUB
 ```
 
 A negative `Duration` shifts the `Instant` backward:
@@ -84,8 +86,10 @@ A negative `Duration` shifts the `Instant` backward:
 ```
 IMPORT datetime
 
-LET base AS Instant = datetime::instant(1_700_000_000)
-LET earlier AS Instant = datetime::add(base, datetime::duration(-3600))
+SUB main()
+  LET base AS Instant = datetime::instant(1_700_000_000)
+  LET earlier AS Instant = datetime::add(base, datetime::duration(-3600))
+END SUB
 ```
 
 ## See also

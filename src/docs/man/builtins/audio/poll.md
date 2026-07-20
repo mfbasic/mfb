@@ -94,11 +94,13 @@ Drive a capture stream only when at least one frame is ready, waiting up to 50 m
 ```
 IMPORT audio
 
-RES mic AS AudioInput = audio::openInput(48000, 1, 512)
-IF audio::poll(mic, 50) THEN
-  LET pcm = audio::read(mic, 480, 0)
-END IF
-audio::close(mic)
+SUB main()
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  IF audio::poll(mic, 50) THEN
+    LET pcm = audio::read(mic, 480, 0)
+  END IF
+  audio::close(mic)
+END SUB
 ```
 
 Non-blocking readiness check on an output stream:
@@ -106,11 +108,14 @@ Non-blocking readiness check on an output stream:
 ```
 IMPORT audio
 
-RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
-IF audio::poll(out) THEN
-  audio::write(out, pcm)
-END IF
-audio::close(out)
+SUB main()
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  LET pcm AS List OF Byte = [0, 0, 0, 0]
+  IF audio::poll(out) THEN
+    audio::write(out, pcm)
+  END IF
+  audio::close(out)
+END SUB
 ```
 
 ## See also

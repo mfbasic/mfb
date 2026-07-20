@@ -106,12 +106,14 @@ Terminate TLS on port 8443 with a self-signed certificate and echo one line:
 IMPORT tls
 IMPORT io
 
-RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
-RES client = tls::accept(server)
-LET line = tls::readText(client, 4096)
-tls::writeText(client, "you said: " + line)
-tls::close(client)
-' server is closed by lexical drop when this scope ends
+SUB main()
+  RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
+  RES client = tls::accept(server)
+  LET line = tls::readText(client, 4096)
+  tls::writeText(client, "you said: " & line)
+  tls::close(client)
+  ' server is closed by lexical drop when this scope ends
+END SUB
 ```
 
 ## See also

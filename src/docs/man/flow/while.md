@@ -27,7 +27,10 @@ No errors.
 Count to ten:
 
 ```
-WHILE x < 10 : x = x + 1 : WEND
+SUB main()
+  MUT x AS Integer = 0
+  WHILE x < 10 : x = x + 1 : WEND
+END SUB
 ```
 
 ## See also

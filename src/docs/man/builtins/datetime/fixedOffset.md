@@ -94,7 +94,9 @@ Build a zone five and a half hours behind UTC:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::fixedOffset(-5, 30)
+SUB main()
+  LET z AS Zone = datetime::fixedOffset(-5, 30)
+END SUB
 ```
 
 Build the same zone from a raw second count:
@@ -102,7 +104,9 @@ Build the same zone from a raw second count:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::fixedOffset(-19800)
+SUB main()
+  LET z AS Zone = datetime::fixedOffset(-19800)
+END SUB
 ```
 
 Project the current instant into a fixed `+09:00` zone:
@@ -110,8 +114,10 @@ Project the current instant into a fixed `+09:00` zone:
 ```
 IMPORT datetime
 
-LET t AS Instant = datetime::now()
-LET local AS DateTime = datetime::inZone(t, datetime::fixedOffset(9, 0))
+SUB main()
+  LET t AS Instant = datetime::now()
+  LET local AS DateTime = datetime::inZone(t, datetime::fixedOffset(9, 0))
+END SUB
 ```
 
 ## See also

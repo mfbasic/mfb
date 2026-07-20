@@ -88,9 +88,12 @@ Adding a header to a text response:
 
 ```
 IMPORT http
+IMPORT io
 
-LET resp = http::withHeader(http::ok("pong"), "cache-control", "no-store")
-io::print(toString(resp.status) & " " & toString(len(resp.body)))
+SUB main()
+  LET resp = http::withHeader(http::ok("pong"), "cache-control", "no-store")
+  io::print(toString(resp.status) & " " & toString(len(resp.body)))
+END SUB
 ```
 
 ## See also

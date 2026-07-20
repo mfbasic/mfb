@@ -84,9 +84,11 @@ Combine a date and time into a `DateTime` in the local zone:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
-LET tm AS Time = datetime::time(9, 30)
-LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+  LET tm AS Time = datetime::time(9, 30)
+  LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+END SUB
 ```
 
 Build a `DateTime` in UTC and recover its `Instant`:
@@ -94,10 +96,12 @@ Build a `DateTime` in UTC and recover its `Instant`:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 1, 1)
-LET tm AS Time = datetime::time(0, 0)
-LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
-LET at AS Instant = datetime::resolve(dt)
+SUB main()
+  LET d AS Date = datetime::date(2026, 1, 1)
+  LET tm AS Time = datetime::time(0, 0)
+  LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
+  LET at AS Instant = datetime::resolve(dt)
+END SUB
 ```
 
 ## See also

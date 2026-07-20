@@ -68,7 +68,9 @@ Obtain the UTC zone:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::utc()
+SUB main()
+  LET z AS Zone = datetime::utc()
+END SUB
 ```
 
 Project the current instant into UTC to read its civil fields:
@@ -76,8 +78,10 @@ Project the current instant into UTC to read its civil fields:
 ```
 IMPORT datetime
 
-LET t AS Instant = datetime::now()
-LET inUtc AS DateTime = datetime::inZone(t, datetime::utc())
+SUB main()
+  LET t AS Instant = datetime::now()
+  LET inUtc AS DateTime = datetime::inZone(t, datetime::utc())
+END SUB
 ```
 
 Combine a date and time into a UTC-zoned `DateTime`:
@@ -85,9 +89,11 @@ Combine a date and time into a UTC-zoned `DateTime`:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
-LET tm AS Time = datetime::time(9, 30)
-LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+  LET tm AS Time = datetime::time(9, 30)
+  LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
+END SUB
 ```
 
 ## See also

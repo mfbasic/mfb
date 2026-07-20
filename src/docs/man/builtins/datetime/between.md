@@ -74,11 +74,14 @@ Measure the span between two instants and render it:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET start AS Instant = datetime::instant(1_000)
-LET finish AS Instant = datetime::instant(1_090)
-LET span AS Duration = datetime::between(start, finish)
-PRINT datetime::formatDuration(span)
+SUB main()
+  LET start AS Instant = datetime::instant(1_000)
+  LET finish AS Instant = datetime::instant(1_090)
+  LET span AS Duration = datetime::between(start, finish)
+  io::print(datetime::formatDuration(span))
+END SUB
 ```
 
 A `finish` earlier than `start` yields a negative span:
@@ -86,9 +89,11 @@ A `finish` earlier than `start` yields a negative span:
 ```
 IMPORT datetime
 
-LET start AS Instant = datetime::instant(1_090)
-LET finish AS Instant = datetime::instant(1_000)
-LET span AS Duration = datetime::between(start, finish)
+SUB main()
+  LET start AS Instant = datetime::instant(1_090)
+  LET finish AS Instant = datetime::instant(1_000)
+  LET span AS Duration = datetime::between(start, finish)
+END SUB
 ```
 
 Re-apply the measured span to recover `finish` from `start`:
@@ -96,10 +101,12 @@ Re-apply the measured span to recover `finish` from `start`:
 ```
 IMPORT datetime
 
-LET start AS Instant = datetime::instant(1_000)
-LET finish AS Instant = datetime::instant(1_090)
-LET span AS Duration = datetime::between(start, finish)
-LET again AS Instant = datetime::add(start, span)
+SUB main()
+  LET start AS Instant = datetime::instant(1_000)
+  LET finish AS Instant = datetime::instant(1_090)
+  LET span AS Duration = datetime::between(start, finish)
+  LET again AS Instant = datetime::add(start, span)
+END SUB
 ```
 
 ## See also

@@ -69,30 +69,39 @@ Equal instants compare as equal:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::instant(1_000)
-LET b AS Instant = datetime::instant(1_000)
-PRINT datetime::equals(a, b)
+SUB main()
+  LET a AS Instant = datetime::instant(1_000)
+  LET b AS Instant = datetime::instant(1_000)
+  io::print(toString(datetime::equals(a, b)))
+END SUB
 ```
 
 Different instants are not equal:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::instant(1_000)
-LET b AS Instant = datetime::instant(2_000)
-PRINT datetime::equals(a, b)
+SUB main()
+  LET a AS Instant = datetime::instant(1_000)
+  LET b AS Instant = datetime::instant(2_000)
+  io::print(toString(datetime::equals(a, b)))
+END SUB
 ```
 
 Branch on whether two instants coincide:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::now()
-LET b AS Instant = datetime::instant(0)
-IF datetime::equals(a, b) THEN PRINT "same instant"
+SUB main()
+  LET a AS Instant = datetime::now()
+  LET b AS Instant = datetime::instant(0)
+  IF datetime::equals(a, b) THEN io::print("same instant")
+END SUB
 ```
 
 ## See also

@@ -82,9 +82,12 @@ Write raw bytes to an open file:
 ```
 IMPORT fs
 
-RES f = fs::openFile("target/output.bin", "write")
-fs::writeAllBytes(f, [72, 105])
-' f is closed by lexical drop when this scope ends
+SUB main()
+  RES f = fs::openFile("target/output.bin", "write")
+  LET bytes AS List OF Byte = [72, 105]
+  fs::writeAllBytes(f, bytes)
+  ' f is closed by lexical drop when this scope ends
+END SUB
 ```
 
 Copy the bytes of one open file into another:
@@ -92,10 +95,12 @@ Copy the bytes of one open file into another:
 ```
 IMPORT fs
 
-RES src = fs::openFile("data.bin")
-RES dst = fs::openFile("copy.bin", "write")
-LET bytes AS List OF Byte = fs::readAllBytes(src)
-fs::writeAllBytes(dst, bytes)
+SUB main()
+  RES src = fs::openFile("data.bin")
+  RES dst = fs::openFile("copy.bin", "write")
+  LET bytes AS List OF Byte = fs::readAllBytes(src)
+  fs::writeAllBytes(dst, bytes)
+END SUB
 ```
 
 ## See also

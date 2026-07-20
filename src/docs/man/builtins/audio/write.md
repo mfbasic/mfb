@@ -85,9 +85,12 @@ Open a stereo output at 48 kHz and play a buffer of PCM:
 ```
 IMPORT audio
 
-RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
-audio::write(out, pcm)
-audio::close(out)
+SUB main()
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  LET pcm AS List OF Byte = [0, 0, 0, 0]
+  audio::write(out, pcm)
+  audio::close(out)
+END SUB
 ```
 
 ## See also

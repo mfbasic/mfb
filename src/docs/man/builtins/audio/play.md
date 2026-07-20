@@ -113,9 +113,11 @@ Play a single track on the default output:
 ```
 IMPORT audio
 
-RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
-audio::play(out, "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2")
-audio::close(out)
+SUB main()
+  RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
+  audio::play(out, "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2")
+  audio::close(out)
+END SUB
 ```
 
 Play a bass line and a lead together on the same stream:
@@ -123,12 +125,14 @@ Play a bass line and a lead together on the same stream:
 ```
 IMPORT audio
 
-LET bass = "T100 O2 L4 I triangle { C G }4"
-LET lead = "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2"
+SUB main()
+  LET bass = "T100 O2 L4 I triangle { C G }4"
+  LET lead = "T100 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2"
 
-RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
-audio::play(out, [bass, lead])
-audio::close(out)
+  RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
+  audio::play(out, [bass, lead])
+  audio::close(out)
+END SUB
 ```
 
 ## See also

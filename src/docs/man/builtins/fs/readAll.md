@@ -81,9 +81,11 @@ Read all remaining text from an open file:
 ```
 IMPORT fs
 
-RES f = fs::openFile("data.txt")
-LET value AS String = fs::readAll(f)
-' f is closed by lexical drop when this scope ends
+SUB main()
+  RES f = fs::openFile("data.txt")
+  LET value AS String = fs::readAll(f)
+  ' f is closed by lexical drop when this scope ends
+END SUB
 ```
 
 Skip the first line, then read the rest of the file:
@@ -91,9 +93,11 @@ Skip the first line, then read the rest of the file:
 ```
 IMPORT fs
 
-RES f = fs::openFile("data.txt")
-LET header AS String = fs::readLine(f)
-LET body AS String = fs::readAll(f)
+SUB main()
+  RES f = fs::openFile("data.txt")
+  LET header AS String = fs::readLine(f)
+  LET body AS String = fs::readAll(f)
+END SUB
 ```
 
 ## See also

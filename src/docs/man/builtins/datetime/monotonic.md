@@ -71,9 +71,11 @@ Measure the elapsed time around a block of work:
 ```
 IMPORT datetime
 
-LET t0 AS Duration = datetime::monotonic()
-' ... work ...
-LET elapsed AS Duration = datetime::minus(datetime::monotonic(), t0)
+SUB main()
+  LET t0 AS Duration = datetime::monotonic()
+  ' ... work ...
+  LET elapsed AS Duration = datetime::minus(datetime::monotonic(), t0)
+END SUB
 ```
 
 Render the measured interval as text:
@@ -81,10 +83,12 @@ Render the measured interval as text:
 ```
 IMPORT datetime
 
-LET t0 AS Duration = datetime::monotonic()
-' ... work ...
-LET span AS Duration = datetime::minus(datetime::monotonic(), t0)
-LET text AS String = datetime::formatDuration(span)
+SUB main()
+  LET t0 AS Duration = datetime::monotonic()
+  ' ... work ...
+  LET span AS Duration = datetime::minus(datetime::monotonic(), t0)
+  LET text AS String = datetime::formatDuration(span)
+END SUB
 ```
 
 ## See also

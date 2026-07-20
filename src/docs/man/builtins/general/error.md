@@ -77,9 +77,12 @@ compile-time type error, and no implicit conversion is performed. [[src/builtins
 Construct an `Error` and inspect its fields:
 
 ```
-LET value AS Error = error(123, "boom")
-IF value.code <> 123 THEN RETURN 1
-IF value.message <> "boom" THEN RETURN 2
+FUNC main() AS Integer
+  LET value AS Error = error(123, "boom")
+  IF value.code <> 123 THEN RETURN 1
+  IF value.message <> "boom" THEN RETURN 2
+  RETURN 0
+END FUNC
 ```
 
 Return an `Error` from a function:
@@ -93,9 +96,13 @@ END FUNC
 Report the source location of an `Error`:
 
 ```
-LET value AS Error = error(500, "internal")
-LET where AS ErrorLoc = value.source
-io::print(where.filename & ":" & toString(where.line) & ":" & toString(where.char))
+IMPORT io
+
+SUB main()
+  LET value AS Error = error(500, "internal")
+  LET where AS ErrorLoc = value.source
+  io::print(where.filename & ":" & toString(where.line) & ":" & toString(where.char))
+END SUB
 ```
 
 ## See also

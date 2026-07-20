@@ -82,7 +82,9 @@ Read a text file into a `String`:
 ```
 IMPORT fs
 
-LET value AS String = fs::readText("data.txt")
+SUB main()
+  LET value AS String = fs::readText("data.txt")
+END SUB
 ```
 
 Write a file and read it back:
@@ -91,9 +93,11 @@ Write a file and read it back:
 IMPORT fs
 IMPORT io
 
-fs::writeText("greeting.txt", "hello")
-LET text AS String = fs::readText("greeting.txt")
-io::print(text)
+SUB main()
+  fs::writeText("greeting.txt", "hello")
+  LET text AS String = fs::readText("greeting.txt")
+  io::print(text)
+END SUB
 ```
 
 ## See also

@@ -70,30 +70,39 @@ An earlier instant is before a later one:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::instant(1_000)
-LET b AS Instant = datetime::instant(2_000)
-PRINT datetime::isBefore(a, b)
+SUB main()
+  LET a AS Instant = datetime::instant(1_000)
+  LET b AS Instant = datetime::instant(2_000)
+  io::print(toString(datetime::isBefore(a, b)))
+END SUB
 ```
 
 Equal instants are not before each other:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::instant(1_000)
-LET b AS Instant = datetime::instant(1_000)
-PRINT datetime::isBefore(a, b)
+SUB main()
+  LET a AS Instant = datetime::instant(1_000)
+  LET b AS Instant = datetime::instant(1_000)
+  io::print(toString(datetime::isBefore(a, b)))
+END SUB
 ```
 
 Branch on chronological order:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET past AS Instant = datetime::instant(0)
-LET nowInstant AS Instant = datetime::now()
-IF datetime::isBefore(past, nowInstant) THEN PRINT "past is earlier"
+SUB main()
+  LET past AS Instant = datetime::instant(0)
+  LET nowInstant AS Instant = datetime::now()
+  IF datetime::isBefore(past, nowInstant) THEN io::print("past is earlier")
+END SUB
 ```
 
 ## See also

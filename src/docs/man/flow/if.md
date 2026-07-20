@@ -35,19 +35,29 @@ No errors.
 Single-line form:
 
 ```
-IF x > 0 THEN io::print("pos") ELSE io::print("non-pos")
+IMPORT io
+
+SUB main()
+  LET x AS Integer = 1
+  IF x > 0 THEN io::print("pos") ELSE io::print("non-pos")
+END SUB
 ```
 
 Block form with `ELSEIF` and `ELSE`:
 
 ```
-IF score > 90 THEN
-  io::print("A")
-ELSEIF score > 80 THEN
-  io::print("B")
-ELSE
-  io::print("C")
-END IF
+IMPORT io
+
+SUB main()
+  LET score AS Integer = 85
+  IF score > 90 THEN
+    io::print("A")
+  ELSEIF score > 80 THEN
+    io::print("B")
+  ELSE
+    io::print("C")
+  END IF
+END SUB
 ```
 
 ## See also

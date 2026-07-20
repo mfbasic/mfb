@@ -25,7 +25,7 @@ IMPORT fs
 
 `fs::deleteFile` removes the filesystem entry named by `path` with a single host
 `unlink` operation. On success the entry is gone and the function returns
-`Nothing`. [[src/target/linux_x86_64/code.rs:emit_fs_path_operation]][[src/builtins/fs.rs:call_return_type_name]]
+`Nothing`. [[src/target/linux_common/code.rs:emit_fs_path_operation]][[src/builtins/fs.rs:call_return_type_name]]
 
 When the final component of `path` is a symbolic link, the link itself is removed
 rather than the file it points to, because `unlink` does not follow a trailing
@@ -79,7 +79,9 @@ Remove a generated output file:
 ```
 IMPORT fs
 
-fs::deleteFile("target/output.txt")
+SUB main()
+  fs::deleteFile("target/output.txt")
+END SUB
 ```
 
 Write a file and then remove it:
@@ -87,8 +89,10 @@ Write a file and then remove it:
 ```
 IMPORT fs
 
-fs::writeText("scratch.txt", "temporary")
-fs::deleteFile("scratch.txt")
+SUB main()
+  fs::writeText("scratch.txt", "temporary")
+  fs::deleteFile("scratch.txt")
+END SUB
 ```
 
 ## See also

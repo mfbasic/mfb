@@ -68,21 +68,27 @@ Name the weekday of a civil date in the local zone:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
-LET tm AS Time = datetime::time(9, 30)
-LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
-LET w AS Weekday = datetime::weekday(dt)
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+  LET tm AS Time = datetime::time(9, 30)
+  LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+  LET w AS Weekday = datetime::weekday(dt)
+END SUB
 ```
 
 Branch on whether a `DateTime` falls on the weekend:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET w AS Weekday = datetime::weekday(dt)
-IF w = Weekday.Saturday OR w = Weekday.Sunday THEN
-  PRINT "weekend"
-END IF
+SUB main()
+  LET dt AS DateTime = datetime::civil(datetime::date(2026, 6, 26), datetime::time(9, 30), datetime::local())
+  LET w AS Weekday = datetime::weekday(dt)
+  IF w = Weekday.Saturday OR w = Weekday.Sunday THEN
+    io::print("weekend")
+  END IF
+END SUB
 ```
 
 ## See also

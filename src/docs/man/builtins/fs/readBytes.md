@@ -77,7 +77,9 @@ Read a binary file into a byte list:
 ```
 IMPORT fs
 
-LET bytes AS List OF Byte = fs::readBytes("data.bin")
+SUB main()
+  LET bytes AS List OF Byte = fs::readBytes("data.bin")
+END SUB
 ```
 
 Report the size of a file in bytes:
@@ -86,8 +88,10 @@ Report the size of a file in bytes:
 IMPORT fs
 IMPORT io
 
-LET bytes AS List OF Byte = fs::readBytes("image.png")
-io::print("size: " & len(bytes))
+SUB main()
+  LET bytes AS List OF Byte = fs::readBytes("image.png")
+  io::print("size: " & toString(len(bytes)))
+END SUB
 ```
 
 ## See also

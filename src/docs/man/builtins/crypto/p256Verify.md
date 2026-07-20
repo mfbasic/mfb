@@ -82,18 +82,29 @@ Generate a key, sign a message, and verify the signature:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET kp AS crypto::KeyPair = crypto::generateP256()
-LET sig AS List OF Byte = crypto::p256Sign(kp.privateKey, message)
-LET ok AS Boolean = crypto::p256Verify(kp.publicKey, message, sig)
+SUB main()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET kp AS crypto::KeyPair = crypto::generateP256()
+  LET sig AS List OF Byte = crypto::p256Sign(kp.privateKey, message)
+  LET ok AS Boolean = crypto::p256Verify(kp.publicKey, message, sig)
+END SUB
 ```
 
 A tampered message fails verification (returns `FALSE`, not an error):
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET ok AS Boolean = crypto::p256Verify(kp.publicKey, altered, sig)
+SUB main()
+  LET kp AS crypto::KeyPair = crypto::generateP256()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET sig AS List OF Byte = crypto::p256Sign(kp.privateKey, message)
+  LET altered AS List OF Byte = strings::toBytes("attack at dusk")
+  LET ok AS Boolean = crypto::p256Verify(kp.publicKey, altered, sig)
+END SUB
 ```
 
 ## See also

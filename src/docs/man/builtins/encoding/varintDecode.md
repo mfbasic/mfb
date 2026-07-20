@@ -67,9 +67,12 @@ Round-trip a signed value through `varintEncode` and back:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::varintEncode(-75)
-io::print(encoding::varintDecode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::varintEncode(-75)
+  io::print(toString(encoding::varintDecode(bytes)))
+END SUB
 ```
 
 Decode a literal two-byte sequence (`-75` = `[0x95, 0x01]`):
@@ -77,11 +80,14 @@ Decode a literal two-byte sequence (`-75` = `[0x95, 0x01]`):
 ```
 IMPORT encoding
 IMPORT collections
+IMPORT io
 
-MUT bytes AS List OF Byte = []
-bytes = collections::append(bytes, toByte(149))
-bytes = collections::append(bytes, toByte(1))
-io::print(encoding::varintDecode(bytes))
+SUB main()
+  MUT bytes AS List OF Byte = []
+  bytes = collections::append(bytes, toByte(149))
+  bytes = collections::append(bytes, toByte(1))
+  io::print(toString(encoding::varintDecode(bytes)))
+END SUB
 ```
 
 ## See also

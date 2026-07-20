@@ -63,20 +63,26 @@ Encode bytes to Base32:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hi")
-io::print(encoding::base32Encode(raw))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hi")
+  io::print(encoding::base32Encode(raw))
+END SUB
 ```
 
 Round-trip through `base32Decode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hello")
-LET text AS String = encoding::base32Encode(raw)
-io::print(text)
-io::print(encoding::utf8Decode(encoding::base32Decode(text)))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hello")
+  LET text AS String = encoding::base32Encode(raw)
+  io::print(text)
+  io::print(encoding::utf8Decode(encoding::base32Decode(text)))
+END SUB
 ```
 
 ## See also

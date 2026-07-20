@@ -106,16 +106,23 @@ Derive a 64-byte key from a password string:
 ```
 IMPORT crypto
 
-LET salt AS List OF Byte = crypto::randomBytes(16)
-LET key AS List OF Byte = crypto::pbkdf2Sha512("correct horse", salt, 100000, 64)
+SUB main()
+  LET salt AS List OF Byte = crypto::randomBytes(16)
+  LET key AS List OF Byte = crypto::pbkdf2Sha512("correct horse", salt, 100000, 64)
+END SUB
 ```
 
 The byte-list form is equivalent for UTF-8 input:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET key AS List OF Byte = crypto::pbkdf2Sha512(passwordBytes, salt, 100000, 64)
+SUB main()
+  LET passwordBytes AS List OF Byte = strings::toBytes("correct horse")
+  LET salt AS List OF Byte = crypto::randomBytes(16)
+  LET key AS List OF Byte = crypto::pbkdf2Sha512(passwordBytes, salt, 100000, 64)
+END SUB
 ```
 
 ## See also

@@ -72,8 +72,10 @@ Join a directory and a file name:
 IMPORT fs
 IMPORT io
 
-LET path AS String = fs::pathJoin(["target", "output.txt"])
-io::print(path)
+SUB main()
+  LET path AS String = fs::pathJoin(["target", "output.txt"])
+  io::print(path)
+END SUB
 ```
 
 A trailing separator is not duplicated by the join:
@@ -82,7 +84,9 @@ A trailing separator is not duplicated by the join:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathJoin(["target/", "output.txt"]))
+SUB main()
+  io::print(fs::pathJoin(["target/", "output.txt"]))
+END SUB
 ```
 
 An absolute component discards everything joined before it:
@@ -91,7 +95,9 @@ An absolute component discards everything joined before it:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathJoin(["ignored", "/etc", "hosts"]))
+SUB main()
+  io::print(fs::pathJoin(["ignored", "/etc", "hosts"]))
+END SUB
 ```
 
 ## See also

@@ -95,8 +95,10 @@ Render a `DateTime` with a full date, time, and offset:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toUtc(datetime::now())
-LET text AS String = datetime::format(dt, "EEEE yyyy-MM-dd HH:mm:ss Z")
+SUB main()
+  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET text AS String = datetime::format(dt, "EEEE yyyy-MM-dd HH:mm:ss Z")
+END SUB
 ```
 
 Use single quotes to include literal letters in the output:
@@ -104,8 +106,10 @@ Use single quotes to include literal letters in the output:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toUtc(datetime::now())
-LET text AS String = datetime::format(dt, "yyyy-MM-dd'T'HH:mm:ss")
+SUB main()
+  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET text AS String = datetime::format(dt, "yyyy-MM-dd'T'HH:mm:ss")
+END SUB
 ```
 
 ## See also

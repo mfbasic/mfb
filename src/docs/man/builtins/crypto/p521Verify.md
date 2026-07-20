@@ -82,18 +82,29 @@ Verify a signature produced by `p521Sign`:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET kp AS crypto::KeyPair = crypto::generateP521()
-LET sig AS List OF Byte = crypto::p521Sign(kp.privateKey, message)
-LET ok AS Boolean = crypto::p521Verify(kp.publicKey, message, sig)
+SUB main()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET kp AS crypto::KeyPair = crypto::generateP521()
+  LET sig AS List OF Byte = crypto::p521Sign(kp.privateKey, message)
+  LET ok AS Boolean = crypto::p521Verify(kp.publicKey, message, sig)
+END SUB
 ```
 
 A tampered message fails verification (returns `FALSE`, not an error):
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET ok AS Boolean = crypto::p521Verify(kp.publicKey, altered, sig)
+SUB main()
+  LET kp AS crypto::KeyPair = crypto::generateP521()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET sig AS List OF Byte = crypto::p521Sign(kp.privateKey, message)
+  LET altered AS List OF Byte = strings::toBytes("attack at dusk")
+  LET ok AS Boolean = crypto::p521Verify(kp.publicKey, altered, sig)
+END SUB
 ```
 
 ## See also

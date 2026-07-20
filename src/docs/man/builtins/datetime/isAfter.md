@@ -70,30 +70,39 @@ A later instant is after an earlier one:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::instant(2_000)
-LET b AS Instant = datetime::instant(1_000)
-PRINT datetime::isAfter(a, b)
+SUB main()
+  LET a AS Instant = datetime::instant(2_000)
+  LET b AS Instant = datetime::instant(1_000)
+  io::print(toString(datetime::isAfter(a, b)))
+END SUB
 ```
 
 Equal instants are not after each other:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::instant(1_000)
-LET b AS Instant = datetime::instant(1_000)
-PRINT datetime::isAfter(a, b)
+SUB main()
+  LET a AS Instant = datetime::instant(1_000)
+  LET b AS Instant = datetime::instant(1_000)
+  io::print(toString(datetime::isAfter(a, b)))
+END SUB
 ```
 
 Branch on chronological order:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET past AS Instant = datetime::instant(0)
-LET nowInstant AS Instant = datetime::now()
-IF datetime::isAfter(nowInstant, past) THEN PRINT "now is later"
+SUB main()
+  LET past AS Instant = datetime::instant(0)
+  LET nowInstant AS Instant = datetime::now()
+  IF datetime::isAfter(nowInstant, past) THEN io::print("now is later")
+END SUB
 ```
 
 ## See also

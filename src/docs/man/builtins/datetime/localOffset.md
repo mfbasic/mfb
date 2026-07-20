@@ -76,8 +76,10 @@ The host's local offset for the current instant:
 ```
 IMPORT datetime
 
-LET nowSeconds AS Integer = datetime::toMillis(datetime::now()) / 1000
-LET off AS Integer = datetime::localOffset(nowSeconds)
+SUB main()
+  LET nowSeconds AS Integer = datetime::toMillis(datetime::now()) / 1000
+  LET off AS Integer = datetime::localOffset(nowSeconds)
+END SUB
 ```
 
 Read the local offset at a fixed point on the timeline (the Unix epoch):
@@ -85,7 +87,9 @@ Read the local offset at a fixed point on the timeline (the Unix epoch):
 ```
 IMPORT datetime
 
-LET off AS Integer = datetime::localOffset(0)
+SUB main()
+  LET off AS Integer = datetime::localOffset(0)
+END SUB
 ```
 
 ## See also

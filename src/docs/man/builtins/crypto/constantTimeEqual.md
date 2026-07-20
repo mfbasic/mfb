@@ -81,13 +81,20 @@ Verify a received MAC without leaking timing:
 
 ```
 IMPORT crypto
+IMPORT strings
+IMPORT io
 
-LET expected AS List OF Byte = crypto::hmacSha256(key, message)
-IF crypto::constantTimeEqual(expected, received) THEN
-  io::print("authentic")
-ELSE
-  io::print("tampered")
-END IF
+SUB main()
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET message AS List OF Byte = strings::toBytes("payload")
+  LET received AS List OF Byte = crypto::hmacSha256(key, message)
+  LET expected AS List OF Byte = crypto::hmacSha256(key, message)
+  IF crypto::constantTimeEqual(expected, received) THEN
+    io::print("authentic")
+  ELSE
+    io::print("tampered")
+  END IF
+END SUB
 ```
 
 ## See also

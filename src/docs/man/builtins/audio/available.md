@@ -90,12 +90,14 @@ Read exactly what is available, without blocking:
 ```
 IMPORT audio
 
-RES mic AS AudioInput = audio::openInput(48000, 1, 512)
-LET n = audio::available(mic)
-IF n > 0 THEN
-  LET pcm = audio::read(mic, n)
-END IF
-audio::close(mic)
+SUB main()
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET n = audio::available(mic)
+  IF n > 0 THEN
+    LET pcm = audio::read(mic, n)
+  END IF
+  audio::close(mic)
+END SUB
 ```
 
 Write only as much as the output can accept right now:
@@ -103,11 +105,14 @@ Write only as much as the output can accept right now:
 ```
 IMPORT audio
 
-RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
-IF audio::available(out) > 0 THEN
-  audio::write(out, pcm)
-END IF
-audio::close(out)
+SUB main()
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  LET pcm AS List OF Byte = [0, 0, 0, 0]
+  IF audio::available(out) > 0 THEN
+    audio::write(out, pcm)
+  END IF
+  audio::close(out)
+END SUB
 ```
 
 ## See also

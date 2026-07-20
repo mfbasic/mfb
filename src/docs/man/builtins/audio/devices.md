@@ -79,9 +79,11 @@ List every device and mark its capabilities:
 IMPORT audio
 IMPORT io
 
-FOR EACH d IN audio::devices()
-  io::print(d.name & " in=" & toString(d.canInput) & " out=" & toString(d.canOutput))
-NEXT
+SUB main()
+  FOR EACH d IN audio::devices()
+    io::print(d.name & " in=" & toString(d.canInput) & " out=" & toString(d.canOutput))
+  NEXT
+END SUB
 ```
 
 Open the default output, or fall back to the first output-capable device:
@@ -89,12 +91,14 @@ Open the default output, or fall back to the first output-capable device:
 ```
 IMPORT audio
 
-FOR EACH d IN audio::devices()
-  IF d.isDefaultOutput THEN
-    RES out AS AudioOutput = audio::openOutput(d, 48000, 2, 512)
-    audio::close(out)
-  END IF
-NEXT
+SUB main()
+  FOR EACH d IN audio::devices()
+    IF d.isDefaultOutput THEN
+      RES out AS AudioOutput = audio::openOutput(d, 48000, 2, 512)
+      audio::close(out)
+    END IF
+  NEXT
+END SUB
 ```
 
 ## See also

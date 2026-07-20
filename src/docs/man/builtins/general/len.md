@@ -86,27 +86,35 @@ the map key and value types `K` and `V` are unconstrained. [[src/builtins/genera
 Count string scalar values:
 
 ```
-LET count AS Integer = len("hello")
+SUB main()
+  LET count AS Integer = len("hello")
+END SUB
 ```
 
 Multi-byte characters count as single scalar values:
 
 ```
-LET emoji AS Integer = len("😀")
+SUB main()
+  LET emoji AS Integer = len("😀")
+END SUB
 ```
 
 Count the elements of a list:
 
 ```
-LET items AS List OF Integer = [10, 20, 30]
-LET total AS Integer = len(items)
+SUB main()
+  LET items AS List OF Integer = [10, 20, 30]
+  LET total AS Integer = len(items)
+END SUB
 ```
 
 Count the entries of a map:
 
 ```
-LET ages AS Map OF String TO Integer = {"ada": 36, "bo": 9}
-LET pairs AS Integer = len(ages)
+SUB main()
+  LET ages AS Map OF String TO Integer = Map OF String TO Integer { "ada" := 36, "bo" := 9 }
+  LET pairs AS Integer = len(ages)
+END SUB
 ```
 
 ## See also

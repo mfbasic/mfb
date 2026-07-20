@@ -69,31 +69,40 @@ Order two instants:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::instant(1_000)
-LET b AS Instant = datetime::instant(2_000)
-PRINT datetime::compare(a, b)
+SUB main()
+  LET a AS Instant = datetime::instant(1_000)
+  LET b AS Instant = datetime::instant(2_000)
+  io::print(toString(datetime::compare(a, b)))
+END SUB
 ```
 
 Equal instants compare as zero:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::instant(1_000)
-LET b AS Instant = datetime::instant(1_000)
-PRINT datetime::compare(a, b)
+SUB main()
+  LET a AS Instant = datetime::instant(1_000)
+  LET b AS Instant = datetime::instant(1_000)
+  io::print(toString(datetime::compare(a, b)))
+END SUB
 ```
 
 Branch on the three-way ordering:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET a AS Instant = datetime::now()
-LET b AS Instant = datetime::instant(0)
-LET order AS Integer = datetime::compare(a, b)
-IF order < 0 THEN PRINT "a is earlier"
+SUB main()
+  LET a AS Instant = datetime::now()
+  LET b AS Instant = datetime::instant(0)
+  LET order AS Integer = datetime::compare(a, b)
+  IF order < 0 THEN io::print("a is earlier")
+END SUB
 ```
 
 ## See also

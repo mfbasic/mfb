@@ -93,9 +93,11 @@ Read the first line of a file:
 ```
 IMPORT fs
 
-RES f = fs::openFile("data.txt")
-LET line AS String = fs::readLine(f)
-' f is closed by lexical drop when this scope ends
+SUB main()
+  RES f = fs::openFile("data.txt")
+  LET line AS String = fs::readLine(f)
+  ' f is closed by lexical drop when this scope ends
+END SUB
 ```
 
 Read every line until end of input:
@@ -104,10 +106,12 @@ Read every line until end of input:
 IMPORT fs
 IMPORT io
 
-RES f = fs::openFile("data.txt")
-WHILE NOT fs::eof(f)
-  io::print(fs::readLine(f))
-END WHILE
+SUB main()
+  RES f = fs::openFile("data.txt")
+  WHILE NOT fs::eof(f)
+    io::print(fs::readLine(f))
+  WEND
+END SUB
 ```
 
 ## See also

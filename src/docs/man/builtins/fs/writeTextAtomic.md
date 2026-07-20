@@ -103,7 +103,9 @@ Atomically write text to a file:
 ```
 IMPORT fs
 
-fs::writeTextAtomic("target/output.txt", "done")
+SUB main()
+  fs::writeTextAtomic("target/output.txt", "done")
+END SUB
 ```
 
 Atomically replace a file's contents and read them back:
@@ -112,9 +114,11 @@ Atomically replace a file's contents and read them back:
 IMPORT fs
 IMPORT io
 
-fs::writeTextAtomic("greeting.txt", "hello")
-LET text AS String = fs::readText("greeting.txt")
-io::print(text)
+SUB main()
+  fs::writeTextAtomic("greeting.txt", "hello")
+  LET text AS String = fs::readText("greeting.txt")
+  io::print(text)
+END SUB
 ```
 
 ## See also

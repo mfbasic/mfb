@@ -60,24 +60,30 @@ Toggle the low byte of a value by XORing with an all-ones mask:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET value AS Integer = 0x1234
-LET toggled AS Integer = bits::bxor(value, 255)
-PRINT toggled
+SUB main()
+  LET value AS Integer = 0x1234
+  LET toggled AS Integer = bits::bxor(value, 255)
+  io::print(toString(toggled))
+END SUB
 ```
 
 Swap two integers without a temporary using the XOR identity:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET x AS Integer = 5
-LET y AS Integer = 9
-LET x2 AS Integer = bits::bxor(x, y)
-LET y2 AS Integer = bits::bxor(x2, y)
-LET x3 AS Integer = bits::bxor(x2, y2)
-PRINT x3
-PRINT y2
+SUB main()
+  LET x AS Integer = 5
+  LET y AS Integer = 9
+  LET x2 AS Integer = bits::bxor(x, y)
+  LET y2 AS Integer = bits::bxor(x2, y)
+  LET x3 AS Integer = bits::bxor(x2, y2)
+  io::print(toString(x3))
+  io::print(toString(y2))
+END SUB
 ```
 
 ## See also

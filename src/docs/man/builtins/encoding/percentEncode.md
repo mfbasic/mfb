@@ -69,7 +69,9 @@ Encode a path segment containing reserved characters:
 IMPORT encoding
 IMPORT io
 
-io::print(encoding::percentEncode("a b/c"))
+SUB main()
+  io::print(encoding::percentEncode("a b/c"))
+END SUB
 ```
 
 Round-trip through `percentDecode`:
@@ -78,9 +80,11 @@ Round-trip through `percentDecode`:
 IMPORT encoding
 IMPORT io
 
-LET enc AS String = encoding::percentEncode("café & tea")
-io::print(enc)
-io::print(encoding::percentDecode(enc))
+SUB main()
+  LET enc AS String = encoding::percentEncode("café & tea")
+  io::print(enc)
+  io::print(encoding::percentDecode(enc))
+END SUB
 ```
 
 ## See also

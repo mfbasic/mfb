@@ -93,7 +93,9 @@ Append a line to a log file:
 ```
 IMPORT fs
 
-fs::appendText("target/output.txt", "line\n")
+SUB main()
+  fs::appendText("target/output.txt", "line\n")
+END SUB
 ```
 
 Build up a file across several calls:
@@ -102,10 +104,12 @@ Build up a file across several calls:
 IMPORT fs
 IMPORT io
 
-fs::appendText("notes.txt", "first\n")
-fs::appendText("notes.txt", "second\n")
-LET text AS String = fs::readText("notes.txt")
-io::print(text)
+SUB main()
+  fs::appendText("notes.txt", "first\n")
+  fs::appendText("notes.txt", "second\n")
+  LET text AS String = fs::readText("notes.txt")
+  io::print(text)
+END SUB
 ```
 
 ## See also

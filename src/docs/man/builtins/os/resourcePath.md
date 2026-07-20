@@ -81,8 +81,10 @@ IMPORT os
 IMPORT fs
 IMPORT io
 
-VAR path AS String = os::resourcePath("music/song.ogg")
-io::print(path)
+SUB main()
+  LET path AS String = os::resourcePath("music/song.ogg")
+  io::print(path)
+END SUB
 ```
 
 ## See also

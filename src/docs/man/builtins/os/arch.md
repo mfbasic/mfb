@@ -52,7 +52,9 @@ Print the architecture:
 IMPORT os
 IMPORT io
 
-io::print(os::arch())
+SUB main()
+  io::print(os::arch())
+END SUB
 ```
 
 ## See also

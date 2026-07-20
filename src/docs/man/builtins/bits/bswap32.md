@@ -59,17 +59,23 @@ Swap the four low bytes of a 32-bit value:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::bswap32(0x000000FF)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::bswap32(0x000000FF)
+  io::print(toString(result))
+END SUB
 ```
 
 Bits above bit 31 are cleared, so the result stays in `0`..`4294967295`:
 
 ```
 IMPORT bits
+IMPORT io
 
-PRINT bits::bswap32(0x1122334455667788)
+SUB main()
+  io::print(toString(bits::bswap32(0x1122334455667788)))
+END SUB
 ```
 
 ## See also

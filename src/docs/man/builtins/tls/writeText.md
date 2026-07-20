@@ -74,10 +74,12 @@ Send an HTTP request as text over a connected TLS socket:
 ```
 IMPORT tls
 
-RES conn = tls::connect("example.com", 443)
-tls::writeText(conn, "GET / HTTP/1.0" + Chr(13) + Chr(10) + Chr(13) + Chr(10))
-LET reply = tls::readText(conn, 4096)
-' conn is closed by lexical drop when this scope ends
+SUB main()
+  RES conn = tls::connect("example.com", 443)
+  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
+  LET reply = tls::readText(conn, 4096)
+  ' conn is closed by lexical drop when this scope ends
+END SUB
 ```
 
 ## See also

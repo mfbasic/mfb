@@ -91,7 +91,10 @@ Write raw bytes to a file:
 ```
 IMPORT fs
 
-fs::writeBytes("target/output.bin", [72, 105])
+SUB main()
+  LET bytes AS List OF Byte = [72, 105]
+  fs::writeBytes("target/output.bin", bytes)
+END SUB
 ```
 
 Replace a file's contents with bytes read from another file:
@@ -99,8 +102,10 @@ Replace a file's contents with bytes read from another file:
 ```
 IMPORT fs
 
-LET bytes AS List OF Byte = fs::readBytes("source.bin")
-fs::writeBytes("copy.bin", bytes)
+SUB main()
+  LET bytes AS List OF Byte = fs::readBytes("source.bin")
+  fs::writeBytes("copy.bin", bytes)
+END SUB
 ```
 
 ## See also

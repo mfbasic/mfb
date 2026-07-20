@@ -70,7 +70,9 @@ Decode a form field value, turning `+` into a space:
 IMPORT encoding
 IMPORT io
 
-io::print(encoding::formUrlDecode("name+%3D+a+b"))
+SUB main()
+  io::print(encoding::formUrlDecode("name+%3D+a+b"))
+END SUB
 ```
 
 Round-trip through `formUrlEncode`:
@@ -79,9 +81,11 @@ Round-trip through `formUrlEncode`:
 IMPORT encoding
 IMPORT io
 
-LET enc AS String = encoding::formUrlEncode("café & tea")
-io::print(enc)
-io::print(encoding::formUrlDecode(enc))
+SUB main()
+  LET enc AS String = encoding::formUrlEncode("café & tea")
+  io::print(enc)
+  io::print(encoding::formUrlDecode(enc))
+END SUB
 ```
 
 ## See also

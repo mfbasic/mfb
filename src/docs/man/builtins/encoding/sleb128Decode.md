@@ -71,9 +71,12 @@ Round-trip a signed value through `sleb128Encode` and back:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::sleb128Encode(-123456)
-io::print(encoding::sleb128Decode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::sleb128Encode(-123456)
+  io::print(toString(encoding::sleb128Decode(bytes)))
+END SUB
 ```
 
 Decode a single terminating byte whose `0x40` sign bit is set (`-2` = `[0x7E]`):
@@ -81,10 +84,13 @@ Decode a single terminating byte whose `0x40` sign bit is set (`-2` = `[0x7E]`):
 ```
 IMPORT encoding
 IMPORT collections
+IMPORT io
 
-MUT bytes AS List OF Byte = []
-bytes = collections::append(bytes, toByte(126))
-io::print(encoding::sleb128Decode(bytes))
+SUB main()
+  MUT bytes AS List OF Byte = []
+  bytes = collections::append(bytes, toByte(126))
+  io::print(toString(encoding::sleb128Decode(bytes)))
+END SUB
 ```
 
 ## See also

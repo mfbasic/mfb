@@ -43,7 +43,7 @@ The source of the path is platform specific:
   drop the terminating NUL. [[src/target/macos_aarch64/code.rs:emit_temp_directory]]
 - On Linux the value of the `TMPDIR` environment variable is used when it is set,
   non-empty, and fits within the internal buffer; otherwise the path falls back
-  to `/tmp`. [[src/target/linux_x86_64/code.rs:emit_temp_directory]]
+  to `/tmp`. [[src/target/linux_common/code.rs:emit_temp_directory]]
 
 The function takes no arguments and has no filesystem side effects: it neither
 creates the directory nor verifies that it exists, it only reports the
@@ -76,8 +76,10 @@ Read and print the host temporary directory:
 IMPORT fs
 IMPORT io
 
-LET dir AS String = fs::tempDirectory()
-io::print(dir)
+SUB main()
+  LET dir AS String = fs::tempDirectory()
+  io::print(dir)
+END SUB
 ```
 
 Create a temporary file under the host temporary directory:
@@ -85,8 +87,10 @@ Create a temporary file under the host temporary directory:
 ```
 IMPORT fs
 
-RES f = fs::createTempFile()
-' f is created under fs::tempDirectory() and closed by lexical drop
+SUB main()
+  RES f = fs::createTempFile()
+  ' f is created under fs::tempDirectory() and closed by lexical drop
+END SUB
 ```
 
 ## See also

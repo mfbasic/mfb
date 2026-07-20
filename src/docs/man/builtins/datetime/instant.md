@@ -115,7 +115,9 @@ Build an `Instant` from a whole-second epoch offset:
 ```
 IMPORT datetime
 
-LET t AS Instant = datetime::instant(1_700_000_000)
+SUB main()
+  LET t AS Instant = datetime::instant(1_700_000_000)
+END SUB
 ```
 
 Build an `Instant` with a sub-second adjustment that normalizes into the `seconds`
@@ -124,7 +126,9 @@ field:
 ```
 IMPORT datetime
 
-LET t AS Instant = datetime::instant(10, 1_500_000_000)
+SUB main()
+  LET t AS Instant = datetime::instant(10, 1_500_000_000)
+END SUB
 ```
 
 Build an `Instant` from day, hour, minute, second, and nanosecond components:
@@ -132,7 +136,9 @@ Build an `Instant` from day, hour, minute, second, and nanosecond components:
 ```
 IMPORT datetime
 
-LET t AS Instant = datetime::instant(1, 2, 3, 4, 0)
+SUB main()
+  LET t AS Instant = datetime::instant(1, 2, 3, 4, 0)
+END SUB
 ```
 
 ## See also

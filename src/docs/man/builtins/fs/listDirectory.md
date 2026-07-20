@@ -93,11 +93,14 @@ Print every entry in a directory in sorted order:
 ```
 IMPORT fs
 IMPORT io
+IMPORT collections
 
-LET names AS List OF String = fs::listDirectory("target")
-FOR i = 0 TO len(names) - 1
-  io::print(get(names, i))
-NEXT
+SUB main()
+  LET names AS List OF String = fs::listDirectory("target")
+  FOR i = 0 TO len(names) - 1
+    io::print(collections::get(names, i))
+  NEXT
+END SUB
 ```
 
 An empty directory yields an empty `List`:
@@ -106,9 +109,11 @@ An empty directory yields an empty `List`:
 IMPORT fs
 IMPORT io
 
-fs::createDirectory("target/empty")
-LET names AS List OF String = fs::listDirectory("target/empty")
-io::print(len(names))
+SUB main()
+  fs::createDirectory("target/empty")
+  LET names AS List OF String = fs::listDirectory("target/empty")
+  io::print(toString(len(names)))
+END SUB
 ```
 
 ## See also

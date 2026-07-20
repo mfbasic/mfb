@@ -89,21 +89,27 @@ Convert unsupported values to one of these types explicitly first. [[src/builtin
 Narrow an Integer literal:
 
 ```
-LET value AS Byte = toByte(65)
+SUB main()
+  LET value AS Byte = toByte(65)
+END SUB
 ```
 
 Narrow an arithmetic result back into a Byte:
 
 ```
-LET original AS Byte = 10
-LET next AS Byte = toByte(toInt(original) + 1)
+SUB main()
+  LET original AS Byte = 10
+  LET bumped AS Byte = toByte(toInt(original) + 1)
+END SUB
 ```
 
 Narrow a Scalar's code point:
 
 ```
-LET letter AS Scalar = `A`
-LET code AS Byte = toByte(letter)
+SUB main()
+  LET letter AS Scalar = `A`
+  LET code AS Byte = toByte(letter)
+END SUB
 ```
 
 ## See also

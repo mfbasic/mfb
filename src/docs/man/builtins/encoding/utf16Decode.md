@@ -71,17 +71,23 @@ Decode UTF-16 code units back to text:
 
 ```
 IMPORT encoding
+IMPORT io
 
-io::print(encoding::utf16Decode([104, 105]))
+SUB main()
+  io::print(encoding::utf16Decode([104, 105]))
+END SUB
 ```
 
 Round-trip an astral scalar (an emoji) through UTF-16:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET units AS List OF Integer = encoding::utf16Encode("😀")
-io::print(encoding::utf16Decode(units))
+SUB main()
+  LET units AS List OF Integer = encoding::utf16Encode("😀")
+  io::print(encoding::utf16Decode(units))
+END SUB
 ```
 
 ## See also

@@ -113,7 +113,9 @@ Parse a date and time, interpreted as UTC:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::parse("2026-06-26 09:30:00", "yyyy-MM-dd HH:mm:ss")
+SUB main()
+  LET dt AS DateTime = datetime::parse("2026-06-26 09:30:00", "yyyy-MM-dd HH:mm:ss")
+END SUB
 ```
 
 Parse civil fields against an explicit zone:
@@ -121,8 +123,10 @@ Parse civil fields against an explicit zone:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::fixedOffset(-5, 0)
-LET dt AS DateTime = datetime::parse("2026-06-26 09:30", "yyyy-MM-dd HH:mm", z)
+SUB main()
+  LET z AS Zone = datetime::fixedOffset(-5, 0)
+  LET dt AS DateTime = datetime::parse("2026-06-26 09:30", "yyyy-MM-dd HH:mm", z)
+END SUB
 ```
 
 An offset token in the value overrides the zone argument:
@@ -130,7 +134,9 @@ An offset token in the value overrides the zone argument:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::parse("2026-06-26T09:30:00+05:30", "yyyy-MM-dd'T'HH:mm:ssZZ")
+SUB main()
+  LET dt AS DateTime = datetime::parse("2026-06-26T09:30:00+05:30", "yyyy-MM-dd'T'HH:mm:ssZZ")
+END SUB
 ```
 
 Text that does not match the pattern raises `ErrInvalidFormat`:
@@ -138,7 +144,9 @@ Text that does not match the pattern raises `ErrInvalidFormat`:
 ```
 IMPORT datetime
 
-LET bad AS DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
+SUB main()
+  LET bad AS DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
+END SUB
 ```
 
 ## See also

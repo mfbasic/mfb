@@ -116,7 +116,9 @@ Build a `Duration` from a whole-second span:
 ```
 IMPORT datetime
 
-LET d AS Duration = datetime::duration(90)
+SUB main()
+  LET d AS Duration = datetime::duration(90)
+END SUB
 ```
 
 Build a `Duration` with a sub-second adjustment that normalizes into the `seconds`
@@ -125,7 +127,9 @@ field:
 ```
 IMPORT datetime
 
-LET d AS Duration = datetime::duration(10, 1_500_000_000)
+SUB main()
+  LET d AS Duration = datetime::duration(10, 1_500_000_000)
+END SUB
 ```
 
 Build a `Duration` from day, hour, minute, second, and nanosecond components:
@@ -133,7 +137,9 @@ Build a `Duration` from day, hour, minute, second, and nanosecond components:
 ```
 IMPORT datetime
 
-LET d AS Duration = datetime::duration(1, 2, 3, 4, 0)
+SUB main()
+  LET d AS Duration = datetime::duration(1, 2, 3, 4, 0)
+END SUB
 ```
 
 A negative argument yields a backward span:
@@ -141,7 +147,9 @@ A negative argument yields a backward span:
 ```
 IMPORT datetime
 
-LET d AS Duration = datetime::duration(-30)
+SUB main()
+  LET d AS Duration = datetime::duration(-30)
+END SUB
 ```
 
 ## See also

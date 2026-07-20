@@ -105,25 +105,34 @@ List the start of every digit (note the doubled backslash in the String literal)
 
 ```
 IMPORT regex
-LET starts AS List OF Integer = regex::findAll("a1b2c3", "\\d")
+
+SUB main()
+  LET starts AS List OF Integer = regex::findAll("a1b2c3", "\\d")
+END SUB
 ```
 
 Scan only the tail of the string by passing an explicit start:
 
 ```
 IMPORT regex
-LET tail AS List OF Integer = regex::findAll("a1b2c3", "\\d", 3)
+
+SUB main()
+  LET tail AS List OF Integer = regex::findAll("a1b2c3", "\\d", 3)
+END SUB
 ```
 
 Iterate the matches, handling the empty-list "no match" case naturally:
 
 ```
 IMPORT regex
+IMPORT io
 
-LET starts AS List OF Integer = regex::findAll("the cat sat", "\\w+")
-FOR EACH i AS Integer IN starts
-  io::print("word at " & toString(i))
-NEXT
+SUB main()
+  LET starts AS List OF Integer = regex::findAll("the cat sat", "\\w+")
+  FOR EACH i IN starts
+    io::print("word at " & toString(i))
+  NEXT
+END SUB
 ```
 
 ## See also

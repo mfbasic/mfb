@@ -143,29 +143,39 @@ domain-specific formatter. [[src/builtins/general.rs:resolve_call]]
 Render an integer:
 
 ```
-LET count AS Integer = 42
-io::print(toString(count))
+IMPORT io
+
+SUB main()
+  LET count AS Integer = 42
+  io::print(toString(count))
+END SUB
 ```
 
 Format a Boolean:
 
 ```
-LET enabled AS Boolean = TRUE
-LET label AS String = "enabled=" & toString(enabled)
+SUB main()
+  LET enabled AS Boolean = TRUE
+  LET label AS String = "enabled=" & toString(enabled)
+END SUB
 ```
 
 Format a Float with explicit precision:
 
 ```
-LET ratio AS Float = 3.14159
-LET text AS String = toString(ratio, 4)
+SUB main()
+  LET ratio AS Float = 3.14159
+  LET text AS String = toString(ratio, toByte(4))
+END SUB
 ```
 
 Decode UTF-8 bytes:
 
 ```
-LET bytes AS List OF Byte = [104, 101, 108, 108, 111]
-LET text AS String = toString(bytes)
+SUB main()
+  LET bytes AS List OF Byte = [104, 101, 108, 108, 111]
+  LET text AS String = toString(bytes)
+END SUB
 ```
 
 ## See also

@@ -99,11 +99,15 @@ Round-trip: seal then open:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET key AS List OF Byte = crypto::randomBytes(32)
-LET nonce AS List OF Byte = crypto::randomBytes(12)
-LET box AS crypto::Sealed = crypto::chacha20Poly1305Seal(key, nonce, plaintext)
-LET clear AS List OF Byte = crypto::chacha20Poly1305Open(key, nonce, box.ciphertext, box.tag)
+SUB main()
+  LET plaintext AS List OF Byte = strings::toBytes("hello")
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET nonce AS List OF Byte = crypto::randomBytes(12)
+  LET box AS crypto::Sealed = crypto::chacha20Poly1305Seal(key, nonce, plaintext)
+  LET clear AS List OF Byte = crypto::chacha20Poly1305Open(key, nonce, box.ciphertext, box.tag)
+END SUB
 ```
 
 Open a message sealed with additional authenticated data (a header); the same
@@ -111,9 +115,16 @@ header must be supplied:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET box AS crypto::Sealed = crypto::chacha20Poly1305Seal(key, nonce, plaintext, header)
-LET clear AS List OF Byte = crypto::chacha20Poly1305Open(key, nonce, box.ciphertext, box.tag, header)
+SUB main()
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET nonce AS List OF Byte = crypto::randomBytes(12)
+  LET plaintext AS List OF Byte = strings::toBytes("hello")
+  LET header AS List OF Byte = strings::toBytes("v1")
+  LET box AS crypto::Sealed = crypto::chacha20Poly1305Seal(key, nonce, plaintext, header)
+  LET clear AS List OF Byte = crypto::chacha20Poly1305Open(key, nonce, box.ciphertext, box.tag, header)
+END SUB
 ```
 
 A tampered ciphertext, tag, or aad raises `ErrAuthenticationFailed` and returns
@@ -121,9 +132,16 @@ nothing:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-' If box.tag has been altered in transit, this call fails closed:
-LET clear AS List OF Byte = crypto::chacha20Poly1305Open(key, nonce, box.ciphertext, box.tag)
+SUB main()
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET nonce AS List OF Byte = crypto::randomBytes(12)
+  LET plaintext AS List OF Byte = strings::toBytes("hello")
+  LET box AS crypto::Sealed = crypto::chacha20Poly1305Seal(key, nonce, plaintext)
+  ' If box.tag has been altered in transit, this call fails closed:
+  LET clear AS List OF Byte = crypto::chacha20Poly1305Open(key, nonce, box.ciphertext, box.tag)
+END SUB
 ```
 
 ## See also

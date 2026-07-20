@@ -86,8 +86,10 @@ Generate a 32-byte key and a 12-byte AEAD nonce:
 ```
 IMPORT crypto
 
-LET key AS List OF Byte = crypto::randomBytes(32)
-LET nonce AS List OF Byte = crypto::randomBytes(12)
+SUB main()
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET nonce AS List OF Byte = crypto::randomBytes(12)
+END SUB
 ```
 
 A count of zero returns an empty list:
@@ -95,7 +97,9 @@ A count of zero returns an empty list:
 ```
 IMPORT crypto
 
-LET none AS List OF Byte = crypto::randomBytes(0)
+SUB main()
+  LET none AS List OF Byte = crypto::randomBytes(0)
+END SUB
 ```
 
 ## See also

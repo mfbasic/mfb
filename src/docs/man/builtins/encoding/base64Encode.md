@@ -65,20 +65,26 @@ Encode bytes to Base64:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hi")
-io::print(encoding::base64Encode(raw))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hi")
+  io::print(encoding::base64Encode(raw))
+END SUB
 ```
 
 Round-trip through `base64Decode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hello")
-LET text AS String = encoding::base64Encode(raw)
-io::print(text)
-io::print(encoding::utf8Decode(encoding::base64Decode(text)))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hello")
+  LET text AS String = encoding::base64Encode(raw)
+  io::print(text)
+  io::print(encoding::utf8Decode(encoding::base64Decode(text)))
+END SUB
 ```
 
 ## See also

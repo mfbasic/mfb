@@ -95,13 +95,15 @@ Serve connections in a loop, one request/response each:
 IMPORT tls
 IMPORT io
 
-RES server = tls::listen("", 8443, "cert.pem", "key.pem")
-WHILE TRUE
-  RES client = tls::accept(server)
-  LET request = tls::readText(client, 4096)
-  tls::writeText(client, "HTTP/1.0 200 OK" + Chr(13) + Chr(10) + Chr(13) + Chr(10) + "hi")
-  tls::close(client)
-WEND
+SUB main()
+  RES server = tls::listen("", 8443, "cert.pem", "key.pem")
+  WHILE TRUE
+    RES client = tls::accept(server)
+    LET request = tls::readText(client, 4096)
+    tls::writeText(client, "HTTP/1.0 200 OK\r\n\r\nhi")
+    tls::close(client)
+  WEND
+END SUB
 ```
 
 ## See also

@@ -73,7 +73,9 @@ Construct a time at the top of a minute (`second` and `nanos` default to `0`):
 ```
 IMPORT datetime
 
-LET t AS Time = datetime::time(9, 30)
+SUB main()
+  LET t AS Time = datetime::time(9, 30)
+END SUB
 ```
 
 Construct a time with whole seconds:
@@ -81,7 +83,9 @@ Construct a time with whole seconds:
 ```
 IMPORT datetime
 
-LET t AS Time = datetime::time(23, 59, 59)
+SUB main()
+  LET t AS Time = datetime::time(23, 59, 59)
+END SUB
 ```
 
 Combine a date and time into a zoned `DateTime`:
@@ -89,9 +93,11 @@ Combine a date and time into a zoned `DateTime`:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
-LET t AS Time = datetime::time(9, 30)
-LET dt AS DateTime = datetime::civil(d, t, datetime::utc())
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+  LET t AS Time = datetime::time(9, 30)
+  LET dt AS DateTime = datetime::civil(d, t, datetime::utc())
+END SUB
 ```
 
 An out-of-range field raises `ErrInvalidArgument`:
@@ -99,7 +105,9 @@ An out-of-range field raises `ErrInvalidArgument`:
 ```
 IMPORT datetime
 
-LET bad AS Time = datetime::time(24, 0)
+SUB main()
+  LET bad AS Time = datetime::time(24, 0)
+END SUB
 ```
 
 ## See also

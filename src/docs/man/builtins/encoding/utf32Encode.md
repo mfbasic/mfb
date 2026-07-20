@@ -64,18 +64,24 @@ Encode a string to its UTF-32 code points:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET points AS List OF Integer = encoding::utf32Encode("hello")
-io::print(toString(len(points)))
+SUB main()
+  LET points AS List OF Integer = encoding::utf32Encode("hello")
+  io::print(toString(len(points)))
+END SUB
 ```
 
 Round-trip an astral scalar (an emoji) through UTF-32:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET points AS List OF Integer = encoding::utf32Encode("😀")
-io::print(encoding::utf32Decode(points))
+SUB main()
+  LET points AS List OF Integer = encoding::utf32Encode("😀")
+  io::print(encoding::utf32Decode(points))
+END SUB
 ```
 
 ## See also

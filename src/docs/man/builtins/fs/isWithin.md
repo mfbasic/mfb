@@ -90,11 +90,15 @@ Guard against escaping a root directory:
 
 ```
 IMPORT fs
+IMPORT io
 
-LET root AS String = fs::canonicalPath("uploads")
-IF fs::isWithin(root, candidate) THEN
-  io::print("inside")
-END IF
+SUB main()
+  LET root AS String = fs::canonicalPath("uploads")
+  LET candidate AS String = fs::canonicalPath("uploads/report.txt")
+  IF fs::isWithin(root, candidate) THEN
+    io::print("inside")
+  END IF
+END SUB
 ```
 
 A nested file is within its base directory:
@@ -102,9 +106,11 @@ A nested file is within its base directory:
 ```
 IMPORT fs
 
-fs::createDirectories("base/nested")
-fs::writeText("base/nested/file.txt", "hi")
-LET inside AS Boolean = fs::isWithin("base", "base/nested/file.txt")
+SUB main()
+  fs::createDirectories("base/nested")
+  fs::writeText("base/nested/file.txt", "hi")
+  LET inside AS Boolean = fs::isWithin("base", "base/nested/file.txt")
+END SUB
 ```
 
 A path is within itself, but a sibling is not:
@@ -112,8 +118,10 @@ A path is within itself, but a sibling is not:
 ```
 IMPORT fs
 
-LET same AS Boolean = fs::isWithin("base", "base")
-LET sibling AS Boolean = fs::isWithin("base", "base2")
+SUB main()
+  LET same AS Boolean = fs::isWithin("base", "base")
+  LET sibling AS Boolean = fs::isWithin("base", "base2")
+END SUB
 ```
 
 ## See also

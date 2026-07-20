@@ -88,18 +88,24 @@ Decode raw UTF-8 bytes back to text:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("héllo")
-io::print(encoding::utf8Decode(raw))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("héllo")
+  io::print(encoding::utf8Decode(raw))
+END SUB
 ```
 
 Decode from a `List OF Integer` code-unit list:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET units AS List OF Integer = [104, 105]
-io::print(encoding::utf8Decode(units))
+SUB main()
+  LET units AS List OF Integer = [104, 105]
+  io::print(encoding::utf8Decode(units))
+END SUB
 ```
 
 ## See also

@@ -131,6 +131,7 @@ Bind loopback only, with an explicit backlog:
 ```
 IMPORT http
 IMPORT net
+IMPORT io
 
 SUB localOnly()
   RES s AS net::Listener = http::server(8080, "127.0.0.1", 16)

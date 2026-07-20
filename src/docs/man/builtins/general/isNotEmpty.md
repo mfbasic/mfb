@@ -88,27 +88,37 @@ the same name for its own value types. [[src/builtins/general.rs:resolve_call]]
 Test text:
 
 ```
-LET ok AS Boolean = isNotEmpty("hello")
+SUB main()
+  LET ok AS Boolean = isNotEmpty("hello")
+END SUB
 ```
 
 Test a list:
 
 ```
-LET values AS List OF Integer = [1]
-LET ok AS Boolean = isNotEmpty(values)
+SUB main()
+  LET values AS List OF Integer = [1]
+  LET ok AS Boolean = isNotEmpty(values)
+END SUB
 ```
 
 Test a map:
 
 ```
-LET scores AS Map OF String TO Integer = {"a": 1}
-LET ok AS Boolean = isNotEmpty(scores)
+SUB main()
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1 }
+  LET ok AS Boolean = isNotEmpty(scores)
+END SUB
 ```
 
 Use it as a predicate by wrapping it in a `LAMBDA`:
 
 ```
-LET filled AS List OF String = collections::filter(["a", "", "b"], LAMBDA(s AS String) -> isNotEmpty(s))
+IMPORT collections
+
+SUB main()
+  LET filled AS List OF String = collections::filter(["a", "", "b"], LAMBDA(s AS String) -> isNotEmpty(s))
+END SUB
 ```
 
 ## See also

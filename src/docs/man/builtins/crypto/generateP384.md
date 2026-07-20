@@ -78,18 +78,25 @@ Generate a key pair and print the public key as hex:
 ```
 IMPORT crypto
 IMPORT encoding
+IMPORT io
 
-LET kp AS crypto::KeyPair = crypto::generateP384()
-PRINT encoding::hexEncode(kp.publicKey)
+SUB main()
+  LET kp AS crypto::KeyPair = crypto::generateP384()
+  io::print(encoding::hexEncode(kp.publicKey))
+END SUB
 ```
 
 Sign a message with the freshly generated key:
 
 ```
 IMPORT crypto
+IMPORT strings
 
-LET kp AS crypto::KeyPair = crypto::generateP384()
-LET sig AS List OF Byte = crypto::p384Sign(kp.privateKey, message)
+SUB main()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET kp AS crypto::KeyPair = crypto::generateP384()
+  LET sig AS List OF Byte = crypto::p384Sign(kp.privateKey, message)
+END SUB
 ```
 
 ## See also

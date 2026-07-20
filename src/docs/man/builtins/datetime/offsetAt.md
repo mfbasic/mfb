@@ -74,7 +74,9 @@ A UTC zone always reports a zero offset:
 ```
 IMPORT datetime
 
-LET off AS Integer = datetime::offsetAt(datetime::utc(), datetime::now())
+SUB main()
+  LET off AS Integer = datetime::offsetAt(datetime::utc(), datetime::now())
+END SUB
 ```
 
 A fixed zone reports its constant offset regardless of the instant:
@@ -82,8 +84,10 @@ A fixed zone reports its constant offset regardless of the instant:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::fixedOffset(5, 30)
-LET off AS Integer = datetime::offsetAt(z, datetime::now())
+SUB main()
+  LET z AS Zone = datetime::fixedOffset(5, 30)
+  LET off AS Integer = datetime::offsetAt(z, datetime::now())
+END SUB
 ```
 
 A local zone's offset is resolved DST-correctly for the given instant:
@@ -91,7 +95,9 @@ A local zone's offset is resolved DST-correctly for the given instant:
 ```
 IMPORT datetime
 
-LET nowOff AS Integer = datetime::offsetAt(datetime::local(), datetime::now())
+SUB main()
+  LET nowOff AS Integer = datetime::offsetAt(datetime::local(), datetime::now())
+END SUB
 ```
 
 ## See also

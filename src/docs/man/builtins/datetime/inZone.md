@@ -80,7 +80,9 @@ Project the current instant into UTC:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
+SUB main()
+  LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
+END SUB
 ```
 
 Project an instant into a fixed +05:30 zone:
@@ -88,8 +90,10 @@ Project an instant into a fixed +05:30 zone:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::fixedOffset(5, 30)
-LET dt AS DateTime = datetime::inZone(datetime::now(), z)
+SUB main()
+  LET z AS Zone = datetime::fixedOffset(5, 30)
+  LET dt AS DateTime = datetime::inZone(datetime::now(), z)
+END SUB
 ```
 
 Project into the host's local zone, with DST applied for that instant:
@@ -97,7 +101,9 @@ Project into the host's local zone, with DST applied for that instant:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::local())
+SUB main()
+  LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::local())
+END SUB
 ```
 
 ## See also

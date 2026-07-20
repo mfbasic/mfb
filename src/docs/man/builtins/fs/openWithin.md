@@ -123,8 +123,11 @@ Open a caller-supplied name beneath a fixed root, for reading:
 ```
 IMPORT fs
 
-LET f AS File = fs::openWithin("/srv/data", userName)
-fs::close(f)
+SUB main()
+  LET userName AS String = "alice.txt"
+  RES f AS File = fs::openWithin("/srv/data", userName)
+  fs::close(f)
+END SUB
 ```
 
 A `relPath` that tries to escape the root is refused rather than followed:
@@ -132,10 +135,14 @@ A `relPath` that tries to escape the root is refused rather than followed:
 ```
 IMPORT fs
 IMPORT errorCode
+IMPORT io
 
-RES f AS File = fs::openWithin("/srv/data", "../../etc/passwd") TRAP(e)
-  PRINT toString(e.code = errorCode::ErrInvalidArgument)
-END TRAP
+SUB main()
+  RES f AS File = fs::openWithin("/srv/data", "../../etc/passwd") TRAP(e)
+    io::print(toString(e.code = errorCode::ErrInvalidArgument))
+    EXIT SUB
+  END TRAP
+END SUB
 ```
 
 Write beneath the root; a symlinked component makes the open fail:
@@ -143,9 +150,11 @@ Write beneath the root; a symlinked component makes the open fail:
 ```
 IMPORT fs
 
-LET w AS File = fs::openWithin("/srv/data", "reports/today.txt", "write")
-fs::writeAll(w, "hello")
-fs::close(w)
+SUB main()
+  RES w AS File = fs::openWithin("/srv/data", "reports/today.txt", "write")
+  fs::writeAll(w, "hello")
+  fs::close(w)
+END SUB
 ```
 
 ## See also

@@ -63,8 +63,10 @@ Read a variable that is expected to be present:
 IMPORT os
 IMPORT io
 
-LET home AS String = os::getEnv("HOME")
-io::print(home)
+SUB main()
+  LET home AS String = os::getEnv("HOME")
+  io::print(home)
+END SUB
 ```
 
 Treat an unset variable as a recoverable condition:
@@ -73,10 +75,12 @@ Treat an unset variable as a recoverable condition:
 IMPORT os
 IMPORT io
 
-LET token = os::getEnv("API_TOKEN") TRAP(err)
-  RECOVER ""
-END TRAP
-io::print(token)
+SUB main()
+  LET token = os::getEnv("API_TOKEN") TRAP(err)
+    RECOVER ""
+  END TRAP
+  io::print(token)
+END SUB
 ```
 
 ## See also

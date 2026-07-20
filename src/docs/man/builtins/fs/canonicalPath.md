@@ -80,8 +80,10 @@ Resolve a relative path against the working directory:
 IMPORT fs
 IMPORT io
 
-LET full AS String = fs::canonicalPath("target/output.txt")
-io::print(full)
+SUB main()
+  LET full AS String = fs::canonicalPath("target/output.txt")
+  io::print(full)
+END SUB
 ```
 
 Canonicalize a path containing `.` and `..` components:
@@ -90,9 +92,11 @@ Canonicalize a path containing `.` and `..` components:
 IMPORT fs
 IMPORT io
 
-fs::createDirectories("a/b")
-LET real AS String = fs::canonicalPath("a/./b/../b")
-io::print(real)
+SUB main()
+  fs::createDirectories("a/b")
+  LET real AS String = fs::canonicalPath("a/./b/../b")
+  io::print(real)
+END SUB
 ```
 
 ## See also

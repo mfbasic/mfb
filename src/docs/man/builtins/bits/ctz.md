@@ -57,17 +57,23 @@ Count the trailing zeros of a small value:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::ctz(255)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::ctz(255)
+  io::print(toString(result))
+END SUB
 ```
 
 The all-zero pattern has 64 trailing zeros:
 
 ```
 IMPORT bits
+IMPORT io
 
-PRINT bits::ctz(0)
+SUB main()
+  io::print(toString(bits::ctz(0)))
+END SUB
 ```
 
 ## See also

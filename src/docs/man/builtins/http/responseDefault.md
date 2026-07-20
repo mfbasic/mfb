@@ -87,9 +87,12 @@ Starting from the default and adding a header:
 
 ```
 IMPORT http
+IMPORT io
 
-LET resp = http::withHeader(http::responseDefault(), "cache-control", "no-store")
-io::print(toString(resp.status) & " " & resp.reason)
+SUB main()
+  LET resp = http::withHeader(http::responseDefault(), "cache-control", "no-store")
+  io::print(toString(resp.status) & " " & resp.reason)
+END SUB
 ```
 
 ## See also

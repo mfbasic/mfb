@@ -73,16 +73,22 @@ Test for a substring and an anchored pattern:
 
 ```
 IMPORT regex
-LET hasEll AS Boolean = regex::match("hello", "ell")
-LET startsH AS Boolean = regex::match("hello", "^h")
+
+SUB main()
+  LET hasEll AS Boolean = regex::match("hello", "ell")
+  LET startsH AS Boolean = regex::match("hello", "^h")
+END SUB
 ```
 
 Case-insensitive match and a digit-class test (note the doubled backslash):
 
 ```
 IMPORT regex
-LET greeting AS Boolean = regex::match("Hello", "(?i)hello")
-LET hasDigit AS Boolean = regex::match("abc123", "\\d+")
+
+SUB main()
+  LET greeting AS Boolean = regex::match("Hello", "(?i)hello")
+  LET hasDigit AS Boolean = regex::match("abc123", "\\d+")
+END SUB
 ```
 
 ## See also

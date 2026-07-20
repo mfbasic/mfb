@@ -71,7 +71,9 @@ Encode a form field value containing a space and reserved characters:
 IMPORT encoding
 IMPORT io
 
-io::print(encoding::formUrlEncode("name = a b & c"))
+SUB main()
+  io::print(encoding::formUrlEncode("name = a b & c"))
+END SUB
 ```
 
 Round-trip through `formUrlDecode`:
@@ -80,9 +82,11 @@ Round-trip through `formUrlDecode`:
 IMPORT encoding
 IMPORT io
 
-LET enc AS String = encoding::formUrlEncode("café & tea")
-io::print(enc)
-io::print(encoding::formUrlDecode(enc))
+SUB main()
+  LET enc AS String = encoding::formUrlEncode("café & tea")
+  io::print(enc)
+  io::print(encoding::formUrlDecode(enc))
+END SUB
 ```
 
 ## See also

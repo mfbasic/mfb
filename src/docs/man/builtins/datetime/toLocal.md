@@ -76,7 +76,9 @@ Project the current instant into the host's local zone:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toLocal(datetime::now())
+SUB main()
+  LET dt AS DateTime = datetime::toLocal(datetime::now())
+END SUB
 ```
 
 Round-trip an instant through the local zone and back:
@@ -84,9 +86,11 @@ Round-trip an instant through the local zone and back:
 ```
 IMPORT datetime
 
-LET at AS Instant = datetime::now()
-LET dt AS DateTime = datetime::toLocal(at)
-LET back AS Instant = datetime::resolve(dt)
+SUB main()
+  LET at AS Instant = datetime::now()
+  LET dt AS DateTime = datetime::toLocal(at)
+  LET back AS Instant = datetime::resolve(dt)
+END SUB
 ```
 
 ## See also

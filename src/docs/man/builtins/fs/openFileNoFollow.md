@@ -124,8 +124,10 @@ Open a file for reading using the default mode, refusing a symlinked path:
 ```
 IMPORT fs
 
-LET f AS File = fs::openFileNoFollow("data.txt")
-fs::close(f)
+SUB main()
+  RES f AS File = fs::openFileNoFollow("data.txt")
+  fs::close(f)
+END SUB
 ```
 
 Open a file for writing; the open fails if any component of the path is a symlink:
@@ -133,9 +135,11 @@ Open a file for writing; the open fails if any component of the path is a symlin
 ```
 IMPORT fs
 
-LET w AS File = fs::openFileNoFollow("out.txt", "write")
-fs::writeAll(w, "hello")
-fs::close(w)
+SUB main()
+  RES w AS File = fs::openFileNoFollow("out.txt", "write")
+  fs::writeAll(w, "hello")
+  fs::close(w)
+END SUB
 ```
 
 Open a file for appending so each write lands at the end:
@@ -143,9 +147,11 @@ Open a file for appending so each write lands at the end:
 ```
 IMPORT fs
 
-LET log AS File = fs::openFileNoFollow("app.log", "a")
-fs::writeAll(log, "started\n")
-fs::close(log)
+SUB main()
+  RES log AS File = fs::openFileNoFollow("app.log", "a")
+  fs::writeAll(log, "started\n")
+  fs::close(log)
+END SUB
 ```
 
 ## See also

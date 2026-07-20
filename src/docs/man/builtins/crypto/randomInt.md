@@ -79,7 +79,9 @@ Roll a fair six-sided die:
 ```
 IMPORT crypto
 
-LET roll AS Integer = crypto::randomInt(1, 6)
+SUB main()
+  LET roll AS Integer = crypto::randomInt(1, 6)
+END SUB
 ```
 
 A single-value range always returns that value:
@@ -87,7 +89,9 @@ A single-value range always returns that value:
 ```
 IMPORT crypto
 
-LET x AS Integer = crypto::randomInt(42, 42)
+SUB main()
+  LET x AS Integer = crypto::randomInt(42, 42)
+END SUB
 ```
 
 ## See also

@@ -102,9 +102,11 @@ Capture 100 ms of mono audio at 48 kHz from the default input:
 ```
 IMPORT audio
 
-RES mic AS AudioInput = audio::openInput(48000, 1, 512)
-LET pcm = audio::read(mic, 4800)
-audio::close(mic)
+SUB main()
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET pcm = audio::read(mic, 4800)
+  audio::close(mic)
+END SUB
 ```
 
 Open a specific input device chosen from the enumerated list:
@@ -112,13 +114,15 @@ Open a specific input device chosen from the enumerated list:
 ```
 IMPORT audio
 
-FOR EACH d IN audio::devices()
-  IF d.isDefaultInput THEN
-    RES mic AS AudioInput = audio::openInput(d, 48000, 2, 512)
-    LET pcm = audio::read(mic, 4800)
-    audio::close(mic)
-  END IF
-NEXT
+SUB main()
+  FOR EACH d IN audio::devices()
+    IF d.isDefaultInput THEN
+      RES mic AS AudioInput = audio::openInput(d, 48000, 2, 512)
+      LET pcm = audio::read(mic, 4800)
+      audio::close(mic)
+    END IF
+  NEXT
+END SUB
 ```
 
 ## See also

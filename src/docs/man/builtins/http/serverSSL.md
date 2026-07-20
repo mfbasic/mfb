@@ -157,6 +157,7 @@ Bind loopback only, with an explicit backlog:
 ```
 IMPORT http
 IMPORT tls
+IMPORT io
 
 SUB localOnly()
   RES s AS tls::TlsListener = http::serverSSL(8443, "cert.pem", "key.pem", "127.0.0.1", 16)

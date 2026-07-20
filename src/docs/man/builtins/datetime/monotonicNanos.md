@@ -78,9 +78,11 @@ Measure the elapsed time around a block of work in nanoseconds:
 ```
 IMPORT datetime
 
-LET t0 AS Integer = datetime::monotonicNanos()
-' ... work ...
-LET elapsedNanos AS Integer = datetime::monotonicNanos() - t0
+SUB main()
+  LET t0 AS Integer = datetime::monotonicNanos()
+  ' ... work ...
+  LET elapsedNanos AS Integer = datetime::monotonicNanos() - t0
+END SUB
 ```
 
 Convert the measured interval to whole milliseconds:
@@ -88,9 +90,11 @@ Convert the measured interval to whole milliseconds:
 ```
 IMPORT datetime
 
-LET t0 AS Integer = datetime::monotonicNanos()
-' ... work ...
-LET elapsedMs AS Integer = (datetime::monotonicNanos() - t0) / 1000000
+SUB main()
+  LET t0 AS Integer = datetime::monotonicNanos()
+  ' ... work ...
+  LET elapsedMs AS Integer = (datetime::monotonicNanos() - t0) / 1000000
+END SUB
 ```
 
 ## See also

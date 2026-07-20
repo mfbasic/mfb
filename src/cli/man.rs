@@ -148,9 +148,12 @@ fn print_package_man(package: &man::PackageDoc) {
 /// pageless layout. The trailing hint always points at the entry kind the
 /// package's two-argument lookup expects.
 fn print_entry_listing(package: &man::PackageDoc, colon_heading: bool) {
-    let (constants, functions): (Vec<_>, Vec<_>) = package
+    let (topics, callables): (Vec<_>, Vec<_>) = package
         .functions
         .iter()
+        .partition(|entry| is_topic_page(package, entry));
+    let (constants, functions): (Vec<_>, Vec<_>) = callables
+        .into_iter()
         .partition(|function| is_constant(function));
 
     let colon = if colon_heading { ":" } else { "" };
@@ -180,12 +183,40 @@ fn print_entry_listing(package: &man::PackageDoc, colon_heading: bool) {
         }
     }
 
+    if !topics.is_empty() {
+        if printed {
+            println!();
+        }
+        println!("TOPICS{colon}");
+        for topic in &topics {
+            println!("  {:<18} {}", topic.name, render::plain(topic.summary));
+        }
+    }
+
     println!();
     println!(
         "Run `mfb man {} <{}>` for details.",
         package.name,
         man_entry_name(package)
     );
+}
+
+/// A **topic page inside a function package**: prose about the package that is
+/// not one of its callables.
+///
+/// There was no way to express this, so `regex/language.md` — a page on how to
+/// write patterns — was listed under `FUNCTIONS` beside `find` and `replace`, as
+/// though `regex::language` were something you could call (bug-336-S8). The
+/// build collects every non-index page in a package directory, and nothing
+/// downstream could tell the two kinds apart.
+///
+/// The test is structural rather than a hardcoded list: a function page's
+/// `## Synopsis` opens with a call, so its signature carries the `::` qualifier;
+/// a topic page's does not. `types` and `flow` are whole pseudo-packages of
+/// topics and are already handled by [`man_entry_heading`], so they are left
+/// alone here.
+fn is_topic_page(package: &man::PackageDoc, entry: &man::FunctionDoc) -> bool {
+    !matches!(package.name, "types" | "flow" | "tour" | "errors") && !entry.signature.contains("::")
 }
 
 /// A constant entry renders as a value reference (`math::pi AS Float`) rather

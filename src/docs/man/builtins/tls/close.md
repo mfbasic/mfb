@@ -87,10 +87,12 @@ Close a TLS connection explicitly once the exchange is complete:
 ```
 IMPORT tls
 
-RES conn = tls::connect("example.com", 443)
-tls::writeText(conn, "GET / HTTP/1.0" + Chr(13) + Chr(10) + Chr(13) + Chr(10))
-LET response = tls::readText(conn, 4096)
-tls::close(conn)
+SUB main()
+  RES conn = tls::connect("example.com", 443)
+  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
+  LET response = tls::readText(conn, 4096)
+  tls::close(conn)
+END SUB
 ```
 
 Close each connection inside a loop so connections are not held open:
@@ -98,11 +100,14 @@ Close each connection inside a loop so connections are not held open:
 ```
 IMPORT tls
 
-FOR EACH host IN hosts
-  RES conn = tls::connect(host, 443)
-  tls::writeText(conn, "PING")
-  tls::close(conn)
-NEXT
+SUB main()
+  LET hosts AS List OF String = ["a.example.com", "b.example.com"]
+  FOR EACH host IN hosts
+    RES conn = tls::connect(host, 443)
+    tls::writeText(conn, "PING")
+    tls::close(conn)
+  NEXT
+END SUB
 ```
 
 ## See also

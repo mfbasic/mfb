@@ -77,27 +77,39 @@ Read up to 4096 bytes from a connected TLS socket:
 ```
 IMPORT tls
 
-RES conn = tls::connect("example.com", 443)
-tls::writeText(conn, "GET / HTTP/1.0" + Chr(13) + Chr(10) + Chr(13) + Chr(10))
-LET chunk = tls::read(conn, 4096)
-' conn is closed by lexical drop when this scope ends
+SUB main()
+  RES conn = tls::connect("example.com", 443)
+  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
+  LET chunk = tls::read(conn, 4096)
+  ' conn is closed by lexical drop when this scope ends
+END SUB
 ```
 
 Drain a TLS connection until the peer closes it:
 
 ```
 IMPORT tls
+IMPORT collections
 
-RES conn = tls::connect("example.com", 443)
-tls::writeText(conn, "GET / HTTP/1.0" + Chr(13) + Chr(10) + Chr(13) + Chr(10))
-MUT response = [] AS List OF Byte
-DO
-  MATCH tls::read(conn, 4096)
-    CASE Ok(chunk) : response = append(response, chunk)
-    CASE Err(err) : EXIT DO
-  END MATCH
-LOOP
-' conn is closed by lexical drop when this scope ends
+SUB main()
+  RES conn = tls::connect("example.com", 443)
+  tls::writeText(conn, "GET / HTTP/1.0\r\n\r\n")
+  MUT response AS List OF Byte = []
+  MUT atEnd AS Boolean = FALSE
+  DO
+    LET chunk AS List OF Byte = tls::read(conn, 4096) TRAP(e)
+      RECOVER []
+    END TRAP
+    IF len(chunk) = 0 THEN
+      atEnd = TRUE
+    ELSE
+      FOR EACH b IN chunk
+        response = collections::append(response, b)
+      NEXT
+    END IF
+  LOOP UNTIL atEnd
+  ' conn is closed by lexical drop when this scope ends
+END SUB
 ```
 
 ## See also

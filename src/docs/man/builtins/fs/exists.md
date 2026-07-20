@@ -29,7 +29,7 @@ file, a directory, a symlink to an existing target, a socket, a FIFO, or a devic
 node — and `FALSE` when nothing exists at `path`. The check is implemented with
 the host `access` call using the existence mode (`F_OK`, `0`); `access` returning
 `0` maps to `TRUE` and any nonzero result maps to `FALSE`.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_exists_helper]][[src/target/linux_x86_64/code.rs:emit_path_exists]]
+[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_exists_helper]][[src/target/linux_common/code.rs:emit_path_exists]]
 
 The final path component is followed when it is a symlink, because `access`
 dereferences the last component: a symlink pointing at an existing target reports
@@ -72,9 +72,11 @@ Test for any entry at a path before acting on it:
 IMPORT fs
 IMPORT io
 
-IF fs::exists("data.txt") THEN
-  io::print("found")
-END IF
+SUB main()
+  IF fs::exists("data.txt") THEN
+    io::print("found")
+  END IF
+END SUB
 ```
 
 Unicode paths are accepted:
@@ -82,7 +84,9 @@ Unicode paths are accepted:
 ```
 IMPORT fs
 
-LET present AS Boolean = fs::exists("é日😀.txt")
+SUB main()
+  LET present AS Boolean = fs::exists("é日😀.txt")
+END SUB
 ```
 
 ## See also

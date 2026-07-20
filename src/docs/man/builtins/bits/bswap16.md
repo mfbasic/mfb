@@ -55,17 +55,23 @@ Swap the two low bytes of a 16-bit value:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::bswap16(0x00FF)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::bswap16(0x00FF)
+  io::print(toString(result))
+END SUB
 ```
 
 Bits above bit 15 are cleared, so the result stays in `0`..`65535`:
 
 ```
 IMPORT bits
+IMPORT io
 
-PRINT bits::bswap16(0x11223344)
+SUB main()
+  io::print(toString(bits::bswap16(0x11223344)))
+END SUB
 ```
 
 ## See also

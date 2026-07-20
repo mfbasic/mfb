@@ -66,9 +66,12 @@ Shift a value right by four bits (unsigned divide by 16):
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::sr(256, 4)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::sr(256, 4)
+  io::print(toString(result))
+END SUB
 ```
 
 Extract a byte-packed field by shifting it down into place and masking with
@@ -76,10 +79,13 @@ Extract a byte-packed field by shifting it down into place and masking with
 
 ```
 IMPORT bits
+IMPORT io
 
-LET packed AS Integer = 0xABCD
-LET high AS Integer = bits::band(bits::sr(packed, 8), 255)
-PRINT high
+SUB main()
+  LET packed AS Integer = 0xABCD
+  LET high AS Integer = bits::band(bits::sr(packed, 8), 255)
+  io::print(toString(high))
+END SUB
 ```
 
 ## See also

@@ -64,9 +64,12 @@ Shift a value left by four bits (multiply by 16):
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::sl(1, 4)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::sl(1, 4)
+  io::print(toString(result))
+END SUB
 ```
 
 Build a byte-packed field by shifting a value into place and combining it with
@@ -74,10 +77,13 @@ Build a byte-packed field by shifting a value into place and combining it with
 
 ```
 IMPORT bits
+IMPORT io
 
-LET high AS Integer = bits::sl(0xAB, 8)
-LET packed AS Integer = bits::bor(high, 0xCD)
-PRINT packed
+SUB main()
+  LET high AS Integer = bits::sl(0xAB, 8)
+  LET packed AS Integer = bits::bor(high, 0xCD)
+  io::print(toString(packed))
+END SUB
 ```
 
 ## See also

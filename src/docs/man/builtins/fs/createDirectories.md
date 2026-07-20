@@ -90,7 +90,9 @@ Create a nested directory together with its missing parents:
 ```
 IMPORT fs
 
-fs::createDirectories("target/example/nested")
+SUB main()
+  fs::createDirectories("target/example/nested")
+END SUB
 ```
 
 Re-running is safe because existing directories are accepted:
@@ -98,8 +100,10 @@ Re-running is safe because existing directories are accepted:
 ```
 IMPORT fs
 
-fs::createDirectories("target/example/nested")
-fs::createDirectories("target/example/nested")
+SUB main()
+  fs::createDirectories("target/example/nested")
+  fs::createDirectories("target/example/nested")
+END SUB
 ```
 
 ## See also

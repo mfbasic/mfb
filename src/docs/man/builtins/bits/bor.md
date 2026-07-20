@@ -59,19 +59,25 @@ Combine two single-bit flag masks into one value:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET flags AS Integer = bits::bor(1, 4)
-PRINT flags
+SUB main()
+  LET flags AS Integer = bits::bor(1, 4)
+  io::print(toString(flags))
+END SUB
 ```
 
 Force the low two bits of a value on, leaving the rest unchanged:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET value AS Integer = 0x1234
-LET result AS Integer = bits::bor(value, 3)
-PRINT result
+SUB main()
+  LET value AS Integer = 0x1234
+  LET result AS Integer = bits::bor(value, 3)
+  io::print(toString(result))
+END SUB
 ```
 
 ## See also

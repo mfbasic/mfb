@@ -68,8 +68,10 @@ Negate a forward span to get the matching backward span:
 ```
 IMPORT datetime
 
-LET forward AS Duration = datetime::duration(90)
-LET backward AS Duration = datetime::negate(forward)
+SUB main()
+  LET forward AS Duration = datetime::duration(90)
+  LET backward AS Duration = datetime::negate(forward)
+END SUB
 ```
 
 Negation re-normalizes a sub-second span:
@@ -77,8 +79,10 @@ Negation re-normalizes a sub-second span:
 ```
 IMPORT datetime
 
-LET quarter AS Duration = datetime::duration(0, 250_000_000)
-LET back AS Duration = datetime::negate(quarter)
+SUB main()
+  LET quarter AS Duration = datetime::duration(0, 250_000_000)
+  LET back AS Duration = datetime::negate(quarter)
+END SUB
 ```
 
 ## See also

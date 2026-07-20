@@ -34,7 +34,7 @@ against the regular-file type (`32768`), so only regular files qualify.
 The final path component is followed when it is a symlink, because the host
 `stat` call is used rather than `lstat`: a symlink pointing at a regular file
 reports `TRUE`, and a symlink whose target is missing or non-regular reports
-`FALSE`. [[src/target/linux_x86_64/code.rs:emit_path_stat]]
+`FALSE`. [[src/target/linux_common/code.rs:emit_path_stat]]
 
 A failed `stat` — for example a missing path or an unreadable parent directory —
 is reported as `FALSE` rather than raised as an error. The only failure the call
@@ -72,9 +72,11 @@ Test for a regular file before reading it:
 IMPORT fs
 IMPORT io
 
-IF fs::fileExists("data.txt") THEN
-  io::print("found")
-END IF
+SUB main()
+  IF fs::fileExists("data.txt") THEN
+    io::print("found")
+  END IF
+END SUB
 ```
 
 Unicode paths are accepted:
@@ -82,7 +84,9 @@ Unicode paths are accepted:
 ```
 IMPORT fs
 
-LET present AS Boolean = fs::fileExists("é日😀.txt")
+SUB main()
+  LET present AS Boolean = fs::fileExists("é日😀.txt")
+END SUB
 ```
 
 ## See also

@@ -57,7 +57,9 @@ Print the host name:
 IMPORT os
 IMPORT io
 
-io::print(os::hostName())
+SUB main()
+  io::print(os::hostName())
+END SUB
 ```
 
 ## See also

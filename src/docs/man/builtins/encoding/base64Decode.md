@@ -67,20 +67,26 @@ Decode a Base64 string back to text:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::base64Decode("aGVsbG8=")
-io::print(encoding::utf8Decode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::base64Decode("aGVsbG8=")
+  io::print(encoding::utf8Decode(bytes))
+END SUB
 ```
 
 Round-trip through `base64Encode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hello")
-LET text AS String = encoding::base64Encode(raw)
-io::print(text)
-io::print(encoding::utf8Decode(encoding::base64Decode(text)))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hello")
+  LET text AS String = encoding::base64Encode(raw)
+  io::print(text)
+  io::print(encoding::utf8Decode(encoding::base64Decode(text)))
+END SUB
 ```
 
 ## See also

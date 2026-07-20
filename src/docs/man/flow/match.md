@@ -47,6 +47,26 @@ No errors.
 Match the members of a union:
 
 ```
+TYPE Circle
+  radius AS Float
+END TYPE
+
+TYPE Rect
+  w AS Float
+  h AS Float
+END TYPE
+
+TYPE Point
+  x AS Float
+  y AS Float
+END TYPE
+
+UNION Shape
+  Circle
+  Rect
+  Point
+END UNION
+
 FUNC area(s AS Shape) AS Float
   MATCH s
     CASE Circle(c) : RETURN 3.14159 * c.radius * c.radius
@@ -59,11 +79,16 @@ END FUNC
 Match literal values with a fallback:
 
 ```
-MATCH grade
-  CASE "A"      : io::print("Great")
-  CASE "B", "C" : io::print("OK")
-  CASE ELSE     : io::print("?")
-END MATCH
+IMPORT io
+
+SUB main()
+  LET grade AS String = "A"
+  MATCH grade
+    CASE "A"      : io::print("Great")
+    CASE "B", "C" : io::print("OK")
+    CASE ELSE     : io::print("?")
+  END MATCH
+END SUB
 ```
 
 ## See also

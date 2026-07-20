@@ -93,21 +93,32 @@ Authenticate a message and print the MAC as hex:
 
 ```
 IMPORT crypto
+IMPORT strings
 IMPORT encoding
+IMPORT io
 
-LET mac AS List OF Byte = crypto::hmacSha512(key, message)
-io::print(encoding::hexEncode(mac))
+SUB main()
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET mac AS List OF Byte = crypto::hmacSha512(key, message)
+  io::print(encoding::hexEncode(mac))
+END SUB
 ```
 
 Verify a received MAC in constant time:
 
 ```
 IMPORT crypto
+IMPORT io
 
-LET expected AS List OF Byte = crypto::hmacSha512(key, "payload")
-IF crypto::constantTimeEqual(expected, received) THEN
-  io::print("authentic")
-END IF
+SUB main()
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET received AS List OF Byte = crypto::hmacSha512(key, "payload")
+  LET expected AS List OF Byte = crypto::hmacSha512(key, "payload")
+  IF crypto::constantTimeEqual(expected, received) THEN
+    io::print("authentic")
+  END IF
+END SUB
 ```
 
 ## See also

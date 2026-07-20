@@ -95,8 +95,10 @@ Open a file for reading and close it explicitly:
 ```
 IMPORT fs
 
-LET f AS File = fs::open("data.txt", "read")
-fs::close(f)
+SUB main()
+  RES f AS File = fs::open("data.txt", "read")
+  fs::close(f)
+END SUB
 ```
 
 Open a file for writing, truncating any previous contents:
@@ -104,9 +106,11 @@ Open a file for writing, truncating any previous contents:
 ```
 IMPORT fs
 
-LET w AS File = fs::open("out.txt", "write")
-fs::writeAll(w, "hello")
-fs::close(w)
+SUB main()
+  RES w AS File = fs::open("out.txt", "write")
+  fs::writeAll(w, "hello")
+  fs::close(w)
+END SUB
 ```
 
 Open a file for appending so each write lands at the end:
@@ -114,9 +118,11 @@ Open a file for appending so each write lands at the end:
 ```
 IMPORT fs
 
-LET log AS File = fs::open("app.log", "a")
-fs::writeAll(log, "started\n")
-fs::close(log)
+SUB main()
+  RES log AS File = fs::open("app.log", "a")
+  fs::writeAll(log, "started\n")
+  fs::close(log)
+END SUB
 ```
 
 ## See also

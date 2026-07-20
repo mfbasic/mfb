@@ -84,7 +84,9 @@ Parse a UTC timestamp:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::parseIso("1969-07-20T20:17:00Z")
+SUB main()
+  LET dt AS DateTime = datetime::parseIso("1969-07-20T20:17:00Z")
+END SUB
 ```
 
 Parse a fractional second with a positive offset:
@@ -92,7 +94,9 @@ Parse a fractional second with a positive offset:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::parseIso("2026-06-25T14:30:00.250+05:30")
+SUB main()
+  LET dt AS DateTime = datetime::parseIso("2026-06-25T14:30:00.250+05:30")
+END SUB
 ```
 
 A space may stand in for the `T` separator:
@@ -100,7 +104,9 @@ A space may stand in for the `T` separator:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::parseIso("2026-06-26 09:30:00-08:00")
+SUB main()
+  LET dt AS DateTime = datetime::parseIso("2026-06-26 09:30:00-08:00")
+END SUB
 ```
 
 Text that is missing its required offset is not valid RFC 3339 and raises
@@ -109,7 +115,9 @@ Text that is missing its required offset is not valid RFC 3339 and raises
 ```
 IMPORT datetime
 
-LET bad AS DateTime = datetime::parseIso("2026-06-26T09:30:00")
+SUB main()
+  LET bad AS DateTime = datetime::parseIso("2026-06-26T09:30:00")
+END SUB
 ```
 
 ## See also

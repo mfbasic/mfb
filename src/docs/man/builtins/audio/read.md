@@ -105,9 +105,11 @@ Capture 100 ms of mono audio at 48 kHz, blocking until the full buffer is ready:
 ```
 IMPORT audio
 
-RES mic AS AudioInput = audio::openInput(48000, 1, 512)
-LET pcm = audio::read(mic, 4800)
-audio::close(mic)
+SUB main()
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET pcm = audio::read(mic, 4800)
+  audio::close(mic)
+END SUB
 ```
 
 Poll for whatever whole frames are already buffered, without blocking:
@@ -115,9 +117,11 @@ Poll for whatever whole frames are already buffered, without blocking:
 ```
 IMPORT audio
 
-RES mic AS AudioInput = audio::openInput(48000, 1, 512)
-LET now = audio::read(mic, 4800, 0)
-audio::close(mic)
+SUB main()
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET now = audio::read(mic, 4800, 0)
+  audio::close(mic)
+END SUB
 ```
 
 ## See also

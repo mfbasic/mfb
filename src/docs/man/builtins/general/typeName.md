@@ -70,20 +70,30 @@ other arity is rejected at compile time. [[src/builtins/general.rs:resolve_call]
 Show a primitive type:
 
 ```
-LET name AS String = typeName(42)
+SUB main()
+  LET name AS String = typeName(42)
+END SUB
 ```
 
 Composite types spell out their structure:
 
 ```
-LET kind AS String = typeName([1, 2, 3])
+SUB main()
+  LET kind AS String = typeName([1, 2, 3])
+END SUB
 ```
 
 Use in a diagnostic message:
 
 ```
+IMPORT io
+
 SUB logType(value AS String)
   io::print("type=" & typeName(value))
+END SUB
+
+SUB main()
+  logType("hello")
 END SUB
 ```
 

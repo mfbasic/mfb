@@ -73,27 +73,36 @@ Render a sub-day span:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET d AS Duration = datetime::duration(90)
-PRINT datetime::formatDuration(d)        ' 00:01:30.000
+SUB main()
+  LET d AS Duration = datetime::duration(90)
+  io::print(datetime::formatDuration(d))        ' 00:01:30.000
+END SUB
 ```
 
 Render a span that includes whole days:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET d AS Duration = datetime::duration(1, 2, 3, 4, 500_000_000)
-PRINT datetime::formatDuration(d)        ' 1d 02:03:04.500
+SUB main()
+  LET d AS Duration = datetime::duration(1, 2, 3, 4, 500_000_000)
+  io::print(datetime::formatDuration(d))        ' 1d 02:03:04.500
+END SUB
 ```
 
 A negative span is prefixed with a minus sign:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET d AS Duration = datetime::duration(-30)
-PRINT datetime::formatDuration(d)        ' -00:00:30.000
+SUB main()
+  LET d AS Duration = datetime::duration(-30)
+  io::print(datetime::formatDuration(d))        ' -00:00:30.000
+END SUB
 ```
 
 ## See also

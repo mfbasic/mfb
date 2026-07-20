@@ -34,13 +34,21 @@ No errors.
 Count up by two:
 
 ```
-FOR i = 1 TO 5 STEP 2 : io::print(toString(i)) : NEXT
+IMPORT io
+
+SUB main()
+  FOR i = 1 TO 5 STEP 2 : io::print(toString(i)) : NEXT
+END SUB
 ```
 
 Count down by two:
 
 ```
-FOR down = 5 TO 1 STEP -2 : io::print(toString(down)) : NEXT
+IMPORT io
+
+SUB main()
+  FOR down = 5 TO 1 STEP -2 : io::print(toString(down)) : NEXT
+END SUB
 ```
 
 ## See also

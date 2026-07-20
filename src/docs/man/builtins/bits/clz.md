@@ -55,17 +55,23 @@ Count the leading zeros of a small value:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::clz(255)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::clz(255)
+  io::print(toString(result))
+END SUB
 ```
 
 The all-zero pattern has 64 leading zeros:
 
 ```
 IMPORT bits
+IMPORT io
 
-PRINT bits::clz(0)
+SUB main()
+  io::print(toString(bits::clz(0)))
+END SUB
 ```
 
 ## See also

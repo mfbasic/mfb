@@ -85,12 +85,15 @@ Buffer a loop of small writes and let scope exit flush and close the handle:
 ```
 IMPORT fs
 
-RES log = fs::openFile("events.log", "write")
-fs::setBuffered(log, TRUE)
-FOR EACH event IN events
-  fs::writeAll(log, event & "\n")
-NEXT
-' log is flushed and closed automatically at scope exit
+SUB main()
+  LET events AS List OF String = ["started", "ready"]
+  RES log = fs::openFile("events.log", "write")
+  fs::setBuffered(log, TRUE)
+  FOR EACH event IN events
+    fs::writeAll(log, event & "\n")
+  NEXT
+  ' log is flushed and closed automatically at scope exit
+END SUB
 ```
 
 Enable buffering for a bulk write, then flush and disable it before durable work:
@@ -98,11 +101,15 @@ Enable buffering for a bulk write, then flush and disable it before durable work
 ```
 IMPORT fs
 
-RES out = fs::openFile("report.txt", "write")
-fs::setBuffered(out, TRUE)
-fs::writeAll(out, header)
-fs::writeAll(out, body)
-fs::setBuffered(out, FALSE)   ' drains the pending header and body, then disables
+SUB main()
+  LET header AS String = "id,name\n"
+  LET body AS String = "1,alice\n"
+  RES out = fs::openFile("report.txt", "write")
+  fs::setBuffered(out, TRUE)
+  fs::writeAll(out, header)
+  fs::writeAll(out, body)
+  fs::setBuffered(out, FALSE)   ' drains the pending header and body, then disables
+END SUB
 ```
 
 ## See also

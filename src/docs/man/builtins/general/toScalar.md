@@ -92,21 +92,30 @@ Convert unsupported values to one of these types explicitly first. [[src/builtin
 Convert a code point:
 
 ```
-LET a AS Scalar = toScalar(65)
+SUB main()
+  LET a AS Scalar = toScalar(65)
+END SUB
 ```
 
 Convert a one-scalar string, handling the fallible cases:
 
 ```
-LET s AS Scalar = toScalar("中") TRAP(err)
-  io::print("not a single scalar")
-END TRAP
+IMPORT io
+
+SUB main()
+  LET s AS Scalar = toScalar("中") TRAP(err)
+    io::print("not a single scalar")
+    RECOVER `?`
+  END TRAP
+END SUB
 ```
 
 Widen a Byte without failure:
 
 ```
-LET b AS Scalar = toScalar(toByte(122))
+SUB main()
+  LET b AS Scalar = toScalar(toByte(122))
+END SUB
 ```
 
 ## See also

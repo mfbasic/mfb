@@ -67,8 +67,10 @@ IMPORT os
 IMPORT io
 IMPORT collections
 
-LET env AS Map OF String TO String = os::environ()
-io::print(collections::getOr(env, "PATH", ""))
+SUB main()
+  LET env AS Map OF String TO String = os::environ()
+  io::print(collections::getOr(env, "PATH", ""))
+END SUB
 ```
 
 ## See also

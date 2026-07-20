@@ -31,10 +31,10 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("types", "mfb man types [topic]"),
     ("flow", "mfb man flow [topic]"),
     ("errors", "mfb man errors"),
+    ("errorCode", "mfb man errorCode"),
     ("link", "mfb man link"),
     ("general", "mfb man general [function]"),
     ("collections", "mfb man collections [function]"),
-    ("filters", "mfb man filters [function]"),
     ("strings", "mfb man strings [function]"),
     ("unicode", "mfb man unicode"),
     ("lambda", "mfb man lambda"),
@@ -253,6 +253,98 @@ fn first_synopsis_line(source: &'static str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Drift guard (bug-336-S12): every `[[path:Symbol]]` provenance citation in
+    /// the man corpus must name a file that exists, and — where a symbol is
+    /// given — a symbol that actually appears in it.
+    ///
+    /// The authoring instructions tell the writer to "grep-confirm the symbol
+    /// exists before citing". That is an instruction to a language model, not a
+    /// gate, and it did not hold: a sweep found `net/package.md` citing
+    /// `net.rs:record_fields_for_type`, a function that exists nowhere (the real
+    /// one is `builtin_type_fields`), and four more citations went stale when
+    /// bug-321 moved those functions into `linux_common`.
+    ///
+    /// The symbol check is a substring match, deliberately loose. It is meant to
+    /// catch a name that is simply absent, not to model Rust or MFBASIC scoping;
+    /// a citation whose symbol is a re-export or a macro-generated name should
+    /// pass rather than produce a false failure the next author learns to ignore.
+    #[test]
+    fn man_citations_resolve() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut broken = Vec::new();
+        let mut checked = 0usize;
+        for package in PACKAGES.iter() {
+            let pages = package
+                .page
+                .map(|p| ("package", p))
+                .into_iter()
+                .chain(generated_pages(package.name).iter().copied());
+            for (page_name, body) in pages {
+                for cite in citations(body) {
+                    checked += 1;
+                    let (file, symbol) = match cite.split_once(':') {
+                        Some((file, symbol)) => (file, Some(symbol)),
+                        None => (cite.as_str(), None),
+                    };
+                    let path = root.join(file);
+                    if !path.exists() {
+                        broken.push(format!(
+                            "{}/{page_name} -> [[{cite}]] (no such file)",
+                            package.name
+                        ));
+                        continue;
+                    }
+                    // A line-number citation has nothing to look up.
+                    let Some(symbol) = symbol.filter(|s| s.parse::<usize>().is_err()) else {
+                        continue;
+                    };
+                    let Ok(source) = std::fs::read_to_string(&path) else {
+                        continue;
+                    };
+                    if !source.contains(symbol) {
+                        broken.push(format!(
+                            "{}/{page_name} -> [[{cite}]] (`{symbol}` not in that file)",
+                            package.name
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            checked > 500,
+            "expected the full citation corpus, saw {checked}"
+        );
+        assert!(
+            broken.is_empty(),
+            "unresolvable man citations:\n{}",
+            broken.join("\n")
+        );
+    }
+
+    /// `[[path]]` / `[[path:Symbol]]` citations in a page.
+    ///
+    /// Excludes two shapes that are not citations and would otherwise be false
+    /// positives: a POSIX character class (`[[:alpha:]]`, in the regex pages) and
+    /// a nested list literal (`[["a", "b"]]`, in the csv pages).
+    fn citations(body: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = body;
+        while let Some(start) = rest.find("[[") {
+            let after = &rest[start + 2..];
+            let Some(end) = after.find("]]") else { break };
+            let inner = &after[..end];
+            rest = &after[end + 2..];
+            if inner.starts_with(':') || inner.contains(' ') || inner.contains('"') {
+                continue;
+            }
+            if !inner.contains('/') {
+                continue;
+            }
+            out.push(inner.to_string());
+        }
+        out
+    }
 
     #[test]
     fn markdown_pages_open_with_a_heading() {

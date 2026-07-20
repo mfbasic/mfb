@@ -68,16 +68,20 @@ No errors.
 Guard a parse so a malformed string never traps:
 
 ```
-IF isNumeric("42") THEN
-  LET value AS Float = toFloat("42")
-END IF
+SUB main()
+  IF isNumeric("42") THEN
+    LET value AS Float = toFloat("42")
+  END IF
+END SUB
 ```
 
 Signs and exponents are accepted; stray characters are not:
 
 ```
-LET ok AS Boolean = isNumeric("-1.5e3")
-LET bad AS Boolean = isNumeric("12.x")
+SUB main()
+  LET ok AS Boolean = isNumeric("-1.5e3")
+  LET bad AS Boolean = isNumeric("12.x")
+END SUB
 ```
 
 ## See also

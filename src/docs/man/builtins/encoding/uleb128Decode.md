@@ -65,9 +65,12 @@ Round-trip a value through `uleb128Encode` and back:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::uleb128Encode(624485)
-io::print(encoding::uleb128Decode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::uleb128Encode(624485)
+  io::print(toString(encoding::uleb128Decode(bytes)))
+END SUB
 ```
 
 Decode a literal two-byte sequence (`300` = `[0xAC, 0x02]`):
@@ -75,11 +78,14 @@ Decode a literal two-byte sequence (`300` = `[0xAC, 0x02]`):
 ```
 IMPORT encoding
 IMPORT collections
+IMPORT io
 
-MUT bytes AS List OF Byte = []
-bytes = collections::append(bytes, toByte(172))
-bytes = collections::append(bytes, toByte(2))
-io::print(encoding::uleb128Decode(bytes))
+SUB main()
+  MUT bytes AS List OF Byte = []
+  bytes = collections::append(bytes, toByte(172))
+  bytes = collections::append(bytes, toByte(2))
+  io::print(toString(encoding::uleb128Decode(bytes)))
+END SUB
 ```
 
 ## See also

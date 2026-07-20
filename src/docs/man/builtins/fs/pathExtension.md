@@ -77,7 +77,9 @@ A file name with an extension yields the extension:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathExtension("target/output.txt"))
+SUB main()
+  io::print(fs::pathExtension("target/output.txt"))
+END SUB
 ```
 
 Only the final extension is returned:
@@ -86,7 +88,9 @@ Only the final extension is returned:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathExtension("archive.tar.gz"))
+SUB main()
+  io::print(fs::pathExtension("archive.tar.gz"))
+END SUB
 ```
 
 A component with no `.` yields an empty `String`:
@@ -95,7 +99,9 @@ A component with no `.` yields an empty `String`:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathExtension("README"))
+SUB main()
+  io::print(fs::pathExtension("README"))
+END SUB
 ```
 
 A `.` in an earlier component is ignored:
@@ -104,7 +110,9 @@ A `.` in an earlier component is ignored:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathExtension("lib.d/output"))
+SUB main()
+  io::print(fs::pathExtension("lib.d/output"))
+END SUB
 ```
 
 A dotfile name is returned whole:
@@ -113,7 +121,9 @@ A dotfile name is returned whole:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathExtension(".bashrc"))
+SUB main()
+  io::print(fs::pathExtension(".bashrc"))
+END SUB
 ```
 
 ## See also

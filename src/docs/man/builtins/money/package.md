@@ -41,14 +41,12 @@ under the current mode ("compute at five places, book at two"). It stays a
 `Money`; contrast `math::round(Money)`, which exits the dimension to the
 dimensionless whole-unit `Integer` count with a fixed half-away rule.
 
-## Functions
+## Errors
 
-- `setRounding(mode)` — set the current Money rounding mode.
-- `getRounding()` — read the current Money rounding mode.
-- `round(value, decimals)` — settle a Money to `decimals` places under the mode.
+| Code | Name | Raised when |
+| --- | --- | --- |
+| `77050002` | `ErrInvalidArgument` | `money::round` is given a `decimals` outside `0..5`. `5` is the identity, since `Money` is scaled to five decimal places. [[src/target/shared/code/builder_money.rs:lower_money_round]] |
+| `77050010` | `ErrOverflow` | `money::round` settles an amount near the representable maximum upward and the rescaled result no longer fits the `Money` range. [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
 
-## See Also
-
-- `mfb man types numeric`
-- `mfb man general toMoney`
-- `mfb man math round`
+`money::setRounding` and `money::getRounding` raise no errors: the mode is an
+enum the type checker has already constrained, and reading it cannot fail.

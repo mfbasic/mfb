@@ -90,24 +90,30 @@ Check for lost audio after a playback loop:
 IMPORT audio
 IMPORT io
 
-RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
-audio::write(out, pcm)
-io::print("underruns: " & toString(audio::xruns(out)))
-audio::close(out)
+SUB main()
+  RES out AS AudioOutput = audio::openOutput(48000, 2, 512)
+  LET pcm AS List OF Byte = [0, 0, 0, 0]
+  audio::write(out, pcm)
+  io::print("underruns: " & toString(audio::xruns(out)))
+  audio::close(out)
+END SUB
 ```
 
 Detect a capture overrun and report the delta across a read:
 
 ```
 IMPORT audio
+IMPORT io
 
-RES mic AS AudioInput = audio::openInput(48000, 1, 512)
-LET before = audio::xruns(mic)
-LET pcm = audio::read(mic, 480, 0)
-IF audio::xruns(mic) > before THEN
-  io::print("dropped capture audio")
-END IF
-audio::close(mic)
+SUB main()
+  RES mic AS AudioInput = audio::openInput(48000, 1, 512)
+  LET before = audio::xruns(mic)
+  LET pcm = audio::read(mic, 480, 0)
+  IF audio::xruns(mic) > before THEN
+    io::print("dropped capture audio")
+  END IF
+  audio::close(mic)
+END SUB
 ```
 
 ## See also

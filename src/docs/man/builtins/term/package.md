@@ -67,4 +67,14 @@ result. [[src/builtins/term.rs:builtin_type_fields]]
 
 ## Errors
 
-No errors.
+| Code | Name | Raised when |
+| --- | --- | --- |
+| `77010001` | `ErrOutOfMemory` | `term::on` cannot allocate the shadow grid, or `term::getForeground`/`getBackground` cannot allocate the 24-byte `TermColor` record they return. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
+| `77050007` | `ErrUnsupported` | `term::terminalSize` is called while TUI mode is off, the size ioctl fails, or the host reports zero rows or columns. [[src/target/shared/code/error_constants.rs:ERR_UNSUPPORTED_CODE]] |
+
+Every other `term::` function is infallible. The writers mutate the back buffer
+and cannot fail; the remaining readers return an inert default while TUI mode is
+off rather than raising. `term::terminalSize` is the one exception — there is no
+sensible inert size — which is why it is the only reader with an error.
+Per-function conditions are on each function's own page; run
+`mfb man term <function>`.

@@ -56,9 +56,11 @@ Branch on the presence of a variable:
 IMPORT os
 IMPORT io
 
-IF os::hasEnv("CI") THEN
-  io::print("running in CI")
-END IF
+SUB main()
+  IF os::hasEnv("CI") THEN
+    io::print("running in CI")
+  END IF
+END SUB
 ```
 
 ## See also

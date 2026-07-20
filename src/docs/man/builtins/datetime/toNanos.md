@@ -73,7 +73,9 @@ Epoch nanoseconds of the current instant:
 ```
 IMPORT datetime
 
-LET ns AS Integer = datetime::toNanos(datetime::now())
+SUB main()
+  LET ns AS Integer = datetime::toNanos(datetime::now())
+END SUB
 ```
 
 Compare two instants at nanosecond resolution:
@@ -81,9 +83,11 @@ Compare two instants at nanosecond resolution:
 ```
 IMPORT datetime
 
-LET a AS Integer = datetime::toNanos(datetime::now())
-LET b AS Integer = datetime::toNanos(datetime::now())
-LET elapsed AS Integer = b - a
+SUB main()
+  LET a AS Integer = datetime::toNanos(datetime::now())
+  LET b AS Integer = datetime::toNanos(datetime::now())
+  LET elapsed AS Integer = b - a
+END SUB
 ```
 
 ## See also

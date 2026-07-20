@@ -72,7 +72,9 @@ Redundant separators and `.` components are removed:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathNormalize("target//a/./file.txt"))
+SUB main()
+  io::print(fs::pathNormalize("target//a/./file.txt"))
+END SUB
 ```
 
 A `..` component cancels the preceding component:
@@ -81,7 +83,9 @@ A `..` component cancels the preceding component:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathNormalize("/usr/local/../bin"))
+SUB main()
+  io::print(fs::pathNormalize("/usr/local/../bin"))
+END SUB
 ```
 
 Normalizing to nothing yields `"."`:
@@ -90,7 +94,9 @@ Normalizing to nothing yields `"."`:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathNormalize("a/b/../.."))
+SUB main()
+  io::print(fs::pathNormalize("a/b/../.."))
+END SUB
 ```
 
 ## See also

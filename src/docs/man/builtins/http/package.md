@@ -73,7 +73,7 @@ response carries no body). The body is decoded as UTF-8 text. Redirects are
 returned as-is (`ok` is FALSE and the location is in `resp.headers`) rather than
 followed. [[src/builtins/http_package.mfb:__http_buildRequest]]
 
-## Server
+### Server
 
 The `http` package also provides a single-threaded, blocking, user-driven HTTP
 server. A program obtains a listener with `http::server(port, host, backlog)`

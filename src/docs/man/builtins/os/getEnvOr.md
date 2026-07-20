@@ -64,8 +64,10 @@ Read an optional variable with a default:
 IMPORT os
 IMPORT io
 
-LET level AS String = os::getEnvOr("LOG_LEVEL", "info")
-io::print(level)
+SUB main()
+  LET level AS String = os::getEnvOr("LOG_LEVEL", "info")
+  io::print(level)
+END SUB
 ```
 
 ## See also

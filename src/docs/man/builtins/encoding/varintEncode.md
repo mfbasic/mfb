@@ -66,19 +66,25 @@ Encode a signed value and round-trip it back through `varintDecode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::varintEncode(-75)
-io::print(encoding::varintDecode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::varintEncode(-75)
+  io::print(toString(encoding::varintDecode(bytes)))
+END SUB
 ```
 
 Small-magnitude values, positive or negative, fit in a single byte:
 
 ```
 IMPORT encoding
+IMPORT io
 
-io::print(len(encoding::varintEncode(0)))
-io::print(len(encoding::varintEncode(-1)))
-io::print(len(encoding::varintEncode(63)))
+SUB main()
+  io::print(toString(len(encoding::varintEncode(0))))
+  io::print(toString(len(encoding::varintEncode(-1))))
+  io::print(toString(len(encoding::varintEncode(63))))
+END SUB
 ```
 
 ## See also

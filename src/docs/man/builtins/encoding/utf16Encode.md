@@ -65,18 +65,24 @@ Encode a string to its UTF-16 code units:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET units AS List OF Integer = encoding::utf16Encode("hello")
-io::print(toString(len(units)))
+SUB main()
+  LET units AS List OF Integer = encoding::utf16Encode("hello")
+  io::print(toString(len(units)))
+END SUB
 ```
 
 Round-trip an astral scalar (an emoji) through UTF-16:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET units AS List OF Integer = encoding::utf16Encode("😀")
-io::print(encoding::utf16Decode(units))
+SUB main()
+  LET units AS List OF Integer = encoding::utf16Encode("😀")
+  io::print(encoding::utf16Decode(units))
+END SUB
 ```
 
 ## See also

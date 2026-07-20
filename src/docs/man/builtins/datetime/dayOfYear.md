@@ -68,10 +68,12 @@ Find the day-of-year of a civil date in the local zone:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
-LET tm AS Time = datetime::time(9, 30)
-LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
-LET n AS Integer = datetime::dayOfYear(dt)
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+  LET tm AS Time = datetime::time(9, 30)
+  LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+  LET n AS Integer = datetime::dayOfYear(dt)
+END SUB
 ```
 
 Compute how many days remain in the year:
@@ -79,11 +81,14 @@ Compute how many days remain in the year:
 ```
 IMPORT datetime
 
-LET total AS Integer = 365
-IF datetime::isLeapYear(dt.date.year) THEN
-  total = 366
-END IF
-LET remaining AS Integer = total - datetime::dayOfYear(dt)
+SUB main()
+  LET dt AS DateTime = datetime::civil(datetime::date(2026, 6, 26), datetime::time(9, 30), datetime::local())
+  MUT total AS Integer = 365
+  IF datetime::isLeapYear(dt.date.year) THEN
+    total = 366
+  END IF
+  LET remaining AS Integer = total - datetime::dayOfYear(dt)
+END SUB
 ```
 
 ## See also

@@ -129,33 +129,43 @@ types explicitly first. [[src/builtins/general.rs:resolve_call]] [[src/builtins/
 Parse base-10 text:
 
 ```
-LET value AS Integer = toInt("42")
+SUB main()
+  LET value AS Integer = toInt("42")
+END SUB
 ```
 
 Parse hexadecimal text:
 
 ```
-LET value AS Integer = toInt("ff", 16)
+SUB main()
+  LET value AS Integer = toInt("ff", 16)
+END SUB
 ```
 
 Widen a Byte:
 
 ```
-LET b AS Byte = 65
-LET wide AS Integer = toInt(b)
+SUB main()
+  LET b AS Byte = 65
+  LET wide AS Integer = toInt(b)
+END SUB
 ```
 
 Truncate a Float toward zero:
 
 ```
-LET value AS Integer = toInt(3.9)
+SUB main()
+  LET value AS Integer = toInt(3.9)
+END SUB
 ```
 
 Truncate a Fixed value:
 
 ```
-LET amount AS Fixed = toFixed("12.75")
-LET whole AS Integer = toInt(amount)
+SUB main()
+  LET amount AS Fixed = toFixed("12.75")
+  LET whole AS Integer = toInt(amount)
+END SUB
 ```
 
 ## See also

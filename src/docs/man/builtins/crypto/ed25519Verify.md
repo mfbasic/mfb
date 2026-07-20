@@ -84,12 +84,15 @@ Generate a key, sign a message, and verify the signature:
 ```
 IMPORT crypto
 IMPORT strings
+IMPORT io
 
-LET kp AS crypto::KeyPair = crypto::generateEd25519()
-LET message AS List OF Byte = strings::toBytes("attack at dawn")
-LET sig AS List OF Byte = crypto::ed25519Sign(kp.privateKey, message)
-LET ok AS Boolean = crypto::ed25519Verify(kp.publicKey, message, sig)
-PRINT ok
+SUB main()
+  LET kp AS crypto::KeyPair = crypto::generateEd25519()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET sig AS List OF Byte = crypto::ed25519Sign(kp.privateKey, message)
+  LET ok AS Boolean = crypto::ed25519Verify(kp.publicKey, message, sig)
+  io::print(toString(ok))
+END SUB
 ```
 
 A tampered message fails verification (returns `FALSE`, not an error):
@@ -97,10 +100,16 @@ A tampered message fails verification (returns `FALSE`, not an error):
 ```
 IMPORT crypto
 IMPORT strings
+IMPORT io
 
-LET altered AS List OF Byte = strings::toBytes("attack at dusk")
-LET bad AS Boolean = crypto::ed25519Verify(kp.publicKey, altered, sig)
-PRINT bad
+SUB main()
+  LET kp AS crypto::KeyPair = crypto::generateEd25519()
+  LET message AS List OF Byte = strings::toBytes("attack at dawn")
+  LET sig AS List OF Byte = crypto::ed25519Sign(kp.privateKey, message)
+  LET altered AS List OF Byte = strings::toBytes("attack at dusk")
+  LET bad AS Boolean = crypto::ed25519Verify(kp.publicKey, altered, sig)
+  io::print(toString(bad))
+END SUB
 ```
 
 ## See also

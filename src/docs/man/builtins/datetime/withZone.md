@@ -82,9 +82,11 @@ Re-project a UTC `DateTime` into a fixed +05:30 zone:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
-LET z AS Zone = datetime::fixedOffset(5, 30)
-LET shifted AS DateTime = datetime::withZone(dt, z)
+SUB main()
+  LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
+  LET z AS Zone = datetime::fixedOffset(5, 30)
+  LET shifted AS DateTime = datetime::withZone(dt, z)
+END SUB
 ```
 
 Convert a `DateTime` to the host's local zone without changing the instant:
@@ -92,8 +94,10 @@ Convert a `DateTime` to the host's local zone without changing the instant:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
-LET local AS DateTime = datetime::withZone(dt, datetime::local())
+SUB main()
+  LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
+  LET local AS DateTime = datetime::withZone(dt, datetime::local())
+END SUB
 ```
 
 ## See also

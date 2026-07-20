@@ -69,18 +69,24 @@ Encode a Unicode hostname to Punycode:
 
 ```
 IMPORT encoding
+IMPORT io
 
-io::print(encoding::punycodeEncode("bücher.example"))
+SUB main()
+  io::print(encoding::punycodeEncode("bücher.example"))
+END SUB
 ```
 
 Round-trip through `punycodeDecode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET ace AS String = encoding::punycodeEncode("münchen.de")
-io::print(ace)
-io::print(encoding::punycodeDecode(ace))
+SUB main()
+  LET ace AS String = encoding::punycodeEncode("münchen.de")
+  io::print(ace)
+  io::print(encoding::punycodeDecode(ace))
+END SUB
 ```
 
 ## See also

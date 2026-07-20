@@ -550,7 +550,14 @@ mod tests {
     use super::*;
 
     /// Every documented builtin, as `package.function`, read from the man pages
-    /// (`src/docs/man/builtins/<package>/<function>.txt`).
+    /// (`src/docs/man/builtins/<package>/<function>.{md,txt}`).
+    ///
+    /// Both extensions, deliberately. This used to filter on `txt` alone, so the
+    /// migrated Markdown pages — by then most of the corpus — were checked by
+    /// nothing, and the `> 100` floor hid it: the metric was **inverted**, since
+    /// every page migrated shrank the guarded set while the assertion kept
+    /// passing (bug-336-S3). The floor is now an exact-ish lower bound on the
+    /// whole corpus rather than a number the legacy half alone could satisfy.
     fn documented_builtins() -> Vec<String> {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/docs/man/builtins");
         let mut names = Vec::new();
@@ -564,16 +571,28 @@ mod tests {
             }
             for page in std::fs::read_dir(&package).expect("package dir") {
                 let page = page.expect("man page").path();
-                if page.extension().and_then(|ext| ext.to_str()) != Some("txt") {
+                if !matches!(
+                    page.extension().and_then(|ext| ext.to_str()),
+                    Some("txt") | Some("md")
+                ) {
                     continue;
                 }
                 let Some(function) = page.file_stem().and_then(|name| name.to_str()) else {
                     continue;
                 };
+                // `package.md` is the package overview, not a function page, and
+                // `types.md` is a package's consolidated type page.
+                if matches!(function, "package" | "types") {
+                    continue;
+                }
                 names.push(format!("{package_name}.{function}"));
             }
         }
-        assert!(names.len() > 100, "expected the full builtin man corpus");
+        assert!(
+            names.len() > 400,
+            "expected the full builtin man corpus, got {} pages",
+            names.len()
+        );
         names
     }
 

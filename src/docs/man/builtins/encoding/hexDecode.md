@@ -63,20 +63,26 @@ Decode a hex string to bytes and back to text:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET bytes AS List OF Byte = encoding::hexDecode("68656c6c6f")
-io::print(encoding::utf8Decode(bytes))
+SUB main()
+  LET bytes AS List OF Byte = encoding::hexDecode("68656c6c6f")
+  io::print(encoding::utf8Decode(bytes))
+END SUB
 ```
 
 Round-trip through `hexEncode`, mixing digit case on input:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hi")
-LET hex AS String = encoding::hexEncode(raw)
-io::print(hex)
-io::print(encoding::utf8Decode(encoding::hexDecode("6869")))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hi")
+  LET hex AS String = encoding::hexEncode(raw)
+  io::print(hex)
+  io::print(encoding::utf8Decode(encoding::hexDecode("6869")))
+END SUB
 ```
 
 ## See also

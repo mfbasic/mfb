@@ -68,9 +68,12 @@ Arithmetic shift of a negative value preserves its sign (signed divide by 16):
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::sra(-256, 4)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::sra(-256, 4)
+  io::print(toString(result))
+END SUB
 ```
 
 Sign-extend the low byte of a packed field by shifting it up to bit 63 and back
@@ -78,10 +81,13 @@ down:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET byte AS Integer = 0x80
-LET signed AS Integer = bits::sra(bits::sl(byte, 56), 56)
-PRINT signed
+SUB main()
+  LET byte AS Integer = 0x80
+  LET signed AS Integer = bits::sra(bits::sl(byte, 56), 56)
+  io::print(toString(signed))
+END SUB
 ```
 
 ## See also

@@ -104,9 +104,11 @@ Open the default mono output at 48 kHz and play a short MML tune:
 ```
 IMPORT audio
 
-RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
-audio::play(out, "T120 O4 L8 I sine C E G")
-audio::close(out)
+SUB main()
+  RES out AS AudioOutput = audio::openOutput(48000, 1, 512)
+  audio::play(out, "T120 O4 L8 I sine C E G")
+  audio::close(out)
+END SUB
 ```
 
 Open a specific output device chosen from the enumerated list:
@@ -114,13 +116,15 @@ Open a specific output device chosen from the enumerated list:
 ```
 IMPORT audio
 
-FOR EACH d IN audio::devices()
-  IF d.isDefaultOutput THEN
-    RES out AS AudioOutput = audio::openOutput(d, 48000, 2, 512)
-    audio::play(out, "cde")
-    audio::close(out)
-  END IF
-NEXT
+SUB main()
+  FOR EACH d IN audio::devices()
+    IF d.isDefaultOutput THEN
+      RES out AS AudioOutput = audio::openOutput(d, 48000, 2, 512)
+      audio::play(out, "cde")
+      audio::close(out)
+    END IF
+  NEXT
+END SUB
 ```
 
 ## See also

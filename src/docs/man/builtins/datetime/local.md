@@ -75,7 +75,9 @@ Obtain the local zone:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::local()
+SUB main()
+  LET z AS Zone = datetime::local()
+END SUB
 ```
 
 Project the current instant into the local zone to read its civil fields:
@@ -83,8 +85,10 @@ Project the current instant into the local zone to read its civil fields:
 ```
 IMPORT datetime
 
-LET t AS Instant = datetime::now()
-LET here AS DateTime = datetime::inZone(t, datetime::local())
+SUB main()
+  LET t AS Instant = datetime::now()
+  LET here AS DateTime = datetime::inZone(t, datetime::local())
+END SUB
 ```
 
 Combine a date and time into a `DateTime` in the local zone:
@@ -92,9 +96,11 @@ Combine a date and time into a `DateTime` in the local zone:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
-LET tm AS Time = datetime::time(9, 30)
-LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+  LET tm AS Time = datetime::time(9, 30)
+  LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+END SUB
 ```
 
 ## See also

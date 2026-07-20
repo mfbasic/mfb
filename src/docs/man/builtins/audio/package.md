@@ -44,7 +44,7 @@ because ALSA cannot report how many frames an xrun destroyed. `audio::devices()`
 reports no channel counts or supported sample rates: a caller discovers a working
 configuration by attempting to open a stream and handling the error.
 
-## Platform availability
+### Platform availability
 
 macOS drives Core Audio's `AudioQueue`; Linux drives ALSA's blocking PCM API
 through a `libasound.so.2` resolved at runtime with `dlopen` — so a binary that
@@ -52,23 +52,12 @@ imports `audio` still starts on a Linux host without alsa-lib, and every
 `audio::` call there raises `ErrAudioUnavailable`. A program that does not
 `IMPORT audio` gains no audio symbol and no dynamic-library dependency.
 
-## Members
+## Errors
 
-- `audio::devices` — enumerate the audio devices
-- `audio::openInput` — open a capture stream
-- `audio::openOutput` — open a playback stream
-- `audio::read` — capture PCM frames
-- `audio::write` — play PCM frames
-- `audio::poll` — test a stream for readiness
-- `audio::available` — frames readable/writable without blocking
-- `audio::xruns` — cumulative overrun/underrun event count
-- `audio::close` — close a stream
-- `audio::render` — synthesize an `AudioNote` to raw PCM
-- `audio::play` — parse and play MML music
+| Code | Name | Raised when |
+| --- | --- | --- |
+| `77050017` | `ErrAudioUnavailable` | the audio backend cannot be used at all — no `libasound.so.2` on Linux, no audio device present, or capture authorization denied. [[src/target/shared/code/error_constants.rs:ERR_AUDIO_UNAVAILABLE_CODE]] |
+| `77050018` | `ErrAudioDevice` | a device is present but the requested operation on it failed. [[src/target/shared/code/error_constants.rs:ERR_AUDIO_DEVICE_CODE]] |
 
-## See also
-
-- `mfb man audio types`
-- `mfb man audio devices`
-- `mfb man audio openOutput`
-- `mfb man audio read`
+Per-function conditions are on each function's own page; run
+`mfb man audio <function>`.

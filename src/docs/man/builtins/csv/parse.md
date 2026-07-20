@@ -76,14 +76,20 @@ Parse a two-column document with a quoted cell:
 
 ```
 IMPORT csv
-LET doc AS List OF List OF String = csv::parse("name,age\nAda,36")
+
+SUB main()
+  LET doc AS List OF List OF String = csv::parse("name,age\nAda,36")
+END SUB
 ```
 
 Pass the argument by name:
 
 ```
 IMPORT csv
-LET rows AS List OF List OF String = csv::parse(text := "a,b,c")
+
+SUB main()
+  LET rows AS List OF List OF String = csv::parse(text := "a,b,c")
+END SUB
 ```
 
 ## See also

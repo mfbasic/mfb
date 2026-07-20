@@ -263,10 +263,12 @@ Match, locate, and rewrite with patterns (note the doubled backslashes):
 ```
 IMPORT regex
 
-LET hasDigit AS Boolean = regex::match("abc123", "\\d")
-LET at AS Integer = regex::find("a1b2c3", "\\d")
-LET all AS List OF Integer = regex::findAll("a1b2c3", "\\d")
-LET ymd AS String = regex::replace("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1")
+SUB main()
+  LET hasDigit AS Boolean = regex::match("abc123", "\\d")
+  LET at AS Integer = regex::find("a1b2c3", "\\d")
+  LET all AS List OF Integer = regex::findAll("a1b2c3", "\\d")
+  LET ymd AS String = regex::replace("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1")
+END SUB
 ```
 
 Anchors, classes, and a case-insensitive flag:
@@ -274,8 +276,10 @@ Anchors, classes, and a case-insensitive flag:
 ```
 IMPORT regex
 
-LET isHex AS Boolean = regex::match("1a2f", "^[0-9a-f]+$")
-LET isHello AS Boolean = regex::match("HELLO", "(?i)^hello$")
+SUB main()
+  LET isHex AS Boolean = regex::match("1a2f", "^[0-9a-f]+$")
+  LET isHello AS Boolean = regex::match("HELLO", "(?i)^hello$")
+END SUB
 ```
 
 Greedy versus lazy:
@@ -283,8 +287,10 @@ Greedy versus lazy:
 ```
 IMPORT regex
 
-LET greedy AS Integer = regex::find("<a><b>", "<.*>")    matches the whole span
-LET lazy AS Integer = regex::find("<a><b>", "<.*?>")     matches just <a>
+SUB main()
+  LET greedy AS Integer = regex::find("<a><b>", "<.*>")    ' matches the whole span
+  LET lazy AS Integer = regex::find("<a><b>", "<.*?>")     ' matches just <a>
+END SUB
 ```
 
 ## See also

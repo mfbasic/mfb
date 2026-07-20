@@ -70,7 +70,9 @@ Construct a valid date:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+END SUB
 ```
 
 Combine a date and time into a zoned `DateTime`:
@@ -78,9 +80,11 @@ Combine a date and time into a zoned `DateTime`:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
-LET t AS Time = datetime::time(9, 30)
-LET dt AS DateTime = datetime::civil(d, t, datetime::utc())
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+  LET t AS Time = datetime::time(9, 30)
+  LET dt AS DateTime = datetime::civil(d, t, datetime::utc())
+END SUB
 ```
 
 An impossible calendar date raises `ErrInvalidArgument`:
@@ -88,7 +92,9 @@ An impossible calendar date raises `ErrInvalidArgument`:
 ```
 IMPORT datetime
 
-LET bad AS Date = datetime::date(2026, 2, 29)
+SUB main()
+  LET bad AS Date = datetime::date(2026, 2, 29)
+END SUB
 ```
 
 ## See also

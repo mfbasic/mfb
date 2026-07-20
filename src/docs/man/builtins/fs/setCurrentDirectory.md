@@ -89,8 +89,10 @@ Move into a subdirectory and back up to the parent:
 ```
 IMPORT fs
 
-fs::setCurrentDirectory("tests")
-fs::setCurrentDirectory("..")
+SUB main()
+  fs::setCurrentDirectory("tests")
+  fs::setCurrentDirectory("..")
+END SUB
 ```
 
 Confirm the move by reading the working directory back:
@@ -99,9 +101,11 @@ Confirm the move by reading the working directory back:
 IMPORT fs
 IMPORT io
 
-fs::setCurrentDirectory("target")
-LET here AS String = fs::currentDirectory()
-io::print(here)
+SUB main()
+  fs::setCurrentDirectory("target")
+  LET here AS String = fs::currentDirectory()
+  io::print(here)
+END SUB
 ```
 
 ## See also

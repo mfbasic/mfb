@@ -110,25 +110,33 @@ these types explicitly first. [[src/builtins/general.rs:resolve_call]] [[src/bui
 Parse decimal text:
 
 ```
-LET amount AS Fixed = toFixed("2.25")
+SUB main()
+  LET amount AS Fixed = toFixed("2.25")
+END SUB
 ```
 
 Parse text with a scientific exponent:
 
 ```
-LET small AS Fixed = toFixed("1.5e-2")
+SUB main()
+  LET small AS Fixed = toFixed("1.5e-2")
+END SUB
 ```
 
 Convert an Integer:
 
 ```
-LET amount AS Fixed = toFixed(10)
+SUB main()
+  LET amount AS Fixed = toFixed(10)
+END SUB
 ```
 
 Convert a Float:
 
 ```
-LET amount AS Fixed = toFixed(1.5)
+SUB main()
+  LET amount AS Fixed = toFixed(1.5)
+END SUB
 ```
 
 ## See also

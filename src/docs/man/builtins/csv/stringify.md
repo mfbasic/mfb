@@ -71,14 +71,20 @@ Serialize a grid, quoting only the cell that needs it:
 
 ```
 IMPORT csv
-LET text AS String = csv::stringify([["name", "age"], ["Grace", "Hop,per"]])
+
+SUB main()
+  LET text AS String = csv::stringify([["name", "age"], ["Grace", "Hop,per"]])
+END SUB
 ```
 
 Pass the argument by name:
 
 ```
 IMPORT csv
-LET out AS String = csv::stringify(value := [["a", "b"]])
+
+SUB main()
+  LET out AS String = csv::stringify(value := [["a", "b"]])
+END SUB
 ```
 
 ## See also

@@ -70,7 +70,9 @@ Capture the current instant:
 ```
 IMPORT datetime
 
-LET t AS Instant = datetime::now()
+SUB main()
+  LET t AS Instant = datetime::now()
+END SUB
 ```
 
 Project the current instant into the local zone to read civil fields:
@@ -78,8 +80,10 @@ Project the current instant into the local zone to read civil fields:
 ```
 IMPORT datetime
 
-LET t AS Instant = datetime::now()
-LET here AS DateTime = datetime::toLocal(t)
+SUB main()
+  LET t AS Instant = datetime::now()
+  LET here AS DateTime = datetime::toLocal(t)
+END SUB
 ```
 
 ## See also

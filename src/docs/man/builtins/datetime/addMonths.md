@@ -78,8 +78,10 @@ Advance a `DateTime` by one month:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toUtc(datetime::now())
-LET nextMonth AS DateTime = datetime::addMonths(dt, 1)
+SUB main()
+  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET nextMonth AS DateTime = datetime::addMonths(dt, 1)
+END SUB
 ```
 
 A negative count moves the date earlier, and an overlong day clamps to the end of
@@ -88,9 +90,11 @@ the shorter month:
 ```
 IMPORT datetime
 
-LET jan31 AS DateTime = datetime::civil(datetime::date(2025, 1, 31), datetime::time(9, 0, 0), datetime::utc())
-LET feb28 AS DateTime = datetime::addMonths(jan31, 1)
-LET lastYear AS DateTime = datetime::addMonths(jan31, -12)
+SUB main()
+  LET jan31 AS DateTime = datetime::civil(datetime::date(2025, 1, 31), datetime::time(9, 0, 0), datetime::utc())
+  LET feb28 AS DateTime = datetime::addMonths(jan31, 1)
+  LET lastYear AS DateTime = datetime::addMonths(jan31, -12)
+END SUB
 ```
 
 ## See also

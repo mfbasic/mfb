@@ -55,7 +55,9 @@ Print the platform:
 IMPORT os
 IMPORT io
 
-io::print(os::name() & "/" & os::arch())
+SUB main()
+  io::print(os::name() & "/" & os::arch())
+END SUB
 ```
 
 ## See also

@@ -73,7 +73,9 @@ A directory and a file name yield the file name:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathBaseName("target/output.txt"))
+SUB main()
+  io::print(fs::pathBaseName("target/output.txt"))
+END SUB
 ```
 
 The final component of an absolute path:
@@ -82,7 +84,9 @@ The final component of an absolute path:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathBaseName("/usr/local/bin"))
+SUB main()
+  io::print(fs::pathBaseName("/usr/local/bin"))
+END SUB
 ```
 
 A trailing separator is ignored before the component is located:
@@ -91,7 +95,9 @@ A trailing separator is ignored before the component is located:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathBaseName("/usr/local/bin/"))
+SUB main()
+  io::print(fs::pathBaseName("/usr/local/bin/"))
+END SUB
 ```
 
 A path with no separator is returned unchanged:
@@ -100,7 +106,9 @@ A path with no separator is returned unchanged:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathBaseName("output.txt"))
+SUB main()
+  io::print(fs::pathBaseName("output.txt"))
+END SUB
 ```
 
 The root path yields itself:
@@ -109,7 +117,9 @@ The root path yields itself:
 IMPORT fs
 IMPORT io
 
-io::print(fs::pathBaseName("/"))
+SUB main()
+  io::print(fs::pathBaseName("/"))
+END SUB
 ```
 
 ## See also

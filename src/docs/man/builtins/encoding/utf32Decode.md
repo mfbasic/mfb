@@ -66,17 +66,23 @@ Decode UTF-32 code points back to text:
 
 ```
 IMPORT encoding
+IMPORT io
 
-io::print(encoding::utf32Decode([104, 105]))
+SUB main()
+  io::print(encoding::utf32Decode([104, 105]))
+END SUB
 ```
 
 Round-trip an astral scalar (an emoji) through UTF-32:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET points AS List OF Integer = encoding::utf32Encode("😀")
-io::print(encoding::utf32Decode(points))
+SUB main()
+  LET points AS List OF Integer = encoding::utf32Encode("😀")
+  io::print(encoding::utf32Decode(points))
+END SUB
 ```
 
 ## See also

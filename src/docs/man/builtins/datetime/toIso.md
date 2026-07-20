@@ -67,8 +67,10 @@ Render the current instant in UTC, yielding a `...Z` suffix:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toUtc(datetime::now())
-LET text AS String = datetime::toIso(dt)
+SUB main()
+  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET text AS String = datetime::toIso(dt)
+END SUB
 ```
 
 Render a fixed-offset moment, yielding a signed offset suffix:
@@ -76,9 +78,11 @@ Render a fixed-offset moment, yielding a signed offset suffix:
 ```
 IMPORT datetime
 
-LET z AS Zone = datetime::fixedOffset(5, 30)
-LET dt AS DateTime = datetime::parse("2026-06-25 14:30:00", "yyyy-MM-dd HH:mm:ss", z)
-LET text AS String = datetime::toIso(dt)
+SUB main()
+  LET z AS Zone = datetime::fixedOffset(5, 30)
+  LET dt AS DateTime = datetime::parse("2026-06-25 14:30:00", "yyyy-MM-dd HH:mm:ss", z)
+  LET text AS String = datetime::toIso(dt)
+END SUB
 ```
 
 Round-trip a timestamp through `toIso` and `parseIso`:
@@ -86,8 +90,10 @@ Round-trip a timestamp through `toIso` and `parseIso`:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toUtc(datetime::now())
-LET back AS DateTime = datetime::parseIso(datetime::toIso(dt))
+SUB main()
+  LET dt AS DateTime = datetime::toUtc(datetime::now())
+  LET back AS DateTime = datetime::parseIso(datetime::toIso(dt))
+END SUB
 ```
 
 ## See also

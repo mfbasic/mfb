@@ -31,13 +31,23 @@ No errors.
 Iterate a list:
 
 ```
-FOR EACH line IN lines : io::print(line) : NEXT
+IMPORT io
+
+SUB main()
+  LET lines AS List OF String = ["first", "second"]
+  FOR EACH line IN lines : io::print(line) : NEXT
+END SUB
 ```
 
 Iterate a map by entry:
 
 ```
-FOR EACH entry IN scores : io::print(entry.key & "=" & toString(entry.value)) : NEXT
+IMPORT io
+
+SUB main()
+  LET scores AS Map OF String TO Integer = Map OF String TO Integer { "ada" := 36 }
+  FOR EACH entry IN scores : io::print(entry.key & "=" & toString(entry.value)) : NEXT
+END SUB
 ```
 
 ## See also

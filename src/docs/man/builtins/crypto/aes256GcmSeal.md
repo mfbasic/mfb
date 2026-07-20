@@ -95,14 +95,17 @@ Seal a message with a fresh random nonce:
 IMPORT crypto
 IMPORT encoding
 IMPORT strings
+IMPORT io
 
-LET key AS List OF Byte = crypto::randomBytes(32)
-LET nonce AS List OF Byte = crypto::randomBytes(12)
-LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
-LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, plaintext)
+SUB main()
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET nonce AS List OF Byte = crypto::randomBytes(12)
+  LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
+  LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, plaintext)
 
-PRINT encoding::hexEncode(box.ciphertext)
-PRINT encoding::hexEncode(box.tag)
+  io::print(encoding::hexEncode(box.ciphertext))
+  io::print(encoding::hexEncode(box.tag))
+END SUB
 ```
 
 Seal with additional authenticated data (a header), then open it — the same
@@ -112,12 +115,14 @@ Seal with additional authenticated data (a header), then open it — the same
 IMPORT crypto
 IMPORT strings
 
-LET key AS List OF Byte = crypto::randomBytes(32)
-LET nonce AS List OF Byte = crypto::randomBytes(12)
-LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
-LET header AS List OF Byte = strings::toBytes("v1;msg-42")
-LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, plaintext, header)
-LET clear AS List OF Byte = crypto::aes256GcmOpen(key, nonce, box.ciphertext, box.tag, header)
+SUB main()
+  LET key AS List OF Byte = crypto::randomBytes(32)
+  LET nonce AS List OF Byte = crypto::randomBytes(12)
+  LET plaintext AS List OF Byte = strings::toBytes("attack at dawn")
+  LET header AS List OF Byte = strings::toBytes("v1;msg-42")
+  LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, plaintext, header)
+  LET clear AS List OF Byte = crypto::aes256GcmOpen(key, nonce, box.ciphertext, box.tag, header)
+END SUB
 ```
 
 ## See also

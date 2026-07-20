@@ -59,7 +59,9 @@ Print the user name:
 IMPORT os
 IMPORT io
 
-io::print(os::userName())
+SUB main()
+  io::print(os::userName())
+END SUB
 ```
 
 ## See also

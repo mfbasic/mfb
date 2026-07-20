@@ -73,7 +73,9 @@ Escape a fragment before placing it in element content:
 IMPORT encoding
 IMPORT io
 
-io::print(encoding::htmlEscape("<a href='#'>Tom & Jerry</a>"))
+SUB main()
+  io::print(encoding::htmlEscape("<a href='#'>Tom & Jerry</a>"))
+END SUB
 ```
 
 Round-trip through `htmlUnescape`:
@@ -82,9 +84,11 @@ Round-trip through `htmlUnescape`:
 IMPORT encoding
 IMPORT io
 
-LET esc AS String = encoding::htmlEscape("5 > 3 & 2 < 4")
-io::print(esc)
-io::print(encoding::htmlUnescape(esc))
+SUB main()
+  LET esc AS String = encoding::htmlEscape("5 > 3 & 2 < 4")
+  io::print(esc)
+  io::print(encoding::htmlUnescape(esc))
+END SUB
 ```
 
 ## See also

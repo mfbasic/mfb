@@ -70,7 +70,9 @@ Project the current instant into UTC:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toUtc(datetime::now())
+SUB main()
+  LET dt AS DateTime = datetime::toUtc(datetime::now())
+END SUB
 ```
 
 Round-trip an instant through UTC and back:
@@ -78,9 +80,11 @@ Round-trip an instant through UTC and back:
 ```
 IMPORT datetime
 
-LET at AS Instant = datetime::now()
-LET dt AS DateTime = datetime::toUtc(at)
-LET back AS Instant = datetime::resolve(dt)
+SUB main()
+  LET at AS Instant = datetime::now()
+  LET dt AS DateTime = datetime::toUtc(at)
+  LET back AS Instant = datetime::resolve(dt)
+END SUB
 ```
 
 ## See also

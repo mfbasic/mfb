@@ -72,9 +72,11 @@ Test for a directory before listing it:
 IMPORT fs
 IMPORT io
 
-IF fs::directoryExists("data") THEN
-  io::print("found")
-END IF
+SUB main()
+  IF fs::directoryExists("data") THEN
+    io::print("found")
+  END IF
+END SUB
 ```
 
 Unicode paths are accepted:
@@ -82,7 +84,9 @@ Unicode paths are accepted:
 ```
 IMPORT fs
 
-LET present AS Boolean = fs::directoryExists("é日😀")
+SUB main()
+  LET present AS Boolean = fs::directoryExists("é日😀")
+END SUB
 ```
 
 ## See also

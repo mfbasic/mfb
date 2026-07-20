@@ -66,20 +66,26 @@ Encode bytes to URL-safe Base64:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hi")
-io::print(encoding::base64UrlEncode(raw))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hi")
+  io::print(encoding::base64UrlEncode(raw))
+END SUB
 ```
 
 Round-trip through `base64UrlDecode`:
 
 ```
 IMPORT encoding
+IMPORT io
 
-LET raw AS List OF Byte = encoding::utf8Encode("hello")
-LET text AS String = encoding::base64UrlEncode(raw)
-io::print(text)
-io::print(encoding::utf8Decode(encoding::base64UrlDecode(text)))
+SUB main()
+  LET raw AS List OF Byte = encoding::utf8Encode("hello")
+  LET text AS String = encoding::base64UrlEncode(raw)
+  io::print(text)
+  io::print(encoding::utf8Decode(encoding::base64UrlDecode(text)))
+END SUB
 ```
 
 ## See also

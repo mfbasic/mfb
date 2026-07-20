@@ -124,10 +124,13 @@ POST a JSON body with an explicit content type, then read the status:
 ```
 IMPORT net
 IMPORT http
+IMPORT io
 
-LET ct = Map OF String TO String { "Content-Type" := "application/json" }
-LET r = http::write(net::toUrl("http://example.com/items"), "{\"name\":\"a\"}", ct)
-io::print(toString(r.status))
+SUB main()
+  LET ct = Map OF String TO String { "Content-Type" := "application/json" }
+  LET r = http::write(net::toUrl("http://example.com/items"), "{\"name\":\"a\"}", ct)
+  io::print(toString(r.status))
+END SUB
 ```
 
 PUT a body with an explicit method, then check success:
@@ -135,11 +138,15 @@ PUT a body with an explicit method, then check success:
 ```
 IMPORT net
 IMPORT http
+IMPORT io
 
-LET r = http::write(net::toUrl("http://example.com/item/1"), "updated", {}, "PUT")
-IF r.ok THEN
-  io::print("saved")
-END IF
+SUB main()
+  LET headers AS Map OF String TO String = Map OF String TO String {}
+  LET r = http::write(net::toUrl("http://example.com/item/1"), "updated", headers, "PUT")
+  IF r.ok THEN
+    io::print("saved")
+  END IF
+END SUB
 ```
 
 ## See also

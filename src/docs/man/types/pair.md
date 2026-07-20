@@ -51,8 +51,10 @@ Pair the elements of two lists:
 ```
 IMPORT collections
 
-LET pairs AS List OF Pair OF Integer, String = collections::zip([1, 2], ["a", "b"])
-LET first AS Pair OF Integer, String = collections::get(pairs, 0)
+SUB main()
+  LET pairs AS List OF Pair OF Integer, String = collections::zip([1, 2], ["a", "b"])
+  LET first AS Pair OF Integer, String = collections::get(pairs, 0)
+END SUB
 ```
 
 ## See also

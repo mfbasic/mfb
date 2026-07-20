@@ -59,7 +59,9 @@ Print the executable path:
 IMPORT os
 IMPORT io
 
-io::print(os::executablePath())
+SUB main()
+  io::print(os::executablePath())
+END SUB
 ```
 
 ## See also

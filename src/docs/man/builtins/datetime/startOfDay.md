@@ -75,8 +75,10 @@ Truncate a `DateTime` to the start of its civil day:
 ```
 IMPORT datetime
 
-LET dt AS DateTime = datetime::toLocal(datetime::now())
-LET midnight AS DateTime = datetime::startOfDay(dt)
+SUB main()
+  LET dt AS DateTime = datetime::toLocal(datetime::now())
+  LET midnight AS DateTime = datetime::startOfDay(dt)
+END SUB
 ```
 
 Start of day in a fixed UTC zone:
@@ -84,10 +86,12 @@ Start of day in a fixed UTC zone:
 ```
 IMPORT datetime
 
-LET d AS Date = datetime::date(2026, 6, 26)
-LET tm AS Time = datetime::time(9, 30)
-LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
-LET midnight AS DateTime = datetime::startOfDay(dt)
+SUB main()
+  LET d AS Date = datetime::date(2026, 6, 26)
+  LET tm AS Time = datetime::time(9, 30)
+  LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
+  LET midnight AS DateTime = datetime::startOfDay(dt)
+END SUB
 ```
 
 ## See also

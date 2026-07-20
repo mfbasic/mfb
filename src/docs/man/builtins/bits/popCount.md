@@ -59,17 +59,23 @@ Count the set bits of a small value:
 
 ```
 IMPORT bits
+IMPORT io
 
-LET result AS Integer = bits::popCount(255)
-PRINT result
+SUB main()
+  LET result AS Integer = bits::popCount(255)
+  io::print(toString(result))
+END SUB
 ```
 
 The all-ones pattern has 64 set bits:
 
 ```
 IMPORT bits
+IMPORT io
 
-PRINT bits::popCount(-1)
+SUB main()
+  io::print(toString(bits::popCount(-1)))
+END SUB
 ```
 
 ## See also

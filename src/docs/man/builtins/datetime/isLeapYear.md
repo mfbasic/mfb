@@ -59,24 +59,30 @@ Test individual years:
 
 ```
 IMPORT datetime
+IMPORT io
 
-PRINT datetime::isLeapYear(2000)   ' True  (divisible by 400)
-PRINT datetime::isLeapYear(1900)   ' False (century, not /400)
-PRINT datetime::isLeapYear(2024)   ' True  (divisible by 4)
-PRINT datetime::isLeapYear(2023)   ' False
+SUB main()
+  io::print(toString(datetime::isLeapYear(2000)))   ' True  (divisible by 400)
+  io::print(toString(datetime::isLeapYear(1900)))   ' False (century, not /400)
+  io::print(toString(datetime::isLeapYear(2024)))   ' True  (divisible by 4)
+  io::print(toString(datetime::isLeapYear(2023)))   ' False
+END SUB
 ```
 
 Pick February's length from the leap result:
 
 ```
 IMPORT datetime
+IMPORT io
 
-LET year AS Integer = 2024
-LET days AS Integer = 28
-IF datetime::isLeapYear(year) THEN
-  LET days = 29
-END IF
-PRINT days   ' 29
+SUB main()
+  LET year AS Integer = 2024
+  MUT days AS Integer = 28
+  IF datetime::isLeapYear(year) THEN
+    days = 29
+  END IF
+  io::print(toString(days))   ' 29
+END SUB
 ```
 
 ## See also
