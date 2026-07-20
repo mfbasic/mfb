@@ -1,10 +1,13 @@
 # plan-58-B: marshal `OUT CBuffer` — allocate, hand over, truncate
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
 Effort: medium (1h–2h)
-Depends on: plan-58-A (the `CBuffer` vocabulary, `BUFFER … SIZE`, and the
-position rules); **plan-57** (`emit_alloc_list` and the `kind = 2` byte-list
-representation — see §2.1)
+Depends on: plan-58-A (the `CBuffer` vocabulary, `BUFFER … SIZE`, the position
+rules); **an externally-visible byte-list constructor that does not yet exist —
+see §0 here, and plan-58-A §Prerequisite. This sub-plan cannot start until that is resolved.**
+Produces: the `CBuffer` staging pass, the `"CBuffer"` result-marshal arm, the
+`LENGTH` clause, `IrLinkExpr::{Mul,Add,Sub}`, `CBUFFER_MAX_BYTES`. Consumed by C
+(wire format) and D (the binding).
 
 Makes `OUT CBuffer` actually work: the thunk allocates a `List OF Byte` of the
 declared byte capacity, hands the C function a pointer to its data region, and on
@@ -28,23 +31,60 @@ References (read first):
   marshaling `:805-859`; `emit_copy_cstring_to_string` `:1280-1359`; the
   register-lifetime doc `:1662-1672`; `LINK_EXPR_VREG_BASE = 64` `:1366`; the
   external-ABI register budget check `:659-675`.
-- **The byte-list allocator to reuse:** `emit_alloc_list` and
-  `emit_collection_data_pointer_into`, both introduced by plan-57-B. Do not
-  hand-roll a header write; plan-57-B exists partly because there were three
-  copies of that routine.
-- `src/target/shared/code/error_constants.rs:762-779` (`COLLECTION_HEADER_SIZE`
-  = 40, `COLLECTION_ENTRY_SIZE` = 40, the `COLLECTION_OFFSET_*` table), `:815`
-  (`COLLECTION_TYPE_BYTE = 7`), `:582` (`_mfb_arena_alloc`), `:587`
+- `src/target/shared/code/audio/mod.rs:135` (`emit_alloc_byte_list`) and
+  `src/target/shared/code/crypto_ec.rs:208` (`emit_build_byte_list`) — the two
+  byte-list constructors that **actually exist**. See §0.
+- `src/target/shared/code/error_constants.rs:777` (`COLLECTION_HEADER_SIZE` = 40),
+  `:786` (`COLLECTION_ENTRY_SIZE` = 40), the `COLLECTION_OFFSET_*` table, `:815`
+  (`COLLECTION_TYPE_BYTE` = 7), `:582` (`_mfb_arena_alloc`), `:587`
   (`_mfb_arena_free`).
-- `src/docs/spec/memory/05_collections.md:24-100` (the block layout),
-  `:173-198` (**Capacity Headroom** — the rule that decides §4.4).
-- `planning/plan-57-D-kind-2-drop-the-entry-table.md` — the `kind = 2` layout
-  this sub-plan allocates into, and `plan-57-C` for the index-order guarantee.
-- `src/target/shared/code/fs_helpers_io.rs:1956` (`lower_fs_read_all_bytes_helper`),
-  especially `:2057-2114` — preallocate, then `read(2)` **directly into the data
-  region**. This is the closest structural precedent to this sub-plan.
+- `src/target/shared/code/builder_collection_layout.rs:241`
+  (`emit_flat_block_size`), `:2191` (the `MFB_KIND2` gate).
+- `src/docs/spec/memory/05_collections.md:24-100` (block layout), `:173-198`
+  (**Capacity Headroom** — the rule that decides §4.4).
+- `src/target/shared/code/fs_helpers_io.rs:1956`
+  (`lower_fs_read_all_bytes_helper`), especially `:2057-2114` — preallocate, then
+  `read(2)` **directly into the data region**. The closest structural precedent.
 - `.ai/compiler.md` — Hard Completion Gate **and** the Native Codegen Register
   Lifetimes section. Both bind here.
+
+## 0. The blocking prerequisite — verified 2026-07-20
+
+The 2026-07-19 draft of this sub-plan opened its design with "allocate through
+`emit_alloc_list` — the shared constructor plan-57-B introduced", and listed
+`emit_alloc_list` and `emit_collection_data_pointer_into` in its references as
+"both introduced by plan-57-B". **Neither function exists.**
+
+```
+rg -n 'fn emit_alloc_list' src/                      → no matches
+rg -n 'fn emit_collection_data_pointer_into' src/    → no matches
+```
+
+What exists:
+
+| Symbol | Location | Visibility | Fit |
+|---|---|---|---|
+| `emit_alloc_byte_list` | `audio/mod.rs:135` | private `fn` | Right shape — takes stack offsets (`count_off`, `list_off`) and an `alloc_fail` label, which is exactly a thunk's idiom. **Not callable from `link_thunk.rs`.** |
+| `emit_build_byte_list` | `crypto_ec.rs:208` | `pub(super)` | Copies from a source buffer; wrong shape (we want an *empty* buffer for the callee to fill). |
+
+Both still write a `kind = 1` entry table, because the `kind = 2` flip is gated
+(§2.3).
+
+**This sub-plan cannot begin until one of these is true:**
+
+- **(a)** plan-57-B track 2 lands a `pub(crate)` byte-list constructor; or
+- **(b)** this sub-plan promotes `emit_alloc_byte_list` out of `audio/` into a
+  shared module with `pub(crate)` visibility — doing plan-57-B track 2's work
+  here, and recording it as such in plan-57-B.
+
+Recommended: **(b)** if plan-57-B track 2 is not already in flight. Promoting one
+private function is smaller than blocking the feature, and the function is
+already parameterized and documented as the shared copy. What is **not**
+acceptable is hand-rolling a header write in `link_thunk.rs` — that would be the
+fourth copy of a routine plan-57-B exists to collapse.
+
+Whichever is chosen, record it in this document's §Corrections before writing
+code.
 
 ## 1. Goal
 
@@ -59,6 +99,8 @@ References (read first):
   be scaled to bytes (`LENGTH got * 2`).
 - A runtime allocation failure routes to the thunk's existing `alloc_fail` block
   and surfaces `ErrOutOfMemory`, not a crash.
+- A `SIZE` that is negative or exceeds `CBUFFER_MAX_BYTES` raises
+  `ErrInvalidArgument` before allocating.
 - `every_known_ctype_lowers` covers `CBuffer` for real (the plan-58-A exclusion is
   removed).
 - Runtime proof: a test binds libc `read(2)` through an `OUT CBuffer` and reads
@@ -74,10 +116,22 @@ References (read first):
 - No input (`IN`/`INOUT`) buffer direction — still rejected by plan-58-A.
 - No change to `audio::write`, `fs::readAllBytes`, `net` recv, or any other
   byte-list producer or consumer.
-- The byte-list representation itself is **plan-57's** work, not this sub-plan's.
-  Consume `emit_alloc_list`; do not reshape it.
+- **Do not flip `MFB_KIND2`.** That is plan-57-D's decision, not this sub-plan's.
+  This sub-plan must work correctly with the gate off (§2.3).
 
 ## 2. Current State
+
+### 2.1 Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| Byte-list constructors in the tree | 2 (`audio/mod.rs:135`, `crypto_ec.rs:208`) | `rg -n 'fn emit_(alloc\|build)_byte_list' src/` |
+| Of those, callable from `link_thunk.rs` | **0** | both are module-private / `pub(super)` — see §0 |
+| `COLLECTION_HEADER_SIZE` | 40 | `error_constants.rs:777` |
+| `COLLECTION_ENTRY_SIZE` | 40 | `error_constants.rs:786` |
+| External int arg registers (budget check) | 6 x86-64 SysV, 8 elsewhere | `link_thunk.rs:659-675` |
+
+### 2.2 How a slot works today
 
 **Every ABI slot today is one 8-byte frame word.** The thunk's frame
 (`link_thunk.rs:336-415`) is laid out once, up front: `cslot_base` gives each slot
@@ -92,32 +146,6 @@ storage must **outlive the call** — it becomes the returned MFBASIC value. So 
 cannot live in the frame at all; it must be an arena block, and the frame holds
 only the pointer.
 
-### 2.1 The byte-list block, after plan-57
-
-`List OF Byte` is a fixed-width-scalar list, so plan-57-D gives it the
-`kind = 2` representation — one contiguous arena block with **no lookup table**:
-
-```
-CollectionHeader   40 bytes    count@8 capacity@16 dataLength@24 dataCapacity@32
-Data[dataCapacity] 1 byte each
-```
-
-`dataBase = block + 40`, constant. Element `i` is at `dataBase + i`, and
-plan-57-C guarantees index order physically, so a pointer to `dataBase` handed to
-a C function addresses exactly the bytes the list logically holds.
-
-**plan-57 is a strong preference here, not a correctness prerequisite.** An
-`OUT CBuffer` allocates a *fresh* list and the callee fills its data region
-front-to-back, so the produced value is ordered by construction and is correct
-under either representation — bug-365 cannot reach it. What plan-57 buys is the
-41× memory drop, `emit_alloc_list` (without which this sub-plan hand-rolls a
-header write and becomes the fourth copy of that routine), and a `dataBase` that
-is a constant offset instead of a `capacity`-scaled computation.
-
-If plan-58 must ship first, it can — at 41× memory, with a hand-rolled header,
-and with `CBUFFER_MAX_BYTES` at 8 MiB instead of 64 MiB. Say so in the code
-comments so the constants stay traceable.
-
 **The register-lifetime rule.** `_mfb_arena_alloc` destroys every caller-saved
 register (`x0`–`x17`) with no survivor set (`.ai/compiler.md`;
 `link_thunk.rs:1662-1672`). Existing code spills across it structurally:
@@ -131,54 +159,94 @@ allocates the record *first*, spills the pointer, and reloads it **per field**
 the data base, and hands that pointer straight to `read(2)`. That is this
 sub-plan's shape, with a LINK thunk in place of a builtin lowering.
 
+### 2.3 Which representation this lands into — the gate is OFF
+
+`kind = 2` (plan-57-D) is behind `std::env::var("MFB_KIND2")`
+(`builder_collection_layout.rs:2191`). **The default build is `kind = 1`.** The
+two differ in ways this sub-plan cannot paper over:
+
+| | `kind = 1` (default, live) | `kind = 2` (`MFB_KIND2=1`) |
+|---|---|---|
+| Block size for `N` bytes | `40 + 41N` | `40 + N` |
+| `dataBase` | `block + 40 + 40N` — **depends on capacity** | `block + 40` — constant |
+| Arena cost of 8 MiB | 343.9 MB (41.0×) | 8.4 MB |
+| Entry-fill loop on alloc | `N` iterations | none |
+
+The 2026-07-19 draft hedged in §2.1 that plan-57 was "a strong preference, not a
+correctness prerequisite", but then wrote §4.2 step 5 and §4.4's reads-argument
+**only** for `kind = 2` (`dataBase = block + 40`, "a constant offset"). Those two
+statements contradict each other. Resolved here in favour of the hedge: this
+sub-plan must be correct under **both**, which means it must not open-code
+`block + 40` and must obtain the data base from the shared helper (§4.2).
+
+### 2.4 Verified properties
+
+| Claim | Verdict | How checked |
+|---|---|---|
+| `emit_alloc_list` exists | **FALSE** | §0 — no matches in `src/` |
+| `emit_collection_data_pointer_into` exists | **FALSE** | §0 — no matches in `src/` |
+| A byte-list constructor is callable from `link_thunk.rs` | **FALSE** | both existing ones are private / `pub(super)` |
+| `kind = 2` is the live representation | **FALSE** | gated on `MFB_KIND2`, `builder_collection_layout.rs:2191` |
+| `_mfb_arena_alloc` destroys all caller-saved registers | **CONFIRMED** | `.ai/compiler.md`; spill pattern read at `link_thunk.rs:1311`, `:1317`, `:1800`, `:1823`, `:1897` |
+| `alloc_fail` label is always emitted | **CONFIRMED** | `link_thunk.rs:1020` |
+| `emit_flat_block_size` sizes from capacity/dataCapacity | **CONFIRMED** | `builder_collection_layout.rs:241` — so leaving slack is what makes `arena_free` correct |
+| `emit_flat_block_size` is correct under **both** representations | **CONFIRMED** | It calls `list_entry_stride(&element)` (`builder_collection_layout.rs:~266`), which returns 0 under `kind = 2`. It is *not* hardcoded to `COLLECTION_ENTRY_SIZE`. A review pass claimed otherwise and that plan-57-D's `[x]` for this site was stale — **that claim is false**; checked before acting on it. This matters because plan-57-D names this as the one site whose failure mode is arena free-list corruption (bug-02 class) rather than wrong data |
+| The OUT-result `_` arm is a silent raw 8-byte load | **CONFIRMED** | `link_thunk.rs:805-859`; this is the bug-238 mechanism |
+| Allocating mid-staging preserves other slots' values | **UNVERIFIED — this is Phase 1** | no precedent: no existing slot kind allocates during staging |
+
+That last row is the design uncertainty in this sub-plan, and it is why Phase 1
+is a spike rather than a refactor.
+
 ## 3. Design Overview
 
 Four pieces, layered:
 
-1. **Allocate through `emit_alloc_list`** — the shared constructor plan-57-B
-   introduced. Do not hand-roll a header write here; there were three copies of
-   that routine before plan-57 and this sub-plan would have been the fourth.
+1. **A callable constructor** — resolve §0 first. Everything else assumes one
+   exists with `pub(crate)` visibility and a data-base helper alongside it.
 2. **Frame layout.** `CBuffer` consumes one `out_base` word — the *pointer* to
    the allocated block, not the data. It counts in `n_out` (`:348-352`) and in
    `expr_offsets` (`:728-747`); these two must agree or every `SUCCESS_ON`
    variable after the buffer resolves to the wrong slot.
-3. **Staging** (before the call): evaluate `SIZE`, allocate via
-   `emit_alloc_list`, compute `dataBase`, store the **block** pointer to the out
-   word and the **dataBase** pointer to the cslot word.
+3. **Staging** (before the call): evaluate `SIZE`, gate it, allocate, compute
+   `dataBase` *via the helper, not by adding 40*, store the **block** pointer to
+   the out word and the **dataBase** pointer to the cslot word.
 4. **Truncation** (after the call): evaluate `LENGTH`, clamp, store to `count` and
    `dataLength`.
 
-**Where the correctness risk concentrates — three places, all subtle:**
+**Where design uncertainty concentrates — one place.** No existing slot kind
+allocates *during* staging. The allocation destroys `x0`–`x17` in the middle of a
+loop that is also computing other slots' values. Whether the mitigation (a
+separate pass before the main slot loop, frame-only storage) actually holds is
+unproven, and if it does not, the shape of this sub-plan changes. **Phase 1
+falsifies this cheaply, before any of the rest is built.**
 
-- **Register lifetimes.** This is the first slot kind that allocates *during*
-  staging, in the middle of a loop that is also computing other slots' values. The
-  allocation destroys `x0`–`x17`, so any partially-staged slot value in a
-  caller-saved register is lost. Mitigation: allocate into frame slots only, and
-  run the `CBuffer` staging as a **separate pass before** the main slot loop, so
-  no other slot's value is live across it. Do not interleave.
-- **`dataBase` vs block pointer.** Two different pointers, 40 bytes apart under
-  `kind = 2`. The C function gets `dataBase`; the result marshal and the
-  truncation get the block. Swapping them makes the callee overwrite the header —
-  and because the gap is now one header rather than a whole entry table, a short
-  write may corrupt only `count`/`capacity` and still look plausible. Test with a
-  callee that fills the buffer completely.
+**Where correctness risk concentrates — two places, both after Phase 1:**
+
+- **`dataBase` vs block pointer.** Two different pointers. The C function gets
+  `dataBase`; the result marshal and the truncation get the block. Swapping them
+  makes the callee overwrite the header. Under `kind = 2` the gap is 40 bytes, so
+  a short write may corrupt only `count`/`capacity` and still look plausible.
+  Test with a callee that fills the buffer completely.
 - **The clamp.** `sf_read_short` returns `-1` on error and `0` at EOF; `read(2)`
   returns `-1`/`0`. An unclamped negative length stored to `count` is a huge
   unsigned value, and every later collection read walks off the block.
 
 **Rejected alternative:** *realloc-tight on truncation* — allocate at capacity,
 then allocate a second block at the final length, copy, and free the first. This
-is what the audio partial-read paths do (`alsa.rs:1615-1675`,
-`macos.rs:2240`). Rejected here: it doubles peak memory at exactly the moment the
-buffer is largest, and `05_collections.md:173-198` explicitly sanctions
-`capacity > count` as headroom, with `emit_flat_block_size`
-(`builder_collection_layout.rs:214-227`) sizing from `capacity`/`dataCapacity` so
-`arena_free` stays correct. See §4.4 for the full argument and its one caveat.
+is what the audio partial-read paths do (`alsa.rs:1615-1675`, `macos.rs:2240`).
+Rejected: it doubles peak memory at exactly the moment the buffer is largest, and
+`05_collections.md:173-198` sanctions `capacity > count` as headroom, with
+`emit_flat_block_size` (`builder_collection_layout.rs:241`) sizing from
+`capacity`/`dataCapacity` so `arena_free` stays correct. See §4.4 and its caveat.
 
 **Rejected alternative:** *let the wrapper return the byte count and take the
 buffer as a second output*. Rejected: the ABI surfaces exactly one result
 (`17_native-libraries.md`, "Multiple outputs — not implemented"), and the count
 without the bytes is useless.
+
+**Rejected alternative:** *open-code `dataBase = block + 40`.* Rejected: correct
+only under `kind = 2`, which is not the live representation (§2.3). Use the
+helper so the gate can flip without touching this sub-plan.
 
 ## 4. Detailed Design
 
@@ -191,8 +259,13 @@ returnCl := "RETURN" linkExpr [ "LENGTH" linkExpr ]
 `LENGTH` is valid only when `RETURN` names a `CBuffer` slot (else
 `NATIVE_BUFFER_INVALID`, plan-58-A's rule). Its value is in **bytes**.
 
-`IrLinkExpr` (`src/ir/link.rs:514-534`) currently carries `Var`, comparisons, and
-`And`/`Or`/`Not`. Add `Mul`/`Add`/`Sub` over integers, evaluated by the existing
+`IrLinkExpr` (`src/ir/link.rs:515-534`) currently carries **six** variants:
+`Var(String)`, **`Int(i64)`**, `Compare`, `And`, `Or`, `Not`. The 2026-07-19 draft
+omitted `Int` — it already exists and `link_expr_var_names` (`:163-175`) already
+has an arm for it, so this extension is smaller than the draft implied: the
+integer literal is done, only the operators are new.
+
+Add `Mul`/`Add`/`Sub` over integers, evaluated by the existing
 expression emitter using the `LINK_EXPR_VREG_BASE = 64` vreg range
 (`link_thunk.rs:1366`). This is what makes `LENGTH got * 2` (items → bytes) and
 `SIZE items * 2` expressible; without it, a `CBuffer` can only ever be sized and
@@ -207,36 +280,31 @@ For each `CBuffer` slot, in declaration order:
 
 1. Evaluate the `SIZE` expression → `N` (bytes). Store `N` to a frame scratch
    word; it must survive the allocation.
-2. **Runtime size gate** (§Open Decisions): if `N < 0` or `N > CBUFFER_MAX_BYTES`,
-   branch to a new `buffer_size_fail` block raising `ErrInvalidArgument`. A
-   negative `N` would otherwise compute a nonsense block size.
-3. Call `emit_alloc_list("Byte", N, ...)` (plan-57-B), which sizes
-   `COLLECTION_HEADER_SIZE + N` for the `kind = 2` representation, allocates,
-   and writes the header — `kind = COLLECTION_KIND_LIST_FIXED`,
-   `valueType = COLLECTION_TYPE_BYTE`, and
-   `count`/`capacity`/`dataLength`/`dataCapacity` all `= N`. There is **no entry
-   table and no entry-fill loop** for a fixed-width element type (plan-57-D). It
-   branches to the existing `alloc_fail` label on failure
-   (`link_thunk.rs:1020` always emits it).
+2. **Runtime size gate**: if `N < 0` or `N > CBUFFER_MAX_BYTES`, branch to a new
+   `buffer_size_fail` block raising `ErrInvalidArgument`. A negative `N` would
+   otherwise compute a nonsense block size. `CBUFFER_MAX_BYTES` = **8 MiB** while
+   `MFB_KIND2` is off (§2.3) — at `kind = 1` that is already 344 MB of arena.
+   Comment the constant with the gate so the two stay traceable.
+3. Call the shared byte-list constructor (§0) with `N` and element type `Byte`.
+   It writes the header and, under `kind = 1`, the entry table. It branches to the
+   existing `alloc_fail` label on failure (`link_thunk.rs:1020` always emits it).
 4. Spill the block pointer to its `out_base` word **immediately** —
-   `_mfb_arena_alloc` has destroyed every caller-saved register
-   (`.ai/compiler.md`).
-5. `dataBase = block + COLLECTION_HEADER_SIZE` — a constant offset under
-   `kind = 2`. Store it to the slot's **cslot** word, so the generic
-   argument-register loop (`:686-692`) passes it unchanged. Use
-   `emit_collection_data_pointer_into` (plan-57-B) rather than open-coding the
-   arithmetic.
+   `_mfb_arena_alloc` has destroyed every caller-saved register.
 
-`count`/`dataLength` are initialized to `N` by the allocator so that a wrapper
+**And the step the draft omitted:** add a `continue` guard for `CBuffer` in the
+main slot loop, mirroring the CSTRUCT one at `link_thunk.rs:562`. Without it the
+loop's `writes_back()` branch (`:564-575`) runs for the same slot and
+**overwrites the cslot with `&out_word` and zeroes the out word that now holds
+the block pointer** — the two stagings clobber each other. plan-58-A adds this
+guard as a refusal (its §2.4); B converts it from `Err` to `continue`.
+5. Obtain `dataBase` **from the shared data-pointer helper**, not by adding
+   `COLLECTION_HEADER_SIZE`. Under `kind = 1` it is `block + 40 + 40N`; under
+   `kind = 2` it is `block + 40`. Store it to the slot's **cslot** word, so the
+   generic argument-register loop (`:686-692`) passes it unchanged.
+
+`count`/`dataLength` are initialized to `N` by the constructor so that a wrapper
 with **no** `LENGTH` clause needs no post-call work and the value is well-formed
 even if the callee writes nothing.
-
-Note how much plan-57 removes from this sub-plan: without it, steps 3–5 were an
-overflow-checked `40 + 41N` size computation, a hand-written 8-field header, an
-`N`-iteration entry-fill loop, and a `block + 40 + N*40` data-base computation —
-all inside a thunk where every value must be spilled across the allocation. The
-`kind = 2` representation reduces the whole staging sequence to one helper call
-and one add.
 
 A `CBuffer` slot is an **integer** argument slot: it counts against
 `external_int_argument_registers` in the budget check at `:659-675` (6 on
@@ -272,15 +340,15 @@ After the call and after the `SUCCESS_ON` gate, if a `LENGTH` expression exists:
    `store_u64(k, block, COLLECTION_OFFSET_DATA_LENGTH)`.
 
 `capacity` and `dataCapacity` stay at `N`. That is the load-bearing decision, and
-it is safe on three independent grounds:
+it is safe on three independent grounds — **all three hold under both
+representations**:
 
-- **Reads**: under `kind = 2` the data base is `block + 40` and element `i` is at
-  `dataBase + i` — neither depends on `capacity` or `count`, so leaving the slack
-  in place cannot mis-address anything.
-- **Free**: `emit_flat_block_size` sizes a `kind = 2` block as
-  `HEADER + dataCapacity` (plan-57-D §4.3), so leaving `dataCapacity = N` is
-  exactly what makes `arena_free` reclaim the whole block. Setting it to `k`
-  would leak `N - k` bytes.
+- **Reads**: element addressing goes through the shared element-offset helper in
+  either representation, and bounds by `count`. Leaving slack in `capacity`
+  cannot mis-address anything.
+- **Free**: `emit_flat_block_size` (`builder_collection_layout.rs:241`) sizes a
+  block from `capacity`/`dataCapacity`, so leaving them at `N` is exactly what
+  makes `arena_free` reclaim the whole block. Setting them to `k` would leak.
 - **Spec**: `capacity > count` is sanctioned headroom
   (`05_collections.md:173-198`), and a value-semantic copy is shrink-to-fit
   (`copy_collection_tight`), so the slack is erased the first time the list is
@@ -290,11 +358,11 @@ it is safe on three independent grounds:
 headroom as a property of a *mutable working buffer*, not of a value, and
 `:191-193` says known-size builders allocate exactly. A short-read `CBuffer`
 returns a value carrying slack, which is a small departure from that guidance.
-Accepted here because the alternative — realloc tight and copy, as the audio
-partial-read paths do (`alsa.rs:1615-1675`) — doubles peak memory precisely when
-the buffer is largest. Under `kind = 2` the slack is at most `N - k` **bytes**
-rather than `41(N - k)`, so the case for tolerating it is stronger than it was,
-and the case for the copy weaker.
+Accepted here because the alternative (realloc tight and copy) doubles peak
+memory precisely when the buffer is largest. Note the slack is `41(N - k)` bytes
+under `kind = 1` and `(N - k)` under `kind = 2` — so this caveat is *materially
+worse* on the default build, and is the strongest argument for flipping the gate
+before plan-58-D ships to users.
 
 The bytes between `k` and `N` are uninitialized arena memory. They are never read:
 copies are `count`-tight and every consumer bounds by `count`. No information
@@ -305,116 +373,150 @@ rechecking.
 
 - **Changes:** `OUT CBuffer` becomes usable. `IrLinkExpr` gains three variants,
   and `IrLinkFunction` gains the `LENGTH` expression — both on the `.mfp` wire
-  (plan-58-C).
+  (plan-58-C). If §0 resolves as **(b)**, `emit_alloc_byte_list` moves module and
+  gains visibility; `audio/`'s two call sites move with it.
 - **Unchanged:** the collection block layout and every header offset;
   `_mfb_arena_alloc`/`_mfb_arena_free` contracts; every existing ctype's
   marshaling; `emit_return_passthrough`; `audio::write` and every other byte-list
-  consumer. `scripts/artifact-gate.sh` must show existing thunks byte-identical,
-  **including** after the §3 deduplication.
+  consumer. `scripts/artifact-gate.sh` must show existing thunks byte-identical
+  — **including** after the §0(b) move, which must be a pure relocation.
 
 ## Phases
 
-### Phase 1 — `IrLinkExpr` arithmetic
+Ordered uncertainty-first: Phase 1 exists to falsify the one unproven premise
+(§2.4's last row) before anything is built on it.
 
-- [ ] Add `Mul`/`Add`/`Sub` to `IrLinkExpr` (`src/ir/link.rs:514-534`), the AST
-      counterpart, the parser, and the thunk's expression emitter
-      (`LINK_EXPR_VREG_BASE` range, `link_thunk.rs:1366`).
-- [ ] Tests: unit tests for expression lowering; a syntax fixture using
-      `SUCCESS_ON status * 2 = 4` to prove arithmetic evaluates before the
-      `CBuffer` feature depends on it.
+### Phase 0 — resolve the constructor (§0)
 
-Acceptance: a LINK wrapper with an arithmetic `SUCCESS_ON` gates correctly at
-runtime (extend an existing `tests/rt-behavior/native/` test rather than adding a
-libsndfile dependency this early).
+Not code in this sub-plan's own scope, but nothing here compiles without it.
+
+- [ ] Decide §0 (a) or (b). Record the decision in §Corrections.
+- [ ] If (b): move `emit_alloc_byte_list` (`audio/mod.rs:135`) to a shared module,
+      make it `pub(crate)`, update `audio/`'s call sites, and add a `pub(crate)`
+      data-base helper alongside it that is correct under **both** `kind` values.
+      Record the work against plan-57-B track 2.
+
+Acceptance: a `pub(crate)` byte-list constructor and data-base helper exist and
+are callable from `link_thunk.rs`; `scripts/artifact-gate.sh` shows every emitted
+byte unchanged (a pure relocation changes no codegen).
 Commit: —
 
-### Phase 2 — `CBuffer` staging, marshal, and truncation (highest risk)
+### Phase 1 — spike: allocate during staging (falsifies the premise)
 
-- [ ] Frame layout: count `CBuffer` slots in `n_out` (`link_thunk.rs:348-352`) and
-      in the `expr_offsets` rebuild (`:728-747`). Add an assertion or a shared
-      helper so the two cannot drift — the comment at `:340-342` warns about
-      exactly this.
-- [ ] Add the `CBuffer` staging pass **before** the main slot loop (§4.2),
-      including the size gate and `buffer_size_fail` block.
-- [ ] Add the `"CBuffer"` arm to the OUT-slot result match (`:805-859`), §4.3.
-- [ ] Add the truncation sequence after the `SUCCESS_ON` gate (§4.4).
-- [ ] Remove plan-58-A's `CBuffer` exclusion from
-      `every_known_ctype_lowers` (`link_thunk.rs:2000-2085`) and add the
-      writes-back loop that sub-plan's notes call for — the existing loop 2 uses
-      `AbiDirection::In` + a `CONST` pin, which a `CBuffer` can never satisfy.
-- [ ] Spec: replace plan-58-A's *"declared but not yet lowered"* status note in
-      `src/docs/spec/language/17_native-libraries.md` with the real semantics —
-      byte capacity, `LENGTH` clamping, the `capacity > count` headroom
-      consequence, and the runtime size cap.
-- [ ] Tests: `tests/rt-behavior/native/native-buffer-read-rt/` — bind libc
-      `read(2)` (`ABI (fd CInt32, buf OUT CBuffer, n CInt64) AS got CInt64`,
-      `BUFFER buf SIZE n`, `RETURN buf LENGTH got`), write a known file with
-      `fs::writeAllBytes`, open it via libc `open`, read it back, and compare
-      byte-for-byte. `libc`/`libSystem.B.dylib` is already wired as a test library
-      (`tests/rt-behavior/native/native-struct-scalar-rt/project.json`).
-- [ ] Tests: the **short-read** case in the same fixture — request a capacity far
-      larger than the file, assert the returned list's length equals the file
-      size, not the capacity. This is the case the clamp and the `count` write
-      exist for, and the one a full-buffer test cannot see.
-- [ ] Tests: a zero-length read (EOF) returns an empty list, not a crash.
-- [ ] Tests: `LENGTH` scaling — a wrapper using `LENGTH got * 2` returns twice the
-      callee's count (exercises Phase 2 through the buffer path).
+The smallest thing that proves an arena allocation can happen mid-staging without
+destroying another slot's staged value. **Do not build the rest until this passes.**
 
-Acceptance: `native-buffer-read-rt` prints the exact contents of a file it wrote,
-in all four cases (exact fit, short read, EOF, scaled `LENGTH`), on
-macOS/aarch64 and Linux/{aarch64,x86_64,riscv64} × {glibc,musl}. `artifact-gate`
-shows no change to any pre-existing thunk. `scripts/test-accept.sh` green.
+- [ ] A LINK wrapper with a fixed-size `OUT CBuffer` (`SIZE 64`, no `LENGTH`) and
+      **at least two other scalar slots staged around it**, so a register-lifetime
+      violation is observable rather than latent.
+- [ ] Implement the separate staging pass in `link_thunk.rs`: allocate, spill the
+      block to `out_base`, take `dataBase` from the helper, store to the cslot.
+- [ ] Bind libc `read(2)` through it; read a file written by the test.
+- [ ] Assert the *other two slots'* values are intact after the call — that is
+      what this phase is actually testing.
+
+Acceptance: the wrapper returns the file's first 64 bytes byte-for-byte **and**
+both neighbouring scalar slots carry their correct values, on aarch64 and x86-64.
+If the neighbouring slots are corrupted, the separate-pass mitigation is wrong and
+§3 must be redesigned before proceeding.
+Commit: —
+
+### Phase 2 — `IrLinkExpr` arithmetic
+
+- [ ] Add `Mul`/`Add`/`Sub` to `IrLinkExpr` (`src/ir/link.rs:514-534`), the AST
+      parse for them, and their evaluation in the thunk expression emitter
+      (`link_thunk.rs`, `LINK_EXPR_VREG_BASE` range).
+- [ ] Tests: unit coverage for each operator, including a `SIZE items * 2`
+      expression resolving to the right byte count.
+
+Acceptance: a wrapper declaring `BUFFER buf SIZE items * 2` allocates exactly
+`2 * items` bytes, asserted against the block header.
+Commit: —
+
+### Phase 3 — `LENGTH`, the clamp, and the size gate
+
+- [ ] `LENGTH <expr>` on `RETURN`: parse, IR, and post-call truncation (§4.4).
+- [ ] The clamp: `k < 0 → 0`, `k > N → N`.
+- [ ] `CBUFFER_MAX_BYTES` (8 MiB) and the `buffer_size_fail` block raising
+      `ErrInvalidArgument`, commented with the `MFB_KIND2` relationship.
+- [ ] Remove plan-58-A's `CBuffer` exclusion from `every_known_ctype_lowers`.
+- [ ] Tests: short read (callee writes fewer bytes than capacity — the list's
+      `count` is the short value and its bytes are correct); callee returns `-1`
+      (clamps to 0, no OOB); callee returns more than capacity (clamps to `N`);
+      `SIZE` negative and `SIZE` over the cap (both `ErrInvalidArgument`);
+      allocation failure routes to `ErrOutOfMemory`.
+
+Acceptance: the libc `read(2)` runtime test passes for a full read **and** a
+short read, byte-for-byte; every clamp and gate case above produces its stated
+error rather than a crash or a corrupt list; `every_known_ctype_lowers` covers
+`CBuffer`.
+Commit: —
+
+### Phase 4 — cross-representation proof (largest blast radius last)
+
+- [ ] Run the whole Phase 1–3 test set with `MFB_KIND2=1` as well as unset.
+
+Acceptance: identical observable results under both gate states. A divergence
+here means §4.2 step 5 or §4.4 open-coded a representation assumption — find it
+before plan-58-C/D build on it.
 Commit: —
 
 ## Validation Plan
 
-- Tests: `tests/rt-behavior/native/native-buffer-read-rt/` (four runtime cases
-  above); `every_known_ctype_lowers` extended with a writes-back loop; unit tests
-  for `IrLinkExpr` arithmetic; the plan-58-A negative fixtures must still reject.
-- Runtime proof: **required (Hard Completion Gate).** Reading a real file's real
-  bytes back through an `OUT CBuffer` is the proof; goldens and IR dumps are not.
-  Run on every target per `.ai/remote_systems.md` — the frame layout and the
-  argument-register budget differ across them, and x86-64's 6-register SysV limit
-  is the one most likely to bite.
-- Register-lifetime review: per `.ai/compiler.md`, walk every value live across
-  the `_mfb_arena_alloc` call in §4.2 and confirm it is in a frame slot, not a
-  register. Note that this bug class *passes small tests* — a corrupted length
-  only faults past a threshold. Test with a buffer large enough to span multiple
-  entry-loop iterations, and with N in the megabytes.
-- Doc sync: `src/docs/spec/language/17_native-libraries.md` (the `CBuffer`
-  semantics replacing the plan-58-A status note). No new runtime error code unless
-  the size gate mints one — if it does, `02_error-codes.md` is build input and
-  must be updated in the same change.
-- Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual` and
-  `scripts/artifact-gate.sh`.
+- Tests: as listed per phase. Negative cases (`-1`, over-capacity, negative
+  `SIZE`, over-cap `SIZE`, allocation failure) are mandatory — the clamp is the
+  difference between a short read and an out-of-bounds walk.
+- Coverage check: LINK thunk changes are golden-backed via
+  `scripts/artifact-gate.sh`. Confirm the new fixtures actually produce goldens;
+  `tests/acceptance/` has **no** `golden/` dir by design, so a proof placed there
+  is *not* in the gate's denominator.
+- Runtime proof: the libc `read(2)` binding, full read and short read,
+  byte-compared against the file the test wrote. This must run on aarch64 and
+  x86-64 — the register-lifetime hazard in Phase 1 is where the two could differ.
+- Doc sync: `17_native-libraries.md` (the `LENGTH` clause, `CBUFFER_MAX_BYTES`,
+  and the `IrLinkExpr` operators).
+- Acceptance: the project's full suite, plus `scripts/artifact-gate.sh` showing
+  every pre-existing thunk byte-identical.
 
 ## Open Decisions
 
-- **The runtime size cap `CBUFFER_MAX_BYTES`.** With plan-57 landed a
-  `List OF Byte` costs `40 + N` bytes rather than `40 + 41N`, so a `CBuffer` is
-  no longer the memory hazard it was: 3 minutes of stereo 48 kHz PCM is 34.6 MB
-  allocated, not 1.4 GB. A cap is still wanted — the size is a caller-supplied
-  runtime value and an unbounded one is an allocation primitive — but it can be
-  set for sanity rather than for survival. Recommend **64 MiB**, raising
-  `ErrInvalidArgument` naming the requested size. Alternative: no cap, and let
-  `_mfb_arena_alloc` fail — still rejected, because the failure would surface as
-  `ErrOutOfMemory` at a size the programmer never wrote.
-  **If plan-57 has not landed, use 8 MiB instead** (≈344 MB allocated at 41×) and
-  say why in the code comment, so the number is traceable to the representation
-  rather than looking arbitrary.
-- **Realloc-tight instead of headroom on truncation?** Recommend headroom (§4.4).
-  Revisit only if a reviewer objects to returning a value with slack; the
-  realloc-tight implementation already exists at `alsa.rs:1615-1675`.
+1. **§0 (a) wait vs (b) promote.** Recommended **(b)** unless plan-57-B track 2 is
+   already in flight. Must be settled before Phase 1. (§0)
+2. **`CBUFFER_MAX_BYTES` value.** Recommended 8 MiB while `MFB_KIND2` is off; the
+   41× multiplier makes 8 MiB cost 344 MB of arena already. Revisit to 64 MiB when
+   the gate flips. (§4.2)
+3. **Whether Phase 4 should block the feature or merely report.** Recommended
+   block — a representation assumption that leaks into the thunk is exactly the
+   class of bug that surfaces as heap corruption later. (§Phase 4)
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+- 2026-07-20 — **`emit_alloc_list` and `emit_collection_data_pointer_into` do not
+  exist.** The 2026-07-19 draft named both as landed plan-57-B deliverables and
+  built its §3 on them. Verified absent. Restructured as the blocking
+  prerequisite in §0, with a decision required before Phase 1.
+- 2026-07-20 — **`kind = 2` is not live**; it is behind `MFB_KIND2`
+  (`builder_collection_layout.rs:2191`). The draft's §2.1 hedged correctly but
+  §4.2 step 5 and §4.4 were written only for `kind = 2`
+  (`dataBase = block + 40`, "a constant offset"). Contradiction resolved in §2.3
+  in favour of the hedge; §4.2 now takes the data base from a helper, and Phase 4
+  proves both representations.
+- 2026-07-20 — **Phase order inverted.** The draft ran `IrLinkExpr` arithmetic
+  (inert) first and "staging, marshal, truncation (highest risk)" second. The
+  unproven premise is allocation-during-staging, so that is now a Phase 1 spike;
+  arithmetic moved to Phase 2.
 
 ## Summary
 
-The engineering risk is concentrated in three places: register lifetimes across
-the first mid-staging `_mfb_arena_alloc` in the thunk (mitigated by a separate
-staging pass and frame-only storage), the `dataBase`-vs-block pointer distinction
-(two pointers that are easy to swap and silently corrupting when swapped), and
-the length clamp (without which a `-1` from the callee becomes a huge unsigned
-`count`). Each has a dedicated runtime case in `native-buffer-read-rt`.
+The real engineering risk is a single unproven premise — that a thunk can
+allocate mid-staging without destroying neighbouring slots' values — and Phase 1
+exists to answer it before anything depends on the answer. After that, the risk is
+ordinary: two pointers 40 bytes apart, and a clamp on a signed count.
 
-Untouched: the collection block layout, the arena contracts, and every existing
-ctype's marshaling — enforced by `artifact-gate` byte-identity, including across
-the Phase 1 refactor.
+What is left untouched: the block layout, the arena contracts, every existing
+ctype's marshaling, and every byte-list consumer.
+
+The blocker is not in this document's own scope: `link_thunk.rs` has no callable
+byte-list constructor today (§0), and that must be resolved before Phase 1.

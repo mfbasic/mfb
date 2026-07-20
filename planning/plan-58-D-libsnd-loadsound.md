@@ -1,14 +1,16 @@
 # plan-58-D: `libsnd::loadSound` — decoded audio into `audio::write`
 
-Last updated: 2026-07-19
-Effort: medium (1h–2h)
-Depends on: bug-364 (the `SF_INFO` fix — `frames` is what sizes the buffer),
-plan-58-A + plan-58-B (`OUT CBuffer`), plan-58-C (the `.mfp` path — `libsnd` is a
-binding package, so its wrappers only exist across that boundary)
+Last updated: 2026-07-20
+Effort: small (<1h) — **reduced from medium: bug-364 landed and took both of the
+draft's "defects to fix in passing" with it (§2.3).**
+Depends on: plan-58-A + plan-58-B (`OUT CBuffer`), plan-58-C (the `.mfp` path —
+`libsnd` is a binding package, so its wrappers only exist across that boundary).
+**bug-364 is no longer a dependency: it has landed.**
+Produces: `bindings/libsnd`'s `Sound` type, `loadSound`, `readSamples`. The
+feature's deliverable; nothing consumes it.
 
-The deliverable. Adds a streaming read primitive to `bindings/libsnd` and builds
-`loadSound` on it, so an MFBASIC program can decode any format libsndfile
-supports and play it:
+Adds a streaming read primitive to `bindings/libsnd` and builds `loadSound` on
+it, so an MFBASIC program can decode any format libsndfile supports and play it:
 
 ```basic
 IMPORT audio
@@ -28,21 +30,22 @@ byte-comparison against a known-good decode, on every supported target.
 
 References (read first):
 
-- `bindings/libsnd/src/lib.mfb` — the binding as it stands: `SoundFile`
-  (`:61`), `FileInfo` (`:63`), the `LINK` block (`:71-135`), `openFile` (`:109`),
-  `sndError` (`:137`), `getFormats` (`:165`).
-- `bugs/bug-364-libsnd-sf-info-missing-frames-field.md` — **read first.** `frames` does not
-  exist on `FileInfo` until it lands, and the values `openFile` reports today are
-  wrong.
+- `bindings/libsnd/src/lib.mfb` — the binding as it stands **after bug-364**:
+  package DOC (`:15-45`), `RESOURCE SoundFile` (`:61`), `TYPE FileInfo` (`:63`,
+  `frames` at `:64`), the `LINK` block (`:72-146`) containing `getFormatCount`
+  (`:92`), `getFormat` (`:102`), `openFile` (`:115`), `closeFile` (`:124`),
+  `errNum` (`:130`), `errMessage` (`:141`); `sndError` (`:148`); `getFormats`
+  DOC (`:153-175`) and `getFormats` (`:176`).
 - `/Users/justinzaun/local/brew/include/sndfile.h:744` —
   `sf_count_t sf_read_short (SNDFILE *sndfile, short *ptr, sf_count_t items) ;`
   (**items**, not frames — one item is one sample in one channel);
   `:726` is the `sf_readf_short` frame-wise twin; `:368` `sf_count_t = int64_t`;
-  `:676` `sf_seek`.
+  `:676` `sf_seek`. **See §2.4 on the provenance risk of these citations.**
 - `mfb man audio write` — "interleaved signed 16-bit little-endian (s16le) PCM…
   one frame is `channels * 2` bytes… length must be nonzero and an exact whole
-  number of frames"; `mfb man audio openOutput` — `sampleRate` in `8000..=192000`,
-  `channels` **1 or 2**, and *"channels and sampleRate are not resampled"*.
+  number of frames"; `mfb man audio openOutput` — `sampleRate` in
+  `8000..192000`, `channels` **1 or 2**, and *"channels and sampleRate are not
+  resampled"* (`src/docs/spec/stdlib/11_audio.md:137`).
 - `planning/old-plans/plan-50-G-libsnd-binding-getformats.md` — the precedent for
   a libsnd deliverable, including its all-target hardware-validation obligation.
 - `.ai/man_template.md`, `.ai/man_type_template.md`, `scripts/update_man.sh` —
@@ -70,7 +73,7 @@ References (read first):
 - Every format the bundled libsndfile supports works — WAV, FLAC, Ogg/Vorbis,
   Opus, AIFF — because `sf_read_short` converts from the file's native encoding.
 - A file whose geometry `audio` cannot play (more than 2 channels, or a rate
-  outside `8000..=192000`) still loads; `openOutput` is what rejects it, with its
+  outside `8000..192000`) still loads; `openOutput` is what rejects it, with its
   own diagnostic. `loadSound` does not second-guess the file.
 - A file too large for `loadSound` raises a clear error naming the size, rather
   than exhausting the arena.
@@ -79,7 +82,7 @@ References (read first):
 
 - **No compiler work.** After plan-58-B every piece of this is ordinary MFBASIC
   plus one `LINK` wrapper. If something here needs a compiler change, that is a
-  signal plan-58-A/C is incomplete — fix it there, not with a workaround here.
+  signal plan-58-A/B/C is incomplete — fix it there, not with a workaround here.
 - **No resampling, no channel mixing, no format conversion beyond what
   `sf_read_short` does.** `loadSound` reports the file's real geometry; matching
   it to a device is the caller's job.
@@ -92,287 +95,294 @@ References (read first):
 
 ## 2. Current State
 
-`bindings/libsnd` binds four libsndfile entry points (`lib.mfb:86-134`):
-`sf_command` twice (the format table), `sf_open`, `sf_close`, `sf_error`. It can
-open a file and report its metadata; **it cannot read a single sample**, because
-until plan-58-B there was no ABI type able to carry a buffer
-(`src/ir/link.rs:16-35`).
+### 2.1 Measured populations
 
-`openFile` (`:109`) already produces `RES SoundFile STATE FileInfo`, so a handle
+| What | Count | Command |
+|---|---|---|
+| `LINK` wrappers in the binding | **6** | `rg -n 'SYMBOL ' bindings/libsnd/src/lib.mfb \| wc -l` |
+| Distinct libsndfile symbols bound | **5** (`sf_command` ×2, `sf_open`, `sf_close`, `sf_error`, `sf_error_number`) | same, deduped |
+| `LINK` block span | `:72-146` | `rg -n '^LINK\|^END LINK' bindings/libsnd/src/lib.mfb` |
+| Package version today | **1.2.3** (bug-364 already bumped it) | `rg -n version bindings/libsnd/project.json` |
+| Existing libsnd runtime fixtures | 1 (`libsnd-open-file-info-rt`) | `ls tests/rt-behavior/native/` |
+| `MAX_LOAD_BYTES` budget at 8 MiB, stereo 48 kHz s16 | **43.7 s** | `8*1024**2 / (2*2*48000)` |
+| Same at 64 MiB | **349.5 s ≈ 5.8 min** | `64*1024**2 / (2*2*48000)` |
+
+### 2.2 What the binding does today
+
+`bindings/libsnd` binds **six wrappers over five libsndfile symbols**
+(`lib.mfb:72-146`). It can open a file and report its metadata; **it cannot read
+a single sample**, because until plan-58-B there is no ABI type able to carry a
+buffer (`src/ir/link.rs:16-35`).
+
+`openFile` (`:115`) already produces `RES SoundFile STATE FileInfo`, so a handle
 carries its `SF_INFO` and `.state` reads it — the machinery `loadSound` needs is
-in place. After bug-364 that state includes `frames`.
+in place. `FileInfo.frames` (`:64`) is present and correct.
 
-Two defects in the existing source to fix in passing:
+### 2.3 What bug-364 already fixed — do not redo this work
 
-- `sndError` (`:137-140`) prefixes its message with **`"sqlite3: "`** — copied
-  from `bindings/sqlite3` and never corrected. It should read `"libsnd: "`.
-- `errMessage` (`:130-134`) binds the **wrong symbol**, confirmed against the
-  header:
-  ```c
-  int         sf_error        (SNDFILE *sndfile) ;   /* sndfile.h:619 */
-  const char* sf_error_number (int errnum) ;         /* sndfile.h:634 */
-  ```
-  The binding declares `errMessage(errNum AS Integer) AS String` with
-  `SYMBOL "sf_error"` and `ABI (errNum CInt32) AS message CPtr`. So it passes an
-  **integer where `sf_error` expects a `SNDFILE *`**, and then marshals the
-  returned **`int`** as a `CPtr` to be copied out as a String. That is two wild
-  dereferences per call. It is reached by `sndError` (`:138`) on every error
-  path, which is precisely when a program is already in trouble. File with
-  bug-364.
+The 2026-07-19 draft listed two defects "to fix in passing" and made bug-364 a
+dependency. **All three are done.** Verified 2026-07-20:
 
-Neither is in `loadSound`'s happy path, but `loadSound` is the first function that
-will *report* an error through `sndError`, so both are on its blast radius.
+| Draft claim | Reality |
+|---|---|
+| "bug-364 must land first; `frames` does not exist on `FileInfo`" | **Landed.** `FileInfo.frames` at `lib.mfb:64`; `CSTRUCT SfFileInfo.frames CInt64` at `:88` with the bug-364 comment above it; `project.json` already at `1.2.3` |
+| "`sndError` prefixes its message with `\"sqlite3: \"`" | **Already fixed.** `lib.mfb:150` reads `error(err, "libsnd: " & …)`. `rg -n 'sqlite3' bindings/libsnd/src/lib.mfb` → 0 matches |
+| "`errMessage` binds the wrong symbol `sf_error`" | **Already fixed.** `errMessage` (`:141`) binds `SYMBOL "sf_error_number"` (`:142`), with a comment citing bug-364. `errNum` (`:130`) correctly binds `sf_error` (`:131`) — that one takes a `SNDFILE*` and is right |
+
+This is why this sub-plan is **small**, not medium: Phase 1 shrinks to
+`readSamples` plus its DOC and tests. Do not re-file bug-364 and do not "fix" the
+`sf_error` binding on `errNum` — it is correct.
+
+### 2.4 Verified properties
+
+| Claim | Verdict | How checked |
+|---|---|---|
+| `sf_read_short` counts **items** (samples), not frames | **CONFIRMED** | `sndfile.h:744`, parameter literally named `items`; `:726` is the frame-wise `sf_readf_short` |
+| `sf_count_t` is `int64_t` | **CONFIRMED** | `sndfile.h:368` |
+| `sf_error_number(int)` returns `const char*` | **CONFIRMED** | `sndfile.h:634`; `sf_error(SNDFILE*)` returns `int` at `:619` |
+| Every supported target is little-endian, so s16le needs no swap | **CONFIRMED** | all arches in `project.json` (macos/linux × aarch64/x86_64/riscv64 × glibc/musl) are LE in every configuration this repo builds |
+| Building `pcm` with `collections::append` would be O(N²) | **CONFIRMED** | copying a collection value is shrink-to-fit and re-tightens per copy (`05_collections.md:196-200`) — hence one `CBuffer` allocation, not an append loop |
+| bug-364 is an open dependency | **FALSE** | §2.3 — landed |
+| The two "defects to fix in passing" still exist | **FALSE** | §2.3 — both already fixed |
+| **The `sndfile.h` citations are checkable by a reviewer** | **FALSE — provenance risk** | `ls bindings/libsnd/vendor/` holds only `.so`/`.dylib`/`.dll` binaries, **no headers**. The citations resolve against a Homebrew install at `/Users/justinzaun/local/brew/include/`, which is neither vendored nor version-pinned to the bundled `libsndfile.1.0.37`. CI and other machines cannot verify them. See Open Decision 2 |
+| `loadSound` is viable for full-length music on a default build | **FALSE** | §2.5 — 43.7 s of stereo 48 kHz, at 344 MB of arena |
+
+### 2.5 The governing constraint — `loadSound` is a sound-effect API today
+
+`kind = 2` is gated off by default (`MFB_KIND2`,
+`builder_collection_layout.rs:2191`), so a `List OF Byte` costs 41 bytes per byte
+(plan-58-A §Kind-2 gate). That sets `MAX_LOAD_BYTES` and, with it, what `loadSound` is
+*for*:
+
+| Build | `MAX_LOAD_BYTES` | Arena cost | Stereo 48 kHz duration |
+|---|---|---|---|
+| default (`kind = 1`) | **8 MiB** | 344 MB | **43.7 s** |
+| `MFB_KIND2=1` | 64 MiB | 64 MB | 349.5 s ≈ **5.8 min** |
+
+Note the 2026-07-19 draft twice described 64 MiB as "≈11 min stereo 48 kHz". That
+is the **mono** figure mislabeled — stereo is 5.8 min. The draft's own 8 MiB
+figure (43.7 s) was right, and the two were mutually inconsistent by 2×.
+
+**Consequence for the DOC:** `loadSound` must be documented as a
+whole-file-into-memory convenience for short audio — effects, stings, loops —
+and `readSamples` as the answer for anything longer. That is not a caveat to bury;
+it is what the API is.
 
 ## 3. Design Overview
 
-Two layers, and the split is the whole design.
+Two pieces, one of which is the deliverable:
 
-**`readSamples` — the LINK wrapper (bytes in, bytes out).**
+1. **`readSamples`** — a single `LINK` wrapper over `sf_read_short` using
+   `OUT CBuffer`. This is the only new compiler-facing surface, and the only
+   thing that can fail in an interesting way.
+2. **`loadSound`** — ordinary MFBASIC on top: read `.state.frames` and
+   `.channels`, compute the byte count, gate it against `MAX_LOAD_BYTES`, call
+   `readSamples` once, wrap in a `Sound`.
+
+**Where design uncertainty concentrates:** in `readSamples`' ABI declaration
+being right — specifically that `SIZE` and `LENGTH` are both expressed in
+**bytes** while `sf_read_short` speaks **items**. The `* 2` scaling appears in
+both clauses and an error in either is silent: too small a `SIZE` truncates,
+too large a `LENGTH` walks past what the callee wrote. Phase 1 proves it against
+a file whose exact bytes are known.
+
+**Where correctness risk concentrates:** the short-read and error paths.
+`sf_read_short` returns `-1` on error and `0` at EOF, and plan-58-B's clamp is
+what stops a negative from becoming a huge unsigned `count`. This sub-plan must
+exercise both, not assume plan-58-B's unit tests cover them in situ.
+
+**Rejected alternative:** *build `pcm` with `collections::append` in a loop.*
+Rejected: copying a collection value is shrink-to-fit and re-tightens per copy
+(`05_collections.md:196-200`), so appending N bytes is O(N²). One `CBuffer`
+allocation sized from `frames * channels` is the whole point of plan-58-B.
+
+**Rejected alternative:** *use `sf_readf_short` (frame-wise) instead.* Rejected:
+it only moves the `* channels` scaling from MFBASIC into the ABI clause without
+removing it, and `items` composes more simply with a byte-sized buffer.
+
+**Rejected alternative:** *have `loadSound` resample or downmix to match a
+device.* Rejected as a non-goal: `openOutput` already diagnoses unplayable
+geometry, and a decoder that silently changes the audio is worse than one that
+reports what the file is.
+
+## 4. Detailed Design
+
+### 4.1 `readSamples`
 
 ```basic
 FUNC readSamples(RES sndfile AS SoundFile, items AS Integer) AS List OF Byte
   SYMBOL "sf_read_short"
-  ABI (sndfile CPtr, ptr OUT CBuffer, items CInt64) AS got CInt64
-  BUFFER ptr SIZE items * 2          ' one short per item
-  RETURN ptr LENGTH got * 2          ' got is items; the list is bytes
+  ABI (h CPtr, buf OUT CBuffer, n CInt64) AS got CInt64
+  BUFFER buf SIZE items * 2
   SUCCESS_ON got >= 0
+  RETURN buf LENGTH got * 2
 END FUNC
 ```
 
-`sf_read_short` is chosen over `sf_readf_short` deliberately: it counts **items**
-(samples), so the byte scale is a fixed `× 2` independent of channel count, and
-both the `SIZE` and `LENGTH` expressions stay single multiplications. The
-frame-wise variant would need `× 2 × channels`, and `channels` is not an ABI slot.
+- `SIZE items * 2` — bytes, because one item is one s16 sample.
+- `LENGTH got * 2` — `sf_read_short` returns **items read**, so the byte length
+  is `got * 2`. plan-58-B clamps it to `[0, SIZE]`.
+- `SUCCESS_ON got >= 0` — `>=` is in `IrLinkExpr::Compare`'s operator set
+  (`src/ir/link.rs:526-527`), so this is expressible today.
+- Both `* 2` scalings need plan-58-B's `IrLinkExpr::Mul`.
 
-**`loadSound` — ordinary MFBASIC.**
+### 4.2 `loadSound`
 
-```basic
-LET f = openFile(path)                 ' RES, carries SF_INFO as .state
-LET items = f.state.frames * f.state.channels
-<size gate>
-LET pcm = readSamples(f, items)
-RETURN Sound[ samplerate := f.state.samplerate, channels := f.state.channels, pcm := pcm ]
+```
+info   = openFile(path).state
+total  = info.frames * info.channels        ' items
+bytes  = total * 2
+if bytes > MAX_LOAD_BYTES  -> error naming the size and the cap
+pcm    = readSamples(handle, total)
+return Sound { samplerate: info.samplerate, channels: info.channels, pcm: pcm }
 ```
 
-One `sf_read_short` call, one allocation, exact size — because bug-364 made
-`frames` available and correct. This is why A is a hard dependency and not a
-nicety: without it there is no way to size the buffer, and the loop-and-append
-alternative would copy the whole PCM buffer on every growth.
+`MAX_LOAD_BYTES` = **8 MiB** while `MFB_KIND2` is off (§2.5). The error must name
+both the file's size and the cap — "too large" without numbers is unactionable.
 
-**Endianness.** `sf_read_short` writes host-native `short`. `audio::write` wants
-**little-endian** s16. Every supported target (aarch64, x86_64, riscv64 on macOS
-and Linux) is little-endian, so these coincide and no byte-swap is needed.
-State this in a source comment rather than leaving it as a silent assumption —
-it is the kind of thing that is invisible until a big-endian target appears.
+A file that decodes to fewer bytes than `frames * channels * 2` (a truncated or
+malformed file) simply produces a shorter `pcm` via the `LENGTH` clamp; that is
+not an error condition.
 
-**Where the correctness risk concentrates:** in the geometry handoff, not in the
-size. With plan-57 landed a `List OF Byte` costs `40 + N` bytes rather than
-`40 + 41N`, so `loadSound` on a 3-minute stereo track asks for 34.6 MB rather
-than 1.4 GB — the API is viable for real music, not just sound effects. A cap is
-still wanted for a pathological file, but it is a guard rail rather than the
-central constraint it was.
+### 4.3 Docs
 
-**Rejected alternative:** *`loadSound` loops `readSamples` in chunks and appends.*
-Rejected: `collections::append` on a value-semantic list copies, so decoding an
-N-byte file would be O(N²). The single sized read is both simpler and correct.
-Chunked reading is still available to callers via `readSamples`, which is why it
-is exported rather than kept private.
-
-**Rejected alternative:** *have `loadSound` return `List OF Byte`, as originally
-requested.* Rejected on the evidence: `audio::openOutput` requires the sample rate
-and channel count, and a bare byte list carries neither. A caller who guesses gets
-playback at the wrong pitch and speed with no error. The `Sound` record costs one
-field access at the call site and makes the correct call possible.
-
-## 4. Detailed Design
-
-### 4.1 The size gate
-
-```basic
-LET items = f.state.frames * f.state.channels
-LET bytes = items * 2
-IF bytes > MAX_LOAD_BYTES THEN
-  FAIL error(<code>, "libsnd: " & path & " decodes to " & toString(bytes) &
-                     " bytes of PCM, over loadSound's " &
-                     toString(MAX_LOAD_BYTES) & "-byte limit; use readSamples to stream it")
-END IF
-```
-
-`MAX_LOAD_BYTES` should be **at or below** plan-58-B's `CBUFFER_MAX_BYTES` so the
-error names `loadSound` and its remedy rather than surfacing from the marshaler.
-With plan-58-B's recommended 64 MiB that is ≈11 minutes of stereo 48 kHz — well
-past any reasonable in-memory decode, so the gate fires only on a file that would
-have exhausted the arena anyway, and `readSamples` remains the answer for
-streaming.
-
-Guard `frames` and `channels` for sanity before multiplying: a file libsndfile
-could not fully parse can report `frames = 0` (legal — an empty file) or, for a
-stream of unknown length, `-1`. Reject a negative product explicitly rather than
-letting it reach the `CBuffer` size gate as a huge unsigned value.
-
-### 4.2 Error mapping
-
-Fix `sndError`'s `"sqlite3: "` prefix to `"libsnd: "`, and repoint `errMessage`
-at `sf_error_number` (§2, confirmed against `sndfile.h:634`):
-
-```basic
-  FUNC errMessage(errNum AS Integer) AS String
-    SYMBOL "sf_error_number"
-    ABI (errNum CInt32) AS message CPtr
-    RETURN message
-  END FUNC
-```
-
-The returned pointer is a static string owned by libsndfile, so copy-and-leave is
-correct and **no `FREE` block** is wanted (`17_native-libraries.md`: a `FREE` on a
-library-owned pointer is a wild free).
-
-### 4.3 DOC and man
-
-`Sound`, `loadSound` and `readSamples` all need DOC blocks. Per
-`.ai/man_type_template.md` and `.ai/man_template.md`, and following the shape of
-the existing `getFormats` DOC (`lib.mfb:142-164`). The `loadSound` DOC must state,
-at minimum:
-
-- `pcm` is interleaved s16le, one frame = `channels * 2` bytes — the exact
-  contract `audio::write` requires.
-- The whole file is decoded into memory, the `MAX_LOAD_BYTES` limit, and that
-  `readSamples` is the remedy for longer material.
-- `samplerate` and `channels` are the **file's**, not a device's; `openOutput`
-  may reject them (more than 2 channels, or a rate outside `8000..=192000`) and
-  that is not a `loadSound` failure.
-- Which formats work is a property of how the bundled libsndfile was built —
-  the same caveat `getFormats`' DOC already carries (`:147-150`).
+- `Sound` gets a type DOC per `.ai/man_type_template.md`.
+- `loadSound`'s DOC states the `MAX_LOAD_BYTES` cap **in seconds as well as
+  bytes** (§2.5) and points at `readSamples` for longer audio.
+- `readSamples`' DOC states that `items` counts samples across all channels, and
+  that the returned byte count may be shorter than requested at EOF.
+- Package DOC (`lib.mfb:15-45`) gains the `loadSound` → `audio::write` example
+  from the header of this document.
+- `project.json` version 1.2.3 → **1.3.0** (new exports, backward compatible).
 
 ## Compatibility / Format Impact
 
-- **Changes:** `bindings/libsnd` exports two new functions and one new type; the
-  package `version` bumps again (bug-364 took it to `1.2.3`, so `1.3.0` — a
-  feature addition).
-- **Changes:** `sndError`'s message prefix, and possibly `errMessage`'s symbol
-  (§4.2). Both are bug fixes; no correct program depended on either.
-- **Unchanged:** `getFormats`, `AudioFormat`, `openFile`, `closeFile`,
-  `SoundFile`, the bundled libraries, and the `libraries` manifest table.
+- **Changes:** three new exports (`Sound`, `loadSound`, `readSamples`), a new
+  `LINK` wrapper in the block, package version 1.3.0.
+- **Blast radius:** adding a wrapper to the `LINK` block changes the emitted
+  thunk set, so **`tests/rt-behavior/native/libsnd-open-file-info-rt` will
+  churn** — the existing libsnd runtime fixture, which the draft did not mention.
+  Its goldens must be re-synced and re-read, not blindly accepted.
+- **Unchanged:** `getFormats`, `AudioFormat`, `openFile`, `closeFile`, `errNum`,
+  `errMessage`, `sndError`, the `SoundFile` resource and its close op, the
+  bundled library set.
 
 ## Phases
 
-### Phase 1 — `readSamples` and the error-path fixes
+### Phase 1 — `readSamples` and its byte/item scaling (the uncertain part)
 
-The streaming primitive, landable and useful before `loadSound` exists.
+- [ ] Add `readSamples` to the `LINK` block (`lib.mfb:72-146`) exactly as §4.1.
+- [ ] Tests: decode a WAV fixture whose exact PCM bytes are known and compare
+      byte-for-byte — this is what proves the `* 2` scalings in `SIZE` and
+      `LENGTH` are both right.
+- [ ] Tests: a short read at EOF (request more items than remain) returns the
+      real remaining byte count, not the requested one.
+- [ ] Tests: an error path — read from a closed/invalid handle — surfaces through
+      `sndError` as an `Error`, exercising `SUCCESS_ON got >= 0` and the clamp on
+      a negative `got`.
+- [ ] Re-sync `tests/rt-behavior/native/libsnd-open-file-info-rt` goldens and
+      confirm the only change is the added thunk.
 
-- [ ] Add `readSamples` to the `LINK` block (`bindings/libsnd/src/lib.mfb`), §3.
-- [ ] Fix `sndError`'s `"sqlite3: "` → `"libsnd: "` (`:139`).
-- [ ] Repoint `errMessage` at `sf_error_number` (§4.2) and record the defect with
-      bug-364. Add a runtime case that forces an error (open a nonexistent file)
-      and asserts the message is libsndfile's real text — today that path
-      dereferences an integer.
-- [ ] DOC block for `readSamples` per `.ai/man_template.md`.
-- [ ] Tests: `tests/rt-behavior/native/libsnd-read-samples-rt/` — generate a WAV
-      of known contents with `fs::writeAllBytes`, open it, `readSamples` it in
-      **two** chunks, and assert the concatenation equals the known PCM. Two
-      chunks is the point: it proves the handle advances and that a partial read
-      truncates correctly.
-- [ ] Tests: reading past EOF returns an empty list, and the next call still
-      returns empty rather than failing.
-
-Acceptance: `libsnd-read-samples-rt` reconstructs the exact known PCM from two
-chunked reads, on macOS/aarch64 and Linux/{aarch64,x86_64,riscv64} ×
-{glibc,musl}.
+Acceptance: the WAV fixture decodes byte-identically to a known-good decode; the
+EOF short read returns the correct shorter length; the error path produces an
+`Error` rather than a crash or a garbage-length list.
 Commit: —
 
-### Phase 2 — `Sound`, `loadSound`, and playback proof
+### Phase 2 — `Sound`, `loadSound`, the cap, and the docs
 
-- [ ] Add `EXPORT TYPE Sound` and `EXPORT FUNC loadSound` (§3, §4.1), including
-      the size gate and the negative-`frames` guard.
-- [ ] Add the endianness comment (§3) at `readSamples`.
-- [ ] DOC blocks for `Sound` (`.ai/man_type_template.md`) and `loadSound`
-      (`.ai/man_template.md`), covering every point in §4.3. Update the package
-      DOC (`lib.mfb:15-45`) so `mfb man libsnd` lists the new API.
-- [ ] Bump `bindings/libsnd/project.json` `version` to `1.3.0`.
-- [ ] Tests: `tests/rt-behavior/native/libsnd-load-sound-rt/` — generate a WAV of
-      known PCM, `loadSound` it, assert `samplerate`, `channels`, and that `pcm`
-      is byte-identical to what was written. A generated WAV is the only fixture
-      whose expected bytes are known exactly.
-- [ ] Tests: the size gate — a file over `MAX_LOAD_BYTES` fails with the specific
-      message, and does **not** allocate. Generate a large-but-cheap file (a long
-      WAV of silence) rather than committing one.
-- [ ] Tests: a **compressed** format round-trip (FLAC is lossless, so the decoded
-      PCM is exactly comparable; Ogg/Opus are lossy and cannot be byte-compared).
-      Gate it on the format appearing in `getFormats()`, since the bundled build's
-      codec set varies per platform — the caveat `getFormats`' own DOC makes.
-- [ ] Tests: function-test directories for both new functions per `.ai/compiler.md`
-      — valid and invalid, covering wrong argument count and type. Follow the
-      current layout (`tests/syntax/<package>/<name>_invalid/`), not the older
-      `tests/func_<package>_<func>_*` spelling in that document.
+- [ ] `EXPORT TYPE Sound` and `EXPORT FUNC loadSound` per §4.2.
+- [ ] `MAX_LOAD_BYTES` = 8 MiB, with the over-cap error naming size and cap.
+- [ ] DOCs per §4.3; `scripts/update_man.sh`.
+- [ ] `project.json` version → 1.3.0.
+- [ ] Tests: `loadSound` on WAV **and** FLAC (proving `sf_read_short` converts
+      from the native encoding, which is the whole reason to use libsndfile);
+      an over-cap file producing the named error; a mono file and a stereo file
+      reporting the right geometry.
 
-Acceptance: `libsnd-load-sound-rt` reports the generated file's exact geometry and
-byte-identical PCM; the FLAC case decodes to the same PCM as the WAV case where
-FLAC is available; the oversize case fails with the `loadSound` message and no
-allocation. All on macOS/aarch64 and Linux/{aarch64,x86_64,riscv64} ×
-{glibc,musl} per `.ai/remote_systems.md`.
+Acceptance: `loadSound` on a FLAC returns PCM byte-identical to the same audio
+decoded from WAV; the over-cap error names both numbers; `mfb man libsnd
+loadSound` renders with the duration caveat.
 Commit: —
 
-### Phase 3 — end-to-end playback (the real proof)
+### Phase 3 — end-to-end playback on hardware (largest blast radius last)
 
-- [ ] Write an example program under the repo's example location: `loadSound` →
-      `audio::openOutput(s.samplerate, s.channels, 512)` → `audio::write(out, s.pcm)`.
-- [ ] Run it on hardware with audible output and confirm the recording plays at
-      the correct pitch, speed, and channel balance.
-- [ ] Add the same program as `loadSound`'s DOC `EXAMPLE` block.
+- [ ] A program that `loadSound`s a file and plays it through `audio::write`.
+- [ ] Run on every supported target per `.ai/remote_systems.md`. Note that file
+      lists **11** ssh hosts; enumerate the ones this binding actually supports
+      from `bindings/libsnd/project.json` rather than assuming a count.
 
-Acceptance: **a real sound file plays back correctly through speakers.** A
-stereo file with distinct left and right content is the right probe — it catches
-channel swaps and interleaving errors that a mono or silent file cannot. Wrong
-sample rate is audible as pitch shift; a frame-alignment error as static.
+Acceptance: audible correct playback, and a byte-comparison of the decoded PCM
+against a known-good decode, on every target the binding claims to support.
+A target that cannot be tested is recorded as untested — not assumed working.
 Commit: —
 
 ## Validation Plan
 
-- Tests: `tests/rt-behavior/native/libsnd-read-samples-rt/` (chunked reads, EOF);
-  `libsnd-load-sound-rt/` (geometry, byte-identity, size gate, FLAC); the
-  valid/invalid function-test directories for both new functions.
-- Runtime proof: **Phase 3 is the Hard Completion Gate.** Byte-identity against a
-  generated WAV proves the decode; only playback proves the contract with
-  `audio::write` — the s16le interleaving, the frame alignment, and the geometry
-  handoff to `openOutput`. Do not report plan-58 complete on byte-identity alone.
-- Hardware coverage: all seven (os, arch, libc) combinations per
-  `.ai/remote_systems.md`, as plan-50-G required for `getFormats`. Note that
-  audible playback is only possible where there is an audio device — the
-  byte-identity tests run everywhere, Phase 3 runs where hardware allows, and any
-  target that cannot be proven audibly must be named explicitly rather than
-  quietly skipped.
-- Doc sync: `bindings/libsnd` DOC blocks only. No spec change — plan-58-A and -C
-  own the language-surface documentation.
-- Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
+- Tests: per phase. The error and short-read paths are mandatory — they are where
+  a wrong `LENGTH` becomes an out-of-bounds list rather than a wrong number.
+- Coverage check: `tests/rt-behavior/native/` fixtures are golden-backed and in
+  the gate's denominator. `tests/acceptance/` has **no** `golden/` dir by design —
+  do not place the proof there and assume coverage.
+- Runtime proof: Phase 3's playback, plus the byte-comparison against a
+  known-good decode. Playback alone is not proof — it is possible to hear
+  plausible audio from a subtly wrong buffer.
+- Doc sync: package DOC, `Sound` type DOC, `loadSound` and `readSamples` DOCs,
+  `scripts/update_man.sh`.
+- Acceptance: the project's full suite, with `libsnd-open-file-info-rt` churn
+  reviewed rather than accepted.
 
 ## Open Decisions
 
-- **Should `loadSound` also expose `frames`?** It is derivable
-  (`bytes / (channels * 2)`), but a caller computing playback duration needs it
-  and getting the arithmetic wrong is easy. Recommend adding `frames AS Integer`
-  to `Sound` — it is free, since `loadSound` already reads it to size the buffer.
-- **Should `readSamples` take frames instead of items?** Items keeps the LINK
-  expression to one multiplication (§3) and matches `sf_read_short`. But callers
-  think in frames, and `items = frames * channels` is exactly the mistake a
-  caller will make. Recommend keeping the wrapper item-based (it mirrors the C
-  API it binds) and adding a thin MFBASIC `readFrames(f, frames)` that multiplies
-  by `f.state.channels` — the binding layer is the right place for that
-  convenience, and it cannot be expressed in the ABI line.
-- **`MAX_LOAD_BYTES` at 64 MiB (≈11 min stereo 48 kHz)** follows plan-58-B's
-  `CBUFFER_MAX_BYTES`. Recommend keeping them equal and defined in one place, so
-  a future change to the cap cannot leave `loadSound` reporting a limit the
-  marshaler does not enforce. If plan-57 has not landed, both drop to 8 MiB
-  (≈43 s at 41× amplification) — and in that case `loadSound` is a sound-effect
-  API, which should be said in its DOC block rather than discovered.
+1. **`MAX_LOAD_BYTES` = 8 MiB vs. tracking the `MFB_KIND2` gate.** Recommended:
+   fixed 8 MiB, documented with its duration, until kind = 2 is the default. A
+   cap that changes with an env var is a support problem. Revisit when the gate
+   flips — at which point the DOC's duration figure changes too. (§2.5)
+2. **Vendor or pin `sndfile.h`.** The ABI of the bundled `libsndfile.1.0.37` is
+   currently asserted from an unrelated local Homebrew header that no reviewer or
+   CI job can check (§2.4). Recommended: vendor the matching header under
+   `bindings/libsnd/vendor/` so every `sndfile.h:NNN` citation in this plan is
+   verifiable. This is how bug-364 happened. (§2.4)
+3. **Whether `readSamples` should be exported at all**, or kept internal with
+   only `loadSound` public. Recommended: export it — it is the only way to play
+   audio longer than the cap, and §2.5 makes that a common case, not an edge one.
+   (§1)
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+- 2026-07-20 — **bug-364 has landed; the draft's entire "two defects to fix in
+  passing" section was stale.** `frames` is present (`lib.mfb:64`, `:88`),
+  `sndError` already says `"libsnd: "` (`:150`), and `errMessage` already binds
+  `sf_error_number` (`:142`). `project.json` is already at 1.2.3. Effort dropped
+  medium → small; Phase 1 lost two of its four tasks.
+- 2026-07-20 — **The binding has 6 wrappers over 5 symbols, not "four entry
+  points".** The `LINK` block is `:72-146`, not `:86-134`.
+- 2026-07-20 — **Every `lib.mfb` line citation in the draft was off by 6-14
+  lines**, because bug-364's landing shifted them. All re-measured above.
+- 2026-07-20 — **"64 MiB ≈ 11 min stereo 48 kHz" was wrong by 2×** (it is the
+  mono figure). Actual: 5.8 min stereo. It also contradicted the draft's own
+  correct "8 MiB ≈ 43 s". Both figures re-derived in §2.5.
+- 2026-07-20 — **`MAX_LOAD_BYTES` must be 8 MiB, not 64 MiB**, because
+  `MFB_KIND2` is off by default and the 41× cost is live. This changes what the
+  API is for (§2.5), not just a constant.
+- 2026-07-20 — **`libsnd-open-file-info-rt` will churn** and was unmentioned in
+  the draft's blast radius.
+- 2026-07-20 — **`sndfile.h` is not vendored**; all header citations are
+  unverifiable off this machine. Raised as Open Decision 2.
 
 ## Summary
 
-The engineering risk is almost entirely in the geometry handoff, not in the
-decode or the size: libsndfile does the format work, plan-58-B does the
-marshaling, and plan-57 removed the memory cliff that used to dominate this
-design. What can still go wrong is a `Sound` whose `samplerate`/`channels` do not
-match its `pcm` interleaving — silent in every byte-comparison test, and obvious
-the moment it is played. Hence Phase 3.
+The engineering risk here is small and concentrated in one declaration: whether
+`SIZE items * 2` and `LENGTH got * 2` are both right, given `sf_read_short`
+speaks items and `CBuffer` speaks bytes. Phase 1 answers that against a file with
+known bytes.
 
-Untouched: the compiler, `getFormats`, the `SoundFile` resource, the bundled
-libraries, and the `audio` package.
+The larger truth about this sub-plan is a product one, not an engineering one:
+with `MFB_KIND2` off, `loadSound` holds **43.7 seconds** of stereo 48 kHz audio
+and spends 344 MB doing it. It is a sound-effect API until the gate flips, and
+the DOC has to say so.
+
+What is left untouched: every existing wrapper, the `SoundFile` resource, the
+bundled library set, and the `audio` package — which this binding still does not
+depend on.

@@ -1,14 +1,13 @@
 # plan-58-A: the `CBuffer` slot ctype — vocabulary, position rules, and gates
 
-Last updated: 2026-07-19
+Last updated: 2026-07-20
 Overall Effort: large (3h–1d) — the whole plan-58 feature (A–D)
 Effort: medium (1h–2h)
-Depends on: nothing for this sub-plan (it lands before plan-58-B, which
-implements its marshaling). **Feature-level prerequisites for plan-58 as a
-whole:** `bugs/bug-364-libsnd-sf-info-missing-frames-field.md` (plan-58-D sizes
-its PCM buffer from `frames`) and **plan-57** (plan-58-B allocates through
-`emit_alloc_list` and relies on the `kind = 2` byte-list representation and its
-index-order guarantee).
+Depends on: nothing
+Produces: `abi_slot_ctype_is_known("CBuffer")`, `IrBuffer`,
+`IrLinkFunction::buffers`, `ir::link::check_buffer_slots`, rule
+`NATIVE_BUFFER_INVALID` (`2-203-0132`), the `BUFFER <slot> SIZE <expr>` clause.
+Consumed by B (marshaling), C (encode/decode), D (the binding).
 
 Introduces `CBuffer` into the ABI slot ctype namespace as an **OUT-only,
 runtime-sized byte buffer** that surfaces as `List OF Byte`, together with the
@@ -19,7 +18,7 @@ loudly, at `link_thunk.rs`'s `Err` arm. plan-58-B makes it marshal.
 Landing the vocabulary first is deliberate and mirrors plan-50-A→B: the moment a
 new ctype exists, an unimplemented or mis-positioned one must fail as a
 *diagnostic*, never as a silent raw 64-bit load. It also closes a latent hole
-found while planning (§2): a LINK wrapper may already declare
+found while planning (§2.3): a LINK wrapper may already declare
 `AS List OF Byte` today and it compiles to **garbage** rather than being
 rejected.
 
@@ -51,9 +50,73 @@ References (read first):
   native-ABI block at `:992-1058`; `src/docs/spec/diagnostics/01_rule-codes.md`.
 - `src/rules/mod.rs:every_rule_is_documented_in_the_spec` — a new rule without a
   spec row fails the suite.
-- `src/docs/spec/language/17_native-libraries.md` — the ctype table (~`:187-205`
-  in rendered form) and §Rules.
+- `src/docs/spec/language/17_native-libraries.md` — the ctype table and §Rules.
 - `.ai/compiler.md`, `.ai/specifications.md`.
+
+## Dependency graph (whole feature)
+
+```
+[plan-57-B track 2: a callable shared byte-list constructor]  ← EXTERNAL, NOT DONE
+                                    │
+                                    ▼
+   A (vocabulary) ──► B (marshaling) ──► C (.mfp path) ──► D (libsnd::loadSound)
+```
+
+Execution is topological over this graph, not alphabetical. A has no
+prerequisites and may start immediately. **B cannot start until the external
+node is satisfied** — see §Prerequisite, this is the feature's one real blocker.
+
+Letters are identifiers, not an order. Do not re-letter.
+
+### Prerequisite: the external blocker — verified 2026-07-20
+
+plan-58-B's design opens with "allocate through `emit_alloc_list`, the shared
+constructor plan-57-B introduced." **That function does not exist.**
+
+```
+rg -n 'fn emit_alloc_list' src/                      → no matches
+rg -n 'fn emit_collection_data_pointer_into' src/    → no matches
+```
+
+Both were named as plan-57-B deliverables and both are still open
+(`planning/plan-57-D-kind-2-drop-the-entry-table.md:127-129` records them as
+MISSING; plan-57-B's remaining tracks have not closed them as of the latest
+plan-57-B commits on 2026-07-20). What exists instead:
+
+| Symbol | Location | Visible to `link_thunk.rs`? |
+|---|---|---|
+| `emit_alloc_byte_list` | `src/target/shared/code/audio/mod.rs:135` | **No** — private `fn` in `audio/` |
+| `emit_build_byte_list` | `src/target/shared/code/crypto_ec.rs:208` | No — `pub(super)`, and it copies from a source buffer |
+
+So B's first design step has no callee. B must either wait for plan-57-B track 2,
+or promote `emit_alloc_byte_list` into a shared module itself — which is plan-57-B's
+work, done here. **That decision is Open Decision 1 and must be settled before B
+starts, not during it.**
+
+### Kind-2 gate: the governing constraint — `MFB_KIND2` is off by default
+
+The `kind = 2` byte-list representation (plan-57-D) is behind an env gate:
+
+```
+rg -n 'MFB_KIND2' src/target/shared/code/builder_collection_layout.rs → :2191
+```
+
+`std::env::var("MFB_KIND2").is_ok()` — so **the default build still pays the
+kind = 1 cost of 40 bytes of `LookupEntry` per byte** (`COLLECTION_ENTRY_SIZE` =
+40, `error_constants.rs:786`; `COLLECTION_HEADER_SIZE` = 40, `:777`).
+
+This is not a footnote; it sets what the feature can do:
+
+| Build | Arena cost of an 8 MiB buffer | Practical cap | s16 stereo 48 kHz |
+|---|---|---|---|
+| default (kind = 1) | **343.9 MB** (41.0×) | 8 MiB | **43.7 s** |
+| `MFB_KIND2=1` | 8.4 MB (1.0×) | 64 MiB | 349.5 s |
+
+So `loadSound` (plan-58-D) tops out around **44 seconds of stereo 48 kHz audio**
+on a default build, and costs a third of a gigabyte to do it. That is why
+plan-58-D ships `readSamples` (streaming) as a peer of `loadSound` rather than as
+a nicety, and why `CBUFFER_MAX_BYTES` is 8 MiB until the gate flips. State the
+gate in the code comment next to the constant so the two stay traceable.
 
 ## 1. Goal
 
@@ -67,35 +130,45 @@ References (read first):
   4. it is the slot named by `RETURN`, and the wrapper's return type is
      `List OF Byte`.
 - Conversely, a wrapper returning `List OF Byte` **without** a `CBuffer` result
-  slot is rejected — closing the pre-existing garbage-codegen hole in §2.
+  slot is rejected — closing the pre-existing garbage-codegen hole in §2.3.
 - `CBuffer` is rejected as a CSTRUCT field (`ctype_size_align` returns `None`,
   as `CVoid` does) and as the ABI return.
 - Every rejection fires identically from `syntaxcheck` and from `ir::verify`, so a
   crafted `.mfp` gets exactly the source-path treatment
   (`src/ir/link.rs:279-281`).
-- `link_thunk.rs` still returns `Err` for `CBuffer`; no binding can use it yet.
+- **`link_thunk.rs` is given an explicit `Err` arm for `CBuffer`** so no binding
+  can use it yet. This is a real edit, not a pre-existing property — see §2.4.
 
 ### Non-goals (explicit constraints)
 
-- **No marshaling.** That is plan-58-B. This sub-plan must not emit a single
-  instruction for `CBuffer`.
+- **No marshaling.** That is plan-58-B. The only `CBuffer` code this sub-plan adds
+  to `link_thunk.rs` is the `Err` arm that refuses to lower it (§2.4) — it must
+  not emit a single *instruction* for `CBuffer`.
 - **Do not touch `is_c_abi_type`** in any of its three copies
   (`src/syntaxcheck/helpers.rs:204-220`, `src/ir/verify/mod.rs:2991-3008`,
   `src/resolver/mod.rs:132-141`). It answers the opposite question and its
   narrowness is specified (`src/ir/link.rs:5-8`). `CBuffer` must **not** be added
   to it — a wrapper's MFBASIC-facing signature never names `CBuffer`, it names
   `List OF Byte`, so the escape rule needs no new entry.
-- No `.mfp` format change. `BINARY_REPR_VERSION` is unchanged: `BUFFER`'s `SIZE`
-  expression reuses the existing `IrLinkExpr` encoding, appended to the existing
-  LINK trailer. (plan-58-C covers the encode/decode and its version question — if
-  it concludes a bump is needed, this sub-plan does not pre-empt it.)
+- No `.mfp` format change *in this sub-plan*. `BINARY_REPR_VERSION` is unchanged
+  here; plan-58-C owns the encode/decode and its version bump.
 - No change to any currently-valid ctype's semantics. Zero acceptance-golden
   churn outside the new negative fixtures.
 - The `IrLinkExpr` arithmetic extension (`*`, `+`, `-`) that plan-58-B's `LENGTH`
-  clause needs is **not** in scope here; `SIZE` accepts the expression grammar as
-  it stands plus that extension, whichever has landed.
+  clause needs is **not** in scope here.
 
 ## 2. Current State
+
+### 2.1 Measured populations
+
+| What | Count | Command |
+|---|---|---|
+| ABI slot ctypes in the authority | 15 | `rg -o '"C[A-Za-z0-9]+"' src/ir/link.rs \| sed -n '/16,35p/'` — enumerated at `src/ir/link.rs:16-35` |
+| `2-203-01xx` rule codes already taken | 32 (`0100`–`0131`, contiguous, no gaps) | `rg -o '"2-203-01[0-9]{2}"' src/rules/table.rs \| sort -u \| wc -l` |
+| Next free `2-203` code | **`2-203-0132`** | `rg -o '"2-203-[0-9]{4}"' src/rules/table.rs \| sort -u \| tail -1` → `0131`; `rg -c '2-203-0132' src/ docs/` → 0 |
+| Copies of `is_c_abi_type` (must stay untouched) | 3 | `rg -n 'fn is_c_abi_type' src/` |
+
+### 2.2 How the namespace works today
 
 **The ctype namespace is closed and hand-maintained.** `abi_slot_ctype_is_known`
 (`src/ir/link.rs:16-35`) enumerates 15 names. Two position predicates carve it up:
@@ -116,7 +189,7 @@ riding the existing slot syntax.
 to the authority is therefore sufficient to make it *reachable*, and the position
 rules are what make it *safe*.
 
-### The latent hole this sub-plan closes
+### 2.3 The latent hole this sub-plan closes
 
 A LINK wrapper's MFBASIC return type is **almost entirely unvalidated** against
 its ABI return. The only such check is the CSTRUCT one
@@ -143,6 +216,52 @@ This is the same class of defect plan-50-A closed for unknown ctype *names*, lef
 open for return *types*. Since plan-58 makes `List OF Byte` a legitimate LINK
 return, the rule must land with it.
 
+### 2.4 The thunk does NOT reject an unknown slot ctype — verified 2026-07-20
+
+The 2026-07-19 draft asserted "`link_thunk.rs` still returns `Err` for `CBuffer`"
+and built its Phase-1 acceptance on a valid declaration failing there. **That is
+false.** Traced through the exact shape this sub-plan makes legal
+(`buf OUT CBuffer` + `RETURN buf`):
+
+| Step | Code | Behaviour for `CBuffer` |
+|---|---|---|
+| Staging | `link_thunk.rs:564-575` | `writes_back()` is true and it is not a CSTRUCT, so it takes the **generic scalar-OUT arm**. No ctype dispatch exists here. No error. |
+| Arg loop | `:678-694` | dispatches only on `ctype == "CDouble"`. `CBuffer` loads the cslot into an integer arg register. No error. |
+| Result marshal | `:852-858` | `result_out_ctype == Some("CBuffer")` falls to `_ =>`, a bare `load_u64(RESULT_VALUE_REGISTER, sp, out_off)`. **No error.** |
+| `emit_return_passthrough` | `:860` | **Never reached** — it sits behind `else if result_var == Some(function.abi_return_name…)`. An OUT-slot result took the `if`. |
+
+So without an explicit arm, a well-formed `CBuffer` wrapper lowers cleanly and
+returns a **raw zeroed 8-byte word as a collection pointer** — reproducing the
+exact garbage-codegen failure mode §2.3 says this sub-plan exists to prevent.
+
+Two guards are therefore required in this sub-plan, not in B:
+
+1. an explicit `"CBuffer" => Err(...)` arm in the OUT-slot result match at
+   `:852`, ahead of the `_` default;
+2. a `continue`-style guard in the staging loop at `:564` so `CBuffer` does not
+   silently take the scalar-OUT path (mirror the CSTRUCT `continue` at `:562`).
+
+Note the general hazard this exposes: the `_` default is a silent raw 8-byte load
+for **any** future ctype. That is the bug-238 mechanism (a `CInt32` OUT surfacing
+`-1` as `4294967295`). Worth filing separately; not this sub-plan's job to fix
+generally.
+
+### 2.5 Verified properties
+
+Claims a `file:line` cannot settle, and how each was checked:
+
+| Claim | Verdict | How checked |
+|---|---|---|
+| The LINK ABI has no bulk-buffer ctype | **CONFIRMED** | Read `abi_slot_ctype_is_known` `src/ir/link.rs:16-35` — 15 fixed-width names, `CSTRUCT` the only aggregate |
+| `CBuffer` already parses today | **CONFIRMED** | `parse_c_type_name` `ast/items.rs:1217` is a bare `consume_identifier` |
+| `2-203-0132` is free | **CONFIRMED** | Codes `0100`–`0131` contiguous in `table.rs`; `rg -c '2-203-0132' src/ docs/` → 0. Spec doc max is also `0131` |
+| A `List OF Byte` LINK return compiles to garbage today | **CONFIRMED** | `emit_return_passthrough` `link_thunk.rs:1121-1220` has no List-building arm |
+| `link_thunk.rs` rejects an unknown slot ctype like `CBuffer` | **FALSE** | §2.4 — staging, arg loop and result marshal all accept it; `emit_return_passthrough`'s `Err` is unreachable for an OUT slot (`:860`). An explicit arm is required |
+| `emit_alloc_list` exists (plan-58-B's premise) | **FALSE** | See §Prerequisite. Never built — plan-57-B:336-341 marks it `[~]`, explicitly not built |
+| kind = 2 is the live representation | **FALSE** | Gated on `MFB_KIND2`, `builder_collection_layout.rs:2191`. Off by default |
+| `NATIVE_*` rule codes are densely ordered, so the tail gives the max | **FALSE** | The `2-203` block is non-monotonic — `0127`/`0128` precede `0126`; `0131` precedes `0130`. Scan the whole subsystem, never the tail |
+| The canonical byte-list type string is `"List OF Byte"` | **CONFIRMED** | `src/docs/spec/architecture/21_type-name-encoding.md:29`; already used verbatim at `audio_specs.rs:100,201,212`, `fs_specs.rs:90,103` |
+
 ## 3. Design Overview
 
 Three layers, mirroring plan-50-A exactly:
@@ -153,7 +272,7 @@ src/ir/link.rs                      <-- the authority
   ├── abi_ctype_valid_as_argument      - "CBuffer"   (OUT-only)
   ├── abi_ctype_valid_as_return        + "CBuffer"   (it is a produced value)
   ├── ctype_size_align                 -> None       (no CSTRUCT field, like CVoid)
-  └── check_buffer_slots(...)          <-- NEW: the four position rules, shared
+  └── check_buffer_slots(...)          <-- NEW: the position rules, shared
           │
           ├── src/syntaxcheck/mod.rs:check_link_function_in   (slot-level span)
           └── src/ir/verify/mod.rs:check_link_functions       (function-level span)
@@ -166,10 +285,15 @@ the passes: the newer `check_cstruct` / `check_struct_slot`
 (`src/ir/link.rs:285-361`, `:223-274`) already established the shared-helper
 shape, and duplication is what let the two `is_c_abi_type` copies drift.
 
-**Where the correctness risk concentrates:** in the position rules being
-*complete*. `CBuffer` is the first ctype that is not interchangeable across
-positions, and every position this sub-plan forgets to reject becomes a path that
-reaches plan-58-B's marshaler with an assumption it does not hold — a wrong-sized
+**Where design uncertainty concentrates:** nowhere in this sub-plan. Every
+mechanism here has a landed precedent in plan-50-A, and §2.4 records the premises
+as verified. This is why A is safe to start immediately while B's blocker is
+resolved.
+
+**Where correctness risk concentrates:** in the position rules being *complete*.
+`CBuffer` is the first ctype that is not interchangeable across positions, and
+every position this sub-plan forgets to reject becomes a path that reaches
+plan-58-B's marshaler with an assumption it does not hold — a wrong-sized
 or unallocated buffer handed to a C function. The mitigation is a negative test
 per rule (§Validation), not reasoning about which positions are reachable.
 
@@ -181,9 +305,8 @@ relationship the C API actually has.
 
 **Rejected alternative:** *make `CBuffer` an `INOUT` ctype so a binding can also
 send bytes.* Rejected for now — a send direction needs a `List OF Byte` **input**
-marshal (copy the capacity-based data region into a native buffer), which is
-independent work with its own failure modes. `INOUT CBuffer` is rejected here and
-left as the obvious extension point; see §Open Decisions.
+marshal, which is independent work with its own failure modes. `INOUT CBuffer` is
+rejected here and left as the obvious extension point; see §Open Decisions.
 
 **Rejected alternative:** *validate in the parser for a better span.* Rejected for
 the same reason plan-50-A rejected it (`:152-156`): the parser cannot protect the
@@ -198,43 +321,32 @@ package path, and a second list there is drift bait.
 pub(crate) fn abi_slot_ctype_is_known(ctype: &str) -> bool {
     matches!(ctype,
         "CPtr" | "CString" | "CBuffer"
-            | "CInt8" | "CInt16" | "CInt32" | "CInt64"
-            | "CUInt8" | "CUInt16" | "CUInt32" | "CUInt64"
-            | "CBool" | "CByte" | "CFloat" | "CDouble" | "CVoid")
-}
-
-/// `CBuffer` joins `CVoid` in the exclusion: it is a *produced* value only.
-/// An input byte buffer is a separate, unimplemented direction (plan-58-A §3).
-pub(crate) fn abi_ctype_valid_as_argument(ctype: &str) -> bool {
-    abi_slot_ctype_is_known(ctype) && !matches!(ctype, "CVoid" | "CBuffer")
+        /* … the remaining 13 existing names, unchanged … */
+    )
 }
 ```
 
-`abi_ctype_valid_as_return` is unchanged in form (`!= "CString"`) and so newly
-admits `CBuffer` — correct, because `OUT` slots route through it
-(`syntaxcheck/mod.rs:771-775`). But note the asymmetry this creates and document
-it in the doc comment: `CBuffer` passes `valid_as_return` yet must **not** be
-accepted as the literal ABI return (`AS r CBuffer`) — a C function does not
-return a caller-allocated buffer. That is rule (5) below, checked separately
-against `abi_return_ctype`. Do not try to express it by splitting the predicate
-further; the existing two predicates already conflate "OUT slot" with "ABI
-return", and adding a third would be a fourth list to drift.
+`abi_ctype_valid_as_argument` gains a `CBuffer` exclusion alongside `CVoid`;
+`abi_ctype_valid_as_return` accepts it. `ctype_size_align` returns `None` for
+`CBuffer`, which is what makes it invalid as a CSTRUCT field — the same mechanism
+`CVoid` uses, so no new rejection path is needed for that case.
 
-`ctype_size_align("CBuffer")` returns `None`, keeping it out of CSTRUCTs via the
-existing `NATIVE_ABI_UNKNOWN_CTYPE` path at `src/ir/link.rs:323-328`.
+**But note which rule fires.** The 2026-07-19 draft claimed CSTRUCT rejection
+would come through `NATIVE_ABI_UNKNOWN_CTYPE` at `link.rs:323-328`. It will not:
+that arm is guarded by `!abi_slot_ctype_is_known(ctype)`, which `CBuffer` now
+**passes**. Rejection instead falls through to `link.rs:330`
+(`ctype_size_align(...).is_none()`) → **`NATIVE_CSTRUCT_INVALID`**. Write the
+CSTRUCT-field fixture to expect that code, not the unknown-ctype one.
 
-### 4.2 Syntax
+`tests::ctype_list_is_exhaustive` (`:549-575`) pins the authority against
+`link_thunk.rs`'s `CTYPES` literal; both move in the same commit or the suite
+fails. Expect this test to be the one that catches an incomplete edit.
 
-```
-abiSlot   := name [ "OUT" | "INOUT" | "IN" ] ctype
-bufferCl  := "BUFFER" slotName "SIZE" linkExpr
-```
+### 4.2 The clause and the IR
 
-`BUFFER` is a new contextual keyword inside a `LINK FUNC` body, parsed alongside
-`CONST` / `BIND IN` / `SUCCESS_ON` / `RETURN` in `src/ast/items.rs`. `SIZE` is the
-**byte** capacity — not frames, not elements. Stating the unit in the keyword was
-considered (`SIZE_BYTES`) and rejected as noise; the spec and the DOC template
-carry it instead.
+`BUFFER <slot> SIZE <expr>` sits alongside `SYMBOL` / `ABI` / `RETURN` in the
+LINK function body. A unit suffix on `SIZE` was considered (`SIZE_BYTES`) and
+rejected as noise; the spec and the DOC template carry the unit instead.
 
 New IR, appended to `IrLinkFunction` (`src/ir/link.rs:377-434`):
 
@@ -246,6 +358,7 @@ pub(crate) struct IrBuffer {
     pub(crate) size: IrLinkExpr,
 }
 ```
+
 plus `pub(crate) buffers: Vec<IrBuffer>` on `IrLinkFunction`.
 
 ### 4.3 The rules
@@ -262,7 +375,7 @@ plus `pub(crate) buffers: Vec<IrBuffer>` on `IrLinkFunction`.
 | 5 | `abi_return_ctype == "CBuffer"` | `NATIVE_ABI_UNKNOWN_CTYPE` (existing; position rule) |
 | 6 | a `CBuffer` slot not named by `RETURN` | `NATIVE_BUFFER_INVALID` — an unreachable buffer is always a mistake, and unlike a scalar OUT it costs an allocation |
 | 7 | `RETURN` names a `CBuffer` slot but `return_type != "List OF Byte"` | `NATIVE_BUFFER_INVALID` |
-| 8 | `return_type == "List OF Byte"` but `RETURN` does not name a `CBuffer` slot | `NATIVE_BUFFER_INVALID` — closes the §2 hole |
+| 8 | `return_type == "List OF Byte"` but `RETURN` does not name a `CBuffer` slot | `NATIVE_BUFFER_INVALID` — closes the §2.3 hole |
 | 9 | a `BUFFER` `SIZE` expression naming an unknown slot/param | `NATIVE_ABI_UNBOUND_SLOT` (existing; reuse `link_expr_var_names`, `src/ir/link.rs:163-175`) |
 
 Rules 4, 5 and 9 reuse existing diagnostics — do not mint new codes for
@@ -277,127 +390,167 @@ rather than hardcoding `"List OF Byte"` from this document.
 
 | Code | Name | Severity |
 |---|---|---|
-| next free in `2-203` | `NATIVE_BUFFER_INVALID` | Error |
+| `2-203-0132` | `NATIVE_BUFFER_INVALID` | Error |
 
-Take the next free code in the `2-203` subsystem (`src/rules/table.rs`; the
-native-library block tail is at `:830-860`) — the spec is explicit that a new rule
-takes the next free code rather than backfilling a gap
-(`01_rule-codes.md:116-117`). Add the matching row to
-`src/docs/spec/diagnostics/01_rule-codes.md` **in the same change**, or
+`2-203-0132` is the next free code, measured in §2.1 — the spec is explicit that
+a new rule takes the next free code rather than backfilling a gap
+(`01_rule-codes.md:116-117`). If it is taken by the time this lands, re-run the
+command in §2.1 and take the new next-free; do not backfill. Add the matching row
+to `src/docs/spec/diagnostics/01_rule-codes.md` **in the same change**, or
 `every_rule_is_documented_in_the_spec` (`src/rules/mod.rs`) fails the suite. No
 new *runtime* error code, so `02_error-codes.md` is untouched.
 
 ## Compatibility / Format Impact
 
 - **Changes:** a LINK wrapper declaring `AS List OF Byte` without a `CBuffer`
-  result slot now fails to compile (rule 8). Any such binding was already
-  miscompiling to garbage (§2), so no correct program changes behavior. Nothing
-  in-tree does this — grep `bindings/` and `tests/` before landing.
-- **Changes:** `CBuffer` becomes a reserved ctype name; a binding using it as an
-  identifier for something else would newly fail. Nothing in-tree does.
-- **Unchanged:** `.mfp` byte format and `BINARY_REPR_VERSION`; `is_c_abi_type` in
-  all three copies; every marshaling path for every existing ctype; every
-  generated thunk's instruction sequence.
-- Spec `17_native-libraries.md` gains `CBuffer` in the ctype table, a `BUFFER`
-  clause subsection, and the new rule in §Rules.
+  result slot now fails to compile. This is a **fix** — such a wrapper produced
+  garbage (§2.3) — but it is a source-compatibility break for any binding that
+  declares one. Measured blast radius: `rg -l 'AS List OF Byte' bindings/` before
+  landing; if any bundled binding trips it, that binding is already broken and
+  the fix belongs in the same change.
+- **Unchanged:** `BINARY_REPR_VERSION`, every existing ctype's semantics, the
+  thunk's emitted bytes for every existing binding (`scripts/artifact-gate.sh`
+  must be byte-identical), `is_c_abi_type` in all three copies.
 
 ## Phases
 
-This sub-plan is one landable unit; the list below is its task breakdown.
-
 ### Phase 1 — vocabulary, clause, gates, spec, tests
 
-- [ ] `src/ir/link.rs`: add `"CBuffer"` to `abi_slot_ctype_is_known`; exclude it
-      from `abi_ctype_valid_as_argument`; extend both doc comments with the
-      asymmetry note from §4.1. Confirm `ctype_size_align` returns `None`.
-- [ ] `src/ir/link.rs`: add `IrBuffer` + `IrLinkFunction.buffers`; add
-      `check_buffer_slots` implementing rules 1,2,3,6,7,8 of §4.3.
-- [ ] `src/ast/items.rs`: parse `BUFFER <slot> SIZE <expr>` in the LINK FUNC body
-      alongside `CONST`/`BIND IN`; add `AstBuffer` to `src/ast/types.rs`.
-- [ ] `src/ir/lower.rs`: carry `buffers` from AST to IR (`link_functions`, ~`:292`).
-- [ ] Source gate: call `check_buffer_slots` from
-      `src/syntaxcheck/mod.rs:check_link_function_in`, with the slot's own line;
-      add rules 5 and 9 alongside the existing checks at `:752-787`.
-- [ ] Package gate: call it from `src/ir/verify/mod.rs:check_link_functions`
-      (`:3042-3079`), function-level span.
-- [ ] Add `NATIVE_BUFFER_INVALID` to `src/rules/table.rs` **and** a row in
-      `src/docs/spec/diagnostics/01_rule-codes.md`.
-- [ ] `src/ir/link.rs:549-575` (`ctype_list_is_exhaustive`) and
-      `src/target/shared/code/link_thunk.rs:2009-2012` (`CTYPES`): add `"CBuffer"`
-      to the literal list. It will then reach `emit_return_passthrough`'s `Err`
-      arm (`:1209`) — **expected**; exclude `CBuffer` from that test's loops with
-      a comment naming plan-58-B, rather than weakening the assertion.
-- [ ] Spec: `src/docs/spec/language/17_native-libraries.md` — add `CBuffer` to the
-      ctype table with its OUT-only restriction, a `BUFFER … SIZE` subsection
-      stating the **byte** unit and the `List OF Byte` return contract, and
-      `NATIVE_BUFFER_INVALID` in §Rules. Cite
-      `[[src/ir/link.rs:check_buffer_slots]]`. Mark the marshaling as
-      *Implementation status: declared but not yet lowered (plan-58-B)* — do not
-      describe behavior that does not exist.
-- [ ] Tests: one negative fixture per rule under `tests/syntax/native/`, mirroring
-      `native-abi-unknown-ctype-invalid/`: `native-buffer-in-direction-invalid`,
-      `native-buffer-no-size-invalid`, `native-buffer-size-unknown-slot-invalid`,
-      `native-buffer-not-returned-invalid`, `native-buffer-wrong-return-type-invalid`,
-      `native-bytelist-return-without-buffer-invalid` (rule 8), and
-      `native-buffer-as-abi-return-invalid` (rule 5).
-- [ ] Tests: package-path unit tests in `src/ir/verify/tests.rs` for at least
-      rules 1, 2 and 8, mirroring `rejects_link_out_slot_not_return` (`:2653`) —
-      a crafted `.mfp` must be rejected exactly as source is.
+Everything in this sub-plan lands as one phase: the authority edit, the clause,
+the shared checker, both gate call sites, the rule row, the spec row, and the
+negative fixtures. Splitting it would ship a ctype that is known but unpoliced,
+which is the exact state §2.3 shows to be dangerous.
 
-Acceptance: each of the seven negative fixtures fails to compile with the named
-rule and a message identifying the offending slot; the same three link tables fed
-through a crafted `.mfp` are rejected by `ir::verify` with the same rules; a
-*valid* `CBuffer` declaration is accepted by both gates and then fails at
-`lower_link_thunk` with the `Err` arm (proving the gates pass it through and the
-backend is the only thing missing); `scripts/test-accept.sh target/debug/mfb
-target/accept-actual` is green with golden churn confined to the new fixtures.
+- [ ] `src/ir/link.rs`: add `"CBuffer"` to `abi_slot_ctype_is_known` (`:16-35`);
+      exclude from `abi_ctype_valid_as_argument` (`:41-43`); include in
+      `abi_ctype_valid_as_return` (`:52-54`); return `None` from
+      `ctype_size_align` (`:104-120`).
+- [ ] `src/target/shared/code/link_thunk.rs`: add `"CBuffer"` to the `CTYPES`
+      literal at `:2008-2011` so `ctype_list_is_exhaustive` (`link.rs:550`) passes.
+      **Admitting `CBuffer` to `valid_as_return` breaks the test's loop 1
+      (`:2016-2053`)**, which filters on that predicate — expect to fix it.
+      Loop 2 (`:2055-2085`) uses `AbiDirection::In` + a `CONST` pin, which a
+      `CBuffer` can never satisfy, so it needs no change.
+- [ ] `link_thunk.rs`: **add the two refusal guards from §2.4** — an explicit
+      `"CBuffer" => Err(...)` arm in the OUT-slot result match ahead of the `_`
+      default at `:852`, and a `continue` guard in the staging loop at `:564`
+      mirroring the CSTRUCT one at `:562`. Without both, a valid declaration
+      lowers to garbage.
+- [ ] Update **every `IrLinkFunction` struct-literal construction site** for the
+      new `buffers` field — including both loops in `link_thunk.rs`'s
+      `ctype_list_is_exhaustive` (`:2016-2085`), which name every field.
+      `rg -n 'IrLinkFunction {' src/` to enumerate them.
+- [ ] `src/ast/items.rs`: parse `BUFFER <slot> SIZE <expr>` in the LINK function
+      body, near `parse_abi_spec` (`:1146-1205`).
+- [ ] `src/ir/link.rs`: add `IrBuffer` and `IrLinkFunction::buffers` (`:377-434`);
+      write `check_buffer_slots` implementing rules 1–9 (§4.3).
+- [ ] `src/syntaxcheck/mod.rs:check_link_function_in`: call `check_buffer_slots`,
+      mapping faults to slot-level spans.
+- [ ] `src/ir/verify/mod.rs:check_link_functions` (`:3042-3079`): same call,
+      function-level spans.
+- [ ] `src/rules/table.rs`: add `NATIVE_BUFFER_INVALID` = `2-203-0132` in the
+      native-ABI block (`:992-1058`).
+- [ ] `src/docs/spec/diagnostics/01_rule-codes.md`: add the `2-203-0132` row.
+- [ ] `src/docs/spec/language/17_native-libraries.md`: add `CBuffer` to the ctype
+      table and the `BUFFER … SIZE` clause to §Rules, including the OUT-only and
+      one-clause-per-slot constraints.
+- [ ] Tests: one negative fixture per rule in §4.3 (rules 1, 2, 3, 6, 7, 8 each
+      get their own; 4, 5, 9 assert the existing rule fires), under
+      `tests/syntax/native/`, following `plan-50-A`'s fixture layout. Plus a
+      package-path twin proving `ir::verify` rejects a crafted `.mfp` identically
+      (`src/ir/coverage_tests.rs` pattern).
+- [ ] Tests: a positive fixture — a well-formed `OUT CBuffer` declaration — that
+      passes syntaxcheck and fails at `link_thunk.rs` with the not-yet-lowered
+      `Err`, pinning the A/B boundary.
+
+Acceptance: every rule in §4.3 has a fixture that fails with **its own** rule
+code and message on the source path, and a package-path twin producing the same
+code; the positive fixture reaches `link_thunk.rs`'s `Err`;
+`ctype_list_is_exhaustive` and `every_rule_is_documented_in_the_spec` pass;
+`scripts/artifact-gate.sh` shows every existing thunk byte-identical.
 Commit: —
 
 ## Validation Plan
 
-- Tests: the seven `tests/syntax/native/*-invalid/` fixtures above (source
-  rejection, one per rule); `src/ir/verify/tests.rs` (package-path rejection);
-  the updated `ctype_list_is_exhaustive` and `every_known_ctype_lowers` drift
-  guards. Per `.ai/compiler.md` these are the invalid-usage cases; the valid side
-  arrives with plan-58-B, which is why this sub-plan's acceptance asserts the
-  `Err` arm rather than a passing program.
-- Runtime proof: **none, by design.** This sub-plan ships no runtime behavior —
-  it is a rejection surface. Do not claim otherwise; the Hard Completion Gate
-  applies to plan-58-B.
-- Doc sync: `src/docs/spec/language/17_native-libraries.md` and
-  `src/docs/spec/diagnostics/01_rule-codes.md`. Then `cargo build`,
-  `cargo test --bin mfb spec`, and confirm no leaked `[[` markers.
-- Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual`;
-  `scripts/artifact-gate.sh` to confirm existing thunks are byte-identical.
+- Tests: negative fixture per rule (§Phase 1), both paths. Negative/error cases
+  are the entire point of this sub-plan — a rule without a fixture is not landed.
+- Coverage check: `tests/syntax/native/` fixtures are golden-backed, so these are
+  in the gate's denominator. Confirm with `scripts/artifact-gate.sh` that the new
+  fixtures produce goldens — note `tests/acceptance/` has **no** `golden/` dir by
+  design, so do not put the proof there and assume it is covered.
+- Runtime proof: none applicable — this sub-plan emits no instructions. Its proof
+  is diagnostic behavior, which the fixtures carry. (Runtime proof arrives in B.)
+- Doc sync: `17_native-libraries.md` (ctype table + §Rules),
+  `01_rule-codes.md` (the `2-203-0132` row).
+- Acceptance: the project's full suite, plus `scripts/artifact-gate.sh`.
 
 ## Open Decisions
 
-- **Rule 8 may be a separable bug fix.** Rejecting `AS List OF Byte` on a wrapper
-  with no `CBuffer` result closes a live garbage-codegen hole that predates
-  plan-58 entirely. Recommend: land it here (it is three lines once
-  `check_buffer_slots` exists, and shipping `CBuffer` without it leaves the hole
-  half-closed), **and** file it as a bug so the defect is recorded independently
-  of this feature. Alternative: a standalone bug fix landing first — better
-  provenance, but it duplicates the plumbing.
-- **`INOUT CBuffer` (an input byte buffer).** Rejected in this sub-plan.
-  Recommend keeping it rejected until a binding needs it; the marshal is
-  independent work (copy the list's data region out to native storage) with its
-  own lifetime question. The rule-1 message should say
-  "not yet supported" rather than "invalid", so the extension point is legible.
-- **Should `BUFFER`'s `SIZE` be capped?** A `CBuffer` allocates from the arena at
-  a size the *caller* chooses, unlike `MAX_CSTRUCT_SIZE`'s frame-overflow bound.
-  Recommend: no compile-time cap (the size is a runtime value, so there is
-  nothing to check), but plan-58-B **must** gate it at runtime — see its
-  `CBUFFER_MAX_BYTES` decision.
+1. **How B gets a byte-list constructor** (§Prerequisite) — **must be settled before B
+   starts.** Recommended: wait for plan-57-B track 2 if it is close; otherwise
+   promote `emit_alloc_byte_list` (`audio/mod.rs:135`) to a shared module with
+   `pub(crate)` visibility as part of plan-57-B, and have B consume it. Do **not**
+   let B hand-roll a fourth copy — that is the duplication plan-57-B exists to
+   remove. (§Prerequisite)
+2. **`INOUT CBuffer`** — rejected here; the send direction needs an input
+   marshal. Recommended: leave rejected, revisit only if a real binding needs it.
+   (§3)
+3. **Whether `CBUFFER_MAX_BYTES` should track the `MFB_KIND2` gate
+   automatically** (8 MiB gated-off / 64 MiB gated-on) or stay a single
+   conservative constant. Recommended: single constant at 8 MiB, with the gate
+   documented next to it, until kind = 2 becomes the default — a capacity that
+   changes with an env var is a support problem. (§Kind-2 gate)
+
+## Corrections
+
+<!-- Filled in during execution. Record every place this document turned out to
+     be wrong: the claim, what was actually true, and the evidence. -->
+
+- 2026-07-20 — **`emit_alloc_list` / `emit_collection_data_pointer_into` do not
+  exist.** The 2026-07-19 draft of plan-58-B asserted plan-57-B had introduced
+  both. Verified absent (`rg -n 'fn emit_alloc_list' src/` → no matches). Recorded
+  as the feature's blocking prerequisite in §Prerequisite and as Open Decision 1.
+- 2026-07-20 — **kind = 2 is not live.** The 2026-07-19 draft treated the
+  `kind = 2` layout as the representation plan-58-B allocates into. It is behind
+  `MFB_KIND2` (`builder_collection_layout.rs:2191`) and off by default, so the
+  41× cost is the default-build reality. Consequences quantified in §Kind-2 gate.
+- 2026-07-20 — **`2-203-0132` measured.** The draft said "next free in `2-203`"
+  without a number; measured and pinned in §2.1/§4.4. Also: the draft said to
+  read "the native-library block tail at `:830-860`" — the `2-203` block is
+  **non-monotonic** (`0127`/`0128` precede `0126`; `0131` precedes `0130`), so
+  reading the tail finds `0126` and misleads. Scan the whole subsystem.
+- 2026-07-20 — **The thunk does not reject an unknown slot ctype.** The draft's
+  central safety claim — "`link_thunk.rs` still returns `Err` for `CBuffer`" —
+  is false, and its Phase-1 acceptance rested on it. Traced in §2.4: staging,
+  the arg loop and the result marshal all accept it, and
+  `emit_return_passthrough`'s `Err` is unreachable for an OUT slot (it sits
+  behind an `else if` at `:860`). Two explicit guards added as Phase-1 tasks.
+  **Without them this sub-plan ships the exact garbage-codegen hole it exists to
+  close.**
+- 2026-07-20 — **CSTRUCT rejection fires a different rule than the draft said.**
+  Once `CBuffer` is known, `link.rs:323-328`'s `NATIVE_ABI_UNKNOWN_CTYPE` arm is
+  guarded by `!abi_slot_ctype_is_known` and no longer applies; rejection falls to
+  `:330` → `NATIVE_CSTRUCT_INVALID`. The fixture must expect that code.
+- 2026-07-20 — **Adding `buffers` breaks every `IrLinkFunction` struct literal**,
+  including both loops in `ctype_list_is_exhaustive` (`link_thunk.rs:2016-2085`).
+  Unmentioned in the draft's task list; added.
+- 2026-07-20 — Line drift corrected: the syntaxcheck gate is `:749-786` (draft
+  said `:752-787`) and its routing `:770-774` (draft `:771-775`); the
+  `ir::verify` mirror extends to ~`:3086`; `rejects_link_out_slot_not_return` is
+  at `verify/tests.rs:3043` (draft `:2653`); the ctype table in
+  `17_native-libraries.md` is at `:94-104`. Also noted: `verify/mod.rs:3053-3066`
+  contains a **verbatim duplicated CSTRUCT-skip block** — dead, remove it when
+  wiring `check_buffer_slots` (plan-58-C §4.3).
 
 ## Summary
 
-The engineering risk is completeness of the position rules: `CBuffer` is the
-first ctype that is not position-interchangeable, so any position left
-unrejected becomes a path into plan-58-B's marshaler with a broken invariant.
-Mitigated by one negative fixture per rule and by mirroring every rule on the
-package path.
+The engineering risk in this sub-plan is *completeness of the position rules*,
+not mechanism — every mechanism has a landed precedent in plan-50-A. Nine rules,
+each with a fixture, on two gates that share one implementation.
 
-Untouched: all three `is_c_abi_type` copies, the `.mfp` format, and every
-existing ctype's marshaling. No runtime behavior ships here — a valid `CBuffer`
-declaration still fails to lower, deliberately.
+What is left untouched: all 15 existing ctypes, `is_c_abi_type` in three copies,
+the `.mfp` format, and every emitted thunk byte.
+
+The feature's real risk is not here — it is B's missing constructor (§Prerequisite) and the
+41× memory reality (§Kind-2 gate). Both are now measured rather than assumed, and neither
+blocks A.
