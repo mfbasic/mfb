@@ -666,8 +666,7 @@ impl DynamicPayload {
         // PIE: file-relative (base 0); the loader biases GOT/.rela/DT_* itself.
         let data_vmaddr = DYN_IMAGE_BASE + data_offset as u64;
 
-        let mut bytes = Vec::new();
-        bytes.resize(dynstr_offset - payload_start, 0);
+        let mut bytes = vec![0; dynstr_offset - payload_start];
         bytes.extend_from_slice(&dynstr);
         bytes.resize(dynsym_offset - payload_start, 0);
         bytes.resize(bytes.len() + 24, 0);

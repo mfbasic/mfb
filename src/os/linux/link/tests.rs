@@ -1271,7 +1271,7 @@ fn dynamic_elf_carries_the_mfbasic_provenance_note_past_the_interpreter() {
         // the bug-263 addition.
         let interp_offset = 64 + 8 * 56;
         assert_eq!(&bytes[interp_offset..interp_offset + interp.len()], interp);
-        assert!(offset >= interp_offset + interp.len() + 1);
+        assert!(offset > interp_offset + interp.len());
         assert!(offset + 12 + 8 + descriptor.len() <= TEXT_FILE_OFFSET);
     }
 }

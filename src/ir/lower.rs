@@ -3515,7 +3515,7 @@ fn lower_expression_with_expected(
             let element_type = expected_element.map(str::to_string).unwrap_or_else(|| {
                 values
                     .first()
-                    .and_then(|value| literal_expression_type(value))
+                    .and_then(literal_expression_type)
                     .unwrap_or_else(|| "Unknown".to_string())
             });
             IrValue::ListLiteral {

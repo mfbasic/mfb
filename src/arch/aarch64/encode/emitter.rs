@@ -418,7 +418,7 @@ impl Encoder {
     /// through a GPR scratch (the same fallback the `ldr x` family uses for
     /// out-of-range offsets; a huge frame puts FP spill slots past 65520).
     fn emit_ldr_q(&mut self, vt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 16 == 0 && offset / 16 <= 4095 {
+        if offset.is_multiple_of(16) && offset / 16 <= 4095 {
             let imm12 = (offset / 16) as u32;
             return self.emit_word(0x3dc0_0000 | (imm12 << 10) | ((rn as u32) << 5) | vt as u32);
         }
@@ -431,7 +431,7 @@ impl Encoder {
     /// 128-bit `STR Qt, [Xn, #offset]` — scaled form when in range, else via a
     /// GPR scratch address (see [`Self::emit_ldr_q`]).
     fn emit_str_q(&mut self, vt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 16 == 0 && offset / 16 <= 4095 {
+        if offset.is_multiple_of(16) && offset / 16 <= 4095 {
             let imm12 = (offset / 16) as u32;
             return self.emit_word(0x3d80_0000 | (imm12 << 10) | ((rn as u32) << 5) | vt as u32);
         }
@@ -1011,7 +1011,7 @@ impl Encoder {
     }
 
     fn emit_ldr_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 8 != 0 {
+        if !offset.is_multiple_of(8) {
             return Err(format!("unaligned AArch64 ldr offset {offset}"));
         }
         if let Ok(imm) = checked_imm12(offset / 8) {
@@ -1023,7 +1023,7 @@ impl Encoder {
     }
 
     fn emit_ldr_u32(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 4 != 0 {
+        if !offset.is_multiple_of(4) {
             return Err(format!("unaligned AArch64 ldr u32 offset {offset}"));
         }
         if let Ok(imm) = checked_imm12(offset / 4) {
@@ -1035,7 +1035,7 @@ impl Encoder {
     }
 
     fn emit_ldr_u16(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 2 != 0 {
+        if !offset.is_multiple_of(2) {
             return Err(format!("unaligned AArch64 ldr u16 offset {offset}"));
         }
         if let Ok(imm) = checked_imm12(offset / 2) {
@@ -1048,7 +1048,7 @@ impl Encoder {
 
     /// 64-bit `LDR Dt, [Xn, #offset]` — FP scalar load; offset scaled by 8.
     fn emit_ldr_d(&mut self, dt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 8 != 0 {
+        if !offset.is_multiple_of(8) {
             return Err(format!("unaligned AArch64 ldr d offset {offset}"));
         }
         if let Ok(imm) = checked_imm12(offset / 8) {
@@ -1061,7 +1061,7 @@ impl Encoder {
 
     /// 64-bit `STR Dt, [Xn, #offset]` — FP scalar store; offset scaled by 8.
     fn emit_str_d(&mut self, dt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 8 != 0 {
+        if !offset.is_multiple_of(8) {
             return Err(format!("unaligned AArch64 str d offset {offset}"));
         }
         if let Ok(imm) = checked_imm12(offset / 8) {
@@ -1073,7 +1073,7 @@ impl Encoder {
     }
 
     fn emit_str_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 8 != 0 {
+        if !offset.is_multiple_of(8) {
             return Err(format!("unaligned AArch64 str offset {offset}"));
         }
         if let Ok(imm) = checked_imm12(offset / 8) {
@@ -1085,7 +1085,7 @@ impl Encoder {
     }
 
     fn emit_str_u32(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 4 != 0 {
+        if !offset.is_multiple_of(4) {
             return Err(format!("unaligned AArch64 str u32 offset {offset}"));
         }
         if let Ok(imm) = checked_imm12(offset / 4) {
@@ -1103,7 +1103,7 @@ impl Encoder {
     /// `LDRH`'s `0x7940_0000` and the halfword sibling of `STR`/`STRB`
     /// (`0xb900_0000` / `0x3900_0000`).
     fn emit_str_u16(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 2 != 0 {
+        if !offset.is_multiple_of(2) {
             return Err(format!("unaligned AArch64 str u16 offset {offset}"));
         }
         if let Ok(imm) = checked_imm12(offset / 2) {

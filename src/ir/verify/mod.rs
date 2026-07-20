@@ -2317,13 +2317,11 @@ impl TypeEnv {
                         );
                     }
                 }
-                "enum" => {
-                    if ty.members.is_empty() {
-                        self.emit(
-                            "TYPE_ENUM_REQUIRES_MEMBER",
-                            format!("ENUM `{}` must declare at least one member.", ty.name),
-                        );
-                    }
+                "enum" if ty.members.is_empty() => {
+                    self.emit(
+                        "TYPE_ENUM_REQUIRES_MEMBER",
+                        format!("ENUM `{}` must declare at least one member.", ty.name),
+                    );
                 }
                 _ => {}
             }

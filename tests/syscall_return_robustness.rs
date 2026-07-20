@@ -203,7 +203,7 @@ fn find_helper<'a>(functions: &'a [Value], target: &str, symbol: &str) -> &'a Va
         .unwrap_or_else(|| panic!("{target}: helper {symbol} not emitted"))
 }
 
-fn instructions<'a>(func: &'a Value) -> &'a [Value] {
+fn instructions(func: &Value) -> &[Value] {
     func["instructions"]
         .as_array()
         .map(Vec::as_slice)

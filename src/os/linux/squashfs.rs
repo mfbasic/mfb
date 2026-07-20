@@ -474,7 +474,7 @@ pub(crate) fn write(tree: &SquashTree) -> Result<Vec<u8>, String> {
         ));
     }
     // Pad to a whole 4 KiB sector; `bytes_used` deliberately excludes the padding.
-    while out.len() as u64 % PAD_TO != 0 {
+    while !(out.len() as u64).is_multiple_of(PAD_TO) {
         out.push(0);
     }
     Ok(out)

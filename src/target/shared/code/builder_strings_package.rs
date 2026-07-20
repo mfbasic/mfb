@@ -11,7 +11,7 @@ impl CodeBuilder<'_> {
             return Ok(Some(ValueResult {
                 type_: "String".to_string(),
                 location: register,
-                text: format!("{target}"),
+                text: target.to_string(),
             }));
         }
         if target == "strings.graphemes" && args.len() == 1 {

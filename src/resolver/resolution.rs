@@ -1151,14 +1151,11 @@ impl Resolver<'_> {
         if callee.contains('.') {
             self.resolve_package_qualified_name(file, callee, line, imports);
         } else if builtins::general::is_general_call(callee) {
-            return;
         } else if builtins::testing::is_expect_call(callee) {
             // Assertion builtins are compiler-lowered; their arguments are
             // resolved by the caller. Placement (TCASE-only) is enforced earlier
             // by `crate::testing::validate_expect_placement`.
-            return;
         } else if locals.contains_key(callee) {
-            return;
         } else if !self.function_visible_in_file(file, callee)
             && !self.top_level_visible_in_file(file, callee)
         {

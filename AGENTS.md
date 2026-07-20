@@ -119,6 +119,12 @@ was merely asserted. Same sentence, opposite epistemic status.
   `pgrep -f "a|b"`, never `"a\|b"`, which never matches). On resume, treat any
   no-completion-record job as dead: re-derive state and continue, don't wait.
 
+- **Where a citation resolves.** A `bug-N` cite in source or docs resolves in
+  **one of three** directories — `bugs/` (open), `bugs/completed-bugs/`, or
+  `bugs/skipped/`. A `plan-N` cite resolves in `planning/` (live) or
+  `planning/old-plans/` (finished). Check all of them before calling a citation
+  dangling.
+
 ## Read before that kind of work
 
 - Compiler / built-ins / IR / native codegen / runtime helpers / diagnostics →

@@ -945,9 +945,7 @@ impl<'a> SyntaxChecker<'a> {
         if culprit.is_some() {
             self.report_warning(
                 "MONEY_INEXACT_FLOAT_LITERAL",
-                &format!(
-                    "scaling Money by a bare decimal literal uses inexact Float arithmetic; append `F` for exact fixed-point scaling, or `f` to confirm the Float is intentional."
-                ),
+                "scaling Money by a bare decimal literal uses inexact Float arithmetic; append `F` for exact fixed-point scaling, or `f` to confirm the Float is intentional.",
                 file,
                 line,
             );

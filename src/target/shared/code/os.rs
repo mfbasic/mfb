@@ -75,7 +75,7 @@ pub(crate) fn module_uses_env_lock(module: &NirModule) -> bool {
 /// on the first `pthread_mutex_lock` (exactly as a static `PTHREAD_MUTEX_INITIALIZER`
 /// does).
 pub(crate) fn os_env_lock_init_hex(target: &str) -> String {
-    let mut bytes = vec![0u8; OS_ENV_LOCK_SIZE];
+    let mut bytes = [0u8; OS_ENV_LOCK_SIZE];
     if target.starts_with("macos") {
         // `_PTHREAD_MUTEX_SIG_init` = 0x32AAABA7, little-endian in the `long __sig`.
         bytes[0..4].copy_from_slice(&0x32AA_ABA7u32.to_le_bytes());

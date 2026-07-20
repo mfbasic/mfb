@@ -1321,7 +1321,7 @@ fn code_offset_and_layout_helpers_vary_with_presence() {
     // non-zero.
     let layout = super::macho::macho_layout(bare, 16, 32, 0, 0, 0);
     assert_eq!(layout.data_seg_size, PAGE_SIZE);
-    assert!(layout.data_seg_file_offset % PAGE_SIZE == 0);
+    assert!(layout.data_seg_file_offset.is_multiple_of(PAGE_SIZE));
     // No data → no __DATA segment.
     let empty = super::macho::macho_layout(bare, 16, 0, 0, 0, 0);
     assert_eq!(empty.data_seg_size, 0);

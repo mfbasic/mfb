@@ -497,7 +497,7 @@ mod tests {
 
         // A short file and a wrong magic are rejected exactly as in-memory.
         let short = dir.path().join("short.mfp");
-        fs::write(&short, &MFP_MAGIC).expect("write");
+        fs::write(&short, MFP_MAGIC).expect("write");
         assert!(package_content_hash_file(&short).is_err());
         let wrong = dir.path().join("wrong.mfp");
         fs::write(&wrong, vec![0u8; 64]).expect("write");

@@ -182,11 +182,10 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
     // passes it. Demanding the RFC-6962 consistency proof against the pinned head
     // is what actually establishes the new head extends the history this client
     // already saw.
-    mfb_repository::client::verify_log_consistency(&repo_url, &paths).map_err(|err| {
+    mfb_repository::client::verify_log_consistency(&repo_url, &paths).inspect_err(|err| {
         if err.contains("ROLLBACK") || err.contains("FORK") {
-            crate::rules::show_general_diagnostic("REGISTRY_LOG_ROLLBACK", &err);
+            crate::rules::show_general_diagnostic("REGISTRY_LOG_ROLLBACK", err);
         }
-        err
     })?;
 
     // plan-48-B §4.2: upload every `vendor` locator's file as its own blob —
@@ -1107,7 +1106,7 @@ fn follow_rotated_pin(
     package_file: &Path,
 ) -> Result<Option<String>, (&'static str, String)> {
     let untrusted = |detail: String| ("PACKAGE_IDENT_KEY_UNTRUSTED", detail);
-    let header = read_mfp_header(package_file).map_err(|err| untrusted(err))?;
+    let header = read_mfp_header(package_file).map_err(&untrusted)?;
     if header.signature_type == 0 || header.ident_key.is_empty() {
         return Ok(None);
     }

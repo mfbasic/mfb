@@ -295,7 +295,7 @@ fn parse_properties() -> Vec<PackedProperty> {
 }
 
 fn array_body(name: &str) -> &'static str {
-    let marker = format!("static const ");
+    let marker = "static const ".to_string();
     let start = UTF8PROC_DATA
         .find(&marker)
         .and_then(|index| {

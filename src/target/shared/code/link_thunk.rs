@@ -389,7 +389,7 @@ fn lower_link_thunk(
         struct_slots.push((slot_idx, struct_cursor, layout.clone(), decl));
         struct_cursor += layout.size;
     }
-    // plan-50-F / bug-255: a record with `String` fields does NOT hold String
+    // plan-50-F: a record with `String` fields does NOT hold String
     // pointers — it INLINES each String's block into a trailing data region and
     // stores the block-relative OFFSET in the field slot. See
     // `record_field_is_inlined` / `emit_build_inlined_record`: only
@@ -1694,7 +1694,7 @@ fn marshal_struct_out(
         )
     })?;
 
-    // bug-255: a record slot is one word at `8*i`, but a `String` field's word is
+    // A record slot is one word at `8*i`, but a `String` field's word is
     // NOT a pointer — it is the offset, relative to the record's own block, of an
     // inlined `{len, bytes, NUL}` sub-block in a trailing data region
     // (`emit_build_inlined_record`). The caller walks that region contiguously to

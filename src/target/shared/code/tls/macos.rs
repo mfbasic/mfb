@@ -255,7 +255,7 @@ fn emit_cancel_and_release_conn(
     for name in ["nw_connection_cancel", "nw_release"] {
         dlsym(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: ctx.instructions,
@@ -293,7 +293,7 @@ fn emit_release_queue(
 
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -330,7 +330,7 @@ fn emit_build_block(
 
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -408,7 +408,7 @@ fn emit_fresh_sem(
     let skip_release = format!("{symbol}_sem_skip_release");
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -430,7 +430,7 @@ fn emit_fresh_sem(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -467,7 +467,7 @@ fn emit_wait(
 
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -591,7 +591,7 @@ pub(super) fn lower_tls_connect_macos(
     // endpoint = nw_endpoint_create_host(host, port)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -614,7 +614,7 @@ pub(super) fn lower_tls_connect_macos(
     // cfg = *_nw_parameters_configure_protocol_default_configuration
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -653,7 +653,7 @@ pub(super) fn lower_tls_connect_macos(
     );
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -687,7 +687,7 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -704,7 +704,7 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -723,7 +723,7 @@ pub(super) fn lower_tls_connect_macos(
     // returns, so each configured connection stops leaking one (bug-116).
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -745,7 +745,7 @@ pub(super) fn lower_tls_connect_macos(
     // params = nw_parameters_create_secure_tcp(tlscfg, cfg)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -768,7 +768,7 @@ pub(super) fn lower_tls_connect_macos(
     // conn = nw_connection_create(endpoint, params)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -794,7 +794,7 @@ pub(super) fn lower_tls_connect_macos(
     // queue, and ctx are handed to the TlsSocket record and released on close.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -816,7 +816,7 @@ pub(super) fn lower_tls_connect_macos(
     // queue = dispatch_queue_create("mfb.tls", NULL)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -843,7 +843,7 @@ pub(super) fn lower_tls_connect_macos(
     // ctx->sem = dispatch_semaphore_create(0)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -864,7 +864,7 @@ pub(super) fn lower_tls_connect_macos(
     // ctx->signal = &dispatch_semaphore_signal
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -883,7 +883,7 @@ pub(super) fn lower_tls_connect_macos(
     // nw_connection_set_queue(conn, queue)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -903,7 +903,7 @@ pub(super) fn lower_tls_connect_macos(
     // Build the state-changed block literal on the stack.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -938,7 +938,7 @@ pub(super) fn lower_tls_connect_macos(
     // nw_connection_set_state_changed_handler(conn, &block)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -958,7 +958,7 @@ pub(super) fn lower_tls_connect_macos(
     // nw_connection_start(conn)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -984,7 +984,7 @@ pub(super) fn lower_tls_connect_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1013,7 +1013,7 @@ pub(super) fn lower_tls_connect_macos(
     // Wait for a terminal state, bounded by the deadline.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1075,7 +1075,7 @@ pub(super) fn lower_tls_connect_macos(
     ins.push(abi::label(&conn_fail));
     emit_cancel_and_release_conn(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1088,7 +1088,7 @@ pub(super) fn lower_tls_connect_macos(
     )?;
     emit_release_queue(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1112,7 +1112,7 @@ pub(super) fn lower_tls_connect_macos(
     ins.push(abi::label(&conn_timeout));
     emit_cancel_and_release_conn(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1125,7 +1125,7 @@ pub(super) fn lower_tls_connect_macos(
     )?;
     emit_release_queue(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1228,7 +1228,7 @@ pub(super) fn lower_tls_read_macos(
     ]);
     emit_dlopen_maclib(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1239,7 +1239,7 @@ pub(super) fn lower_tls_read_macos(
     )?;
     emit_fresh_sem(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1253,7 +1253,7 @@ pub(super) fn lower_tls_read_macos(
     // ctx->retain = &dispatch_retain (used inside the receive block).
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1271,7 +1271,7 @@ pub(super) fn lower_tls_read_macos(
     ]);
     emit_build_block(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1287,7 +1287,7 @@ pub(super) fn lower_tls_read_macos(
     // nw_connection_receive(conn, min=1, max=maxBytes, &block)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1308,7 +1308,7 @@ pub(super) fn lower_tls_read_macos(
     ]);
     emit_wait(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1329,7 +1329,7 @@ pub(super) fn lower_tls_read_macos(
     // dispatch_data_create_map(content, &ptr, &size) -> mapped (contiguous)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1435,7 +1435,7 @@ pub(super) fn lower_tls_read_macos(
     // Release the mapped data and the retained content, then return.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1469,7 +1469,7 @@ pub(super) fn lower_tls_read_macos(
         ins.push(abi::label(&encoding_error));
         dlsym(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut ins,
@@ -1617,7 +1617,7 @@ pub(super) fn lower_tls_write_macos(
     ]);
     emit_dlopen_maclib(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1628,7 +1628,7 @@ pub(super) fn lower_tls_write_macos(
     )?;
     emit_fresh_sem(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1642,7 +1642,7 @@ pub(super) fn lower_tls_write_macos(
     // content = dispatch_data_create(data, len, NULL, NULL)  (NULL = copy)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1665,7 +1665,7 @@ pub(super) fn lower_tls_write_macos(
     // ctxdef = *_nw_content_context_default_message
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1683,7 +1683,7 @@ pub(super) fn lower_tls_write_macos(
     ]);
     emit_build_block(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1699,7 +1699,7 @@ pub(super) fn lower_tls_write_macos(
     // nw_connection_send(conn, content, context, is_complete=true, &block)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1721,7 +1721,7 @@ pub(super) fn lower_tls_write_macos(
     ]);
     emit_wait(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1735,7 +1735,7 @@ pub(super) fn lower_tls_write_macos(
     // Release the content we created.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1816,7 +1816,7 @@ pub(super) fn lower_tls_close_macos(
     ]);
     emit_dlopen_maclib(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1828,7 +1828,7 @@ pub(super) fn lower_tls_close_macos(
     // nw_connection_cancel(conn)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1851,7 +1851,7 @@ pub(super) fn lower_tls_close_macos(
     // the arena. Slots are never NULL for an open (non-closed) socket.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1871,7 +1871,7 @@ pub(super) fn lower_tls_close_macos(
     let skip_queue = format!("{symbol}_skip_queue_release");
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -1936,7 +1936,7 @@ fn emit_dlopen_maclib(ctx: &mut EmitCtx, handle_off: usize, fail: &str) -> Resul
 
     emit_dlopen_at(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2111,7 +2111,7 @@ fn emit_import_pem_item(
     // data = CFDataCreate(NULL, buf, len)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2135,7 +2135,7 @@ fn emit_import_pem_item(
     // SecItemImport(data, NULL, NULL, NULL, 0, NULL, NULL, &items) == errSecSuccess
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2167,7 +2167,7 @@ fn emit_import_pem_item(
     // CFArrayGetCount(items) >= 1
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2188,7 +2188,7 @@ fn emit_import_pem_item(
     // ref = CFArrayGetValueAtIndex(items, 0)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2226,7 +2226,7 @@ fn emit_import_pem_item(
     // here too.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2244,7 +2244,7 @@ fn emit_import_pem_item(
     ]);
     emit_cf_release_slot(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2257,7 +2257,7 @@ fn emit_import_pem_item(
     )?;
     emit_cf_release_slot(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2300,7 +2300,7 @@ fn emit_cf_release_slot(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -2389,7 +2389,7 @@ pub(super) fn lower_tls_listen_macos(
     // Read the PEM pair into arena buffers before touching any framework.
     emit_read_whole_file(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2408,7 +2408,7 @@ pub(super) fn lower_tls_listen_macos(
     )?;
     emit_read_whole_file(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2428,7 +2428,7 @@ pub(super) fn lower_tls_listen_macos(
     // dlopen Network.framework, Security.framework, CoreFoundation.
     emit_dlopen_at(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2440,7 +2440,7 @@ pub(super) fn lower_tls_listen_macos(
     )?;
     emit_dlopen_at(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2452,7 +2452,7 @@ pub(super) fn lower_tls_listen_macos(
     )?;
     emit_dlopen_at(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2465,7 +2465,7 @@ pub(super) fn lower_tls_listen_macos(
     // certRef / keyRef from the PEM bytes.
     emit_import_pem_item(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2484,7 +2484,7 @@ pub(super) fn lower_tls_listen_macos(
     )?;
     emit_import_pem_item(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2506,7 +2506,7 @@ pub(super) fn lower_tls_listen_macos(
     // absent => ErrTlsFailed, never a stub).
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2534,7 +2534,7 @@ pub(super) fn lower_tls_listen_macos(
     for slot in [CERTREF, KEYREF] {
         emit_cf_release_slot(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut ins,
@@ -2549,7 +2549,7 @@ pub(super) fn lower_tls_listen_macos(
     // secIdentity = sec_identity_create(identity)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2574,7 +2574,7 @@ pub(super) fn lower_tls_listen_macos(
     // sec_protocol_options_set_local_identity(options, secIdentity).
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2608,7 +2608,7 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2625,7 +2625,7 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2644,7 +2644,7 @@ pub(super) fn lower_tls_listen_macos(
     // returns, so each listener stops leaking one (bug-116).
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2662,7 +2662,7 @@ pub(super) fn lower_tls_listen_macos(
     // cfg = *_nw_parameters_configure_protocol_default_configuration
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2681,7 +2681,7 @@ pub(super) fn lower_tls_listen_macos(
     // params = nw_parameters_create_secure_tcp(&cfgBlock, cfg)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2704,7 +2704,7 @@ pub(super) fn lower_tls_listen_macos(
     // nw_parameters_set_reuse_local_address(params, true)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2766,7 +2766,7 @@ pub(super) fn lower_tls_listen_macos(
     // endpoint = nw_endpoint_create_host(host, port)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2789,7 +2789,7 @@ pub(super) fn lower_tls_listen_macos(
     // nw_parameters_set_local_endpoint(params, endpoint)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2809,7 +2809,7 @@ pub(super) fn lower_tls_listen_macos(
     // listener = nw_listener_create(params)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2834,7 +2834,7 @@ pub(super) fn lower_tls_listen_macos(
     // nw_endpoint and one nw_parameters (bug-55).
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2856,7 +2856,7 @@ pub(super) fn lower_tls_listen_macos(
     // queue = dispatch_queue_create("mfb.tls", NULL)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2889,7 +2889,7 @@ pub(super) fn lower_tls_listen_macos(
     ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), LCTX));
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2914,7 +2914,7 @@ pub(super) fn lower_tls_listen_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2933,7 +2933,7 @@ pub(super) fn lower_tls_listen_macos(
     // ctx->retain = &nw_retain (the conn handler retains queued connections).
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2952,7 +2952,7 @@ pub(super) fn lower_tls_listen_macos(
     // nw_listener_set_queue(listener, queue)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2972,7 +2972,7 @@ pub(super) fn lower_tls_listen_macos(
     // State-changed handler (the shared STATE_INVOKE trampoline over lctx).
     emit_build_block(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -2987,7 +2987,7 @@ pub(super) fn lower_tls_listen_macos(
     )?;
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3007,7 +3007,7 @@ pub(super) fn lower_tls_listen_macos(
     // New-connection handler (retain + enqueue + signal).
     emit_build_block(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3022,7 +3022,7 @@ pub(super) fn lower_tls_listen_macos(
     )?;
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3042,7 +3042,7 @@ pub(super) fn lower_tls_listen_macos(
     // nw_listener_start(listener)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3061,7 +3061,7 @@ pub(super) fn lower_tls_listen_macos(
     // Wait until the listener is ready (bind complete) or failed.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3114,7 +3114,7 @@ pub(super) fn lower_tls_listen_macos(
     ins.push(abi::label(&listen_fail));
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3160,7 +3160,7 @@ pub(super) fn lower_tls_listen_macos(
     for slot in [CERTREF, KEYREF, ITEMS, DATA] {
         emit_cf_release_slot(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut ins,
@@ -3255,7 +3255,7 @@ pub(super) fn lower_tls_accept_macos(
     ]);
     emit_dlopen_maclib(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3274,7 +3274,7 @@ pub(super) fn lower_tls_accept_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3302,7 +3302,7 @@ pub(super) fn lower_tls_accept_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3359,7 +3359,7 @@ pub(super) fn lower_tls_accept_macos(
     ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), CCTX));
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3382,7 +3382,7 @@ pub(super) fn lower_tls_accept_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3401,7 +3401,7 @@ pub(super) fn lower_tls_accept_macos(
     // nw_connection_set_queue(conn, queue) — the listener's serial queue.
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3421,7 +3421,7 @@ pub(super) fn lower_tls_accept_macos(
     // Per-connection state handler, then start (runs the server handshake).
     emit_build_block(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3436,7 +3436,7 @@ pub(super) fn lower_tls_accept_macos(
     )?;
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3455,7 +3455,7 @@ pub(super) fn lower_tls_accept_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3520,7 +3520,7 @@ pub(super) fn lower_tls_accept_macos(
     ins.push(abi::label(&conn_fail));
     emit_cancel_and_release_conn(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3542,7 +3542,7 @@ pub(super) fn lower_tls_accept_macos(
     ins.push(abi::label(&hs_timeout));
     emit_cancel_and_release_conn(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3647,7 +3647,7 @@ pub(super) fn lower_tls_close_listener_macos(
     ]);
     emit_dlopen_maclib(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3663,7 +3663,7 @@ pub(super) fn lower_tls_close_listener_macos(
     ] {
         dlsym(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut ins,
@@ -3714,7 +3714,7 @@ pub(super) fn lower_tls_close_listener_macos(
     // nw_listener_cancel(listener)
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,
@@ -3741,7 +3741,7 @@ pub(super) fn lower_tls_close_listener_macos(
     ]);
     dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut ins,

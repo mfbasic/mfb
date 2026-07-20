@@ -161,11 +161,7 @@ impl CodeBuilder<'_> {
         self.stack_size =
             spill_base + outcome.spill_slots.len() * backend.register_model().spill_slot_bytes();
         for register in outcome.extra_callee_saved {
-            if !self
-                .used_callee_saved
-                .iter()
-                .any(|saved| *saved == register)
-            {
+            if !self.used_callee_saved.contains(&register) {
                 self.used_callee_saved.push(register);
             }
         }

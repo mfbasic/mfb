@@ -3522,7 +3522,8 @@ mod reader_gap_tests {
             payload: Vec::new(),
         });
         let constants = ConstPool::new();
-        for id in [0u32] {
+        {
+            let id = 0u32;
             let mut serializer = AbiSerializer::new(&strings, &types, &constants);
             let err = serializer
                 .serialize_type(id)

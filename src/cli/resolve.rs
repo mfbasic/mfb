@@ -505,7 +505,7 @@ fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
         (None, None) => Ordering::Equal,
         (None, Some(_)) => Ordering::Greater,
         (Some(_), None) => Ordering::Less,
-        (Some(left), Some(right)) => left.cmp(&right),
+        (Some(left), Some(right)) => left.cmp(right),
     }
 }
 

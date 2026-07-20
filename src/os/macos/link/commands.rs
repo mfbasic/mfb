@@ -237,7 +237,7 @@ pub(super) fn section(
 /// command stores, panicking with a clear message instead of silently truncating
 /// a ≥4 GiB value into a wrong offset (bug-88 / bug-168). Reachable only for a
 /// >4 GiB output image, which the linker does not otherwise support; a wrapped
-/// offset would produce a structurally invalid, unloadable executable.
+/// > offset would produce a structurally invalid, unloadable executable.
 fn u32_field(what: &str, value: usize) -> u32 {
     u32::try_from(value).unwrap_or_else(|_| panic!("mach-o: {what} {value} exceeds u32"))
 }

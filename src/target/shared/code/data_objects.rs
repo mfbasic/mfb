@@ -369,10 +369,10 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             values.push(value.to_string());
         }
     }
-    if module_may_record_cleanup_failure(module) {
-        if !values.contains(&CLEANUP_FAILURE_PREFIX.to_string()) {
-            values.push(CLEANUP_FAILURE_PREFIX.to_string());
-        }
+    if module_may_record_cleanup_failure(module)
+        && !values.contains(&CLEANUP_FAILURE_PREFIX.to_string())
+    {
+        values.push(CLEANUP_FAILURE_PREFIX.to_string());
     }
     values
         .into_iter()

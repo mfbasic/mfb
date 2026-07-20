@@ -944,7 +944,7 @@ pub(super) fn lower_builtin_function_wrapper(
         name: format!("builtin.{name}.{type_}"),
         symbol: symbol.to_string(),
         params: vec![param],
-        returns: returns,
+        returns,
         frame,
         instructions,
         relocations: builder.relocations,

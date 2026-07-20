@@ -323,11 +323,10 @@ impl Encoder {
                 let (rd, addend, lhs, rhs) = (f("dst")?, f("addend")?, f("lhs")?, f("rhs")?);
                 // R4-type: rs3<<27 | fmt(D=01)<<25 | rs2<<20 | rs1<<15 | rm<<12 | rd<<7 | opcode.
                 self.emit_word(
-                    ((addend as u32) << 27)
+                    (((addend as u32) << 27)
                         | (0b01 << 25)
                         | ((rhs as u32) << 20)
-                        | ((lhs as u32) << 15)
-                        | (0b000 << 12)
+                        | ((lhs as u32) << 15))
                         | ((rd as u32) << 7)
                         | opcode,
                 )
@@ -714,7 +713,7 @@ impl Encoder {
                 ));
             };
             let delta = target as i64 - patch.offset as i64;
-            if delta < -(1 << 20) || delta >= (1 << 20) {
+            if !(-(1 << 20)..(1 << 20)).contains(&delta) {
                 return Err(format!(
                     "rv64 jal displacement {delta} to '{}' exceeds ±1 MiB",
                     patch.target

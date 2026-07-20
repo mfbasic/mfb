@@ -763,7 +763,7 @@ impl<'a> SyntaxChecker<'a> {
         for slot in &function.abi.slots {
             // A slot may name a CSTRUCT declared in this LINK block; the struct
             // rules then apply instead of the scalar ctype table (plan-50-E).
-            if cstructs.iter().any(|n| *n == slot.ctype) {
+            if cstructs.contains(&slot.ctype) {
                 continue;
             }
             // An OUT slot is a produced *value*, so it carries a return-shaped
@@ -1674,7 +1674,7 @@ impl<'a> SyntaxChecker<'a> {
                         .entry(function.name.clone())
                         .or_default()
                         .push(FunctionSig {
-                            kind: function.kind.clone(),
+                            kind: function.kind,
                             params,
                             return_type,
                             isolated: function.isolated,
@@ -2251,7 +2251,6 @@ impl<'a> SyntaxChecker<'a> {
                         file,
                         line,
                     );
-                    return;
                 }
             }
             Type::Boolean

@@ -142,7 +142,7 @@ impl<'a> IrReader<'a> {
         if self
             .pos
             .checked_add(n)
-            .map_or(true, |end| end > self.bytes.len())
+            .is_none_or(|end| end > self.bytes.len())
         {
             Err(format!(
                 "Binary Representation truncated: needed {n} bytes at offset {}, have {}",

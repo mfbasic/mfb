@@ -192,7 +192,7 @@ pub(super) fn lower_project_with_external_functions(
     for (name, id) in external_function_ids {
         function_ids.insert(name.clone(), *id);
     }
-    for (_name, return_type_name) in external_function_returns {
+    for return_type_name in external_function_returns.values() {
         // Interning kept for table-order stability; the result is unused (bug-100).
         let _ = types.type_id(&mut strings, return_type_name);
     }

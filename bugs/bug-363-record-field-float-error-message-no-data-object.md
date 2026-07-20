@@ -6,10 +6,12 @@ Severity: MEDIUM (a valid program fails to build; the message is an internal
 error with no rule code, no file, and no line)
 Class: Compiler / native codegen
 
-Status: Open — found and root-caused, not fixed
-Regression Test: none yet. One committed man-page example reproduces it
-(`src/docs/man/flow/match.md:49`), which is how it was found; a fixture belongs
-in `tests/rt-behavior/codegen/`.
+Status: FIXED (2026-07-19, commit 00748a42c)
+Regression Test: `tests/rt-behavior/codegen/bug363_record_field_float_error`,
+verified to reproduce the abort on the pre-fix compiler. The committed man-page
+example that surfaced this (`src/docs/man/flow/match.md:49`) now builds:
+`scripts/check-man-examples.py` drops 16 -> 15 failures, the remaining 15 being
+unrelated (thread examples plus one documented rejection).
 
 ## Reproduction
 
@@ -91,3 +93,36 @@ added data object and nothing else.
 `scripts/check-man-examples.py` during bug-361's fix (2026-07-19), alongside the
 two shapes bug-361 documents. Filed separately because the root cause is a
 different pass with a different missing fact.
+
+
+## Resolution (2026-07-19)
+
+Fixed as suggested, plus one extra source of field types the suggestion did not
+name.
+
+- `module_analysis::module_field_types` builds the module's field types keyed
+  `(owning type name, field name)`, mirroring the `record_fields` **and**
+  `union_variant_fields` halves of `TypeModel::from_module` (a `MATCH` case
+  binds a union variant, so the record table alone would not have fixed
+  `match.md:49`), plus the builtin `net` records.
+- That map (`type_utils::FieldTypes`) is threaded through
+  `static_nir_value_type` and the whole `*_may_emit_float_arithmetic_error`
+  walk. `MemberAccess` now resolves from it and then falls through to the two
+  `MapEntry` members — the same three sources `CodeBuilder::static_type_name`
+  consults, so the predicate is no longer weaker than the builder on this axis.
+
+Two corrections to what this document predicted:
+
+- **No golden churn.** The blast-radius section expected added `ERR_FLOAT_*`
+  data objects in any fixture doing float arithmetic solely through record
+  fields. `scripts/artifact-gate.sh` is byte-identical across 1195 goldens: no
+  committed fixture had that shape. Full acceptance also shows zero churn.
+- **The sibling walk was already safe.** `ops_use_unicode_runtime_tables` was
+  checked as advised and does **not** route through `static_nir_value_type`; it
+  uses the `constants`/`types` seam instead. No gap there.
+
+Still open, and deliberately not done here: the `Err(String)` at
+`builder_emit_helpers.rs:134`/`:548` is still a bare `error:` with no rule code,
+path, or line. That is the shared follow-up bug-361 also records — a coded
+diagnostic carrying the offending op's source location — and it wants its own
+change rather than riding along with a predicate fix.

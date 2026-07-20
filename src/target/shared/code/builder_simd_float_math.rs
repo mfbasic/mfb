@@ -5,6 +5,12 @@
 // their `lo` tails to recombine past double precision. Allow the deny-by-default
 // correctness lint for the whole module.
 #![allow(clippy::approx_constant)]
+// Same reasoning, same constants: `excessive_precision` fires on the digits past
+// what a lone `f64` can hold, which is exactly the point — the extra digits are
+// what the paired `lo` tail recombines against. Trimming them to silence the
+// lint would silently degrade `exp`/`log`/`sin`/`cos` accuracy, so the lint is
+// allowed and the literals stay verbatim (bug-345-D2).
+#![allow(clippy::excessive_precision)]
 
 use super::simd_kernel_coeffs::{COS_COEFFS, EXP_COEFFS, LOG_COEFFS, SIN_COEFFS};
 use super::*;

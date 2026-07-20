@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open
+Status: FIXED (2026-07-19) — A-C in commit 4791f665a, D in the follow-up commit
 Regression Test: none (no behavior change; `scripts/artifact-gate.sh` byte-identity is the guard)
 
 The LOW-value residue from the cleanup review that does not belong to any themed
@@ -475,3 +475,65 @@ is a one-line `AGENTS.md` note about `bugs/skipped/`.
 The engineering risk is near zero and concentrated entirely in the byte-identity
 check: nothing here should move a golden, so any golden churn is the signal that an
 edit went further than intended.
+
+
+---
+
+# Resolution (2026-07-19)
+
+All 28 items resolved except **B10**, deliberately deferred. Acceptance held:
+`scripts/artifact-gate.sh` byte-identical after **both** commits (1002 tests,
+1195 goldens, 0 diffs), full `scripts/test-accept.sh` green with zero golden
+churn, `cargo clippy --all-targets` clean.
+
+## Deviations from this document
+
+Four, each a case where the plan did not survive contact with the tree.
+
+- **A5 needed no action.** The `plan_lower` wrappers whose docs claimed to
+  "reuse the AArch64 backend's `plan` lowering verbatim" no longer exist; all
+  three Linux backends already call `plan::lower_module` directly. Grep for
+  `plan_lower` returns nothing.
+- **A6 took the *second* Open Decision, not the preferred one.** The doc
+  preferred routing the 7 in-file `sign_extend_word` bypasses through
+  `normalize_c_int_result` because it "makes the doc true". It does not: the
+  same pair is written inline at ~48 further sites that this document
+  explicitly scopes out, so the "single owner of the invariant" claim would
+  still be false afterward. The doc was downgraded instead — the helper is
+  named as one spelling, not a choke point, and warns that a new `int`-returning
+  wrapper must apply the extension deliberately. `linux_common/code.rs`'s
+  propagating cite was corrected to match. Nothing about what the helper emits
+  changed.
+- **C2 had 5 live sites, not 4.** `src/audit/collect/project.rs:111` is a fifth,
+  new since `b12213d2`. (This document's own Current State correction stands:
+  `dependencies.rs:77` was indeed live.) All 5 fixed;
+  `items_after_test_module = "deny"` added under `[lints.clippy]` in
+  `Cargo.toml`.
+- **B10 deferred to bug-335.** Restructuring `binary_repr`'s five encoder
+  conventions against one decoder convention *is* the split bug-335 owns, and
+  this document's own non-goals forbid starting it here. B6 was done, since it
+  is a purely local type rename.
+
+## Two traps worth recording
+
+- **`cargo clippy --fix --all-targets` trimmed the D2 constants.** D2 says
+  explicitly not to trim them, but `--fix` does not read prose: it rewrote every
+  `hi` half in `builder_pow.rs` and `builder_simd_float_math.rs` to the shortest
+  literal that round-trips a lone `f64` (e.g. `6.931_471_805_599_452_862_27e-01`
+  -> `6.931_471_805_599_453e-1`), destroying exactly the digits the paired `lo`
+  tail recombines against. Both files were reverted and the scoped allows added
+  instead. **Add the `#![allow]` blocks BEFORE running `--fix`, not after.**
+- **`approx_constant` in `builder_pow.rs` was already breaking `cargo clippy`.**
+  It is deny-by-default (correctness group), and only `builder_simd_float_math.rs`
+  carried the allow. So `cargo clippy --all-targets` exited non-zero before any
+  of this work — a pre-existing failure this document did not record, since its
+  D-section counts came from warnings only. `builder_pow.rs` now carries both
+  allows with the same rationale.
+
+## A5/A1 note
+
+A1 was specified as 13 `(was out-of-pool xN)` sites. The same defect also
+appears as `was hand-pinned xN` / `was physical xN` (6 further sites, 5 in
+`private/unicode.rs` and 1 in `builder_value_semantics.rs`); those were cleaned
+up with A1/B1 since B1's renames would otherwise have rewritten the physical
+register names *inside* those comments into nonsense.

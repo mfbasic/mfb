@@ -318,7 +318,7 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     emit_set_sock_timeouts(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -360,7 +360,7 @@ pub(crate) fn lower_tls_connect_helper(
     // --- OpenSSL handshake (shared) ---
     emit_dlopen_libssl(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -372,7 +372,7 @@ pub(crate) fn lower_tls_connect_helper(
     // method = TLS_client_method(); stash transiently in the CTX slot.
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -391,7 +391,7 @@ pub(crate) fn lower_tls_connect_helper(
     // ctx = SSL_CTX_new(method)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -413,7 +413,7 @@ pub(crate) fn lower_tls_connect_helper(
     // SSL_CTX_set_default_verify_paths(ctx) -- best effort, ignore result.
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -432,7 +432,7 @@ pub(crate) fn lower_tls_connect_helper(
     // ssl = SSL_new(ctx)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -454,7 +454,7 @@ pub(crate) fn lower_tls_connect_helper(
     // SSL_set_fd(ssl, fd)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -476,7 +476,7 @@ pub(crate) fn lower_tls_connect_helper(
     // SSL_set_verify(ssl, SSL_VERIFY_PEER, NULL)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -502,7 +502,7 @@ pub(crate) fn lower_tls_connect_helper(
     // (over-strict), never open — there is no verification bypass (bug-177 C).
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -524,7 +524,7 @@ pub(crate) fn lower_tls_connect_helper(
     // SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, sniCstr) -- SNI
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -558,7 +558,7 @@ pub(crate) fn lower_tls_connect_helper(
     // r = SSL_connect(ssl); require 1.
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -579,7 +579,7 @@ pub(crate) fn lower_tls_connect_helper(
     // v = SSL_get_verify_result(ssl); require X509_V_OK (0).
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -607,7 +607,7 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     emit_set_sock_timeouts(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -658,7 +658,7 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -680,7 +680,7 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -843,7 +843,7 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -865,7 +865,7 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1128,7 +1128,7 @@ pub(crate) fn lower_tls_listen_helper(
     );
     emit_dlopen_libssl(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1140,7 +1140,7 @@ pub(crate) fn lower_tls_listen_helper(
     // method = TLS_server_method(); stash transiently in the CTX slot.
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1159,7 +1159,7 @@ pub(crate) fn lower_tls_listen_helper(
     // ctx = SSL_CTX_new(method)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1181,7 +1181,7 @@ pub(crate) fn lower_tls_listen_helper(
     // SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, NULL)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1209,7 +1209,7 @@ pub(crate) fn lower_tls_listen_helper(
     // SSL_CTX_use_certificate_chain_file(ctx, certCstr) == 1
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1231,7 +1231,7 @@ pub(crate) fn lower_tls_listen_helper(
     // SSL_CTX_use_PrivateKey_file(ctx, keyCstr, SSL_FILETYPE_PEM = 1) == 1
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1254,7 +1254,7 @@ pub(crate) fn lower_tls_listen_helper(
     // SSL_CTX_check_private_key(ctx) == 1
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1307,7 +1307,7 @@ pub(crate) fn lower_tls_listen_helper(
     instructions.push(abi::label(&ctx_fail));
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1394,7 +1394,7 @@ pub(crate) fn lower_tls_listen_helper(
     instructions.push(abi::label(&alloc_fail_ctx_fd));
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1539,7 +1539,7 @@ pub(crate) fn lower_tls_accept_helper(
     // --- Server-side handshake on the accepted fd ---
     emit_dlopen_libssl(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1551,7 +1551,7 @@ pub(crate) fn lower_tls_accept_helper(
     // ssl = SSL_new(listener.ctx)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1573,7 +1573,7 @@ pub(crate) fn lower_tls_accept_helper(
     // SSL_set_fd(ssl, connfd)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1613,7 +1613,7 @@ pub(crate) fn lower_tls_accept_helper(
     ]);
     emit_set_sock_timeouts(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1626,7 +1626,7 @@ pub(crate) fn lower_tls_accept_helper(
     // r = SSL_accept(ssl); require 1 (server handshake complete).
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1654,7 +1654,7 @@ pub(crate) fn lower_tls_accept_helper(
     ]);
     emit_set_sock_timeouts(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1689,7 +1689,7 @@ pub(crate) fn lower_tls_accept_helper(
     instructions.push(abi::label(&ssl_fail));
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1761,7 +1761,7 @@ pub(crate) fn lower_tls_accept_helper(
     // if libssl vanished) routes to tls_fail_conn, which still closes the fd.
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1860,7 +1860,7 @@ pub(crate) fn lower_tls_read_helper(
     ));
     emit_dlopen_libssl(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1871,7 +1871,7 @@ pub(crate) fn lower_tls_read_helper(
     )?;
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2117,7 +2117,7 @@ pub(crate) fn lower_tls_write_helper(
     }
     emit_dlopen_libssl(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2128,7 +2128,7 @@ pub(crate) fn lower_tls_write_helper(
     )?;
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2242,7 +2242,7 @@ pub(crate) fn lower_tls_close_helper(
     ]);
     emit_dlopen_libssl(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2254,7 +2254,7 @@ pub(crate) fn lower_tls_close_helper(
     // SSL_shutdown(ssl)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2273,7 +2273,7 @@ pub(crate) fn lower_tls_close_helper(
     // SSL_free(ssl)
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2301,7 +2301,7 @@ pub(crate) fn lower_tls_close_helper(
     ]);
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2403,7 +2403,7 @@ pub(crate) fn lower_tls_close_listener_helper(
     ]);
     emit_dlopen_libssl(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2416,7 +2416,7 @@ pub(crate) fn lower_tls_close_listener_helper(
     // frees it exactly once here; accepted sockets only borrow it.
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,

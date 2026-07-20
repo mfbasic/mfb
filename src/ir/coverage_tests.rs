@@ -713,7 +713,7 @@ fn decode_rejects_bad_version() {
 
 #[test]
 fn decode_rejects_too_short_for_magic() {
-    let err = decode_err(&[b'M', b'F']);
+    let err = decode_err(b"MF");
     assert!(err.contains("truncated"), "{err}");
 }
 

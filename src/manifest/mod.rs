@@ -487,7 +487,7 @@ fn validate_resources(
             // bug-298: `src` was checked only for non-emptiness, so the READ side
             // of the copy was unbounded while the write side was contained.
             Some(src) => {
-                if let Err(reason) = path_stays_in_project(&src) {
+                if let Err(reason) = path_stays_in_project(src) {
                     rules::show_diagnostic(
                         "PROJECT_JSON_FIELD_TYPE",
                         &format!(
@@ -522,7 +522,7 @@ fn validate_resources(
             Some(dst) => {
                 // bug-298: this split only on `/` and treated only a leading `/`
                 // as absolute, so `..\..\etc` and `C:\foo` walked through it.
-                if let Err(reason) = path_stays_in_project(&dst) {
+                if let Err(reason) = path_stays_in_project(dst) {
                     rules::show_diagnostic(
                         "PROJECT_JSON_FIELD_TYPE",
                         &format!(

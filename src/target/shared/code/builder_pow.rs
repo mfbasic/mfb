@@ -1,3 +1,14 @@
+// The fdlibm/Remez constants below are spelled at full precision on purpose: each
+// `hi` half is paired with a `lo` tail so the pair recombines past double
+// precision. Two deny/warn-by-default lints fire on exactly that property —
+// `approx_constant` (some sit near `std::f64::consts::*`, but a std const is a
+// single rounded double and is NOT interchangeable) and `excessive_precision`
+// (the digits past `f64` are what the `lo` tail consumes). Trimming a digit to
+// silence either one would degrade `pow` accuracy: a correctness regression
+// dressed as a lint fix. Mirrors the block in `builder_simd_float_math.rs`
+// (bug-345-D2).
+#![allow(clippy::approx_constant)]
+#![allow(clippy::excessive_precision)]
 use super::builder_math::FloatInfinityError;
 use super::*;
 

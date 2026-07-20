@@ -725,7 +725,7 @@ fn json_field_name_position(contents: &str, field: &str) -> Option<usize> {
     loop {
         index = next_json_string_start(contents, index)?;
         let end = json_string_end(contents, index)?;
-        if &contents[index..end] == needle && contents[end..].trim_start().starts_with(':') {
+        if contents[index..end] == needle && contents[end..].trim_start().starts_with(':') {
             // Only match a key, not a string *value* that happens to equal the
             // field name: the next non-whitespace byte after the closing quote
             // must be `:` (bug-212).

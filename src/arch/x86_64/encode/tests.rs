@@ -1217,7 +1217,7 @@ fn v128_shifts_dup_extract() {
         .field("dst", "xmm0")
         .field("src", "xmm0")
         .field("shift", "z");
-    assert!(matches!(encode_instruction(&ins), Err(_)));
+    assert!(encode_instruction(&ins).is_err());
     // dup_v_from_x.
     let _ = bytes("dup_v_from_x", &[("dst", "xmm0"), ("src", "rax")]);
     // umov_x_from_v lane 0 (movq) and lane 1 (pextrq).
@@ -1233,7 +1233,7 @@ fn v128_shifts_dup_extract() {
         .field("dst", "rax")
         .field("src", "xmm0")
         .field("index", "z");
-    assert!(matches!(encode_instruction(&ins), Err(_)));
+    assert!(encode_instruction(&ins).is_err());
 }
 
 #[test]
@@ -1279,7 +1279,7 @@ fn v128_bit_select_fma_convert() {
         .field("dst", "xmm0")
         .field("src", "xmm1")
         .field("shift", "z");
-    assert!(matches!(encode_instruction(&ins), Err(_)));
+    assert!(encode_instruction(&ins).is_err());
 
     // bug-16: `sshr .2d, #64` sign-fills the lane on AArch64. The emulation must
     // keep the `pcmpgtq` sign mask (unshifted) and let `psrlq dst, 64` zero the
@@ -1316,7 +1316,7 @@ fn v128_bit_select_fma_convert() {
             .field("src", "xmm1")
             .field("shift", "65");
         assert!(
-            matches!(encode_instruction(&ins), Err(_)),
+            encode_instruction(&ins).is_err(),
             "{op} must reject a shift of 65"
         );
     }
@@ -1421,13 +1421,13 @@ fn immediate_true_false_and_shift_range() {
         .field("dst", "rax")
         .field("src", "rax")
         .field("shift", "64");
-    assert!(matches!(encode_instruction(&ins), Err(_)));
+    assert!(encode_instruction(&ins).is_err());
     // An invalid immediate is rejected.
     let ins = CodeInstruction::new("mov_imm")
         .field("dst", "rax")
         .field("type", "Integer")
         .field("value", "notanumber");
-    assert!(matches!(encode_instruction(&ins), Err(_)));
+    assert!(encode_instruction(&ins).is_err());
 }
 
 #[test]

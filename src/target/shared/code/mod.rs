@@ -542,7 +542,7 @@ pub(crate) fn lower_module_for_platform(
     let package_global_count = 0usize;
     let string_symbols = string_symbols(module);
     let mut string_objects = string_symbols.iter().collect::<Vec<_>>();
-    string_objects.sort_by(|(_, left_symbol), (_, right_symbol)| left_symbol.cmp(right_symbol));
+    string_objects.sort_by_key(|(_, left_symbol)| *left_symbol);
     let mut data_objects = string_objects
         .into_iter()
         .map(|(value, symbol)| CodeDataObject {

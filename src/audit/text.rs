@@ -196,7 +196,7 @@ pub fn render(report: &AuditReport) -> String {
             };
             let _ = writeln!(
                 out,
-                "  {} ({}) in {} at {}:{} (native, {}, {}, {})",
+                "  {} ({}) in {} at {}:{} (native, {}, {}, no pointer exposed)",
                 safe(&resource.resource_type),
                 visibility,
                 safe(&resource.package),
@@ -208,7 +208,6 @@ pub fn render(report: &AuditReport) -> String {
                 } else {
                     "not thread-sendable"
                 },
-                "no pointer exposed",
             );
         }
     }

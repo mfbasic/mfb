@@ -1049,11 +1049,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done_label));
             let register = self.allocate_register()?;
             self.emit(abi::load_u64(&register, abi::stack_pointer(), count_slot));
-            return Ok(ValueResult {
+            Ok(ValueResult {
                 type_: "Integer".to_string(),
                 location: register,
                 text: format!("len({})", value.text),
-            });
+            })
         } else if is_collection_type(&value.type_) {
             let register = self.allocate_register()?;
             self.emit(abi::load_u64(
@@ -1061,16 +1061,16 @@ impl CodeBuilder<'_> {
                 &value.location,
                 COLLECTION_OFFSET_COUNT,
             ));
-            return Ok(ValueResult {
+            Ok(ValueResult {
                 type_: "Integer".to_string(),
                 location: register,
                 text: format!("len({})", value.text),
-            });
+            })
         } else {
-            return Err(format!(
+            Err(format!(
                 "native len does not accept argument type '{}'",
                 value.type_
-            ));
+            ))
         }
     }
 

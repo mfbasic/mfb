@@ -188,7 +188,7 @@ fn large_offset_load_uses_rd_not_t0_as_address_scratch() {
     // li a1, 7472 ; add a1, sp, a1 ; ld a1, 0(a1) — no `t0` (x5) anywhere.
     let a1 = 11u32;
     // The `add` is R-type add a1, sp(x2), a1: funct7=0, rs2=a1, rs1=sp, f3=0.
-    let add = (0 << 25) | (a1 << 20) | (2 << 15) | (0 << 12) | (a1 << 7) | 0x33;
+    let add = ((a1 << 20) | (2 << 15)) | (a1 << 7) | 0x33;
     assert_eq!(
         w[w.len() - 3],
         add,
@@ -263,14 +263,7 @@ fn conditional_branch_is_long_form() {
         let imm: u32 = 8;
         let b11 = (imm >> 11) & 1;
         let b4_1 = (imm >> 1) & 0xf;
-        (0 << 31)
-            | (0 << 25)
-            | (11 << 20)
-            | (10 << 15)
-            | (0b101 << 12)
-            | (b4_1 << 8)
-            | (b11 << 7)
-            | 0x63
+        (11 << 20) | (10 << 15) | (0b101 << 12) | (b4_1 << 8) | (b11 << 7) | 0x63
     };
     assert_eq!(w[0], expected_bge);
     // jal zero, -4 (back to top): opcode 0x6f, rd=0.

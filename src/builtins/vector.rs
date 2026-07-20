@@ -147,7 +147,7 @@ fn same_vector(a: &str, b: &str) -> bool {
 
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if let Some(type_name) = constant_type_name(name) {
-        return arg_types.is_empty().then(|| ResolvedCall {
+        return arg_types.is_empty().then_some(ResolvedCall {
             return_type: Cow::Borrowed(type_name),
         });
     }

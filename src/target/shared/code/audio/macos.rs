@@ -280,7 +280,7 @@ fn lower_open_output(
     // pthread_mutex_init(state+S_MUTEX, NULL); pthread_cond_init(state+S_COND, NULL)
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -292,7 +292,7 @@ fn lower_open_output(
     )?;
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -359,7 +359,7 @@ fn lower_open_output(
     if device {
         emit_select_device(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -445,7 +445,7 @@ fn lower_open_output(
     );
     instructions.push(abi::label(&dev_fail));
     emit_open_cleanup(&mut EmitCtx {
-        symbol: symbol,
+        symbol,
         platform_imports,
         platform,
         instructions: &mut instructions,
@@ -687,7 +687,7 @@ fn emit_cfstring_field(
     build_propaddr(selector, SCOPE_GLOBAL, ctx.instructions);
     call_get_property(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -789,7 +789,7 @@ fn emit_channel_flag(ctx: &mut EmitCtx, scope: &str, out_off: usize) -> Result<(
     build_propaddr(SEL_STREAMCFG, scope, ctx.instructions);
     call_get_property(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -891,7 +891,7 @@ fn lower_write(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -934,7 +934,7 @@ fn lower_write(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1046,7 +1046,7 @@ fn lower_close_output(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1081,7 +1081,7 @@ fn lower_close_output(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1117,7 +1117,7 @@ fn lower_close_output(
     )?;
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1129,7 +1129,7 @@ fn lower_close_output(
     )?;
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1223,7 +1223,7 @@ fn lower_query(
         let pt_result = format!("{symbol}_pt_result");
         emit_pthread1(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -1323,7 +1323,7 @@ fn lower_query(
         ]);
         emit_pthread1(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -1341,7 +1341,7 @@ fn lower_query(
     } else {
         emit_pthread1(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -1377,7 +1377,7 @@ fn lower_query(
         ]);
         emit_pthread1(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -1450,7 +1450,7 @@ pub(in crate::target::shared::code) fn lower_audio_output_callback(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1495,7 +1495,7 @@ pub(in crate::target::shared::code) fn lower_audio_output_callback(
     instructions.push(abi::label(&ret));
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1745,7 +1745,7 @@ fn lower_open_input(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1757,7 +1757,7 @@ fn lower_open_input(
     )?;
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1819,7 +1819,7 @@ fn lower_open_input(
     if device {
         emit_select_device(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -1919,7 +1919,7 @@ fn lower_open_input(
     );
     instructions.push(abi::label(&dev_fail));
     emit_open_cleanup(&mut EmitCtx {
-        symbol: symbol,
+        symbol,
         platform_imports,
         platform,
         instructions: &mut instructions,
@@ -2035,7 +2035,7 @@ fn lower_read(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2188,7 +2188,7 @@ fn lower_read(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2310,7 +2310,7 @@ fn lower_close_input(
     // Set closed under the mutex first (a racing callback must not touch the ring).
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2327,7 +2327,7 @@ fn lower_close_input(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2363,7 +2363,7 @@ fn lower_close_input(
     )?;
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2375,7 +2375,7 @@ fn lower_close_input(
     )?;
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2443,7 +2443,7 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
     ]);
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2535,7 +2535,7 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
     )?;
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2564,7 +2564,7 @@ pub(in crate::target::shared::code) fn lower_audio_input_callback(
     instructions.push(abi::label(&closed_exit));
     emit_pthread1(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2615,7 +2615,7 @@ fn lower_devices(
     build_propaddr(SEL_DEFIN, SCOPE_GLOBAL, &mut instructions);
     call_get_property(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2628,7 +2628,7 @@ fn lower_devices(
     build_propaddr(SEL_DEFOUT, SCOPE_GLOBAL, &mut instructions);
     call_get_property(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2644,7 +2644,7 @@ fn lower_devices(
     // object is still the system object (CURID_OFF = 1).
     call_get_property(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2715,7 +2715,7 @@ fn lower_devices(
     // name, id (UID), channel-capability flags.
     emit_cfstring_field(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2728,7 +2728,7 @@ fn lower_devices(
     )?;
     emit_cfstring_field(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2741,7 +2741,7 @@ fn lower_devices(
     )?;
     emit_channel_flag(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2752,7 +2752,7 @@ fn lower_devices(
     )?;
     emit_channel_flag(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,

@@ -438,7 +438,7 @@ pub(super) fn simple_thread_handle_helper(
             // Wake anyone parked on the resource plane too (bug-205).
             emit_close_resource_queues(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -640,7 +640,7 @@ pub(super) fn simple_thread_handle_helper(
             // thread leaks forever (bug-205).
             emit_close_resource_queues(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -683,7 +683,7 @@ pub(super) fn simple_thread_handle_helper(
             ]);
             emit_thread_deadline(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -862,7 +862,7 @@ pub(super) fn thread_queue_write_helper(
     }
     emit_thread_deadline(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1164,7 +1164,7 @@ pub(super) fn thread_queue_read_helper(
     ]);
     emit_thread_deadline(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,

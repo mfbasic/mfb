@@ -409,7 +409,7 @@ pub fn build_native_library_table(
     // Dead config that looks authoritative is worth a line of output: a renamed
     // `LINK`, a removed binding, or a typo in the `libraries` key.
     for logical in libraries.keys() {
-        if !names.iter().any(|linked| *linked == logical) {
+        if !names.contains(&logical) {
             findings.push(NativeLibraryFinding {
                 rule: "NATIVE_LIBRARY_UNUSED",
                 message: format!(

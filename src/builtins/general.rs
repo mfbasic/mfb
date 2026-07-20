@@ -327,17 +327,14 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
                 return None;
             }
         }
-        IS_EMPTY | IS_NOT_EMPTY => {
+        IS_EMPTY | IS_NOT_EMPTY
             if arg_types.len() == 1
                 && (arg_types[0] == "String"
                     || arg_types[0].starts_with("List OF ")
-                    || arg_types[0].starts_with("Map OF "))
-            {
-                ResolvedCall {
-                    return_type: Cow::Borrowed("Boolean"),
-                }
-            } else {
-                return None;
+                    || arg_types[0].starts_with("Map OF ")) =>
+        {
+            ResolvedCall {
+                return_type: Cow::Borrowed("Boolean"),
             }
         }
         _ => return None,

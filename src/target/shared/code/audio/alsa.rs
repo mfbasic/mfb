@@ -332,7 +332,7 @@ fn emit_alsa_call(
 
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -508,7 +508,7 @@ fn lower_open(
     ]);
     emit_dlopen(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -532,7 +532,7 @@ fn lower_open(
     // snd_pcm_open(&state->osobject, name, stream, 0)
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -565,7 +565,7 @@ fn lower_open(
     ]);
     emit_configure_hw_params(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -577,7 +577,7 @@ fn lower_open(
     // snd_pcm_prepare(pcm)
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -622,7 +622,7 @@ fn lower_open(
     instructions.push(abi::label(&unavailable));
     emit_open_cleanup(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -641,7 +641,7 @@ fn lower_open(
     instructions.push(abi::label(&dev_fail));
     emit_open_cleanup(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -696,7 +696,7 @@ fn emit_open_cleanup(ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
     ]);
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -725,7 +725,7 @@ fn emit_open_cleanup(ctx: &mut EmitCtx, tag: &str) -> Result<(), String> {
     ]);
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -790,7 +790,7 @@ fn emit_configure_hw_params(
     // snd_pcm_hw_params_malloc(&params)
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -811,7 +811,7 @@ fn emit_configure_hw_params(
     // any
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -829,7 +829,7 @@ fn emit_configure_hw_params(
     // set_access(INTERLEAVED)
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -852,7 +852,7 @@ fn emit_configure_hw_params(
     // set_format(S16_LE)
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -871,7 +871,7 @@ fn emit_configure_hw_params(
     // set_channels(channels)
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -895,7 +895,7 @@ fn emit_configure_hw_params(
     ]);
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -928,7 +928,7 @@ fn emit_configure_hw_params(
     ]);
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -962,7 +962,7 @@ fn emit_configure_hw_params(
     ]);
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -985,7 +985,7 @@ fn emit_configure_hw_params(
     // commit
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -1008,7 +1008,7 @@ fn emit_configure_hw_params(
     // the getter read garbage and open failed the rate/channel verification (bug-207).
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -1037,7 +1037,7 @@ fn emit_configure_hw_params(
     )?;
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -1072,7 +1072,7 @@ fn emit_configure_hw_params(
     // free the hw_params object.
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: ctx.instructions,
@@ -1149,7 +1149,7 @@ fn lower_write(
     ]);
     emit_dlopen(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1160,7 +1160,7 @@ fn lower_write(
     // cache writei and recover fn-ptrs
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1173,7 +1173,7 @@ fn lower_write(
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), FN2_OFF));
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1405,7 +1405,7 @@ fn lower_read(
     ]);
     emit_dlopen(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1418,7 +1418,7 @@ fn lower_read(
         // recover fn-ptr, so resolve these first) and pin the absolute deadline.
         emit_dlsym(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -1431,7 +1431,7 @@ fn lower_read(
         instructions.push(abi::store_u64("%v9", abi::stack_pointer(), WAIT_FN_OFF));
         emit_dlsym(
             &mut EmitCtx {
-                symbol: symbol,
+                symbol,
                 platform_imports,
                 platform,
                 instructions: &mut instructions,
@@ -1469,7 +1469,7 @@ fn lower_read(
     }
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1482,7 +1482,7 @@ fn lower_read(
     instructions.push(abi::store_u64("%v9", abi::stack_pointer(), FN2_OFF));
     emit_dlsym(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1764,7 +1764,7 @@ fn lower_query(
         Query::Available | Query::Poll => {
             emit_dlopen(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -1774,7 +1774,7 @@ fn lower_query(
             )?;
             emit_alsa_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -1814,7 +1814,7 @@ fn lower_query(
         Query::PollTimeout => {
             emit_dlopen(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -1824,7 +1824,7 @@ fn lower_query(
             )?;
             emit_alsa_call(
                 &mut EmitCtx {
-                    symbol: symbol,
+                    symbol,
                     platform_imports,
                     platform,
                     instructions: &mut instructions,
@@ -1898,7 +1898,7 @@ fn lower_close(
     ]);
     emit_dlopen(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -1932,7 +1932,7 @@ fn lower_close(
     )?;
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2058,7 +2058,7 @@ fn lower_devices(
     let mut relocations = Vec::new();
     emit_dlopen(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2069,7 +2069,7 @@ fn lower_devices(
     // snd_device_name_hint(-1, "pcm", &hints)
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2155,7 +2155,7 @@ fn lower_devices(
     // id = get_hint(hint, "NAME")
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2204,7 +2204,7 @@ fn lower_devices(
     // name = get_hint(hint, "DESC")
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,
@@ -2303,7 +2303,7 @@ fn lower_devices(
     // snd_device_name_free_hint(hints)
     emit_alsa_call(
         &mut EmitCtx {
-            symbol: symbol,
+            symbol,
             platform_imports,
             platform,
             instructions: &mut instructions,

@@ -273,7 +273,7 @@ TESTING
 END TESTING
 ";
 
-    fn driver<'a>(ast: &'a AstProject) -> Option<&'a Function> {
+    fn driver(ast: &AstProject) -> Option<&Function> {
         ast.files[0].items.iter().find_map(|item| match item {
             Item::Function(function) if function.name == DRIVER_NAME => Some(function),
             _ => None,
