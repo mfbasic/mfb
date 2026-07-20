@@ -785,6 +785,22 @@ impl CodeBuilder<'_> {
     /// min(len a, len b)` entries, each holding the flat 16-byte record
     /// `[a[i]@0][b[i]@8]`. Mirrors `lower_list_slice_range`'s allocate + header +
     /// copy-loop shape; the copy reads one 8-byte value from each source blob.
+    /// Load one zip source element from `addr` into `addr`, at its payload width.
+    ///
+    /// The kind-0 path always read 8 bytes because a lookup entry gave no width
+    /// to work from and the `Pair` field is 8 bytes wide regardless. Under kind 2
+    /// the width IS known, so a `Byte`/`Boolean` element reads 1 byte and a
+    /// `Scalar` 4, instead of 8 — which for those types would pull in the
+    /// following elements' packed payload bytes as high-order garbage. `None` is
+    /// the kind-0 shape, kept byte-identical.
+    fn emit_zip_payload_load(&mut self, addr: &str, payload: Option<usize>) {
+        match payload {
+            Some(1) => self.emit(abi::load_u8(addr, addr, 0)),
+            Some(4) => self.emit(abi::load_u32(addr, addr, 0)),
+            _ => self.emit(abi::load_u64(addr, addr, 0)),
+        }
+    }
+
     fn lower_list_zip_fixed(
         &mut self,
         args: &[NirValue],
@@ -927,19 +943,38 @@ impl CodeBuilder<'_> {
             result_slot,
         ));
         self.emit(abi::load_u64(&s9, abi::stack_pointer(), n_slot));
-        // s12 = a entry ptr, s13 = b entry ptr, s17 = result entry ptr.
-        self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_immediate(&s13, &s10, COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_immediate(
-            &s17,
-            abi::RET[1],
-            COLLECTION_HEADER_SIZE,
-        ));
         // s20 = a blob base, s21 = b blob base, s22 = result blob base. The two
         // inputs are separate lists with their own element types, so each takes
         // its own stride (plan-57-D).
         let a_element = list_element_type(&a.type_).unwrap_or_default();
         let b_element = list_element_type(&b.type_).unwrap_or_default();
+        // Both inputs are fixed-width by `try_inline_zip_op`'s guard, so under
+        // the entry-free representation BOTH are kind 2 and neither has an entry
+        // to read. s12/s13 then carry a byte OFFSET from the blob base rather
+        // than an entry pointer, and stride by the payload width. Reading an
+        // entry's `valueOffset` off a kind-2 block yields payload bytes, which
+        // are then added to the blob base and dereferenced — a wild load, which
+        // is how this was found (a SIGSEGV in the benchmark's `zip`).
+        let a_payload = kind2_payload_size(&a_element);
+        let b_payload = kind2_payload_size(&b_element);
+        // s12 = a entry ptr / payload offset, s13 = b likewise, s17 = result
+        // entry ptr. The result is a `List OF Pair`, a record element, so it is
+        // variable-width and keeps its entry table either way.
+        if a_payload.is_some() {
+            self.emit(abi::move_immediate(&s12, "Integer", "0"));
+        } else {
+            self.emit(abi::add_immediate(&s12, &s8, COLLECTION_HEADER_SIZE));
+        }
+        if b_payload.is_some() {
+            self.emit(abi::move_immediate(&s13, "Integer", "0"));
+        } else {
+            self.emit(abi::add_immediate(&s13, &s10, COLLECTION_HEADER_SIZE));
+        }
+        self.emit(abi::add_immediate(
+            &s17,
+            abi::RET[1],
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_collection_data_pointer_for(&s20, &s8, &a_element);
         self.emit_collection_data_pointer_for(&s21, &s10, &b_element);
         self.emit(abi::move_immediate(
@@ -986,30 +1021,47 @@ impl CodeBuilder<'_> {
             &s17,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        // a[i] value: 8 bytes at a_blob + a_entry.value_offset.
-        self.emit(abi::load_u64(
-            &s15,
-            &s12,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
+        // a[i] value at a_blob + offset, where the offset is the entry's
+        // `valueOffset` (kind 0) or the running payload offset itself (kind 2).
+        if a_payload.is_some() {
+            self.emit(abi::move_register(&s15, &s12));
+        } else {
+            self.emit(abi::load_u64(
+                &s15,
+                &s12,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+        }
         self.emit(abi::add_registers(&s15, &s20, &s15));
-        self.emit(abi::load_u64(&s15, &s15, 0));
+        self.emit_zip_payload_load(&s15, a_payload);
         // dest = result_blob + running.
         self.emit(abi::add_registers(&s16, &s22, &s11));
         self.emit(abi::store_u64(&s15, &s16, 0));
         // b[i] value.
-        self.emit(abi::load_u64(
-            &s15,
-            &s13,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
+        if b_payload.is_some() {
+            self.emit(abi::move_register(&s15, &s13));
+        } else {
+            self.emit(abi::load_u64(
+                &s15,
+                &s13,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+        }
         self.emit(abi::add_registers(&s15, &s21, &s15));
-        self.emit(abi::load_u64(&s15, &s15, 0));
+        self.emit_zip_payload_load(&s15, b_payload);
         self.emit(abi::store_u64(&s15, &s16, 8));
         // advance.
         self.emit(abi::add_immediate(&s11, &s11, REC));
-        self.emit(abi::add_immediate(&s12, &s12, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(&s13, &s13, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &s12,
+            &s12,
+            a_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
+        ));
+        self.emit(abi::add_immediate(
+            &s13,
+            &s13,
+            b_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
+        ));
         self.emit(abi::add_immediate(&s17, &s17, COLLECTION_ENTRY_SIZE));
         self.emit(abi::add_immediate(&s14, &s14, 1));
         self.emit(abi::branch(&loop_l));

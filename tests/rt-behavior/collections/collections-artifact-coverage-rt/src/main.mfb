@@ -92,6 +92,27 @@ FUNC main() AS Integer
     io::print("zip      : " & toString(pair.first) & "" & pair.second)
   NEXT
 
+  ' `zip` over two FIXED-WIDTH lists takes a different lowering: `try_inline_zip_op`
+  ' inlines it only when both element types are fixed-width scalars, and the case
+  ' above does not qualify because `List OF String` is variable-width. That left
+  ' the inlined path with no test at all, and it walked the lookup table — which
+  ' kind-2 lists do not have. It segfaulted, and only the benchmark caught it.
+  ' One case per payload width, since the widths stride differently.
+  LET zi AS List OF Integer = [7, 8, 9]
+  FOR EACH pair IN collections::zip(xs, zi)
+    io::print("zip int  : " & toString(pair.first) & "," & toString(pair.second))
+  NEXT
+
+  LET zb AS List OF Byte = [toByte(1), toByte(2), toByte(3)]
+  FOR EACH pair IN collections::zip(zb, zi)
+    io::print("zip byte : " & toString(toInt(pair.first)) & "," & toString(pair.second))
+  NEXT
+
+  LET zf AS List OF Float = [1.5, 2.5, 3.5]
+  FOR EACH pair IN collections::zip(zf, zi)
+    io::print("zip float: " & toString(pair.first) & "," & toString(pair.second))
+  NEXT
+
   io::print("ok")
   RETURN 0
 END FUNC

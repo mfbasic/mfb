@@ -27,5 +27,14 @@ window   : 5 9 2
 zip      : 3x
 zip      : 1y
 zip      : 4z
+zip int  : 3,7
+zip int  : 1,8
+zip int  : 4,9
+zip byte : 1,7
+zip byte : 2,8
+zip byte : 3,9
+zip float: 1.50,7
+zip float: 2.50,8
+zip float: 3.50,9
 ok
 [exit 0]

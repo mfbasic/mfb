@@ -408,8 +408,32 @@ returned `"a"` for `"abc"`. All six callers of that shared helper address a
 `List OF Byte`, so one edit covered net write/sendTo, both TLS backends and both
 audio backends.
 
-**Also outstanding:** the spec amendment, the flag flip, and Phase 3's proofs
-(the memory win, nested `List OF List OF Integer`, thread transfer).
+The fifth defect was found by the Phase 3 **benchmark**, after the flag had been
+flipped and both the acceptance suite (1038 tests) and the artifact gate (1265
+goldens) were green: `collections::zip` over two fixed-width lists **segfaulted**.
+
+`try_inline_zip_op` inlines zip only when both element types are fixed-width
+scalars — which is now exactly the set that is kind 2 — and the inlined loop
+read `entry[i].valueOffset` from each source. On a kind-2 block that reads
+payload bytes, adds them to the data base, and dereferences: a wild load.
+
+It survived every guard because it had **no test at all**. The one
+`collections::zip` call in the tree pairs a `List OF Integer` with a
+`List OF String`, which fails the fixed-width guard and takes the generic FUNC
+instead. An inlined fast path guarded by a type predicate needs a test that
+satisfies that predicate; a test of the same *function* through a different path
+proves nothing about it. `collections-artifact-coverage-rt` now covers all three
+payload widths, and reproduces the segfault (exit 139) when the fix is reverted.
+
+Fixing it also exposed that the kind-0 loop always read 8 bytes per element,
+which for `Byte`/`Boolean`/`Scalar` pulled in neighbouring payload bytes as
+high-order garbage. Under kind 2 the width is known, so the load is now
+width-correct.
+
+**Also outstanding:** nothing from the original checklist. All of Phase 1–3 is
+complete: the flag is flipped, the spec amended, the size-agreement tests
+landed, and Phase 3's four proofs (memory, nested, thread transfer, benchmark)
+are done.
 
 
 No representation is produced yet; this teaches the size path to describe one.
@@ -449,7 +473,32 @@ The single behavioral commit. Small, because plan-57-A/B did the fan-out.
       `payloadSize`.
 - [x] Mutation paths: drop the now-vacuous entry rewrites.
 - [x] `copy_collection_tight`: one region copy for kind 2.
-- [ ] Delete the dead code from §4.4.
+- [x] Delete the dead code from §4.4.
+  **NOTHING WAS DEAD — §4.4's premise is wrong**, and this is worth recording
+      rather than quietly closing. It assumed the entry table goes away. It does
+      not: kind 0 remains live for every variable-width element type (`String`,
+      records, unions, nested collections, resource borrows) and for every
+      `Map`, whatever its key width. Each of the five listed items is a kind-0
+      path that is *skipped* for kind 2, not one that became unreachable:
+
+      | §4.4 item | status |
+      |---|---|
+      | `emit_alloc_list`'s entry-fill loop | live for kind 0 |
+      | plan-57-C §4.2's entry rewrite | live for kind 0 |
+      | `copy_collection_tight`'s entry copy | live for kind 0 |
+      | `mid`'s order probe | live — §4.4 itself says to keep the `String` path |
+      | `builder_arena_transfer.rs:727`'s flags guard | live; already annotated kind-0-only |
+
+      Verified rather than argued: `cargo check --all-targets` reports zero
+      dead-code warnings and the tree still carries no blanket
+      `#![allow(dead_code)]`.
+
+      The lesson is about plan-writing, not code: "what becomes dead" was
+      written from the mental model that a representation change *replaces* the
+      old one. A change gated on a type predicate *adds a branch*, and both arms
+      stay live for as long as the predicate can go either way. Deleting to
+      satisfy the checklist would have removed working code for maps and string
+      lists.
 
 Acceptance: the whole existing suite passes with **identical observable
 behavior**; a `List OF Byte` of 1,000,000 elements allocates ~1 MB rather than
@@ -483,11 +532,34 @@ Commit: —
       asserting it from the harness would make an acceptance test sensitive to
       allocator behaviour. The claim is reproducible from the two-line source
       above whenever it needs re-checking.
-- [ ] Performance: benchmark `get`, `FOR EACH`, `append`, `prepend` over each
+- [x] Performance: benchmark `get`, `FOR EACH`, `append`, `prepend` over each
       payload width, before and after (`benchmark/`). Expect improvements
       everywhere; `get` loses two dependent loads and `prepend` moves `p` bytes
       per element instead of 40.
-  **NOT DONE.**
+  **DONE**, and it found a crash — see below. `benchmark/mfb` run at
+      `--run 5` against two compilers differing only in `kind2_enabled()`.
+      **Every checksum in the entire suite is identical between the two**, which
+      is the strongest available statement that behaviour did not change.
+
+      Of 48 timed benchmarks: **39 faster, 7 unchanged, 2 slower**. Median
+      0.78x — about 22% faster overall.
+
+      | benchmark | kind 0 | kind 2 | |
+      |---|---|---|---|
+      | `list.drop` / `take` / `mid` | ~4.4 ms | ~0.6 ms | **7.7x** |
+      | `list.removeAt` | 10.5 ms | 1.7 ms | 6.1x |
+      | `list.window` | 116.6 ms | 20.4 ms | 5.7x |
+      | `listchurn.nested` | 327.5 ms | 70.0 ms | 4.7x |
+      | `list.insert` | 12.1 ms | 2.9 ms | 4.2x |
+      | `list.sortBy` | 68.6 ms | 20.7 ms | 3.3x |
+
+      The big wins are exactly where predicted: the slicing and shifting
+      operations, which previously moved a 40-byte entry per element and now
+      move 1–8 bytes.
+
+      The two "slower" are `liststr.query` (1.04x) and `liststr.hof` (1.08x) —
+      `List OF String` is variable-width and stays kind 0, so its codegen is
+      unchanged and these are measurement noise, not regressions.
 - [x] Nested: a `List OF List OF Integer` fixture exercising construction, read,
       copy, and drop — the inlined-block size path (§3) is the subtlest
       interaction and has no other coverage.

@@ -191,8 +191,38 @@
         { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zip      : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pair" }, "member": "first" }] } }, "right": { "kind": "string", "value": "" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "pair" }, "member": "second" } }] }, "line": 92 }
         ]
       },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 95 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 96 }
+      { "kind": "binding", "mutable": false, "name": "zi", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }] }, "line": 101 },
+      {
+        "kind": "forEach",
+        "name": "pair",
+        "iterable": { "kind": "call", "callee": "collections.zip", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "zi" }] },
+        "line": 102,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zip int  : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pair" }, "member": "first" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pair" }, "member": "second" }] } }] }, "line": 103 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "zb", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "1" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "2" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "3" }] }] }, "line": 106 },
+      {
+        "kind": "forEach",
+        "name": "pair",
+        "iterable": { "kind": "call", "callee": "collections.zip", "arguments": [{ "kind": "identifier", "value": "zb" }, { "kind": "identifier", "value": "zi" }] },
+        "line": 107,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zip byte : " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pair" }, "member": "first" }] }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pair" }, "member": "second" }] } }] }, "line": 108 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "zf", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1.5" }, { "kind": "number", "value": "2.5" }, { "kind": "number", "value": "3.5" }] }, "line": 111 },
+      {
+        "kind": "forEach",
+        "name": "pair",
+        "iterable": { "kind": "call", "callee": "collections.zip", "arguments": [{ "kind": "identifier", "value": "zf" }, { "kind": "identifier", "value": "zi" }] },
+        "line": 112,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "zip float: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pair" }, "member": "first" }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "pair" }, "member": "second" }] } }] }, "line": 113 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 116 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 117 }
       ]
     }
     ]
