@@ -6,9 +6,13 @@
 //! with this model when an `-target linux-x86_64` build is active (selected via
 //! `mir::Backend::register_model`).
 //!
-//! `arena_base` is pinned to `r15` for correctness-first bring-up (reserved from
-//! allocation, like AArch64 pins `x19`); plan-00-H §7 will move it to a TLS slot
-//! load to recover the register under x86's tighter 16-GPR pressure.
+//! `arena_base` is pinned to `r15` (reserved from allocation, like AArch64 pins
+//! `x19`) by a recorded deliberate decision, not an unfinished step:
+//! `planning/old-plans/plan-00-H-x86_64-backend.md`'s Phase 4 status states
+//! "`arena_base` remains pinned to r15 (works; the optional TLS move is a perf
+//! refinement, not a gap — r15 is a valid callee-saved home and no test needs it
+//! freed)." Earlier revisions of this comment cited a "plan-00-H §7" that the
+//! plan does not contain (it has sections 1–6 and phases 1–4).
 
 use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
 use crate::target::shared::code::CodeInstruction;
@@ -33,9 +37,10 @@ const GPRS: &[&str] = &[
 /// (`store xzr` → `mov r/m, 0`), which is precisely what freed `r14` for
 /// allocation in plan-34-C.
 ///
-/// Tight (4) versus AArch64's 19 — the linear-scan allocator spills under
-/// pressure; correctness-first for bring-up (plan-00-H §7 frees a register by
-/// moving arena_base to TLS).
+/// Tight (4) versus AArch64's 14 and rv64's 12 — the linear-scan allocator
+/// spills under pressure. Freeing `arena_base` from `r15` to a TLS slot would
+/// add a fifth, but that is a perf refinement the plan deliberately declined,
+/// not an unfinished step (see the module comment).
 // `r13` is deliberately absent: it realizes the `%closure_env` role token
 // ([`X86_64RegisterModel::closure_env`], plan-34-C §2.5), so the allocator must
 // never color a body vreg onto it. `r14` (the former zero register) IS allocatable

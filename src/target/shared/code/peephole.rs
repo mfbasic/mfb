@@ -36,6 +36,7 @@
 
 use crate::arch::ops::CodeOp;
 use crate::target::shared::abi;
+use crate::target::shared::regmodel::RegisterModel;
 
 use super::regalloc;
 use super::types::CodeInstruction;
@@ -263,11 +264,14 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
 /// another instruction needs.
 ///
 /// Runs after `forward_stores_to_loads` and on physical registers (post register
-/// allocation), before `finalize_frame`. `is_riscv` selects the per-ISA
-/// call-clobber masks in the underlying liveness (threaded from the active
-/// backend's arch, not sniffed from operand strings).
-pub(super) fn remove_fp_shuttles(instructions: &mut Vec<CodeInstruction>, is_riscv: bool) {
-    let live_out = regalloc::integer_live_out(instructions, is_riscv);
+/// allocation), before `finalize_frame`. `model` is the active backend's register
+/// model; the underlying liveness derives its call-clobber mask from that model's
+/// caller-saved table (threaded in, not sniffed from operand strings).
+pub(super) fn remove_fp_shuttles(
+    instructions: &mut Vec<CodeInstruction>,
+    model: &dyn RegisterModel,
+) {
+    let live_out = regalloc::integer_live_out(instructions, model);
     // Index of the first (def) instruction of each matched pair -> the rewritten
     // second instruction. The def instruction is dropped; the second is replaced.
     let mut drop_def: Vec<bool> = vec![false; instructions.len()];
@@ -380,7 +384,12 @@ mod tests {
             op("fmov_d_from_x").field("dst", "d9").field("src", "x8"),
             op("ret"),
         ];
-        remove_fp_shuttles(&mut instructions, false);
+        // AArch64 spellings (`x8`, `d9`), so the AArch64 model supplies the
+        // caller-saved set the liveness reads (bug-350).
+        remove_fp_shuttles(
+            &mut instructions,
+            &crate::arch::aarch64::regmodel::Aarch64RegisterModel,
+        );
         assert_eq!(instructions.len(), 3);
         assert_eq!(instructions[0].op, CodeOp::StrD);
         assert_eq!(instructions[0].get("src"), Some("d11"));
@@ -409,7 +418,12 @@ mod tests {
             op("ret"),
         ];
         let before = instructions.len();
-        remove_fp_shuttles(&mut instructions, false);
+        // AArch64 spellings (`x8`, `d9`), so the AArch64 model supplies the
+        // caller-saved set the liveness reads (bug-350).
+        remove_fp_shuttles(
+            &mut instructions,
+            &crate::arch::aarch64::regmodel::Aarch64RegisterModel,
+        );
         assert_eq!(instructions.len(), before);
         assert_eq!(instructions[0].op, CodeOp::FMovXFromD);
         assert_eq!(instructions[1].op, CodeOp::StrU64);

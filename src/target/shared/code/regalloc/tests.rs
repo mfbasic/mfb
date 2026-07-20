@@ -417,3 +417,158 @@ fn find_physical_operand_catches_every_class_and_passes_tokens() {
     ];
     assert_eq!(find_physical_operand(&clean), None);
 }
+
+/// The call-clobber masks are derived from each target's `caller_saved` table
+/// (bug-350). Assert the DERIVED mask against the ABI truth spelled out
+/// independently here, per ISA — the derivation makes drift impossible, this
+/// makes a wrong index map or a wrong table visible.
+///
+/// The bug this pins: `call_clobber_mask` used to branch only on `is_riscv`, so
+/// x86-64 fell into the `else` arm and inherited AArch64's constants. The masks
+/// are indexed by physical-register *number*, and bit 8 means `d8` on AArch64
+/// (callee-saved by the PCS) but `xmm8` on x86 (caller-saved — SysV has no
+/// callee-saved xmm bank at all). The allocator therefore believed
+/// `xmm8`–`xmm14` survived a call, and `FP_REGS`' plain `xmm0..xmm14` ordering
+/// steered straight into them once bits 0–7 were excluded.
+#[test]
+fn call_clobber_masks_match_each_targets_abi() {
+    use crate::arch::riscv64::regmodel::Riscv64RegisterModel;
+    use crate::arch::x86_64::regmodel::X86_64RegisterModel;
+
+    let bits = |indices: &[u32]| indices.iter().fold(0u64, |m, i| m | (1u64 << i));
+
+    // AArch64 AAPCS: `x0`–`x17` caller-saved; FP `d0`–`d7` + `d16`–`d31`
+    // (`d8`–`d15` are callee-saved).
+    let aarch64_int: Vec<u32> = (0..=17).collect();
+    let aarch64_fp: Vec<u32> = (0..=7).chain(16..=31).collect();
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &Aarch64RegisterModel,
+            RegClass::Int,
+            analysis::int_physical_index
+        ),
+        bits(&aarch64_int),
+    );
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &Aarch64RegisterModel,
+            RegClass::Fp,
+            analysis::fp_physical_index
+        ),
+        bits(&aarch64_fp),
+    );
+
+    // rv64 lp64d: `ra`(1), `t0`–`t2`(5–7), `a0`–`a7`(10–17), `t3`–`t6`(28–31);
+    // FP `ft0`–`ft7`(0–7), `fa0`–`fa7`(10–17), `ft8`–`ft11`(28–31).
+    let riscv_int: Vec<u32> = [1]
+        .into_iter()
+        .chain(5..=7)
+        .chain(10..=17)
+        .chain(28..=31)
+        .collect();
+    let riscv_fp: Vec<u32> = (0..=7).chain(10..=17).chain(28..=31).collect();
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &Riscv64RegisterModel,
+            RegClass::Int,
+            analysis::int_physical_index_non_aarch64
+        ),
+        bits(&riscv_int),
+    );
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &Riscv64RegisterModel,
+            RegClass::Fp,
+            analysis::fp_physical_index
+        ),
+        bits(&riscv_fp),
+    );
+
+    // x86-64 SysV: caller-saved GPRs rax(0), rcx(1), rdx(2), rsi(6), rdi(7),
+    // r8(8), r9(9), r10(10), r11(11) — and NO callee-saved xmm, so every
+    // allocatable xmm (`xmm0`–`xmm14`; `xmm15` is the reserved SSE scratch and
+    // never a coloring candidate) is destroyed by a call.
+    let x86_int = bits(&[0, 1, 2, 6, 7, 8, 9, 10, 11]);
+    let x86_fp = bits(&(0..=14).collect::<Vec<_>>());
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &X86_64RegisterModel,
+            RegClass::Int,
+            analysis::int_physical_index_non_aarch64
+        ),
+        x86_int,
+    );
+    assert_eq!(
+        analysis::caller_saved_mask(
+            &X86_64RegisterModel,
+            RegClass::Fp,
+            analysis::fp_physical_index
+        ),
+        x86_fp,
+    );
+
+    // The precise defect: the AArch64 FP mask, if inherited, leaves bits 8–14
+    // clear — exactly the registers SysV destroys and the x86 pool reaches first.
+    let inherited = bits(&aarch64_fp);
+    for xmm in 8..=14u32 {
+        assert_eq!(
+            inherited & (1 << xmm),
+            0,
+            "the inherited AArch64 mask must be the thing that modeled xmm{xmm} as call-safe",
+        );
+        assert_ne!(x86_fp & (1 << xmm), 0, "xmm{xmm} must now be clobbered");
+    }
+}
+
+/// With nine simultaneously-live FP values spanning a `bl`, no value may be
+/// colored onto `xmm8`–`xmm14` on x86-64: SysV destroys them across the call.
+/// Before bug-350 the allocator not only permitted that placement, it preferred
+/// it — `FP_REGS` lists `xmm0..xmm14` in order, so once bits 0–7 were excluded
+/// by the (AArch64) mask, `xmm8` was the first survivor it found.
+#[test]
+fn x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm() {
+    use crate::arch::x86_64::regmodel::X86_64RegisterModel;
+
+    const LIVE: usize = 9;
+    let mut instructions = vec![CodeInstruction::new("label").field("name", "entry")];
+    // Define every value before the call...
+    for v in 0..LIVE {
+        instructions.push(
+            CodeInstruction::new("fmov_d_from_d")
+                .field("dst", &fp_vreg_name(v as u32))
+                .field("src", "d0"),
+        );
+    }
+    // ...cross a PCS call...
+    instructions.push(CodeInstruction::new("bl").field("target", "_mfb_fn_user"));
+    // ...and use every one after it, so each interval spans the call.
+    for v in 0..LIVE {
+        instructions.push(
+            CodeInstruction::new("fmov_d_from_d")
+                .field("dst", "d1")
+                .field("src", &fp_vreg_name(v as u32)),
+        );
+    }
+    instructions.push(CodeInstruction::new("ret"));
+
+    allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[],
+        &[],
+        &X86_64RegisterModel,
+        0,
+        &[],
+    );
+
+    let volatile_high: Vec<String> = (8..=14).map(|n| format!("xmm{n}")).collect();
+    for (index, instruction) in instructions.iter().enumerate() {
+        for (field, value) in &instruction.fields {
+            assert!(
+                !volatile_high.contains(value),
+                "instruction {index} field `{field}` colored a call-spanning value \
+                 onto `{value}`, which a SysV `call` destroys",
+            );
+        }
+    }
+}

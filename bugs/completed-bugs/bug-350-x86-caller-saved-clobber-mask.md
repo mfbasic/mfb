@@ -5,10 +5,15 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (register allocation; latent miscompile + measured spill cost)
 
-Status: Open
-Regression Test: tests/ (new) `src/target/shared/code/regalloc/tests.rs` — a per-ISA
-`call_clobber_mask` table test asserting the mask equals the target's real
-caller-saved set
+Status: Fixed (2026-07-19)
+Regression Test:
+- `target::shared::code::regalloc::tests::call_clobber_masks_match_each_targets_abi`
+  — the per-ISA table test, asserting the DERIVED mask against each ABI's truth
+  spelled out independently, and asserting explicitly that the inherited AArch64
+  FP mask leaves bits 8–14 clear while x86's sets them.
+- `target::shared::code::regalloc::tests::x86_fp_values_live_across_a_call_avoid_the_volatile_high_xmm`
+  — nine call-spanning FP vregs on x86; **verified to FAIL against the pre-fix
+  allocator** (it colored one onto `xmm8`) and to pass after.
 
 `call_clobber_mask` selects its caller-saved register masks with
 `if is_riscv { RISCV_… } else { … }`. There is no x86 branch, so **x86-64 uses the
@@ -306,3 +311,59 @@ intervening calls in today's code all sit on returning error tails — but the
 registers are actively allocated, so the margin is luck, not design. The
 engineering risk is not the fix (small) but the x86 output delta in Phase 3, which
 must be read rather than regenerated; AArch64 and rv64 must not move at all.
+
+## Resolution (2026-07-19)
+
+Fixed by derivation, the recommended option in §Open Decisions:
+`ClassModel` now carries a `caller_saved` mask built once per allocation by
+`analysis::caller_saved_mask` from the target's own `RegisterModel::caller_saved`
+table, mapped through that class's `physical_index`. The `is_riscv` flag, the
+three hand-written constant pairs, and `ALL_INT`/`RISCV_ALL_INT` are gone;
+`all_int` is now `PhysMask::MAX`, which is provably equivalent (bits above a
+target's register-number space name no register, and both consumers index by a
+real register index — phantom bits can never match a candidate, and in the
+liveness dataflow a def-mask only *removes* bits, so they never reach `live_out`).
+
+`integer_live_out` and `peephole::remove_fp_shuttles` take the register model
+instead of an `is_riscv` bool, for the same reason.
+
+Derivation reproduces the AArch64 and rv64 constants exactly — verified by
+arithmetic before the change and by the artifact A/B after it.
+
+### Measured outcome
+
+- **AArch64/rv64 byte-identical, as required.** A/B `linux-artifact-baseline`
+  capture over 1016 fixtures x 3 targets (11,190 hashes) differs on **2144
+  lines, every one of them `linux-x86_64`**. Zero `linux-aarch64`, zero
+  `linux-riscv64`. `scripts/artifact-gate.sh` (macos-aarch64): 1193 goldens,
+  0 diffs. Runtime proof on real hardware: 2224 aarch64/musl 469 passed /
+  0 failed; 2229 riscv64/musl 456 passed / 0 failed (13 `BUILD-FAIL`, each
+  reproduced identically with the pre-fix compiler).
+- **x86-64 delta is exactly the intended reallocation**: 536 fixtures, `.mir`
+  and `.ncode` only — no `.nir`/`.nplan`/`.nobj` change and no fixture changed
+  build status. Frames shrink (e.g. `func_fs_setBuffered_valid` drops one spill
+  slot, 456 → 440 bytes) as `r12`/`r14` survive PCS calls, and FP values move
+  off `xmm8`–`xmm14` across calls.
+- **The Phase 1 CFG scan, re-run on the fixed corpus: 0 hits** — and now for the
+  sound reason. `xmm8`–`xmm14` are still actively allocated (in 100/69/69/32/22/11
+  functions respectively), so the pool was not merely emptied; the allocator just
+  never places a call-spanning value there.
+- x86-64 runtime proof on 2227 (musl): 460 passed / 9 failed before, 464 passed /
+  5 failed after. No regression — the four that flipped are bug-362's, fixed in
+  the same session. The remaining five are pre-existing (`os::userName` was
+  confirmed by re-running it against the pre-fix compiler).
+
+### Not done here
+
+The stale-comment fix landed (`regmodel.rs` module comment and
+`INT_ALLOCATABLE`: the nonexistent "plan-00-H §7" reference replaced with the
+plan's actual recorded decision, and "AArch64's 19" corrected to 14).
+`RegisterModel::caller_saved` is now a live, load-bearing method rather than a
+dead one, which was the structural point of choosing derivation.
+
+`x86_64::caller_saved(RegClass::Fp)` still returns `FP_REGS` (`xmm0`–`xmm14`), so
+the derived mask leaves bit 15 clear rather than setting all 16 as §Goal wrote.
+That is moot and deliberately left alone: `xmm15` is the reserved SSE scratch,
+absent from the allocatable pool, so it is never a coloring candidate and its
+bit cannot affect a decision. Setting it would have meant editing two committed
+assertions that deliberately pin `caller_saved(Fp) == FP_REGS`.

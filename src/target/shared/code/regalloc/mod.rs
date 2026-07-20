@@ -242,11 +242,6 @@ pub(crate) fn allocate(
             // already-integer-colored stream. The two physical files never
             // interfere, so each pass sees only its own operands; FP spill slots
             // are placed after the integer ones.
-            // rv64's caller-saved set lives at different physical indices than
-            // AArch64/x86, so the call-clobber masks are ISA-specific (plan-99).
-            // The arena-base register identifies the ISA (`s11` on rv64).
-            let is_riscv =
-                model.arena_base() == crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER;
             // The `%scratch`/`%sysnr` occupancy indices in `int_physical_index` are
             // AArch64 realizations; on x86/riscv those tokens realize elsewhere (and
             // are lowered to concrete names before allocation), so pick the variant
@@ -258,17 +253,28 @@ pub(crate) fn allocate(
             } else {
                 analysis::int_physical_index_non_aarch64
             };
+            // The call-clobber masks are indexed by physical-register *number*,
+            // so they cannot be shared across ISAs (the same bit means `d8` on
+            // AArch64 and `xmm8` on x86). Derive each from the target's own
+            // caller-saved table rather than restating it as a constant — that
+            // restatement is what let x86-64 inherit AArch64's masks and model
+            // `xmm8`–`xmm14` as surviving a call SysV says destroys them
+            // (bug-350).
             let int_model = ClassModel {
                 parse_vreg,
                 physical_index: int_physical_index,
                 is_fp: false,
-                is_riscv,
+                caller_saved: analysis::caller_saved_mask(model, RegClass::Int, int_physical_index),
             };
             let fp_model = ClassModel {
                 parse_vreg: parse_fp_vreg,
                 physical_index: analysis::fp_physical_index,
                 is_fp: true,
-                is_riscv,
+                caller_saved: analysis::caller_saved_mask(
+                    model,
+                    RegClass::Fp,
+                    analysis::fp_physical_index,
+                ),
             };
             // Uniform per-slot stride so any class fits (x86 16 for a 128-bit FP
             // spill; AArch64 8 — a no-op, byte-identical).
@@ -374,8 +380,11 @@ mod linear_scan;
 /// dead before dropping the shuttle. (The analysis items are `pub(super)` within
 /// `regalloc`, so they are surfaced to the parent module through these wrappers
 /// rather than re-exported.)
-pub(super) fn integer_live_out(instructions: &[CodeInstruction], is_riscv: bool) -> Vec<u64> {
-    analysis::integer_live_out(instructions, is_riscv)
+pub(super) fn integer_live_out(
+    instructions: &[CodeInstruction],
+    model: &dyn RegisterModel,
+) -> Vec<u64> {
+    analysis::integer_live_out(instructions, model)
 }
 
 pub(super) fn physical_busy(bits: u64, index: u32) -> bool {
