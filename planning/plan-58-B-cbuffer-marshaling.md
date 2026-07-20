@@ -3,8 +3,7 @@
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
 Depends on: plan-58-A (the `CBuffer` vocabulary, `BUFFER … SIZE`, the position
-rules); **an externally-visible byte-list constructor that does not yet exist —
-see §0 here, and plan-58-A §Prerequisite. This sub-plan cannot start until that is resolved.**
+rules). Feature-wide precondition: **plan-57 complete** — plan-58-A §Prerequisite.
 Produces: the `CBuffer` staging pass, the `"CBuffer"` result-marshal arm, the
 `LENGTH` clause, `IrLinkExpr::{Mul,Add,Sub}`, `CBUFFER_MAX_BYTES`. Consumed by C
 (wire format) and D (the binding).
@@ -31,15 +30,16 @@ References (read first):
   marshaling `:805-859`; `emit_copy_cstring_to_string` `:1280-1359`; the
   register-lifetime doc `:1662-1672`; `LINK_EXPR_VREG_BASE = 64` `:1366`; the
   external-ABI register budget check `:659-675`.
-- `src/target/shared/code/audio/mod.rs:135` (`emit_alloc_byte_list`) and
-  `src/target/shared/code/crypto_ec.rs:208` (`emit_build_byte_list`) — the two
-  byte-list constructors that **actually exist**. See §0.
+- `emit_alloc_list` and `emit_collection_data_pointer_into` — plan-57-B's shared
+  byte-list constructor and data-pointer helper. This sub-plan consumes both;
+  the precondition (§0) guarantees they exist and are `pub(crate)`.
 - `src/target/shared/code/error_constants.rs:777` (`COLLECTION_HEADER_SIZE` = 40),
   `:786` (`COLLECTION_ENTRY_SIZE` = 40), the `COLLECTION_OFFSET_*` table, `:815`
   (`COLLECTION_TYPE_BYTE` = 7), `:582` (`_mfb_arena_alloc`), `:587`
   (`_mfb_arena_free`).
 - `src/target/shared/code/builder_collection_layout.rs:241`
-  (`emit_flat_block_size`), `:2191` (the `MFB_KIND2` gate).
+  (`emit_flat_block_size` — stride-parameterized via `list_entry_stride`, so it
+  is already correct for `kind = 2`).
 - `src/docs/spec/memory/05_collections.md:24-100` (block layout), `:173-198`
   (**Capacity Headroom** — the rule that decides §4.4).
 - `src/target/shared/code/fs_helpers_io.rs:1956`
@@ -48,43 +48,22 @@ References (read first):
 - `.ai/compiler.md` — Hard Completion Gate **and** the Native Codegen Register
   Lifetimes section. Both bind here.
 
-## 0. The blocking prerequisite — verified 2026-07-20
+## 0. Precondition
 
-The 2026-07-19 draft of this sub-plan opened its design with "allocate through
-`emit_alloc_list` — the shared constructor plan-57-B introduced", and listed
-`emit_alloc_list` and `emit_collection_data_pointer_into` in its references as
-"both introduced by plan-57-B". **Neither function exists.**
+plan-58's single hard stop is **plan-57 complete**, checked once at the feature's
+entry gate — see `plan-58-A` §Prerequisite. It is not re-litigated here and there
+is no separate blocker in this sub-plan.
 
-```
-rg -n 'fn emit_alloc_list' src/                      → no matches
-rg -n 'fn emit_collection_data_pointer_into' src/    → no matches
-```
+What that precondition guarantees, and what everything below is written against:
 
-What exists:
-
-| Symbol | Location | Visibility | Fit |
-|---|---|---|---|
-| `emit_alloc_byte_list` | `audio/mod.rs:135` | private `fn` | Right shape — takes stack offsets (`count_off`, `list_off`) and an `alloc_fail` label, which is exactly a thunk's idiom. **Not callable from `link_thunk.rs`.** |
-| `emit_build_byte_list` | `crypto_ec.rs:208` | `pub(super)` | Copies from a source buffer; wrong shape (we want an *empty* buffer for the callee to fill). |
-
-Both still write a `kind = 1` entry table, because the `kind = 2` flip is gated
-(§2.3).
-
-**This sub-plan cannot begin until one of these is true:**
-
-- **(a)** plan-57-B track 2 lands a `pub(crate)` byte-list constructor; or
-- **(b)** this sub-plan promotes `emit_alloc_byte_list` out of `audio/` into a
-  shared module with `pub(crate)` visibility — doing plan-57-B track 2's work
-  here, and recording it as such in plan-57-B.
-
-Recommended: **(b)** if plan-57-B track 2 is not already in flight. Promoting one
-private function is smaller than blocking the feature, and the function is
-already parameterized and documented as the shared copy. What is **not**
-acceptable is hand-rolling a header write in `link_thunk.rs` — that would be the
-fourth copy of a routine plan-57-B exists to collapse.
-
-Whichever is chosen, record it in this document's §Corrections before writing
-code.
+- `emit_alloc_list` and `emit_collection_data_pointer_into` exist and are
+  `pub(crate)`, so `link_thunk.rs` can call them. This sub-plan **consumes** them;
+  it does not build, promote, or port them. If they are absent, the precondition
+  was not met — go finish plan-57, do not do its work here.
+- `kind = 2` is the live, ungated representation: a byte-list block is `40 + N`,
+  `dataBase = block + 40` is a constant offset, and there is no entry table.
+- There is therefore exactly **one** representation to target. No `MFB_KIND2`
+  branch, no dual-mode staging, no 41×-cost fallback.
 
 ## 1. Goal
 
@@ -116,8 +95,9 @@ code.
 - No input (`IN`/`INOUT`) buffer direction — still rejected by plan-58-A.
 - No change to `audio::write`, `fs::readAllBytes`, `net` recv, or any other
   byte-list producer or consumer.
-- **Do not flip `MFB_KIND2`.** That is plan-57-D's decision, not this sub-plan's.
-  This sub-plan must work correctly with the gate off (§2.3).
+- **Do not touch the byte-list representation, the `MFB_KIND2` gate, or any
+  plan-57 deliverable.** plan-57 is a precondition (§0), not work this sub-plan
+  finishes, ports, or works around.
 
 ## 2. Current State
 
@@ -125,8 +105,6 @@ code.
 
 | What | Count | Command |
 |---|---|---|
-| Byte-list constructors in the tree | 2 (`audio/mod.rs:135`, `crypto_ec.rs:208`) | `rg -n 'fn emit_(alloc\|build)_byte_list' src/` |
-| Of those, callable from `link_thunk.rs` | **0** | both are module-private / `pub(super)` — see §0 |
 | `COLLECTION_HEADER_SIZE` | 40 | `error_constants.rs:777` |
 | `COLLECTION_ENTRY_SIZE` | 40 | `error_constants.rs:786` |
 | External int arg registers (budget check) | 6 x86-64 SysV, 8 elsewhere | `link_thunk.rs:659-675` |
@@ -159,25 +137,23 @@ allocates the record *first*, spills the pointer, and reloads it **per field**
 the data base, and hands that pointer straight to `read(2)`. That is this
 sub-plan's shape, with a LINK thunk in place of a builtin lowering.
 
-### 2.3 Which representation this lands into — the gate is OFF
+### 2.3 The representation this lands into
 
-`kind = 2` (plan-57-D) is behind `std::env::var("MFB_KIND2")`
-(`builder_collection_layout.rs:2191`). **The default build is `kind = 1`.** The
-two differ in ways this sub-plan cannot paper over:
+One representation, guaranteed by the precondition (§0): `kind = 2`.
 
-| | `kind = 1` (default, live) | `kind = 2` (`MFB_KIND2=1`) |
-|---|---|---|
-| Block size for `N` bytes | `40 + 41N` | `40 + N` |
-| `dataBase` | `block + 40 + 40N` — **depends on capacity** | `block + 40` — constant |
-| Arena cost of 8 MiB | 343.9 MB (41.0×) | 8.4 MB |
-| Entry-fill loop on alloc | `N` iterations | none |
+| | `kind = 2` |
+|---|---|
+| Block size for `N` bytes | `40 + N` |
+| `dataBase` | `block + 40` — a constant offset |
+| Arena cost of 64 MiB | 64 MB (1.0×) |
+| Entry-fill loop on alloc | none |
 
-The 2026-07-19 draft hedged in §2.1 that plan-57 was "a strong preference, not a
-correctness prerequisite", but then wrote §4.2 step 5 and §4.4's reads-argument
-**only** for `kind = 2` (`dataBase = block + 40`, "a constant offset"). Those two
-statements contradict each other. Resolved here in favour of the hedge: this
-sub-plan must be correct under **both**, which means it must not open-code
-`block + 40` and must obtain the data base from the shared helper (§4.2).
+The 2026-07-19 draft tried to be correct under both the old and new layouts,
+hedging in its §2.1 that plan-57 was "a strong preference, not a correctness
+prerequisite" while writing §4.2 and §4.4 only for `kind = 2`. That
+contradiction is gone: plan-57 is a precondition, so there is nothing to hedge.
+Do not reintroduce a capacity-scaled data-base computation "just in case" — if
+`dataBase` is not `block + 40`, the precondition was not met.
 
 ### 2.4 Verified properties
 
@@ -186,7 +162,7 @@ sub-plan must be correct under **both**, which means it must not open-code
 | `emit_alloc_list` exists | **FALSE** | §0 — no matches in `src/` |
 | `emit_collection_data_pointer_into` exists | **FALSE** | §0 — no matches in `src/` |
 | A byte-list constructor is callable from `link_thunk.rs` | **FALSE** | both existing ones are private / `pub(super)` |
-| `kind = 2` is the live representation | **FALSE** | gated on `MFB_KIND2`, `builder_collection_layout.rs:2191` |
+| `kind = 2` is live | **PRECONDITION** | Guaranteed by §0. As of 2026-07-20 it is *not* met (gate at `builder_collection_layout.rs:2191`), which is why plan-58 is not startable yet — see plan-58-A §Prerequisite |
 | `_mfb_arena_alloc` destroys all caller-saved registers | **CONFIRMED** | `.ai/compiler.md`; spill pattern read at `link_thunk.rs:1311`, `:1317`, `:1800`, `:1823`, `:1897` |
 | `alloc_fail` label is always emitted | **CONFIRMED** | `link_thunk.rs:1020` |
 | `emit_flat_block_size` sizes from capacity/dataCapacity | **CONFIRMED** | `builder_collection_layout.rs:241` — so leaving slack is what makes `arena_free` correct |
@@ -224,7 +200,7 @@ falsifies this cheaply, before any of the rest is built.**
 
 - **`dataBase` vs block pointer.** Two different pointers. The C function gets
   `dataBase`; the result marshal and the truncation get the block. Swapping them
-  makes the callee overwrite the header. Under `kind = 2` the gap is 40 bytes, so
+  makes the callee overwrite the header. The gap is 40 bytes, so
   a short write may corrupt only `count`/`capacity` and still look plausible.
   Test with a callee that fills the buffer completely.
 - **The clamp.** `sf_read_short` returns `-1` on error and `0` at EOF; `read(2)`
@@ -245,8 +221,9 @@ buffer as a second output*. Rejected: the ABI surfaces exactly one result
 without the bytes is useless.
 
 **Rejected alternative:** *open-code `dataBase = block + 40`.* Rejected: correct
-only under `kind = 2`, which is not the live representation (§2.3). Use the
-helper so the gate can flip without touching this sub-plan.
+correct only if the precondition holds — and if it holds, `block + 40` *is*
+correct (§2.3). Prefer the shared helper anyway: it keeps the offset in one
+place, and costs nothing.
 
 ## 4. Detailed Design
 
@@ -282,11 +259,10 @@ For each `CBuffer` slot, in declaration order:
    word; it must survive the allocation.
 2. **Runtime size gate**: if `N < 0` or `N > CBUFFER_MAX_BYTES`, branch to a new
    `buffer_size_fail` block raising `ErrInvalidArgument`. A negative `N` would
-   otherwise compute a nonsense block size. `CBUFFER_MAX_BYTES` = **8 MiB** while
-   `MFB_KIND2` is off (§2.3) — at `kind = 1` that is already 344 MB of arena.
-   Comment the constant with the gate so the two stay traceable.
+   otherwise compute a nonsense block size. `CBUFFER_MAX_BYTES` = **64 MiB**,
+   which under `kind = 2` is 64 MB of arena (plan-58-A §Prerequisite).
 3. Call the shared byte-list constructor (§0) with `N` and element type `Byte`.
-   It writes the header and, under `kind = 1`, the entry table. It branches to the
+   It writes the header; there is no entry table. It branches to the
    existing `alloc_fail` label on failure (`link_thunk.rs:1020` always emits it).
 4. Spill the block pointer to its `out_base` word **immediately** —
    `_mfb_arena_alloc` has destroyed every caller-saved register.
@@ -297,9 +273,9 @@ loop's `writes_back()` branch (`:564-575`) runs for the same slot and
 **overwrites the cslot with `&out_word` and zeroes the out word that now holds
 the block pointer** — the two stagings clobber each other. plan-58-A adds this
 guard as a refusal (its §2.4); B converts it from `Err` to `continue`.
-5. Obtain `dataBase` **from the shared data-pointer helper**, not by adding
-   `COLLECTION_HEADER_SIZE`. Under `kind = 1` it is `block + 40 + 40N`; under
-   `kind = 2` it is `block + 40`. Store it to the slot's **cslot** word, so the
+5. Obtain `dataBase` from the shared data-pointer helper — under `kind = 2` it
+   is `block + COLLECTION_HEADER_SIZE`, a constant. Store it to the **cslot**
+   word, so the
    generic argument-register loop (`:686-692`) passes it unchanged.
 
 `count`/`dataLength` are initialized to `N` by the constructor so that a wrapper
@@ -344,7 +320,7 @@ it is safe on three independent grounds — **all three hold under both
 representations**:
 
 - **Reads**: element addressing goes through the shared element-offset helper in
-  either representation, and bounds by `count`. Leaving slack in `capacity`
+  the shared element-offset helper, and bounds by `count`. Leaving slack in `capacity`
   cannot mis-address anything.
 - **Free**: `emit_flat_block_size` (`builder_collection_layout.rs:241`) sizes a
   block from `capacity`/`dataCapacity`, so leaving them at `N` is exactly what
@@ -359,10 +335,9 @@ headroom as a property of a *mutable working buffer*, not of a value, and
 `:191-193` says known-size builders allocate exactly. A short-read `CBuffer`
 returns a value carrying slack, which is a small departure from that guidance.
 Accepted here because the alternative (realloc tight and copy) doubles peak
-memory precisely when the buffer is largest. Note the slack is `41(N - k)` bytes
-under `kind = 1` and `(N - k)` under `kind = 2` — so this caveat is *materially
-worse* on the default build, and is the strongest argument for flipping the gate
-before plan-58-D ships to users.
+memory precisely when the buffer is largest. Under `kind = 2` the slack is
+`(N - k)` **bytes**, which is small enough that the case for tolerating it is
+clear-cut.
 
 The bytes between `k` and `N` are uninitialized arena memory. They are never read:
 copies are `count`-tight and every consumer bounds by `count`. No information
@@ -379,27 +354,12 @@ rechecking.
   `_mfb_arena_alloc`/`_mfb_arena_free` contracts; every existing ctype's
   marshaling; `emit_return_passthrough`; `audio::write` and every other byte-list
   consumer. `scripts/artifact-gate.sh` must show existing thunks byte-identical
-  — **including** after the §0(b) move, which must be a pure relocation.
+  after every change in this sub-plan.
 
 ## Phases
 
 Ordered uncertainty-first: Phase 1 exists to falsify the one unproven premise
 (§2.4's last row) before anything is built on it.
-
-### Phase 0 — resolve the constructor (§0)
-
-Not code in this sub-plan's own scope, but nothing here compiles without it.
-
-- [ ] Decide §0 (a) or (b). Record the decision in §Corrections.
-- [ ] If (b): move `emit_alloc_byte_list` (`audio/mod.rs:135`) to a shared module,
-      make it `pub(crate)`, update `audio/`'s call sites, and add a `pub(crate)`
-      data-base helper alongside it that is correct under **both** `kind` values.
-      Record the work against plan-57-B track 2.
-
-Acceptance: a `pub(crate)` byte-list constructor and data-base helper exist and
-are callable from `link_thunk.rs`; `scripts/artifact-gate.sh` shows every emitted
-byte unchanged (a pure relocation changes no codegen).
-Commit: —
 
 ### Phase 1 — spike: allocate during staging (falsifies the premise)
 
@@ -437,8 +397,8 @@ Commit: —
 
 - [ ] `LENGTH <expr>` on `RETURN`: parse, IR, and post-call truncation (§4.4).
 - [ ] The clamp: `k < 0 → 0`, `k > N → N`.
-- [ ] `CBUFFER_MAX_BYTES` (8 MiB) and the `buffer_size_fail` block raising
-      `ErrInvalidArgument`, commented with the `MFB_KIND2` relationship.
+- [ ] `CBUFFER_MAX_BYTES` (64 MiB) and the `buffer_size_fail` block raising
+      `ErrInvalidArgument`.
 - [ ] Remove plan-58-A's `CBuffer` exclusion from `every_known_ctype_lowers`.
 - [ ] Tests: short read (callee writes fewer bytes than capacity — the list's
       `count` is the short value and its bytes are correct); callee returns `-1`
@@ -450,15 +410,6 @@ Acceptance: the libc `read(2)` runtime test passes for a full read **and** a
 short read, byte-for-byte; every clamp and gate case above produces its stated
 error rather than a crash or a corrupt list; `every_known_ctype_lowers` covers
 `CBuffer`.
-Commit: —
-
-### Phase 4 — cross-representation proof (largest blast radius last)
-
-- [ ] Run the whole Phase 1–3 test set with `MFB_KIND2=1` as well as unset.
-
-Acceptance: identical observable results under both gate states. A divergence
-here means §4.2 step 5 or §4.4 open-coded a representation assumption — find it
-before plan-58-C/D build on it.
 Commit: —
 
 ## Validation Plan
@@ -480,29 +431,28 @@ Commit: —
 
 ## Open Decisions
 
-1. **§0 (a) wait vs (b) promote.** Recommended **(b)** unless plan-57-B track 2 is
-   already in flight. Must be settled before Phase 1. (§0)
-2. **`CBUFFER_MAX_BYTES` value.** Recommended 8 MiB while `MFB_KIND2` is off; the
-   41× multiplier makes 8 MiB cost 344 MB of arena already. Revisit to 64 MiB when
-   the gate flips. (§4.2)
-3. **Whether Phase 4 should block the feature or merely report.** Recommended
-   block — a representation assumption that leaks into the thunk is exactly the
-   class of bug that surfaces as heap corruption later. (§Phase 4)
+1. **`CBUFFER_MAX_BYTES` value.** Recommended 64 MiB — under `kind = 2` that is
+   64 MB of arena, and it is what sets plan-58-D's ~5.8 min audio ceiling.
+   Alternative: 16 MiB, if a single wrapper allocating 64 MB is judged too blunt
+   an instrument. (§4.2)
 
 ## Corrections
 
 <!-- Filled in during execution. -->
 
 - 2026-07-20 — **`emit_alloc_list` and `emit_collection_data_pointer_into` do not
-  exist.** The 2026-07-19 draft named both as landed plan-57-B deliverables and
-  built its §3 on them. Verified absent. Restructured as the blocking
-  prerequisite in §0, with a decision required before Phase 1.
-- 2026-07-20 — **`kind = 2` is not live**; it is behind `MFB_KIND2`
-  (`builder_collection_layout.rs:2191`). The draft's §2.1 hedged correctly but
-  §4.2 step 5 and §4.4 were written only for `kind = 2`
-  (`dataBase = block + 40`, "a constant offset"). Contradiction resolved in §2.3
-  in favour of the hedge; §4.2 now takes the data base from a helper, and Phase 4
-  proves both representations.
+  exist**, and `kind = 2` is gated off (`builder_collection_layout.rs:2191`). The
+  2026-07-19 draft named both functions as landed plan-57-B deliverables and built
+  its §3 on them, while hedging in §2.1 that plan-57 was "a strong preference, not
+  a correctness prerequisite" — then writing §4.2/§4.4 only for `kind = 2`.
+  Both problems have the same root: **plan-57 was treated as a soft dependency.**
+  It is now a hard precondition (§0, plan-58-A §Prerequisite), which deleted the
+  hedge, the dual-representation staging, the 8 MiB/41× fallback, and the
+  "promote `emit_alloc_byte_list` here" option along with it.
+- 2026-07-20 — **Removed the two phases that existed only to bridge plan-57.**
+  The interim draft had a Phase 0 (resolve/port the constructor — plan-57's work)
+  and a Phase 4 (prove both representations). With plan-57 a precondition,
+  neither is this sub-plan's business.
 - 2026-07-20 — **Phase order inverted.** The draft ran `IrLinkExpr` arithmetic
   (inert) first and "staging, marshal, truncation (highest risk)" second. The
   unproven premise is allocation-during-staging, so that is now a Phase 1 spike;
@@ -516,7 +466,9 @@ exists to answer it before anything depends on the answer. After that, the risk 
 ordinary: two pointers 40 bytes apart, and a clamp on a signed count.
 
 What is left untouched: the block layout, the arena contracts, every existing
-ctype's marshaling, and every byte-list consumer.
+ctype's marshaling, every byte-list consumer, and **all of plan-57** — which this
+sub-plan consumes and never edits.
 
-The blocker is not in this document's own scope: `link_thunk.rs` has no callable
-byte-list constructor today (§0), and that must be resolved before Phase 1.
+There is no blocker inside this document. The feature's one hard stop is checked
+before any of plan-58 begins (plan-58-A §Prerequisite); past that gate this
+sub-plan runs to completion.

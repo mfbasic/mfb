@@ -53,70 +53,63 @@ References (read first):
 - `src/docs/spec/language/17_native-libraries.md` — the ctype table and §Rules.
 - `.ai/compiler.md`, `.ai/specifications.md`.
 
+## Prerequisite: plan-57 must be COMPLETE
+
+> ### **If plan-57 is not complete, plan-58 cannot be started. Full stop.**
+
+This is a precondition on the whole feature, not a dependency to negotiate
+mid-flight and not work plan-58 absorbs. plan-58 does not promote, port, finish,
+or work around any part of plan-57. It waits.
+
+**The entry check — run this before writing a line of plan-58:**
+
+| Must be true | Command | Status 2026-07-20 |
+|---|---|---|
+| plan-57-A…E all landed and archived to `planning/old-plans/` | `ls planning/plan-57-*` → no matches | **NOT MET** — A–E still in `planning/` |
+| A `pub(crate)` byte-list constructor exists | `rg -n 'fn emit_alloc_list' src/` | **NOT MET** — no matches |
+| A `pub(crate)` data-pointer helper exists | `rg -n 'fn emit_collection_data_pointer_into' src/` | **NOT MET** — no matches |
+| `kind = 2` is the **default** representation, ungated | `rg -n 'MFB_KIND2' src/` → no matches | **NOT MET** — gate live at `builder_collection_layout.rs:2191` |
+
+**As of 2026-07-20 none of the four are met, so plan-58 is not startable.** If any
+row still fails when this plan is picked up, stop and finish plan-57. Do not
+start plan-58-A "because A is independent" — A is cheap, but landing a ctype the
+feature cannot finish leaves a known-but-unusable name in the ABI namespace.
+
+Everything below is written against the post-plan-57 tree: `kind = 2` live,
+`emit_alloc_list` available, no entry table. That is the *only* representation
+plan-58 targets — there is no dual-mode support, no `MFB_KIND2` branch, and no
+41×-cost fallback anywhere in A–D. If you find yourself adding one, the
+precondition was not met and you are intertwining the two plans again.
+
+### What plan-57 completion buys, and the numbers that follow from it
+
+With `kind = 2` live, a `List OF Byte` block is `COLLECTION_HEADER_SIZE + N`
+(40 + N), `dataBase = block + 40` is a **constant** offset, and there is no
+entry-fill loop. Every capacity figure in plan-58 derives from that:
+
+| | value | consequence |
+|---|---|---|
+| `CBUFFER_MAX_BYTES` (plan-58-B) | **64 MiB** | 64 MB of arena, 1.0× |
+| `MAX_LOAD_BYTES` (plan-58-D) | **64 MiB** | **349.5 s ≈ 5.8 min** of stereo 48 kHz s16 |
+
+(For contrast only, not a supported mode: under the pre-plan-57 `kind = 1`
+layout the same buffer cost 41× — 344 MB for 8 MiB, 43.7 s of stereo. That is
+the situation plan-57 exists to remove, and plan-58 simply does not ship into
+it.)
+
 ## Dependency graph (whole feature)
 
 ```
-[plan-57-B track 2: a callable shared byte-list constructor]  ← EXTERNAL, NOT DONE
+   plan-57 COMPLETE (precondition — not a node in this graph)
                                     │
                                     ▼
    A (vocabulary) ──► B (marshaling) ──► C (.mfp path) ──► D (libsnd::loadSound)
 ```
 
-Execution is topological over this graph, not alphabetical. A has no
-prerequisites and may start immediately. **B cannot start until the external
-node is satisfied** — see §Prerequisite, this is the feature's one real blocker.
+Execution is topological over this graph, not alphabetical. Every letter is
+gated behind the plan-57 precondition above; past that, A is first.
 
 Letters are identifiers, not an order. Do not re-letter.
-
-### Prerequisite: the external blocker — verified 2026-07-20
-
-plan-58-B's design opens with "allocate through `emit_alloc_list`, the shared
-constructor plan-57-B introduced." **That function does not exist.**
-
-```
-rg -n 'fn emit_alloc_list' src/                      → no matches
-rg -n 'fn emit_collection_data_pointer_into' src/    → no matches
-```
-
-Both were named as plan-57-B deliverables and both are still open
-(`planning/plan-57-D-kind-2-drop-the-entry-table.md:127-129` records them as
-MISSING; plan-57-B's remaining tracks have not closed them as of the latest
-plan-57-B commits on 2026-07-20). What exists instead:
-
-| Symbol | Location | Visible to `link_thunk.rs`? |
-|---|---|---|
-| `emit_alloc_byte_list` | `src/target/shared/code/audio/mod.rs:135` | **No** — private `fn` in `audio/` |
-| `emit_build_byte_list` | `src/target/shared/code/crypto_ec.rs:208` | No — `pub(super)`, and it copies from a source buffer |
-
-So B's first design step has no callee. B must either wait for plan-57-B track 2,
-or promote `emit_alloc_byte_list` into a shared module itself — which is plan-57-B's
-work, done here. **That decision is Open Decision 1 and must be settled before B
-starts, not during it.**
-
-### Kind-2 gate: the governing constraint — `MFB_KIND2` is off by default
-
-The `kind = 2` byte-list representation (plan-57-D) is behind an env gate:
-
-```
-rg -n 'MFB_KIND2' src/target/shared/code/builder_collection_layout.rs → :2191
-```
-
-`std::env::var("MFB_KIND2").is_ok()` — so **the default build still pays the
-kind = 1 cost of 40 bytes of `LookupEntry` per byte** (`COLLECTION_ENTRY_SIZE` =
-40, `error_constants.rs:786`; `COLLECTION_HEADER_SIZE` = 40, `:777`).
-
-This is not a footnote; it sets what the feature can do:
-
-| Build | Arena cost of an 8 MiB buffer | Practical cap | s16 stereo 48 kHz |
-|---|---|---|---|
-| default (kind = 1) | **343.9 MB** (41.0×) | 8 MiB | **43.7 s** |
-| `MFB_KIND2=1` | 8.4 MB (1.0×) | 64 MiB | 349.5 s |
-
-So `loadSound` (plan-58-D) tops out around **44 seconds of stereo 48 kHz audio**
-on a default build, and costs a third of a gigabyte to do it. That is why
-plan-58-D ships `readSamples` (streaming) as a peer of `loadSound` rather than as
-a nicety, and why `CBUFFER_MAX_BYTES` is 8 MiB until the gate flips. State the
-gate in the code comment next to the constant so the two stay traceable.
 
 ## 1. Goal
 
@@ -486,34 +479,27 @@ Commit: —
 
 ## Open Decisions
 
-1. **How B gets a byte-list constructor** (§Prerequisite) — **must be settled before B
-   starts.** Recommended: wait for plan-57-B track 2 if it is close; otherwise
-   promote `emit_alloc_byte_list` (`audio/mod.rs:135`) to a shared module with
-   `pub(crate)` visibility as part of plan-57-B, and have B consume it. Do **not**
-   let B hand-roll a fourth copy — that is the duplication plan-57-B exists to
-   remove. (§Prerequisite)
-2. **`INOUT CBuffer`** — rejected here; the send direction needs an input
-   marshal. Recommended: leave rejected, revisit only if a real binding needs it.
-   (§3)
-3. **Whether `CBUFFER_MAX_BYTES` should track the `MFB_KIND2` gate
-   automatically** (8 MiB gated-off / 64 MiB gated-on) or stay a single
-   conservative constant. Recommended: single constant at 8 MiB, with the gate
-   documented next to it, until kind = 2 becomes the default — a capacity that
-   changes with an env var is a support problem. (§Kind-2 gate)
+1. **`INOUT CBuffer`** — rejected here; the send direction needs a `List OF Byte`
+   input marshal, which is independent work with its own failure modes.
+   Recommended: leave rejected, revisit only if a real binding needs it. (§3)
+
+None of the open decisions here gate anything. The feature's only hard stop is
+the plan-57 precondition, checked once before plan-58-A begins.
 
 ## Corrections
 
 <!-- Filled in during execution. Record every place this document turned out to
      be wrong: the claim, what was actually true, and the evidence. -->
 
-- 2026-07-20 — **`emit_alloc_list` / `emit_collection_data_pointer_into` do not
-  exist.** The 2026-07-19 draft of plan-58-B asserted plan-57-B had introduced
-  both. Verified absent (`rg -n 'fn emit_alloc_list' src/` → no matches). Recorded
-  as the feature's blocking prerequisite in §Prerequisite and as Open Decision 1.
-- 2026-07-20 — **kind = 2 is not live.** The 2026-07-19 draft treated the
-  `kind = 2` layout as the representation plan-58-B allocates into. It is behind
-  `MFB_KIND2` (`builder_collection_layout.rs:2191`) and off by default, so the
-  41× cost is the default-build reality. Consequences quantified in §Kind-2 gate.
+- 2026-07-20 — **plan-57 is a hard precondition, not a dependency to negotiate.**
+  The 2026-07-19 draft asserted plan-57-B had introduced `emit_alloc_list` and
+  `emit_collection_data_pointer_into` (both absent) and treated `kind = 2` as the
+  live layout (it is gated off, `builder_collection_layout.rs:2191`). An interim
+  rewrite made these mid-flight blockers with a "promote the helper here" escape
+  hatch — which is the intertwining that caused the problem in the first place.
+  Now: plan-57 complete is a **single up-front gate** (§Prerequisite), plan-58
+  never does plan-57's work, and there is no dual-representation support anywhere
+  in A–D.
 - 2026-07-20 — **`2-203-0132` measured.** The draft said "next free in `2-203`"
   without a number; measured and pinned in §2.1/§4.4. Also: the draft said to
   read "the native-library block tail at `:830-860`" — the `2-203` block is

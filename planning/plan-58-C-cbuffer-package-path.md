@@ -4,7 +4,8 @@ Last updated: 2026-07-20
 Effort: small (<1h) — **but see §2.1: the version bump churns 126 committed
 `.mfp` files, which is the real cost of this sub-plan.**
 Depends on: plan-58-A (`IrBuffer`, the position rules), plan-58-B
-(`IrLinkExpr::{Mul,Add,Sub}`, the `LENGTH` expression)
+(`IrLinkExpr::{Mul,Add,Sub}`, the `LENGTH` expression). Feature-wide
+precondition: **plan-57 complete** — plan-58-A §Prerequisite.
 Produces: `.mfp` encode/decode for `buffers` + `LENGTH` + the three new
 `IrLinkExpr` opcodes, `BINARY_REPR_VERSION` 6, decode-path bounds. Consumed by D
 (`libsnd` is a binding package and reaches its wrappers only across this

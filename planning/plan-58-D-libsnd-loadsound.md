@@ -5,7 +5,8 @@ Effort: small (<1h) — **reduced from medium: bug-364 landed and took both of t
 draft's "defects to fix in passing" with it (§2.3).**
 Depends on: plan-58-A + plan-58-B (`OUT CBuffer`), plan-58-C (the `.mfp` path —
 `libsnd` is a binding package, so its wrappers only exist across that boundary).
-**bug-364 is no longer a dependency: it has landed.**
+Feature-wide precondition: **plan-57 complete** — plan-58-A §Prerequisite.
+bug-364 is *not* a dependency; it landed, and §2.3 records what it already fixed.
 Produces: `bindings/libsnd`'s `Sound` type, `loadSound`, `readSamples`. The
 feature's deliverable; nothing consumes it.
 
@@ -104,8 +105,8 @@ References (read first):
 | `LINK` block span | `:72-146` | `rg -n '^LINK\|^END LINK' bindings/libsnd/src/lib.mfb` |
 | Package version today | **1.2.3** (bug-364 already bumped it) | `rg -n version bindings/libsnd/project.json` |
 | Existing libsnd runtime fixtures | 1 (`libsnd-open-file-info-rt`) | `ls tests/rt-behavior/native/` |
-| `MAX_LOAD_BYTES` budget at 8 MiB, stereo 48 kHz s16 | **43.7 s** | `8*1024**2 / (2*2*48000)` |
-| Same at 64 MiB | **349.5 s ≈ 5.8 min** | `64*1024**2 / (2*2*48000)` |
+| `MAX_LOAD_BYTES` at 64 MiB, stereo 48 kHz s16 | **349.5 s ≈ 5.8 min** | `64*1024**2 / (2*2*48000)` |
+| Same, mono | ≈11.6 min | `64*1024**2 / (2*1*48000)` |
 
 ### 2.2 What the binding does today
 
@@ -145,28 +146,27 @@ This is why this sub-plan is **small**, not medium: Phase 1 shrinks to
 | bug-364 is an open dependency | **FALSE** | §2.3 — landed |
 | The two "defects to fix in passing" still exist | **FALSE** | §2.3 — both already fixed |
 | **The `sndfile.h` citations are checkable by a reviewer** | **FALSE — provenance risk** | `ls bindings/libsnd/vendor/` holds only `.so`/`.dylib`/`.dll` binaries, **no headers**. The citations resolve against a Homebrew install at `/Users/justinzaun/local/brew/include/`, which is neither vendored nor version-pinned to the bundled `libsndfile.1.0.37`. CI and other machines cannot verify them. See Open Decision 2 |
-| `loadSound` is viable for full-length music on a default build | **FALSE** | §2.5 — 43.7 s of stereo 48 kHz, at 344 MB of arena |
+| `loadSound` holds a typical single track | **CONFIRMED** | §2.5 — 5.8 min of stereo 48 kHz at 64 MB. Longer material uses `readSamples` |
 
-### 2.5 The governing constraint — `loadSound` is a sound-effect API today
+### 2.5 The capacity ceiling — what `loadSound` can hold
 
-`kind = 2` is gated off by default (`MFB_KIND2`,
-`builder_collection_layout.rs:2191`), so a `List OF Byte` costs 41 bytes per byte
-(plan-58-A §Kind-2 gate). That sets `MAX_LOAD_BYTES` and, with it, what `loadSound` is
-*for*:
+plan-57 is a precondition (plan-58-A §Prerequisite), so `kind = 2` is live and a
+`List OF Byte` costs `40 + N`. `MAX_LOAD_BYTES` = **64 MiB**, which gives:
 
-| Build | `MAX_LOAD_BYTES` | Arena cost | Stereo 48 kHz duration |
-|---|---|---|---|
-| default (`kind = 1`) | **8 MiB** | 344 MB | **43.7 s** |
-| `MFB_KIND2=1` | 64 MiB | 64 MB | 349.5 s ≈ **5.8 min** |
+| | value |
+|---|---|
+| `MAX_LOAD_BYTES` | 64 MiB (64 MB of arena, 1.0×) |
+| Stereo 48 kHz s16 | **349.5 s ≈ 5.8 min** |
+| Mono 48 kHz s16 | ≈11.6 min |
 
 Note the 2026-07-19 draft twice described 64 MiB as "≈11 min stereo 48 kHz". That
-is the **mono** figure mislabeled — stereo is 5.8 min. The draft's own 8 MiB
-figure (43.7 s) was right, and the two were mutually inconsistent by 2×.
+is the **mono** figure mislabeled; stereo is 5.8 min. Both are stated above so
+the DOC cannot repeat the error.
 
-**Consequence for the DOC:** `loadSound` must be documented as a
-whole-file-into-memory convenience for short audio — effects, stings, loops —
-and `readSamples` as the answer for anything longer. That is not a caveat to bury;
-it is what the API is.
+5.8 minutes covers most single tracks but not a long mix or a podcast, so
+`readSamples` remains the answer for anything longer — it is a peer API, not a
+fallback. The DOC must give the ceiling in **seconds as well as bytes**; "64 MiB"
+tells a caller nothing about whether their file fits.
 
 ## 3. Design Overview
 
@@ -237,7 +237,7 @@ pcm    = readSamples(handle, total)
 return Sound { samplerate: info.samplerate, channels: info.channels, pcm: pcm }
 ```
 
-`MAX_LOAD_BYTES` = **8 MiB** while `MFB_KIND2` is off (§2.5). The error must name
+`MAX_LOAD_BYTES` = **64 MiB** (§2.5). The error must name
 both the file's size and the cap — "too large" without numbers is unactionable.
 
 A file that decodes to fewer bytes than `frames * channels * 2` (a truncated or
@@ -291,7 +291,7 @@ Commit: —
 ### Phase 2 — `Sound`, `loadSound`, the cap, and the docs
 
 - [ ] `EXPORT TYPE Sound` and `EXPORT FUNC loadSound` per §4.2.
-- [ ] `MAX_LOAD_BYTES` = 8 MiB, with the over-cap error naming size and cap.
+- [ ] `MAX_LOAD_BYTES` = 64 MiB, with the over-cap error naming size and cap.
 - [ ] DOCs per §4.3; `scripts/update_man.sh`.
 - [ ] `project.json` version → 1.3.0.
 - [ ] Tests: `loadSound` on WAV **and** FLAC (proving `sf_read_short` converts
@@ -333,10 +333,10 @@ Commit: —
 
 ## Open Decisions
 
-1. **`MAX_LOAD_BYTES` = 8 MiB vs. tracking the `MFB_KIND2` gate.** Recommended:
-   fixed 8 MiB, documented with its duration, until kind = 2 is the default. A
-   cap that changes with an env var is a support problem. Revisit when the gate
-   flips — at which point the DOC's duration figure changes too. (§2.5)
+1. **`MAX_LOAD_BYTES` = 64 MiB vs. something smaller.** Recommended 64 MiB: it
+   covers a typical single track (5.8 min stereo) and costs 64 MB at `kind = 2`.
+   Alternative: 16 MiB (~87 s), if one call allocating 64 MB is judged too blunt.
+   (§2.5)
 2. **Vendor or pin `sndfile.h`.** The ABI of the bundled `libsndfile.1.0.37` is
    currently asserted from an unrelated local Homebrew header that no reviewer or
    CI job can check (§2.4). Recommended: vendor the matching header under
@@ -363,9 +363,11 @@ Commit: —
 - 2026-07-20 — **"64 MiB ≈ 11 min stereo 48 kHz" was wrong by 2×** (it is the
   mono figure). Actual: 5.8 min stereo. It also contradicted the draft's own
   correct "8 MiB ≈ 43 s". Both figures re-derived in §2.5.
-- 2026-07-20 — **`MAX_LOAD_BYTES` must be 8 MiB, not 64 MiB**, because
-  `MFB_KIND2` is off by default and the 41× cost is live. This changes what the
-  API is for (§2.5), not just a constant.
+- 2026-07-20 — **plan-57 is a precondition, not a soft dependency.** An interim
+  rewrite hedged this sub-plan for the pre-plan-57 layout — `MAX_LOAD_BYTES` at
+  8 MiB, a 41× arena cost, and `loadSound` described as a 43-second
+  "sound-effect API". That hedging is removed: plan-58 does not ship into the old
+  representation, so the cap is 64 MiB and the ceiling is 5.8 min stereo.
 - 2026-07-20 — **`libsnd-open-file-info-rt` will churn** and was unmentioned in
   the draft's blast radius.
 - 2026-07-20 — **`sndfile.h` is not vendored**; all header citations are
@@ -379,9 +381,9 @@ speaks items and `CBuffer` speaks bytes. Phase 1 answers that against a file wit
 known bytes.
 
 The larger truth about this sub-plan is a product one, not an engineering one:
-with `MFB_KIND2` off, `loadSound` holds **43.7 seconds** of stereo 48 kHz audio
-and spends 344 MB doing it. It is a sound-effect API until the gate flips, and
-the DOC has to say so.
+`loadSound` holds **5.8 minutes** of stereo 48 kHz audio for 64 MB. That covers a
+typical track but not a long mix, which is why `readSamples` is exported as a
+peer rather than hidden — and why the DOC states the ceiling in seconds.
 
 What is left untouched: every existing wrapper, the `SoundFile` resource, the
 bundled library set, and the `audio` package — which this binding still does not
