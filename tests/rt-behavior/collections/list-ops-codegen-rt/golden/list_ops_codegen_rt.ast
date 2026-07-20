@@ -1,0 +1,61 @@
+{
+  "project": "list_ops_codegen_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 25 },
+    { "module": "collections", "line": 26 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 28,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 30 },
+      { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "9" }] }, "line": 31 },
+      { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.insert", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "8" }] }, "line": 32 },
+      { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.removeAt", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }] }, "line": 33 },
+      { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "7" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }] }] }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "99" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.sum", "arguments": [{ "kind": "identifier", "value": "xs" }] }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "7" }] }] }] }, "line": 42 },
+      { "kind": "binding", "mutable": true, "name": "joined", "type": "String", "value": { "kind": "string", "value": "" }, "line": 43 },
+      {
+        "kind": "forEach",
+        "name": "v",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 44,
+        "body": [
+        { "kind": "assignment", "name": "joined", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "joined" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "v" }] } }, "right": { "kind": "string", "value": "," } }, "line": 45 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "joined" }] }, "line": 47 },
+      { "kind": "binding", "mutable": true, "name": "bs", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "three", "type": "Byte", "value": { "kind": "number", "value": "3" }, "line": 52 },
+      { "kind": "assignment", "name": "bs", "value": { "kind": "call", "callee": "collections.prepend", "arguments": [{ "kind": "identifier", "value": "bs" }, { "kind": "identifier", "value": "three" }] }, "line": 53 },
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 54 },
+      {
+        "kind": "forEach",
+        "name": "b",
+        "iterable": { "kind": "identifier", "value": "bs" },
+        "line": 55,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "line": 56 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] }] }, "line": 58 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 60 }
+      ]
+    }
+    ]
+  }
+  ]
+}

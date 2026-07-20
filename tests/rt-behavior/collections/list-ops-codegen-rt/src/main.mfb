@@ -1,0 +1,61 @@
+' A byte-identity anchor for LIST CODEGEN, not a behavior test.
+'
+' This fixture carries a `.ncode` golden, which is the point: `artifact-gate`
+' checks ~1200 goldens, but they are overwhelmingly `.ast` and `.ir` — layers
+' ABOVE `src/target/shared/code/`. Only a handful of fixtures carry generated
+' code at all, and none of them exercised the list operations. So a refactor of
+' the collection builders could report "0 diffs" across the whole gate while
+' silently changing every list program (that false negative really happened, on
+' `strings::graphemeAt` — see plan-57-A §Findings).
+'
+' plan-57 rewrites exactly this surface: plan-57-A/B consolidate the open-coded
+' element access, cursor loops and constructors, and are required to be
+' byte-identical; plan-57-D then changes the representation deliberately. Both
+' need a signal, and this is it.
+'
+' So: churn here is MEANINGFUL. A diff means generated code for list operations
+' moved. Read it as a real codegen change and account for it — do not
+' re-baseline it to make a refactor look clean. During plan-57-D the diff is
+' expected and is the deliverable; during plan-57-A/B any diff is a bug.
+'
+' Deliberately small. It touches each operation once rather than covering
+' behavior (the behavioral cases live in `list-payload-order-rt` and the other
+' collections fixtures), because a golden that must be read by a human on every
+' codegen change has to stay readable.
+IMPORT io
+IMPORT collections
+
+FUNC main() AS Integer
+  ' The mutating operations plan-57-C changed and plan-57-D will change again.
+  MUT xs AS List OF Integer = [3, 1, 2]
+  xs = collections::prepend(xs, 9)
+  xs = collections::insert(xs, 1, 8)
+  xs = collections::removeAt(xs, 0)
+  xs = collections::append(xs, 7)
+
+  ' Indexed read (plan-57-A's `emit_element_value_offset`).
+  io::print(toString(collections::get(xs, 0)))
+  io::print(toString(collections::getOr(xs, 99, -1)))
+
+  ' Entry-table walkers (plan-57-B's cursor-loop track).
+  io::print(toString(collections::sum(xs)))
+  io::print(toString(collections::contains(xs, 7)))
+  MUT joined AS String = ""
+  FOR EACH v IN xs
+    joined = joined & toString(v) & ","
+  NEXT
+  io::print(joined)
+
+  ' A byte list: the element type whose representation plan-57-D changes most
+  ' (41 bytes per byte today, 1 after).
+  MUT bs AS List OF Byte = [1, 2]
+  LET three AS Byte = 3
+  bs = collections::prepend(bs, three)
+  MUT total AS Integer = 0
+  FOR EACH b IN bs
+    total = total + toInt(b)
+  NEXT
+  io::print(toString(total))
+
+  RETURN 0
+END FUNC
