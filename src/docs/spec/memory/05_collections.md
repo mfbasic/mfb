@@ -23,7 +23,7 @@ Collections use one uniform layout for `List` and `Map`.
 
 ```text
 CollectionHeader
-  U8 kind            ; 0 = List, 1 = Map
+  U8 kind            ; 0 = List, 1 = Map, 2 = fixed-width List (no LookupEntry)
   U8 keyType         ; 0 for List
   U8 valueType
   U8 flagsVersion
@@ -34,7 +34,7 @@ CollectionHeader
   U64 dataLength     ; used bytes in data region
   U64 dataCapacity   ; allocated bytes in data region
 
-LookupEntry[capacity]
+LookupEntry[capacity]   ; absent entirely when kind = 2
   U8 flags           ; used/deleted/etc.
   U8[7] reserved
   U64 keyOffset      ; Map only, 0 for List
@@ -54,9 +54,59 @@ Header and lookup entries have fixed aligned sizes. Version 1 uses a 40-byte
 the runtime entry stride from the sum of field sizes without accounting for
 padding and alignment.
 
+### Fixed-Width Lists (kind 2)
+
+A list whose element type has a fixed payload width carries **no `LookupEntry`
+array at all**. Element `i` is at `Data[i * payloadSize]`, so the entry a kind-0
+list would hold is exactly the identity mapping and stores nothing the index
+does not already say.
+
+[[src/target/shared/code/error_constants.rs:COLLECTION_KIND_LIST_FIXED]]
+
+| Element type | Payload width |
+|---|---|
+| `Boolean`, `Byte` | 1 |
+| `Scalar` | 4 |
+| `Integer`, `Float`, `Fixed`, `Money` | 8 |
+
+Every other element type — `String`, a record, a union, a nested collection, a
+resource borrow — is variable-width and keeps the kind-0 layout. A `Map` always
+keeps its entries regardless of key or value width, because a map's entry
+carries a key offset that is not derivable from the index.
+
+The layouts differ only in the entry array:
+
+| | kind 0 | kind 2 |
+|---|---|---|
+| element address | `Data + entry[i].valueOffset` | `Data + i * payloadSize` |
+| data region base | `block + 40 + capacity*40` | `block + 40` |
+| block size | `40 + capacity*40 + dataCapacity` | `40 + dataCapacity` |
+
+The saving is the whole entry array: a `List OF Byte` costs `40 + N` bytes
+rather than `40 + 41N`. Measured on a 16 MiB byte list, peak RSS falls from
+674 MB to 33 MB.
+
+Two constraints on any implementation:
+
+- **The data base is derived from `capacity`, never from `count`.** A list built
+  by appending carries spare capacity, so a count-derived base lands inside the
+  entry array.
+- **The allocation size, the free size, and the data base must all read the
+  same stride.** They are computed at different sites; if one of them decides
+  the representation differently from another, a block is allocated at one
+  layout and released at another, which corrupts the allocator's free list
+  rather than producing a wrong value.
+
+Kind 2 is an **implementation detail with no surface visibility**. Source cannot
+observe which representation a list uses: the element type alone determines it,
+`kind` is not readable from MFBASIC, and every operation behaves identically
+either way. The `Payload Order` invariant below is what makes the two
+interchangeable.
+
 ### Header Fields
 
-- `kind` identifies whether the allocation is a `List` or `Map`.
+- `kind` identifies whether the allocation is a `List` (`0`), a `Map` (`1`), or a
+  fixed-width `List` carrying no lookup entries (`2`; see *Fixed-Width Lists*).
 - `keyType` identifies the map key payload type. It is `0` for `List`.
 - `valueType` identifies the list item type or map value type.
 - `flagsVersion` identifies the layout version and collection-level flags.
@@ -66,7 +116,10 @@ padding and alignment.
   for a `List`.
 - `count` is the number of live logical entries.
 - `capacity` is the number of lookup entries allocated. It may exceed `count`:
-  the spare slots are working-buffer headroom (see *Capacity Headroom*).
+  the spare slots are working-buffer headroom (see *Capacity Headroom*). For a
+  kind-2 list no entries are allocated, and `capacity` is the number of element
+  slots the `Data` region has room for — it still governs the data base and the
+  block size, so it remains meaningful with an entry stride of zero.
 - `dataLength` is the number of used bytes in `Data`.
 - `dataCapacity` is the number of bytes allocated for `Data`. It may exceed
   `dataLength` for the same reason.
@@ -199,13 +252,18 @@ Headroom is a property of a **mutable working buffer, never of a value**:
 
 ### Payload Order
 
-The lookup table, not the data region, defines the sequence. Element `i`'s
-payload is located by `entry[i].valueOffset` and `entry[i].valueLength`, relative
-to the capacity-derived data base.
+Where there is a lookup table, it — not the data region — defines the sequence.
+Element `i`'s payload is located by `entry[i].valueOffset` and
+`entry[i].valueLength`, relative to the capacity-derived data base.
 
 For a **fixed-width element type** — `Boolean`, `Byte`, `Scalar`, `Integer`,
 `Float`, `Fixed`, `Money` — payloads are additionally packed in **index order**:
-`entry[i].valueOffset == i * payloadSize` after every operation. So walking the
+`entry[i].valueOffset == i * payloadSize` after every operation. This is the
+invariant that lets those types drop the table entirely (kind 2, above): an
+entry that always equals the index carries no information. The rule is stated
+in terms of the entry because it is what a kind-0 implementation must maintain,
+and because it remains the definition a kind-2 layout is derived from — the
+identity mapping made implicit. So walking the
 data region linearly visits the elements in index order, and a vectorized kernel
 or a `memcpy` to a native API may take the data base and stride it. That is what
 makes the `math::` array overloads and the `fs`/`net`/`audio` byte-list writers
@@ -245,16 +303,32 @@ before this rule was written down (bug-365).
 
 ## List Examples
 
-`List OF Integer = [10, 20]`:
+`List OF Integer = [10, 20]` — `Integer` is fixed-width, so this is a kind-2
+list with no lookup array. The whole block is 56 bytes; the kind-0 form below it
+would need 136.
 
 ```text
 Header:
-  kind = 0
+  kind = 2
   keyType = 0
   valueType = Integer
   count = 2
   capacity = 2
   dataLength = 16
+
+Data:                     ; based at block + 40
+  Integer(10)             ; element 0, at 0 * 8
+  Integer(20)             ; element 1, at 1 * 8
+```
+
+The same list under the kind-0 layout, which is what a *variable*-width element
+type gets and what every list looked like before kind 2 existed:
+
+```text
+Header:
+  kind = 0
+  ...
+  capacity = 2
 
 Lookup[0]:
   flags = used
@@ -270,10 +344,13 @@ Lookup[1]:
   valueOffset = 8
   valueLength = 8
 
-Data:
+Data:                     ; based at block + 40 + 2*40
   Integer(10)
   Integer(20)
 ```
+
+Both entries say only what the index already said — that is the redundancy
+kind 2 removes.
 
 `List OF String = ["hi", "bye"]`:
 
@@ -340,6 +417,10 @@ A collection copy is **shrink-to-fit**: `copy_flat_block` routes a collection to
 ```text
 CollectionHeader + LookupEntry[count] + Data[dataLength]
 ```
+
+or, for a kind-2 list, `CollectionHeader + Data[dataLength]` — the same formula
+with an entry stride of zero, which is why the copy path needed no kind-specific
+case.
 
 (`capacity == count`, `dataCapacity == dataLength`) and copies the used prefix.
 Working-buffer headroom never leaks into a snapshot. The copy preserves snapshot
