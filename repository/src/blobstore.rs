@@ -305,6 +305,49 @@ impl BlobStore {
         }
     }
 
+    /// The stored size of a blob in bytes, or `None` when no object exists.
+    ///
+    /// `package_blobs` has no size column (plan-49 §4.3): rather than add one
+    /// and back-fill every pre-existing row as unknown, the collector stats the
+    /// backing store on demand. That costs one `metadata`/`head_object` per
+    /// candidate, which is fine for a command an operator runs rarely and buys
+    /// a report of *real* reclaimed bytes.
+    pub async fn size(&self, hash: &str, kind: BlobKind) -> Result<Option<u64>, String> {
+        match self {
+            BlobStore::Local(local) => {
+                match std::fs::metadata(local.dir.join(blob_name(hash, kind))) {
+                    Ok(meta) => Ok(Some(meta.len())),
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                    Err(err) => Err(format!("failed to stat package blob: {err}")),
+                }
+            }
+            #[cfg(feature = "s3")]
+            BlobStore::S3(s3) => s3.size(hash, kind).await,
+        }
+    }
+
+    /// Delete a blob's backing object. **Only the garbage collector calls this**
+    /// — the publish path's failure cleanup is [`BlobStore::abort`], which is
+    /// deliberately narrower (see its docs on why S3 must not delete there).
+    ///
+    /// An already-absent object is success, not an error: plan-49 §4.4 deletes
+    /// the object *before* the DB row precisely so that a crash in between
+    /// leaves a row the next `gc` re-lists, and that re-collection must be
+    /// idempotent.
+    pub async fn delete(&self, hash: &str, kind: BlobKind) -> Result<(), String> {
+        match self {
+            BlobStore::Local(local) => {
+                match std::fs::remove_file(local.dir.join(blob_name(hash, kind))) {
+                    Ok(()) => Ok(()),
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(err) => Err(format!("failed to delete package blob: {err}")),
+                }
+            }
+            #[cfg(feature = "s3")]
+            BlobStore::S3(s3) => s3.delete(hash, kind).await,
+        }
+    }
+
     /// Fetch a blob for download. Returns `None` when no blob exists for `hash`.
     pub async fn get(&self, hash: &str, kind: BlobKind) -> Result<Option<BlobFetch>, String> {
         match self {
@@ -424,14 +467,44 @@ mod s3_impl {
             Ok(StagedBlob::S3 { key })
         }
 
-        pub(super) async fn delete(&self, key: &str) {
-            let _ = self
+        pub(super) async fn size(&self, hash: &str, kind: BlobKind) -> Result<Option<u64>, String> {
+            match self
                 .client
+                .head_object()
+                .bucket(&self.bucket)
+                .key(self.key(hash, kind))
+                .send()
+                .await
+            {
+                // A missing `content_length` is not a missing object; report it
+                // as zero rather than silently dropping the candidate.
+                Ok(head) => Ok(Some(head.content_length().unwrap_or(0).max(0) as u64)),
+                Err(err) => {
+                    if err
+                        .as_service_error()
+                        .map(|e| e.is_not_found())
+                        .unwrap_or(false)
+                    {
+                        Ok(None)
+                    } else {
+                        Err(format!("failed to stat S3 blob: {}", service_message(&err)))
+                    }
+                }
+            }
+        }
+
+        /// Delete one blob object (plan-49 §4.4). S3 `DeleteObject` is already
+        /// idempotent — deleting an absent key succeeds — which is exactly the
+        /// "not found is success" contract the collector needs.
+        pub(super) async fn delete(&self, hash: &str, kind: BlobKind) -> Result<(), String> {
+            self.client
                 .delete_object()
                 .bucket(&self.bucket)
-                .key(key)
+                .key(self.key(hash, kind))
                 .send()
-                .await;
+                .await
+                .map_err(|err| format!("failed to delete S3 blob: {}", service_message(&err)))?;
+            Ok(())
         }
 
         pub(super) async fn get(

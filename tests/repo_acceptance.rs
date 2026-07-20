@@ -1995,3 +1995,246 @@ END FUNC
         );
     }
 }
+
+/// plan-49 acceptance: `mfb-repo gc` reclaims a blob that nothing references
+/// and leaves every live package installable.
+///
+/// The orphan is created the way a real one is — a `PUT /blob` whose publish
+/// never lands (network failure, failed validation, `^C`) — rather than by
+/// writing a row directly, because the whole point of the plan is that this
+/// path can now produce bytes nothing will ever name.
+#[test]
+fn repo_gc_reclaims_an_orphaned_blob_and_leaves_live_packages_installable() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Two live packages, one of which vendors a native library — so the sweep
+    // has to spare both halves of the reachable set: `package_versions.hash`
+    // (the `.mfp`) and `package_version_blobs.hash` (the vendor blob).
+    let vendor_bytes: &[u8] = b"gc acceptance vendored library bytes";
+    let plain_dir = work.path().join("gcplain");
+    let plain_arg = plain_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", plain_arg]).status.success());
+    let plain_manifest = std::fs::read_to_string(plain_dir.join("project.json"))
+        .unwrap()
+        .replace(
+            "  \"version\": \"0.1.0\",\n",
+            "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#gcplain\",\n",
+        );
+    std::fs::write(plain_dir.join("project.json"), plain_manifest).unwrap();
+
+    let vendor_pkg = work.path().join("gcvendor");
+    let vendor_arg = vendor_pkg.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", vendor_arg]).status.success());
+    std::fs::write(
+        vendor_pkg.join("project.json"),
+        r#"{
+  "name": "gcvendor",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "ident": "alice#gcvendor",
+  "libraries": {
+    "demo": [
+      { "os": "macos", "type": "vendor", "source": "libgc.dylib" },
+      { "os": "linux", "arch": "aarch64", "libc": "glibc", "type": "vendor", "source": "libgc-aarch64-glibc.so" }
+    ]
+  },
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        vendor_pkg.join("src/lib.mfb"),
+        r#"LINK "demo" AS demoLink
+  FUNC ping() AS Integer
+    SYMBOL "demo_ping"
+    ABI (value OUT CInt32) AS status CInt32
+    RETURN value
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC demoPing() AS Integer
+  RETURN demoLink::ping()
+END FUNC
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(vendor_pkg.join("vendor")).unwrap();
+    std::fs::write(vendor_pkg.join("vendor/libgc.dylib"), vendor_bytes).unwrap();
+    std::fs::write(
+        vendor_pkg.join("vendor/libgc-aarch64-glibc.so"),
+        b"gc acceptance linux vendored library bytes",
+    )
+    .unwrap();
+
+    for pkg in [plain_arg, vendor_arg] {
+        let published = run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg]);
+        assert!(
+            published.status.success(),
+            "publish {pkg} failed: {}\n{}",
+            String::from_utf8_lossy(&published.stdout),
+            String::from_utf8_lossy(&published.stderr)
+        );
+    }
+
+    // --- the orphan: an upload whose publish never lands -------------------
+    let orphan_bytes = b"gc acceptance orphaned upload payload".to_vec();
+    let orphan_hash = {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&orphan_bytes);
+        format!("{:x}", hasher.finalize())
+    };
+    let session =
+        std::fs::read_to_string(mfb_repo_home(&repo, home.path()).join("session/alice.ses"))
+            .expect("alice's session token");
+    mfb_repository::client::put_blob(
+        &repo.url,
+        &orphan_hash,
+        orphan_bytes.clone(),
+        session.trim(),
+    )
+    .expect("PUT /blob");
+    let orphan_file = repo_dir.path().join(format!("packages/{orphan_hash}.bin"));
+    assert!(orphan_file.is_file(), "the orphan blob should be stored");
+
+    // Snapshot every live blob so the sweep can be proven to have spared them.
+    let live_blobs: Vec<std::path::PathBuf> = std::fs::read_dir(repo_dir.path().join("packages"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path != &orphan_file)
+        .collect();
+    assert!(
+        live_blobs.len() >= 3,
+        "expected two .mfp blobs and a vendor blob: {live_blobs:?}"
+    );
+
+    let db_arg = repo_dir.path().join("meta.db");
+    let data_arg = repo_dir.path().join("packages");
+    let gc = |args: &[&str]| {
+        let mut all = vec![
+            "gc",
+            "--dbpath",
+            db_arg.to_str().unwrap(),
+            "--datapath",
+            data_arg.to_str().unwrap(),
+        ];
+        all.extend_from_slice(args);
+        Command::new(repo_exe())
+            .args(&all)
+            .output()
+            .expect("run mfb-repo gc")
+    };
+
+    // --- inside the grace window: nothing at all ---------------------------
+    let fresh = gc(&[]);
+    let fresh_out = String::from_utf8_lossy(&fresh.stdout);
+    assert!(fresh.status.success(), "{fresh_out}");
+    assert!(
+        fresh_out.contains("No unreachable blobs older than 24h"),
+        "a blob younger than the grace period must never be listed: {fresh_out}"
+    );
+    assert!(!fresh_out.contains(&orphan_hash), "{fresh_out}");
+
+    // Age the orphan's row past the grace period. This is the one thing the
+    // test cannot do through the product: the sweep is time-gated by design and
+    // waiting 24h is not a test.
+    {
+        let conn = rusqlite::Connection::open(repo_dir.path().join("meta.db")).unwrap();
+        let aged = conn
+            .execute(
+                "UPDATE package_blobs SET created_at = created_at - 172800 WHERE hash = ?1",
+                rusqlite::params![orphan_hash],
+            )
+            .unwrap();
+        assert_eq!(aged, 1, "the orphan's row should be the one aged");
+    }
+
+    // --- dry run: exactly the orphan, and it is still on disk --------------
+    let dry = gc(&[]);
+    let dry_out = String::from_utf8_lossy(&dry.stdout);
+    assert!(dry.status.success(), "{dry_out}");
+    assert!(dry_out.contains(&orphan_hash), "{dry_out}");
+    assert!(dry_out.contains("1 unreachable blob,"), "{dry_out}");
+    assert!(dry_out.contains("Run again with --delete"), "{dry_out}");
+    assert!(orphan_file.is_file(), "a dry run must delete nothing");
+
+    // --- --delete: the orphan goes, everything else stays ------------------
+    let swept = gc(&["--delete", "--json"]);
+    let swept_out = String::from_utf8_lossy(&swept.stdout);
+    assert!(swept.status.success(), "{swept_out}");
+    let report: serde_json::Value = serde_json::from_str(&swept_out).expect("gc --json report");
+    assert_eq!(report["deletedCount"], 1, "{swept_out}");
+    assert_eq!(report["deletedBytes"], orphan_bytes.len(), "{swept_out}");
+    assert_eq!(report["unreachable"][0]["hash"], orphan_hash);
+    assert_eq!(report["errors"].as_array().unwrap().len(), 0, "{swept_out}");
+    assert!(!orphan_file.exists(), "the orphan's bytes should be gone");
+    for path in &live_blobs {
+        assert!(path.is_file(), "gc must not touch a live blob: {path:?}");
+    }
+    // The deleted hash now 404s; a reachable one still downloads.
+    assert!(
+        mfb_repository::client::fetch_blob(&repo.url, &orphan_hash).is_err(),
+        "a collected blob must no longer be servable"
+    );
+
+    // --- every live package still installs and builds ----------------------
+    let app_dir = work.path().join("gc_consumer");
+    assert!(run_mfb_plain(&["init", app_dir.to_str().unwrap()])
+        .status
+        .success());
+    let run_in_app = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&app_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in the consumer")
+    };
+    for ident in ["alice#gcplain", "alice#gcvendor"] {
+        let add = run_in_app(&["pkg", "add", ident]);
+        assert!(
+            add.status.success(),
+            "pkg add {ident} after the sweep failed: {}\n{}",
+            String::from_utf8_lossy(&add.stdout),
+            String::from_utf8_lossy(&add.stderr)
+        );
+    }
+    // The vendored library came back down byte-for-byte — its blob survived.
+    assert_eq!(
+        std::fs::read(app_dir.join("packages/gcvendor.vendor/libgc.dylib")).unwrap(),
+        vendor_bytes,
+        "the surviving vendor blob must still serve its exact bytes"
+    );
+    let build = run_in_app(&["build"]);
+    assert!(
+        build.status.success(),
+        "consumer build after the sweep failed: {}\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    // --- a second sweep is a clean no-op -----------------------------------
+    let again = gc(&["--delete"]);
+    let again_out = String::from_utf8_lossy(&again.stdout);
+    assert!(again.status.success(), "{again_out}");
+    assert!(
+        again_out.contains("No unreachable blobs older than 24h"),
+        "{again_out}"
+    );
+    assert!(again_out.contains("Deleted 0 blobs"), "{again_out}");
+}

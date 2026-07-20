@@ -26,3 +26,7 @@ items_after_test_module = "deny"
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"
+# The repository acceptance test needs to age a `package_blobs` row to exercise
+# `mfb-repo gc`'s 24h grace period (plan-49 §3.1) without waiting a day. Same
+# version/features as the repository crate's, so it reuses the compiled SQLite.
+rusqlite = { version = "0.31", features = ["bundled"] }

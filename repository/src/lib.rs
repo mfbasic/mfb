@@ -2,6 +2,7 @@ pub mod abi;
 pub mod blobstore;
 pub mod client;
 pub mod crypto;
+pub mod gc;
 pub mod local;
 pub mod log;
 pub mod package;

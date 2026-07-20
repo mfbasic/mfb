@@ -53,6 +53,38 @@ Store the printed **root PRIVATE key** offline — it is never persisted on the
 server. Pin the printed root fingerprint out of band. (`reanchor` is likewise
 run via `fly ssh console`.)
 
+## Reclaiming abandoned uploads
+
+`PUT /blob` accepts a vendored library **before** any package version references
+it, so a publish abandoned between the upload and the commit leaves bytes nothing
+will ever name. `mfb-repo gc` reclaims them:
+
+```sh
+# Dry run — lists every unreachable blob with its size, age, and location.
+fly ssh console -C "mfb-repo gc --dbpath /data/meta.db \
+    --datapath s3://$BUCKET_NAME/packages"
+
+# Same thing, then actually delete.
+fly ssh console -C "mfb-repo gc --dbpath /data/meta.db \
+    --datapath s3://$BUCKET_NAME/packages --delete"
+```
+
+It is a dry run unless `--delete` is given, and it never runs on its own — the
+background reaper expires auth ephemera only and never touches package content.
+
+- A blob **any live version references is never deleted**, including a *yanked*
+  one: yanking means "do not resolve this by default", not "delete it", and
+  lockfiles pinning the hash must keep installing.
+- A blob **younger than the grace period** (default 24h, `--grace-hours N`) is
+  never deleted either. There is no lock between the upload and the publish, so
+  a publisher's in-flight blobs are legitimately unreachable until the publish
+  lands; the window is what makes the sweep safe. `--grace-hours 0` is refused.
+- `--json` emits a machine-readable report including the reachable-side total,
+  for scripting. Any per-blob failure exits nonzero.
+
+Safe to run as often as you like. A registry that never runs it behaves exactly
+as it always has.
+
 ## Verify
 
 ```sh

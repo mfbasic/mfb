@@ -1,4 +1,6 @@
 use mfb_repository::blobstore::BlobBackend;
+use mfb_repository::gc;
+use mfb_repository::gc::GcOptions;
 use mfb_repository::server;
 use mfb_repository::store::Store;
 use std::env;
@@ -10,6 +12,7 @@ const USAGE: &str = "\
 Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>] [--s3-endpoint <url>]
        mfb-repo reanchor --dbpath <db_path> --datapath <data_path> --owner <owner> --ident-key <base64url>
        mfb-repo init-root --dbpath <db_path> --datapath <data_path> --registry-id <id> [--expires-days <n>]
+       mfb-repo gc --dbpath <db_path> --datapath <data_path> [--s3-endpoint <url>] [--grace-hours <n>] [--delete] [--json]
 
 <data_path> is either a local directory or an `s3://<bucket>/<prefix>` URL for
 S3 (or S3-compatible) blob storage. In S3 mode blob downloads are served as a
@@ -21,7 +24,13 @@ support must be compiled in (`cargo build -p mfb_repository --features s3`).
 `reanchor` is the registry-operator ceremony for a totally lost ident
 (plan-23 §3.6): after out-of-band verification it binds <owner> to the given
 fresh ident public key with NO chain link. Clients holding the old pin fail
-hard with a re-anchor warning instead of silently following.";
+hard with a re-anchor warning instead of silently following.
+
+`gc` reclaims package blobs that no live package version references — the
+orphans a `PUT /blob` leaves when a publish is abandoned between the upload and
+the commit. It is a DRY RUN unless `--delete` is given, and it never touches a
+blob younger than the grace period (default 24h, `--grace-hours`) or one any
+live version references, including a yanked one.";
 
 // coverage:off — the async entrypoint binds a listener / spawns the server and
 // calls process::exit on every error branch; it cannot run under a unit test.
@@ -134,6 +143,62 @@ async fn main() {
         }
     }
 
+    // Operator subcommand: reclaim unreferenced package blobs (plan-49).
+    // Deliberately a subcommand rather than a hook in `reap_expired`: deleting
+    // package content is irreversible and has no "it will be re-created"
+    // fallback, so an operator decides when it runs and can see what it would
+    // do first.
+    if args.first().map(String::as_str) == Some("gc") {
+        args.remove(0);
+        let parsed = match parse_gc_args(args) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                eprintln!("error: {err}\n\n{USAGE}");
+                process::exit(2);
+            }
+        };
+        let opened = match Store::open_repository(&parsed.dbpath, &PathBuf::from(&parsed.datapath))
+        {
+            Ok(opened) => opened,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        let blob_store = match parsed.blob_backend.into_store().await {
+            Ok(blob_store) => blob_store,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        let report = match gc::run(
+            &opened.store,
+            &blob_store,
+            &parsed.options,
+            mfb_repository::store::now_unix(),
+        )
+        .await
+        {
+            Ok(report) => report,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        if parsed.options.json {
+            println!("{}", gc::render_json(&report));
+        } else {
+            print!("{}", gc::render_text(&report));
+        }
+        // Per-blob failures do not abandon the sweep, but they must not read as
+        // success to a script either.
+        if report.failed() {
+            process::exit(1);
+        }
+        return;
+    }
+
     let options = match parse_args(args) {
         Ok(options) => options,
         Err(err) => {
@@ -196,6 +261,76 @@ fn parse_reanchor_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, S
         owner.ok_or("--owner is required")?,
         ident_key.ok_or("--ident-key is required")?,
     ))
+}
+
+/// A parsed `mfb-repo gc` invocation.
+#[derive(Debug)]
+struct GcInvocation {
+    dbpath: PathBuf,
+    /// Kept as the raw string: it may be an `s3://…` URL, which is not a path.
+    datapath: String,
+    blob_backend: BlobBackend,
+    options: GcOptions,
+}
+
+/// Parse `mfb-repo gc`. `--grace-hours` is validated here — at the operator
+/// boundary — so an out-of-range value is refused before anything opens the
+/// store, and `0` is refused outright (plan-49 §4.5): it removes the only
+/// protection the sweep has against an in-flight publish.
+fn parse_gc_args(args: Vec<String>) -> Result<GcInvocation, String> {
+    let mut dbpath = None;
+    let mut datapath: Option<String> = None;
+    let mut s3_endpoint: Option<String> = None;
+    let mut options = GcOptions::default();
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--dbpath" => {
+                dbpath = Some(PathBuf::from(
+                    iter.next().ok_or("--dbpath requires <db_path>")?,
+                ))
+            }
+            "--datapath" => datapath = Some(iter.next().ok_or("--datapath requires <data_path>")?),
+            "--s3-endpoint" => {
+                s3_endpoint = Some(iter.next().ok_or("--s3-endpoint requires <url>")?)
+            }
+            "--grace-hours" => {
+                options.grace_hours = iter
+                    .next()
+                    .ok_or("--grace-hours requires <n>")?
+                    .parse()
+                    .map_err(|_| "--grace-hours must be an integer".to_string())?;
+            }
+            "--delete" => options.delete = true,
+            "--json" => options.json = true,
+            _ if arg.starts_with("--dbpath=") => {
+                dbpath = Some(PathBuf::from(arg.trim_start_matches("--dbpath=")));
+            }
+            _ if arg.starts_with("--datapath=") => {
+                datapath = Some(arg.trim_start_matches("--datapath=").to_string());
+            }
+            _ if arg.starts_with("--s3-endpoint=") => {
+                s3_endpoint = Some(arg.trim_start_matches("--s3-endpoint=").to_string());
+            }
+            _ if arg.starts_with("--grace-hours=") => {
+                options.grace_hours = arg
+                    .trim_start_matches("--grace-hours=")
+                    .parse()
+                    .map_err(|_| "--grace-hours must be an integer".to_string())?;
+            }
+            _ => return Err(format!("unknown option '{arg}'")),
+        }
+    }
+    let datapath = datapath.ok_or("--datapath is required")?;
+    let blob_backend = BlobBackend::parse(&datapath, s3_endpoint)?;
+    // Reject a bad grace period here rather than after the store is open.
+    mfb_repository::gc::grace_seconds(options.grace_hours)?;
+    Ok(GcInvocation {
+        dbpath: dbpath.ok_or("--dbpath is required")?,
+        datapath,
+        blob_backend,
+        options,
+    })
 }
 
 fn parse_init_root_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, i64), String> {
@@ -528,6 +663,103 @@ mod tests {
             .unwrap_err()
             .contains("--dbpath is required"));
         assert!(parse_init_root_args(args(&["--nope", "x"]))
+            .unwrap_err()
+            .contains("unknown option"));
+    }
+
+    #[test]
+    fn parse_gc_args_defaults_to_a_dry_run_with_a_24h_grace() {
+        let invocation = parse_gc_args(args(&["--dbpath", "/db", "--datapath", "/data"])).unwrap();
+        assert_eq!(invocation.dbpath, PathBuf::from("/db"));
+        assert_eq!(invocation.datapath, "/data");
+        assert_eq!(
+            invocation.blob_backend,
+            BlobBackend::Local(PathBuf::from("/data"))
+        );
+        assert_eq!(
+            invocation.options,
+            GcOptions {
+                grace_hours: 24,
+                delete: false,
+                json: false,
+            },
+            "gc must never delete unless asked"
+        );
+
+        let invocation = parse_gc_args(args(&[
+            "--dbpath=/db",
+            "--datapath=/data",
+            "--grace-hours=72",
+            "--delete",
+            "--json",
+        ]))
+        .unwrap();
+        assert_eq!(invocation.options.grace_hours, 72);
+        assert!(invocation.options.delete);
+        assert!(invocation.options.json);
+    }
+
+    /// An `s3://` datapath works in `gc` too — the metadata DB stays local
+    /// while the blobs live in the bucket (plan-49 §4.5).
+    #[test]
+    fn parse_gc_args_accepts_an_s3_datapath() {
+        let invocation = parse_gc_args(args(&[
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "s3://bucket/pkgs",
+            "--s3-endpoint",
+            "https://minio.example:9000",
+        ]))
+        .unwrap();
+        assert_eq!(
+            invocation.blob_backend,
+            BlobBackend::S3 {
+                bucket: "bucket".to_string(),
+                prefix: "pkgs/".to_string(),
+                endpoint: Some("https://minio.example:9000".to_string()),
+            }
+        );
+    }
+
+    /// `--grace-hours 0` is refused at the argument boundary, before anything
+    /// opens the store. It is the only thing protecting an in-flight publish
+    /// from the sweep (plan-49 §3.1), so it is not a value an operator can
+    /// stumble into.
+    #[test]
+    fn parse_gc_args_refuses_a_zero_or_bad_grace_period() {
+        for grace in ["0", "-5"] {
+            let err = parse_gc_args(args(&[
+                "--dbpath",
+                "/db",
+                "--datapath",
+                "/data",
+                "--grace-hours",
+                grace,
+            ]))
+            .unwrap_err();
+            assert!(err.contains("must be a positive"), "{err}");
+        }
+        assert!(parse_gc_args(args(&[
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--grace-hours",
+            "notnum",
+        ]))
+        .unwrap_err()
+        .contains("must be an integer"));
+        assert!(parse_gc_args(args(&["--dbpath", "/db"]))
+            .unwrap_err()
+            .contains("--datapath is required"));
+        assert!(parse_gc_args(args(&["--datapath", "/data"]))
+            .unwrap_err()
+            .contains("--dbpath is required"));
+        assert!(parse_gc_args(args(&["--grace-hours"]))
+            .unwrap_err()
+            .contains("--grace-hours requires"));
+        assert!(parse_gc_args(args(&["--nope"]))
             .unwrap_err()
             .contains("unknown option"));
     }

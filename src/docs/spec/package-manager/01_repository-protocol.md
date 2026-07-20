@@ -125,7 +125,10 @@ safeguards:
   lock.[[repository/src/store.rs:open_repository]]
 - **Background reaping** — a timer sweeps expired challenges, expired sessions,
   and expired pairing blobs, and prunes the rate-limiter map, so stale rows
-  never accumulate.[[repository/src/store.rs:reap_expired]]
+  never accumulate. `pairing_blobs` are machine-pairing auth ephemera, **not**
+  package content: nothing automatic ever deletes a package blob. Reclaiming
+  those is the operator-triggered
+  [`mfb-repo gc`](#blob-garbage-collection--mfb-repo-gc-operator-action).[[repository/src/store.rs:reap_expired]]
 - **Rate limiting** — an in-memory sliding-window limiter caps abusive bursts
   on `register`/`challenge`/`login`/`signing` (a `429` when exceeded), keeping
   the transparency log spam-free.[[repository/src/server.rs:RateLimiter]]
@@ -662,10 +665,12 @@ Stores raw native-library bytes as a `native` (`<hash>.bin`) blob.
 - **Ordering.** stage → `package_blobs` row → promote, aborting on failure —
   the same protocol publish uses, preserving the "no servable orphan"
   invariant.
-- **Rate limited** per owner, alongside the `/validate` and `/publish` caps.
-  The registry performs no garbage collection, so without a cap an
-  authenticated publisher could fill the datapath with bytes nothing can ever
-  reclaim.[[repository/src/server.rs:put_blob]]
+- **Rate limited** per owner, alongside the `/validate` and `/publish` caps. A
+  blob accepted here is not referenced by anything until a publish names it, so
+  without a cap an authenticated publisher could fill the datapath faster than
+  an operator could sweep it. Reclaiming what an abandoned upload leaves behind
+  is [`mfb-repo gc`](#blob-garbage-collection--mfb-repo-gc-operator-action),
+  which runs on demand and never automatically.[[repository/src/server.rs:put_blob]]
 
 #### Publish refuses a dangling vendor hash
 
@@ -682,9 +687,10 @@ that `packageBinaryHash` welds to the package signature, so the vendor hashes
 are transitively authenticated and a blob fetched by one of them needs only to
 be re-hashed — the same argument the registry already makes for the ABI index.
 The publish transaction also records the version→blob edges in
-`package_version_blobs`, which nothing reads today; it exists so a future
-garbage collector can compute
-reachability.[[repository/src/abi.rs:parse_vendor_blobs]][[repository/src/server.rs:validate_package_request]]
+`package_version_blobs`; those edges are what
+[`mfb-repo gc`](#blob-garbage-collection--mfb-repo-gc-operator-action) reads to
+tell a vendored library that is still in use from one an abandoned upload left
+behind.[[repository/src/abi.rs:parse_vendor_blobs]][[repository/src/server.rs:validate_package_request]]
 
 Section 10 is bounded before any of that work happens: a table declaring more
 than **1024 entries** or more than **4096 locators in total** is rejected as
@@ -724,6 +730,74 @@ cross-compile and an offline build both work.
 A `pkg add file://…` is a local copy with no registry to fetch from, so a package
 that vendors native libraries is refused outright rather than installed in a
 silently unusable state.[[src/cli/pkg.rs:install_vendor_blobs]]
+
+### Blob garbage collection — `mfb-repo gc` (operator action)
+
+```
+mfb-repo gc --dbpath <db> --datapath <data> [--s3-endpoint <url>]
+            [--grace-hours <n>] [--delete] [--json]
+```
+
+Reclaims blobs that **no live package version references**. Those exist because
+`PUT /blob` accepts a blob before anything names it: a publisher who uploads and
+then abandons the publish — network failure, failed validation, `^C` — leaves
+bytes nothing will ever reference. It is a **dry run** unless `--delete` is
+given, and it is never automatic: nothing in the server's periodic reaper (which
+expires auth challenges, sessions, and pairing blobs) touches package content.
+Deleting package content is irreversible and has no "it will be re-created"
+fallback, so an operator decides when it runs and can always see what it would
+do first.[[repository/src/gc.rs:run]][[repository/src/main.rs:parse_gc_args]]
+
+Reachability is **recomputed from the tables on every run**, never refcounted: a
+refcount must be maintained transactionally at every mutation site and drifts
+permanently on any crash between its two writes — and a drifted one either leaks
+forever or deletes a live blob. The reachable set is
+
+```sql
+SELECT hash FROM package_versions UNION SELECT hash FROM package_version_blobs;
+```
+
+and **both halves are required**. `package_versions.hash` is the `.mfp` artifact
+itself, which is not a vendor blob and so never appears in
+`package_version_blobs`; omitting that half would report every published package
+as collectable.[[repository/src/store.rs:unreachable_blobs]]
+
+Three rules bound what can ever be deleted:
+
+- **Nothing a live version references**, including a **yanked** one. Yanking is a
+  "do not resolve this by default" signal, not a deletion — existing lockfiles
+  pin the hash and must keep installing. Only a version row that no longer
+  exists releases its blobs.
+- **Nothing younger than the grace period** (default 24h on
+  `package_blobs.created_at`, `--grace-hours`). There is no lock between
+  `PUT /blob` and `POST /publish`, so a publisher's uploaded blobs genuinely
+  *are* unreachable until the publish lands; the grace window is what makes the
+  sweep safe against a publish in flight, in place of a lock, a lease, or a
+  two-phase protocol. **`--grace-hours 0` is refused**, because it removes that
+  protection entirely.
+- **Nothing outside `package_blobs`.** Auth challenges, sessions, and pairing
+  blobs belong to the periodic reaper and are untouched here.
+
+Deletion removes the **backing object first, then the `package_blobs` row** —
+the inverse of the publish path's stage → row → promote. A crash in between then
+leaves a row pointing at a missing object, which the next run re-lists and
+re-collects idempotently, and whose `GET` already 404s correctly because it was
+unreachable. The other order would leave an object with no row: invisible to
+every future run and unreclaimable forever. Neither ordering is atomic; this one
+self-heals.[[repository/src/blobstore.rs:BlobStore]]
+
+Sizes are stat'd from the backing store per candidate (`metadata` locally,
+`head_object` on S3) rather than stored in a column, so the report shows real
+reclaimed bytes with no schema change and no back-fill hole. `--json` adds the
+reachable-side total, so an operator can see what fraction of the store is
+garbage. Both backends are supported; with an `s3://` datapath the metadata
+database still lives on local disk. A per-blob failure is reported and the sweep
+continues, but the command exits nonzero.
+
+A registry that never runs `gc` behaves exactly as it always has — which is the
+right default for an existing deployment. To a client, a collected blob is
+visible only as a `GET /blob/<hash>` `404`, and only for a hash no live version
+references.
 
 ## Release States — `POST /release-state`
 

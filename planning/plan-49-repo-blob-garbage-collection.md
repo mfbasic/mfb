@@ -278,40 +278,85 @@ The whole value of the plan without any destructive operation. Independently
 landable and independently useful: an operator can see the problem before
 anything can delete.
 
-- [ ] Add the reachable-set query (§4.1) and candidate selection (§4.2) to
-      `repository/src/store.rs`.
-- [ ] Add `mfb-repo gc` (dry run only) per §4.5, with size stat (§4.3), for both
-      the local and S3 backends.
-- [ ] Tests: a blob referenced by a live version is **never** a candidate; a
+- [x] Add the reachable-set query (§4.1) and candidate selection (§4.2) to
+      `repository/src/store.rs`. → `unreachable_blobs` / `reachable_blobs` /
+      `forget_blob`, over a new `BlobRow`. A negative or overflowing grace period
+      is refused rather than wrapping into the future.
+- [x] Add `mfb-repo gc` (dry run only) per §4.5, with size stat (§4.3), for both
+      the local and S3 backends. → new `repository/src/gc.rs` (`run` +
+      `render_text`/`render_json`), `BlobStore::size` (`fs::metadata` /
+      `head_object`), and `parse_gc_args` in `main.rs`.
+- [x] Tests: a blob referenced by a live version is **never** a candidate; a
       `.mfp` blob is never a candidate (§4.1 — the query-half regression); a
       blob referenced only by a **yanked** version is never a candidate (§3.2); an
       unreferenced blob **inside** the grace window is not a candidate; the same
       blob **outside** it is; a blob shared by two versions is not a candidate
-      when only one is removed.
+      when only one is removed. → `store.rs` tests
+      `a_published_mfp_blob_is_never_a_candidate`,
+      `candidates_are_unreferenced_blobs_past_the_grace_period`,
+      `a_yanked_versions_blobs_stay_reachable`,
+      `a_shared_blob_survives_removing_one_of_its_versions`, plus
+      `gc::tests::grace_window_shields_a_fresh_orphan`. Both guards were
+      mutation-checked: dropping the `package_versions` half of the union fails
+      6 tests, and defeating the grace filter fails the window test.
 
 Acceptance: on a registry with a deliberately orphaned blob (upload via
 `PUT /blob`, never publish), `mfb-repo gc` lists exactly that blob and nothing
-else, and lists nothing at all before the grace period elapses.
-Commit: —
+else, and lists nothing at all before the grace period elapses. **MET** —
+`tests/repo_acceptance.rs::repo_gc_reclaims_an_orphaned_blob_and_leaves_live_packages_installable`
+does exactly this against a live `mfb-repo`, and it was reproduced by hand in
+both local-datapath and MinIO S3 modes.
+Commit: (this change)
 
 ### Phase 2 — `--delete`
 
-- [ ] Implement §4.4 (store then DB, idempotent on missing objects) behind
-      `--delete`; refuse `--grace-hours 0` (§4.5).
-- [ ] Tests: `--delete` removes exactly the Phase-1 candidate set and frees the
+- [x] Implement §4.4 (store then DB, idempotent on missing objects) behind
+      `--delete`; refuse `--grace-hours 0` (§4.5). → `BlobStore::delete` treats
+      "not found" as success on both backends; `--grace-hours 0`/negative/
+      overflowing is refused at the argument boundary, before the store opens.
+- [x] Tests: `--delete` removes exactly the Phase-1 candidate set and frees the
       backing bytes; a `GET` for a deleted hash 404s; `gc --delete` run twice is
       a no-op the second time; an interrupted delete (row present, object gone)
       is re-collected cleanly by the next run (§4.4); every reachable blob still
-      downloads afterward.
-- [ ] Doc: extend the operator documentation and
+      downloads afterward. → `gc::tests::{delete_reclaims_the_orphan_and_spares_live_blobs,
+      interrupted_delete_is_recollected}`, the acceptance test's 404 + second-sweep
+      assertions, and `s3_backend.rs::s3_gc_reclaims_only_the_orphan` against a
+      real bucket.
+- [x] Doc: extend the operator documentation and
       `src/docs/spec/package-manager/01_repository-protocol.md`'s server section
       with the `gc` subcommand, the grace period's role (§3.1), and the explicit
-      statement that yanked versions retain their blobs (§3.2).
+      statement that yanked versions retain their blobs (§3.2). → new spec
+      section "Blob garbage collection", a "Reclaiming abandoned uploads" section
+      in `repository/DEPLOY.md`, and corrections to the two spec claims that said
+      the registry never collects and that `package_version_blobs` has no reader.
 
 Acceptance: an orphaned blob is reclaimed and every live package still installs
 and builds — verified by a real `pkg add` against the swept registry, not just
-unit tests.
-Commit: —
+unit tests. **MET** — the acceptance test re-adds and rebuilds both published
+packages after the sweep, and asserts the surviving vendor blob still serves its
+exact bytes; the same was done by hand against an S3-backed registry.
+Commit: (this change)
+
+## Outcome
+
+Landed as designed, with two deviations worth recording:
+
+- **Reachable-byte accounting is `--json`-only.** The plan's open decision
+  recommended "yes, in `--json` at minimum". It is *only* there, because the
+  totals cost one `head_object` per **reachable** blob — on a large registry that
+  dwarfs the candidate scan, to answer a question the operator did not ask. The
+  text report states the reachable *count*, which is free.
+- **`repository/tests/s3_backend.rs` had to be repaired first.** It had not
+  compiled since plan-48 added `BlobKind`, and its final assertion ("an aborted
+  blob should be gone") had been made false by bug-276 R4, which deliberately
+  stopped S3 `abort` from deleting — the test could not catch the change because
+  it no longer built. It now asserts the documented behavior and covers `gc`
+  against a live bucket. The object bug-276 R4 knowingly leaves behind is exactly
+  what this plan reclaims.
+
+Version deletion remains out of scope, and §3.2's "only a removed version
+releases its blobs" is proven by a test that removes one of two versions sharing
+a vendor blob.
 
 ## Validation Plan
 

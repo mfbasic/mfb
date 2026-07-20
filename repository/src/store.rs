@@ -37,6 +37,30 @@ pub struct PublishedVersion {
     pub log_entry: LogEntryRef,
 }
 
+/// One `package_blobs` row, as the garbage collector sees it (plan-49).
+///
+/// `path` is the `blob_ref` recorded when the row was written — informational
+/// only, and a stale one if the datapath moved. The collector addresses the
+/// backing object by `hash` + `kind`, exactly the way `GET /blob/<hash>` does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlobRow {
+    pub hash: String,
+    pub path: String,
+    pub kind: String,
+    pub created_at: i64,
+}
+
+impl BlobRow {
+    fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
+        Ok(BlobRow {
+            hash: row.get(0)?,
+            path: row.get(1)?,
+            kind: row.get(2)?,
+            created_at: row.get(3)?,
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ChallengeRecord {
     pub id: String,
@@ -1279,6 +1303,127 @@ impl Store {
         Ok(true)
     }
 
+    // --- Blob garbage collection (plan-49) ---------------------------------
+
+    /// Every blob row **no live package version references**, older than
+    /// `grace_seconds` at `now` (plan-49 §4.1/§4.2).
+    ///
+    /// The reachable set is `package_versions.hash` **∪**
+    /// `package_version_blobs.hash`, and *both* halves are load-bearing:
+    /// `package_versions.hash` is the `.mfp` artifact itself, which is not a
+    /// vendor blob and therefore never appears in `package_version_blobs`.
+    /// Dropping the first half would report every published package as garbage.
+    ///
+    /// Reachability is recomputed from these two tables on every call rather
+    /// than tracked in a refcount (plan-49 §3.4): a refcount drifts permanently
+    /// on any crash between its two writes, and a drifted one either leaks
+    /// forever or deletes a live blob. This is self-correcting instead.
+    ///
+    /// A **yanked** version is still a live row and so still reachable
+    /// (plan-49 §3.2): yanking says "do not resolve this by default", not
+    /// "delete it", and lockfiles pinning the hash must keep installing. Only a
+    /// version row that no longer exists releases its blobs.
+    ///
+    /// `now` is a parameter rather than read from the clock so a caller — and a
+    /// test — can ask what the candidate set looks like at a given instant.
+    pub fn unreachable_blobs(&self, now: i64, grace_seconds: i64) -> Result<Vec<BlobRow>, String> {
+        if grace_seconds < 0 {
+            return Err("grace period must not be negative".to_string());
+        }
+        // A grace period large enough to underflow would wrap into the future
+        // and make every blob a candidate — refuse it rather than sweep the
+        // whole registry.
+        let cutoff = now
+            .checked_sub(grace_seconds)
+            .ok_or_else(|| format!("grace period of {grace_seconds}s overflows the clock"))?;
+        let conn = self.conn();
+        let mut statement = conn
+            .prepare(
+                "SELECT hash, path, kind, created_at FROM package_blobs
+                 WHERE hash NOT IN (SELECT hash FROM package_versions
+                                    UNION
+                                    SELECT hash FROM package_version_blobs)
+                   AND created_at < ?1
+                 ORDER BY created_at, hash",
+            )
+            .map_err(|err| format!("failed to prepare blob reachability query: {err}"))?;
+        let rows = statement
+            .query_map(params![cutoff], BlobRow::from_row)
+            .map_err(|err| format!("failed to scan blobs: {err}"))?;
+        let mut blobs = Vec::new();
+        for row in rows {
+            blobs.push(row.map_err(|err| format!("failed to read blob row: {err}"))?);
+        }
+        Ok(blobs)
+    }
+
+    /// Every blob row a live package version *does* reference — the complement
+    /// of [`Store::unreachable_blobs`] with no grace-period filter, so a `gc`
+    /// report can state what fraction of the store is garbage.
+    pub fn reachable_blobs(&self) -> Result<Vec<BlobRow>, String> {
+        let conn = self.conn();
+        let mut statement = conn
+            .prepare(
+                "SELECT hash, path, kind, created_at FROM package_blobs
+                 WHERE hash IN (SELECT hash FROM package_versions
+                                UNION
+                                SELECT hash FROM package_version_blobs)
+                 ORDER BY created_at, hash",
+            )
+            .map_err(|err| format!("failed to prepare reachable blob query: {err}"))?;
+        let rows = statement
+            .query_map([], BlobRow::from_row)
+            .map_err(|err| format!("failed to scan reachable blobs: {err}"))?;
+        let mut blobs = Vec::new();
+        for row in rows {
+            blobs.push(row.map_err(|err| format!("failed to read blob row: {err}"))?);
+        }
+        Ok(blobs)
+    }
+
+    /// Whether one hash is referenced by a live version right now.
+    ///
+    /// The sweep re-asks this immediately before deleting each object, rather
+    /// than trusting the scan it started with. The grace period makes the scan
+    /// safe against an *in-flight* publish (§3.1), but a publisher who uploads a
+    /// blob and publishes more than a grace period later is not in flight — they
+    /// are slow, and their blob is a legitimate candidate right up until the
+    /// publish commits. Re-checking narrows that window from the length of the
+    /// whole sweep to the gap between this query and the delete.
+    ///
+    /// It does not *close* the window; nothing short of a lock would, and the
+    /// design deliberately has none. `forget_blob`'s foreign key is the backstop
+    /// for the remainder.
+    pub fn blob_is_reachable(&self, hash: &str) -> Result<bool, String> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM package_versions WHERE hash = ?1
+                           UNION
+                           SELECT 1 FROM package_version_blobs WHERE hash = ?1)",
+            params![hash],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|exists| exists != 0)
+        .map_err(|err| format!("failed to re-check blob reachability: {err}"))
+    }
+
+    /// Drop a `package_blobs` row after its backing object has been deleted
+    /// (plan-49 §4.4). Reports whether a row was actually removed, so a second
+    /// `gc --delete` over the same hash is a visible no-op rather than a
+    /// silent one.
+    ///
+    /// `package_version_blobs.hash` is a foreign key onto this row and
+    /// `foreign_keys` is `ON`, so if a publish landed an edge between the scan
+    /// and this delete, SQLite refuses it and the error surfaces instead of
+    /// orphaning a live version's vendor blob.
+    pub fn forget_blob(&self, hash: &str) -> Result<bool, String> {
+        let conn = self.conn();
+        let removed = conn
+            .execute("DELETE FROM package_blobs WHERE hash = ?1", params![hash])
+            .map_err(|err| format!("failed to delete blob metadata for {hash}: {err}"))?;
+        Ok(removed > 0)
+    }
+
     /// Resolve an owner name to its row (any account: user or org).
     fn owner_record(&self, owner: &str) -> Result<Option<OwnerRecord>, String> {
         let folded = fold_owner(owner);
@@ -2244,8 +2389,10 @@ fn is_unique_violation(err: &rusqlite::Error) -> bool {
     )
 }
 
+// `pub(crate)` so sibling modules' tests can reuse the owner-registration
+// helper below instead of re-deriving key material (see `gc::tests`).
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn test_store() -> (tempfile::TempDir, Store) {
@@ -3090,6 +3237,282 @@ mod tests {
         assert!(store
             .record_native_blob("nativehash", "blobs/nativehash.bin")
             .unwrap());
+    }
+
+    // --- Blob reachability (plan-49) ---------------------------------------
+
+    /// The reachable set is `package_versions.hash` **∪**
+    /// `package_version_blobs.hash` and **both halves are required**
+    /// (plan-49 §4.1).
+    ///
+    /// A `.mfp` blob is not a vendor blob, so it never appears in
+    /// `package_version_blobs`; dropping that first half of the union would
+    /// report every published package as collectable garbage. The plan asks for
+    /// this sentence to live in a test rather than only in a comment, because
+    /// the failure it guards is silent and total.
+    #[test]
+    fn a_published_mfp_blob_is_never_a_candidate() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "mfphash",
+                "data/mfphash.mfp",
+                "{}",
+                &[],
+            )
+            .unwrap();
+
+        // The `.mfp` blob has no `package_version_blobs` edge at all...
+        let edges: i64 = store
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM package_version_blobs WHERE hash = 'mfphash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(edges, 0, "a .mfp is not a vendor blob");
+        // ...and is nevertheless reachable, forever, via package_versions.hash.
+        let ancient = now_unix() + 3650 * 86_400;
+        assert!(store.unreachable_blobs(ancient, 86_400).unwrap().is_empty());
+        assert_eq!(store.reachable_blobs().unwrap().len(), 1);
+    }
+
+    /// A vendor blob a live version references is never a candidate; an
+    /// unreferenced one is — but only once it is older than the grace period
+    /// (plan-49 §3.1/§4.2).
+    #[test]
+    fn candidates_are_unreferenced_blobs_past_the_grace_period() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .record_native_blob("vendorhash", "data/vendorhash.bin")
+            .unwrap();
+        store
+            .record_native_blob("orphanhash", "data/orphanhash.bin")
+            .unwrap();
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "mfphash",
+                "data/mfphash.mfp",
+                "{}",
+                &["vendorhash".to_string()],
+            )
+            .unwrap();
+
+        let now = now_unix();
+        // Inside the grace window nothing is a candidate — the orphan may still
+        // be an upload whose publish has not landed yet.
+        assert!(store.unreachable_blobs(now, 86_400).unwrap().is_empty());
+        // Outside it, exactly the unreferenced blob is.
+        let candidates = store.unreachable_blobs(now + 2 * 86_400, 86_400).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].hash, "orphanhash");
+        assert_eq!(candidates[0].kind, "native");
+        // The `.mfp` and the referenced vendor blob are both reachable.
+        let mut reachable: Vec<String> = store
+            .reachable_blobs()
+            .unwrap()
+            .into_iter()
+            .map(|row| row.hash)
+            .collect();
+        reachable.sort();
+        assert_eq!(reachable, vec!["mfphash", "vendorhash"]);
+    }
+
+    /// A **yanked** version keeps its blobs (plan-49 §3.2). Yanking is a "do not
+    /// resolve this by default" signal, not a deletion: lockfiles pinning the
+    /// hash must keep installing. Only a version row that no longer exists
+    /// releases its blobs.
+    #[test]
+    fn a_yanked_versions_blobs_stay_reachable() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .record_native_blob("vendorhash", "data/vendorhash.bin")
+            .unwrap();
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "mfphash",
+                "data/mfphash.mfp",
+                "{}",
+                &["vendorhash".to_string()],
+            )
+            .unwrap();
+        store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+
+        let ancient = now_unix() + 3650 * 86_400;
+        assert!(
+            store.unreachable_blobs(ancient, 86_400).unwrap().is_empty(),
+            "yanking must not release a version's blobs"
+        );
+        assert_eq!(store.reachable_blobs().unwrap().len(), 2);
+    }
+
+    /// A blob shared by two versions survives the removal of one of them — the
+    /// case a refcount would get wrong and a recomputed scan gets right
+    /// (plan-49 §3.4).
+    #[test]
+    fn a_shared_blob_survives_removing_one_of_its_versions() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .record_native_blob("sharedvendor", "data/sharedvendor.bin")
+            .unwrap();
+        for version in ["1.0.0", "1.1.0"] {
+            store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("mfp-{version}"),
+                    "data/mfp.mfp",
+                    "{}",
+                    &["sharedvendor".to_string()],
+                )
+                .unwrap();
+        }
+
+        let ancient = now_unix() + 3650 * 86_400;
+        assert!(store.unreachable_blobs(ancient, 86_400).unwrap().is_empty());
+
+        // Remove 1.0.0 the way a future version-deletion feature would. There is
+        // no such API today (plan-49 "Open Decisions"), so this reaches into the
+        // rows directly to prove the reachability rule, not the deletion path.
+        let conn = store.conn();
+        conn.execute(
+            "DELETE FROM package_version_blobs WHERE package_version_id IN
+               (SELECT id FROM package_versions WHERE version = '1.0.0')",
+            [],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM package_versions WHERE version = '1.0.0'", [])
+            .unwrap();
+        drop(conn);
+
+        // The shared vendor blob is still referenced by 1.1.0 and must survive;
+        // only 1.0.0's own `.mfp` becomes collectable.
+        let candidates: Vec<String> = store
+            .unreachable_blobs(ancient, 86_400)
+            .unwrap()
+            .into_iter()
+            .map(|row| row.hash)
+            .collect();
+        assert_eq!(candidates, vec!["mfp-1.0.0"]);
+    }
+
+    /// `forget_blob` reports whether it actually removed a row, so a second
+    /// sweep over the same hash is a visible no-op. A row still referenced by a
+    /// `package_version_blobs` edge is refused by the foreign key rather than
+    /// stranding a live version's vendor blob.
+    #[test]
+    fn forget_blob_is_idempotent_and_fk_guarded() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .record_native_blob("vendorhash", "data/vendorhash.bin")
+            .unwrap();
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "mfphash",
+                "data/mfphash.mfp",
+                "{}",
+                &["vendorhash".to_string()],
+            )
+            .unwrap();
+        store
+            .record_native_blob("orphanhash", "data/orphanhash.bin")
+            .unwrap();
+
+        assert!(store.forget_blob("orphanhash").unwrap());
+        assert!(
+            !store.forget_blob("orphanhash").unwrap(),
+            "a second delete removes nothing"
+        );
+        // The referenced vendor blob cannot be deleted out from under its
+        // version even if a caller asks.
+        assert!(store.forget_blob("vendorhash").is_err());
+    }
+
+    /// `blob_is_reachable` answers the same question as the sweep's scan, one
+    /// hash at a time — it is what the collector re-asks immediately before each
+    /// delete, so a publish that lands mid-sweep spares its own blobs.
+    #[test]
+    fn blob_is_reachable_tracks_both_halves_of_the_union() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .record_native_blob("vendorhash", "data/vendorhash.bin")
+            .unwrap();
+        store
+            .record_native_blob("orphanhash", "data/orphanhash.bin")
+            .unwrap();
+
+        // Before the publish, neither native blob is reachable.
+        assert!(!store.blob_is_reachable("vendorhash").unwrap());
+        assert!(!store.blob_is_reachable("orphanhash").unwrap());
+        assert!(!store.blob_is_reachable("nosuchhash").unwrap());
+
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "mfphash",
+                "data/mfphash.mfp",
+                "{}",
+                &["vendorhash".to_string()],
+            )
+            .unwrap();
+
+        // The publish makes the `.mfp` (package_versions.hash) and its vendor
+        // blob (package_version_blobs.hash) reachable; the orphan is untouched.
+        assert!(store.blob_is_reachable("mfphash").unwrap());
+        assert!(store.blob_is_reachable("vendorhash").unwrap());
+        assert!(!store.blob_is_reachable("orphanhash").unwrap());
+
+        // Yanking does not release them (§3.2).
+        store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+        assert!(store.blob_is_reachable("mfphash").unwrap());
+        assert!(store.blob_is_reachable("vendorhash").unwrap());
+    }
+
+    /// A negative or overflowing grace period is refused rather than wrapping
+    /// into the future and making the whole registry a candidate.
+    #[test]
+    fn unreachable_blobs_refuses_a_bad_grace_period() {
+        let (_temp, store) = test_store();
+        assert!(store
+            .unreachable_blobs(0, -1)
+            .unwrap_err()
+            .contains("must not be negative"));
+        assert!(store
+            .unreachable_blobs(i64::MIN, 1)
+            .unwrap_err()
+            .contains("overflows the clock"));
     }
 
     /// A transfer offer is only acceptable while the account that made it still

@@ -917,6 +917,7 @@ dependencies = [
  "icns",
  "image",
  "mfb_repository",
+ "rusqlite",
  "serde_json",
  "sha2",
  "tempfile",
