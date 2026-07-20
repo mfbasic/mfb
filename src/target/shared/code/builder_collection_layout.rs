@@ -1255,10 +1255,19 @@ impl CodeBuilder<'_> {
         } else {
             0
         };
+        // The lookup-entry stride for this literal's element type: zero for a
+        // fixed-width list, which drops the entry array from the allocation
+        // entirely (plan-57-D). Taken from the first slot's value type — a
+        // literal's elements are all the declared element type — and zero only
+        // for a keyless (list) slot, since a map keeps its entries.
+        let literal_entry_stride = match slots.first() {
+            Some(slot) if slot.key.is_none() => list_entry_stride(&slot.value.type_),
+            _ => COLLECTION_ENTRY_SIZE,
+        };
         self.emit(abi::move_immediate(
             &scratch9,
             "Integer",
-            &(COLLECTION_HEADER_SIZE + count * COLLECTION_ENTRY_SIZE + bucket_bytes).to_string(),
+            &(COLLECTION_HEADER_SIZE + count * literal_entry_stride + bucket_bytes).to_string(),
         ));
         self.emit(abi::add_registers(
             abi::return_register(),
@@ -1396,6 +1405,12 @@ impl CodeBuilder<'_> {
         let scratch10 = self.temporary_vreg();
         let scratch11 = self.temporary_vreg();
         let entry_offset = COLLECTION_HEADER_SIZE + index * COLLECTION_ENTRY_SIZE;
+        // A kind-2 list has no lookup entry to write: element `i` is at
+        // `dataBase + i * payloadSize` by construction (plan-57-D). The payload
+        // copies below still run — they are what advances `data_offset_slot` —
+        // only the entry-field stores are skipped. A map slot (`key.is_some()`)
+        // always writes its entry.
+        let writes_entry = slot.key.is_some() || list_entry_stride(&slot.value.type_) != 0;
         let key_len_slot = if let Some(key) = &slot.key {
             Some(self.emit_payload_length_to_stack(key, "collection_key_len")?)
         } else {
@@ -1415,11 +1430,13 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(
-            &scratch9,
-            collection_register,
-            entry_offset + COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
+        if writes_entry {
+            self.emit(abi::store_u8(
+                &scratch9,
+                collection_register,
+                entry_offset + COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+        }
 
         if let Some(key_len_slot) = key_len_slot {
             // Align the key payload start to its type alignment before recording
@@ -1437,21 +1454,25 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 data_offset_slot,
             ));
-            self.emit(abi::store_u64(
-                &scratch10,
-                collection_register,
-                entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-            ));
+            if writes_entry {
+                self.emit(abi::store_u64(
+                    &scratch10,
+                    collection_register,
+                    entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+                ));
+            }
             self.emit(abi::load_u64(
                 &scratch11,
                 abi::stack_pointer(),
                 key_len_slot,
             ));
-            self.emit(abi::store_u64(
-                &scratch11,
-                collection_register,
-                entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-            ));
+            if writes_entry {
+                self.emit(abi::store_u64(
+                    &scratch11,
+                    collection_register,
+                    entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+                ));
+            }
             self.emit_copy_payload_to_collection(
                 collection_slot,
                 key_len_slot,
@@ -1460,16 +1481,20 @@ impl CodeBuilder<'_> {
             )?;
         } else {
             self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
-            self.emit(abi::store_u64(
-                &scratch10,
-                collection_register,
-                entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-            ));
-            self.emit(abi::store_u64(
-                &scratch10,
-                collection_register,
-                entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-            ));
+            if writes_entry {
+                self.emit(abi::store_u64(
+                    &scratch10,
+                    collection_register,
+                    entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+                ));
+            }
+            if writes_entry {
+                self.emit(abi::store_u64(
+                    &scratch10,
+                    collection_register,
+                    entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+                ));
+            }
         }
 
         // Align the value payload start before recording its offset. Map entries
@@ -1496,21 +1521,25 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             data_offset_slot,
         ));
-        self.emit(abi::store_u64(
-            &scratch10,
-            collection_register,
-            entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
+        if writes_entry {
+            self.emit(abi::store_u64(
+                &scratch10,
+                collection_register,
+                entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+        }
         self.emit(abi::load_u64(
             &scratch11,
             abi::stack_pointer(),
             value_len_slot,
         ));
-        self.emit(abi::store_u64(
-            &scratch11,
-            collection_register,
-            entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if writes_entry {
+            self.emit(abi::store_u64(
+                &scratch11,
+                collection_register,
+                entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit_copy_payload_to_collection(
             collection_slot,
             value_len_slot,
@@ -2136,7 +2165,14 @@ pub(super) fn push_collection_data_base_from_capacity(
 /// current value and lets `artifact-gate` prove the threading changed nothing —
 /// and the representation is switched on in one commit once every site consults
 /// these two functions.
-const KIND2_ENABLED: bool = false;
+fn kind2_enabled() -> bool {
+    // Env-gated during development so ONE binary can be exercised both ways:
+    // build the whole acceptance suite with and without `MFB_KIND2=1` and diff
+    // the behavior. That is the same negative-control lever that proved
+    // `list-order-invariant-rt` non-vacuous. It becomes a plain `true` once the
+    // representation is complete and the goldens are re-baselined.
+    std::env::var("MFB_KIND2").is_ok()
+}
 
 /// The lookup-entry stride for a list of `element_type`, in bytes.
 ///
@@ -2159,7 +2195,7 @@ const KIND2_ENABLED: bool = false;
 /// allocate is bug-02, and it corrupts the arena free list rather than producing
 /// a wrong value.
 pub(super) fn list_entry_stride(element_type: &str) -> usize {
-    if KIND2_ENABLED && list_element_is_fixed_width(element_type).is_some() {
+    if kind2_enabled() && list_element_is_fixed_width(element_type).is_some() {
         0
     } else {
         COLLECTION_ENTRY_SIZE
@@ -2168,7 +2204,7 @@ pub(super) fn list_entry_stride(element_type: &str) -> usize {
 
 /// The `kind` byte for a list of `element_type`.
 pub(super) fn list_block_kind(element_type: &str) -> usize {
-    if KIND2_ENABLED && list_element_is_fixed_width(element_type).is_some() {
+    if kind2_enabled() && list_element_is_fixed_width(element_type).is_some() {
         COLLECTION_KIND_LIST_FIXED
     } else {
         COLLECTION_KIND_LIST

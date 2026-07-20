@@ -282,15 +282,34 @@ without the formula changing shape — and makes it impossible for the alloc siz
 the free size and the data base to disagree (which is bug-02's failure mode).
 
 `KIND2_ENABLED = false` gates it while every site is threaded onto the two
-predicates; the flip is then one commit. Done so far: the constant, the two
-predicates, `emit_collection_data_pointer_for`, and the 19 SIMD/pow sites.
+predicates; the flip is then one commit. `MFB_KIND2=1` env-gates it during development so ONE binary can be exercised
+both ways — the negative-control lever that proved `list-order-invariant-rt`.
+
+**Done:** the constant; `list_entry_stride` / `list_block_kind`;
+`CollectionTypeLayout::from_type` as the single representation choice; all 67
+data-base sites threaded (and the untyped entry point made private, so a missed
+site is a compile error); literal allocation sized by the stride; literal entry
+stores skipped for kind 2.
+
+**Remaining before the flip is coherent** — a kind-2 build currently segfaults at
+the first `get`, which is the honest state:
+1. element access — `emit_element_value_offset` must return `index * payloadSize`
+   instead of loading an entry (and the 4 read sites plan-57-A could not convert
+   still open-code the entry load);
+2. iteration — the loop trio and `lower_for_each` must stride the DATA region by
+   `payloadSize`;
+3. in-place mutation — `append`/`prepend`/`insert`/`removeAt`/`set` entry writes;
+4. the byte-list constructors in `net`, `tls`, `fs_helpers_io`, `audio`, `os`,
+   `entry_and_arena` (sizing + entry fill);
+5. `copy_collection_tight` (one region, not two), `mid`/`slice` probes;
+6. spec amendment, golden re-baseline, and the Phase 3 proofs.
 
 
 No representation is produced yet; this teaches the size path to describe one.
 
 - [x] Add `COLLECTION_KIND_LIST_FIXED = 2` (`error_constants.rs`) with the doc
       comment from §4.1.
-- [~] Teach `emit_flat_block_size` (`builder_collection_layout.rs:197-249`) the
+- [x] Teach `emit_flat_block_size` (`builder_collection_layout.rs:197-249`) the
       kind-2 arm.
 - [ ] Amend `src/docs/spec/memory/05_collections.md`: the kind table, the kind-2
       layout block, the `:52-55` entry-size statement, and a note that the choice
@@ -311,7 +330,7 @@ The single behavioral commit. Small, because plan-57-A/B did the fan-out.
 
 - [ ] `emit_element_value_offset`: fixed-width arm returns `index * payloadSize`
       and the constant `payloadSize`, no entry load.
-- [~] `emit_collection_data_pointer{,_into}`: fixed-width arm returns
+- [x] `emit_collection_data_pointer{,_into}`: fixed-width arm returns
       `block + HEADER`.
 - [ ] `emit_alloc_list`: fixed-width arm sizes `HEADER + count * payloadSize`,
       writes `kind = 2`, skips the entry region and the entry-fill loop.
