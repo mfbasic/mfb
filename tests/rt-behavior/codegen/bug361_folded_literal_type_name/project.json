@@ -1,0 +1,9 @@
+{
+  "name": "bug361_folded_literal_type_name",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -72,7 +72,7 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         collect_type_name_values(module, &mut values);
     }
     for function in &module.functions {
-        collect_string_values_from_ops(&function.body, &mut values);
+        collect_string_values_from_function(function, &mut values);
     }
     // Source file paths back `ErrorLoc.filename` for errors that originate in
     // each function; emit them as string constants so the origin can load them.
@@ -738,10 +738,28 @@ fn raw_data_object(
     }
 }
 
-fn collect_string_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
+/// Walk one function's body for string literals that need a data object.
+///
+/// The local-type map is seeded with the function's parameters. The code
+/// builder records every parameter as a local carrying its declared type, so it
+/// folds `typeName(param)` — and any `&` concatenation around it — to a literal.
+/// Starting this pass with an empty map made its view of local types strictly
+/// weaker than the builder's, so a fold the builder performed produced a literal
+/// this pass had never seen and the build aborted with no data object for it
+/// (bug-361B).
+fn collect_string_values_from_function(function: &NirFunction, values: &mut Vec<String>) {
     let mut constants = HashMap::new();
-    let mut types = HashMap::new();
-    collect_string_values_from_ops_with_constants(ops, values, &mut constants, &mut types);
+    let mut types: HashMap<String, String> = function
+        .params
+        .iter()
+        .map(|param| (param.name.clone(), param.type_.clone()))
+        .collect();
+    collect_string_values_from_ops_with_constants(
+        &function.body,
+        values,
+        &mut constants,
+        &mut types,
+    );
 }
 
 fn collect_string_values_from_ops_with_constants(
@@ -827,8 +845,21 @@ fn collect_string_values_from_ops_with_constants(
             NirOp::Match { value, cases } => {
                 collect_string_values_from_value(value, values, constants, types);
                 for case in cases {
-                    if let NirMatchPattern::Value(value) = &case.pattern {
-                        collect_string_values_from_value(value, values, constants, types);
+                    // Exhaustive on purpose: an `if let` here silently skipped
+                    // `OneOf`, so `CASE "B", "C"` reached codegen with no data
+                    // object for either literal (bug-361A). Keeping the match
+                    // exhaustive makes the next pattern variant a build error
+                    // rather than another silent miss.
+                    match &case.pattern {
+                        NirMatchPattern::Value(value) => {
+                            collect_string_values_from_value(value, values, constants, types);
+                        }
+                        NirMatchPattern::OneOf(patterns) => {
+                            for pattern in patterns {
+                                collect_string_values_from_value(pattern, values, constants, types);
+                            }
+                        }
+                        NirMatchPattern::Else => {}
                     }
                     // A guard is a value expression that may hold string
                     // literals; without walking it, `fs::exists("/tmp/x")` in a

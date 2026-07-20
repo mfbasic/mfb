@@ -1,0 +1,55 @@
+{
+  "project": "bug361_folded_literal_type_name",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "logType",
+      "line": 8,
+      "params": [
+      { "name": "value", "type": "String", "default": null, "line": 8 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "type=" }, "right": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "logCount",
+      "line": 12,
+      "params": [
+      { "name": "count", "type": "Integer", "default": null, "line": 12 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "count is " }, "right": { "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "count" }] } }, "right": { "kind": "string", "value": "." } }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "logType", "arguments": [{ "kind": "string", "value": "hello" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "logCount", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 18 }
+      ]
+    }
+    ]
+  }
+  ]
+}

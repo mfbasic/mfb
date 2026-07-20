@@ -1,0 +1,73 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bug361_match_oneof_literals",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "classify",
+    "line": 7,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "g", "line": 7, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 8, "mutable": false, "name": "$match0", "type": "String", "value": { "kind": "local", "name": "g" } },
+    {
+      "op": "match",
+      "line": 8,
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "line": 9,
+        "pattern": { "kind": "value", "value": { "kind": "const", "type": "String", "value": "A" } },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "a" }] } }
+        ]
+      },
+      {
+        "line": 11,
+        "pattern": { "kind": "oneOf", "values": [{ "kind": "const", "type": "String", "value": "B" }, { "kind": "const", "type": "String", "value": "C" }] },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "bc" }] } }
+        ]
+      },
+      {
+        "line": 13,
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "?" }] } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 18,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "classify", "args": [{ "kind": "const", "type": "String", "value": "A" }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "classify", "args": [{ "kind": "const", "type": "String", "value": "B" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "classify", "args": [{ "kind": "const", "type": "String", "value": "C" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "classify", "args": [{ "kind": "const", "type": "String", "value": "D" }] } }
+    ]
+  }
+  ]
+}

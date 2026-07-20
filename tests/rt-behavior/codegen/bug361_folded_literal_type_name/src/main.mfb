@@ -1,0 +1,19 @@
+IMPORT io
+
+' bug-361B: `typeName(param)` folds to the parameter's declared type and the `&`
+' then folds the pair into a single literal that appears nowhere in the source.
+' The collection pass started with an empty local-type map, so it never saw the
+' folded literal the builder went on to emit, and the build aborted. Parameters
+' of several types keep the seeding honest.
+SUB logType(value AS String)
+  io::print("type=" & typeName(value))
+END SUB
+
+SUB logCount(count AS Integer)
+  io::print("count is " & typeName(count) & ".")
+END SUB
+
+SUB main()
+  logType("hello")
+  logCount(7)
+END SUB

@@ -1,0 +1,73 @@
+{
+  "project": "bug361_match_oneof_literals",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "classify",
+      "line": 7,
+      "params": [
+      { "name": "g", "type": "String", "default": null, "line": 7 }
+      ],
+      "returnType": null,
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "g" },
+        "line": 8,
+        "cases": [
+        {
+          "pattern": { "kind": "literal", "expression": { "kind": "string", "value": "A" } },
+          "guard": null,
+          "line": 9,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "a" }] }, "line": 10 }
+          ]
+        },
+        {
+          "pattern": { "kind": "oneOf", "patterns": [{ "kind": "string", "value": "B" }, { "kind": "string", "value": "C" }] },
+          "guard": null,
+          "line": 11,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "bc" }] }, "line": 12 }
+          ]
+        },
+        {
+          "pattern": { "kind": "else" },
+          "guard": null,
+          "line": 13,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "?" }] }, "line": 14 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "classify", "arguments": [{ "kind": "string", "value": "A" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "classify", "arguments": [{ "kind": "string", "value": "B" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "classify", "arguments": [{ "kind": "string", "value": "C" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "classify", "arguments": [{ "kind": "string", "value": "D" }] }, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}

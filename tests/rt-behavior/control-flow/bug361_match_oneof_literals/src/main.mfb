@@ -1,0 +1,23 @@
+IMPORT io
+
+' bug-361A: a multi-literal `CASE` lowers to `NirMatchPattern::OneOf`, which the
+' data-object collection pass skipped, so "B" and "C" reached codegen with no
+' read-only data object and aborted the build. Every arm must be selectable at
+' runtime, which proves each literal got its object.
+SUB classify(g AS String)
+  MATCH g
+    CASE "A"
+      io::print("a")
+    CASE "B", "C"
+      io::print("bc")
+    CASE ELSE
+      io::print("?")
+  END MATCH
+END SUB
+
+SUB main()
+  classify("A")
+  classify("B")
+  classify("C")
+  classify("D")
+END SUB
