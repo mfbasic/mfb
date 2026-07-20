@@ -118,10 +118,12 @@ pub(super) fn lower_crypto_random_bytes_helper(
     // a lookup table when plan-57-D lands.
     crypto_ec::emit_build_byte_list(
         symbol,
-        "rand",
+        &format!("{symbol}_rand_build_loop"),
+        &format!("{symbol}_rand_build_done"),
         BUF_OFFSET,
         COUNT_OFFSET,
-        COLLECTION_OFFSET,
+        Some(COLLECTION_OFFSET),
+        abi::RET[1],
         &alloc_fail,
         &mut instructions,
         &mut relocations,

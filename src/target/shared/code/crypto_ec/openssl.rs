@@ -786,10 +786,12 @@ fn generate(
     );
     emit_build_byte_list(
         symbol,
-        "out",
+        &format!("{symbol}_out_build_loop"),
+        &format!("{symbol}_out_build_done"),
         RAWBUF,
         RAWLEN,
-        COLL,
+        Some(COLL),
+        abi::RET[1],
         &alloc_fail,
         &mut ins,
         &mut rel,
@@ -1173,10 +1175,12 @@ fn sign(
 
     emit_build_byte_list(
         symbol,
-        "out",
+        &format!("{symbol}_out_build_loop"),
+        &format!("{symbol}_out_build_done"),
         SIGBUF,
         SIGLEN,
-        COLL,
+        Some(COLL),
+        abi::RET[1],
         &alloc_fail,
         &mut ins,
         &mut rel,

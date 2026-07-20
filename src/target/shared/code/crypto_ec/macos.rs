@@ -1376,10 +1376,12 @@ fn emit_cfdata_to_list(
     ));
     emit_build_byte_list(
         symbol,
-        "out",
+        &format!("{symbol}_out_build_loop"),
+        &format!("{symbol}_out_build_done"),
         byteptr_off,
         bytelen_off,
-        coll_off,
+        Some(coll_off),
+        abi::RET[1],
         alloc_fail,
         ins,
         rel,
