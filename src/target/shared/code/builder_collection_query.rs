@@ -351,12 +351,8 @@ impl CodeBuilder<'_> {
                 &entry,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
-            let result = self.emit_load_map_payload(
-                value_type,
-                &collection,
-                &value_offset,
-                &value_length,
-            )?;
+            let result =
+                self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
             self.emit(abi::branch(&done));
             self.emit(abi::label(&not_found));
             self.emit_not_found_return()?;
@@ -432,12 +428,8 @@ impl CodeBuilder<'_> {
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        let result = self.emit_load_map_payload(
-            value_type,
-            &collection,
-            &value_offset,
-            &value_length,
-        )?;
+        let result =
+            self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&next));
@@ -580,8 +572,8 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit_collection_payload_match_branch(
-        "",
             key_type,
+            "",
             &collection,
             &key_offset,
             &key_length,
@@ -601,12 +593,8 @@ impl CodeBuilder<'_> {
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        let result = self.emit_load_map_payload(
-            value_type,
-            &collection,
-            &value_offset,
-            &value_length,
-        )?;
+        let result =
+            self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&next));

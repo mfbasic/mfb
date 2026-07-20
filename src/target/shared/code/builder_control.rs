@@ -1313,12 +1313,8 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 collection_slot,
             ));
-            let key_value = self.emit_load_map_payload(
-                key_type,
-                &collection,
-                &payload_off,
-                &payload_len,
-            )?;
+            let key_value =
+                self.emit_load_map_payload(key_type, &collection, &payload_off, &payload_len)?;
             self.emit(abi::store_u64(
                 &key_value,
                 abi::stack_pointer(),
@@ -1340,12 +1336,8 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 collection_slot,
             ));
-            let item_value = self.emit_load_map_payload(
-                value_type,
-                &collection,
-                &payload_off,
-                &payload_len,
-            )?;
+            let item_value =
+                self.emit_load_map_payload(value_type, &collection, &payload_off, &payload_len)?;
             self.emit(abi::store_u64(
                 &item_value,
                 abi::stack_pointer(),

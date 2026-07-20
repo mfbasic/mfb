@@ -1483,7 +1483,11 @@ impl CodeBuilder<'_> {
                 key_len_slot,
                 slot.key.as_ref().unwrap(),
                 data_offset_slot,
-                if slot.key.is_some() { "" } else { &slot.value.type_ },
+                if slot.key.is_some() {
+                    ""
+                } else {
+                    &slot.value.type_
+                },
             )?;
         } else {
             self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
@@ -1551,7 +1555,11 @@ impl CodeBuilder<'_> {
             value_len_slot,
             &slot.value,
             data_offset_slot,
-            if slot.key.is_some() { "" } else { &slot.value.type_ },
+            if slot.key.is_some() {
+                ""
+            } else {
+                &slot.value.type_
+            },
         )?;
         Ok(())
     }

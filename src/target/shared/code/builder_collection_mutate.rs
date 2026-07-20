@@ -1334,7 +1334,13 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             data_offset_slot,
         ));
-        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot, element_type)?;
+        self.emit_copy_payload_to_collection(
+            buffer_slot,
+            need_slot,
+            &item,
+            data_offset_slot,
+            element_type,
+        )?;
         // Bump count and dataLength.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2125,7 +2131,13 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 data_offset_slot,
             ));
-            self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot, element_type)?;
+            self.emit_copy_payload_to_collection(
+                buffer_slot,
+                need_slot,
+                &item,
+                data_offset_slot,
+                element_type,
+            )?;
 
             // Bump count and dataLength before writing entries, so the identity
             // loop covers the new element too.
@@ -2303,7 +2315,13 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 data_offset_slot,
             ));
-            self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot, element_type)?;
+            self.emit_copy_payload_to_collection(
+                buffer_slot,
+                need_slot,
+                &item,
+                data_offset_slot,
+                element_type,
+            )?;
             // Bump count and dataLength.
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2435,21 +2453,43 @@ impl CodeBuilder<'_> {
             COLLECTION_HEADER_SIZE,
         ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch17));
-        self.emit(abi::load_u64(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            &scratch13,
-            abi::stack_pointer(),
-            voffset_slot,
-        ));
-        self.emit(abi::load_u64(
-            &scratch9,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        )); // oldLen
+        if let Some(payload) = kind2_payload_size(element_type) {
+            // kind 2: the payload is at `index * payloadSize` and is always the
+            // same size as its replacement, so the rebuild branch below is
+            // unreachable and there is no entry to read (plan-57-D).
+            self.emit(abi::move_immediate(
+                &scratch13,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch13, &scratch10, &scratch13));
+            self.emit(abi::store_u64(
+                &scratch13,
+                abi::stack_pointer(),
+                voffset_slot,
+            ));
+            self.emit(abi::move_immediate(
+                &scratch9,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::store_u64(
+                &scratch13,
+                abi::stack_pointer(),
+                voffset_slot,
+            ));
+            self.emit(abi::load_u64(
+                &scratch9,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            )); // oldLen
+        }
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), need_slot)); // need
                                                                                // Only a same-size replacement overwrites in place (offsets unchanged, no
                                                                                // gap). Any size change — grow OR shrink — rebuilds via removeAt + insert,
@@ -2459,7 +2499,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&rebuild));
 
         // --- Overwrite: same-size payload at valueOffset (valueLength unchanged). ---
-        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, voffset_slot, element_type)?;
+        self.emit_copy_payload_to_collection(
+            buffer_slot,
+            need_slot,
+            &item,
+            voffset_slot,
+            element_type,
+        )?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
         self.emit(abi::move_immediate(
@@ -2778,7 +2824,13 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::store_u64(&scratch13, abi::stack_pointer(), voff_slot));
-        self.emit_copy_payload_to_collection(map_slot, val_len_slot, &value_payload, voff_slot, "")?;
+        self.emit_copy_payload_to_collection(
+            map_slot,
+            val_len_slot,
+            &value_payload,
+            voff_slot,
+            "",
+        )?;
         self.emit(abi::load_u64(
             &scratch8,
             abi::stack_pointer(),
@@ -4618,8 +4670,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit_collection_payload_matches_value_branch(
-        "",
-            key_type, &scratch8, &scratch13, &scratch16, &scratch9, &scan_next, &scan_keep,
+            key_type, "", &scratch8, &scratch13, &scratch16, &scratch9, &scan_next, &scan_keep,
         )?;
         self.emit(abi::label(&scan_keep));
         self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
