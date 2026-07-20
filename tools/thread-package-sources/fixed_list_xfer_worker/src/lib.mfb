@@ -1,0 +1,27 @@
+' plan-57-D Phase 3: workers that carry entry-free (kind 2) lists across a
+' thread boundary in both directions.
+'
+' A transfer copies the block between two threads' arenas, so it reads the
+' source layout and writes the destination layout. If either side sized the
+' block from the wrong stride the copy is short or long, which is the corrupting
+' case rather than the wrong-value case.
+IMPORT collections
+IMPORT thread
+
+' Receive a List OF Integer and send back each element doubled, so the returned
+' list is built in the WORKER's arena and copied back out.
+EXPORT ISOLATED FUNC doubleIntegers(t AS ThreadWorker OF List OF Integer TO List OF Integer, seed AS String) AS List OF Integer
+  LET message AS List OF Integer = thread::receive(t, 10)
+  MUT out AS List OF Integer = []
+  FOR EACH v IN message
+    out = collections::append(out, v * 2)
+  NEXT
+  RETURN out
+END FUNC
+
+' The same for the 1-byte payload width, where an entry-vs-payload confusion is
+' hardest to spot by eye.
+EXPORT ISOLATED FUNC echoBytes(t AS ThreadWorker OF List OF Byte TO List OF Byte, seed AS String) AS List OF Byte
+  LET message AS List OF Byte = thread::receive(t, 10)
+  RETURN message
+END FUNC

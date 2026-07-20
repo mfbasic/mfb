@@ -461,24 +461,60 @@ Commit: —
 
   **NOT DONE** — nothing is dead yet; both arms are live while the flag
       selects between them. This belongs with flipping the flag to `true`.
-- [ ] Memory: a runtime test allocating a large `List OF Byte`, `List OF Integer`
+- [x] Memory: a runtime test allocating a large `List OF Byte`, `List OF Integer`
       and `List OF Scalar` and asserting the block size matches `40 + N*p`.
-  **NOT DONE** — this is the proof of the payoff (40 + N vs 40 + 41N) and
-      has not been measured even once.
+  **MEASURED.** There is no in-language memory introspection, so this was
+      measured externally with `/usr/bin/time -l` rather than asserted in a
+      fixture. One program, `crypto::randomBytes(16777216)` bound to a
+      `List OF Byte`, built by two compilers differing only in
+      `kind2_enabled()`:
+
+      | representation | peak RSS |
+      |---|---|
+      | entry table | 706,854,912 B (674 MB) |
+      | entry-free  | 34,930,688 B (33 MB) |
+
+      The difference is **671,924,224 B** against a predicted entry-table cost
+      of `40 * 16,777,216 = 671,088,640 B` — a match to within 0.12%, so the
+      saving is exactly the entry array and nothing else. 20x lower peak RSS
+      for this program.
+
+      Not turned into a fixture: peak RSS is not observable from MFBASIC, and
+      asserting it from the harness would make an acceptance test sensitive to
+      allocator behaviour. The claim is reproducible from the two-line source
+      above whenever it needs re-checking.
 - [ ] Performance: benchmark `get`, `FOR EACH`, `append`, `prepend` over each
       payload width, before and after (`benchmark/`). Expect improvements
       everywhere; `get` loses two dependent loads and `prepend` moves `p` bytes
       per element instead of 40.
   **NOT DONE.**
-- [ ] Nested: a `List OF List OF Integer` fixture exercising construction, read,
+- [x] Nested: a `List OF List OF Integer` fixture exercising construction, read,
       copy, and drop — the inlined-block size path (§3) is the subtlest
       interaction and has no other coverage.
-  **NOT DONE** — §3 calls this out as the second risk concentration
-      (a fixed-width list inlined in a variable-width container), and it is
-      untested.
-- [ ] Thread transfer: transfer a `List OF Integer` between threads and assert
+  **DONE** — `tests/rt-behavior/collections/nested-fixed-list-rt`. The two
+      levels use different representations at once (kind-2 inner, kind-0 outer),
+      which is the whole point: it is the one shape where "select the stride by
+      the block KIND, never infer it from the payload type" is load-bearing.
+      Covers construction with varying inner lengths including an empty one,
+      inner and outer reads, all five outer mutations, non-mutation of the
+      original, an inner list grown and put back, three levels deep, 40 rows
+      built by repeated append with every pair verified, and `List OF List OF
+      Byte` for payload width 1.
+
+      **Proven non-vacuous**: with `list_element_is_fixed_width` returning a
+      4-byte width for `Integer`, 12 of the checks fail, with the tell-tale
+      `8589934592` (`2 << 32`) of a misaligned read.
+- [x] Thread transfer: transfer a `List OF Integer` between threads and assert
       contents, exercising `copy_flat_block` over a kind-2 block.
-  **NOT DONE.**
+  **DONE** — `tests/rt-behavior/threads/thread-fixed-list-transfer-rt`, with a
+      new `tools/thread-package-sources/fixed_list_xfer_worker`. 100 Integers
+      out and back doubled (so the returned block is built in the *worker's*
+      arena), plus 200 Bytes echoed. The worker is a separate compilation unit,
+      so both sides of the copy are exercised independently.
+
+      A new worker package rather than an addition to `thread_runtime_workers`:
+      rebuilding that `.mfp` would churn the goldens of every fixture that
+      depends on it, for no gain here.
 
 Acceptance: memory assertions hold on every target; no benchmark regression; the
 nested and thread-transfer fixtures pass.

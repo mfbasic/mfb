@@ -1,0 +1,11 @@
+{
+  "name": "fixed_list_xfer_worker",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
+  "ident": "tests:fixed-list-xfer-worker",
+  "identKey": "ed25519-public:test-fixed-list-xfer-worker-ident",
+  "identFingerprint": "sha256:test-fixed-list-xfer-worker-ident",
+  "signingFingerprint": "sha256:test-fixed-list-xfer-worker-signing"
+}

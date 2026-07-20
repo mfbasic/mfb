@@ -1,0 +1,133 @@
+{
+  "project": "thread_fixed_list_transfer_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 8 },
+    { "module": "collections", "line": 9 },
+    { "module": "thread", "line": 10 },
+    { "module": "fixed_list_xfer_worker", "line": 11 }
+    ],
+    "items": [
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "failures", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 13 },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "check",
+      "line": 15,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 15 },
+      { "name": "got", "type": "String", "default": null, "line": 15 },
+      { "name": "want", "type": "String", "default": null, "line": 15 }
+      ],
+      "returnType": null,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "identifier", "value": "want" } },
+        "line": 16,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "FAIL " }, "right": { "kind": "identifier", "value": "label" } }, "right": { "kind": "string", "value": ": got " } }, "right": { "kind": "identifier", "value": "got" } }, "right": { "kind": "string", "value": " want " } }, "right": { "kind": "identifier", "value": "want" } }] }, "line": 17 },
+        { "kind": "assignment", "name": "failures", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "failures" }, "right": { "kind": "number", "value": "1" } }, "line": 18 }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 22,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 25 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 26 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "100" } },
+        "line": 27,
+        "body": [
+        { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "i" }] }, "line": 28 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 29 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF List OF Integer TO List OF Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fixed_list_xfer_worker.doubleIntegers" }, { "kind": "string", "value": "seed" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "10" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "doubled", "type": "List OF Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "len" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "doubled" }] }] }, { "kind": "string", "value": "100" }] }, "line": 36 },
+      { "kind": "binding", "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 37 },
+      { "kind": "binding", "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 38 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "100" } },
+        "line": 39,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "doubled" }, { "kind": "identifier", "value": "j" }] }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "2" } } },
+          "line": 40,
+          "then": [
+          { "kind": "assignment", "name": "bad", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "bad" }, "right": { "kind": "number", "value": "1" } }, "line": 41 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "j", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "1" } }, "line": 43 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "contents" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bad" }] }, { "kind": "string", "value": "0" }] }, "line": 45 },
+      { "kind": "binding", "mutable": true, "name": "bs", "type": "List OF Byte", "value": { "kind": "list", "values": [] }, "line": 49 },
+      { "kind": "binding", "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 50 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "200" } },
+        "line": 51,
+        "body": [
+        { "kind": "assignment", "name": "bs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "bs" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "251" } }] }] }, "line": 52 },
+        { "kind": "assignment", "name": "k", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "1" } }, "line": 53 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "tb", "type": "Thread OF List OF Byte TO List OF Byte", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "fixed_list_xfer_worker.echoBytes" }, { "kind": "string", "value": "seed" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "tb" }, { "kind": "identifier", "value": "bs" }, { "kind": "number", "value": "10" }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "echoed", "type": "List OF Byte", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "tb" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "byte len" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "echoed" }] }] }, { "kind": "string", "value": "200" }] }, "line": 60 },
+      { "kind": "binding", "mutable": true, "name": "badBytes", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 61 },
+      { "kind": "binding", "mutable": true, "name": "m", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 62 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "m" }, "right": { "kind": "number", "value": "200" } },
+        "line": 63,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "echoed" }, { "kind": "identifier", "value": "m" }] }] }, "right": { "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "m" }, "right": { "kind": "number", "value": "251" } } },
+          "line": 64,
+          "then": [
+          { "kind": "assignment", "name": "badBytes", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "badBytes" }, "right": { "kind": "number", "value": "1" } }, "line": 65 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "m", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "m" }, "right": { "kind": "number", "value": "1" } }, "line": 67 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "byte contents" }, { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "badBytes" }] }, { "kind": "string", "value": "0" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fixed-width list thread transfer: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "failures" }] } }, "right": { "kind": "string", "value": " failure(s)" } }] }, "line": 71 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 72 }
+      ]
+    }
+    ]
+  }
+  ]
+}

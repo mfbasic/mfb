@@ -1,0 +1,131 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_fixed_list_transfer_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "bindings": [
+  { "name": "failures", "line": 13, "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+  ],
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "check",
+    "line": 15,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "label", "line": 15, "type": "String", "default": null },
+    { "name": "got", "line": 15, "type": "String", "default": null },
+    { "name": "want", "line": 15, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "if",
+      "line": 16,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "got" }, "right": { "kind": "local", "name": "want" } },
+      "then": [
+      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "FAIL " }, "right": { "kind": "local", "name": "label" } }, "right": { "kind": "const", "type": "String", "value": ": got " } }, "right": { "kind": "local", "name": "got" } }, "right": { "kind": "const", "type": "String", "value": " want " } }, "right": { "kind": "local", "name": "want" } }] } },
+      { "op": "assignGlobal", "line": 18, "name": "failures", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "global", "name": "failures" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ],
+      "else": [
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 25, "mutable": true, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 26, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 27,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "100" } },
+      "body": [
+      { "op": "assign", "line": 28, "name": "xs", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "i" }] } },
+      { "op": "assign", "line": 29, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 32, "mutable": false, "name": "t", "type": "Thread OF List OF Integer TO List OF Integer", "value": { "kind": "call", "type": "Thread OF List OF Integer TO List OF Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fixed_list_xfer_worker.doubleIntegers", "type": "ISOLATED FUNC(ThreadWorker OF List OF Integer TO List OF Integer, String) AS List OF Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "doubled", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "check", "args": [{ "kind": "const", "type": "String", "value": "len" }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "doubled" }] }] }, { "kind": "const", "type": "String", "value": "100" }] } },
+    { "op": "bind", "line": 37, "mutable": true, "name": "bad", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 38, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 39,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "100" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 40,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "local", "name": "j" }] }, "right": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } },
+        "then": [
+        { "op": "assign", "line": 41, "name": "bad", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "bad" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 43, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "check", "args": [{ "kind": "const", "type": "String", "value": "contents" }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "bad" }] }, { "kind": "const", "type": "String", "value": "0" }] } },
+    { "op": "bind", "line": 49, "mutable": true, "name": "bs", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
+    { "op": "bind", "line": 50, "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 51,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      { "op": "assign", "line": 52, "name": "bs", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "bs" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "251" } }] }] } },
+      { "op": "assign", "line": 53, "name": "k", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "k" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 56, "mutable": false, "name": "tb", "type": "Thread OF List OF Byte TO List OF Byte", "value": { "kind": "call", "type": "Thread OF List OF Byte TO List OF Byte", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "fixed_list_xfer_worker.echoBytes", "type": "ISOLATED FUNC(ThreadWorker OF List OF Byte TO List OF Byte, String) AS List OF Byte" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "eval", "line": 57, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "tb" }, { "kind": "local", "name": "bs" }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 58, "mutable": false, "name": "echoed", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "tb" }] } },
+    { "op": "eval", "line": 60, "value": { "kind": "call", "type": "Nothing", "target": "check", "args": [{ "kind": "const", "type": "String", "value": "byte len" }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "echoed" }] }] }, { "kind": "const", "type": "String", "value": "200" }] } },
+    { "op": "bind", "line": 61, "mutable": true, "name": "badBytes", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 62, "mutable": true, "name": "m", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 63,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "m" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      {
+        "op": "if",
+        "line": 64,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "echoed" }, { "kind": "local", "name": "m" }] }] }, "right": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "m" }, "right": { "kind": "const", "type": "Integer", "value": "251" } } },
+        "then": [
+        { "op": "assign", "line": 65, "name": "badBytes", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "badBytes" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 67, "name": "m", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "m" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "check", "args": [{ "kind": "const", "type": "String", "value": "byte contents" }, { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "badBytes" }] }, { "kind": "const", "type": "String", "value": "0" }] } },
+    { "op": "eval", "line": 71, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "fixed-width list thread transfer: " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "global", "name": "failures" }] } }, "right": { "kind": "const", "type": "String", "value": " failure(s)" } }] } },
+    { "op": "return", "line": 72, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

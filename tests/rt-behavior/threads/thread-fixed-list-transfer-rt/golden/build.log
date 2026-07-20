@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/rt-behavior/threads/thread-fixed-list-transfer-rt
+uses fixed_list_xfer_worker - [Unsigned]
+Wrote AST to tests/rt-behavior/threads/thread-fixed-list-transfer-rt/thread_fixed_list_transfer_rt.ast
+Wrote IR to tests/rt-behavior/threads/thread-fixed-list-transfer-rt/thread_fixed_list_transfer_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/threads/thread-fixed-list-transfer-rt
+uses fixed_list_xfer_worker - [Unsigned]
+Wrote executable to tests/rt-behavior/threads/thread-fixed-list-transfer-rt/build/thread_fixed_list_transfer_rt.out
+[exit 0]
+$ tests/rt-behavior/threads/thread-fixed-list-transfer-rt/build/thread_fixed_list_transfer_rt.out
+fixed-width list thread transfer: 0 failure(s)
+[exit 0]

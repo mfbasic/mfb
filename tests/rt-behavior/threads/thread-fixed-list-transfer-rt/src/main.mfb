@@ -1,0 +1,73 @@
+' plan-57-D Phase 3: an entry-free (kind 2) list crossing a thread boundary.
+'
+' A thread send/receive copies the block between two arenas, so it reads the
+' source layout and writes the destination layout. A stride disagreement there
+' copies too few or too many bytes rather than returning a wrong value, and the
+' two sides are lowered separately — the worker is a different compilation unit.
+' Sizes run past 64 so the copy is longer than any single entry would have been.
+IMPORT io
+IMPORT collections
+IMPORT thread
+IMPORT fixed_list_xfer_worker
+
+MUT failures AS Integer = 0
+
+SUB check(label AS String, got AS String, want AS String)
+  IF got <> want THEN
+    io::print("FAIL " & label & ": got " & got & " want " & want)
+    failures = failures + 1
+  END IF
+END SUB
+
+FUNC main AS Integer
+  ' Integer payload (width 8), 100 elements: built here, copied in, rebuilt in
+  ' the worker's arena, copied back out.
+  MUT xs AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 100
+    xs = collections::append(xs, i)
+    i = i + 1
+  WEND
+
+  LET t AS Thread OF List OF Integer TO List OF Integer = thread::start(fixed_list_xfer_worker::doubleIntegers, "seed")
+  thread::send(t, xs, 10)
+  LET doubled AS List OF Integer = thread::waitFor(t)
+
+  check("len", toString(len(doubled)), "100")
+  MUT bad AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < 100
+    IF collections::get(doubled, j) <> j * 2 THEN
+      bad = bad + 1
+    END IF
+    j = j + 1
+  WEND
+  check("contents", toString(bad), "0")
+
+  ' Byte payload (width 1): 200 elements, so the block is far larger than the
+  ' 40-byte entry it no longer carries.
+  MUT bs AS List OF Byte = []
+  MUT k AS Integer = 0
+  WHILE k < 200
+    bs = collections::append(bs, toByte(k MOD 251))
+    k = k + 1
+  WEND
+
+  LET tb AS Thread OF List OF Byte TO List OF Byte = thread::start(fixed_list_xfer_worker::echoBytes, "seed")
+  thread::send(tb, bs, 10)
+  LET echoed AS List OF Byte = thread::waitFor(tb)
+
+  check("byte len", toString(len(echoed)), "200")
+  MUT badBytes AS Integer = 0
+  MUT m AS Integer = 0
+  WHILE m < 200
+    IF toInt(collections::get(echoed, m)) <> m MOD 251 THEN
+      badBytes = badBytes + 1
+    END IF
+    m = m + 1
+  WEND
+  check("byte contents", toString(badBytes), "0")
+
+  io::print("fixed-width list thread transfer: " & toString(failures) & " failure(s)")
+  RETURN 0
+END FUNC

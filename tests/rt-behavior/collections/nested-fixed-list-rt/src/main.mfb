@@ -1,0 +1,151 @@
+' plan-57-D Phase 3: a `List OF List OF Integer` under the entry-free
+' representation. §3 named this the second risk concentration and it went
+' untested through the whole implementation.
+'
+' The two levels use DIFFERENT layouts, which is the entire point:
+'
+'   * the INNER `List OF Integer` is fixed-width, so it is kind 2 — header plus
+'     a packed payload, no lookup table;
+'   * the OUTER `List OF List OF Integer` has variable-length elements (each
+'     inner list is its own block), so it keeps its lookup table at kind 0.
+'
+' A nested list is therefore the one shape where a single value spans both
+' representations at once, and where "select the stride by the BLOCK KIND, never
+' infer it from the payload type" is load-bearing rather than a slogan. Getting
+' it wrong reads an inner list's packed bytes as entry descriptors.
+IMPORT io
+IMPORT collections
+
+MUT failures AS Integer = 0
+
+SUB check(label AS String, got AS String, want AS String)
+  IF got <> want THEN
+    io::print("FAIL " & label & ": got " & got & " want " & want)
+    failures = failures + 1
+  END IF
+END SUB
+
+' Render a list of lists as "a,b|c,d|" so one comparison covers every element,
+' every inner length, and the order of both levels at once.
+FUNC render(rows AS List OF List OF Integer) AS String
+  MUT out AS String = ""
+  FOR EACH row IN rows
+    FOR EACH v IN row
+      out = out & toString(v) & ","
+    NEXT
+    out = out & "|"
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC main() AS Integer
+  ' Construction: inner lists of differing lengths, including an empty one, so
+  ' the outer entry table cannot be a fixed stride over the inner blocks.
+  LET a AS List OF Integer = [1, 2, 3]
+  LET b AS List OF Integer = []
+  LET c AS List OF Integer = [4]
+  LET rows AS List OF List OF Integer = [a, b, c]
+  check("construct", render(rows), "1,2,3,||4,|")
+
+  ' Reading an inner list back out and indexing into it: the outer read goes
+  ' through an entry, the inner read does not.
+  LET first AS List OF Integer = collections::get(rows, 0)
+  check("inner len", toString(len(first)), "3")
+  check("inner get", toString(collections::get(first, 2)), "3")
+  check("outer len", toString(len(rows)), "3")
+
+  ' Mutation at the outer level. Each returns a new outer block whose entries
+  ' must be rebuilt while the inner blocks are copied whole.
+  LET row56 AS List OF Integer = [5, 6]
+  LET appended AS List OF List OF Integer = collections::append(rows, row56)
+  check("append", render(appended), "1,2,3,||4,|5,6,|")
+
+  LET row7 AS List OF Integer = [7]
+  LET prepended AS List OF List OF Integer = collections::prepend(rows, row7)
+  check("prepend", render(prepended), "7,|1,2,3,||4,|")
+
+  LET row89 AS List OF Integer = [8, 9]
+  LET inserted AS List OF List OF Integer = collections::insert(rows, 1, row89)
+  check("insert", render(inserted), "1,2,3,|8,9,||4,|")
+
+  LET removed AS List OF List OF Integer = collections::removeAt(rows, 0)
+  check("removeAt", render(removed), "|4,|")
+
+  LET row000 AS List OF Integer = [0, 0, 0]
+  LET replaced AS List OF List OF Integer = collections::set(rows, 2, row000)
+  check("set", render(replaced), "1,2,3,||0,0,0,|")
+
+  ' The original is unchanged by any of the above (collections helpers are
+  ' non-mutating), which also proves the inner blocks were copied rather than
+  ' aliased into the new outer lists.
+  check("original intact", render(rows), "1,2,3,||4,|")
+
+  ' Mutating an INNER list and putting it back: exercises a kind-2 block flowing
+  ' through an outer kind-0 entry.
+  LET grown AS List OF Integer = collections::append(first, 99)
+  LET nested AS List OF List OF Integer = collections::set(rows, 0, grown)
+  check("inner grow", render(nested), "1,2,3,99,||4,|")
+
+  ' Three levels deep, so an inner kind-0 list also sits under an outer one.
+  LET one AS List OF Integer = [1]
+  LET plane1 AS List OF List OF Integer = [one]
+  LET deep AS List OF List OF List OF Integer = [rows, plane1]
+  MUT deepOut AS String = ""
+  FOR EACH plane IN deep
+    deepOut = deepOut & render(plane) & "/"
+  NEXT
+  check("three levels", deepOut, "1,2,3,||4,|/1,|/")
+
+  ' A longer outer list, past the point where an outer block would be reallocated
+  ' during construction, with inner lengths that vary so a mis-sized outer entry
+  ' shows up as a shifted inner list rather than a clean failure.
+  MUT many AS List OF List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 40
+    LET pair AS List OF Integer = [i, i + 1]
+    many = collections::append(many, pair)
+    i = i + 1
+  WEND
+  check("bulk len", toString(len(many)), "40")
+  LET firstRow AS List OF List OF Integer = [collections::get(many, 0)]
+  LET lastRow AS List OF List OF Integer = [collections::get(many, 39)]
+  check("bulk first", render(firstRow), "0,1,|")
+  check("bulk last", render(lastRow), "39,40,|")
+
+  ' Every inner list still holds exactly its own two elements: a stride mistake
+  ' at either level shows up here as a duplicated or shifted pair.
+  MUT bad AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < 40
+    LET row AS List OF Integer = collections::get(many, j)
+    IF len(row) <> 2 THEN
+      bad = bad + 1
+    ELSE
+      IF collections::get(row, 0) <> j THEN
+        bad = bad + 1
+      END IF
+      IF collections::get(row, 1) <> j + 1 THEN
+        bad = bad + 1
+      END IF
+    END IF
+    j = j + 1
+  WEND
+  check("bulk contents", toString(bad), "0")
+
+  ' Byte inner lists too: payload width 1 is where an entry-vs-payload confusion
+  ' is least likely to be caught by accident, since one entry spans 40 elements.
+  LET b12 AS List OF Byte = [toByte(1), toByte(2)]
+  LET b3 AS List OF Byte = [toByte(3)]
+  LET bytes AS List OF List OF Byte = [b12, b3]
+  MUT byteOut AS String = ""
+  FOR EACH row IN bytes
+    FOR EACH v IN row
+      byteOut = byteOut & toString(toInt(v)) & ","
+    NEXT
+    byteOut = byteOut & "|"
+  NEXT
+  check("byte inner", byteOut, "1,2,|3,|")
+
+  io::print("nested fixed-width lists: " & toString(failures) & " failure(s)")
+  RETURN 0
+END FUNC
