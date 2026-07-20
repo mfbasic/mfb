@@ -136,8 +136,18 @@ the executable at the path the golden names and invoking it there — bare
 relative, no `./`, since a `./` would itself land in `argv[0]`.
 Accounts for `project/project-entry-args-runtime`.
 
-The harness is now a faithful stand-in for `test-accept.sh` on all three axes it
-had drifted on: cwd, scratch directory, and `argv[0]`.
+**3 — a 60s timeout that failed under its own concurrency.** Found while
+checking the x86_64 re-run: `crypto/crypto-kat-valid` failed there but **passed
+when run alone**. It takes ~8s on an idle 2227 (qemu TCG on Apple Silicon), but
+at `JOBS=10` ten such fixtures contend and it exceeded the harness's `timeout
+60`. The cap is a hang detector, not a performance budget, so it is now
+`RUN_TIMEOUT` defaulting to 300s. A harness that fails differently depending on
+`-P` is worse than a slow one: it teaches you to discount its output, which is
+how these failures sat unexplained across three sessions in the first place.
+
+The harness is now a faithful stand-in for `test-accept.sh` on all four axes it
+had drifted on: cwd, scratch directory, `argv[0]`, and a run cap that does not
+depend on load.
 
 ### Verification
 

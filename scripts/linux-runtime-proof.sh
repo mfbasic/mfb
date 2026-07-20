@@ -31,6 +31,18 @@ FLAVOR=${4:-glibc}
 MFB=$(cd "$(dirname "$MFB")" && pwd)/$(basename "$MFB")
 FILTER=${FILTER:-}
 JOBS=${JOBS:-4}
+# Per-fixture wall-clock cap. This is a hang detector, not a performance budget,
+# so it is generous: the point is to stop a deadlocked fixture from wedging the
+# run, not to assert how fast a program should be.
+#
+# It was 60s, which produced a load-dependent false failure. `crypto/
+# crypto-kat-valid` takes ~8s on an idle x86_64/musl box (2227 is qemu TCG on
+# Apple Silicon), but at JOBS=10 ten of those contend and it blew past 60s and
+# was recorded as a FAIL — a fixture that passes when run alone. A harness that
+# fails differently depending on `-P` is worse than a slow one: it teaches you to
+# discount its output, which is exactly how the last four failures sat
+# unexplained across three sessions.
+RUN_TIMEOUT=${RUN_TIMEOUT:-300}
 SSH="ssh -o ConnectTimeout=10 -o BatchMode=yes -p $PORT test@127.0.0.1"
 
 work=$(mktemp -d)
@@ -142,7 +154,7 @@ run_fixture() {
 
   # cwd is the shipped repo root, exactly as under test-accept.sh.
   actual=$($SSH "cd $REMOTE/root && chmod +x '$remote_rel' && \
-      timeout 60 '$remote_rel' </dev/null 2>&1; echo \"[exit \$?]\"" 2>&1)
+      timeout $RUN_TIMEOUT '$remote_rel' </dev/null 2>&1; echo \"[exit \$?]\"" 2>&1)
   expected=$(expected_of "$proj/golden/build.log")
 
   if [ "$actual" = "$expected" ]; then
