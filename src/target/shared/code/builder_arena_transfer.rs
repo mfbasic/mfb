@@ -724,17 +724,21 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             dest_entry_slot,
         ));
-        self.emit(abi::load_u8(
-            &scratch9,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
-        self.emit(abi::compare_immediate(
-            &scratch9,
-            &COLLECTION_ENTRY_FLAG_USED.to_string(),
-        ));
-        self.emit(abi::branch_ne(&next_label));
-
+        // A `flags != USED` guard used to sit here, skipping the entry. It was
+        // unconditionally true and has been removed (plan-57-E §4.1).
+        //
+        // The audit, because "this looks dead" is not evidence: this was the
+        // ONLY read of `COLLECTION_ENTRY_OFFSET_FLAGS` anywhere in the tree.
+        // Every other reference is a store, and every store writes
+        // `COLLECTION_ENTRY_FLAG_USED`. Nothing clears the bit — `removeAt`
+        // compacts the entry array rather than tombstoning — so the compare
+        // could never fail and the branch was never taken.
+        //
+        // It was a guard against a tombstone representation that does not
+        // exist, and it predates plan-57 rather than being made dead by it. If
+        // a deletion ever DOES start tombstoning, this loop needs the check
+        // back, along with every other consumer that assumes `count` entries are
+        // contiguous and live.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         // Kind-0 stride, deliberately: this walks the ENTRY table, so it only
         // runs for a block that has one. `payload_type` must NOT be used here —

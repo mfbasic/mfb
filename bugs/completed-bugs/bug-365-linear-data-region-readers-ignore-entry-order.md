@@ -5,8 +5,24 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Miscompile (silent wrong answer / data corruption)
 
-Status: FIXED (2026-07-19)
+Status: FIXED (2026-07-19); the fixed-width half became UNFALSIFIABLE (2026-07-20)
 Regression Test: `tests/rt-behavior/collections/list-payload-order-rt` and `tests/rt-behavior/fs/fs-write-bytes-payload-order-rt`
+
+**Update (2026-07-20, plan-57-D).** The fixed-width half of this bug can no
+longer recur. Those element types are now `kind = 2` and carry **no lookup
+table** at all, so "the entries disagree with the data region" has nothing left
+to disagree with — element `i` is at `Data[i * payloadSize]` by construction, and
+a linear reader is correct by definition rather than by maintenance.
+
+This report's ordering invariant is what made that safe to do: plan-57-C proved
+it held across 300 mixed mutation steps (`list-order-invariant-rt`) before
+plan-57-D relied on it. The entry that always equalled the index is precisely
+what was deleted.
+
+The variable-width half is unchanged and still requires going through
+`entry[i].valueOffset` — see the table below, which already records that no
+variable-width linear reader exists. plan-57-E considered reopening this report
+for that half and did not, because there is nothing there to fix.
 
 ## Resolution
 

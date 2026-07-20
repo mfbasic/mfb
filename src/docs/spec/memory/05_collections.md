@@ -271,6 +271,13 @@ correct. `prepend` and `insert` move payload bytes to maintain this, which for
 these types is *cheaper* than the alternative: the payload is 1–8 bytes where the
 lookup entry it would otherwise splice is 40.
 
+The distinction is now structural, not merely a property to be maintained. A
+fixed-width list is `kind = 2` and has no entry table to disagree with: index
+order is guaranteed **by construction**, and a linear reader cannot be wrong. A
+variable-width list is `kind = 0` and the hazard below applies in full. Half the
+element types are safe; the other half are exactly as dangerous as before, and a
+reader that handles "lists" uniformly is still wrong.
+
 For a **variable-width element type** — `String`, records, unions, nested
 collections — payloads are densely packed but **not necessarily in index order**.
 A reader **must not** assume element `i` begins at `dataBase + i * payloadSize`,

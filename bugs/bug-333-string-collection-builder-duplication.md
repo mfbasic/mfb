@@ -8,6 +8,39 @@ Class: Other (cleanup / duplication)
 Status: Open
 Regression Test: none new for the duplication items — the guarantee is **byte-identical generated output**, enforced by `scripts/artifact-gate.sh` plus `scripts/test-accept.sh`. Item **C1 is the exception**: it needs a real acceptance test (see Validation Plan).
 
+## Update (2026-07-20): what plan-57 changed underneath this report
+
+plan-57 rewrote much of the collection-builder surface, so the C-item line
+numbers below are stale. The findings themselves stand; read them by name, not by
+line. What actually changed:
+
+- **Every C item's duplication got *worse*, not better, and deliberately.** Each
+  entry-table site now carries a second arm for the entry-free (`kind = 2`)
+  representation. That raises the cost of leaving these duplicated: a change to
+  the shared skeleton must now be made at six sites **times two arms**. plan-57-D
+  found four corruption-class bugs, two of which (`net`'s byte-list builders,
+  `push_collection_data_base_from_capacity`) were exactly this — one copy of a
+  duplicated formula updated and another missed.
+- **C5 (entry linear scan, six sites)** is the highest-value item after C1 for
+  this reason. Any extracted `emit_entry_scan` must take the stride from
+  `list_entry_stride`/`kind2_payload_size` rather than `COLLECTION_ENTRY_SIZE`,
+  and must select it from the *block kind*, never from the payload type — a
+  `Map OF Scalar TO T` has a fixed-width key and still keeps its entries.
+- **C3 (three payload-compare emitters)** — all three gained an explicit
+  `stride_type` parameter (`""` for a map). Their 7-arm dispatch is still
+  triplicated; the extraction is now slightly larger but unchanged in shape.
+- **S6 (two open-coded header writes)** — both sites still bypass
+  `emit_write_list_header_from_registers`, and both now also need the kind byte
+  from `list_block_kind`. A third open-coded-header class was found and fixed
+  separately in plan-57-D: seven runtime byte-list builders were stamping
+  `kind = 0` on blocks with no entry table.
+- **What plan-57-A/B actually collapsed** is narrow: three byte-list
+  constructors folded into `audio/mod.rs::emit_alloc_byte_list`, and two of
+  eleven element-access sites. plan-57-A's own findings record that "38 indexed
+  read sites" turned out to be 2 convertible ones. Re-measure before scheduling
+  any C item — this report's counts were estimated, and every plan-57 estimate of
+  the same surface was wrong by a large factor in both directions.
+
 Two independent cleanup reviewers (Agent 02 — string/conversion builders; Agent 01
 — collection builders) converged on the same shape of finding in
 `src/target/shared/code/`: the same algorithm is emitted two, three, or eleven
