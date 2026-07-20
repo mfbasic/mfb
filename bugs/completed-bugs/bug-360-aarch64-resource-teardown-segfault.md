@@ -138,10 +138,22 @@ Accounts for `project/project-entry-args-runtime`.
 
 **3 — a 60s timeout that failed under its own concurrency.** Found while
 checking the x86_64 re-run: `crypto/crypto-kat-valid` failed there but **passed
-when run alone**. It takes ~8s on an idle 2227 (qemu TCG on Apple Silicon), but
-at `JOBS=10` ten such fixtures contend and it exceeded the harness's `timeout
-60`. The cap is a hang detector, not a performance budget, so it is now
-`RUN_TIMEOUT` defaulting to 300s. A harness that fails differently depending on
+when run alone**. Measured directly on 2227 (qemu TCG on Apple Silicon, and
+`nproc` reports **1 core**):
+
+| condition | wall clock |
+| --- | --- |
+| alone | **7.91s** |
+| with 9 concurrent copies (i.e. `JOBS=10`) | **1m 29.40s** |
+
+`user` time stayed at ~7.4s in both — the work did not grow, it just queued
+behind nine siblings on one emulated core. 89s against a 60s cap is the whole
+failure. The cap is a hang detector, not a performance budget, so it is now
+`RUN_TIMEOUT` defaulting to 300s.
+
+The single core also explains why `JOBS` buys nothing on this box and only
+manufactures false failures; the aarch64 boxes are unaffected because they are
+not emulated. A harness that fails differently depending on
 `-P` is worse than a slow one: it teaches you to discount its output, which is
 how these failures sat unexplained across three sessions in the first place.
 
