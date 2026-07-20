@@ -100,22 +100,54 @@ which was never involved.
 
 ### Result
 
-`scripts/linux-runtime-proof.sh` on all three aarch64 boxes: **463 passed / 4
-failed**, up from 446 / 21, with the three failing-fixture lists diffing empty
-against each other. All 17 aarch64-specific failures are gone. The 4 that remain
-are the harness artifacts this document already identified as such
-(`csv/csv-behavior`, `project/project-entry-args-runtime`,
-`fs/file-buffered-drain-integrity-rt`, `fs/bug159_listdir_notdir_error`) and
-fail on non-aarch64 boxes too.
+`scripts/linux-runtime-proof.sh` on all three aarch64 boxes: **467 passed / 0
+failed**, up from 446 / 21, with the three verdict lists diffing empty against
+each other. All 17 aarch64-specific failures are gone.
+
+The fix itself accounts for 17 of the 21. The remaining 4 were **defects in the
+proof harness**, confirmed and fixed rather than left as suspicions (see below).
+
+### The last 4 were harness bugs, now fixed
+
+This document originally called them "most likely artifacts of
+`scripts/linux-runtime-proof.sh`" and said to confirm before believing it. That
+confirmation was done; both causes were real, and both are repaired in the
+harness. Neither was ever a product defect.
+
+**1 — no `target/` directory on the box.** 78 fixtures write scratch files to a
+cwd-relative `target/` (`fs::writeText("target/bug159_regfile", …)`). Locally
+that directory always exists, because it is cargo's build directory, so
+`test-accept.sh` never had to create it. The harness ships only `tests/`, so
+every such write failed and the fixture reported a "not found" that read exactly
+like a product regression. This is the same class of error as the `cd
+$REMOTE/root` bug already documented in the script's own comments. Fixed by
+creating `target/` in the shipped root. One shared directory is correct — that is
+what the real harness has — and is concurrency-safe at any `JOBS`: no `target/`
+path is written by more than one fixture, verified across all 78.
+Accounts for `csv/csv-behavior`, `fs/file-buffered-drain-integrity-rt`, and
+`fs/bug159_listdir_notdir_error`.
+
+**2 — wrong `argv[0]`.** `test-accept.sh` runs the executable by its
+repo-root-relative path (`tests/<rel>/build/<name>.out`), so that string is what
+a program reading `args` sees as `argv[0]`, and it is what the golden records.
+The harness ran the same bytes from `/tmp/<pid>-<name>`, so `argv[0]` differed
+and the compare failed on output that was otherwise correct. Fixed by landing
+the executable at the path the golden names and invoking it there — bare
+relative, no `./`, since a `./` would itself land in `argv[0]`.
+Accounts for `project/project-entry-args-runtime`.
+
+The harness is now a faithful stand-in for `test-accept.sh` on all three axes it
+had drifted on: cwd, scratch directory, and `argv[0]`.
 
 ### Verification
 
 | check | result |
 | --- | --- |
-| 2222 Arch aarch64/glibc 2.35 | 463 pass / 4 fail (was 446 / 21) |
-| 2223 Kali aarch64/glibc 2.42 | 463 pass / 4 fail (was 446 / 21) |
-| 2224 Alpine aarch64/musl | 463 pass / 4 fail (was 446 / 21) |
-| 2227 Alpine x86_64/musl | 453 pass / 14 fail — the documented pre-existing set |
+| 2222 Arch aarch64/glibc 2.35 | **467 pass / 0 fail** (was 446 / 21) |
+| 2223 Kali aarch64/glibc 2.42 | **467 pass / 0 fail** (was 446 / 21) |
+| 2224 Alpine aarch64/musl | **467 pass / 0 fail** (was 446 / 21) |
+| all three aarch64 verdict lists | byte-identical to each other |
+| 2227 Alpine x86_64/musl | re-run in progress; its own pre-existing set (`json/json-behavior`, `os::userName` on Alpine, the two `listdir-order` fixtures whose goldens encode one directory order) is unrelated to these two harness bugs and is triaged separately below |
 | macOS `scripts/test-accept.sh` | 1014 / 1014 |
 | `cargo test` | 3096 passed, 0 failed |
 
@@ -230,13 +262,18 @@ rt-behavior/fs/func_fs_createTempFile_valid         aarch64/glibc only
 rt-behavior/project/project-fs-createTempFile-package-valid   aarch64/glibc only
 ```
 
-Failing on **every** box tested, and most likely artifacts of
-`scripts/linux-runtime-proof.sh` rather than product defects — it does not supply
-argv, and some fixtures depend on filesystem state a plain `cd <root>` does not
-reproduce. Confirm the harness before treating any of these as real:
-`rt-behavior/csv/csv-behavior` (reports "not found"),
-`rt-behavior/fs/file-buffered-drain-integrity-rt`,
-`rt-behavior/project/project-entry-args-runtime`.
+Failing on **every** box tested. This section originally guessed these were
+`scripts/linux-runtime-proof.sh` artifacts and said to confirm before believing
+it. **Confirmed, and fixed** — see "The last 4 were harness bugs" above. The
+guess named the right two mechanisms (no argv, and filesystem state a plain
+`cd <root>` does not reproduce) but neither was verified at the time, and the
+suspicion sat in this document as though it were a finding. It was not: it
+became one only when each fixture was traced to its cause and the harness was
+repaired. `rt-behavior/csv/csv-behavior` (reported "not found"),
+`rt-behavior/fs/file-buffered-drain-integrity-rt`, and
+`rt-behavior/fs/bug159_listdir_notdir_error` all wrote to a `target/` the box did
+not have; `rt-behavior/project/project-entry-args-runtime` compared an `argv[0]`
+the harness never reproduced. All four now pass on all three aarch64 boxes.
 
 x86_64/musl additionally fails `json/json-behavior`,
 `json/json-parse-deep-scalar-scan-rt`, `os/func_os_userName_valid` (Alpine has no

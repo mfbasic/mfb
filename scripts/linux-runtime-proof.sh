@@ -51,6 +51,19 @@ tar -C "$ROOT" --no-xattrs -cf - tests 2>/dev/null | \
   $SSH "mkdir -p $REMOTE/root && tar -C $REMOTE/root -xf - 2>/dev/null" \
   || { echo "failed to ship tests/ to the box" >&2; exit 2; }
 
+# `target/` is the scratch directory 78 fixtures write into, addressed relative
+# to cwd (`fs::writeText("target/bug159_regfile", ...)`). Locally it always
+# exists because it is cargo's build directory, so `test-accept.sh` never had to
+# create it. Here it does not, and every one of those fixtures failed on the
+# write with a "not found" that looked exactly like a product regression — the
+# same class of harness error the `cd $REMOTE/root` comment above describes.
+#
+# One shared directory is correct rather than one per fixture: that is what the
+# real harness has. It is also concurrency-safe at any JOBS, because no
+# `target/` path is written by more than one fixture (checked across all 78).
+$SSH "mkdir -p $REMOTE/root/target" \
+  || { echo "failed to create target/ on the box" >&2; exit 2; }
+
 # The expected program output: everything after the LAST `$ <exe>` line in the
 # fixture's golden build.log.
 #
@@ -99,7 +112,28 @@ run_fixture() {
     return 0
   fi
 
-  remote_exe="$REMOTE/$slot-$name"
+  # Land the executable where the golden says it lives — `tests/<rel>/build/
+  # <name>.out` under the shipped root — and invoke it by exactly that
+  # repo-root-relative path.
+  #
+  # Both halves matter. `test-accept.sh` runs `$run_path` verbatim from the repo
+  # root, so a program reading `args` sees that relative path as `argv[0]`, and
+  # the golden records it. Running the same bytes from `/tmp/<pid>-<name>`
+  # produced a different `argv[0]` and failed
+  # `rt-behavior/project/project-entry-args-runtime` on output that was
+  # otherwise correct. The `.out` name is deliberately unflavored even when the
+  # build emitted `<name>-glibc.out`/`<name>-musl.out`: the goldens are recorded
+  # on macOS, which emits one unflavored artifact, and it is `argv[0]` we are
+  # matching.
+  #
+  # Invoked as the bare relative path, with no `./` prefix — the golden has
+  # none, and a `./` would land in `argv[0]` and fail the compare just as the
+  # absolute path did. A relative path containing a slash executes directly
+  # without needing `./`.
+  remote_dir="$REMOTE/root/tests/$rel/build"
+  remote_rel="tests/$rel/build/$name.out"
+  remote_exe="$remote_dir/$name.out"
+  $SSH "mkdir -p '$remote_dir'" 2>/dev/null || { echo "SCP-FAIL|$rel" > "$part"; return 0; }
   if ! scp -q -o ConnectTimeout=10 -o BatchMode=yes -P "$PORT" \
         "$exe" "test@127.0.0.1:$remote_exe" 2>/dev/null; then
     echo "SCP-FAIL|$rel" > "$part"
@@ -107,8 +141,8 @@ run_fixture() {
   fi
 
   # cwd is the shipped repo root, exactly as under test-accept.sh.
-  actual=$($SSH "cd $REMOTE/root && chmod +x $remote_exe && \
-      timeout 60 $remote_exe </dev/null 2>&1; echo \"[exit \$?]\"" 2>&1)
+  actual=$($SSH "cd $REMOTE/root && chmod +x '$remote_rel' && \
+      timeout 60 '$remote_rel' </dev/null 2>&1; echo \"[exit \$?]\"" 2>&1)
   expected=$(expected_of "$proj/golden/build.log")
 
   if [ "$actual" = "$expected" ]; then
