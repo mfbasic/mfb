@@ -63,12 +63,40 @@ or work around any part of plan-57. It waits.
 
 **The entry check — run this before writing a line of plan-58:**
 
-| Must be true | Command | Status 2026-07-20 |
+| Must be true | Command | Status 2026-07-20 (re-verified, plan-57 now complete) |
 |---|---|---|
-| plan-57-A…E all landed and archived to `planning/old-plans/` | `ls planning/plan-57-*` → no matches | **NOT MET** — A–E still in `planning/` |
-| A `pub(crate)` byte-list constructor exists | `rg -n 'fn emit_alloc_list' src/` | **NOT MET** — no matches |
-| A `pub(crate)` data-pointer helper exists | `rg -n 'fn emit_collection_data_pointer_into' src/` | **NOT MET** — no matches |
-| `kind = 2` is the **default** representation, ungated | `rg -n 'MFB_KIND2' src/` → no matches | **NOT MET** — gate live at `builder_collection_layout.rs:2191` |
+| plan-57-A…E all landed and archived to `planning/old-plans/` | `ls planning/plan-57-*` → no matches | **MET** — all five archived |
+| A `pub(crate)` byte-list constructor exists | `rg -n 'fn emit_alloc_list' src/` | **NOT MET as written; capability MET** — see below |
+| A `pub(crate)` data-pointer helper exists | `rg -n 'fn emit_collection_data_pointer_into' src/` | **NOT MET as written; capability MET** — see below |
+| `kind = 2` is the **default** representation, ungated | `rg -n 'MFB_KIND2' src/` → no matches | **MET** — `kind2_enabled()` is a plain `true`; the one remaining hit is a doc comment recording the A/B evidence, not an env read (`rg 'env::var' builder_collection_layout.rs` → no matches) |
+
+**Rows 2 and 3 name helpers plan-57 deliberately declined to create.** plan-57-A's
+findings record that `emit_element_address` and friends were *not* added because
+they would have had **no callers**, and AGENTS.md bans dead code. Writing this
+entry check, plan-58 assumed plan-57 would leave behind a tidy `pub(crate)` API;
+plan-57 instead left behind the conversions actually needed by callers. Both are
+defensible; the check encodes the wrong one.
+
+The capability the rows exist to guarantee is present:
+
+| needed | exists as |
+|---|---|
+| allocate a runtime-sized `List OF Byte` | `crypto_ec::emit_build_byte_list` (`pub(super)`), `audio/mod.rs::emit_alloc_byte_list` |
+| take a list's data pointer | `push_collection_data_pointer_into`, `emit_collection_data_pointer_for` (both `pub(super)`) |
+| the kind-2 layout constants | `list_entry_stride`, `list_block_kind`, `kind2_payload_size`, `byte_list_entry_stride`, `byte_list_block_kind` |
+
+plan-58-B is the sub-plan that consumes these, and it is where the visibility
+question actually bites — `pub(super)` reaches within `target/shared/code`, which
+is where a `CBuffer` thunk lives, so no widening may even be required. Confirm
+that in B rather than pre-emptively widening here.
+
+**Verdict: the precondition is MET.** Its purpose — "kind 2 live, no entry table,
+41× cost gone, plan-57 not left half-finished" — is satisfied in full. Rows 2 and
+3 fail on a naming assumption, not on substance. This is the fourth stale premise
+found in the plan-57/58 documents today (plan-57-D §4.4, plan-57-E §2, plan-57-E
+§4.3's bug-365 rescope, and now this) — all four the same mistake: **a plan
+predicting the shape of code that had not been written yet, then being read later
+as a record of what was.**
 
 > **NOTE — the Status column is a 2026-07-20 snapshot; the Command column is the
 > truth.** Re-run all four and update the statuses before you continue, and again
@@ -79,10 +107,13 @@ or work around any part of plan-57. It waits.
 > **If you stop, report the status of all four rows**, not just the one that
 > blocked you — the reader needs to know how far off the gate is.
 
-**As of 2026-07-20 none of the four are met, so plan-58 is not startable.** If any
-row still fails when this plan is picked up, stop and finish plan-57. Do not
-start plan-58-A "because A is independent" — A is cheap, but landing a ctype the
-feature cannot finish leaves a known-but-unusable name in the ABI namespace.
+~~**As of 2026-07-20 none of the four are met, so plan-58 is not startable.**~~
+**Superseded: plan-57 completed 2026-07-20 and the precondition is now met** (see
+the re-verified table above). If any row still fails when this plan is picked up,
+stop and finish plan-57. Do not start plan-58-A "because A is independent" — A is
+cheap, but landing a ctype the feature cannot finish leaves a known-but-unusable
+name in the ABI namespace. That reasoning was sound and no longer applies: the
+feature *can* now be finished.
 
 Everything below is written against the post-plan-57 tree: `kind = 2` live,
 `emit_alloc_list` available, no entry table. That is the *only* representation
