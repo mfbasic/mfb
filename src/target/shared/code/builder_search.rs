@@ -396,6 +396,7 @@ impl CodeBuilder<'_> {
         list_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        let sub_payload = kind2_payload_size(element_type);
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
@@ -465,42 +466,60 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &sub_payload.unwrap_or(COLLECTION_ENTRY_SIZE).to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch15, &scratch15, &scratch16));
-        self.emit(abi::add_immediate(
-            &scratch17,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(&scratch17, &scratch17, &scratch15));
-        self.emit(abi::multiply_registers(&scratch20, &scratch14, &scratch16));
-        self.emit(abi::add_immediate(
-            &scratch25,
-            &scratch9,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(&scratch20, &scratch25, &scratch20));
-        self.emit(abi::load_u64(
-            &scratch21,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
-        self.emit(abi::load_u64(
-            &scratch23,
-            &scratch20,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &scratch24,
-            &scratch20,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if let Some(payload) = sub_payload {
+            // kind 2: the haystack span is `(i + j) * payload` and the needle's
+            // is `j * payload`, each with a constant length — no entries on
+            // either side (plan-57-D).
+            self.emit(abi::move_register(&scratch21, &scratch15));
+            self.emit(abi::move_immediate(
+                &scratch22,
+                "Integer",
+                &payload.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch23, &scratch14, &scratch16));
+            self.emit(abi::move_immediate(
+                &scratch24,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::add_immediate(
+                &scratch17,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::add_registers(&scratch17, &scratch17, &scratch15));
+            self.emit(abi::multiply_registers(&scratch20, &scratch14, &scratch16));
+            self.emit(abi::add_immediate(
+                &scratch25,
+                &scratch9,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::add_registers(&scratch20, &scratch25, &scratch20));
+            self.emit(abi::load_u64(
+                &scratch21,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &scratch22,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            self.emit(abi::load_u64(
+                &scratch23,
+                &scratch20,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &scratch24,
+                &scratch20,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit_collection_payloads_match_branch(
             element_type,
             element_type,

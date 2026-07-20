@@ -291,27 +291,38 @@ data-base sites threaded (and the untyped entry point made private, so a missed
 site is a compile error); literal allocation sized by the stride; literal entry
 stores skipped for kind 2.
 
-**Working under `MFB_KIND2=1`:** list literals, `get`, `FOR EACH`, `sum`,
-`append`, `prepend` — all verified against the flag-off output.
+**Status (end of session): the representation is live behind `MFB_KIND2=1` and
+the full acceptance suite is down to ONE real failure.**
 
-**Still broken under the flag** (the flag is off by default; the default path is
-green at 1261 goldens / 3105 tests):
+Kind-2 acceptance went 38 mismatches -> 2, of which one is the expected `.ncode`
+churn on `list-ops-codegen-rt` (that anchor exists precisely to make this diff
+visible). Working under the flag: literals, `get`/`getOr`, `FOR EACH`, `sum`,
+`contains`, `find` (element and sublist), `distinct`, `append` (single and bulk),
+`prepend`, `insert`, `removeAt`, value-`set`, in-place `set`, `mid`, `take`,
+`drop`, `slice`, `sort`, `filter`, `replace`, `keys`/`values`, the `math::` array
+kernels, `strings::toBytes`, and the fs/tls/audio/crypto/net byte-list helpers.
 
-1. `insert` and `removeAt` — a blanket `COLLECTION_ENTRY_SIZE -> entry_stride`
-   swap across `builder_collection_mutate.rs` got the sizing right but these two
-   still produce a garbage header (`len` returns nonsense) and a failed
-   allocation respectively. The blanket swap is too blunt: those functions use
-   the entry size for BOTH the allocation arithmetic and entry-table walking, and
-   only the first should become zero. They need per-function work, not a
-   find-and-replace.
-2. value-path `set`, `mid`, `slice`, `copy_collection_tight` (one region, not
-   two).
-3. The byte-list constructors in `net`, `tls`, `fs_helpers_io`, `audio`, `os`,
-   `entry_and_arena` — sizing and entry fill.
-4. The 4 read sites plan-57-A could not convert, which still open-code an entry
-   load.
-5. Spec amendment, golden re-baseline, and the Phase 3 proofs (memory win,
-   nested `List OF List OF Integer`, thread transfer).
+Converted along the way, each because it silently corrupted or leaked:
+`emit_flat_block_size` (the free size — bug-02's failure mode),
+`emit_copy_payload_to_collection`, `copy_collection_tight`,
+`lower_simd_alloc_list`, `lower_map_projection`, `lower_list_replace`, and the
+entry-fill loops in every byte-list runtime helper.
+
+A structural lesson worth keeping: the data-base stride must be selected by the
+BLOCK KIND, never inferred from the payload type. A `Map OF Scalar TO T` has a
+fixed-width key and still keeps its entries. That is now an explicit
+`stride_type` parameter (`""` for a map) on the payload loader, the three compare
+helpers and the payload copier.
+
+**The one remaining failure:** `encoding::base64Encode` / `base32Encode` leak
+under kind 2 — a single call is correct (`Zg==`), but 3000 calls exhaust the
+arena. `base64UrlEncode` does not leak, and the difference between them is
+`pad = TRUE`. An inline replica of `__encoding_baseEncode` does NOT leak, so the
+leak is specific to the bundled-package call path rather than the algorithm.
+Not yet root-caused.
+
+**Also outstanding:** the spec amendment, the golden re-baseline, and Phase 3's
+proofs (the memory win, nested `List OF List OF Integer`, thread transfer).
 
 
 No representation is produced yet; this teaches the size path to describe one.
@@ -337,16 +348,16 @@ Commit: —
 
 The single behavioral commit. Small, because plan-57-A/B did the fan-out.
 
-- [ ] `emit_element_value_offset`: fixed-width arm returns `index * payloadSize`
+- [x] `emit_element_value_offset`: fixed-width arm returns `index * payloadSize`
       and the constant `payloadSize`, no entry load.
 - [x] `emit_collection_data_pointer{,_into}`: fixed-width arm returns
       `block + HEADER`.
-- [ ] `emit_alloc_list`: fixed-width arm sizes `HEADER + count * payloadSize`,
+- [x] `emit_alloc_list`: fixed-width arm sizes `HEADER + count * payloadSize`,
       writes `kind = 2`, skips the entry region and the entry-fill loop.
-- [ ] `emit_list_iteration_*`: fixed-width arm strides the data region by
+- [x] `emit_list_iteration_*`: fixed-width arm strides the data region by
       `payloadSize`.
-- [ ] Mutation paths: drop the now-vacuous entry rewrites.
-- [ ] `copy_collection_tight`: one region copy for kind 2.
+- [x] Mutation paths: drop the now-vacuous entry rewrites.
+- [x] `copy_collection_tight`: one region copy for kind 2.
 - [ ] Delete the dead code from §4.4.
 
 Acceptance: the whole existing suite passes with **identical observable

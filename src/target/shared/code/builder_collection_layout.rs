@@ -361,6 +361,10 @@ impl CodeBuilder<'_> {
         type_: &str,
         source: &str,
     ) -> Result<String, String> {
+        // A kind-2 source has no entry array: the tight copy neither reserves
+        // one nor copies it, and the whole block is header + data (plan-57-D).
+        let element = list_element_type(type_).unwrap_or_default();
+        let tight_stride = list_entry_stride(&element);
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
@@ -390,7 +394,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch11,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &tight_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch12, &scratch9, &scratch11));
         self.emit(abi::add_immediate(
@@ -445,31 +449,33 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::add_immediate(
-            &scratch17,
-            &block_base,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
-        self.emit(abi::add_immediate(
-            &scratch20,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(
-            &scratch16,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
-        self.emit_block_copy_advance(
-            &scratch17,
-            &scratch20,
-            &scratch21,
-            &scratch22,
-            "tight_copy_entries",
-        );
+        if tight_stride != 0 {
+            self.emit(abi::add_immediate(
+                &scratch17,
+                &block_base,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
+            self.emit(abi::add_immediate(
+                &scratch20,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+            self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::move_immediate(
+                &scratch16,
+                "Integer",
+                &tight_stride.to_string(),
+            ));
+            self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
+            self.emit_block_copy_advance(
+                &scratch17,
+                &scratch20,
+                &scratch21,
+                &scratch22,
+                "tight_copy_entries",
+            );
+        }
 
         // Copy the data region verbatim (dataLength bytes). Source base is
         // capacity-based (it may have headroom); destination base is count-based
@@ -479,7 +485,6 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
-        let element = list_element_type(type_).unwrap_or_default();
         self.emit_collection_data_pointer_for(&scratch17, &block_base, &element);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit_collection_data_pointer_for(&scratch20, &scratch8, &element);

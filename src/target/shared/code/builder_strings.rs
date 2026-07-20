@@ -311,6 +311,10 @@ impl CodeBuilder<'_> {
         list_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        // Entry stride for this element type: zero builds the result entry-free
+        // and makes every cursor below stride the data region (plan-57-D).
+        let rep_stride = list_entry_stride(element_type);
+        let rep_payload = kind2_payload_size(element_type);
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         let scratch8 = self.temporary_vreg();
@@ -359,24 +363,38 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::move_immediate(&scratch12, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
-        self.emit(abi::add_immediate(
-            &scratch16,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
+        if rep_payload.is_some() {
+            // kind 2: a byte OFFSET into the data region, not an entry pointer.
+            self.emit(abi::move_immediate(&scratch16, "Integer", "0"));
+        } else {
+            self.emit(abi::add_immediate(
+                &scratch16,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+        }
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_registers(&scratch12, &scratch11));
         self.emit(abi::branch_ge(&length_done));
-        self.emit(abi::load_u64(
-            &scratch17,
-            &scratch16,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &scratch20,
-            &scratch16,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if let Some(payload) = rep_payload {
+            self.emit(abi::move_register(&scratch17, &scratch16));
+            self.emit(abi::move_immediate(
+                &scratch20,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch17,
+                &scratch16,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &scratch20,
+                &scratch16,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit_collection_payload_matches_value_branch(
             element_type,
             element_type,
@@ -401,7 +419,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(
             &scratch16,
             &scratch16,
-            COLLECTION_ENTRY_SIZE,
+            rep_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
         ));
         self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
         self.emit(abi::branch(&loop_label));
@@ -415,7 +433,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &rep_stride.to_string(),
         ));
         // size = count*ENTRY_SIZE + HEADER + data_len, trapping any 64-bit wrap so
         // the copy pass cannot overrun the (undersized) allocation (bug-60).
@@ -528,11 +546,17 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
-        self.emit(abi::add_immediate(
-            &scratch16,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
+        if rep_payload.is_some() {
+            // kind 2: the copy pass re-seeds the SOURCE cursor as a byte offset,
+            // exactly as the length pass did.
+            self.emit(abi::move_immediate(&scratch16, "Integer", "0"));
+        } else {
+            self.emit(abi::add_immediate(
+                &scratch16,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+        }
         self.emit(abi::add_immediate(
             &scratch17,
             abi::RET[1],
@@ -542,7 +566,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &rep_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch11, &scratch14));
         self.emit(abi::add_registers(&scratch21, &scratch17, &scratch21));
@@ -557,37 +581,55 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
+        if rep_stride != 0 {
+            self.emit(abi::store_u8(
+                &scratch22,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+        }
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
-        self.emit(abi::store_u64(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
-        self.emit(abi::load_u64(
-            &scratch22,
-            &scratch16,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &scratch23,
-            &scratch16,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
-        self.emit(abi::store_u64(
-            &scratch13,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
+        if rep_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch22,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+        }
+        if rep_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch22,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+        }
+        if let Some(payload) = rep_payload {
+            // kind 2: scratch16 is already the source byte offset.
+            self.emit(abi::move_register(&scratch22, &scratch16));
+            self.emit(abi::move_immediate(
+                &scratch23,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch22,
+                &scratch16,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &scratch23,
+                &scratch16,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
+        if rep_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch13,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+        }
         self.emit_collection_payload_matches_value_branch(
             element_type,
             element_type,
@@ -605,11 +647,13 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             new_len_slot,
         ));
-        self.emit(abi::store_u64(
-            &scratch23,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if rep_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch23,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit(abi::add_registers(&scratch25, &scratch21, &scratch13));
         match element_type {
             "Boolean" | "Byte" => {
@@ -649,11 +693,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&copy_done_one));
 
         self.emit(abi::label(&copy_old));
-        self.emit(abi::store_u64(
-            &scratch23,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if rep_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch23,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit(abi::add_registers(&scratch24, &scratch20, &scratch22));
         self.emit(abi::add_registers(&scratch25, &scratch21, &scratch13));
         self.emit_block_copy_advance(
@@ -665,21 +711,31 @@ impl CodeBuilder<'_> {
         );
 
         self.emit(abi::label(&copy_done_one));
-        self.emit(abi::load_u64(
-            &scratch23,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if let Some(payload) = rep_payload {
+            // No destination entry to read the written length back from; for a
+            // fixed-width element it is the constant payload size.
+            self.emit(abi::move_immediate(
+                &scratch23,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch23,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit(abi::add_registers(&scratch13, &scratch13, &scratch23));
         self.emit(abi::add_immediate(
             &scratch16,
             &scratch16,
-            COLLECTION_ENTRY_SIZE,
+            rep_payload.unwrap_or(COLLECTION_ENTRY_SIZE),
         ));
         self.emit(abi::add_immediate(
             &scratch17,
             &scratch17,
-            COLLECTION_ENTRY_SIZE,
+            rep_stride,
         ));
         self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
         self.emit(abi::branch(&copy_loop));

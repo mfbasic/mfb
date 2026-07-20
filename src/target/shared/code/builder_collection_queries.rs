@@ -433,6 +433,9 @@ impl CodeBuilder<'_> {
         element_type: &str,
         project_key: bool,
     ) -> Result<ValueResult, String> {
+        // The projected list's own entry stride: zero when the element type is
+        // fixed-width, so the result is built entry-free (plan-57-D).
+        let proj_stride = list_entry_stride(element_type);
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
@@ -512,7 +515,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &proj_stride.to_string(),
         ));
         // Checked collection-size arithmetic (bug-147.7 / bug-232): count and
         // dataLength come from live collection headers, so route
@@ -641,7 +644,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch14,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &proj_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch14));
         self.emit(abi::add_registers(&scratch21, &scratch17, &scratch21));
@@ -655,34 +658,44 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
+        if proj_stride != 0 {
+            self.emit(abi::store_u8(
+                &scratch22,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+        }
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
-        self.emit(abi::store_u64(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
+        if proj_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch22,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+        }
+        if proj_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch22,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+        }
         self.emit(abi::load_u64(&scratch22, &scratch12, offset_field));
         self.emit(abi::load_u64(&scratch23, &scratch12, length_field));
-        self.emit(abi::store_u64(
-            &scratch11,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            &scratch23,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if proj_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch11,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+        }
+        if proj_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch23,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit(abi::add_registers(&scratch24, &scratch20, &scratch22));
         self.emit(abi::add_registers(&scratch25, &scratch21, &scratch11));
         self.emit(abi::label(&copy_bytes));
@@ -695,22 +708,25 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_immediate(&scratch23, &scratch23, 1));
         self.emit(abi::branch(&copy_bytes));
         self.emit(abi::label(&copy_bytes_done));
-        self.emit(abi::load_u64(
-            &scratch23,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if proj_stride != 0 {
+            // Reload the length from the entry just written.
+            self.emit(abi::load_u64(
+                &scratch23,
+                &scratch17,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        } else {
+            // kind 2 wrote no entry to read back, so re-derive the length from
+            // the SOURCE entry — the same value the copy loop consumed.
+            self.emit(abi::load_u64(&scratch23, &scratch12, length_field));
+        }
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch23));
         self.emit(abi::add_immediate(
             &scratch12,
             &scratch12,
             COLLECTION_ENTRY_SIZE,
         ));
-        self.emit(abi::add_immediate(
-            &scratch17,
-            &scratch17,
-            COLLECTION_ENTRY_SIZE,
-        ));
+        self.emit(abi::add_immediate(&scratch17, &scratch17, proj_stride));
         self.emit(abi::add_immediate(&scratch10, &scratch10, 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
