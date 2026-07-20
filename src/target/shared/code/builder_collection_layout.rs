@@ -1833,6 +1833,27 @@ impl CodeBuilder<'_> {
     /// Delegates to [`push_collection_data_pointer_into`] so the layout rule
     /// lives in exactly one place; plan-57-D changes that one function to make a
     /// fixed-width list's data base a constant `block + HEADER`.
+    /// The address of a collection's packed data region.
+    ///
+    /// `element_type` selects the lookup-entry stride
+    /// ([`list_entry_stride`]), which is zero for a fixed-width list under
+    /// plan-57-D — collapsing this to `collection + HEADER`. Pass the ELEMENT
+    /// type of a list; for a map, or where the element type is not statically
+    /// known, pass `""`, which always yields the kind-0 stride.
+    pub(super) fn emit_collection_data_pointer_for(
+        &mut self,
+        dst: &str,
+        collection: &str,
+        element_type: &str,
+    ) {
+        let stride = list_entry_stride(element_type);
+        if stride == 0 {
+            self.emit(abi::add_immediate(dst, collection, COLLECTION_HEADER_SIZE));
+            return;
+        }
+        self.emit_collection_data_pointer(dst, collection);
+    }
+
     pub(super) fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {
         // Scratch as vregs. Pinning these collides with the x86-64 ABI argument
         // registers and yields garbage element addresses.
@@ -2097,3 +2118,52 @@ pub(super) fn push_collection_data_base_from_capacity(
     ));
     out.push(abi::add_registers(dst, collection, scratch_product));
 }
+
+/// Whether the kind-2 (entry-free) representation is live.
+///
+/// The representation cannot be adopted piecemeal: the allocation size, the free
+/// size, the data base, element access and iteration must all agree, or a block
+/// is allocated at one layout and read at another. So the plumbing is threaded
+/// through every site first with this `false`, which keeps every formula at its
+/// current value and lets `artifact-gate` prove the threading changed nothing —
+/// and the representation is switched on in one commit once every site consults
+/// these two functions.
+const KIND2_ENABLED: bool = false;
+
+/// The lookup-entry stride for a list of `element_type`, in bytes.
+///
+/// `COLLECTION_ENTRY_SIZE` for a kind-0 block, and **zero** for a kind-2 one —
+/// a fixed-width list has no `LookupEntry` array at all (plan-57-D).
+///
+/// Zero is the load-bearing choice. Every layout formula in the tree is written
+/// as `HEADER + capacity * <stride>` (+ `dataCapacity` for the block size), so a
+/// stride of zero collapses each of them to the kind-2 layout without the
+/// formula changing shape:
+///
+/// | | kind 0 | kind 2 |
+/// |---|---|---|
+/// | data base | `block + 40 + cap*40` | `block + 40` |
+/// | block size | `40 + cap*40 + dataCap` | `40 + dataCap` |
+///
+/// So the allocation size, the free size and the data base cannot disagree about
+/// the representation — they all read the same stride. That mattered enough to
+/// design around: `emit_flat_block_size` computing a size the allocator did not
+/// allocate is bug-02, and it corrupts the arena free list rather than producing
+/// a wrong value.
+pub(super) fn list_entry_stride(element_type: &str) -> usize {
+    if KIND2_ENABLED && list_element_is_fixed_width(element_type).is_some() {
+        0
+    } else {
+        COLLECTION_ENTRY_SIZE
+    }
+}
+
+/// The `kind` byte for a list of `element_type`.
+pub(super) fn list_block_kind(element_type: &str) -> usize {
+    if KIND2_ENABLED && list_element_is_fixed_width(element_type).is_some() {
+        COLLECTION_KIND_LIST_FIXED
+    } else {
+        COLLECTION_KIND_LIST
+    }
+}
+

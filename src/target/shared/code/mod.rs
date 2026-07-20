@@ -3183,8 +3183,8 @@ mod audio;
 mod builder_collection_compare;
 mod builder_collection_layout;
 use builder_collection_layout::{
-    list_element_is_fixed_width, push_collection_data_base_from_capacity,
-    push_collection_data_pointer_into,
+    list_block_kind, list_element_is_fixed_width, list_entry_stride,
+    push_collection_data_base_from_capacity, push_collection_data_pointer_into,
 };
 mod builder_collection_mutate;
 mod builder_collection_queries;

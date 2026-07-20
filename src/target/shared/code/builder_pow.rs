@@ -453,13 +453,13 @@ impl CodeBuilder<'_> {
         let right_ptr = self.allocate_register()?;
         self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
         let ldata = self.allocate_register()?;
-        self.emit_collection_data_pointer(&ldata, &left_ptr);
+        self.emit_collection_data_pointer_for(&ldata, &left_ptr, "Float");
         self.emit(abi::store_u64(&ldata, abi::stack_pointer(), ldata_slot));
         let rdata = self.allocate_register()?;
-        self.emit_collection_data_pointer(&rdata, &right_ptr);
+        self.emit_collection_data_pointer_for(&rdata, &right_ptr, "Float");
         self.emit(abi::store_u64(&rdata, abi::stack_pointer(), rdata_slot));
         let odata = self.allocate_register()?;
-        self.emit_collection_data_pointer(&odata, &result_base);
+        self.emit_collection_data_pointer_for(&odata, &result_base, "Float");
         self.emit(abi::store_u64(&odata, abi::stack_pointer(), odata_slot));
         self.emit(abi::store_u64(abi::ZERO, abi::stack_pointer(), index_slot));
 

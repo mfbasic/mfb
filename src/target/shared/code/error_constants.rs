@@ -761,6 +761,19 @@ pub(crate) const FILE_DRAIN_SYMBOL: &str = "_mfb_rt_fs_file_drain";
 
 pub(crate) const COLLECTION_KIND_LIST: usize = 0;
 pub(crate) const COLLECTION_KIND_MAP: usize = 1;
+/// A `List` whose element type is a fixed-width scalar: **no `LookupEntry`
+/// array**, payloads packed at `HEADER + i * payloadSize` in index order
+/// (plan-57-D). `List OF Byte` costs `40 + N` bytes rather than `40 + 41N`.
+///
+/// This is a representation, not a type. Source-level `List OF Byte` is one
+/// type; the emitter picks the block shape from the element type via
+/// `list_element_is_fixed_width`. `kind` is written for self-description only —
+/// dispatch is static, and no generated code loads this field to branch on.
+///
+/// The ordering invariant that makes an entry-free layout addressable is
+/// established by plan-57-C and machine-checked by
+/// `tests/rt-behavior/collections/list-order-invariant-rt`.
+pub(crate) const COLLECTION_KIND_LIST_FIXED: usize = 2;
 pub(crate) const COLLECTION_HEADER_SIZE: usize = 40;
 pub(crate) const COLLECTION_OFFSET_KIND: usize = 0;
 pub(crate) const COLLECTION_OFFSET_KEY_TYPE: usize = 1;
