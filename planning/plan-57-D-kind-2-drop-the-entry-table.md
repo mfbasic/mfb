@@ -291,18 +291,27 @@ data-base sites threaded (and the untyped entry point made private, so a missed
 site is a compile error); literal allocation sized by the stride; literal entry
 stores skipped for kind 2.
 
-**Remaining before the flip is coherent** — a kind-2 build currently segfaults at
-the first `get`, which is the honest state:
-1. element access — `emit_element_value_offset` must return `index * payloadSize`
-   instead of loading an entry (and the 4 read sites plan-57-A could not convert
-   still open-code the entry load);
-2. iteration — the loop trio and `lower_for_each` must stride the DATA region by
-   `payloadSize`;
-3. in-place mutation — `append`/`prepend`/`insert`/`removeAt`/`set` entry writes;
-4. the byte-list constructors in `net`, `tls`, `fs_helpers_io`, `audio`, `os`,
-   `entry_and_arena` (sizing + entry fill);
-5. `copy_collection_tight` (one region, not two), `mid`/`slice` probes;
-6. spec amendment, golden re-baseline, and the Phase 3 proofs.
+**Working under `MFB_KIND2=1`:** list literals, `get`, `FOR EACH`, `sum`,
+`append`, `prepend` — all verified against the flag-off output.
+
+**Still broken under the flag** (the flag is off by default; the default path is
+green at 1261 goldens / 3105 tests):
+
+1. `insert` and `removeAt` — a blanket `COLLECTION_ENTRY_SIZE -> entry_stride`
+   swap across `builder_collection_mutate.rs` got the sizing right but these two
+   still produce a garbage header (`len` returns nonsense) and a failed
+   allocation respectively. The blanket swap is too blunt: those functions use
+   the entry size for BOTH the allocation arithmetic and entry-table walking, and
+   only the first should become zero. They need per-function work, not a
+   find-and-replace.
+2. value-path `set`, `mid`, `slice`, `copy_collection_tight` (one region, not
+   two).
+3. The byte-list constructors in `net`, `tls`, `fs_helpers_io`, `audio`, `os`,
+   `entry_and_arena` — sizing and entry fill.
+4. The 4 read sites plan-57-A could not convert, which still open-code an entry
+   load.
+5. Spec amendment, golden re-baseline, and the Phase 3 proofs (memory win,
+   nested `List OF List OF Integer`, thread transfer).
 
 
 No representation is produced yet; this teaches the size path to describe one.

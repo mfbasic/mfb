@@ -517,6 +517,9 @@ impl CodeBuilder<'_> {
         list_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        // Zero for a kind-2 list: the sizing arithmetic below then reserves no
+        // entry array, and the formulas keep their shape (plan-57-D).
+        let entry_stride = list_entry_stride(element_type);
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
         let scratch22 = self.temporary_vreg();
@@ -603,7 +606,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         // Checked collection-size arithmetic (bug-147.7): count and dataLength are
         // read from live collection headers, so route count*ENTRY + HEADER + dataLen
@@ -761,38 +764,48 @@ impl CodeBuilder<'_> {
                 "Integer",
                 &COLLECTION_ENTRY_FLAG_USED.to_string(),
             ));
-            self.emit(abi::store_u64(
-                &scratch15,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_FLAGS,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch15,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_FLAGS,
+                ));
+            }
             // A list entry carries no key.
             self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
-            self.emit(abi::store_u64(
-                &scratch15,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-            ));
-            self.emit(abi::store_u64(
-                &scratch15,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch15,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+                ));
+            }
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch15,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+                ));
+            }
             self.emit(abi::multiply_registers(&scratch15, &scratch14, &scratch16)); // k * p
-            self.emit(abi::store_u64(
-                &scratch15,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-            ));
-            self.emit(abi::store_u64(
-                &scratch16,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch15,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+                ));
+            }
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch16,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+                ));
+            }
             self.emit(abi::add_immediate(
                 &scratch17,
                 &scratch17,
-                COLLECTION_ENTRY_SIZE,
+                entry_stride,
             ));
             self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
             self.emit(abi::branch(&ident_loop));
@@ -842,7 +855,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_immediate(
                 &scratch16,
                 "Integer",
-                &COLLECTION_ENTRY_SIZE.to_string(),
+                &entry_stride.to_string(),
             ));
             // Head: dst.table[0..i) <- A.table[0..i) verbatim.
             self.emit(abi::load_u64(&nb, abi::stack_pointer(), result_slot));
@@ -907,7 +920,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_immediate(
                 &scratch16,
                 "Integer",
-                &COLLECTION_ENTRY_SIZE.to_string(),
+                &entry_stride.to_string(),
             ));
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
             self.emit(abi::load_u64(
@@ -957,6 +970,9 @@ impl CodeBuilder<'_> {
         list_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        // Zero for a kind-2 list: the sizing arithmetic below then reserves no
+        // entry array, and the formulas keep their shape (plan-57-D).
+        let entry_stride = list_entry_stride(element_type);
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
         let scratch22 = self.temporary_vreg();
@@ -1109,7 +1125,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
         // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
@@ -1199,7 +1215,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
         self.emit_block_copy_advance(
@@ -1226,7 +1242,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch10, &scratch9, &scratch16));
         self.emit(abi::add_immediate(
@@ -1270,7 +1286,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch13, &scratch9, &scratch16));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch13)); // entry addr
@@ -1279,33 +1295,43 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
+        if entry_stride != 0 {
+            self.emit(abi::store_u8(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_FLAGS,
+            ));
+        }
         self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
-        self.emit(abi::store_u64(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
-        self.emit(abi::store_u64(
-            &scratch11,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        )); // valueOffset = dataLength
+        if entry_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+        }
+        if entry_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+        }
+        if entry_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch11,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            )); // valueOffset = dataLength
+        }
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
-        self.emit(abi::store_u64(
-            &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        )); // valueLength = need
+        if entry_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch13,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            )); // valueLength = need
+        }
             // Copy the payload bytes to data base + dataLength.
         self.emit(abi::store_u64(
             &scratch11,
@@ -1370,6 +1396,9 @@ impl CodeBuilder<'_> {
         list_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        // Zero for a kind-2 list: the sizing arithmetic below then reserves no
+        // entry array, and the formulas keep their shape (plan-57-D).
+        let entry_stride = list_entry_stride(element_type);
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
         let scratch8 = self.temporary_vreg();
@@ -1532,7 +1561,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
         // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
@@ -1622,7 +1651,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch14, &scratch9, &scratch16));
         self.emit_block_copy_advance(
@@ -1645,7 +1674,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch10, &scratch9, &scratch16));
         self.emit(abi::add_immediate(
@@ -1709,7 +1738,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch11, &scratch9, &scratch16));
         self.emit(abi::add_registers(&scratch17, &scratch17, &scratch11)); // dst entry[count(self)]
@@ -1791,6 +1820,9 @@ impl CodeBuilder<'_> {
         list_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        // Zero for a kind-2 list: the sizing arithmetic below then reserves no
+        // entry array, and the formulas keep their shape (plan-57-D).
+        let entry_stride = list_entry_stride(element_type);
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
         let scratch22 = self.temporary_vreg();
@@ -1941,7 +1973,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         // Checked collection-size arithmetic (bug-147.7): capacity/dataCapacity are
         // runtime-derived, so guard count*ENTRY + HEADER + dataCap against overflow.
@@ -2028,7 +2060,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
         self.emit_block_copy_advance(
@@ -2134,37 +2166,47 @@ impl CodeBuilder<'_> {
                 "Integer",
                 &COLLECTION_ENTRY_FLAG_USED.to_string(),
             ));
-            self.emit(abi::store_u64(
-                &scratch15,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_FLAGS,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch15,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_FLAGS,
+                ));
+            }
             self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
-            self.emit(abi::store_u64(
-                &scratch15,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-            ));
-            self.emit(abi::store_u64(
-                &scratch15,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch15,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+                ));
+            }
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch15,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+                ));
+            }
             self.emit(abi::multiply_registers(&scratch15, &scratch14, &scratch16));
-            self.emit(abi::store_u64(
-                &scratch15,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-            ));
-            self.emit(abi::store_u64(
-                &scratch16,
-                &scratch17,
-                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch15,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+                ));
+            }
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch16,
+                    &scratch17,
+                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+                ));
+            }
             self.emit(abi::add_immediate(
                 &scratch17,
                 &scratch17,
-                COLLECTION_ENTRY_SIZE,
+                entry_stride,
             ));
             self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
             self.emit(abi::branch(&ident_loop));
@@ -2181,7 +2223,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_immediate(
                 &scratch16,
                 "Integer",
-                &COLLECTION_ENTRY_SIZE.to_string(),
+                &entry_stride.to_string(),
             ));
             self.emit(abi::multiply_registers(&scratch11, &scratch10, &scratch16));
             self.emit(abi::add_immediate(
@@ -2193,7 +2235,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_immediate(
                 &scratch12,
                 &scratch11,
-                COLLECTION_ENTRY_SIZE,
+                entry_stride,
             )); // dst = entry[i+1]
             for offset in [0usize, 8, 16, 24, 32] {
                 self.emit(abi::load_u64(&scratch13, &scratch11, offset));
@@ -2225,33 +2267,43 @@ impl CodeBuilder<'_> {
                 "Byte",
                 &COLLECTION_ENTRY_FLAG_USED.to_string(),
             ));
-            self.emit(abi::store_u8(
-                &scratch13,
-                &scratch12,
-                COLLECTION_ENTRY_OFFSET_FLAGS,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u8(
+                    &scratch13,
+                    &scratch12,
+                    COLLECTION_ENTRY_OFFSET_FLAGS,
+                ));
+            }
             self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
-            self.emit(abi::store_u64(
-                &scratch13,
-                &scratch12,
-                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-            ));
-            self.emit(abi::store_u64(
-                &scratch13,
-                &scratch12,
-                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-            ));
-            self.emit(abi::store_u64(
-                &scratch11,
-                &scratch12,
-                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch13,
+                    &scratch12,
+                    COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+                ));
+            }
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch13,
+                    &scratch12,
+                    COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+                ));
+            }
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch11,
+                    &scratch12,
+                    COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+                ));
+            }
             self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
-            self.emit(abi::store_u64(
-                &scratch13,
-                &scratch12,
-                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-            ));
+            if entry_stride != 0 {
+                self.emit(abi::store_u64(
+                    &scratch13,
+                    &scratch12,
+                    COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+                ));
+            }
             // Copy the payload bytes to data base + dataLength.
             self.emit(abi::store_u64(
                 &scratch11,
@@ -2316,6 +2368,9 @@ impl CodeBuilder<'_> {
         list_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        // Zero for a kind-2 list: the sizing arithmetic below then reserves no
+        // entry array, and the formulas keep their shape (plan-57-D).
+        let entry_stride = list_entry_stride(element_type);
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
         let scratch22 = self.temporary_vreg();
@@ -2378,7 +2433,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch17, &scratch10, &scratch16));
         self.emit(abi::add_immediate(
@@ -2417,7 +2472,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch17, &scratch10, &scratch16));
         self.emit(abi::add_immediate(
@@ -2427,11 +2482,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch17));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), need_slot));
-        self.emit(abi::store_u64(
-            &scratch14,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if entry_stride != 0 {
+            self.emit(abi::store_u64(
+                &scratch14,
+                &scratch12,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit(abi::branch(&done));
 
         // --- Rebuild (payload grew): remove + insert a fresh singleton list. ---
@@ -3428,6 +3485,9 @@ impl CodeBuilder<'_> {
         list_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        // Zero for a kind-2 list: the sizing arithmetic below then reserves no
+        // entry array, and the formulas keep their shape (plan-57-D).
+        let entry_stride = list_entry_stride(element_type);
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
         let scratch22 = self.temporary_vreg();
@@ -3478,7 +3538,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch17, &scratch10, &scratch16));
         self.emit(abi::add_immediate(
@@ -3559,7 +3619,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
+            &entry_stride.to_string(),
         ));
         // removed entry = source + HEADER + index*ENTRY; grab the hole span.
         self.emit(abi::multiply_registers(&scratch11, &scratch10, &scratch16));
@@ -3603,7 +3663,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(
             &scratch12,
             &scratch12,
-            COLLECTION_ENTRY_SIZE,
+            entry_stride,
         )); // src.entry[index+1]
         self.emit(abi::load_u64(
             &scratch11,
