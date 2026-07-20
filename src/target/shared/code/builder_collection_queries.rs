@@ -1547,11 +1547,21 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::add_immediate(
-            &scratch10,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
+        // A kind-2 list has no entry table: the cursor carries a byte OFFSET from
+        // the data base rather than an entry pointer, and strides by payloadSize
+        // (plan-57-D), matching `lower_for_each`. Reading an entry's
+        // offset/length words off a kind-2 block interprets payload bytes as
+        // addresses, which segfaults rather than returning a wrong value.
+        let payload_size = kind2_payload_size(&element_type);
+        if payload_size.is_some() {
+            self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
+        } else {
+            self.emit(abi::add_immediate(
+                &scratch10,
+                &scratch8,
+                COLLECTION_HEADER_SIZE,
+            ));
+        }
         self.emit(abi::store_u64(
             &scratch10,
             abi::stack_pointer(),
@@ -1574,16 +1584,25 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
-        self.emit(abi::load_u64(
-            &scratch11,
-            &scratch10,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &scratch12,
-            &scratch10,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
+        if let Some(payload) = payload_size {
+            self.emit(abi::move_register(&scratch11, &scratch10));
+            self.emit(abi::move_immediate(
+                &scratch12,
+                "Integer",
+                &payload.to_string(),
+            ));
+        } else {
+            self.emit(abi::load_u64(
+                &scratch11,
+                &scratch10,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &scratch12,
+                &scratch10,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+        }
         self.emit(abi::load_u64(
             &scratch8,
             abi::stack_pointer(),
@@ -1611,7 +1630,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(
             &scratch10,
             &scratch10,
-            COLLECTION_ENTRY_SIZE,
+            payload_size.unwrap_or(COLLECTION_ENTRY_SIZE),
         ));
         self.emit(abi::store_u64(
             &scratch10,

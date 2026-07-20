@@ -617,7 +617,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         instructions.extend([
             abi::label(&build_list),
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
             abi::multiply_registers("%v12", "%v10", "%v11"),
             abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
             abi::add_registers(abi::return_register(), "%v12", "%v10"),
@@ -640,7 +640,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
             abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
             abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE),
-            abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
             abi::multiply_registers("%v13", "%v10", "%v12"),
             abi::add_registers("%v14", "%v11", "%v13"),
             // x11 = entry cursor, x14 = data region, copy bytes into data.
@@ -649,19 +649,33 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
             abi::label(&entry_loop),
             abi::compare_registers("%v9", "%v10"),
             abi::branch_eq(&entry_done),
-            abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate("%v12", "Integer", "1"),
-            abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        ]);
+        // kind 2 has no entry array (plan-57-D): with a zero stride these stores
+        // would rewrite one "entry" over the data region `count` times, so they
+        // are skipped outright. The payload copy below is NOT guarded — it is the
+        // only thing that writes the bytes.
+        if byte_list_entry_stride() != 0 {
+            instructions.extend([
+                abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+                abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
+                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+                abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+                abi::move_immediate("%v12", "Integer", "1"),
+                abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+            ]);
+        }
+        instructions.extend([
             // data[i] = buf[i]
             abi::add_registers("%v12", "%v14", "%v9"),
             abi::load_u8("%v13", "%v15", 0),
             abi::store_u8("%v13", "%v12", 0),
             abi::add_immediate("%v15", "%v15", 1),
-            abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE),
+        ]);
+        if byte_list_entry_stride() != 0 {
+            instructions.push(abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE));
+        }
+        instructions.extend([
             abi::add_immediate("%v9", "%v9", 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
@@ -1549,7 +1563,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         // Build a List OF Byte with N elements.
         instructions.extend([
             abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::move_immediate("%v11", "Integer", &byte_list_entry_stride().to_string()),
             abi::multiply_registers("%v12", "%v10", "%v11"),
             abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
             abi::add_registers(abi::return_register(), "%v12", "%v10"),
@@ -1573,7 +1587,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
             abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
             abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
             abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE),
-            abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::move_immediate("%v12", "Integer", &byte_list_entry_stride().to_string()),
             abi::multiply_registers("%v13", "%v10", "%v12"),
             abi::add_registers("%v14", "%v11", "%v13"),
             abi::load_u64("%v15", abi::stack_pointer(), BUF_OFFSET),
@@ -1581,18 +1595,30 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
             abi::label(&entry_loop),
             abi::compare_registers("%v9", "%v10"),
             abi::branch_eq(&entry_done),
-            abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate("%v12", "Integer", "1"),
-            abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        ]);
+        // See the guard in `emit_read_body`: kind 2 has no entry array, and a
+        // zero-stride cursor would rewrite one "entry" over the data region.
+        if byte_list_entry_stride() != 0 {
+            instructions.extend([
+                abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+                abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
+                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+                abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+                abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+                abi::move_immediate("%v12", "Integer", "1"),
+                abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+            ]);
+        }
+        instructions.extend([
             abi::add_registers("%v12", "%v14", "%v9"),
             abi::load_u8("%v13", "%v15", 0),
             abi::store_u8("%v13", "%v12", 0),
             abi::add_immediate("%v15", "%v15", 1),
-            abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE),
+        ]);
+        if byte_list_entry_stride() != 0 {
+            instructions.push(abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE));
+        }
+        instructions.extend([
             abi::add_immediate("%v9", "%v9", 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),

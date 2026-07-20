@@ -2231,10 +2231,16 @@ pub(super) fn push_collection_data_base_from_capacity(
         collection,
         COLLECTION_OFFSET_CAPACITY,
     ));
+    // Every caller of this helper addresses a `List OF Byte` (net write/sendTo,
+    // both TLS backends, both audio backends), so the stride is the byte-list
+    // stride: zero once kind-2 drops the entry array, which collapses the data
+    // base to `collection + HEADER` (plan-57-D). The multiply is left in place
+    // rather than special-cased — `capacity * 0` is already the right answer, and
+    // keeping one shape means the flag-off encoding stays byte-identical.
     out.push(abi::move_immediate(
         scratch_entry_size,
         "Integer",
-        &COLLECTION_ENTRY_SIZE.to_string(),
+        &byte_list_entry_stride().to_string(),
     ));
     out.push(abi::multiply_registers(
         scratch_product,
