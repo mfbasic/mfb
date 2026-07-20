@@ -2144,9 +2144,14 @@ impl CodeBuilder<'_> {
 /// read through `entry[i].valueOffset`. A linear stride is not even expressible
 /// for them, which is why no reader got those wrong.
 ///
-/// Deliberately excludes function values and pointer payloads: both are 8-byte
-/// fixed, but they carry ownership that the drop and thread-transfer paths
-/// reason about per entry.
+/// Deliberately excludes function values and pointer payloads. Both are 8-byte
+/// fixed and would qualify on every ownership question plan-57-E asked — the
+/// block is freed wholesale, transfer never walks entries for them, and a
+/// function value is a bare pointer with reference semantics. Widening was
+/// nonetheless declined, on coverage rather than analysis: `List OF FUNC` is
+/// exercised by one fixture through one operation (`collections::get`), so the
+/// suite passing proves nothing about the other twenty. See plan-57-E §4.2 for
+/// the criterion that would reopen it.
 ///
 /// Must agree with `CodeBuilder::collection_payload_alignment` for every arm;
 /// `fixed_width_agrees_with_payload_alignment` asserts that so the two cannot
@@ -2253,29 +2258,6 @@ pub(super) fn push_collection_data_base_from_capacity(
     out.push(abi::add_registers(dst, collection, scratch_product));
 }
 
-/// Whether the kind-2 (entry-free) representation is live. It is.
-///
-/// The representation cannot be adopted piecemeal: the allocation size, the free
-/// size, the data base, element access and iteration must all agree, or a block
-/// is allocated at one layout and read at another. So the plumbing was threaded
-/// through every site first with this `false`, which kept every formula at its
-/// current value and let `artifact-gate` prove the threading changed nothing —
-/// and the representation was then switched on in one commit.
-///
-/// While it was env-gated, ONE binary could be exercised both ways: the whole
-/// acceptance suite was built with and without `MFB_KIND2=1` and the behavior
-/// diffed. The final such run was 1036 tests with **zero** behavioral
-/// differences — every remaining mismatch was a `.ncode`/`.mir` golden, i.e. the
-/// representation change itself. That is the evidence this constant rests on;
-/// the same negative-control lever proved `list-order-invariant-rt` non-vacuous.
-///
-/// Kept as a named function rather than inlined `true` because it documents the
-/// invariant every caller depends on, and because flipping it back to `false` is
-/// the first diagnostic step if a layout bug is ever suspected here.
-fn kind2_enabled() -> bool {
-    true
-}
-
 /// The lookup-entry stride for a list of `element_type`, in bytes.
 ///
 /// `COLLECTION_ENTRY_SIZE` for a kind-0 block, and **zero** for a kind-2 one —
@@ -2297,7 +2279,7 @@ fn kind2_enabled() -> bool {
 /// allocate is bug-02, and it corrupts the arena free list rather than producing
 /// a wrong value.
 pub(super) fn list_entry_stride(element_type: &str) -> usize {
-    if kind2_enabled() && list_element_is_fixed_width(element_type).is_some() {
+    if list_element_is_fixed_width(element_type).is_some() {
         0
     } else {
         COLLECTION_ENTRY_SIZE
@@ -2306,7 +2288,7 @@ pub(super) fn list_entry_stride(element_type: &str) -> usize {
 
 /// The `kind` byte for a list of `element_type`.
 pub(super) fn list_block_kind(element_type: &str) -> usize {
-    if kind2_enabled() && list_element_is_fixed_width(element_type).is_some() {
+    if list_element_is_fixed_width(element_type).is_some() {
         COLLECTION_KIND_LIST_FIXED
     } else {
         COLLECTION_KIND_LIST
@@ -2315,12 +2297,18 @@ pub(super) fn list_block_kind(element_type: &str) -> usize {
 
 /// The payload size of `element_type` when it uses the entry-free
 /// representation, or `None` when it keeps a lookup table.
+///
+/// Now identical to [`list_element_is_fixed_width`], which it delegates to. The
+/// two names are kept apart because they answer different questions and only
+/// coincide today: this one is about the **representation** — "may element `i` be
+/// addressed at `i * payloadSize`, with no entry to indirect through" — while
+/// `list_element_is_fixed_width` is about the **type**. A `Map OF Scalar TO T`
+/// has a fixed-width key and still keeps its entries, so the caller that wants a
+/// stride must ask this question, not that one. Selecting a stride from the
+/// payload type rather than the block kind was one of the two mistakes that
+/// produced plan-57-D's corruption bugs.
 pub(super) fn kind2_payload_size(element_type: &str) -> Option<usize> {
-    if kind2_enabled() {
-        list_element_is_fixed_width(element_type)
-    } else {
-        None
-    }
+    list_element_is_fixed_width(element_type)
 }
 
 /// The lookup-entry stride for a `List OF Byte`, for the runtime helpers that
