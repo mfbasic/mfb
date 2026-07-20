@@ -358,6 +358,82 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
         })
         .collect();
 
+    // Incoming-parameter reachability, as a forward MUST dataflow over the CFG
+    // (bug-362). The two facts an incoming-parameter use rests on — "no
+    // call/syscall has executed yet" and "`xN` has not been redefined yet" —
+    // are properties of the paths from the function entry to an instruction,
+    // NOT of the instructions that happen to precede it in the emitted order.
+    //
+    // Tracking them with a linear flag made any block *branched into from
+    // before* a call inherit that call's state, because the call was emitted
+    // first. `fs::setBuffered`'s enable arm is exactly that shape: it reads its
+    // `File*` parameter, but the disable arm's `bl _mfb_rt_fs_file_drain` sits
+    // above it in the stream, so the parameter stopped being recognized as one
+    // and `map_abi_register` colored it by its next boundary (`ret`) into the
+    // RESULT register `rax` instead of the argument register `rdi`. The helper
+    // then stored the buffering flag through whatever `rax` held — a SIGSEGV in
+    // every x86-64 program that enabled per-file buffering.
+    //
+    // Meet is intersection (a fact must hold on EVERY path), so a block reached
+    // both before and after a call is correctly *not* treated as parameter-live.
+    // Unreachable indices have no predecessors and keep the "top" value; they
+    // never execute, so the coloring there cannot matter.
+    let def_mask_at = |i: usize| -> u32 {
+        instructions[i]
+            .fields
+            .iter()
+            .filter(|(key, _)| X86_DEF_FIELDS.contains(key))
+            .filter_map(|(_, value)| {
+                value
+                    .strip_prefix('x')
+                    .and_then(|rest| rest.parse::<u32>().ok())
+            })
+            .filter(|n| *n <= 7)
+            .fold(0u32, |mask, n| mask | (1 << n))
+    };
+    const PARAM_BITS: u32 = 0xff; // x0–x7, the SysV-deliverable argument registers
+                                  // `entry_clean[i]`: no call/syscall boundary executes on any path entry → i.
+                                  // `entry_undef[i]`: bit n set means `xN` is undefined on every such path.
+    let mut entry_clean: Vec<bool> = vec![true; count];
+    let mut entry_undef: Vec<u32> = vec![PARAM_BITS; count];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for i in 1..count {
+            let mut merged: Option<(bool, u32)> = None;
+            let mut absorb = |clean: bool, undef: u32| {
+                merged = Some(match merged {
+                    None => (clean, undef),
+                    Some((c, u)) => (c && clean, u & undef),
+                });
+            };
+            let out_of = |j: usize, clean: &[bool], undef: &[u32]| -> (bool, u32) {
+                let still_clean = clean[j]
+                    && !matches!(
+                        abi_boundary_of(&instructions[j]),
+                        Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
+                    );
+                (still_clean, undef[j] & !def_mask_at(j))
+            };
+            if falls_into(i) {
+                let (c, u) = out_of(i - 1, &entry_clean, &entry_undef);
+                absorb(c, u);
+            }
+            if let Some(preds) = branch_preds.get(&i) {
+                for &j in preds {
+                    let (c, u) = out_of(j, &entry_clean, &entry_undef);
+                    absorb(c, u);
+                }
+            }
+            let (clean, undef) = merged.unwrap_or((true, PARAM_BITS));
+            if clean != entry_clean[i] || undef != entry_undef[i] {
+                entry_clean[i] = clean;
+                entry_undef[i] = undef;
+                changed = true;
+            }
+        }
+    }
+
     // Walk forward tracking, per ABI register, whether it has been (re)defined
     // since the last boundary — an `x0`/`x1` USE not redefined since its CFG
     // boundary is that call's result. `defined_since_boundary` is reset at a
@@ -367,14 +443,12 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
 
     // Incoming-parameter tracking, scoped to the whole function (not reset at
     // boundaries). An incoming parameter is a *live-in* ABI register: `xK`
-    // (K ≤ 7) read before it is defined and before any call/syscall. SysV
+    // (K ≤ 7) read before it is defined and before any call/syscall, on every
+    // path from the entry (`entry_clean`/`entry_undef` above — bug-362). SysV
     // delivers it in `CALL_ARGS[K]` (rdi, rsi, …), but a vreg-pure helper copies
     // it into a vreg at entry via `mov %vK, xK`, where the body maps that `xK`
     // use by its role (e.g. `rax` in a call-free leaf). We bridge the two with a
     // `mov <home>, CALL_ARGS[K]` prologue so the copy reads the real argument.
-    let mut defined_since_entry: std::collections::HashSet<usize> =
-        std::collections::HashSet::new();
-    let mut boundary_since_entry = false;
     let mut param_home: std::collections::BTreeMap<usize, String> =
         std::collections::BTreeMap::new();
 
@@ -396,7 +470,6 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             staged_live.clear();
         }
         let mut new_defs: Vec<String> = Vec::new();
-        let mut new_def_ns: Vec<usize> = Vec::new();
         for (key, value) in instructions[i].fields.iter_mut() {
             if value == "sp" {
                 *value = "rsp".to_string();
@@ -469,7 +542,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             // Pin such a use to its argument register so the store reads the real
             // parameter and `param_home == arg` suppresses a bogus bridge.
             let is_param_use =
-                !is_def && n <= 7 && !boundary_since_entry && !defined_since_entry.contains(&n);
+                !is_def && n <= 7 && entry_clean[i] && (entry_undef[i] >> n) & 1 == 1;
             let mapped = if is_def && n < RETS.len() && staged_result_def[i] {
                 staged_live.insert(n);
                 RETS[n].to_string()
@@ -493,7 +566,6 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             }
             if is_def {
                 new_defs.push(value.clone());
-                new_def_ns.push(n);
             }
             *value = mapped;
         }
@@ -504,7 +576,6 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             // consumed, so treating `ret` as the last boundary would misread the
             // result as an argument to the *next* call.
             Some(AbiBoundary::Call | AbiBoundary::Syscall) => {
-                boundary_since_entry = true;
                 defined_since_boundary.clear();
                 staged_live.clear();
             }
@@ -514,11 +585,6 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                     defined_since_boundary.insert(def);
                 }
             }
-        }
-        // A definition retires `xK` as an incoming-parameter candidate for the
-        // rest of the function, regardless of boundaries.
-        for n in new_def_ns {
-            defined_since_entry.insert(n);
         }
     }
 
@@ -1081,5 +1147,60 @@ mod tests {
             ci("ret", &[]),
         ]);
         assert!(values(&out).iter().any(|v| v == "r15"));
+    }
+
+    /// bug-362: an incoming parameter read on a branch arm that is reached
+    /// *before* a call must still map to its SysV argument register, even when
+    /// that call is emitted ABOVE the arm in the instruction stream.
+    ///
+    /// This is `fs::setBuffered`'s exact shape. Its disable arm calls
+    /// `_mfb_rt_fs_file_drain`; its enable arm — reached by the branch at the
+    /// top, so the call never executes on that path — stores the buffering flag
+    /// through the incoming `File*`. The old linear `boundary_since_entry` flag
+    /// had already seen the disable arm's `bl` by the time the walk reached the
+    /// enable arm, so the parameter stopped being recognized as one and was
+    /// colored by its next boundary (`ret`) into the RESULT register `rax`.
+    /// The helper then stored through whatever `rax` held: SIGSEGV on every
+    /// x86-64 Linux program that enabled per-file buffering.
+    #[test]
+    fn a_parameter_read_on_an_arm_before_a_call_still_maps_to_its_argument_register() {
+        let out = sel(&[
+            ci("label", &[("name", "entry")]),
+            ci("cmp_imm", &[("lhs", "x1"), ("rhs", "0")]),
+            ci("b.ne", &[("target", "enable")]),
+            // Disable arm: parks the File* and calls the drain helper.
+            ci("mov", &[("dst", "x9"), ("src", "x0")]),
+            ci("bl", &[("target", "_mfb_rt_fs_file_drain")]),
+            ci("b", &[("target", "done")]),
+            // Enable arm: reached from `entry`, so `x0` is still the parameter.
+            ci("label", &[("name", "enable")]),
+            ci(
+                "mov_imm",
+                &[("dst", "x10"), ("type", "Integer"), ("value", "1")],
+            ),
+            ci(
+                "str_u64",
+                &[("src", "x10"), ("base", "x0"), ("offset", "40")],
+            ),
+            ci("label", &[("name", "done")]),
+            ci("ret", &[]),
+        ]);
+        let store = out
+            .iter()
+            .find(|inst| inst.get("offset") == Some("40"))
+            .expect("the enable arm's flag store survives selection");
+        assert_eq!(
+            store.get("base"),
+            Some("rdi"),
+            "the enable arm must address the File* through SysV argument 0, not \
+             a result register; got {:?}",
+            store.get("base"),
+        );
+        // The boolean argument on the same entry path maps to SysV argument 1.
+        let cmp = out
+            .iter()
+            .find(|inst| inst.op == CodeOp::CmpImm)
+            .expect("the entry compare survives selection");
+        assert_eq!(cmp.get("lhs"), Some("rsi"));
     }
 }
