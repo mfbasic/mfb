@@ -335,6 +335,8 @@ No representation is produced yet; this teaches the size path to describe one.
       layout block, the `:52-55` entry-size statement, and a note that the choice
       is an implementation detail invisible to source. Cite
       `[[src/target/shared/code/error_constants.rs:COLLECTION_KIND_LIST_FIXED]]`.
+  **NOT DONE** — deliberately last: the spec should describe the
+      representation that ships, and the flag is still off.
 - [ ] Tests: unit tests asserting `emit_flat_block_size` agrees with what
       `emit_alloc_list` would allocate, for payload widths 1/4/8, kind 0 and
       kind 2, and a nested `List OF List OF Integer`.
@@ -348,6 +350,8 @@ Commit: —
 
 The single behavioral commit. Small, because plan-57-A/B did the fan-out.
 
+  **NOT DONE.** This is the highest-value remaining test — alloc size vs
+      free size disagreeing is bug-02, and this sub-plan hit exactly that.
 - [x] `emit_element_value_offset`: fixed-width arm returns `index * payloadSize`
       and the constant `payloadSize`, no entry load.
 - [x] `emit_collection_data_pointer{,_into}`: fixed-width arm returns
@@ -368,17 +372,26 @@ Commit: —
 
 ### Phase 3 — prove the win and the absence of loss
 
+  **NOT DONE** — nothing is dead yet; both arms are live while the flag
+      selects between them. This belongs with flipping the flag to `true`.
 - [ ] Memory: a runtime test allocating a large `List OF Byte`, `List OF Integer`
       and `List OF Scalar` and asserting the block size matches `40 + N*p`.
+  **NOT DONE** — this is the proof of the payoff (40 + N vs 40 + 41N) and
+      has not been measured even once.
 - [ ] Performance: benchmark `get`, `FOR EACH`, `append`, `prepend` over each
       payload width, before and after (`benchmark/`). Expect improvements
       everywhere; `get` loses two dependent loads and `prepend` moves `p` bytes
       per element instead of 40.
+  **NOT DONE.**
 - [ ] Nested: a `List OF List OF Integer` fixture exercising construction, read,
       copy, and drop — the inlined-block size path (§3) is the subtlest
       interaction and has no other coverage.
+  **NOT DONE** — §3 calls this out as the second risk concentration
+      (a fixed-width list inlined in a variable-width container), and it is
+      untested.
 - [ ] Thread transfer: transfer a `List OF Integer` between threads and assert
       contents, exercising `copy_flat_block` over a kind-2 block.
+  **NOT DONE.**
 
 Acceptance: memory assertions hold on every target; no benchmark regression; the
 nested and thread-transfer fixtures pass.

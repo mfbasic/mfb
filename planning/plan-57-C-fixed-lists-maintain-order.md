@@ -254,11 +254,11 @@ mark the fixed-width rows resolved-by-plan-57-C rather than closing the bug.
 
 Smallest of the three, and independently a correctness fix.
 
-- [ ] Add `list_element_is_fixed_width` (§4.1) plus the drift test against
+- [x] Add `list_element_is_fixed_width` (§4.1) plus the drift test against
       `collection_payload_alignment`.
-- [ ] Convert `lower_collection_set`'s value path (`:283-352`) to a direct
+- [x] Convert `lower_collection_set`'s value path (`:283-352`) to a direct
       indexed write for fixed-width elements.
-- [ ] Tests: `tests/rt-behavior/collections/list-fixed-set-order-rt` — value-path
+- [x] Tests: `tests/rt-behavior/collections/list-fixed-set-order-rt` — value-path
       `set` on a list bound so the in-place gate cannot fire (a record field, or
       an argument), then assert `FOR EACH` and `math::abs` agree.
 
@@ -268,17 +268,17 @@ Commit: —
 
 ### Phase 2 — `prepend` and `insert`
 
-- [ ] Fixed-width branch in `lower_list_insert_collection` (`:475-762`), §4.2.
-- [ ] Fixed-width branch in `lower_list_prepend_in_place` (`:1622-1900`),
+- [x] Fixed-width branch in `lower_list_insert_collection` (`:475-762`), §4.2.
+- [x] Fixed-width branch in `lower_list_prepend_in_place` (`:1622-1900`),
       including re-deriving the shift bounds after any grow allocation.
-- [ ] Update the doc comments at `:468-472` and `:1616-1619`, which currently
+- [x] Update the doc comments at `:468-472` and `:1616-1619`, which currently
       assert the opposite invariant. Leaving them would be worse than the bug.
-- [ ] Tests: `tests/rt-behavior/collections/list-fixed-prepend-order-rt` —
+- [x] Tests: `tests/rt-behavior/collections/list-fixed-prepend-order-rt` —
       **element counts large enough to force `memmove` overlap** (≥ 64), across
       all three payload widths (`Byte`=1, `Scalar`=4, `Integer`=8), asserting
       `FOR EACH` order matches a linear reader.
-- [ ] Tests: mid-list `insert` at the first, middle and last positions.
-- [ ] Tests: interleaved `prepend`/`append`/`removeAt` sequences, then assert
+- [x] Tests: mid-list `insert` at the first, middle and last positions.
+- [x] Tests: interleaved `prepend`/`append`/`removeAt` sequences, then assert
       order — the invariant must hold after *combinations*, not just single ops.
 
 Acceptance: bug-365's `math::abs`/`math::min`/`fs::writeBytesAtomic`

@@ -339,7 +339,7 @@ built; the byte-list form is what exists.
 
 
 - [~] Add `emit_alloc_list` (§4.2), generalized over `element_type`.
-- [ ] Convert `lower_simd_alloc_list` (`entry_and_arena.rs:1387`) **first** — it
+- [x] Convert `lower_simd_alloc_list` (`entry_and_arena.rs:1387`) **first** — it
       is the smallest self-contained constructor and exercises the free-function
       form (§4.5). Fix its stale `_mfb_arena_alloc` clobber comment
       (`:1382-1384`) in the same commit.
@@ -354,7 +354,7 @@ Acceptance: `artifact-gate` byte-identical after each commit; `emit_alloc_byte_l
 exists once; `scripts/test-accept.sh` green with zero churn.
 Commit: —
 
-### Phase 3 — iteration consolidation — **PARTIAL**
+### Phase 3 — iteration consolidation — **DONE (in plan-57-D)**
 
 `element_type` threaded through the existing trio
 (`initialize_collection_loop_slots` / `load_collection_loop_item` /
@@ -363,14 +363,14 @@ Commit: —
 slots — and is deferred to plan-57-D, where codegen changes deliberately.
 
 
-- [ ] Add the `emit_list_iteration_*` trio (§4.1), lifted from the existing
+- [x] Add the `emit_list_iteration_*` trio (§4.1), lifted from the existing
       `transform`/`filter`/`reduce` helpers.
-- [ ] Convert `lower_for_each`'s List arm (`builder_control.rs:1201`), then the
+- [x] Convert `lower_for_each`'s List arm (`builder_control.rs:1201`), then the
       remaining ~17 cursor loops, one commit per file.
-- [ ] `lower_list_replace` (`builder_strings.rs:306`) is the awkward one — see
+- [x] `lower_list_replace` (`builder_strings.rs:306`) is the awkward one — see
       §4.4. Convert **both** of its cursor passes, and its construction in
       Phase 2. Land it last, after the simpler loops have validated the trio.
-- [ ] Leave every Map arm inline.
+- [x] Leave every Map arm inline.
 
 Acceptance: `artifact-gate` byte-identical; a `List OF Integer` `FOR EACH` emits
 the same instructions as before; no `COLLECTION_ENTRY_SIZE` stride add remains in
