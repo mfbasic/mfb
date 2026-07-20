@@ -1,0 +1,24 @@
+IMPORT io
+
+' bug-363: the module's *only* float-typed arithmetic runs through a record
+' field, so `module_may_emit_float_numeric_error` had to type a `MemberAccess`
+' to see it. It could not, so the four `ERR_FLOAT_*` message data objects were
+' never emitted while the lowering went on to emit the overflow check that
+' loads them, and the build aborted with "has no data object".
+'
+' Keep this module free of any other float-error-capable arithmetic and of
+' every `math::` call — either one turns the messages on by another route and
+' masks the gap the fixture exists to hold open.
+TYPE Circle
+  radius AS Float
+END TYPE
+
+FUNC area(c AS Circle) AS Float
+  RETURN 3.14159 * c.radius
+END FUNC
+
+FUNC main AS Integer
+  LET c AS Circle = Circle[2.0]
+  io::print(toString(area(c)))
+  RETURN 0
+END FUNC

@@ -1,0 +1,51 @@
+{
+  "project": "bug363_record_field_float_error",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Circle",
+      "line": 12,
+      "fields": [
+      { "visibility": null, "name": "radius", "type": "Float", "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "area",
+      "line": 16,
+      "params": [
+      { "name": "c", "type": "Circle", "default": null, "line": 16 }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "3.14159" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "c" }, "member": "radius" } }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Circle", "value": { "kind": "constructor", "type": "Circle", "arguments": [{ "kind": "number", "value": "2.0" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "area", "arguments": [{ "kind": "identifier", "value": "c" }] }] }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,8 +1,17 @@
 use super::*;
 
+/// Declared field types of every composite a `NirValue::MemberAccess` can name,
+/// keyed `(owning type name, field name)`. Built by
+/// `module_analysis::module_field_types` and threaded into
+/// `static_nir_value_type` so a module-level walk can type `c.radius` the same
+/// way the builder does. Without it a `MemberAccess` operand types as `None` and
+/// every predicate built on this seam silently under-approximates (bug-363).
+pub(super) type FieldTypes = HashMap<(String, String), String>;
+
 pub(super) fn static_nir_value_type(
     value: &NirValue,
     locals: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> Option<String> {
     match value {
         NirValue::Const { type_, .. }
@@ -18,16 +27,16 @@ pub(super) fn static_nir_value_type(
         NirValue::Local(name) => locals.get(name).cloned(),
         NirValue::Binary {
             op, left, right, ..
-        } => static_nir_value_type(left, locals)
-            .zip(static_nir_value_type(right, locals))
+        } => static_nir_value_type(left, locals, fields)
+            .zip(static_nir_value_type(right, locals, fields))
             .map(|(left_type, right_type)| {
                 numeric_binary_result_type(op, &left_type, &right_type).to_string()
             }),
-        NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals),
+        NirValue::Unary { operand, .. } => static_nir_value_type(operand, locals, fields),
         NirValue::Call { target, args, .. } | NirValue::CallResult { target, args, .. } => {
             let arg_types = args
                 .iter()
-                .map(|arg| static_nir_value_type(arg, locals))
+                .map(|arg| static_nir_value_type(arg, locals, fields))
                 .collect::<Option<Vec<_>>>()?;
             builtins::general::resolve_call(target, &arg_types)
                 .map(|call| call.return_type.into_owned())
@@ -42,16 +51,28 @@ pub(super) fn static_nir_value_type(
                 .or_else(|| builtins::call_return_type_name(target).map(str::to_string))
         }
         NirValue::ResultIsOk { .. } => Some("Boolean".to_string()),
-        NirValue::ResultValue { value } => static_nir_value_type(value, locals)
+        NirValue::ResultValue { value } => static_nir_value_type(value, locals, fields)
             .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string)),
         NirValue::ResultError { .. } => Some("Error".to_string()),
         NirValue::MemberAccess { target, member } => {
-            let target_type = static_nir_value_type(target, locals)?;
+            let target_type = static_nir_value_type(target, locals, fields)?;
             if member == "result" {
-                builtins::thread::parent_thread_output(&target_type)
-                    .map(|output_type| format!("Result OF {output_type}"))
-            } else {
-                None
+                if let Some(output_type) = builtins::thread::parent_thread_output(&target_type) {
+                    return Some(format!("Result OF {output_type}"));
+                }
+            }
+            // Record and union-variant fields, then the two `MapEntry` members —
+            // the same three sources `CodeBuilder::static_type_name` consults, so
+            // this walk types a member read exactly as the lowering that follows
+            // it will (bug-363).
+            if let Some(field_type) = fields.get(&(target_type.clone(), member.clone())) {
+                return Some(field_type.clone());
+            }
+            let (key_type, value_type) = parse_map_entry_type(&target_type)?;
+            match member.as_str() {
+                "key" => Some(key_type),
+                "value" => Some(value_type),
+                _ => None,
             }
         }
         NirValue::RuntimeCall { .. } | NirValue::UnionWrap { .. } | NirValue::Closure { .. } => {

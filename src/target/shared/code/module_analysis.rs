@@ -207,6 +207,51 @@ pub(super) fn module_uses_any_call(module: &NirModule, targets: &[&str]) -> bool
         .any(|target| module_uses_call(module, target))
 }
 
+/// Declared field types of every record, union variant, and builtin `net` record
+/// in `module`, keyed `(owning type name, field name)`.
+///
+/// This mirrors the `record_fields` + `union_variant_fields` halves of
+/// `TypeModel::from_module` — the tables the *builder* consults when it lowers a
+/// member read. A module-level predicate that walks values without them cannot
+/// type a `NirValue::MemberAccess` at all, so its model of the program is
+/// strictly weaker than the builder's and it under-reports (bug-363). Rebuilt
+/// here rather than taking a `TypeModel` because the string-symbol pass runs
+/// before the builder's type model is constructed.
+pub(super) fn module_field_types(module: &NirModule) -> FieldTypes {
+    let mut fields = FieldTypes::new();
+    for type_ in &module.types {
+        match type_.kind.as_str() {
+            "type" | "record" => {
+                for field in &type_.fields {
+                    fields.insert(
+                        (type_.name.clone(), field.name.clone()),
+                        field.type_.clone(),
+                    );
+                }
+            }
+            "union" => {
+                for variant in expanded_nir_union_variants(module, &type_.name) {
+                    for field in &variant.fields {
+                        fields.insert(
+                            (variant.name.clone(), field.name.clone()),
+                            field.type_.clone(),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for type_name in ["Address", "Datagram", "DatagramText"] {
+        if let Some(builtin_fields) = builtins::net::builtin_type_fields(type_name) {
+            for (name, type_) in builtin_fields {
+                fields.insert((type_name.to_string(), name.to_string()), type_.to_string());
+            }
+        }
+    }
+    fields
+}
+
 pub(super) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
     if module_uses_any_call(
         module,
@@ -227,11 +272,11 @@ pub(super) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
     ) {
         return true;
     }
+    let fields = module_field_types(module);
     if module.globals.iter().any(|global| {
-        global
-            .value
-            .as_ref()
-            .is_some_and(|value| value_may_emit_float_arithmetic_error(value, &HashMap::new()))
+        global.value.as_ref().is_some_and(|value| {
+            value_may_emit_float_arithmetic_error(value, &HashMap::new(), &fields)
+        })
     }) {
         return true;
     }
@@ -241,22 +286,23 @@ pub(super) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
             .iter()
             .map(|param| (param.name.clone(), param.type_.clone()))
             .collect::<HashMap<_, _>>();
-        ops_may_emit_float_arithmetic_error(&function.body, &mut locals)
+        ops_may_emit_float_arithmetic_error(&function.body, &mut locals, &fields)
     })
 }
 
 fn ops_may_emit_float_arithmetic_error(
     ops: &[NirOp],
     locals: &mut HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> bool {
     for op in ops {
         let emits = match op {
             NirOp::Bind {
                 name, type_, value, ..
             } => {
-                let emits = value
-                    .as_ref()
-                    .is_some_and(|value| value_may_emit_float_arithmetic_error(value, locals));
+                let emits = value.as_ref().is_some_and(|value| {
+                    value_may_emit_float_arithmetic_error(value, locals, fields)
+                });
                 if !type_.is_empty() {
                     locals.insert(name.clone(), type_.clone());
                 }
@@ -264,37 +310,43 @@ fn ops_may_emit_float_arithmetic_error(
             }
             NirOp::StoreGlobal { value, .. } | NirOp::Return { value } => value
                 .as_ref()
-                .is_some_and(|value| value_may_emit_float_arithmetic_error(value, locals)),
+                .is_some_and(|value| value_may_emit_float_arithmetic_error(value, locals, fields)),
             NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
-            NirOp::ExitProgram { code } => value_may_emit_float_arithmetic_error(code, locals),
-            NirOp::Fail { error } => value_may_emit_float_arithmetic_error(error, locals),
+            NirOp::ExitProgram { code } => {
+                value_may_emit_float_arithmetic_error(code, locals, fields)
+            }
+            NirOp::Fail { error } => value_may_emit_float_arithmetic_error(error, locals, fields),
             NirOp::Assign { value, .. }
             | NirOp::StateAssign { value, .. }
-            | NirOp::Eval { value } => value_may_emit_float_arithmetic_error(value, locals),
+            | NirOp::Eval { value } => value_may_emit_float_arithmetic_error(value, locals, fields),
             NirOp::If {
                 condition,
                 then_body,
                 else_body,
             } => {
-                value_may_emit_float_arithmetic_error(condition, locals)
-                    || ops_may_emit_float_arithmetic_error(then_body, &mut locals.clone())
-                    || ops_may_emit_float_arithmetic_error(else_body, &mut locals.clone())
+                value_may_emit_float_arithmetic_error(condition, locals, fields)
+                    || ops_may_emit_float_arithmetic_error(then_body, &mut locals.clone(), fields)
+                    || ops_may_emit_float_arithmetic_error(else_body, &mut locals.clone(), fields)
             }
             NirOp::Match { value, cases } => {
-                value_may_emit_float_arithmetic_error(value, locals)
+                value_may_emit_float_arithmetic_error(value, locals, fields)
                     || cases.iter().any(|case| {
                         matches!(
                             &case.pattern,
                             NirMatchPattern::Value(value)
-                                if value_may_emit_float_arithmetic_error(value, locals)
-                        ) || ops_may_emit_float_arithmetic_error(&case.body, &mut locals.clone())
+                                if value_may_emit_float_arithmetic_error(value, locals, fields)
+                        ) || ops_may_emit_float_arithmetic_error(
+                            &case.body,
+                            &mut locals.clone(),
+                            fields,
+                        )
                     })
             }
             NirOp::While {
                 condition, body, ..
             } => {
-                value_may_emit_float_arithmetic_error(condition, locals)
-                    || ops_may_emit_float_arithmetic_error(body, &mut locals.clone())
+                value_may_emit_float_arithmetic_error(condition, locals, fields)
+                    || ops_may_emit_float_arithmetic_error(body, &mut locals.clone(), fields)
             }
             NirOp::For {
                 name,
@@ -308,14 +360,14 @@ fn ops_may_emit_float_arithmetic_error(
                 let mut body_locals = locals.clone();
                 body_locals.insert(name.clone(), type_.clone());
                 type_ == "Float"
-                    || value_may_emit_float_arithmetic_error(start, locals)
-                    || value_may_emit_float_arithmetic_error(end, locals)
-                    || value_may_emit_float_arithmetic_error(step, locals)
-                    || ops_may_emit_float_arithmetic_error(body, &mut body_locals)
+                    || value_may_emit_float_arithmetic_error(start, locals, fields)
+                    || value_may_emit_float_arithmetic_error(end, locals, fields)
+                    || value_may_emit_float_arithmetic_error(step, locals, fields)
+                    || ops_may_emit_float_arithmetic_error(body, &mut body_locals, fields)
             }
             NirOp::DoUntil { body, condition } => {
-                ops_may_emit_float_arithmetic_error(body, &mut locals.clone())
-                    || value_may_emit_float_arithmetic_error(condition, locals)
+                ops_may_emit_float_arithmetic_error(body, &mut locals.clone(), fields)
+                    || value_may_emit_float_arithmetic_error(condition, locals, fields)
             }
             NirOp::ForEach {
                 name,
@@ -325,11 +377,11 @@ fn ops_may_emit_float_arithmetic_error(
             } => {
                 let mut body_locals = locals.clone();
                 body_locals.insert(name.clone(), type_.clone());
-                value_may_emit_float_arithmetic_error(iterable, locals)
-                    || ops_may_emit_float_arithmetic_error(body, &mut body_locals)
+                value_may_emit_float_arithmetic_error(iterable, locals, fields)
+                    || ops_may_emit_float_arithmetic_error(body, &mut body_locals, fields)
             }
             NirOp::Trap { body, .. } => {
-                ops_may_emit_float_arithmetic_error(body, &mut locals.clone())
+                ops_may_emit_float_arithmetic_error(body, &mut locals.clone(), fields)
             }
         };
         if emits {
@@ -342,57 +394,61 @@ fn ops_may_emit_float_arithmetic_error(
 fn value_may_emit_float_arithmetic_error(
     value: &NirValue,
     locals: &HashMap<String, String>,
+    fields: &FieldTypes,
 ) -> bool {
     match value {
         NirValue::Binary {
             op, left, right, ..
         } => {
-            let result_type = static_nir_value_type(left, locals)
-                .zip(static_nir_value_type(right, locals))
+            let result_type = static_nir_value_type(left, locals, fields)
+                .zip(static_nir_value_type(right, locals, fields))
                 .map(|(left_type, right_type)| {
                     numeric_binary_result_type(op, &left_type, &right_type)
                 });
             (matches!(op.as_str(), "+" | "-" | "*" | "/" | "DIV" | "MOD" | "^")
                 && result_type == Some("Float"))
-                || value_may_emit_float_arithmetic_error(left, locals)
-                || value_may_emit_float_arithmetic_error(right, locals)
+                || value_may_emit_float_arithmetic_error(left, locals, fields)
+                || value_may_emit_float_arithmetic_error(right, locals, fields)
         }
         NirValue::Call { args, .. }
         | NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. } => args
             .iter()
-            .any(|arg| value_may_emit_float_arithmetic_error(arg, locals)),
+            .any(|arg| value_may_emit_float_arithmetic_error(arg, locals, fields)),
         NirValue::UnionWrap { value, .. }
         | NirValue::UnionExtract { value, .. }
         | NirValue::ResultIsOk { value }
         | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => value_may_emit_float_arithmetic_error(value, locals),
+        | NirValue::ResultError { value } => {
+            value_may_emit_float_arithmetic_error(value, locals, fields)
+        }
         NirValue::WithUpdate {
             target, updates, ..
         } => {
-            value_may_emit_float_arithmetic_error(target, locals)
-                || updates
-                    .iter()
-                    .any(|update| value_may_emit_float_arithmetic_error(&update.value, locals))
+            value_may_emit_float_arithmetic_error(target, locals, fields)
+                || updates.iter().any(|update| {
+                    value_may_emit_float_arithmetic_error(&update.value, locals, fields)
+                })
         }
         NirValue::ListLiteral { values, .. } => values
             .iter()
-            .any(|value| value_may_emit_float_arithmetic_error(value, locals)),
+            .any(|value| value_may_emit_float_arithmetic_error(value, locals, fields)),
         NirValue::MapLiteral { entries, .. } => entries.iter().any(|(key, value)| {
-            value_may_emit_float_arithmetic_error(key, locals)
-                || value_may_emit_float_arithmetic_error(value, locals)
+            value_may_emit_float_arithmetic_error(key, locals, fields)
+                || value_may_emit_float_arithmetic_error(value, locals, fields)
         }),
         NirValue::MemberAccess { target, .. } => {
-            value_may_emit_float_arithmetic_error(target, locals)
+            value_may_emit_float_arithmetic_error(target, locals, fields)
         }
         NirValue::Unary { op, operand, .. } => {
-            (op == "-" && static_nir_value_type(operand, locals).as_deref() == Some("Float"))
-                || value_may_emit_float_arithmetic_error(operand, locals)
+            (op == "-"
+                && static_nir_value_type(operand, locals, fields).as_deref() == Some("Float"))
+                || value_may_emit_float_arithmetic_error(operand, locals, fields)
         }
         NirValue::Closure { captures, .. } => captures
             .iter()
-            .any(|value| value_may_emit_float_arithmetic_error(value, locals)),
+            .any(|value| value_may_emit_float_arithmetic_error(value, locals, fields)),
         NirValue::Const { .. }
         | NirValue::Local(_)
         | NirValue::LocalRef { .. }
