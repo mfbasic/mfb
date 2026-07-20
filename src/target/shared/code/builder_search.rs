@@ -348,6 +348,7 @@ impl CodeBuilder<'_> {
         }
         self.emit_collection_payload_matches_value_branch(
             element_type,
+            element_type,
             &scratch8,
             &scratch16,
             &scratch17,
@@ -501,6 +502,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit_collection_payloads_match_branch(
+            element_type,
             element_type,
             &scratch8,
             &scratch21,

@@ -175,6 +175,7 @@ impl CodeBuilder<'_> {
         }
         self.emit_collection_payload_match_branch(
             &element_type,
+            &element_type,
             &collection_register,
             &value_offset,
             &value_length,
@@ -374,6 +375,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit_collection_payload_matches_value_branch(
+        "",
             &key_type, &scratch8, &scratch13, &scratch14, &scratch9, &found, &next,
         )?;
         self.emit(abi::label(&found));

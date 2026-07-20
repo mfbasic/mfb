@@ -351,7 +351,7 @@ impl CodeBuilder<'_> {
                 &entry,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
-            let result = self.emit_load_collection_payload(
+            let result = self.emit_load_map_payload(
                 value_type,
                 &collection,
                 &value_offset,
@@ -412,6 +412,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit_collection_payload_match_branch(
             key_type,
+            "",
             &collection,
             &key_offset,
             &key_length,
@@ -431,7 +432,7 @@ impl CodeBuilder<'_> {
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        let result = self.emit_load_collection_payload(
+        let result = self.emit_load_map_payload(
             value_type,
             &collection,
             &value_offset,
@@ -579,6 +580,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit_collection_payload_match_branch(
+        "",
             key_type,
             &collection,
             &key_offset,
@@ -599,7 +601,7 @@ impl CodeBuilder<'_> {
             &entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        let result = self.emit_load_collection_payload(
+        let result = self.emit_load_map_payload(
             value_type,
             &collection,
             &value_offset,

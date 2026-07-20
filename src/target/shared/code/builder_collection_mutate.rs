@@ -1334,7 +1334,7 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             data_offset_slot,
         ));
-        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot)?;
+        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot, element_type)?;
         // Bump count and dataLength.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2125,7 +2125,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 data_offset_slot,
             ));
-            self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot)?;
+            self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot, element_type)?;
 
             // Bump count and dataLength before writing entries, so the identity
             // loop covers the new element too.
@@ -2303,7 +2303,7 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 data_offset_slot,
             ));
-            self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot)?;
+            self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot, element_type)?;
             // Bump count and dataLength.
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
             self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
@@ -2459,7 +2459,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&rebuild));
 
         // --- Overwrite: same-size payload at valueOffset (valueLength unchanged). ---
-        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, voffset_slot)?;
+        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, voffset_slot, element_type)?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
         self.emit(abi::move_immediate(
@@ -2721,6 +2721,7 @@ impl CodeBuilder<'_> {
             ));
             self.emit_collection_payload_match_branch(
                 key_type,
+                "",
                 &collection,
                 &key_offset,
                 &key_length,
@@ -2777,7 +2778,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::store_u64(&scratch13, abi::stack_pointer(), voff_slot));
-        self.emit_copy_payload_to_collection(map_slot, val_len_slot, &value_payload, voff_slot)?;
+        self.emit_copy_payload_to_collection(map_slot, val_len_slot, &value_payload, voff_slot, "")?;
         self.emit(abi::load_u64(
             &scratch8,
             abi::stack_pointer(),
@@ -3058,6 +3059,7 @@ impl CodeBuilder<'_> {
             val_len_slot,
             &value_payload,
             data_offset_slot,
+            "",
         )?;
         // dataLength = final data offset (includes the alignment pad + new value).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
@@ -3378,6 +3380,7 @@ impl CodeBuilder<'_> {
             key_len_slot,
             &key_payload,
             data_offset_slot,
+            "",
         )?;
         // Value: align, record valueOffset/valueLength, copy bytes.
         self.emit_align_offset_slot(data_offset_slot, value_align);
@@ -3411,6 +3414,7 @@ impl CodeBuilder<'_> {
             val_len_slot,
             &value_payload,
             data_offset_slot,
+            "",
         )?;
         // Header: count++, dataLength = final data offset.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
@@ -4614,6 +4618,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit_collection_payload_matches_value_branch(
+        "",
             key_type, &scratch8, &scratch13, &scratch16, &scratch9, &scan_next, &scan_keep,
         )?;
         self.emit(abi::label(&scan_keep));
@@ -4730,7 +4735,7 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
         self.emit_collection_payload_matches_value_branch(
-            key_type, &scratch8, &scratch14, &scratch15, &scratch9, &copy_next, &copy_keep,
+            key_type, "", &scratch8, &scratch14, &scratch15, &scratch9, &copy_next, &copy_keep,
         )?;
         self.emit(abi::label(&copy_keep));
         self.emit_copy_one_map_entry(

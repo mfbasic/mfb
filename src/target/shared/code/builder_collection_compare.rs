@@ -193,9 +193,15 @@ impl CodeBuilder<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// `stride_type` selects the data-base entry stride: the element type for a
+    /// LIST block, or `""` for a MAP block, which keeps its lookup table
+    /// whatever its key and value types are. Passing `type_` here for a map
+    /// would address a `Map OF Scalar TO T` past its own entry array
+    /// (plan-57-D).
     pub(super) fn emit_collection_payload_match_branch(
         &mut self,
         type_: &str,
+        stride_type: &str,
         collection: &str,
         offset: &str,
         length: &str,
@@ -204,7 +210,7 @@ impl CodeBuilder<'_> {
         not_equal_label: &str,
     ) -> Result<(), String> {
         let data = self.allocate_register()?;
-        self.emit_collection_data_pointer_for(&data, collection, type_);
+        self.emit_collection_data_pointer_for(&data, collection, stride_type);
         self.emit(abi::add_registers(&data, &data, offset));
         match type_ {
             "Boolean" | "Byte" => {
@@ -288,9 +294,15 @@ impl CodeBuilder<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// `stride_type` selects the data-base entry stride: the element type for a
+    /// LIST block, or `""` for a MAP block, which keeps its lookup table
+    /// whatever its key and value types are. Passing `type_` here for a map
+    /// would address a `Map OF Scalar TO T` past its own entry array
+    /// (plan-57-D).
     pub(super) fn emit_collection_payload_matches_value_branch(
         &mut self,
         type_: &str,
+        stride_type: &str,
         collection: &str,
         offset: &str,
         length: &str,
@@ -313,7 +325,7 @@ impl CodeBuilder<'_> {
         let vbyte = vbyte_v.as_str();
         self.emit(abi::move_register(cur, collection));
         self.emit(abi::move_register(tmp, offset));
-        self.emit_collection_data_pointer_for(cur, cur, type_);
+        self.emit_collection_data_pointer_for(cur, cur, stride_type);
         self.emit(abi::add_registers(cur, cur, tmp));
         match type_ {
             "Boolean" | "Byte" => {
@@ -388,9 +400,15 @@ impl CodeBuilder<'_> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    /// `stride_type` selects the data-base entry stride: the element type for a
+    /// LIST block, or `""` for a MAP block, which keeps its lookup table
+    /// whatever its key and value types are. Passing `type_` here for a map
+    /// would address a `Map OF Scalar TO T` past its own entry array
+    /// (plan-57-D).
     pub(super) fn emit_collection_payloads_match_branch(
         &mut self,
         type_: &str,
+        stride_type: &str,
         left_collection: &str,
         left_offset: &str,
         left_length: &str,
@@ -417,9 +435,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(loff, left_offset));
         self.emit(abi::move_register(rcur, right_collection));
         self.emit(abi::move_register(roff, right_offset));
-        self.emit_collection_data_pointer_for(lcur, lcur, type_);
+        self.emit_collection_data_pointer_for(lcur, lcur, stride_type);
         self.emit(abi::add_registers(lcur, lcur, loff));
-        self.emit_collection_data_pointer_for(rcur, rcur, type_);
+        self.emit_collection_data_pointer_for(rcur, rcur, stride_type);
         self.emit(abi::add_registers(rcur, rcur, roff));
         match type_ {
             "Boolean" | "Byte" => {

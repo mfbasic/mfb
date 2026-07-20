@@ -1483,6 +1483,7 @@ impl CodeBuilder<'_> {
                 key_len_slot,
                 slot.key.as_ref().unwrap(),
                 data_offset_slot,
+                if slot.key.is_some() { "" } else { &slot.value.type_ },
             )?;
         } else {
             self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
@@ -1550,6 +1551,7 @@ impl CodeBuilder<'_> {
             value_len_slot,
             &slot.value,
             data_offset_slot,
+            if slot.key.is_some() { "" } else { &slot.value.type_ },
         )?;
         Ok(())
     }
@@ -1636,12 +1638,20 @@ impl CodeBuilder<'_> {
         Ok(len_slot)
     }
 
+    /// Copy a payload into a collection's data region at `data_offset_slot`.
+    ///
+    /// `stride_type` selects the data base's entry stride, exactly as for the
+    /// readers: the element type for a LIST, `""` for a MAP. Deriving it from
+    /// `payload.type_` is wrong for a map — a `Map OF Scalar TO T` has a
+    /// fixed-width KEY, and the entry-free base would write that key inside the
+    /// map's own lookup table (plan-57-D).
     pub(super) fn emit_copy_payload_to_collection(
         &mut self,
         collection_slot: usize,
         len_slot: usize,
         payload: &PayloadSlot,
         data_offset_slot: usize,
+        stride_type: &str,
     ) -> Result<(), String> {
         let scratch8 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
@@ -1668,7 +1678,7 @@ impl CodeBuilder<'_> {
         // The data base uses this element type's entry stride, which is zero for
         // a kind-2 list — the payload write and every reader must agree on where
         // the data region starts (plan-57-D).
-        if list_entry_stride(&payload.type_) != 0 {
+        if list_entry_stride(stride_type) != 0 {
             self.emit(abi::load_u64(
                 &scratch11,
                 &scratch8,
@@ -1931,9 +1941,38 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Load a list element's payload. The data base uses `type_`'s entry
+    /// stride, which is correct only because this is a LIST block; a map must
+    /// call [`Self::emit_load_map_payload`].
     pub(super) fn emit_load_collection_payload(
         &mut self,
         type_: &str,
+        collection: &str,
+        offset: &str,
+        length: &str,
+    ) -> Result<String, String> {
+        self.emit_load_payload_with_stride(type_, type_, collection, offset, length)
+    }
+
+    /// Load a payload out of a MAP block. Identical to
+    /// [`Self::emit_load_collection_payload`] except that the data base always
+    /// uses the kind-0 stride: a map keeps its lookup table whatever its key and
+    /// value types are, so selecting the entry-free base from a fixed-width key
+    /// or value type would address it past its own entry array (plan-57-D).
+    pub(super) fn emit_load_map_payload(
+        &mut self,
+        type_: &str,
+        collection: &str,
+        offset: &str,
+        length: &str,
+    ) -> Result<String, String> {
+        self.emit_load_payload_with_stride(type_, "", collection, offset, length)
+    }
+
+    fn emit_load_payload_with_stride(
+        &mut self,
+        type_: &str,
+        stride_type: &str,
         collection: &str,
         offset: &str,
         length: &str,
@@ -1950,7 +1989,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(offset_input, offset));
         self.emit(abi::move_register(length_input, length));
         let data = self.allocate_register()?;
-        self.emit_collection_data_pointer_for(&data, collection_input, type_);
+        self.emit_collection_data_pointer_for(&data, collection_input, stride_type);
         self.emit(abi::add_registers(&data, &data, offset_input));
         match type_ {
             "Boolean" | "Byte" => {
