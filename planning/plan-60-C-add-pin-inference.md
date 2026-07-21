@@ -376,7 +376,15 @@ Commit: —
 - **Doc sync:** `src/main.rs` (`USAGE`, `PKG_HELP`),
   `src/docs/spec/tooling/07_cli-reference.md`, plus the new pin-semantics section
   in the tooling spec.
-- **Acceptance:** `cargo build && cargo test --bin mfb && cargo test --test repo_acceptance`.
+- **Acceptance:** `cargo build && cargo test --bin mfb && cargo test --test repo_acceptance`,
+  **and `scripts/test-accept.sh target/debug/mfb target/accept-actual`** — the
+  project gate required by `.ai/compiler.md:67` for any change that can affect
+  generated diagnostics, which CLI output is. The three cargo commands alone do
+  **not** see the goldens that embed CLI output: in plan-60-A they missed a
+  `USAGE` golden entirely (plan-60-A Corrections #8). Any letter here that
+  changes `USAGE`/`PKG_HELP`/`REPO_HELP` or a command's printed output must
+  expect `tests/syntax/packages/audit-usage/golden/audit_usage.audit` to move,
+  and must run the four-question check in AGENTS.md before regenerating it.
 
 ## Open Decisions
 
