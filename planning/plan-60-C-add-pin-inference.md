@@ -320,8 +320,12 @@ The one unproven premise. It runs first and cheaply because it can invalidate
 
 Acceptance: §2 has no UNVERIFIED bullet, and §5's branch is chosen with the
 observed evidence written down. If the defect branch is taken, this phase also
-files the regression test named in §5.
-Commit: —
+files the regression test named in §5. **VERIFIED** — §2's bullet is now
+CONFIRMED with the observed resolver output, lock contents and byte comparison;
+§5's defect branch is chosen and recorded in Corrections #1; the regression test
+is `spike_file_added_package_with_registry_ident_survives_update` and is
+A/B-verified in both directions. 3150 unit / 21 acceptance (was 20), 0 failed.
+Commit: e627ce953
 
 ### Phase 2 — Flag parsing and the inference matrix
 
