@@ -8,12 +8,13 @@
 //! harness.
 
 use std::io::BufRead;
+use std::path::Path;
 
 /// Where a user who does not know the command set should look. The top-level
 /// `mfb` screen advertises only `repo register`/`repo auth`, so every error that
 /// leaves the user hunting for a subcommand points at the full sub-help
 /// (plan-42 §4.5).
-const REPO_HELP_HINT: &str = "Run 'mfb repo --help' for all repository & auth commands.";
+pub(crate) const REPO_HELP_HINT: &str = "Run 'mfb repo --help' for all repository & auth commands.";
 
 pub(crate) enum RepoCommandError {
     Usage(String),
@@ -28,7 +29,13 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
     };
 
     let repo_url = mfb_repository::client::repo_url_from_env();
-    let paths = super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
+    // Resolved lazily, inside the arms that need it (plan-60-A §4.3). Resolving
+    // eagerly here would make the publisher commands' *arity* errors depend on
+    // key-store state: `mfb repo check-abi a b c` must report an argument error
+    // without ever touching the key store, exactly as `mfb pkg check-abi a b c`
+    // did. The five publisher arms never call this — each of their
+    // implementations in `super::pkg` resolves its own paths.
+    let paths = || super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed);
 
     match command {
         "register" => {
@@ -37,7 +44,7 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
                     "mfb repo register requires exactly one <owner_name>".to_string(),
                 ));
             };
-            let response = mfb_repository::client::register(&repo_url, &paths, owner)
+            let response = mfb_repository::client::register(&repo_url, &paths()?, owner)
                 .map_err(RepoCommandError::Failed)?;
             println!(
                 "Registered owner {} with auth fingerprint {} and ident fingerprint {}",
@@ -51,7 +58,7 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
                     "mfb repo auth requires exactly one <owner_name>".to_string(),
                 ));
             };
-            let response = mfb_repository::client::auth(&repo_url, &paths, owner)
+            let response = mfb_repository::client::auth(&repo_url, &paths()?, owner)
                 .map_err(RepoCommandError::Failed)?;
             println!(
                 "Authenticated owner {} until {}",
@@ -68,7 +75,7 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
             };
             let version = mfb_repository::client::trust_registry(
                 &repo_url,
-                &paths,
+                &paths()?,
                 registry_id,
                 root_fingerprint,
             )
@@ -84,7 +91,7 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
         "link" => match args {
             [_, flag, owner] if flag == "--start" => {
                 let (code, expires_at) =
-                    mfb_repository::client::link_start(&repo_url, &paths, owner)
+                    mfb_repository::client::link_start(&repo_url, &paths()?, owner)
                         .map_err(RepoCommandError::Failed)?;
                 println!("Pairing code (valid until {expires_at}, single use):");
                 println!();
@@ -101,7 +108,7 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
                     .read_line(&mut code)
                     .map_err(|err| RepoCommandError::Failed(format!("failed to read pairing code: {err}")))?;
                 let response =
-                    mfb_repository::client::link_fetch(&repo_url, &paths, owner, code.trim())
+                    mfb_repository::client::link_fetch(&repo_url, &paths()?, owner, code.trim())
                         .map_err(RepoCommandError::Failed)?;
                 println!(
                     "Linked machine for owner {} with auth fingerprint {} and ident fingerprint {}",
@@ -115,6 +122,68 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
                     .to_string(),
             )),
         },
+        // Publisher-side commands (plan-60-A). Dispatch lives here; the
+        // implementations stay in `super::pkg` alongside the private helpers
+        // they use. Each implementation resolves its own repo paths, so these
+        // arms never touch `paths()` — an arity error here never depends on
+        // key-store state.
+        "publish" => {
+            // `[path]` is optional and defaults to the current directory. Note
+            // the second positional is a project *directory*, not a package
+            // name — `publish_package_project` takes it as `project_dir`.
+            let (owner, project_dir) = match args {
+                [_, owner] => (owner, Path::new(".")),
+                [_, owner, path] => (owner, Path::new(path.as_str())),
+                _ => {
+                    return Err(RepoCommandError::Usage(
+                        "mfb repo publish requires <owner_name> [path]".to_string(),
+                    ))
+                }
+            };
+            super::pkg::publish_package_project(owner, project_dir).map_err(RepoCommandError::Failed)
+        }
+        "check-abi" => {
+            let project_dir = match args {
+                [_] => Path::new("."),
+                [_, location] => Path::new(location.as_str()),
+                _ => {
+                    return Err(RepoCommandError::Usage(
+                        "mfb repo check-abi accepts at most one [location]".to_string(),
+                    ))
+                }
+            };
+            super::pkg::check_abi(project_dir).map_err(RepoCommandError::Failed)
+        }
+        "release-state" => {
+            let (state, version) = match args {
+                [_, state] => (state, None),
+                [_, state, version] => (state, Some(version.as_str())),
+                _ => {
+                    return Err(RepoCommandError::Usage(
+                        "mfb repo release-state requires <available|deprecated|yanked> [version]"
+                            .to_string(),
+                    ))
+                }
+            };
+            super::pkg::set_release_state(Path::new("."), state, version)
+                .map_err(RepoCommandError::Failed)
+        }
+        "transfer" => {
+            let [_, ident, to_owner] = args else {
+                return Err(RepoCommandError::Usage(
+                    "mfb repo transfer requires <owner>#<package> <to-owner>".to_string(),
+                ));
+            };
+            super::pkg::transfer_offer(ident, to_owner).map_err(RepoCommandError::Failed)
+        }
+        "transfer-accept" => {
+            let [_, ident] = args else {
+                return Err(RepoCommandError::Usage(
+                    "mfb repo transfer-accept requires <owner>#<package>@<to-owner>".to_string(),
+                ));
+            };
+            super::pkg::transfer_accept(ident).map_err(RepoCommandError::Failed)
+        }
         _ => Err(RepoCommandError::Usage(format!(
             "unknown mfb repo command '{command}'\n\n{REPO_HELP_HINT}"
         ))),
@@ -306,6 +375,145 @@ mod tests {
             assert!(
                 message.contains("mfb repo --help"),
                 "discovery error must point at the sub-help: {message}"
+            );
+        }
+    }
+
+    /// Assert the command *reached its implementation* rather than being
+    /// rejected on arity. Every one of these argument shapes is chosen to fail
+    /// early inside the implementation on a pure, offline check — a malformed
+    /// ident, an invalid state name, or a directory with no `project.json` — so
+    /// nothing here touches the network or the key store.
+    fn reaches_dispatch(result: Result<(), RepoCommandError>) -> String {
+        match result {
+            Err(RepoCommandError::Failed(message)) => message,
+            Err(RepoCommandError::Usage(message)) => {
+                panic!(
+                    "expected the arity to be accepted and dispatch reached, got usage: {message}"
+                )
+            }
+            Ok(()) => panic!("expected a failure from the implementation, got Ok"),
+        }
+    }
+
+    // A directory that cannot contain a project.json, so `publish`/`check-abi`
+    // fail on manifest validation immediately after dispatch.
+    const NO_PROJECT: &str = "/nonexistent-plan60-no-project-here";
+
+    /// plan-60-A §4.2: the five publisher-side commands dispatch from `repo`,
+    /// with the arity table this pins. The risk this covers is the translation
+    /// from `pkg`'s slice matching to `repo`'s `match` + destructure style,
+    /// where an arity check can silently loosen without anything noticing.
+    #[test]
+    fn repo_publisher_commands_pin_their_arity() {
+        // publish <owner> [path] — 1 or 2.
+        assert!(usage(run_repo_command(&s(&["publish"]))).contains("requires <owner_name> [path]"));
+        assert!(usage(run_repo_command(&s(&["publish", "a", "b", "c"])))
+            .contains("requires <owner_name> [path]"));
+        reaches_dispatch(run_repo_command(&s(&["publish", "alice", NO_PROJECT])));
+
+        // check-abi [path] — 0 or 1.
+        assert!(usage(run_repo_command(&s(&["check-abi", "a", "b"])))
+            .contains("accepts at most one [location]"));
+        reaches_dispatch(run_repo_command(&s(&["check-abi", NO_PROJECT])));
+
+        // release-state <state> [version] — 1 or 2.
+        assert!(usage(run_repo_command(&s(&["release-state"]))).contains("requires <available"));
+        assert!(
+            usage(run_repo_command(&s(&["release-state", "a", "b", "c"])))
+                .contains("requires <available")
+        );
+        // A bogus state is rejected by the implementation, not by dispatch —
+        // which is exactly what proves both arities got through.
+        assert!(
+            reaches_dispatch(run_repo_command(&s(&["release-state", "bogus"])))
+                .contains("state must be one of")
+        );
+        assert!(
+            reaches_dispatch(run_repo_command(&s(&["release-state", "bogus", "1.0.0"])))
+                .contains("state must be one of")
+        );
+
+        // transfer <ident> <to-owner> — exactly 2.
+        assert!(usage(run_repo_command(&s(&["transfer", "a"])))
+            .contains("requires <owner>#<package> <to-owner>"));
+        assert!(usage(run_repo_command(&s(&["transfer", "a", "b", "c"])))
+            .contains("requires <owner>#<package> <to-owner>"));
+        assert!(
+            reaches_dispatch(run_repo_command(&s(&["transfer", "no-hash", "bob"])))
+                .contains("ident must use")
+        );
+
+        // transfer-accept <ident>@<to-owner> — exactly 1.
+        assert!(usage(run_repo_command(&s(&["transfer-accept"]))).contains("requires <owner>"));
+        assert!(usage(run_repo_command(&s(&["transfer-accept", "a", "b"])))
+            .contains("requires <owner>"));
+        assert!(
+            reaches_dispatch(run_repo_command(&s(&["transfer-accept", "ada#shape"])))
+                .contains("<owner>#<package>@<to-owner>")
+        );
+    }
+
+    /// plan-60-A §4.2: `publish` gains an optional path defaulting to `.`, so
+    /// `mfb repo publish alice` must behave exactly as `mfb repo publish alice
+    /// .` does. Run both from a directory with no `project.json` and assert the
+    /// *same* failure — if the one-argument form were still rejected on arity
+    /// it would return `Usage` here instead.
+    #[test]
+    fn repo_publish_defaults_its_path_to_the_current_directory() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let guard = super::super::tests::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let previous = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(dir.path()).expect("chdir");
+
+        let implicit = reaches_dispatch(run_repo_command(&s(&["publish", "alice"])));
+        let explicit = reaches_dispatch(run_repo_command(&s(&["publish", "alice", "."])));
+
+        std::env::set_current_dir(previous).expect("restore cwd");
+        drop(guard);
+
+        assert_eq!(implicit, explicit);
+        assert!(
+            implicit.contains("package project validation failed"),
+            "{implicit}"
+        );
+    }
+
+    /// plan-60-A §4.3: an argument-shape error must never depend on key-store
+    /// state. `local_paths_for_repo` is the only thing in `run_repo_command`
+    /// that can fail before dispatch, and it fails when neither `MFB_HOME` nor
+    /// `HOME` is set — so with both unset, a wrong-arity publisher command must
+    /// still report its arity error rather than "HOME is not set".
+    ///
+    /// This is the regression guard for the eager-resolution difference between
+    /// the old `pkg` dispatch and the new `repo` one.
+    #[test]
+    fn arity_errors_do_not_depend_on_the_key_store() {
+        let _lock = super::super::tests::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _mfb = super::super::tests::EnvVarGuard::unset("MFB_HOME");
+        let _home = super::super::tests::EnvVarGuard::unset("HOME");
+
+        // Sanity: the key store really is unresolvable in this state, so the
+        // assertions below are not vacuous.
+        assert!(super::super::local_paths_for_repo("repo")
+            .unwrap_err()
+            .contains("HOME is not set"));
+
+        for args in [
+            vec!["check-abi", "a", "b"],
+            vec!["publish", "a", "b", "c"],
+            vec!["release-state", "a", "b", "c"],
+            vec!["transfer", "a"],
+            vec!["transfer-accept", "a", "b"],
+        ] {
+            let message = usage(run_repo_command(&s(&args)));
+            assert!(
+                !message.contains("HOME is not set"),
+                "`repo {args:?}` must report its arity, not the key store: {message}"
             );
         }
     }

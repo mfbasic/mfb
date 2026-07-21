@@ -147,30 +147,32 @@ pub(crate) fn local_paths_for_repo(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::Mutex;
 
     // `local_paths_for_repo` reads process-global env vars; serialize the
-    // env-mutating tests so they cannot race each other.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    // env-mutating tests so they cannot race each other. `pub(crate)` so
+    // `cli::repo`'s tests can join the same serialization domain — they mutate
+    // the same two variables (plan-60-A).
+    pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// Set `name` to `value`, returning a guard that restores the prior value
     /// (or removes it) on drop. Centralizing the restore keeps the branchy
     /// save/restore logic in one place.
-    struct EnvVarGuard {
+    pub(crate) struct EnvVarGuard {
         name: &'static str,
         previous: Option<String>,
     }
 
     impl EnvVarGuard {
-        fn set(name: &'static str, value: &str) -> Self {
+        pub(crate) fn set(name: &'static str, value: &str) -> Self {
             let previous = std::env::var(name).ok();
             std::env::set_var(name, value);
             Self { name, previous }
         }
 
-        fn unset(name: &'static str) -> Self {
+        pub(crate) fn unset(name: &'static str) -> Self {
             let previous = std::env::var(name).ok();
             std::env::remove_var(name);
             Self { name, previous }

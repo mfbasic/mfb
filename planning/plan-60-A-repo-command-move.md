@@ -302,32 +302,61 @@ is known rather than discovered.
       its command. → 24 across 6 files.
 
 Acceptance: §2's Measured populations table has no UNVERIFIED row, and the
-live-doc file list is written into this plan.
-Commit: —
+live-doc file list is written into this plan. **VERIFIED** — the UNVERIFIED
+bullet in §2 is now RESOLVED and the 6-file live-doc table is recorded.
+Commit: 0e2d8af1f
 
 ### Phase 2 — Move the dispatch
 
-- [ ] Delete the five publisher-side match arms and their usage-error arms from
+- [x] Delete the five publisher-side match arms and their usage-error arms from
       `run_pkg_command` (`src/cli/pkg.rs:60-92` and `:93`, `:105`).
-- [ ] Make `publish_package_project` (`src/cli/pkg.rs:121`) and the four other
+- [x] Make `publish_package_project` (`src/cli/pkg.rs:121`) and the four other
       implementation functions (`:302`, `:319`, `:340`, `:395`) `pub(crate)`.
-- [ ] Add five arms to `run_repo_command` (`src/cli/repo.rs:33`) matching §4.2's
+- [x] Add five arms to `run_repo_command` (`src/cli/repo.rs:33`) matching §4.2's
       arity table, each calling into `crate::cli::pkg::<fn>`.
-- [ ] Give `publish` an optional second positional defaulting to `Path::new(".")`.
-- [ ] Move the `local_paths_for_repo` call (`src/cli/repo.rs:31`) into the arms
+- [x] Give `publish` an optional second positional defaulting to `Path::new(".")`.
+- [x] Move the `local_paths_for_repo` call (`src/cli/repo.rs:31`) into the arms
       that use it, so arity errors do not depend on key-store state (§4.3).
-- [ ] Update the module doc comment of `src/cli/pkg.rs` to record that publisher
+      Implemented as a closure the four pre-existing arms call; the five new arms
+      never call it (Corrections #4).
+- [x] Update the module doc comment of `src/cli/pkg.rs` to record that publisher
       dispatch lives in `repo.rs` while implementations stay here (§4.1).
-- [ ] Tests: rewrite the 5 usage assertions at `src/cli/pkg.rs:1884-1891` to
-      assert the *unknown subcommand* error instead, and add matching arity
-      assertions in `src/cli/repo.rs` — one per command, covering both too-few
-      and too-many arguments, plus `repo publish alice` (1-arg form) reaching
-      dispatch rather than erroring.
+- [x] **Added task** (Corrections #3): update the `mfb pkg` strings *inside* the
+      moved implementations — 4 error strings and 4 doc comments, notably the
+      success-path string at `:313` that told the recipient to run a now-dead
+      command.
+- [x] Implement Open Decisions' recommendation: `run_pkg_command`'s fallback
+      special-cases the five moved names and emits `mfb pkg <cmd> has moved to
+      mfb repo <cmd>` rather than a bare `unknown pkg command`.
+- [x] Tests: replaced the 5 usage assertions with
+      `run_pkg_rejects_the_moved_publisher_commands`, which asserts the
+      moved-command error across **four arities each** (20 cases) and that the
+      generic fallback is not used. Added to `src/cli/repo.rs`:
+      `repo_publisher_commands_pin_their_arity` (too-few + too-many + a
+      reaches-dispatch probe per command),
+      `repo_publish_defaults_its_path_to_the_current_directory` (asserts the
+      1-arg and 2-arg forms produce the *identical* failure), and
+      `arity_errors_do_not_depend_on_the_key_store` (§4.3's regression guard).
+- [x] **Added task:** re-point `publish_requires_package_project`, which drove
+      `publish` through `run_pkg_command`. Assertion unchanged; it now calls
+      `publish_package_project` directly, since the `repo` dispatch is covered by
+      the new arity test.
+- [x] **Added task:** make `cli::tests::ENV_LOCK`/`EnvVarGuard` `pub(crate)` so
+      `repo.rs`'s §4.3 test joins the same env-serialization domain rather than
+      racing the existing `local_paths_for_repo` tests.
 
-Acceptance: `cargo test --bin mfb` passes; `mfb pkg publish alice .` exits 2 with
-a message naming `mfb repo publish`; `mfb repo publish alice` and `mfb repo
-publish alice .` are observably equivalent (same stdout, same exit code) against
-the acceptance harness registry.
+Acceptance: `cargo test --bin mfb` passes — **VERIFIED**, 3142 passed / 0 failed
+(baseline was 3138). `mfb pkg publish alice .` exits 2 naming `mfb repo publish`
+— **VERIFIED** by `run_pkg_rejects_the_moved_publisher_commands`. `mfb repo
+publish alice` and `mfb repo publish alice .` observably equivalent —
+**VERIFIED** at unit level by `repo_publish_defaults_its_path_to_the_current_directory`
+(`assert_eq!` on the two failure messages); the against-a-live-registry half is
+deferred to Phase 3's runtime proof, because the acceptance harness's arg-vectors
+still spell the old command until Phase 3 rewrites them.
+
+§4.3's guard was **A/B-verified, not assumed**: reverting `paths` to eager
+resolution makes `arity_errors_do_not_depend_on_the_key_store` fail, so the test
+is not vacuous.
 Commit: —
 
 ### Phase 3 — Rewrite help constants and the spec
@@ -433,6 +462,39 @@ Root cause: §2's Measured populations table only ever counted
 file and then read as if it covered the tree. Phase 3 is re-scoped in place with
 the per-file line lists. This does not change any other letter's scope — B–F
 touch no spec prose about publisher commands.
+
+**#3 — Phase 2 omitted the `mfb pkg` strings *inside* the moved implementation
+bodies.** (Found in Phase 2, 2026-07-21.) The plan treats the move as
+dispatch-only and lists no task for the implementations' own user-facing text,
+but four error strings and four doc comments in `src/cli/pkg.rs` name the old
+command:
+
+| Line | String | Why it matters |
+|---|---|---|
+| `:313` | ``"…they must run `mfb pkg transfer-accept {}` to accept."`` | **Load-bearing.** Printed on a *successful* transfer offer; it instructs the recipient to run a command that this letter deletes. Left alone, every successful transfer tells the user to run a command that exits 2. |
+| `:126` | `"mfb pkg publish requires a package project"` | Error naming a dead command |
+| `:358` | `"mfb pkg release-state requires a package project"` | Error naming a dead command |
+| `:405` | `"mfb pkg check-abi requires a package project"` | Error naming a dead command |
+| `:302`, `:319`, `:340`, `:395` | doc comments | Stale, and `01_repository-protocol.md` cites `[[src/cli/pkg.rs:publish_package_project]]` |
+
+§1's non-goals *permit* this ("printed output byte-identical apart from the
+command word in usage/error strings") but no phase task actually assigns it.
+Added as an explicit Phase 2 task. Verified exhaustively with
+`grep -rn 'mfb pkg' src/ --include='*.rs'`: every other hit belongs to a command
+that is **not** moving (`add`/`install`/`update`/`verify`/`validate`/`info`/`doc`)
+and must stay as written.
+
+**#4 — §4.3's prescribed fix is unnecessary; the arms need no `paths` at all.**
+(Found in Phase 2, 2026-07-21.) §4.3 says to move `local_paths_for_repo`
+(`src/cli/repo.rs:31`) into the arms that use it, to stop arity errors depending
+on key-store state. Reading the five implementations shows each already resolves
+`repo_url` *and* calls `super::local_paths_for_repo` itself —
+`publish_package_project`, `transfer_offer` (`:308-309`), `transfer_accept`
+(`:330-331`), `set_release_state` (`:383-384`), `check_abi`. So the five new arms
+never reference the outer `paths` binding. The fix still lands (the eager call
+moves into the four pre-existing arms that do use it), and §4.3's *goal* is met,
+but for a simpler reason than the plan gives: there is no duplicate resolution to
+reconcile, only an eager call to make lazy.
 
 ## Summary
 

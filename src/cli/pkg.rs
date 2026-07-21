@@ -1,3 +1,13 @@
+//! `mfb pkg` consumer-side package commands, plus the *implementations* of the
+//! publisher-side commands.
+//!
+//! Note the deliberate split (plan-60-A §4.1): the five publisher-side commands
+//! — `publish`, `check-abi`, `release-state`, `transfer`, `transfer-accept` —
+//! are **dispatched** from `mfb repo` in `super::repo`, but their
+//! implementations stay here, next to the `pkg.rs`-private helpers they use
+//! (`install_vendor_blobs`, `hex_bytes`). Only the command surface moved; file
+//! organization is a separate concern from which word invokes a command.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
@@ -13,6 +23,8 @@ use crate::manifest::{
 };
 use crate::target;
 use crate::PKG_HELP;
+
+use super::repo::REPO_HELP_HINT;
 
 use super::build::{build_project, BuildOptions, Verbosity};
 
@@ -57,42 +69,9 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, ..] if command == "update" => Err(PkgCommandError::Usage(format!(
             "mfb pkg update accepts at most one [location]\n\n{PKG_HELP}"
         ))),
-        [command, ident, to_owner] if command == "transfer" => {
-            transfer_offer(ident, to_owner).map_err(PkgCommandError::Failed)
-        }
-        [command, ..] if command == "transfer" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg transfer requires <owner>#<package> <to-owner>\n\n{PKG_HELP}"
-        ))),
-        [command, ident] if command == "transfer-accept" => {
-            transfer_accept(ident).map_err(PkgCommandError::Failed)
-        }
-        [command, ..] if command == "transfer-accept" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg transfer-accept requires <owner>#<package>\n\n{PKG_HELP}"
-        ))),
-        [command, state] if command == "release-state" => {
-            set_release_state(Path::new("."), state, None).map_err(PkgCommandError::Failed)
-        }
-        [command, state, version] if command == "release-state" => {
-            set_release_state(Path::new("."), state, Some(version)).map_err(PkgCommandError::Failed)
-        }
-        [command, ..] if command == "release-state" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg release-state requires <available|deprecated|yanked> [version]\n\n{PKG_HELP}"
-        ))),
-        [command] if command == "check-abi" => {
-            check_abi(Path::new(".")).map_err(PkgCommandError::Failed)
-        }
-        [command, location] if command == "check-abi" => {
-            check_abi(Path::new(location)).map_err(PkgCommandError::Failed)
-        }
-        [command, ..] if command == "check-abi" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg check-abi accepts at most one [location]\n\n{PKG_HELP}"
-        ))),
         [command, ..] if command == "validate" => Err(PkgCommandError::Usage(format!(
             "mfb pkg validate requires exactly one <package>\n\n{PKG_HELP}"
         ))),
-        [command, owner, package] if command == "publish" => {
-            publish_package_project(owner, Path::new(package)).map_err(PkgCommandError::Failed)
-        }
         [command, ..] if command == "add" => Err(PkgCommandError::Usage(format!(
             "mfb pkg add requires exactly one <url>\n\n{PKG_HELP}"
         ))),
@@ -102,12 +81,24 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, ..] if command == "verify" => Err(PkgCommandError::Usage(format!(
             "mfb pkg verify accepts only the optional --proof flag\n\n{PKG_HELP}"
         ))),
-        [command, ..] if command == "publish" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg publish requires <owner_name> <package>\n\n{PKG_HELP}"
-        ))),
         [] => Err(PkgCommandError::Usage(format!(
             "mfb pkg requires a subcommand\n\n{PKG_HELP}"
         ))),
+        // The five publisher-side commands moved to `mfb repo` (plan-60-A).
+        // Name the new location rather than falling through to a bare "unknown
+        // pkg command": this is not an alias — it still exits 2 and does
+        // nothing — but it is the difference between a five-second fix and a
+        // grep through the help text.
+        [command, ..]
+            if matches!(
+                command.as_str(),
+                "publish" | "check-abi" | "release-state" | "transfer" | "transfer-accept"
+            ) =>
+        {
+            Err(PkgCommandError::Usage(format!(
+                "mfb pkg {command} has moved to mfb repo {command}\n\n{REPO_HELP_HINT}"
+            )))
+        }
         [command, ..] => Err(PkgCommandError::Usage(format!(
             "unknown pkg command `{command}`\n\n{PKG_HELP}"
         ))),
@@ -118,12 +109,12 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
 // (validate_package/publish_package/verify_publish_inclusion); the argument
 // validation and the package-project gate are unit-tested via run_pkg_command,
 // and the full publish is covered by the tests/ integration harness.
-fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String> {
+pub(crate) fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String> {
     let project_path = project_dir.join("project.json");
     let manifest = validate_project_manifest(&project_path)
         .map_err(|_| "package project validation failed".to_string())?;
     if project_kind(&manifest) != "package" {
-        return Err("mfb pkg publish requires a package project".to_string());
+        return Err("mfb repo publish requires a package project".to_string());
     }
 
     build_project(&BuildOptions {
@@ -299,9 +290,9 @@ fn upload_vendor_blobs(
     Ok(())
 }
 
-/// `mfb pkg transfer <owner>#<package> <to-owner>` (plan-10-D1): the current
+/// `mfb repo transfer <owner>#<package> <to-owner>` (plan-10-D1): the current
 /// owner offers a package to a recipient (signed with the local ident key).
-fn transfer_offer(ident: &str, to_owner: &str) -> Result<(), String> {
+pub(crate) fn transfer_offer(ident: &str, to_owner: &str) -> Result<(), String> {
     let Some((from_owner, _)) = ident.split_once('#') else {
         return Err("ident must use <owner>#<package>".to_string());
     };
@@ -310,18 +301,18 @@ fn transfer_offer(ident: &str, to_owner: &str) -> Result<(), String> {
     let response =
         mfb_repository::client::transfer_offer(&repo_url, &paths, ident, from_owner, to_owner)?;
     println!(
-        "Offered {} to {}; they must run `mfb pkg transfer-accept {}` to accept.",
+        "Offered {} to {}; they must run `mfb repo transfer-accept {}` to accept.",
         response.ident, response.to_owner, response.ident
     );
     Ok(())
 }
 
-/// `mfb pkg transfer-accept <owner>#<package>@<to-owner>` (plan-10-D1): the
+/// `mfb repo transfer-accept <owner>#<package>@<to-owner>` (plan-10-D1): the
 /// recipient accepts a pending transfer offer. The accepting account is named
 /// explicitly after `@` in the argument (never prompted or inferred from a
 /// session): the text before the first `@` is the `<owner>#<package>` ident and
 /// the text after it is the `<to-owner>` recipient. A missing `@` is an error.
-fn transfer_accept(ident: &str) -> Result<(), String> {
+pub(crate) fn transfer_accept(ident: &str) -> Result<(), String> {
     // The recipient is whoever holds a local session able to accept; require
     // it explicitly via `<ident>@<to-owner>` to avoid ambiguity.
     let (ident, to_owner) = ident.split_once('@').ok_or_else(|| {
@@ -337,11 +328,11 @@ fn transfer_accept(ident: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `mfb pkg release-state <state> [version]` (plan-10-C1): set a published
+/// `mfb repo release-state <state> [version]` (plan-10-C1): set a published
 /// version's maintainer release state (`available`/`deprecated`/`yanked`). Run
 /// in the package project; the ident and default version come from the
 /// manifest, and the change is ident-signed and logged by the registry.
-fn set_release_state(
+pub(crate) fn set_release_state(
     project_dir: &Path,
     state: &str,
     version_override: Option<&str>,
@@ -355,7 +346,7 @@ fn set_release_state(
     let manifest = validate_project_manifest(&project_path)
         .map_err(|_| "package project validation failed".to_string())?;
     if project_kind(&manifest) != "package" {
-        return Err("mfb pkg release-state requires a package project".to_string());
+        return Err("mfb repo release-state requires a package project".to_string());
     }
     let ident = manifest
         .get("ident")
@@ -392,17 +383,17 @@ fn set_release_state(
     Ok(())
 }
 
-/// `mfb pkg check-abi` (plan-10-B1): build the working tree's package, compute
+/// `mfb repo check-abi` (plan-10-B1): build the working tree's package, compute
 /// its per-symbol ABI index, and diff it against the latest published version's
 /// index served by the registry. Names every changed or dropped symbol (both
 /// break the superset relation the resolver relies on) and exits non-zero when
 /// any breaking change is present; a pure superset (only additions) is OK.
-fn check_abi(project_dir: &Path) -> Result<(), String> {
+pub(crate) fn check_abi(project_dir: &Path) -> Result<(), String> {
     let project_path = project_dir.join("project.json");
     let manifest = validate_project_manifest(&project_path)
         .map_err(|_| "package project validation failed".to_string())?;
     if project_kind(&manifest) != "package" {
-        return Err("mfb pkg check-abi requires a package project".to_string());
+        return Err("mfb repo check-abi requires a package project".to_string());
     }
     let ident = manifest
         .get("ident")
@@ -1881,14 +1872,47 @@ mod tests {
         assert!(usage(run_pkg_command(&s(&["verify", "extra", "junk"])))
             .contains("mfb pkg verify accepts only"));
         assert!(usage(run_pkg_command(&s(&["validate"]))).contains("mfb pkg validate requires"));
-        assert!(usage(run_pkg_command(&s(&["publish"]))).contains("mfb pkg publish requires"));
-        assert!(usage(run_pkg_command(&s(&["transfer"]))).contains("mfb pkg transfer requires"));
-        assert!(usage(run_pkg_command(&s(&["transfer-accept"])))
-            .contains("mfb pkg transfer-accept requires"));
-        assert!(usage(run_pkg_command(&s(&["release-state"])))
-            .contains("mfb pkg release-state requires"));
-        assert!(usage(run_pkg_command(&s(&["check-abi", "a", "b"])))
-            .contains("mfb pkg check-abi accepts at most one"));
+    }
+
+    /// plan-60-A: the five publisher-side commands moved to `mfb repo`. They are
+    /// a hard error under `pkg` — no alias, no deprecation shim — but the error
+    /// names the new location rather than falling through to the generic
+    /// "unknown pkg command" arm.
+    ///
+    /// This replaces the five arity assertions that used to live in
+    /// `run_pkg_usage_errors_for_wrong_arity`: arity is now `repo`'s
+    /// responsibility, and is asserted in `super::repo`'s tests. What must be
+    /// pinned *here* is that the old spelling no longer reaches an
+    /// implementation, whatever its arity.
+    #[test]
+    fn run_pkg_rejects_the_moved_publisher_commands() {
+        for command in [
+            "publish",
+            "check-abi",
+            "release-state",
+            "transfer",
+            "transfer-accept",
+        ] {
+            // Every arity must be rejected identically — a bare command, a
+            // plausible one, and an over-long one. If any of these reached a
+            // surviving `pkg` arm the move would be incomplete.
+            for args in [
+                vec![command],
+                vec![command, "a"],
+                vec![command, "a", "b"],
+                vec![command, "a", "b", "c"],
+            ] {
+                let message = usage(run_pkg_command(&s(&args)));
+                assert!(
+                    message.contains(&format!(
+                        "mfb pkg {command} has moved to mfb repo {command}"
+                    )),
+                    "`pkg {args:?}` must name the new location: {message}"
+                );
+                // Not the generic fallback — that would leave the user grepping.
+                assert!(!message.contains("unknown pkg command"), "{message}");
+            }
+        }
     }
 
     #[test]
@@ -2054,15 +2078,20 @@ mod tests {
             .contains("validation failed"));
     }
 
+    /// plan-60-A: `publish` dispatches from `mfb repo` now, so this drives the
+    /// implementation directly rather than through `run_pkg_command` (which
+    /// correctly rejects the old spelling — see
+    /// `run_pkg_rejects_the_moved_publisher_commands`). The assertion is
+    /// unchanged: an empty directory is not a package project, and `publish`
+    /// must refuse it before doing anything else. The `repo` dispatch that now
+    /// reaches this code is covered by
+    /// `super::repo::tests::repo_publisher_commands_pin_their_arity`.
     #[test]
     fn publish_requires_package_project() {
         let dir = tempfile::tempdir().expect("temp dir");
-        assert!(failed(run_pkg_command(&s(&[
-            "publish",
-            "ada",
-            dir.path().to_str().unwrap()
-        ])))
-        .contains("validation failed"));
+        assert!(publish_package_project("ada", dir.path())
+            .unwrap_err()
+            .contains("validation failed"));
     }
 
     #[test]
