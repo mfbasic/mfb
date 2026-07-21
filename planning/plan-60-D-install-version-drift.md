@@ -319,20 +319,27 @@ Commit: —
 
 ### Phase 3 — Docs
 
-- [ ] `src/docs/spec/tooling/07_cli-reference.md:53` — the `pkg install` row's
+- [x] `src/docs/spec/tooling/07_cli-reference.md:53` — the `pkg install` row's
       exit-code column currently reads `0 ok; 2 usage; 1 stale lock or failed`.
       Update to distinguish the warn case from the error case.
-- [ ] Document the drift classes and their outcomes in the tooling spec's
+- [x] Document the drift classes and their outcomes in the tooling spec's
       lockfile section, citing `[[src/cli/resolve.rs:classify_drift]]`. Per
       `.ai/specifications.md`, lockfile and CLI output are both named contracts
       requiring a same-change spec update.
-- [ ] Note in the spec that `pin` and `source` are covered by `projectHash` but
+- [x] Note in the spec that `pin` and `source` are covered by `projectHash` but
       not recorded in the lock, and that drift in either is therefore reported as
       unattributable (§4.2). This is the kind of asymmetry that reads as a bug
       later if it is not written down as intentional.
 
 Acceptance: `cargo build && cargo test --bin mfb spec` pass; `mfb spec tooling
---all` renders with no leaked `[[` markers.
+--all` renders with no leaked `[[` markers. **VERIFIED** — build exit 0;
+`cargo test --bin mfb spec` 48 passed; 0 leaked `[[` markers; the new section
+renders under `mfb spec tooling lockfile`.
+
+Placed in `03_lockfile.md` rather than `07_cli-reference.md`: the classification
+is a property of what the lockfile records versus what `projectHash` covers, and
+`03_lockfile.md` is the file that already documents both. The exit-code column in
+`07_cli-reference.md` is updated to point at the split outcome.
 Commit: —
 
 ## Validation Plan

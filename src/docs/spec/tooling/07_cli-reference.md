@@ -49,7 +49,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `pkg verify` | `mfb pkg verify [--proof]` | 0 ok; 2 usage; 1 failed |
 | `pkg validate` | `mfb pkg validate <package>` | 0 valid; 2 usage; 1 invalid or failed |
 | `pkg update` | `mfb pkg update [location]` | 0 ok; 2 usage; 1 conflict or failed |
-| `pkg install` | `mfb pkg install [location]` | 0 ok; 2 usage; 1 stale lock or failed |
+| `pkg install` | `mfb pkg install [location]` | 0 ok (incl. a warned ABI-floor drift); 2 usage; 1 unrecoverable lock drift or failed |
 | `pkg doc` | `mfb pkg doc <name-or-path> [--out file]` | 0 ok; 2 usage; 1 failed |
 | `repo register` | `mfb repo register <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `repo auth` | `mfb repo auth <owner_name>` | 0 ok; 2 usage; 1 failed |

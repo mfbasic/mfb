@@ -101,6 +101,55 @@ An empty or absent `packages[]` hashes the empty input — a fixed digest, the
 SHA-256 of zero bytes. Comparison is exact string equality against the stored
 `projectHash`; there is no normalization of the stored value. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
+## `mfb pkg install` drift classification
+
+A `projectHash` mismatch means the manifest's request set changed since the lock
+was written, but it does not say *how*. `mfb pkg install` therefore diffs the
+manifest's registry dependencies against `packages[]` in the lock, matched on
+`ident`, and decides per difference.[[src/cli/resolve.rs:classify_drift]]
+
+| Condition | Class | Outcome |
+|---|---|---|
+| declared in `project.json`, absent from the lock | `Added` | error |
+| present in the lock, no longer declared | `Removed` | error |
+| `version` differs and `pin` is `false` | `FloorMoved` | **warning, install continues** |
+| `version` differs and `pin` is `true` | `PinMoved` | error |
+| same `ident`, different `name` | `Renamed` | error |
+| no difference in any field the lock records | *unattributable* | error |
+
+Only `FloorMoved` is recoverable. Under `pin: false` the manifest's `version` is
+an **ABI floor**, not a demand for that exact version (see
+`./mfb spec tooling cli-reference`, `pkg add` Pin Inference), so moving it does
+not invalidate the locked selection. `install` warns on stderr, naming the new
+floor, the version the lock was resolved against, and the version it **selects**
+— the last of these because under `pin: false` the locked `requested` and
+`selected` differ, and the selected one is what lands on disk — then installs the
+locked selection. The exit code stays `0`.
+
+All differences are classified before any outcome is decided, so a project with
+several drifted dependencies reports every one in a single run rather than
+surfacing them one re-run at a time.
+
+### Why a mismatch can be unattributable
+
+`projectHash` covers the full request tuple `(name, ident, version, pin,
+source)`, but the lock records only `name`, `ident`, `requested` and `selected`.
+**`pin` and `source` are hashed and not stored.** Flipping either therefore
+produces a mismatched hash with every diffable field equal, and the diff finds
+nothing.
+
+This asymmetry is intentional, and `install` reports it honestly rather than
+inventing a cause:
+
+```text
+error: mfb.lock does not match project.json, but the difference is not in a
+field the lock records (most likely `pin` or `source` changed); run `mfb pkg update`
+```
+
+Erring toward refusal is the conservative direction. Proceeding on the grounds
+that nothing recognizable changed would install the old locked blob after a
+`source` edit had pointed the dependency somewhere else entirely.
+
 ## `--locked` policy
 
 The `mfb audit --locked` flag elevates lock-file staleness/absence from advisory
