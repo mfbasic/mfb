@@ -323,7 +323,7 @@ three operators with their trees intact; every crafted-`.mfp` negative is
 rejected; an over-limit buffer count is rejected rather than allocated. Full
 acceptance **1051 tests passed**; unit suite 3137 passed; artifact-gate 1269
 goldens 0 diffs; clippy at the 34-warning baseline.
-Commit: —
+Commit: `bc03c671a`
 
 ### Phase 2 — the version bump and the 126-file regeneration (largest blast radius last)
 
@@ -358,7 +358,7 @@ files, so it must be reviewable as pure churn.
 Acceptance: the full acceptance suite is green with exactly the expected `.mfp`
 churn and **no** non-`.mfp` golden changes; an `.mfp` built before the bump is
 rejected with the version diagnostic naming 5.
-Commit: —
+Commit: `bc03c671a`
 
 ## Validation Plan
 
