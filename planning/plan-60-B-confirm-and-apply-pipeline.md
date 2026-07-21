@@ -322,27 +322,38 @@ an empty `packages` array results in `project.json` written and `mfb.lock` absen
 **A/B-verified**: dropping the `#` filter makes it fail. It exists because §4.3's
 whole policy rests on "zero registry dependencies" meaning exactly what
 `resolve()` means by it.
-Commit: —
+Commit: a57601b4a
 
 ### Phase 3 — Acceptance coverage for the resolve-first guarantee
 
 The property that makes this letter worth having cannot be proven by unit tests —
 it needs a registry that can produce a resolution failure.
 
-- [ ] Add a test to `tests/repo_acceptance.rs` that drives
+- [~] Add a test to `tests/repo_acceptance.rs` that drives
       `apply_manifest_change`'s failure path end to end: construct a proposed
       manifest naming a version that is not published, invoke it via whichever
       command reaches it (this test lands with C if no command reaches it yet —
       note that dependency here and in C's plan rather than leaving the test
       unwritten).
-- [ ] Assert that after the failure, `project.json` is **byte-identical** to its
-      pre-invocation contents and `mfb.lock` is unchanged.
+      **Deferred to plan-60-C, exactly as this task anticipates.** Confirmed no
+      command reaches `apply_manifest_change` at B's completion: it is `#[allow(dead_code)]`
+      with zero call sites, and `tests/repo_acceptance.rs` is an integration test
+      in a separate crate that drives the `mfb` **binary**, so it cannot call a
+      `pub(crate)` function directly. C wires `add`, which is the first reachable
+      caller. Recorded as an explicit task in plan-60-C's Phase list.
+- [~] Assert that after the failure, `project.json` is **byte-identical** to its
+      pre-invocation contents and `mfb.lock` is unchanged. — same deferral.
 
 Acceptance: `cargo test --test repo_acceptance` passes, and the new test fails if
 step 5 of §4.2 is moved before step 3 — verify this by temporarily reordering and
 confirming the test goes red, then restore. A test that cannot fail is not
 coverage.
-Commit: —
+
+**STATUS: NOT MET — this phase is the one thing outstanding in letter B.** It is
+blocked on C by the plan's own design, not skipped. B is therefore **not
+archived** until C lands this test and the reorder-goes-red check passes. See
+Corrections #5.
+Commit: — (pending, lands with plan-60-C)
 
 ## Validation Plan
 
@@ -436,6 +447,24 @@ counted as having 1 registry dependency, so `apply_manifest_change` would call
 dependencies to resolve"`. Every `add`/`remove` on such a project would fail.
 `registry_dependency_count` now mirrors the resolver filter exactly, with a test
 that fails if the two ever drift.
+
+**#5 — B cannot complete on its own; Phase 3 lands with C.** (Found in Phase 3,
+2026-07-21.) Phase 3's own task text allows this ("this test lands with C if no
+command reaches it yet"), and that is the case: at B's completion
+`apply_manifest_change` has zero call sites, and `tests/repo_acceptance.rs` is an
+integration test in a separate crate driving the `mfb` binary, so it cannot reach
+a `pub(crate)` function. The resolve-first guarantee — the property that makes
+this whole letter worth having — is therefore **unproven end to end** until C.
+
+Consequences, recorded so they are not lost:
+
+- **B is not archived** with Phases 1–2. Its Phase 3 box is `- [~]`, not `- [x]`.
+- The dependency edge is one-way in the graph (`C ← B`) but the *verification*
+  edge runs backwards: C must complete B. Added as an explicit task in
+  plan-60-C's phases so it cannot be dropped when C is worked.
+- The reorder-goes-red check in Phase 3's acceptance is part of that task. A test
+  that cannot fail is not coverage, and this one guards the letter's entire
+  reason for existing.
 
 ## Summary
 

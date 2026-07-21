@@ -39,10 +39,18 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-60-A complete | `grep -c '"publish"' src/cli/pkg.rs` → 0 dispatch arms | NOT MET at authoring |
-| plan-60-B complete — `apply_manifest_change` exists | `grep -c 'fn apply_manifest_change' src/cli/resolve.rs` → 1 | NOT MET at authoring |
+| plan-60-A complete | `sed -n '/pub(crate) fn run_pkg_command/,/^}/p' src/cli/pkg.rs \| grep -c 'publish_package_project\|transfer_offer\|transfer_accept\|set_release_state\|check_abi'` → 0 | **MET** (2026-07-21). Archived to `planning/old-plans/`. |
+| plan-60-B Phases 1–2 complete — `apply_manifest_change` and `confirm` exist | `grep -c 'fn apply_manifest_change' src/cli/resolve.rs` → 1 **and** `grep -c 'fn confirm' src/cli/mod.rs` → 1 | **MET** (2026-07-21) |
+| plan-60-B Phase 3 outstanding — **C must complete it** | see plan-60-B Corrections #5; the resolve-first atomicity test is deferred into C's Phase 3 below | **OUTSTANDING — an obligation of this letter, not a blocker on starting it** |
 
-If either is incomplete, this plan cannot start, full stop.
+If either of the first two is incomplete, this plan cannot start, full stop.
+
+> **Corrected 2026-07-21.** The plan-60-A row originally checked
+> `grep -c '"publish"' src/cli/pkg.rs` → 0, which does not measure the stated
+> condition: after plan-60-A that returns 3, all legitimate (the moved-command
+> guard A deliberately added, plus two test assertion lists). Read literally it
+> would block this letter on plan-60-A having *succeeded*. Same defect and same
+> fix as plan-60-B Corrections #1 — check the construct, not the spelling.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue.
@@ -331,6 +339,12 @@ Commit: —
       `mfb.lock` byte-identical. Note that `tests/repo_acceptance.rs:1055`
       already exercises `pkg add alice#addable_pkg@9.9.9`; extend that case
       rather than adding a second one.
+      **⚠ THIS TASK COMPLETES plan-60-B.** B's Phase 3 is `- [~]` and B is
+      unarchived pending exactly this test plus the reorder-goes-red check in
+      the acceptance line below (plan-60-B Corrections #5). It is the only proof
+      that the resolve-first guarantee — B's entire reason for existing — holds
+      end to end. When it lands: tick B's Phase 3, fill B's `Commit:` line, and
+      archive B to `planning/old-plans/`.
 
 Acceptance: `cargo test --test repo_acceptance` passes, including the
 add-then-install-without-update case and the atomicity case. Verify the atomicity
