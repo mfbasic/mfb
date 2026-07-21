@@ -1,0 +1,94 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_stateless_record_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "openOnly",
+    "line": 82,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 83, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 84, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (n INTEGER)" }] } }
+    ]
+  },
+  {
+    "name": "roundTrip",
+    "line": 90,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 91, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 92, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (n INTEGER)" }] } },
+    { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO t VALUES (42)" }] } },
+    { "op": "bind", "line": 94, "mutable": false, "name": "q", "type": "Stmt", "value": { "kind": "call", "type": "Stmt", "target": "sql.prepare", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "SELECT n FROM t" }] } },
+    { "op": "bind", "line": 95, "mutable": true, "name": "found", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 96,
+      "loop": "while",
+      "condition": { "kind": "call", "type": "Boolean", "target": "sql.step", "args": [{ "kind": "local", "name": "q" }] },
+      "body": [
+      { "op": "assign", "line": 97, "name": "found", "value": { "kind": "call", "type": "Integer", "target": "sql.columnInt", "args": [{ "kind": "local", "name": "q" }, { "kind": "const", "type": "Integer", "value": "0" }] } }
+      ]
+    },
+    { "op": "eval", "line": 99, "value": { "kind": "call", "type": "Nothing", "target": "sql.finalize", "args": [{ "kind": "local", "name": "q" }] } },
+    { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "db" }] } },
+    { "op": "return", "line": 101, "value": { "kind": "local", "name": "found" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 104,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 107, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "roundTrip=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "roundTrip", "args": [] }] } }] } },
+    { "op": "bind", "line": 112, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 113,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      { "op": "eval", "line": 114, "value": { "kind": "call", "type": "Nothing", "target": "openOnly", "args": [] } },
+      { "op": "assign", "line": 115, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 117, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "dropped=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
+    { "op": "bind", "line": 119, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 120, "mutable": true, "name": "sum", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 121,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "200" } },
+      "body": [
+      { "op": "assign", "line": 122, "name": "sum", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "sum" }, "right": { "kind": "call", "type": "Integer", "target": "roundTrip", "args": [] } } },
+      { "op": "assign", "line": 123, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 125, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "sum=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "sum" }] } }] } },
+    { "op": "eval", "line": 127, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "return", "line": 128, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

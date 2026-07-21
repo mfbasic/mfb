@@ -1,0 +1,129 @@
+' Runtime test for plan-59-A: a STATELESS native LINK resource is an 80-byte
+' record, exactly as a stateful one already was.
+'
+' Before plan-59-A, `FUNC open(...) AS RES Db` (no STATE clause) returned the raw
+' `sqlite3*` as the value — the record wrap was gated on `return_state_type`. A
+' stateless resource therefore had no record, no `closed` flag, and nowhere to
+' put one. Now every native resource is a record pointer whose FD@0 is the handle.
+'
+' What this fixture pins that the other sqlite3 fixtures do not:
+'
+'   1. SCOPE-DROP of a stateless native record. `openOnly` opens a `Db` and
+'      returns without closing it, so scope exit runs the registered CLOSE BY op
+'      and then the record's drop-reclamation. That path never saw a stateless
+'      resource before this change: it now receives a record pointer where it
+'      used to receive a bare handle, and `emit_resource_block_reclaim` reads
+'      CLOSED@8 off it. A record whose flag word were poison rather than zeroed
+'      would take the moved-branch here and silently skip reclamation.
+'
+'   2. The FD@0 unwrap on a BARE `RES` param. `close`/`finalize`/`exec` all
+'      declare `RES x AS Db` with no STATE, so each must load FD@0 before the
+'      native call. Passing the record pointer straight through would hand
+'      sqlite3 a pointer to MFBASIC arena memory.
+'
+'   3. Repetition. The loop drives 200 open/close cycles so a per-cycle failure
+'      to reclaim, or a double free of the record, shows up as a crash or a
+'      corrupted heap rather than passing on a single lucky iteration.
+IMPORT io
+
+RESOURCE Db CLOSE BY sql::close
+RESOURCE Stmt CLOSE BY sql::finalize
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC prepare(RES db AS Db, statement AS String) AS RES Stmt
+    SYMBOL "sqlite3_prepare_v2"
+    ABI (db CPtr, statement CString, nByte CInt32, stmt OUT CPtr, pzTail CPtr) AS status CInt32
+    CONST nByte = -1
+    CONST pzTail = NOTHING
+    RETURN stmt
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC step(RES stmt AS Stmt) AS Boolean
+    SYMBOL "sqlite3_step"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 100 OR status = 101
+    RETURN status = 100
+  END FUNC
+  FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
+    SYMBOL "sqlite3_column_int"
+    ABI (stmt CPtr, col CInt32) AS value CInt32
+    RETURN value
+  END FUNC
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' Opens a stateless `Db` and returns WITHOUT closing it. Scope exit must run the
+' registered `CLOSE BY` op against the record (which unwraps FD@0 for sqlite3)
+' and then reclaim the record itself. This is the case that did not exist before
+' plan-59-A: a stateless resource reaching drop-reclamation as a record.
+FUNC openOnly() AS Nothing
+  RES db AS Db = sql::open(":memory:")
+  sql::exec(db, "CREATE TABLE t (n INTEGER)")
+END FUNC
+
+' A full round-trip whose result depends on the handle surviving every FD@0
+' unwrap: if any bare `RES` param reached sqlite3 as a record pointer instead of
+' a handle, the SUCCESS_ON gate fails and this never returns 42.
+FUNC roundTrip() AS Integer
+  RES db AS Db = sql::open(":memory:")
+  sql::exec(db, "CREATE TABLE t (n INTEGER)")
+  sql::exec(db, "INSERT INTO t VALUES (42)")
+  RES q AS Stmt = sql::prepare(db, "SELECT n FROM t")
+  MUT found AS Integer = 0
+  WHILE sql::step(q)
+    found = sql::columnInt(q, 0)
+  WEND
+  sql::finalize(q)
+  sql::close(db)
+  RETURN found
+END FUNC
+
+FUNC main() AS Integer
+  ' The value proves the whole open -> exec -> prepare -> step -> finalize ->
+  ' close chain marshalled real handles, not record pointers.
+  io::print("roundTrip=" & toString(roundTrip()))
+
+  ' Drive both paths repeatedly. A record that is double-freed on drop, or whose
+  ' CLOSED@8 is poison rather than zero, corrupts the arena within a few hundred
+  ' cycles rather than surviving to print.
+  MUT i AS Integer = 0
+  WHILE i < 200
+    openOnly()
+    i = i + 1
+  WEND
+  io::print("dropped=" & toString(i))
+
+  MUT j AS Integer = 0
+  MUT sum AS Integer = 0
+  WHILE j < 200
+    sum = sum + roundTrip()
+    j = j + 1
+  WEND
+  io::print("sum=" & toString(sum))
+
+  io::print("done")
+  RETURN 0
+END FUNC

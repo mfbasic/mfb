@@ -229,28 +229,36 @@ record pointer, to `sqlite3_close`.
 **MET** — the fixture passes against its **unchanged** golden (so "same
 observable output" is byte-equality, not a judgement call), and both the `.ncode`
 plan and `otool -tV` show the `FD@0` dereference before the call. Evidence in C4.
-Commit: —
+Commit: 1f2ef2e3e
 
 ### Phase 2 — Widen the record to every native resource
 
 Generalizes the spike across all 14 bare-returning funcs.
 
-- [ ] Rename `stateful_native_resources` → `record_native_resources` at
+- [x] Rename `stateful_native_resources` → `record_native_resources` at
       `link_thunk.rs:196`, `:224`, `:381`, `:843`, and its doc comment at
       `:190-195` (which currently says "the resource TYPES that are represented
-      as 80-byte records" — now true of all of them).
-- [ ] Verify the zeroing block at `:1207-1223` runs for stateless returns too, so
-      `CLOSED` starts at 0 and the buffer words are not arena poison.
-- [ ] Confirm `emit_resource_state_init` is not invoked for a bare
+      as 80-byte records" — now true of all of them). — done at all 4 sites; the
+      doc comment and **two further stale comments** were rewritten (see C5).
+- [x] Verify the zeroing block at `:1207-1223` runs for stateless returns too, so
+      `CLOSED` starts at 0 and the buffer words are not arena poison. — verified
+      in emitted code, not by reading: see C6.
+- [x] Confirm `emit_resource_state_init` is not invoked for a bare
       `RES x AS T` binding, leaving `STATE@16` null
-      (`builder_value_semantics.rs:115-132`).
-- [ ] Tests: add `tests/rt-behavior/native/native-stateless-record-rt` proving a
+      (`builder_value_semantics.rs:115-132`). — confirmed, and `STATE@16` is
+      null by an *explicit store*, not by omission. See C6.
+- [x] Tests: add `tests/rt-behavior/native/native-stateless-record-rt` proving a
       stateless `Db` round-trips open → prepare → finalize → close → scope-drop
-      with no leak, mirroring `native-link-free-rt`'s shape.
+      with no leak, mirroring `native-link-free-rt`'s shape. — added; see C7 for
+      what it does and does **not** prove.
 
 Acceptance: all 18 fixtures under `tests/rt-behavior/native/` pass (see
 Corrections — the plan said 11), and the new fixture shows a stateless native
 resource surviving a full lifecycle. `cargo test` green.
+**MET** — `scripts/test-accept.sh target/debug/mfb <tmp> 'native*' 'libsnd*'
+'resource*'` → 106 tests passed (105 before the new fixture); `cargo test` → 21
+suites, 0 failed. No golden anywhere in the tree changed except the new
+fixture's own seeded set.
 Commit: —
 
 ### Phase 3 — Drop and reclamation (largest blast radius, last)
@@ -381,6 +389,86 @@ and the comment is now actively wrong in a load-bearing way — it says "a nativ
 func produces `AS RES R STATE S`", which is no longer what qualifies a type for
 the set. Renaming is what stops the next reader concluding the set is
 stateful-only. The task stands as written.
+
+### C5 — three stale comments, not one (2026-07-20)
+
+Phase 2's rename task named the doc comment at `:190-195`. Two more comments
+asserted the same now-false gate and were rewritten with it:
+
+- `:190-195` — the set's doc comment ("a native func produces `AS RES R STATE S`").
+- `:846-852` — the param-unwrap comment ("a param whose resource TYPE is a
+  **stateful** native resource").
+- `:1183` — the return-side wrap comment ("a native func that produces
+  `AS RES T STATE S` hands back a resource RECORD").
+
+All three stated statefulness as the qualifying condition. Left alone they would
+have been the primary evidence for the next reader trying to work out what
+qualifies a type for the set — which is exactly the drift the rename exists to
+prevent. The set's comment additionally now records the coupling C4 discovered
+the hard way: widening the filter without the return wrap hands `FD@0` a raw
+handle to dereference.
+
+### C6 — the record init is verified in emitted code, and `STATE@16` is explicitly zeroed (2026-07-20)
+
+Both verification tasks were checked against the emitted `.ncode` for
+`linker.sql.open` in a stateless fixture rather than by reading Rust. Record-
+relative stores, in emission order:
+
+```
+offset 0  <- handle      offsets 24,32,40,48,56,64,72 <- xzr
+offset 8  <- xzr         offset 16 <- xzr            (emitted LAST)
+```
+
+So all ten words are written: `CLOSED@8` starts at 0 and the buffer words are
+zero rather than arena poison, as required.
+
+**A false alarm worth recording, because the correct conclusion is right for a
+different reason than the plan gives.** §2's Verified property says "`STATE@16`
+stays null-safe … the record's `STATE@16` is null" and attributes it to
+`emit_resource_state_init` simply never running. Reading a truncated window of
+the emitted code, offset 16 appeared **absent** from the zeroing block — which,
+since `_mfb_arena_alloc` returns PRNG-poisoned memory (`builder_codegen_primitives.rs:1636-1638`),
+would have meant `STATE@16` held poison rather than null. That is not what
+happens: the store is present, it is simply emitted *last*, after offset 72
+(`link_thunk.rs:1266-1270` — the `else` arm of the `BIND STATE` branch stores
+`abi::ZERO` at `FILE_OFFSET_STATE` unconditionally).
+
+The plan's conclusion holds, but "null because nothing populates it" would be a
+dangerous thing to carry forward — under a poisoning allocator, *not populating*
+a word yields poison, not null. `STATE@16` is null because it is **explicitly
+stored**. Anyone later adding a null-check on `STATE@16` should know it is
+guaranteed by that store and not by omission.
+
+### C7 — what the new fixture proves, and what it cannot (2026-07-20)
+
+`native-stateless-record-rt` is added and green, but its coverage claim needs
+stating honestly rather than being left to look stronger than it is.
+
+**It cannot fail-before/pass-after.** plan-59-A is deliberately behaviour-
+preserving (Non-goals: "No guard behavior yet"), so before the change a stateless
+resource was a raw handle *consistently on both sides* and this fixture would
+have passed then too. No fixture in this sub-plan can discriminate the two trees
+behaviourally — the first one that can belongs to plan-59-B, which is what makes
+the flag observable.
+
+**What it does pin**, all of which is new for a stateless resource:
+
+1. **Scope-drop of a stateless native record.** `openOnly()` returns without
+   closing, so scope exit runs the `CLOSE BY` op and then drop-reclamation — a
+   path that never received a stateless resource as a record before. Driven 200×.
+2. **The `FD@0` unwrap on bare `RES` params**, across six thunks. `roundTrip()`
+   returning 42 is the load-bearing assertion: it requires open, exec×2, prepare,
+   step, columnInt, finalize and close to *all* marshal real handles; any single
+   one passing the record pointer instead trips its `SUCCESS_ON` gate and the
+   value never arrives.
+3. **Non-vacuity, checked rather than assumed.** The emitted `.ncode` for this
+   fixture contains the 80-byte record alloc in `sql::open` and the `FD@0`
+   dereferences in the param thunks, so the record path is demonstrably the one
+   being executed.
+
+**The `.ir` golden does not pin the record wrap** — `grep -c resource` over it is
+0, because the wrap is a codegen-level change below IR. The behavioural pin is
+`build.log`'s captured runtime output, not the `.ir`.
 
 ### C3 — the param-side unwrap is type-keyed, and already covers bare params (2026-07-20)
 

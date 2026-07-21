@@ -187,13 +187,18 @@ pub(super) fn emit_link_support(
         }
     }
 
-    // plan-53-A: the resource TYPES that are represented as 80-byte records (a
-    // native func produces `AS RES R STATE S`). Record-ness is per-TYPE, not
-    // per-declaration: a BARE `RES db AS R` param of such a type still receives a
-    // record pointer and must load the handle from FD@0 before the native call
-    // (e.g. `close`/`exec` on a `SoundFile` whose `open` declared the STATE). This
-    // set is what lets a thunk tell a record-resource param from a scalar one.
-    let stateful_native_resources: HashSet<String> = link_functions
+    // plan-59-A: the resource TYPES that are represented as 80-byte records —
+    // which is now EVERY type a native func returns as `AS RES R`, with or
+    // without a `STATE S`. (plan-53-A wrapped only the stateful ones, so a
+    // stateless `Db` was the raw handle and had nowhere to put a `closed` flag.)
+    //
+    // Record-ness is per-TYPE, not per-declaration: a BARE `RES db AS R` param
+    // still receives a record pointer and must load the handle from FD@0 before
+    // the native call (e.g. `close`/`exec`). This set is what lets a thunk tell a
+    // record-resource param from a scalar one, and it must stay in lockstep with
+    // the return-side wrap below — widening one without the other hands `FD@0` a
+    // raw handle to dereference.
+    let record_native_resources: HashSet<String> = link_functions
         .iter()
         .filter(|f| f.return_resource)
         .map(|f| crate::builtins::resource::base_resource_name(&f.return_type).to_string())
@@ -221,7 +226,7 @@ pub(super) fn emit_link_support(
                 free_slot,
                 max_buffer_bytes,
             },
-            &stateful_native_resources,
+            &record_native_resources,
         )?);
     }
 
@@ -378,7 +383,7 @@ fn lower_link_thunk(
     link_cstructs: &[crate::ir::IrCStruct],
     record_fields: &HashMap<String, Vec<(String, String)>>,
     ctx: ThunkContext,
-    stateful_native_resources: &HashSet<String>,
+    record_native_resources: &HashSet<String>,
 ) -> Result<CodeFunction, String> {
     let ThunkContext {
         index,
@@ -840,16 +845,17 @@ fn lower_link_thunk(
                 ]);
             } else if slot.ctype == "CPtr"
                 && function.params.get(pidx).is_some_and(|(_, t)| {
-                    stateful_native_resources
+                    record_native_resources
                         .contains(crate::builtins::resource::base_resource_name(t))
                 })
             {
-                // plan-53-A: a param whose resource TYPE is a stateful native
-                // resource is a RECORD pointer, but the native symbol wants the
-                // handle it wraps. Load FD@0. Record-ness is per-TYPE: this fires
-                // for a BARE `RES db AS SoundFile` param too (e.g. `close`/`exec`),
-                // not only one that re-declares the STATE — without it the record
-                // pointer, not the handle, reaches the C library.
+                // plan-59-A: a param whose resource TYPE is a native resource is a
+                // RECORD pointer, but the native symbol wants the handle it wraps.
+                // Load FD@0. Record-ness is per-TYPE and no longer depends on
+                // STATE: this fires for a BARE `RES db AS Db` param (e.g.
+                // `close`/`exec`) just as it does for a stateful `SoundFile` —
+                // without it the record pointer, not the handle, reaches the C
+                // library.
                 instructions.extend([
                     abi::load_u64("%v9", abi::stack_pointer(), param_off),
                     abi::load_u64("%v9", "%v9", FILE_OFFSET_FD),
@@ -1179,8 +1185,11 @@ fn lower_link_thunk(
         instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
     }
 
-    // plan-53-A: a native func that produces `AS RES T STATE S` hands back a
-    // resource RECORD, not the bare handle. RESULT_VALUE_REGISTER currently holds
+    // plan-59-A: a native func that produces `AS RES T` — with or without a
+    // `STATE S` — hands back a resource RECORD, not the bare handle. Wrapping the
+    // stateless case too is what gives it a `closed` flag at offset 8, which it
+    // had nowhere to store while the handle itself was the value.
+    // RESULT_VALUE_REGISTER currently holds
     // the native handle; wrap it in an 80-byte resource record so the value the
     // caller binds is a pointer to {FD@0, CLOSED@8, STATE@16, buffers…} — the exact
     // shape a built-in `File STATE S` uses, so `.state`, drop-reclamation
