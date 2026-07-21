@@ -3058,15 +3058,6 @@ impl TypeEnv {
                 {
                     continue;
                 }
-                // A slot may name a CSTRUCT declared in the same LINK alias; the
-                // struct rules then apply instead of the scalar table (plan-50-E).
-                if project
-                    .link_cstructs
-                    .iter()
-                    .any(|c| c.alias == function.alias && c.name == slot.ctype)
-                {
-                    continue;
-                }
                 // An OUT slot is a produced *value*, so it carries a return-shaped
                 // ctype; an ordinary slot is a C argument.
                 let ok = if slot.direction.writes_back() {
@@ -3113,6 +3104,47 @@ impl TypeEnv {
                             function.name, slot.name
                         ),
                     );
+                }
+            }
+            // plan-58-A: the `CBuffer` position rules, shared verbatim with
+            // `syntaxcheck` so a crafted `.mfp` gets exactly the source-path
+            // treatment. Spans are function-level here, as every other native-ABI
+            // rule on this path is.
+            {
+                let size_reads: Vec<Vec<&str>> = function
+                    .buffers
+                    .iter()
+                    .map(|b| {
+                        let mut names = Vec::new();
+                        crate::ir::link_expr_var_names(&b.size, &mut names);
+                        names
+                    })
+                    .collect();
+                let view = crate::ir::BufferSlotsView {
+                    function: &function.name,
+                    slots: function
+                        .abi_slots
+                        .iter()
+                        .map(|s| (s.name.as_str(), s.ctype.as_str(), s.direction))
+                        .collect(),
+                    buffers: function
+                        .buffers
+                        .iter()
+                        .zip(size_reads)
+                        .map(|(b, reads)| (b.slot.as_str(), reads))
+                        .collect(),
+                    const_slots: function.consts.iter().map(|(s, _)| s.as_str()).collect(),
+                    param_names: function.params.iter().map(|(n, _)| n.as_str()).collect(),
+                    return_type: &function.return_type,
+                    abi_return_name: &function.abi_return_name,
+                    abi_return_ctype: &function.abi_return_ctype,
+                    result_slot: match &function.result {
+                        Some(crate::ir::IrLinkExpr::Var(name)) => Some(name.as_str()),
+                        _ => None,
+                    },
+                };
+                for fault in crate::ir::check_buffer_slots(&view) {
+                    self.emit(fault.rule, fault.message);
                 }
             }
             // plan-50-H: the result is whatever `RETURN <expr>` names. Both

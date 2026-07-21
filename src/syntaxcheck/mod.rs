@@ -415,6 +415,81 @@ impl<'a> SyntaxChecker<'a> {
         for function in &link.functions {
             self.check_link_function_in(file, function, &cstructs);
             self.check_struct_slots(file, link, function);
+            self.check_buffer_slots(file, function);
+        }
+    }
+
+    /// `CBuffer` slot and `BUFFER … SIZE` clause position rules (plan-58-A §4.3),
+    /// shared verbatim with the package path via `ir::check_buffer_slots`.
+    ///
+    /// Spans are the `ABI` line rather than the individual slot line: the shared
+    /// `CStructFault` carries only `(rule, message)`, and every message already
+    /// names the offending slot. See the plan's Corrections — buying slot-level
+    /// spans means widening a carrier four landed rules also use.
+    fn check_buffer_slots(&mut self, file: &AstFile, function: &crate::ast::LinkFunction) {
+        // Every identifier a BUFFER SIZE expression reads. Mirrors the local
+        // `idents` in `check_link_function_in`; `Expression::Identifier` carries no
+        // line of its own, which is the other reason spans land on the ABI line.
+        fn idents(expr: &crate::ast::Expression, out: &mut Vec<String>) {
+            match expr {
+                crate::ast::Expression::Identifier(name) => out.push(name.clone()),
+                crate::ast::Expression::Binary { left, right, .. } => {
+                    idents(left, out);
+                    idents(right, out);
+                }
+                crate::ast::Expression::Unary { operand, .. } => idents(operand, out),
+                _ => {}
+            }
+        }
+        // Nothing to check unless the function actually uses the feature. The
+        // `List OF Byte` return rule (rule 8) is the exception — it fires on a
+        // function with no CBuffer and no BUFFER clause at all, which is precisely
+        // the pre-existing garbage-codegen hole (§2.3) — so it must not be skipped.
+        let uses_buffers = !function.buffers.is_empty()
+            || function.abi.slots.iter().any(|s| s.ctype == "CBuffer")
+            || function.abi.return_ctype == "CBuffer"
+            || function.return_type.as_deref() == Some(crate::ir::BYTE_LIST_TYPE);
+        if !uses_buffers {
+            return;
+        }
+
+        let size_reads: Vec<Vec<String>> = function
+            .buffers
+            .iter()
+            .map(|b| {
+                let mut names = Vec::new();
+                idents(&b.size, &mut names);
+                names
+            })
+            .collect();
+        let view = crate::ir::BufferSlotsView {
+            function: &function.name,
+            slots: function
+                .abi
+                .slots
+                .iter()
+                .map(|s| (s.name.as_str(), s.ctype.as_str(), s.direction))
+                .collect(),
+            buffers: function
+                .buffers
+                .iter()
+                .zip(size_reads.iter())
+                .map(|(b, reads)| (b.slot.as_str(), reads.iter().map(String::as_str).collect()))
+                .collect(),
+            const_slots: function.consts.iter().map(|c| c.slot.as_str()).collect(),
+            param_names: function.params.iter().map(|p| p.name.as_str()).collect(),
+            return_type: function.return_type.as_deref().unwrap_or("Nothing"),
+            abi_return_name: &function.abi.return_name,
+            abi_return_ctype: &function.abi.return_ctype,
+            // A bare `RETURN buf` names a slot; a computed `RETURN status = 0`
+            // names none. Same extraction `check_struct_slots` uses.
+            result_slot: match &function.result {
+                Some(crate::ast::Expression::Identifier(name)) => Some(name.as_str()),
+                _ => None,
+            },
+        };
+        for fault in crate::ir::check_buffer_slots(&view) {
+            self.report(fault.rule, &fault.message, file, function.abi.line);
         }
     }
 

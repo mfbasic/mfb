@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-cbuffer-cstruct-field-invalid
+  13 |   CSTRUCT DemoHeader AS Header
+  14 |     len CInt64
+  15 |     body CBuffer
+     | ^
+tests/syntax/native/native-cbuffer-cstruct-field-invalid/src/lib.mfb:15 error[2-203-0124 NATIVE_CSTRUCT_INVALID]: a CSTRUCT declaration is not a layout the compiler can compute faithfully
+               CSTRUCT `DemoHeader` field `body` uses `CBuffer`, which has no storage and cannot be a struct field.
+[exit 1]

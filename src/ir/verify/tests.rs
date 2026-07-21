@@ -2708,6 +2708,7 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         // the ABI return is the `AS value CInt32` + `RETURN value` passthrough.
         result: Some(crate::ir::IrLinkExpr::Var("value".to_string())),
         free: None,
+        buffers: vec![],
     }
 }
 
@@ -5587,4 +5588,174 @@ fn native_rule_sets_agree_between_syntaxcheck_and_verify() {
          add them to check_link_function_in (src/syntaxcheck/mod.rs), or, if verify is meant to be \
          the sole rejecter, add them to RELOCATED_TO_IR_VERIFY"
     );
+}
+
+// --- plan-58-A: CBuffer position rules on the PACKAGE path -----------------
+//
+// One twin per `check_buffer_slots` rule. These are the reason the checker is a
+// shared function in `ir::link` rather than two hand-mirrored implementations:
+// a crafted `.mfp` must get exactly the source-path treatment, and the two
+// `is_c_abi_type` copies are what happens when it is written twice.
+//
+// The source-path halves live in `tests/syntax/native/native-cbuffer-*`.
+
+/// A well-formed `OUT CBuffer` wrapper: every rule below mutates one thing about
+/// it, so a test that stops failing means that rule stopped firing — not that the
+/// fixture drifted into some other rejection.
+fn cbuffer_fn() -> crate::ir::IrLinkFunction {
+    let mut lf = link_fn();
+    lf.params = vec![("n".to_string(), "Integer".to_string())];
+    lf.return_type = crate::ir::BYTE_LIST_TYPE.to_string();
+    lf.abi_slots = vec![
+        crate::ir::IrAbiSlot {
+            name: "buf".to_string(),
+            ctype: "CBuffer".to_string(),
+            direction: crate::ir::AbiDirection::Out,
+        },
+        crate::ir::IrAbiSlot {
+            name: "n".to_string(),
+            ctype: "CInt64".to_string(),
+            direction: crate::ir::AbiDirection::In,
+        },
+    ];
+    lf.abi_return_name = "status".to_string();
+    lf.abi_return_ctype = "CInt32".to_string();
+    lf.result = Some(crate::ir::IrLinkExpr::Var("buf".to_string()));
+    lf.buffers = vec![crate::ir::IrBuffer {
+        slot: "buf".to_string(),
+        size: crate::ir::IrLinkExpr::Var("n".to_string()),
+    }];
+    lf
+}
+
+fn cbuffer_project(lf: crate::ir::IrLinkFunction) -> crate::ir::IrProject {
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    p
+}
+
+/// The baseline must be ACCEPTED, or every rejection test below is vacuous — it
+/// would pass on a fixture that was already invalid for some unrelated reason.
+#[test]
+fn accepts_well_formed_cbuffer_link_function() {
+    accept(&cbuffer_project(cbuffer_fn()));
+}
+
+/// Rule 1: OUT-only. There is no `List OF Byte` input marshal, so no send
+/// direction exists to give `IN`/`INOUT CBuffer` a meaning.
+#[test]
+fn rejects_cbuffer_in_slot() {
+    let mut lf = cbuffer_fn();
+    lf.abi_slots[0].direction = crate::ir::AbiDirection::In;
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+#[test]
+fn rejects_cbuffer_inout_slot() {
+    let mut lf = cbuffer_fn();
+    lf.abi_slots[0].direction = crate::ir::AbiDirection::InOut;
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+/// Rule 2: exactly one BUFFER clause. Zero leaves the capacity undefined — and a
+/// decoded `.mfp` carries NO buffers today (plan-58-C owns the wire format), so
+/// this is the rule that actually fires on a packaged CBuffer binding.
+#[test]
+fn rejects_cbuffer_without_buffer_clause() {
+    let mut lf = cbuffer_fn();
+    lf.buffers.clear();
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+#[test]
+fn rejects_cbuffer_with_two_buffer_clauses() {
+    let mut lf = cbuffer_fn();
+    lf.buffers.push(crate::ir::IrBuffer {
+        slot: "buf".to_string(),
+        size: crate::ir::IrLinkExpr::Int(4096),
+    });
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+/// Rule 3: a BUFFER clause must name a CBuffer slot of this function.
+#[test]
+fn rejects_buffer_clause_naming_unknown_slot() {
+    let mut lf = cbuffer_fn();
+    lf.buffers[0].slot = "nosuch".to_string();
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+#[test]
+fn rejects_buffer_clause_naming_non_cbuffer_slot() {
+    let mut lf = cbuffer_fn();
+    lf.buffers[0].slot = "n".to_string();
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+/// Rule 4: a CONST pin on a CBuffer. It is an OUT slot, so this is the existing
+/// `NATIVE_CONST_OUT` — no code is minted for a condition an existing rule names.
+#[test]
+fn rejects_cbuffer_const_pin() {
+    let mut lf = cbuffer_fn();
+    lf.consts = vec![("buf".to_string(), 0)];
+    expect_rule(&cbuffer_project(lf), "NATIVE_CONST_OUT");
+}
+
+/// Rule 5: CBuffer as the ABI return proper. `abi_ctype_valid_as_return` cannot
+/// express this — an OUT slot is checked through that same predicate — so it is a
+/// position rule in `check_buffer_slots`, reusing the existing ctype rule.
+#[test]
+fn rejects_cbuffer_as_abi_return() {
+    let mut lf = cbuffer_fn();
+    lf.abi_return_ctype = "CBuffer".to_string();
+    expect_rule(&cbuffer_project(lf), "NATIVE_ABI_UNKNOWN_CTYPE");
+}
+
+/// Rule 6: a CBuffer `RETURN` does not name is unreachable, and unlike a scalar
+/// OUT it costs a runtime-sized allocation nothing can observe.
+#[test]
+fn rejects_cbuffer_not_named_by_return() {
+    let mut lf = cbuffer_fn();
+    lf.return_type = "Integer".to_string();
+    lf.result = Some(crate::ir::IrLinkExpr::Var("status".to_string()));
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+/// Rule 7: RETURN names a CBuffer, so the wrapper must surface it as bytes.
+#[test]
+fn rejects_cbuffer_return_with_wrong_wrapper_type() {
+    let mut lf = cbuffer_fn();
+    lf.return_type = "String".to_string();
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+/// Rule 8 — the pre-existing garbage-codegen hole (plan-58-A §2.3). Before
+/// plan-58 this function COMPILED: `emit_return_passthrough` has no List-building
+/// arm, so the caller dereferenced a raw scalar as a collection block with no
+/// diagnostic. This is the package-path half, which never had even the CSTRUCT
+/// return-type check the source path had.
+#[test]
+fn rejects_byte_list_return_without_cbuffer_slot() {
+    let mut lf = link_fn();
+    lf.return_type = crate::ir::BYTE_LIST_TYPE.to_string();
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+/// Rule 9: a SIZE expression naming nothing real. This is the capacity of a
+/// buffer a C function is about to write into, so an unresolved name here is not
+/// cosmetic.
+#[test]
+fn rejects_buffer_size_naming_unknown_slot() {
+    let mut lf = cbuffer_fn();
+    lf.buffers[0].size = crate::ir::IrLinkExpr::Var("nosuch".to_string());
+    expect_rule(&cbuffer_project(lf), "NATIVE_ABI_UNBOUND_SLOT");
+}
+
+/// A SIZE expression may read the ABI return and any slot, not only parameters —
+/// the same surface `SUCCESS_ON`/`RETURN` range over.
+#[test]
+fn accepts_buffer_size_reading_a_sibling_slot() {
+    let mut lf = cbuffer_fn();
+    lf.buffers[0].size = crate::ir::IrLinkExpr::Var("status".to_string());
+    accept(&cbuffer_project(lf));
 }

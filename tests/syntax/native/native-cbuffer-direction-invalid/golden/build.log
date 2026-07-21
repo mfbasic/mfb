@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/syntax/native/native-cbuffer-direction-invalid
+   5 |   FUNC readIn(n AS Integer) AS List OF Byte
+   6 |     SYMBOL "demo_read"
+   7 |     ABI (buf CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-direction-invalid/src/lib.mfb:7 error[2-203-0123 NATIVE_ABI_UNKNOWN_CTYPE]: an ABI slot or return names a C type the marshaling backend does not implement
+               Native function `readIn` ABI slot `buf` uses C type `CBuffer`, which is not valid in that position.
+   5 |   FUNC readIn(n AS Integer) AS List OF Byte
+   6 |     SYMBOL "demo_read"
+   7 |     ABI (buf CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-direction-invalid/src/lib.mfb:7 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
+               Native function `readIn` ABI slot `buf` does not bind to a parameter, CONST pin, or an OUT buffer.
+   5 |   FUNC readIn(n AS Integer) AS List OF Byte
+   6 |     SYMBOL "demo_read"
+   7 |     ABI (buf CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-direction-invalid/src/lib.mfb:7 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `readIn` ABI slot `buf` is `IN CBuffer`; a CBuffer slot must be OUT.
+  12 |   FUNC readInOut(n AS Integer) AS List OF Byte
+  13 |     SYMBOL "demo_read2"
+  14 |     ABI (buf INOUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-direction-invalid/src/lib.mfb:14 error[2-203-0123 NATIVE_ABI_UNKNOWN_CTYPE]: an ABI slot or return names a C type the marshaling backend does not implement
+               Native function `readInOut` ABI slot `buf` is INOUT but `CBuffer` is not a CSTRUCT; INOUT is meaningful only for a struct.
+  12 |   FUNC readInOut(n AS Integer) AS List OF Byte
+  13 |     SYMBOL "demo_read2"
+  14 |     ABI (buf INOUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-direction-invalid/src/lib.mfb:14 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `readInOut` ABI slot `buf` is `INOUT CBuffer`; a CBuffer slot must be OUT.
+[exit 1]

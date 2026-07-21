@@ -1060,6 +1060,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a FREE block is malformed: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid",
     },
     Rule {
+        code: "2-203-0132",
+        name: "NATIVE_BUFFER_INVALID",
+        severity: Severity::Error,
+        message: "a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,

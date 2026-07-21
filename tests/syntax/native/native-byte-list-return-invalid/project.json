@@ -1,0 +1,7 @@
+{
+  "name": "native_byte_list_return_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}

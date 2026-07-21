@@ -1,0 +1,15 @@
+{
+  "name": "native_cbuffer_valid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "libraries": {
+    "demo": [
+      { "os": "macos", "type": "system", "source": "libdemo.dylib" },
+      { "os": "linux", "type": "system", "source": "libdemo.so.1" }
+    ]
+  },
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-cbuffer-return-type-invalid
+   5 |   FUNC wrongType(n AS Integer) AS String
+   6 |     SYMBOL "demo_read"
+   7 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-return-type-invalid/src/lib.mfb:7 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `wrongType` returns CBuffer slot `buf`, so its return type must be `List OF Byte`, not `String`.
+[exit 1]

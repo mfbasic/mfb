@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-cbuffer-not-returned-invalid
+   5 |   FUNC unreachable(n AS Integer) AS Integer
+   6 |     SYMBOL "demo_read"
+   7 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-not-returned-invalid/src/lib.mfb:7 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `unreachable` ABI slot `buf` is a CBuffer that `RETURN` does not name; its bytes would be unreachable.
+[exit 1]

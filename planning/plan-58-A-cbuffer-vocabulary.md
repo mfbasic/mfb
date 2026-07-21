@@ -63,12 +63,12 @@ or work around any part of plan-57. It waits.
 
 **The entry check — run this before writing a line of plan-58:**
 
-| Must be true | Command | Status 2026-07-20 (re-verified, plan-57 now complete) |
+| Must be true | Command | Status 2026-07-20 (re-run at plan-58-A execution start) |
 |---|---|---|
-| plan-57-A…E all landed and archived to `planning/old-plans/` | `ls planning/plan-57-*` → no matches | **MET** — all five archived |
-| A `pub(crate)` byte-list constructor exists | `rg -n 'fn emit_alloc_list' src/` | **NOT MET as written; capability MET** — see below |
-| A `pub(crate)` data-pointer helper exists | `rg -n 'fn emit_collection_data_pointer_into' src/` | **NOT MET as written; capability MET** — see below |
-| `kind = 2` is the **default** representation, ungated | `rg -n 'MFB_KIND2' src/` → no matches | **MET** — `kind2_enabled()` is a plain `true`; the one remaining hit is a doc comment recording the A/B evidence, not an env read (`rg 'env::var' builder_collection_layout.rs` → no matches) |
+| plan-57-A…E all landed and archived to `planning/old-plans/` | `ls planning/plan-57-*` → no matches | **MET** — no matches; all five archived |
+| A `pub(crate)` byte-list constructor exists | `rg -n 'fn emit_alloc_list' src/` | **NOT MET as written; capability MET** — 0 hits. Substitutes present: `crypto_ec.rs:215 emit_build_byte_list` (`pub(super)`), `audio/mod.rs:135 emit_alloc_byte_list`. See below |
+| A `pub(crate)` data-pointer helper exists | `rg -n 'fn emit_collection_data_pointer_into' src/` | **NOT MET as written; capability MET** — 0 hits. Substitutes present: `builder_collection_layout.rs:2179 push_collection_data_pointer_into`, `:1935 emit_collection_data_pointer_for` (both `pub(super)`). See below |
+| `kind = 2` is the **default** representation, ungated | `rg -n 'MFB_KIND2' src/` → no matches | **MET** — `kind2_enabled()` at `builder_collection_layout.rs:2275` is a plain `true`; the sole `MFB_KIND2` hit is a doc comment at `:2266` recording the A/B evidence, not an env read (`rg 'env::var' builder_collection_layout.rs` → 0 hits) |
 
 **Rows 2 and 3 name helpers plan-57 deliberately declined to create.** plan-57-A's
 findings record that `emit_element_address` and friends were *not* added because
@@ -290,8 +290,8 @@ Claims a `file:line` cannot settle, and how each was checked:
 | `2-203-0132` is free | **CONFIRMED** | Codes `0100`–`0131` contiguous in `table.rs`; `rg -c '2-203-0132' src/ docs/` → 0. Spec doc max is also `0131` |
 | A `List OF Byte` LINK return compiles to garbage today | **CONFIRMED** | `emit_return_passthrough` `link_thunk.rs:1121-1220` has no List-building arm |
 | `link_thunk.rs` rejects an unknown slot ctype like `CBuffer` | **FALSE** | §2.4 — staging, arg loop and result marshal all accept it; `emit_return_passthrough`'s `Err` is unreachable for an OUT slot (`:860`). An explicit arm is required |
-| `emit_alloc_list` exists (plan-58-B's premise) | **FALSE** | See §Prerequisite. Never built — plan-57-B:336-341 marks it `[~]`, explicitly not built |
-| kind = 2 is the live representation | **FALSE** | Gated on `MFB_KIND2`, `builder_collection_layout.rs:2191`. Off by default |
+| `emit_alloc_list` exists (plan-58-B's premise) | **FALSE** (name), capability CONFIRMED | See §Prerequisite. Never built under that name — plan-57-B:336-341 marks it `[~]`. `crypto_ec::emit_build_byte_list` and `audio/mod.rs::emit_alloc_byte_list` provide the capability |
+| kind = 2 is the live representation | ~~**FALSE**~~ **CONFIRMED** (2026-07-20, post-plan-57) | Was gated on `MFB_KIND2` when this row was written. plan-57 landed the flip: `kind2_enabled()` (`builder_collection_layout.rs:2275`) is now a plain `true` with no env read |
 | `NATIVE_*` rule codes are densely ordered, so the tail gives the max | **FALSE** | The `2-203` block is non-monotonic — `0127`/`0128` precede `0126`; `0131` precedes `0130`. Scan the whole subsystem, never the tail |
 | The canonical byte-list type string is `"List OF Byte"` | **CONFIRMED** | `src/docs/spec/architecture/21_type-name-encoding.md:29`; already used verbatim at `audio_specs.rs:100,201,212`, `fs_specs.rs:90,103` |
 
@@ -454,53 +454,87 @@ the shared checker, both gate call sites, the rule row, the spec row, and the
 negative fixtures. Splitting it would ship a ctype that is known but unpoliced,
 which is the exact state §2.3 shows to be dangerous.
 
-- [ ] `src/ir/link.rs`: add `"CBuffer"` to `abi_slot_ctype_is_known` (`:16-35`);
+- [x] `src/ir/link.rs`: add `"CBuffer"` to `abi_slot_ctype_is_known` (`:16-35`);
       exclude from `abi_ctype_valid_as_argument` (`:41-43`); include in
       `abi_ctype_valid_as_return` (`:52-54`); return `None` from
       `ctype_size_align` (`:104-120`).
-- [ ] `src/target/shared/code/link_thunk.rs`: add `"CBuffer"` to the `CTYPES`
+      `ctype_size_align` needed **no code change** — its `_ => None` default
+      already covers `CBuffer`; a comment now records that this is load-bearing,
+      not incidental.
+- [x] `src/target/shared/code/link_thunk.rs`: add `"CBuffer"` to the `CTYPES`
       literal at `:2008-2011` so `ctype_list_is_exhaustive` (`link.rs:550`) passes.
       **Admitting `CBuffer` to `valid_as_return` breaks the test's loop 1
       (`:2016-2053`)**, which filters on that predicate — expect to fix it.
       Loop 2 (`:2055-2085`) uses `AbiDirection::In` + a `CONST` pin, which a
       `CBuffer` can never satisfy, so it needs no change.
-- [ ] `link_thunk.rs`: **add the two refusal guards from §2.4** — an explicit
+      **There are TWO `CTYPES` literals, not one** — see Corrections. Loop 1 was
+      fixed with a named `NOT_YET_LOWERED` exclusion rather than a silent filter.
+- [x] `link_thunk.rs`: **add the two refusal guards from §2.4** — an explicit
       `"CBuffer" => Err(...)` arm in the OUT-slot result match ahead of the `_`
       default at `:852`, and a `continue` guard in the staging loop at `:564`
       mirroring the CSTRUCT one at `:562`. Without both, a valid declaration
       lowers to garbage.
-- [ ] Update **every `IrLinkFunction` struct-literal construction site** for the
+      Landed as an early `return Err` rather than a `continue` — see Corrections.
+- [x] Update **every `IrLinkFunction` struct-literal construction site** for the
       new `buffers` field — including both loops in `link_thunk.rs`'s
       `ctype_list_is_exhaustive` (`:2016-2085`), which name every field.
       `rg -n 'IrLinkFunction {' src/` to enumerate them.
-- [ ] `src/ast/items.rs`: parse `BUFFER <slot> SIZE <expr>` in the LINK function
+      7 sites: `ir/lower.rs:368`, `ir/binary.rs:539`, `ir/coverage_tests.rs:323`,
+      `ir/verify/tests.rs:2686`, `link_thunk.rs:{1926,2019,2053}`. Plus **4
+      `ast::LinkFunction` sites the plan did not anticipate** — see Corrections.
+- [x] `src/ast/items.rs`: parse `BUFFER <slot> SIZE <expr>` in the LINK function
       body, near `parse_abi_spec` (`:1146-1205`).
-- [ ] `src/ir/link.rs`: add `IrBuffer` and `IrLinkFunction::buffers` (`:377-434`);
+- [x] `src/ir/link.rs`: add `IrBuffer` and `IrLinkFunction::buffers` (`:377-434`);
       write `check_buffer_slots` implementing rules 1–9 (§4.3).
-- [ ] `src/syntaxcheck/mod.rs:check_link_function_in`: call `check_buffer_slots`,
-      mapping faults to slot-level spans.
-- [ ] `src/ir/verify/mod.rs:check_link_functions` (`:3042-3079`): same call,
+- [x] `src/syntaxcheck/mod.rs:check_link_function_in`: call `check_buffer_slots`,
+      ~~mapping faults to slot-level spans~~ — spans are the `ABI` line; see
+      Corrections. Landed as its own `check_buffer_slots` method called from
+      `check_link_block`, alongside `check_struct_slots`.
+- [x] `src/ir/verify/mod.rs:check_link_functions` (`:3042-3079`): same call,
       function-level spans.
-- [ ] `src/rules/table.rs`: add `NATIVE_BUFFER_INVALID` = `2-203-0132` in the
+- [x] Remove the **verbatim duplicated CSTRUCT-skip block** at
+      `verify/mod.rs:3053-3066`, noted in this plan's line-drift correction and
+      deferred to plan-58-C. It sat inside the loop being edited, so leaving it
+      for another letter would have meant re-reading the same code twice.
+- [x] `src/rules/table.rs`: add `NATIVE_BUFFER_INVALID` = `2-203-0132` in the
       native-ABI block (`:992-1058`).
-- [ ] `src/docs/spec/diagnostics/01_rule-codes.md`: add the `2-203-0132` row.
-- [ ] `src/docs/spec/language/17_native-libraries.md`: add `CBuffer` to the ctype
+      Re-measured at landing time: `0132` was still free.
+- [x] `src/docs/spec/diagnostics/01_rule-codes.md`: add the `2-203-0132` row.
+- [x] `src/docs/spec/language/17_native-libraries.md`: add `CBuffer` to the ctype
       table and the `BUFFER … SIZE` clause to §Rules, including the OUT-only and
       one-clause-per-slot constraints.
-- [ ] Tests: one negative fixture per rule in §4.3 (rules 1, 2, 3, 6, 7, 8 each
+- [x] Tests: one negative fixture per rule in §4.3 (rules 1, 2, 3, 6, 7, 8 each
       get their own; 4, 5, 9 assert the existing rule fires), under
       `tests/syntax/native/`, following `plan-50-A`'s fixture layout. Plus a
       package-path twin proving `ir::verify` rejects a crafted `.mfp` identically
       (`src/ir/coverage_tests.rs` pattern).
-- [ ] Tests: a positive fixture — a well-formed `OUT CBuffer` declaration — that
+      10 negative fixtures (9 rules + the CSTRUCT-field case) and **14
+      package-path twins** in `ir/verify/tests.rs`, including a
+      `accepts_well_formed_cbuffer_link_function` baseline that proves the other
+      13 are non-vacuous.
+- [x] Tests: a positive fixture — a well-formed `OUT CBuffer` declaration — that
       passes syntaxcheck and fails at `link_thunk.rs` with the not-yet-lowered
       `Err`, pinning the A/B boundary.
+      `native-cbuffer-valid`. Reaching codegen from a golden fixture needed an
+      `executable` kind, a `libraries` entry, and a `golden/<pkg>.run` trigger
+      file — see Corrections. Backed by a unit-level twin in
+      `every_known_ctype_lowers`.
 
 Acceptance: every rule in §4.3 has a fixture that fails with **its own** rule
 code and message on the source path, and a package-path twin producing the same
 code; the positive fixture reaches `link_thunk.rs`'s `Err`;
 `ctype_list_is_exhaustive` and `every_rule_is_documented_in_the_spec` pass;
 `scripts/artifact-gate.sh` shows every existing thunk byte-identical.
+
+**Verified 2026-07-20.** All nine rules fire with their own code and message on
+both paths (`cargo test --bin mfb buffer` → 15 passed; the 11 golden fixtures
+pass under `scripts/test-accept.sh`). The positive fixture's golden records the
+front end clean and the backend refusing:
+`error: LINK function 'demo.readBytes' ABI slot 'buf' uses CBuffer, which is not
+yet marshaled (plan-58-B)`. Full unit suite 3124 passed / 0 failed.
+`scripts/artifact-gate.sh target/release/mfb` → **1034 tests, 1267 goldens, 0
+diffs** — every existing thunk byte-identical. Clippy warning count unchanged
+from baseline (34, measured by stashing and re-running).
 Commit: —
 
 ## Validation Plan
@@ -560,13 +594,81 @@ the plan-57 precondition, checked once before plan-58-A begins.
 - 2026-07-20 — **Adding `buffers` breaks every `IrLinkFunction` struct literal**,
   including both loops in `ctype_list_is_exhaustive` (`link_thunk.rs:2016-2085`).
   Unmentioned in the draft's task list; added.
+### Found while executing plan-58-A (2026-07-20)
+
+- **There are TWO `CTYPES` literals, not one.** The plan named only
+  `link_thunk.rs:2008-2011`. The drift guard `ctype_list_is_exhaustive` lives in
+  **`src/ir/link.rs`** (its own `tests` module, `:551`), and `link_thunk.rs` has a
+  *second* copy at `:2009` feeding `every_known_ctype_lowers`. Both must carry
+  `CBuffer` or one of the two tests fails. Measured: `rg -n 'CTYPES' src/`. The
+  plan's own doc-comment reference (`link.rs:11` says the guard is in
+  `link_thunk`) is what misled it — that comment is describing the *other* test.
+- **`CBuffer` is excluded from both loops of `every_known_ctype_lowers`, and that
+  needed to be said out loud.** The plan predicted loop 1 would break and said
+  "expect to fix it", which invites a silent `filter`. A silent filter would leave
+  `CBuffer` covered by *neither* loop with nothing recording why. Landed instead
+  as a named `NOT_YET_LOWERED` constant plus a **third assertion** that a
+  fully-well-formed `CBuffer` function *fails* to lower and that the error names
+  the ctype. When plan-58-B lands the marshaler, that assertion fails — which is
+  exactly what forces `CBuffer` back into the loops rather than staying quietly
+  uncovered.
+- **The staging guard is a `return Err`, not a `continue`.** §2.4 task 2 said to
+  mirror the CSTRUCT `continue` at `:562`. A `continue` is wrong here: it would
+  *skip* staging and leave the cslot word unwritten, so the C function would
+  receive whatever was in that stack slot — worse than the scalar-OUT path it was
+  meant to avoid. `continue` is right for CSTRUCT because CSTRUCT *has* a
+  marshaling path that already ran; `CBuffer` has none. Landed as an early
+  `return Err` naming the slot.
+- **Adding `buffers` breaks 4 `ast::LinkFunction` literals too**, not just the 7
+  `IrLinkFunction` ones the plan enumerated: `audit/collect/project.rs:198` and
+  `resolver/mod.rs:{745,993,1043}`. The plan's `rg -n 'IrLinkFunction {' src/`
+  finds only the IR half.
+- **Spans are the `ABI` line, not slot-level.** Phase 1 asked syntaxcheck to map
+  faults "to slot-level spans". `CStructFault` — the carrier the plan explicitly
+  chose to reuse (§4.3) — carries only `(rule, message)`, so a fault cannot say
+  which slot it came from. Buying slot-level spans means widening a struct four
+  landed `NATIVE_*` rules also use. Not done: span granularity is not in the
+  acceptance criterion, every message already names its slot, and the existing
+  `NATIVE_ABI_UNBOUND_SLOT` expression diagnostics already report at the `ABI`
+  line. Consequence: `ast::BufferSpec` carries **no `line` field** — it would have
+  been dead code, which AGENTS.md bans.
+- **`check_buffer_slots` takes pre-extracted primitives, not an expression.** The
+  plan's §3 sketch implied one shared checker over the IR. But `syntaxcheck` holds
+  `ast::Expression` and `ir::verify` holds `IrLinkExpr`, and lowering is private to
+  `ir::lower`. The rules need only two things from an expression — the identifiers
+  it reads, and whether `RETURN` is a bare slot reference — so `BufferSlotsView`
+  carries those, extracted at each call site. One checker, no expression-type
+  coupling.
+- **A golden fixture cannot reach codegen without a `golden/<pkg>.run` file.** The
+  plan assumed the positive fixture would simply "fail at `link_thunk.rs`". The
+  syntax harness runs `mfb build -ast -ir`, which stops before the backend, so the
+  first draft of `native-cbuffer-valid` **built clean and proved nothing**. Reading
+  `scripts/test-accept.sh:325` showed a `<pkg>.run` golden triggers a second, full
+  `mfb build`. The fixture is now `kind: executable` with a `libraries` entry, a
+  `main` that calls the wrapper, and an empty `.run` trigger. Any future sub-plan
+  wanting codegen proof from a fixture needs the same three things.
+- **Rule 8's blast radius is zero, measured.** §Compatibility said to run
+  `rg -l 'AS List OF Byte' bindings/` before landing. One hit —
+  `bindings/sqlite3/src/lib.mfb:96` — but it is a **record field**, not a LINK
+  wrapper return, so no bundled binding trips the new rule.
+- **The `IN CBuffer` and `INOUT CBuffer` cases also trip pre-existing rules**, and
+  that is fine rather than redundant. `IN` additionally fires
+  `NATIVE_ABI_UNKNOWN_CTYPE` (from `abi_ctype_valid_as_argument`) and
+  `NATIVE_ABI_UNBOUND_SLOT`; `INOUT` fires the existing "INOUT on a non-CSTRUCT"
+  rule. Rule 1 still contributes the message that actually explains the mistake.
+  The goldens record all of them, so a future change that drops one is visible.
+
+### From the 2026-07-19 → 2026-07-20 replan
+
 - 2026-07-20 — Line drift corrected: the syntaxcheck gate is `:749-786` (draft
   said `:752-787`) and its routing `:770-774` (draft `:771-775`); the
   `ir::verify` mirror extends to ~`:3086`; `rejects_link_out_slot_not_return` is
   at `verify/tests.rs:3043` (draft `:2653`); the ctype table in
   `17_native-libraries.md` is at `:94-104`. Also noted: `verify/mod.rs:3053-3066`
   contains a **verbatim duplicated CSTRUCT-skip block** — dead, remove it when
-  wiring `check_buffer_slots` (plan-58-C §4.3).
+  wiring `check_buffer_slots` (~~plan-58-C §4.3~~ **done in plan-58-A**: the block
+  sat inside the very loop A edits, so deferring it meant reading the same code
+  twice).
 
 ## Summary
 

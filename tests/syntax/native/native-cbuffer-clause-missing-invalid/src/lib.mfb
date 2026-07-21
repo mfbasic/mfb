@@ -1,0 +1,18 @@
+' plan-58-A rule 2: exactly one BUFFER clause per CBuffer slot. Zero leaves the
+' capacity undefined; two leave it ambiguous. Neither may reach the marshaler,
+' which would otherwise hand a C function a buffer of unknown length.
+LINK "demo" AS demoLink
+  FUNC noClause(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    RETURN buf
+  END FUNC
+
+  FUNC twoClauses(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read2"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    BUFFER buf SIZE 4096
+    RETURN buf
+  END FUNC
+END LINK

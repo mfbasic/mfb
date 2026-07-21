@@ -1,0 +1,23 @@
+' plan-58-A §4.1: a CBuffer cannot be a CSTRUCT field — a struct field needs a
+' constant offset, and a CBuffer's size is a runtime expression. It falls out of
+' `ctype_size_align` returning None, exactly as CVoid does.
+'
+' Note WHICH rule fires: NOT NATIVE_ABI_UNKNOWN_CTYPE. That arm is guarded by
+' `!abi_slot_ctype_is_known`, which CBuffer now PASSES, so rejection falls
+' through to the `ctype_size_align(...).is_none()` arm — NATIVE_CSTRUCT_INVALID.
+TYPE Header
+  len AS Integer
+END TYPE
+
+LINK "demo" AS demoLink
+  CSTRUCT DemoHeader AS Header
+    len CInt64
+    body CBuffer
+  END CSTRUCT
+
+  FUNC readHeader(h AS Header) AS Integer
+    SYMBOL "demo_head"
+    ABI (h INOUT DemoHeader) AS status CInt32
+    RETURN status
+  END FUNC
+END LINK

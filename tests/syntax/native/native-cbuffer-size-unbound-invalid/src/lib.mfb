@@ -1,0 +1,12 @@
+' plan-58-A rule 9: every identifier a BUFFER SIZE expression reads must resolve
+' to a parameter, an ABI slot, or the ABI return. An unresolved name here is not
+' cosmetic — it is the capacity of a buffer a C function is about to write into.
+' Reuses the existing NATIVE_ABI_UNBOUND_SLOT.
+LINK "demo" AS demoLink
+  FUNC badSize(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE nosuch
+    RETURN buf
+  END FUNC
+END LINK

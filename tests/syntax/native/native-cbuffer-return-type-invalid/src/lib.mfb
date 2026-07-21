@@ -1,0 +1,11 @@
+' plan-58-A rule 7: RETURN names a CBuffer, so the wrapper must surface it as
+' `List OF Byte`. Any other return type would marshal a byte buffer as something
+' it is not.
+LINK "demo" AS demoLink
+  FUNC wrongType(n AS Integer) AS String
+    SYMBOL "demo_read"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    RETURN buf
+  END FUNC
+END LINK

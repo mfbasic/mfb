@@ -1,0 +1,11 @@
+' plan-58-A rule 5: CBuffer is not valid as the ABI return. A C function fills
+' storage the caller passed in; it does not return a buffer whose size the
+' caller declared. This is a position rule, so it reuses the existing
+' NATIVE_ABI_UNKNOWN_CTYPE rather than minting a code.
+LINK "demo" AS demoLink
+  FUNC bogus(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read"
+    ABI (n CInt64) AS r CBuffer
+    RETURN r
+  END FUNC
+END LINK

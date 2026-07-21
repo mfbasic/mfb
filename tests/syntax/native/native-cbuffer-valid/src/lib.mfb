@@ -1,0 +1,34 @@
+' plan-58-A: the POSITIVE fixture, and the A/B boundary marker.
+'
+' This declaration satisfies every `check_buffer_slots` rule — OUT direction,
+' exactly one BUFFER clause, named by RETURN, `List OF Byte` return, a SIZE
+' expression over real slots. It therefore passes BOTH ctype gates cleanly (see
+' the `-ast -ir` run below) and reaches the backend, where lowering the thunk
+' fails with an explicit refusal naming CBuffer.
+'
+' That refusal is deliberate and load-bearing. plan-58-A ships vocabulary and
+' rejection only; the marshaling is plan-58-B. Without the two guards in
+' link_thunk.rs (§2.4), this file would lower CLEANLY: the staging loop would
+' take the generic scalar-OUT arm, and the result marshal's `_` default would
+' load a raw zeroed 8-byte stack word into RESULT_VALUE_REGISTER, which the
+' caller then dereferences as a collection block. Garbage, no diagnostic — the
+' exact failure mode this sub-plan exists to prevent.
+'
+' When plan-58-B lands, this fixture's golden changes from a lowering error to a
+' successful build and run. That churn is the signal, not noise.
+IMPORT io
+
+LINK "demo" AS demo
+  FUNC readBytes(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    RETURN buf
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  ' Calling it is what forces the thunk to be lowered.
+  io::print(toString(len(demo::readBytes(16))))
+  RETURN 0
+END FUNC

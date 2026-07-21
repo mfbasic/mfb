@@ -1,0 +1,11 @@
+' plan-58-A rule 6: a CBuffer that RETURN does not name is unreachable. Unlike a
+' scalar OUT, which merely goes unread, an unreturned buffer costs a
+' runtime-sized allocation whose bytes nothing can ever observe.
+LINK "demo" AS demoLink
+  FUNC unreachable(n AS Integer) AS Integer
+    SYMBOL "demo_read"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    RETURN status
+  END FUNC
+END LINK

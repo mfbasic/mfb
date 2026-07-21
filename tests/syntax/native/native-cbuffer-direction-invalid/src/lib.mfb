@@ -1,0 +1,18 @@
+' plan-58-A rule 1: a CBuffer slot must be OUT. IN and INOUT would each need a
+' `List OF Byte` INPUT marshal, which does not exist — there is no send
+' direction. Rejecting them is what keeps a future reader from assuming one.
+LINK "demo" AS demoLink
+  FUNC readIn(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read"
+    ABI (buf CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    RETURN buf
+  END FUNC
+
+  FUNC readInOut(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read2"
+    ABI (buf INOUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    RETURN buf
+  END FUNC
+END LINK

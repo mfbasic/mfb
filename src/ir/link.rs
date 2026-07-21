@@ -12,12 +12,16 @@
 /// name here through the thunk to keep the two in step.
 ///
 /// Two names are position-restricted; see [`abi_ctype_valid_as_argument`] and
-/// [`abi_ctype_valid_as_return`].
+/// [`abi_ctype_valid_as_return`]. A third, `CBuffer`, is restricted further than
+/// either predicate can express — it is legal *only* as an `OUT` slot carrying a
+/// `BUFFER … SIZE` clause and named by `RETURN`. Those rules live in
+/// [`check_buffer_slots`], not here (plan-58-A §4.3).
 pub(crate) fn abi_slot_ctype_is_known(ctype: &str) -> bool {
     matches!(
         ctype,
         "CPtr"
             | "CString"
+            | "CBuffer"
             | "CInt8"
             | "CInt16"
             | "CInt32"
@@ -36,10 +40,13 @@ pub(crate) fn abi_slot_ctype_is_known(ctype: &str) -> bool {
 
 /// Whether `ctype` may appear on an `ABI (...)` argument slot.
 ///
-/// Everything but `CVoid`: a C function takes no `void` argument, so a `CVoid`
-/// slot is meaningless. `CVoid` is valid only as the ABI return.
+/// Everything but `CVoid` and `CBuffer`: a C function takes no `void` argument,
+/// so a `CVoid` slot is meaningless, and `CVoid` is valid only as the ABI return.
+/// `CBuffer` is OUT-only (plan-58-A §4.3 rule 1): its bytes are produced by the
+/// callee into storage the thunk allocates, so there is no input direction to
+/// marshal.
 pub(crate) fn abi_ctype_valid_as_argument(ctype: &str) -> bool {
-    abi_slot_ctype_is_known(ctype) && ctype != "CVoid"
+    abi_slot_ctype_is_known(ctype) && ctype != "CVoid" && ctype != "CBuffer"
 }
 
 /// Whether `ctype` may appear as the ABI return (`AS <name> <ctype>`).
@@ -49,6 +56,12 @@ pub(crate) fn abi_ctype_valid_as_argument(ctype: &str) -> bool {
 /// A C function that returns `char *` is declared `CPtr` and paired with a
 /// wrapper `AS String`, which drives the copy-out (`emit_copy_cstring_to_string`).
 /// There is no return-side meaning for `CString` and no arm implementing one.
+///
+/// `CBuffer` passes here because an `OUT` slot is checked through this predicate
+/// (it is a produced value). That makes this predicate *necessary but not
+/// sufficient* for `CBuffer`: it is still rejected as the ABI return proper by
+/// [`check_buffer_slots`] rule 5. Do not read a `true` here as "legal in every
+/// return-shaped position".
 pub(crate) fn abi_ctype_valid_as_return(ctype: &str) -> bool {
     abi_slot_ctype_is_known(ctype) && ctype != "CString"
 }
@@ -114,7 +127,11 @@ pub(crate) fn ctype_size_align(ctype: &str, target: &str) -> Option<(usize, usiz
         "CInt32" | "CUInt32" | "CFloat" => Some((4, 4)),
         // `CString` is a `const char *` FIELD here: the pointer, not its bytes.
         "CInt64" | "CUInt64" | "CDouble" | "CPtr" | "CString" => Some((8, 8)),
-        // `CVoid` has no storage; it is an ABI return type only.
+        // `CVoid` has no storage; it is an ABI return type only. `CBuffer` has no
+        // *static* storage: its size is a runtime `BUFFER … SIZE` expression, and
+        // a struct field must have a constant offset, so it can never be one
+        // (plan-58-A §4.1). Both fall through to `None`, which is what makes
+        // `check_cstruct` reject them via `NATIVE_CSTRUCT_INVALID`.
         _ => None,
     }
 }
@@ -431,6 +448,242 @@ pub(crate) struct IrLinkFunction {
     pub(crate) bind_state_resource: Option<String>,
     /// `FREE <slot>` deallocation of a caller-owned native return (mfbasic.md §17).
     pub(crate) free: Option<IrFree>,
+    /// `BUFFER <slot> SIZE <expr>` clauses (plan-58-A §4.2): the byte capacity of
+    /// each `OUT CBuffer` slot. Exactly one per `CBuffer` slot, and every entry
+    /// names a `CBuffer` slot — both enforced by [`check_buffer_slots`].
+    ///
+    /// Source-path only in plan-58-A: it does **not** ride the `.mfp` trailer yet,
+    /// so a decoded package leaves this empty. That is safe *only* because
+    /// `link_thunk` refuses to lower a `CBuffer` slot at all until plan-58-B; the
+    /// moment marshaling lands, plan-58-C must carry this on the wire or a
+    /// packaged binding would marshal a zero-capacity buffer.
+    pub(crate) buffers: Vec<IrBuffer>,
+}
+
+/// One `BUFFER <slot> SIZE <expr>` clause — the byte capacity of an `OUT CBuffer`
+/// slot (plan-58-A §4.2).
+///
+/// The capacity is an expression rather than a literal because every real C
+/// bulk-read API sizes its buffer from its arguments (`frames * channels * 2`),
+/// not from a constant. Deriving it from a sibling slot by naming convention was
+/// rejected: it is implicit, unstated in the `ABI` line, and picks the wrong slot
+/// whenever a C function takes two lengths.
+#[derive(Clone)]
+pub(crate) struct IrBuffer {
+    /// The `OUT CBuffer` ABI slot this sizes.
+    pub(crate) slot: String,
+    /// The capacity in **bytes**. A unit suffix (`SIZE_BYTES`) was considered and
+    /// rejected as noise; the spec and the DOC template carry the unit.
+    pub(crate) size: IrLinkExpr,
+}
+
+/// The canonical MFBASIC type string for a byte list, which is the only wrapper
+/// return type a `CBuffer` slot may surface as.
+///
+/// Spelled once here rather than inline at each rule: it is the encoding
+/// `src/docs/spec/architecture/21_type-name-encoding.md:29` specifies, and it is
+/// already written verbatim at `audio_specs.rs:100,201,212` and
+/// `fs_specs.rs:90,103`.
+pub(crate) const BYTE_LIST_TYPE: &str = "List OF Byte";
+
+/// A native function's buffer-relevant surface, resolved for validation
+/// (plan-58-A §4.3).
+///
+/// Carries *pre-extracted primitives* rather than the caller's expression type:
+/// `syntaxcheck` holds `ast::Expression` and `ir::verify` holds [`IrLinkExpr`],
+/// and the rules need only two things from an expression — the identifiers it
+/// reads, and whether `RETURN` is a bare slot reference. Extracting those at each
+/// call site keeps one checker instead of two, which is the whole point (the two
+/// `is_c_abi_type` copies are what happens otherwise).
+pub(crate) struct BufferSlotsView<'a> {
+    /// The wrapper's name, for diagnostics.
+    pub(crate) function: &'a str,
+    /// `(slot name, ctype, direction)` in native argument order.
+    pub(crate) slots: Vec<(&'a str, &'a str, AbiDirection)>,
+    /// `(BUFFER slot, identifiers its SIZE expression reads)`, in declared order.
+    pub(crate) buffers: Vec<(&'a str, Vec<&'a str>)>,
+    /// Slot names pinned by `CONST`.
+    pub(crate) const_slots: Vec<&'a str>,
+    /// Wrapper parameter names, which a `SIZE` expression may read.
+    pub(crate) param_names: Vec<&'a str>,
+    /// The wrapper's MFBASIC return type (`"Nothing"` when it returns none).
+    pub(crate) return_type: &'a str,
+    /// The ABI return's name and ctype (`AS <name> <ctype>`).
+    pub(crate) abi_return_name: &'a str,
+    pub(crate) abi_return_ctype: &'a str,
+    /// The slot `RETURN` names, when the clause is a bare identifier. `None` for a
+    /// computed `RETURN` (`RETURN status = 0`) or no `RETURN` at all — neither can
+    /// surface a buffer, which is exactly what rules 6 and 8 turn on.
+    pub(crate) result_slot: Option<&'a str>,
+}
+
+/// Validate every `CBuffer` slot and `BUFFER` clause, returning each fault found
+/// (plan-58-A §4.3).
+///
+/// Shared by the source path (`syntaxcheck`) and the package path (`ir::verify`)
+/// so a crafted `.mfp` cannot get a weaker check than source — the same shape as
+/// [`check_cstruct`] / [`check_struct_slot`].
+///
+/// **Completeness is the correctness property here**, not mechanism. `CBuffer` is
+/// the first ctype that is not interchangeable across positions, so every position
+/// left unrejected becomes a path that reaches plan-58-B's marshaler with an
+/// assumption it does not hold — an unallocated or wrong-sized buffer handed to a
+/// C function. Each rule below therefore carries its own negative fixture; do not
+/// collapse two rules into one message.
+pub(crate) fn check_buffer_slots(view: &BufferSlotsView) -> Vec<CStructFault> {
+    let mut faults = Vec::new();
+    let fault = |rule: &'static str, message: String| CStructFault { rule, message };
+    let name = view.function;
+
+    let is_buffer_slot = |slot: &str| {
+        view.slots
+            .iter()
+            .any(|(n, c, _)| *n == slot && *c == "CBuffer")
+    };
+
+    // Rule 5: `CBuffer` as the ABI return proper. `abi_ctype_valid_as_return`
+    // cannot express this — an OUT slot is checked through that same predicate —
+    // so it is a position rule here. A C function cannot *return* a buffer whose
+    // size the caller declared; it fills storage the caller passed in.
+    if view.abi_return_ctype == "CBuffer" {
+        faults.push(fault(
+            "NATIVE_ABI_UNKNOWN_CTYPE",
+            format!(
+                "Native function `{name}` ABI return `{}` uses C type `CBuffer`, which is valid only on an OUT slot, never as the ABI return.",
+                view.abi_return_name
+            ),
+        ));
+    }
+
+    for (slot, ctype, direction) in &view.slots {
+        if *ctype != "CBuffer" {
+            continue;
+        }
+        // Rule 1: OUT-only. An IN or INOUT CBuffer would need a `List OF Byte`
+        // *input* marshal, which is independent work with its own failure modes
+        // (plan-58-A §3, Open Decision 1). Rejected rather than silently ignored.
+        if *direction != AbiDirection::Out {
+            let spelled = match direction {
+                AbiDirection::In => "IN",
+                AbiDirection::InOut => "INOUT",
+                AbiDirection::Out => unreachable!("guarded above"),
+            };
+            faults.push(fault(
+                "NATIVE_BUFFER_INVALID",
+                format!(
+                    "Native function `{name}` ABI slot `{slot}` is `{spelled} CBuffer`; a CBuffer slot must be OUT."
+                ),
+            ));
+        }
+        // Rule 4: a CONST pin on an OUT slot is already `NATIVE_CONST_OUT`, but a
+        // non-OUT CBuffer would escape that check while still being pinned, so
+        // name it here too rather than depending on rule 1 having fired.
+        if view.const_slots.contains(slot) && !direction.writes_back() {
+            faults.push(fault(
+                "NATIVE_CONST_OUT",
+                format!(
+                    "Native function `{name}` pins ABI slot `{slot}` with CONST, which cannot also be a CBuffer."
+                ),
+            ));
+        }
+        // Rule 2: exactly one BUFFER clause. Zero leaves the capacity undefined;
+        // more than one leaves it ambiguous. Neither may reach the marshaler.
+        let clauses = view.buffers.iter().filter(|(s, _)| s == slot).count();
+        if clauses == 0 {
+            faults.push(fault(
+                "NATIVE_BUFFER_INVALID",
+                format!(
+                    "Native function `{name}` ABI slot `{slot}` is a CBuffer but declares no `BUFFER {slot} SIZE <expr>` clause giving its capacity."
+                ),
+            ));
+        } else if clauses > 1 {
+            faults.push(fault(
+                "NATIVE_BUFFER_INVALID",
+                format!(
+                    "Native function `{name}` declares {clauses} `BUFFER {slot} SIZE` clauses; a CBuffer slot takes exactly one."
+                ),
+            ));
+        }
+        // Rule 6: an unreachable buffer is always a mistake. Unlike a scalar OUT,
+        // which merely goes unread, an unreturned CBuffer costs a runtime-sized
+        // allocation whose bytes nothing can ever observe.
+        if view.result_slot != Some(*slot) {
+            faults.push(fault(
+                "NATIVE_BUFFER_INVALID",
+                format!(
+                    "Native function `{name}` ABI slot `{slot}` is a CBuffer that `RETURN` does not name; its bytes would be unreachable."
+                ),
+            ));
+        }
+    }
+
+    for (slot, size_reads) in &view.buffers {
+        // Rule 3: a BUFFER clause must name a CBuffer slot of this function.
+        // Reported as two distinct messages because "you typo'd the name" and
+        // "that slot is not a buffer" are different mistakes.
+        match view.slots.iter().find(|(n, _, _)| n == slot) {
+            None => faults.push(fault(
+                "NATIVE_BUFFER_INVALID",
+                format!(
+                    "Native function `{name}` declares `BUFFER {slot} SIZE`, but `{slot}` is not an ABI slot of this function."
+                ),
+            )),
+            Some((_, ctype, _)) if *ctype != "CBuffer" => faults.push(fault(
+                "NATIVE_BUFFER_INVALID",
+                format!(
+                    "Native function `{name}` declares `BUFFER {slot} SIZE`, but ABI slot `{slot}` is `{ctype}`, not a CBuffer."
+                ),
+            )),
+            Some(_) => {}
+        }
+        // Rule 9: every identifier a SIZE expression reads must resolve. An
+        // unresolved name here is not cosmetic — it is the capacity of a buffer a
+        // C function is about to write into.
+        for read in size_reads {
+            if *read == "NOTHING"
+                || *read == view.abi_return_name
+                || view.param_names.contains(read)
+                || view.slots.iter().any(|(n, _, _)| n == read)
+            {
+                continue;
+            }
+            faults.push(fault(
+                "NATIVE_ABI_UNBOUND_SLOT",
+                format!(
+                    "Native function `{name}` `BUFFER {slot} SIZE` expression reads `{read}`, which is not a parameter, an ABI slot, or the ABI return."
+                ),
+            ));
+        }
+    }
+
+    // Rule 7: RETURN names a CBuffer, so the wrapper must surface it as bytes.
+    if let Some(slot) = view.result_slot {
+        if is_buffer_slot(slot) && view.return_type != BYTE_LIST_TYPE {
+            faults.push(fault(
+                "NATIVE_BUFFER_INVALID",
+                format!(
+                    "Native function `{name}` returns CBuffer slot `{slot}`, so its return type must be `{BYTE_LIST_TYPE}`, not `{}`.",
+                    view.return_type
+                ),
+            ));
+        }
+    }
+    // Rule 8: the converse, and the reason this checker had to land with the
+    // ctype rather than after it. A wrapper declaring `AS List OF Byte` without a
+    // CBuffer result compiled *before* plan-58 and produced garbage:
+    // `emit_return_passthrough` has no List-building arm, so the caller
+    // dereferenced a raw scalar as a collection block, with no diagnostic
+    // (plan-58-A §2.3).
+    if view.return_type == BYTE_LIST_TYPE && !view.result_slot.is_some_and(is_buffer_slot) {
+        faults.push(fault(
+            "NATIVE_BUFFER_INVALID",
+            format!(
+                "Native function `{name}` returns `{BYTE_LIST_TYPE}`, but `RETURN` does not name an OUT CBuffer slot; only a CBuffer can produce a byte list."
+            ),
+        ));
+    }
+
+    faults
 }
 
 /// A `BIND IN <slot>` block on the IR (plan-50-E).
@@ -549,8 +802,8 @@ mod tests {
     #[test]
     fn ctype_list_is_exhaustive() {
         const CTYPES: &[&str] = &[
-            "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
-            "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
+            "CPtr", "CString", "CBuffer", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8",
+            "CUInt16", "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
         ];
         for ctype in CTYPES {
             assert!(

@@ -513,6 +513,20 @@ fn lower_link_thunk(
     let mut result_out_ctype: Option<String> = None;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
         let cslot_off = cslot_base + slot_idx * 8;
+        // plan-58-A: `CBuffer` is a known ctype with no marshaling arm yet. Refuse
+        // it HERE rather than letting it fall through — the generic scalar-OUT arm
+        // below would happily stage an 8-byte stack word as the "buffer", pass its
+        // address to a C function expecting N writable bytes, and surface the word
+        // as a collection pointer. That is the exact garbage-codegen failure mode
+        // the ctype exists to prevent. plan-58-B replaces this with the real
+        // allocation; until then a well-formed declaration must fail loudly.
+        if slot.ctype == "CBuffer" {
+            return Err(format!(
+                "LINK function '{}.{}' ABI slot '{}' uses CBuffer, which is not yet marshaled \
+                 (plan-58-B)",
+                function.alias, function.name, slot.name
+            ));
+        }
         // plan-50-E: a struct slot passes the ADDRESS of a zeroed buffer, exactly
         // as an OUT scalar does — only sized.
         if let Some((_, buf_off, layout, decl)) =
@@ -848,6 +862,19 @@ fn lower_link_thunk(
                     abi::label(&finite),
                     abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
                 ]);
+            }
+            // plan-58-A: a second refusal, deliberately redundant with the staging
+            // guard above. The `_` default here is a bare 8-byte load — a silent
+            // raw read for ANY ctype without an arm (this is the bug-238
+            // mechanism, where a `CInt32` OUT surfaced -1 as 4294967295). Relying
+            // on one guard to protect the other means a future refactor that moves
+            // staging leaves this arm reachable with no diagnostic.
+            "CBuffer" => {
+                return Err(format!(
+                    "LINK function '{}.{}' returns a CBuffer OUT slot, which is not yet marshaled \
+                     (plan-58-B)",
+                    function.alias, function.name
+                ));
             }
             _ => {
                 instructions.push(abi::load_u64(
@@ -1951,6 +1978,7 @@ mod tests {
             success_on: None,
             result: None,
             free: None,
+            buffers: vec![],
         };
         let lower = |count: usize| {
             lower_link_thunk(
@@ -2007,14 +2035,24 @@ mod tests {
         // this in sync with `abi_slot_ctype_is_known`, so a name added to the
         // authority without an arm here fails there first.
         const CTYPES: &[&str] = &[
-            "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
-            "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
+            "CPtr", "CString", "CBuffer", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8",
+            "CUInt16", "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
         ];
+
+        // plan-58-A: `CBuffer` is the one accepted ctype that must NOT lower yet,
+        // so it is excluded from both loops below and asserted separately. Naming
+        // it here rather than letting a filter drop it silently is the point: when
+        // plan-58-B lands the marshaler, THIS assertion fails, which is what forces
+        // `CBuffer` back into the loops instead of staying quietly uncovered.
+        const NOT_YET_LOWERED: &[&str] = &["CBuffer"];
 
         // Every ctype valid as an ABI *return* must reach a return arm. This is the
         // arm that can `Err`, and it is how the guard caught `CString` having no
         // return meaning at all (a `char *` return is `CPtr` + a `String` wrapper).
-        for ctype in CTYPES.iter().filter(|c| abi_ctype_valid_as_return(c)) {
+        for ctype in CTYPES
+            .iter()
+            .filter(|c| abi_ctype_valid_as_return(c) && !NOT_YET_LOWERED.contains(c))
+        {
             let returns_value = *ctype != "CVoid";
             let function = IrLinkFunction {
                 alias: "lib".to_string(),
@@ -2037,6 +2075,7 @@ mod tests {
                 success_on: None,
                 result: None,
                 free: None,
+                buffers: vec![],
             };
             let lowered =
                 lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
@@ -2073,6 +2112,7 @@ mod tests {
                 success_on: None,
                 result: None,
                 free: None,
+                buffers: vec![],
             };
             let lowered =
                 lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
@@ -2080,6 +2120,51 @@ mod tests {
                 lowered.is_ok(),
                 "accepted argument ctype {ctype} does not lower: {:?}",
                 lowered.err()
+            );
+        }
+
+        // plan-58-A pins the A/B boundary: a well-formed `OUT CBuffer` declaration
+        // — one that passes every `check_buffer_slots` rule — must still fail to
+        // LOWER, loudly. Without this, the two refusal guards could be deleted and
+        // the only symptom would be a raw stack word surfacing as a collection
+        // pointer at runtime in some future binding.
+        for ctype in NOT_YET_LOWERED {
+            let function = IrLinkFunction {
+                alias: "lib".to_string(),
+                name: format!("out_{ctype}"),
+                library: "demo".to_string(),
+                symbol: "demo_f".to_string(),
+                params: vec![("n".to_string(), "Integer".to_string())],
+                return_type: crate::ir::BYTE_LIST_TYPE.to_string(),
+                return_resource: false,
+                return_state_type: None,
+                abi_slots: vec![IrAbiSlot {
+                    name: "buf".to_string(),
+                    ctype: (*ctype).to_string(),
+                    direction: crate::ir::AbiDirection::Out,
+                }],
+                abi_return_name: "status".to_string(),
+                abi_return_ctype: "CInt32".to_string(),
+                consts: vec![],
+                bind_in: vec![],
+                bind_state: None,
+                bind_state_resource: None,
+                success_on: None,
+                result: Some(crate::ir::IrLinkExpr::Var("buf".to_string())),
+                free: None,
+                buffers: vec![crate::ir::IrBuffer {
+                    slot: "buf".to_string(),
+                    size: crate::ir::IrLinkExpr::Var("n".to_string()),
+                }],
+            };
+            let lowered =
+                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
+            let err = lowered
+                .err()
+                .unwrap_or_else(|| panic!("{ctype} lowered, but it has no marshaling arm yet"));
+            assert!(
+                err.contains(ctype),
+                "{ctype} refusal must name the ctype so the diagnostic is actionable, got: {err}"
             );
         }
     }

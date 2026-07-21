@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-cbuffer-const-invalid
+   5 |   FUNC pinned(n AS Integer) AS List OF Byte
+   6 |     SYMBOL "demo_read"
+   7 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-const-invalid/src/lib.mfb:7 error[2-203-0097 NATIVE_CONST_OUT]: a CONST-pinned ABI slot cannot also be OUT
+               Native function `pinned` pins ABI slot `buf` with CONST, which cannot also be OUT.
+[exit 1]

@@ -101,6 +101,7 @@ Native ABI types are separate from MFBASIC source types. The names below are the
 | `CString` | Null-terminated UTF-8 string pointer created from a MFBASIC `String` for the duration of the call. |
 | `CPtr` | Opaque native pointer value used only inside native bindings. It cannot be inspected, manipulated, stored, returned, or named by ordinary MFBASIC code except as the hidden representation of a declared `RESOURCE`. |
 | `CVoid` | Native `void` return. Valid only as an ABI return type (and the `FREE` deallocator return). Use MFBASIC `Nothing` for the wrapper's source-level return type. |
+| `CBuffer` | A runtime-sized writable byte buffer the callee fills, surfaced as `List OF Byte`. Valid **only** as an `OUT` slot carrying a `BUFFER … SIZE` clause and named by `RETURN`; see below. |
 
 The fixed-width names are preferred over C spellings such as `int` or `long`, because those spellings vary by platform. Bindings should map the platform header's actual ABI to one of these types.
 
@@ -171,6 +172,32 @@ ABI parameters may use a direction modifier:
 | `CPtr` | Pass a resource handle or opaque pointer as-is inside the binding boundary. |
 
 > Implementation status: there is **no `REF` direction modifier** in the parser — `abiSlot` accepts only an optional `OUT`. An ordinary (input) slot is marshaled by value from its bound wrapper parameter or `CONST` pin.
+
+**Bulk byte output (`CBuffer` and `BUFFER <slot> SIZE <expr>`).** Every other ABI ctype is fixed-width: its size is a constant the compiler knows, and both the C struct layout computer and the thunk's frame layout rest on that. A C bulk-read API — `sf_readf_short`, `read`, `recv` — instead takes a caller-allocated buffer and a capacity, and the capacity is computed from the *other* arguments. `CBuffer` is the ctype for that slot, and `BUFFER <slot> SIZE <expr>` is where its capacity is stated:
+
+```basic
+FUNC readFrames(file AS RES SoundFile, frames AS Integer, channels AS Integer) AS List OF Byte
+  SYMBOL "sf_readf_short"
+  ABI (sndfile CPtr, buf OUT CBuffer, frames CInt64) AS read CInt64
+  BUFFER buf SIZE frames * channels * 2
+  RETURN buf
+END FUNC
+```
+
+`SIZE` is in **bytes**, and the expression ranges over the wrapper's parameters and the function's ABI slots — exactly like `SUCCESS_ON` / `RETURN`. Naming anything else is `NATIVE_ABI_UNBOUND_SLOT`.
+
+Deriving the capacity from a sibling slot by naming convention (a `buflen CInt64` next to a `buf OUT CBuffer`) was rejected: it is implicit, unstated in the `ABI` line, and silently picks the wrong slot whenever a C function takes two lengths. The clause states the relationship the C API actually has.
+
+A `CBuffer` is legal in exactly one position, and every other use is rejected with `NATIVE_BUFFER_INVALID` on both the source path and the `.mfp` package path:
+
+* It must be `OUT`. `IN`/`INOUT CBuffer` would need a `List OF Byte` *input* marshal, which does not exist; there is no send direction.
+* It must carry exactly one `BUFFER … SIZE` clause. Zero leaves the capacity undefined, more than one leaves it ambiguous.
+* A `BUFFER` clause must name a `CBuffer` slot of the same function.
+* It must be the slot `RETURN` names. Unlike a scalar `OUT`, which merely goes unread, an unreturned buffer costs a runtime-sized allocation whose bytes nothing can observe.
+* The wrapper's return type must then be `List OF Byte` — and, conversely, **a wrapper returning `List OF Byte` must return a `CBuffer` slot.** Nothing else can produce a byte list.
+* It cannot be a `CSTRUCT` field (a struct field needs a constant offset) and cannot be the ABI return proper (`AS r CBuffer`): a C function fills storage the caller passed in, it does not return a buffer whose size the caller declared.
+
+> Implementation status (plan-58-A): the vocabulary, the clause and all of the rules above are in place, but **no marshaling is implemented yet** — a declaration that passes every rule still fails to lower, by design and with a diagnostic naming `CBuffer`. plan-58-B adds the allocation and copy-out. Until then `BUFFER` clauses also do not ride the `.mfp` wire format (plan-58-C), which is safe only because nothing lowers.
 
 **Pinning constant and NULL arguments (`CONST slot = value`).** The `ABI (...)` line always states the true native signature — every C argument in C order. Some of those arguments are fixed values the caller never supplies (a `-1` length, a NULL callback, a sentinel destructor). `CONST <slot> = <value>` pins one ABI slot to a fixed value and removes it from the wrapper's parameter list. The value is checked against the slot's declared ABI type. `NOTHING` pins a C NULL on a pointer slot; a pointer-sized integer literal pins a sentinel pointer (e.g. `-1` for SQLite's `SQLITE_TRANSIENT`). A `CONST` slot is input-only — marking it `OUT` or as the result is rejected (`NATIVE_CONST_OUT`), and pinning an unknown slot is `NATIVE_CONST_UNKNOWN_SLOT`. A pin is call metadata baked into the native frame; it never materializes as a source value, so it cannot forge or leak a `CPtr`. A pinned integer is lowered as a 64-bit **bit pattern**, so the full unsigned range is available: `CONST flags = 0xFFFFFFFFFFFFFFFF` pins all sixty-four bits, exactly as the equivalent `-1` does. [[src/ir/lower.rs:link_const_bits]]
 

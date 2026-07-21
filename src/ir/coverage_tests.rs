@@ -347,6 +347,7 @@ fn link_function() -> IrLinkFunction {
         bind_in: vec![],
         bind_state: None,
         bind_state_resource: None,
+        buffers: vec![],
         // Exercise every IrLinkExpr arm across success_on/result.
         success_on: Some(IrLinkExpr::Compare {
             op: "=".to_string(),

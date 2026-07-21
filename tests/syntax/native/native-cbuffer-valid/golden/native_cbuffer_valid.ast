@@ -1,0 +1,65 @@
+{
+  "project": "native_cbuffer_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    { "module": "io", "line": 19 }
+    ],
+    "items": [
+    {
+      "kind": "link",
+      "library": "demo",
+      "alias": "demo",
+      "line": 21,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "readBytes",
+        "symbol": "demo_read",
+        "returnResource": false,
+        "returnType": "List OF Byte",
+        "returnState": null,
+        "line": 22,
+        "params": [
+        { "name": "n", "type": "Integer", "default": null, "line": 22 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 24 },
+          { "name": "n", "ctype": "CInt64", "out": false, "line": 24 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": null,
+        "result": { "kind": "identifier", "value": "buf" },
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 30,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "demo.readBytes", "arguments": [{ "kind": "number", "value": "16" }] }] }] }] }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+      ]
+    }
+    ]
+  }
+  ]
+}

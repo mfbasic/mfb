@@ -1,0 +1,14 @@
+' plan-58-A rule 8 — the latent hole this sub-plan closes (§2.3).
+'
+' BEFORE plan-58 this file COMPILED. A LINK wrapper's MFBASIC return type was
+' almost entirely unvalidated against its ABI return, `emit_return_passthrough`
+' has no List-building arm, so RESULT_VALUE_REGISTER received a raw scalar that
+' the caller then dereferenced as a collection block. Garbage, no diagnostic.
+' Only a CBuffer can produce a byte list.
+LINK "demo" AS demoLink
+  FUNC bogus(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read"
+    ABI (n CInt64) AS r CInt64
+    RETURN r
+  END FUNC
+END LINK

@@ -1,0 +1,18 @@
+' plan-58-A rule 3: a BUFFER clause must name a CBuffer slot of this function.
+' "you typo'd the slot name" and "that slot is not a buffer" are different
+' mistakes, so they get different messages.
+LINK "demo" AS demoLink
+  FUNC unknownSlot(n AS Integer) AS Integer
+    SYMBOL "demo_read"
+    ABI (n CInt64) AS status CInt32
+    BUFFER nosuch SIZE n
+    RETURN status
+  END FUNC
+
+  FUNC notABuffer(n AS Integer) AS Integer
+    SYMBOL "demo_read2"
+    ABI (n CInt64, value OUT CInt32) AS status CInt32
+    BUFFER value SIZE n
+    RETURN value
+  END FUNC
+END LINK

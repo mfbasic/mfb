@@ -332,6 +332,10 @@ pub struct LinkFunction {
     /// resource carries the C struct the native call filled through an `OUT`
     /// parameter as its STATE payload. One per native func.
     pub bind_state: Option<BindState>,
+    /// `BUFFER <slot> SIZE <expr>` clauses (plan-58-A): the byte capacity of each
+    /// `OUT CBuffer` slot. Exactly one per CBuffer slot; validated by
+    /// `ir::check_buffer_slots`, not here.
+    pub buffers: Vec<BufferSpec>,
     /// `SUCCESS_ON <expr>` gate, if any (the De Morgan complement of `ERROR_ON`).
     pub success_on: Option<Expression>,
     /// `RETURN <expr>` result clause, if any. A bare `RETURN db` names the
@@ -404,6 +408,24 @@ pub struct BindInField {
     pub name: String,
     pub value: Expression,
     pub line: usize,
+}
+
+/// `BUFFER <slot> SIZE <expr>` (plan-58-A §4.2): the byte capacity of an
+/// `OUT CBuffer` ABI slot.
+///
+/// A clause rather than slot syntax because `CBuffer` is the first ctype whose
+/// size is a *runtime* value — every other ctype's width is a constant in
+/// `ctype_size_align`, and the thunk's fixed frame layout rests on that.
+#[derive(Clone, Debug)]
+pub struct BufferSpec {
+    /// The `OUT CBuffer` ABI slot being sized.
+    pub slot: String,
+    /// The capacity in bytes, over the function's parameters and ABI slots.
+    pub size: Expression,
+    // No `line`, like its `BindState` sibling: every BUFFER diagnostic is a
+    // `check_buffer_slots` fault, and `CStructFault` carries only `(rule,
+    // message)`, so all of them report at the `ABI` line. A field no diagnostic
+    // could consume would be dead code.
 }
 
 /// `BIND STATE <resource_slot> = <struct_slot>` (plan-53-B): the native return

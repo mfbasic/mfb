@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-byte-list-return-invalid
+   9 |   FUNC bogus(n AS Integer) AS List OF Byte
+  10 |     SYMBOL "demo_read"
+  11 |     ABI (n CInt64) AS r CInt64
+     | ^
+tests/syntax/native/native-byte-list-return-invalid/src/lib.mfb:11 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `bogus` returns `List OF Byte`, but `RETURN` does not name an OUT CBuffer slot; only a CBuffer can produce a byte list.
+[exit 1]

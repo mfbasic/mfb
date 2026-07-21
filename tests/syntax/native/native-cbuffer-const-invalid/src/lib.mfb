@@ -1,0 +1,12 @@
+' plan-58-A rule 4: a CBuffer cannot be CONST-pinned. As an OUT slot this is the
+' existing NATIVE_CONST_OUT — no new code is minted for a condition an existing
+' rule already names.
+LINK "demo" AS demoLink
+  FUNC pinned(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    CONST buf = 0
+    RETURN buf
+  END FUNC
+END LINK

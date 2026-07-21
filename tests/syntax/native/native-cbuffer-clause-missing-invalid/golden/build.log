@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/native/native-cbuffer-clause-missing-invalid
+   5 |   FUNC noClause(n AS Integer) AS List OF Byte
+   6 |     SYMBOL "demo_read"
+   7 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-clause-missing-invalid/src/lib.mfb:7 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `noClause` ABI slot `buf` is a CBuffer but declares no `BUFFER buf SIZE <expr>` clause giving its capacity.
+  11 |   FUNC twoClauses(n AS Integer) AS List OF Byte
+  12 |     SYMBOL "demo_read2"
+  13 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-clause-missing-invalid/src/lib.mfb:13 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `twoClauses` declares 2 `BUFFER buf SIZE` clauses; a CBuffer slot takes exactly one.
+[exit 1]

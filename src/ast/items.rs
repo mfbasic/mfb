@@ -810,6 +810,7 @@ impl<'a> FileParser<'a> {
         let mut result: Option<Expression> = None;
         let mut bind_in: Vec<BindIn> = Vec::new();
         let mut bind_state: Option<BindState> = None;
+        let mut buffers: Vec<BufferSpec> = Vec::new();
         let mut free: Option<FreeSpec> = None;
 
         while !self.is_at_end() {
@@ -905,10 +906,22 @@ impl<'a> FileParser<'a> {
                 self.skip_separators();
                 continue;
             }
+            // plan-58-A: `BUFFER <slot> SIZE <expr>` gives an OUT CBuffer slot its
+            // runtime byte capacity. A duplicate is NOT reported here — unlike
+            // BIND STATE, whose "at most one" is a parse-level cardinality — it is
+            // collected and rejected by `check_buffer_slots` rule 2, so the
+            // package path gets the identical diagnostic.
+            if self.match_identifier_ci("BUFFER") {
+                if let Some(spec) = self.parse_buffer_spec() {
+                    buffers.push(spec);
+                }
+                self.skip_separators();
+                continue;
+            }
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, BIND IN, or FREE clauses.",
+                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, BIND IN, BUFFER, or FREE clauses.",
                 &token,
             );
             self.synchronize();
@@ -945,9 +958,37 @@ impl<'a> FileParser<'a> {
             result,
             bind_in,
             bind_state,
+            buffers,
             free,
             line: func_token.line,
         })
+    }
+
+    /// `BUFFER <slot> SIZE <expr>` — a single-line clause (plan-58-A §4.2). The
+    /// `BUFFER` keyword has already been consumed.
+    ///
+    /// Nothing semantic is checked here: whether `<slot>` exists, is a `CBuffer`,
+    /// is `OUT`, or is returned are all `check_buffer_slots` rules, because the
+    /// parser cannot protect the `.mfp` package path and a second rule list there
+    /// is drift bait (the same argument plan-50-A made).
+    pub(super) fn parse_buffer_spec(&mut self) -> Option<BufferSpec> {
+        let Some(slot) = self.consume_identifier("BUFFER requires an ABI slot name.") else {
+            self.synchronize();
+            return None;
+        };
+        if !self.match_identifier_ci("SIZE") {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_TOKEN",
+                "BUFFER requires `SIZE <expr>` giving the slot's capacity in bytes.",
+                &token,
+            );
+            self.synchronize();
+            return None;
+        }
+        let size = self.parse_expression()?;
+        self.consume_statement_end("Expected end of statement after BUFFER.");
+        Some(BufferSpec { slot, size })
     }
 
     /// `BIND STATE <resource-slot> = <out-struct-slot>` — a single-line clause

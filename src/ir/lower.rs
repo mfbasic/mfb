@@ -360,6 +360,8 @@ fn link_cstructs(ast: &AstProject) -> Vec<crate::ir::IrCStruct> {
 /// the backend can emit marshaling thunks and dlopen/dlsym initializers
 /// (plan-linker.md §12).
 fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
+    use crate::ir::IrBuffer;
+
     let mut functions = Vec::new();
     for file in &ast.files {
         for item in &file.items {
@@ -441,6 +443,14 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                             slot: f.slot.clone(),
                             symbol: f.symbol.clone(),
                         }),
+                        buffers: native
+                            .buffers
+                            .iter()
+                            .map(|b| IrBuffer {
+                                slot: b.slot.clone(),
+                                size: lower_link_expr(&b.size),
+                            })
+                            .collect(),
                     });
                 }
             }
