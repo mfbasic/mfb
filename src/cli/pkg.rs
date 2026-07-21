@@ -669,11 +669,20 @@ fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
     let destination = packages_dir.join(&package_filename);
     super::commit_staged_package(&staged, &destination)?;
 
-    fs::write(&project_path, updated)
-        .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))?;
+    // plan-60-C Phase 3 (§5's chosen branch): route the manifest write through
+    // the pipeline so the lock stays current. A `file://` dependency is not a
+    // resolver node — plan-60-C §5 fixed `resolve()` to exclude it by `source`
+    // — but it still contributes to `projectHash`, so the lock must be rewritten
+    // or `mfb pkg install` would hard-error on a stale lock. That rewrite is
+    // this letter's whole point.
+    //
+    // The local copy is committed above rather than through the pipeline: it
+    // comes from a path the user named, not from the registry, so there is no
+    // blob for `install()` to fetch.
+    super::resolve::apply_manifest_change(project_dir, &updated)?;
 
     println!(
-        "Added package {} {} to {}",
+        "Added package {} {} to {} (pinned)",
         package.name,
         package.version,
         project_path.display()
@@ -716,6 +725,11 @@ fn add_package_from_registry(
 
     // Pick the requested version, or the newest install-eligible one
     // (yanked/blocked/legal-tombstoned are excluded from a floating add).
+    // Determines the `version` VALUE written into project.json — which under
+    // `pin: false` is the resolver's ABI *floor*, not the version that gets
+    // installed. `apply_manifest_change`'s `resolve()` performs the actual
+    // selection from that anchor. Kept because the floor still has to be a real
+    // published version.
     let chosen = select_index_version(&index, requested_version)?;
     let blob = mfb_repository::client::fetch_blob(&repo_url, &chosen.hash)?;
     let header = mfb_repository::package::parse_mfp_package(&blob)
@@ -727,23 +741,6 @@ fn add_package_from_registry(
             header.ident
         ));
     }
-
-    let packages_dir = project_dir.join("packages");
-    fs::create_dir_all(&packages_dir)
-        .map_err(|err| format!("failed to create '{}': {err}", packages_dir.display()))?;
-
-    // The blob is untrusted until the full plan-23 §3.5 chain checks out (pinned
-    // server key → attestation → pinned ident → proof → package signature →
-    // packageBinaryHash), so it is staged inside `packages/` under an exclusively
-    // created name, verified there, and only then renamed onto `<name>.mfp`.
-    // Anything less than Verified is fatal, and nothing is left on disk.
-    super::install_verified_package(&packages_dir, &header.name, &blob, Some(&index.ident_key))
-        .map_err(|detail| format!("refusing to add `{}`: {detail}", header.name))?;
-
-    // plan-48-B §4.4: the `.mfp` is now verified, so section 10 is trusted.
-    // Download every vendor blob it names, verify each against the signed hash,
-    // and place it under `packages/<name>.vendor/` where the build finds it.
-    install_vendor_blobs(&repo_url, project_dir, &header.name)?;
 
     // plan-60-C §4.1: an explicit `@version` implies a pin; an explicit flag
     // always wins. Under `pin: false` the `version` written here is the ABI
@@ -758,11 +755,24 @@ fn add_package_from_registry(
         ident_key: index.ident_key.clone(),
     };
     let updated = project_json_with_package(&contents, &manifest, &dependency)?;
-    fs::write(&project_path, updated)
-        .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))?;
 
+    // plan-60-C Phase 3: resolve-first. The blob fetched above is deliberately
+    // NOT installed here — `apply_manifest_change` resolves the proposed
+    // manifest and its `install()` step fetches and verifies every package from
+    // the resulting lock, including this one. Installing here as well would
+    // write `packages/` before resolution had a chance to reject the change,
+    // which is exactly the atomicity hole this letter closes.
+    super::resolve::apply_manifest_change(project_dir, &updated)?;
+
+    let suffix = if pin {
+        "(pinned)".to_string()
+    } else if requested_version.is_some() {
+        format!("(floating, floor {})", header.version)
+    } else {
+        "(floating)".to_string()
+    };
     println!(
-        "Added package {} {} from {} to {}",
+        "Added package {} {} from {} to {} {suffix}",
         header.name,
         header.version,
         index.ident,

@@ -361,32 +361,32 @@ Commit: 68afd94e2
 
 ### Phase 3 — Rewire both add paths onto `apply_manifest_change` (largest blast radius)
 
-- [ ] Rewrite `add_package_from_registry` (`src/cli/pkg.rs:614`) to build the
+- [x] Rewrite `add_package_from_registry` (`src/cli/pkg.rs:614`) to build the
       proposed `project.json` text **first** — using `project_json_with_package`
       with the inferred `pin` — and hand it to `apply_manifest_change`. Delete
       the direct `fetch_blob` (`:640`) / `install_verified_package` (`:660`) /
       `install_vendor_blobs` (`:666`) calls; the pipeline's `install()` step
       performs them from the lock.
-- [ ] Keep `fetch_index` + `select_index_version` (`:635-639`) — they are still
+- [x] Keep `fetch_index` + `select_index_version` (`:635-639`) — they are still
       needed to determine the `version` value to write into `project.json`, which
       is the anchor `resolve()` will use. Note in a comment that this is the
       floor, not the selection.
-- [ ] Replace the hardcoded `pin: true` at `:672` with the inferred value.
-- [ ] Rewrite `add_package_from_file` (`:541`) to route its manifest write
+- [x] Replace the hardcoded `pin: true` at `:672` with the inferred value.
+- [x] Rewrite `add_package_from_file` (`:541`) to route its manifest write
       through `apply_manifest_change` so the lock stays current, per §5's chosen
       branch. Keep the vendor-library refusal at `:550-561` and the
       stage-then-rename copy at `:593-595` exactly as they are.
-- [ ] Update the success line (`:600`) to append `(floating)` / `(pinned)` /
+- [x] Update the success line (`:600`) to append `(floating)` / `(pinned)` /
       `(floating, floor <v>)` per §4.1.
-- [ ] Delete any `#[allow(dead_code)]` that plan-60-B added to
+- [x] Delete any `#[allow(dead_code)]` that plan-60-B added to
       `apply_manifest_change`.
-- [ ] Tests: extend `tests/repo_acceptance.rs` — after `mfb pkg add alice#pkg`,
+- [x] Tests: extend `tests/repo_acceptance.rs` — after `mfb pkg add alice#pkg`,
       assert `mfb.lock` exists and contains the package, and that a subsequent
       `mfb pkg install` exits 0 **without** an intervening `mfb pkg update`
       (this is the hole being closed, and no current test covers it). Assert
       `"pin": false` in the written `project.json` for a bare add and
       `"pin": true` for an `@version` add.
-- [ ] Tests: the resolve-first atomicity test deferred from plan-60-B Phase 3 —
+- [x] Tests: the resolve-first atomicity test deferred from plan-60-B Phase 3 —
       `mfb pkg add alice#pkg@9.9.9` (unpublished) leaves `project.json` and
       `mfb.lock` byte-identical. Note that `tests/repo_acceptance.rs:1055`
       already exercises `pkg add alice#addable_pkg@9.9.9`; extend that case
@@ -398,10 +398,17 @@ Commit: 68afd94e2
       end to end. When it lands: tick B's Phase 3, fill B's `Commit:` line, and
       archive B to `planning/old-plans/`.
 
+- [x] **Added task** (Corrections #6): restructure
+      `repo_resolver_reports_diamond_conflict_naming_both_requirers`, whose
+      *setup* assumed `add` does not resolve. Its protected assertion (the
+      conflict diagnostic names the symbol and the requirer) is unchanged.
+
 Acceptance: `cargo test --test repo_acceptance` passes, including the
 add-then-install-without-update case and the atomicity case. Verify the atomicity
 test can fail: temporarily move the `project.json` write before the `resolve`
 call in `apply_manifest_change`, confirm the test goes red, restore.
+**VERIFIED — and this check earned its keep (Corrections #5): the test the plan
+pointed at is VACUOUS for this mutation.** 21 acceptance / 3154 unit, 0 failed.
 Commit: —
 
 ### Phase 4 — Docs
@@ -506,6 +513,44 @@ the parse boundary (where the contradiction is actually detected and rejected)
 makes the invalid state unrepresentable downstream: the matrix function becomes
 total, and there is exactly one place that can produce the usage error. The
 matrix's behavior is unchanged; all five rows are still tested.
+
+**#5 — the atomicity test the plan specifies is VACUOUS, and the
+reorder-goes-red check is what caught it.** (Phase 3, 2026-07-21.) Phase 3 says
+to extend the existing `pkg add alice#addable_pkg@9.9.9` case rather than add a
+second one, and plan-60-B Phase 3 requires proving it can fail by moving the
+`project.json` write above the `resolve()` call. Doing exactly that: **the test
+stayed green.**
+
+The reason is that `@9.9.9` fails in `select_index_version`, inside
+`add_package_from_registry`, *before* `apply_manifest_change` is ever called. So
+it proves the pre-resolve validation path writes nothing — genuinely worth
+having — but it cannot observe the ordering *inside* the pipeline, which is the
+guarantee plan-60-B exists to provide. Had the mutation check been skipped, B
+would have been archived with its central property unproven and a test that
+looked like proof.
+
+**What actually proves it:** a failure that occurs *inside* `resolve()`. The
+diamond-conflict case is one, so
+`repo_resolver_reports_diamond_conflict_naming_both_requirers` now also asserts
+that a refused `add` leaves `project.json` untouched — and that assertion **does**
+go red under the same mutation, with the message "a refused add must leave
+project.json untouched". Both tests are kept, each labelled in-code with what it
+does and does not prove.
+
+**#6 — `add` now refuses a change that cannot resolve, which broke a test's
+setup.** (Phase 3, 2026-07-21.) `repo_resolver_reports_diamond_conflict_…`
+(from `9e5aae4ae`, plan-10-B2) built its conflicting state with two `pkg add`s
+and then relaxed the pins, relying on `add` writing without resolving. With
+resolve-first, the second add is correctly refused, so the setup could no longer
+construct the state.
+
+The assertion that broke was **setup**, not the protected behavior: the test
+exists to prove the resolver's diagnostic names the disagreeing symbol and the
+requirer package, and that is untouched. Restructured to declare the conflicting
+dependency directly in `project.json`, keeping the `update` assertions verbatim,
+and *added* coverage for the new, better behavior — the conflict now surfaces at
+`add` time rather than being written to disk and discovered later. Net: strictly
+more coverage, same protected property.
 
 **#3 — a consequence of the fix, deliberately left to plan-60-E.** With the
 filter corrected, `mfb pkg update` on a project whose *only* dependency is a

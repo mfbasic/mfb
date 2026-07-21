@@ -1271,22 +1271,108 @@ fn repo_registry_add_installs_and_verifies_from_index() {
         String::from_utf8_lossy(&build.stdout)
     );
 
-    // A version that does not exist is rejected with an actionable message.
+    // A version that does not exist is rejected with an actionable message, and
+    // the refusal is ATOMIC: project.json and mfb.lock are byte-identical
+    // afterwards.
+    //
+    // NOTE ON WHAT THIS DOES AND DOES NOT PROVE. This case fails inside
+    // `select_index_version`, which runs BEFORE `apply_manifest_change` is
+    // called at all — so it proves the pre-resolve validation path writes
+    // nothing, but it does NOT exercise the resolve-first *ordering* inside the
+    // pipeline. Verified by mutation: moving the `project.json` write above the
+    // `resolve()` call in `apply_manifest_change` leaves this test green.
+    //
+    // The reorder-goes-red proof that plan-60-B Phase 3's acceptance requires is
+    // `repo_resolver_reports_diamond_conflict_naming_both_requirers`, whose
+    // failure occurs *inside* `resolve()`; that one does go red under the same
+    // mutation. See plan-60-C Corrections #5.
     let app2 = work.path().join("registry_consumer2");
     let app2_arg = app2.to_str().unwrap();
     assert!(run_mfb_plain(&["init", app2_arg]).status.success());
-    let missing = Command::new(mfb_exe())
-        .args(["pkg", "add", "alice#addable_pkg@9.9.9"])
-        .current_dir(&app2)
+    // Give it a real dependency first, so there is a non-trivial lock to
+    // preserve — an empty project would make the atomicity check vacuous.
+    let run_in_app2 = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&app2)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in app2")
+    };
+    assert!(run_in_app2(&["pkg", "add", "alice#addable_pkg"])
+        .status
+        .success());
+    // plan-60-C's headline fix: `add` writes mfb.lock, so `install` runs
+    // immediately WITHOUT an intervening `update`. Before this letter, add left
+    // the lock stale and install hard-errored with "mfb.lock is stale".
+    let install = run_in_app2(&["pkg", "install"]);
+    assert!(
+        install.status.success(),
+        "install must run straight after add, with no `pkg update` in between: {}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+
+    // ...and a bare add records a FLOATING dependency (§4.1), where the old
+    // behavior hardcoded pin: true.
+    let bare_manifest = std::fs::read_to_string(app2.join("project.json")).unwrap();
+    assert!(
+        bare_manifest.contains("\"pin\": false"),
+        "a bare `add` must record pin: false: {bare_manifest}"
+    );
+
+    let manifest_before = std::fs::read_to_string(app2.join("project.json")).unwrap();
+    let lock_before = std::fs::read_to_string(app2.join("mfb.lock")).unwrap();
+    assert!(
+        !lock_before.is_empty(),
+        "the atomicity check needs a real lock to preserve"
+    );
+
+    // The other half of §4.1's matrix, end to end: an explicit @version implies
+    // a pin. Uses a fresh project because `project_json_with_package` refuses a
+    // name that is already declared.
+    let pinned_dir = work.path().join("registry_consumer_pinned");
+    let pinned_arg = pinned_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", pinned_arg]).status.success());
+    let pinned_add = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#addable_pkg@0.1.0"])
+        .current_dir(&pinned_dir)
         .env("MFB_REPO_URL", &repo.url)
         .env("MFB_HOME", home.path().join(".mfb"))
         .output()
-        .expect("pkg add missing version");
+        .expect("pinned add");
+    assert!(
+        pinned_add.status.success(),
+        "pinned add failed: {}",
+        String::from_utf8_lossy(&pinned_add.stderr)
+    );
+    let pinned_manifest = std::fs::read_to_string(pinned_dir.join("project.json")).unwrap();
+    assert!(
+        pinned_manifest.contains("\"pin\": true"),
+        "an @version add must record pin: true: {pinned_manifest}"
+    );
+    assert!(
+        String::from_utf8_lossy(&pinned_add.stdout).contains("(pinned)"),
+        "{}",
+        String::from_utf8_lossy(&pinned_add.stdout)
+    );
+
+    let missing = run_in_app2(&["pkg", "add", "alice#addable_pkg@9.9.9"]);
     assert!(!missing.status.success());
     assert!(
         String::from_utf8_lossy(&missing.stderr).contains("no version `9.9.9`"),
         "{}",
         String::from_utf8_lossy(&missing.stderr)
+    );
+    assert_eq!(
+        manifest_before,
+        std::fs::read_to_string(app2.join("project.json")).unwrap(),
+        "a failed add must leave project.json byte-identical (resolve-first)"
+    );
+    assert_eq!(
+        lock_before,
+        std::fs::read_to_string(app2.join("mfb.lock")).unwrap(),
+        "a failed add must leave mfb.lock byte-identical (resolve-first)"
     );
 
     // A tampered server blob is rejected on download (hash mismatch): corrupt
@@ -1901,14 +1987,38 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
             .expect("run mfb in consumer")
     };
     assert!(run_in(&["pkg", "add", "alice#user@1.0.0"]).status.success());
-    assert!(run_in(&["pkg", "add", "alice#common@2.0.0"])
-        .status
-        .success());
+
+    // plan-60-C: `add` now resolves BEFORE mutating, so the add that creates the
+    // conflicting graph is itself refused — the conflict surfaces here rather
+    // than being written to disk and discovered later by `update`. Assert the
+    // diagnostic at this new, earlier point too.
+    let conflicting_add = run_in(&["pkg", "add", "alice#common@2.0.0"]);
+    assert!(
+        !conflicting_add.status.success(),
+        "resolve-first `add` must refuse a change that cannot resolve"
+    );
+    let add_stderr = String::from_utf8_lossy(&conflicting_add.stderr);
+    assert!(add_stderr.contains("diamond conflict"), "{add_stderr}");
+    // ...and it must have written nothing: the refused dependency is absent.
     let manifest_path = app_dir.join("project.json");
-    let relaxed = std::fs::read_to_string(&manifest_path)
-        .unwrap()
-        .replace("\"pin\": true", "\"pin\": false");
-    std::fs::write(&manifest_path, relaxed).unwrap();
+    let after_refusal = std::fs::read_to_string(&manifest_path).unwrap();
+    assert!(
+        !after_refusal.contains("common"),
+        "a refused add must leave project.json untouched: {after_refusal}"
+    );
+
+    // The original coverage — that `update` reports the conflict naming both
+    // requirers — still has to hold. `add` will no longer produce the
+    // conflicting manifest, so construct it directly: declare `common@2.0.0`
+    // alongside `user`, floating, exactly as the old two-add-then-relax setup
+    // produced.
+    let conflicted = after_refusal
+        .replace("\"pin\": true", "\"pin\": false")
+        .replace(
+            "\"packages\": [",
+            "\"packages\": [\n    { \"name\": \"common\", \"ident\": \"alice#common\",              \"version\": \"2.0.0\", \"pin\": false, \"source\": \"alice#common\" },",
+        );
+    std::fs::write(&manifest_path, conflicted).unwrap();
 
     let update = run_in(&["pkg", "update"]);
     assert!(

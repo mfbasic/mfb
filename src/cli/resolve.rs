@@ -104,10 +104,6 @@ pub(crate) fn update(project_dir: &Path) -> Result<(), String> {
 /// incomplete, which `mfb pkg install` recovers. That is strictly better than
 /// the alternative it replaces: a partially-populated `packages/` paired with a
 /// manifest that never mentioned the new dependency.
-// DELETE THIS ATTRIBUTE IN plan-60-C, the first consumer (`add`); plan-60-E
-// (`update`) and plan-60-F (`remove`) follow. plan-60-B lands the pipeline
-// before any consumer so all three share one implementation.
-#[allow(dead_code)]
 pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> Result<(), String> {
     let project_path = project_dir.join("project.json");
 
