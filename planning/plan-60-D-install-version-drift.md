@@ -32,9 +32,19 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-60-C complete — a `pin: false` dependency is creatable from the CLI | `grep -c 'no_pin' src/cli/pkg.rs` → ≥ 1 | NOT MET at authoring |
+| plan-60-C complete — a `pin: false` dependency is creatable from the CLI | `grep -cE 'no_pin' src/cli/pkg.rs` → ≥ 1 **and** `mfb pkg add --no-pin <ident>` parses (a bare grep also matches a test name, so confirm the flag is dispatched, not merely mentioned) | NOT MET at authoring |
 
-If plan-60-C is not complete, this plan cannot start, full stop. Before C, the
+If plan-60-C is not complete, this plan cannot start, full stop.
+
+> **Corrected 2026-07-21 (plan-60-C Corrections).** These rows originally used
+> unanchored greps (`grep -c 'fn confirm'`, `grep -c 'fn apply_manifest_change'`)
+> that count **every** mention, not the definition — and plan-60-B names its tests
+> after the functions they test, so they return 3 and 4 rather than 1. Anchored on
+> `^pub(crate) fn`. This was the recurring defect of plan-60's gate checks
+> (plan-60-B Corrections #1, plan-60-C Prerequisites): a grep for a spelling
+> cannot tell a definition from a test asserting something about it. Check the
+> construct.
+ Before C, the
 only way to produce the `pin: false` dependency this letter's warning path exists
 for is to hand-edit `project.json`, so the warning could not be exercised by any
 CLI-driven test.

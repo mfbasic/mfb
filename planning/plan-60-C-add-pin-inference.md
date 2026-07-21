@@ -40,7 +40,7 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 | Must be true | Command | Status |
 |---|---|---|
 | plan-60-A complete | `sed -n '/pub(crate) fn run_pkg_command/,/^}/p' src/cli/pkg.rs \| grep -c 'publish_package_project\|transfer_offer\|transfer_accept\|set_release_state\|check_abi'` → 0 | **MET** (2026-07-21). Archived to `planning/old-plans/`. |
-| plan-60-B Phases 1–2 complete — `apply_manifest_change` and `confirm` exist | `grep -c 'fn apply_manifest_change' src/cli/resolve.rs` → 1 **and** `grep -c 'fn confirm' src/cli/mod.rs` → 1 | **MET** (2026-07-21) |
+| plan-60-B Phases 1–2 complete — `apply_manifest_change` and `confirm` exist | `grep -cE '^pub\(crate\) fn apply_manifest_change' src/cli/resolve.rs` → 1 **and** `grep -cE '^pub\(crate\) fn confirm' src/cli/mod.rs` → 1 | **MET** (2026-07-21) |
 | plan-60-B Phase 3 outstanding — **C must complete it** | see plan-60-B Corrections #5; the resolve-first atomicity test is deferred into C's Phase 3 below | **OUTSTANDING — an obligation of this letter, not a blocker on starting it** |
 
 If either of the first two is incomplete, this plan cannot start, full stop.
@@ -51,6 +51,14 @@ If either of the first two is incomplete, this plan cannot start, full stop.
 > guard A deliberately added, plus two test assertion lists). Read literally it
 > would block this letter on plan-60-A having *succeeded*. Same defect and same
 > fix as plan-60-B Corrections #1 — check the construct, not the spelling.
+>
+> The plan-60-B row had **the same flaw a second time**: `grep -c 'fn
+> apply_manifest_change'` returns **4**, not 1, and `grep -c 'fn confirm'`
+> returns **3**, not 1 — because plan-60-B's own tests are named after the
+> functions they test, and an unanchored `fn <name>` matches every one of them.
+> Both now anchor on `^pub(crate) fn`, which matches the definition and nothing
+> else. This is the **third** miscalibrated gate check in plan-60 (B #1, and both
+> rows here); D/E/F should be assumed to carry the same pattern until checked.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue.

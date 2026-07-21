@@ -37,10 +37,20 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-60-B complete — `confirm`, `apply_manifest_change`, and the zero-dependency policy | `grep -c 'fn confirm' src/cli/mod.rs` → 1 and `grep -c 'fn apply_manifest_change' src/cli/resolve.rs` → 1 | NOT MET at authoring |
-| plan-60-C complete — flag parsing for a `pkg` subcommand | `grep -c 'no_pin' src/cli/pkg.rs` → ≥ 1 | NOT MET at authoring |
+| plan-60-B complete — `confirm`, `apply_manifest_change`, and the zero-dependency policy | `grep -cE '^pub\(crate\) fn confirm' src/cli/mod.rs` → 1 and `grep -cE '^pub\(crate\) fn apply_manifest_change' src/cli/resolve.rs` → 1 | NOT MET at authoring |
+| plan-60-C complete — flag parsing for a `pkg` subcommand | `grep -cE 'no_pin' src/cli/pkg.rs` → ≥ 1 **and** `mfb pkg add --no-pin <ident>` parses (a bare grep also matches a test name, so confirm the flag is dispatched, not merely mentioned) | NOT MET at authoring |
 
 If either is incomplete, this plan cannot start, full stop.
+
+> **Corrected 2026-07-21 (plan-60-C Corrections).** These rows originally used
+> unanchored greps (`grep -c 'fn confirm'`, `grep -c 'fn apply_manifest_change'`)
+> that count **every** mention, not the definition — and plan-60-B names its tests
+> after the functions they test, so they return 3 and 4 rather than 1. Anchored on
+> `^pub(crate) fn`. This was the recurring defect of plan-60's gate checks
+> (plan-60-B Corrections #1, plan-60-C Prerequisites): a grep for a spelling
+> cannot tell a definition from a test asserting something about it. Check the
+> construct.
+
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue.
