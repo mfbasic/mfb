@@ -329,7 +329,7 @@ Commit: a57601b4a
 The property that makes this letter worth having cannot be proven by unit tests —
 it needs a registry that can produce a resolution failure.
 
-- [~] Add a test to `tests/repo_acceptance.rs` that drives
+- [x] Add a test to `tests/repo_acceptance.rs` that drives
       `apply_manifest_change`'s failure path end to end: construct a proposed
       manifest naming a version that is not published, invoke it via whichever
       command reaches it (this test lands with C if no command reaches it yet —
@@ -341,7 +341,7 @@ it needs a registry that can produce a resolution failure.
       in a separate crate that drives the `mfb` **binary**, so it cannot call a
       `pub(crate)` function directly. C wires `add`, which is the first reachable
       caller. Recorded as an explicit task in plan-60-C's Phase list.
-- [~] Assert that after the failure, `project.json` is **byte-identical** to its
+- [x] Assert that after the failure, `project.json` is **byte-identical** to its
       pre-invocation contents and `mfb.lock` is unchanged. — same deferral.
 
 Acceptance: `cargo test --test repo_acceptance` passes, and the new test fails if
@@ -349,11 +349,23 @@ step 5 of §4.2 is moved before step 3 — verify this by temporarily reordering
 confirming the test goes red, then restore. A test that cannot fail is not
 coverage.
 
-**STATUS: NOT MET — this phase is the one thing outstanding in letter B.** It is
-blocked on C by the plan's own design, not skipped. B is therefore **not
-archived** until C lands this test and the reorder-goes-red check passes. See
-Corrections #5.
-Commit: — (pending, lands with plan-60-C)
+**STATUS: MET (2026-07-21), landed by plan-60-C Phase 3 (`ddb4c8898`).**
+
+The reorder-goes-red check is satisfied — but **not** by the test this phase
+originally pointed at, and that matters. See plan-60-C Corrections #5: the
+`pkg add …@9.9.9` case fails inside `select_index_version`, *before*
+`apply_manifest_change` is reached, so moving the `project.json` write above the
+`resolve()` call leaves it **green**. It proves the pre-resolve validation path
+writes nothing, but it cannot observe this letter's actual guarantee.
+
+The proof is `repo_resolver_reports_diamond_conflict_naming_both_requirers`,
+which fails *inside* `resolve()` and now asserts that a refused `add` leaves
+`project.json` untouched. That assertion **does** go red under the mutation.
+
+Had this phase's acceptance not demanded a mutation check, letter B would have
+been archived with its central property unproven and a passing test standing in
+for the proof.
+Commit: ddb4c8898 (landed in plan-60-C Phase 3)
 
 ## Validation Plan
 

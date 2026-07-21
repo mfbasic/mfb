@@ -41,7 +41,7 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 |---|---|---|
 | plan-60-A complete | `sed -n '/pub(crate) fn run_pkg_command/,/^}/p' src/cli/pkg.rs \| grep -c 'publish_package_project\|transfer_offer\|transfer_accept\|set_release_state\|check_abi'` → 0 | **MET** (2026-07-21). Archived to `planning/old-plans/`. |
 | plan-60-B Phases 1–2 complete — `apply_manifest_change` and `confirm` exist | `grep -cE '^pub\(crate\) fn apply_manifest_change' src/cli/resolve.rs` → 1 **and** `grep -cE '^pub\(crate\) fn confirm' src/cli/mod.rs` → 1 | **MET** (2026-07-21) |
-| plan-60-B Phase 3 outstanding — **C must complete it** | see plan-60-B Corrections #5; the resolve-first atomicity test is deferred into C's Phase 3 below | **OUTSTANDING — an obligation of this letter, not a blocker on starting it** |
+| plan-60-B Phase 3 outstanding — **C must complete it** | see plan-60-B Corrections #5; the resolve-first atomicity test is deferred into C's Phase 3 below | **DISCHARGED** (2026-07-21) — landed in C Phase 3 (`ddb4c8898`); plan-60-B archived to `planning/old-plans/` |
 
 If either of the first two is incomplete, this plan cannot start, full stop.
 
@@ -438,7 +438,9 @@ Acceptance: `cargo build && cargo test --bin mfb spec` passes;
 `mfb spec tooling --all` renders with no leaked `[[` markers; `mfb pkg --help`
 shows both flags. **VERIFIED** — build exit 0; `cargo test --bin mfb spec` 48
 passed; 0 leaked `[[` markers; `mfb pkg --help` shows `--pin` and `--no-pin`.
-Commit: —
+Full project acceptance (`scripts/test-accept.sh`) also green: 1069 tests, 0
+mismatches — the `PKG_HELP` change caused no golden churn.
+Commit: d13b5daee
 
 ## Validation Plan
 
