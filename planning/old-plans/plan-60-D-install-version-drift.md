@@ -32,7 +32,7 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-60-C complete — a `pin: false` dependency is creatable from the CLI | `grep -cE 'no_pin' src/cli/pkg.rs` → ≥ 1 **and** `mfb pkg add --no-pin <ident>` parses (a bare grep also matches a test name, so confirm the flag is dispatched, not merely mentioned) | NOT MET at authoring |
+| plan-60-C complete — a `pin: false` dependency is creatable from the CLI | `grep -cE 'no_pin' src/cli/pkg.rs` → ≥ 1 **and** `mfb pkg add --no-pin <ident>` parses (a bare grep also matches a test name, so confirm the flag is dispatched, not merely mentioned) | **MET** (2026-07-21) — → 5, and `mfb pkg add ada#x --pin --no-pin` exits 2 with the both-flags error, proving dispatch. plan-60-C archived. |
 
 If plan-60-C is not complete, this plan cannot start, full stop.
 
@@ -274,7 +274,7 @@ explicit assertion that a `pin: false` version difference classifies as
 `FloorMoved` and a `pin: true` one as `PinMoved`. **VERIFIED** — 3156 passed / 0
 failed (from 3154). The Floor/Pin pair is asserted on *identical* version drift
 with only `pin` differing, so the two cannot be satisfied by the same code path.
-Commit: —
+Commit: d45fe46a0
 
 ### Phase 2 — Wire it into `install`
 
@@ -315,7 +315,7 @@ test would have passed either mutation:
 - *too lax* — ignoring `report_drift`'s error → test FAILS.
 - *too strict* — returning `Err` for `FloorMoved` instead of warning → test
   FAILS with "a moved ABI floor must warn and continue".
-Commit: —
+Commit: cccf77655
 
 ### Phase 3 — Docs
 
@@ -340,7 +340,9 @@ Placed in `03_lockfile.md` rather than `07_cli-reference.md`: the classification
 is a property of what the lockfile records versus what `projectHash` covers, and
 `03_lockfile.md` is the file that already documents both. The exit-code column in
 `07_cli-reference.md` is updated to point at the split outcome.
-Commit: —
+Full project acceptance (`scripts/test-accept.sh`) green: 1069 tests, 0
+mismatches.
+Commit: 8ac9638c3
 
 ## Validation Plan
 
