@@ -15,6 +15,30 @@ FILTERS=("$@")
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
+# Hermetic package key store. `mfb build` verifies an imported package's
+# attestation against the registry key pinned under
+# `$MFB_HOME/<sha256(repo-url)>/server.pub` (`local_paths_for_repo`), defaulting
+# `MFB_HOME` to `$HOME/.mfb`. Without this, a fixture's output depends on whether
+# the *developer* has ever run `mfb repo auth` against whatever registry URL is
+# the current default — so the suite passes or fails based on the machine it runs
+# on, not the code.
+#
+# That is not hypothetical: `f2f583807` changed `DEFAULT_REPO_URL` from
+# `http://127.0.0.1:7777` to `https://mfb-repo.fly.dev`, which changed which
+# `$HOME/.mfb/<hash>/` directory is consulted. On a machine that had authed
+# against the public registry, `pkg-01-tampered-signature` then reached the
+# signature check and reported "invalid attestation signature" instead of "no
+# pinned registry key" — a red suite whose obvious "fix" (sync the golden) would
+# have baked one developer's key store into the tree and broken every clean
+# checkout in the opposite direction.
+#
+# An empty per-run directory means "no key pinned for any registry", which is the
+# only state a checkout can reproduce anywhere. Exported before the first fixture
+# so every `mfb` invocation below inherits it.
+MFB_HOME=$(mktemp -d)
+export MFB_HOME
+trap 'rm -rf "$MFB_HOME"' EXIT
+
 # `run_with_watchdog` is built on perl, matching test-macapp.sh/test-appimage.sh.
 # perl ships with macOS, where this suite runs, and `timeout(1)` does not — but a
 # stripped Linux box can have neither (Alpine's BusyBox has `timeout` and no perl).
