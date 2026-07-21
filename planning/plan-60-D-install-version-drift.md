@@ -249,20 +249,31 @@ other than `FloorMoved`.
 
 ### Phase 1 — The diff, as a pure function
 
-- [ ] Add a `DriftClass` enum and a pure
-      `classify_drift(manifest_deps, lock_packages) -> Vec<(String, DriftClass)>`
-      to `src/cli/resolve.rs`, implementing §4.1's table. No I/O, no registry —
-      it takes the parsed dependency list and the lock's package list.
-- [ ] Include the `Unattributable` class per §4.2: emitted when the caller
-      reports a hash mismatch but classification found nothing.
-- [ ] Tests in `src/cli/resolve.rs`, one per row of §4.1: added, removed,
+- [x] Add a `DriftClass` enum and a pure
+      `classify_drift(manifest, lock_packages) -> Vec<(String, DriftClass)>`
+      to `src/cli/resolve.rs`, implementing §4.1's table. No I/O, no registry.
+      Takes the parsed **manifest** rather than a pre-extracted dependency list,
+      so it reuses `is_registry_dependency` and cannot drift from the resolver's
+      notion of which entries participate (see plan-60-C Corrections #1).
+- [x] ~~Include the `Unattributable` class per §4.2~~ — **moot as an enum
+      variant** (Corrections #1): `Unattributable` is not a property of any
+      dependency, it is the *absence* of classification combined with a fact only
+      `install` holds (that the hash mismatched). Modelling it as a variant would
+      require a fake ident to attach it to. It is Phase 2's outcome rule instead:
+      empty result + observed mismatch → the §4.2 error. The empty-result case is
+      tested here.
+- [x] Tests in `src/cli/resolve.rs`, one per row of §4.1: added, removed,
       floor-moved on `pin: false`, pin-moved on `pin: true`, renamed, and the
-      empty-result case that must map to `Unattributable`. Reuse the existing
-      `LockedPackage` construction helper at `src/cli/resolve.rs:988-997`.
+      empty-result case. Plus one the plan did not list —
+      `classify_drift_reports_every_drifted_dependency`, pinning §4.1's
+      collect-all-before-deciding rule across four simultaneously-drifted
+      dependencies.
 
 Acceptance: `cargo test --bin mfb` passes with one test per class, including an
 explicit assertion that a `pin: false` version difference classifies as
-`FloorMoved` and a `pin: true` one as `PinMoved`.
+`FloorMoved` and a `pin: true` one as `PinMoved`. **VERIFIED** — 3156 passed / 0
+failed (from 3154). The Floor/Pin pair is asserted on *identical* version drift
+with only `pin` differing, so the two cannot be satisfied by the same code path.
 Commit: —
 
 ### Phase 2 — Wire it into `install`
@@ -344,7 +355,27 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in DURING execution. -->
+**#1 — `Unattributable` cannot be a `DriftClass` variant.** (Phase 1,
+2026-07-21.) Phase 1 asks for it in the enum, "emitted when the caller reports a
+hash mismatch but classification found nothing". But `classify_drift` returns
+`Vec<(ident, DriftClass)>` — every element is *about a specific dependency*, and
+`Unattributable` is by definition about none of them: it is the absence of any
+finding, combined with a fact the classifier does not have (that `projectHash`
+mismatched). Emitting it would mean inventing an ident to hang it on.
+
+Modelled instead as Phase 2's outcome rule: empty classification + observed hash
+mismatch → the §4.2 error. This keeps `classify_drift` pure and total — it
+answers "what differs?", while `install` answers "and what should happen?", which
+is the only place that knows a mismatch occurred. The §4.2 behavior and message
+are unchanged; only where the decision lives.
+
+**#2 — `classify_drift` takes the manifest, not a dependency list.** (Phase 1,
+2026-07-21.) The signature in Phase 1 is `classify_drift(manifest_deps,
+lock_packages)`. Implemented as `classify_drift(manifest, lock_packages)` so the
+function applies `is_registry_dependency` itself. Passing a pre-extracted list
+would let a caller filter differently from the resolver — exactly the drift that
+caused plan-60-C's data-loss bug, where two copies of "which entries are registry
+dependencies" disagreed. One extraction path, one definition.
 
 ## Summary
 

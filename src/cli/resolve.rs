@@ -143,6 +143,102 @@ pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> R
     install(project_dir)
 }
 
+/// How a single dependency's `project.json` entry differs from its `mfb.lock`
+/// entry (plan-60-D §4.1).
+///
+/// Only `FloorMoved` is recoverable. Under `pin: false` the manifest's `version`
+/// is an ABI *floor*, so moving it does not invalidate the locked selection —
+/// the lock may still satisfy the new floor, and even when it does not, the
+/// honest outcome is to install what was locked and say so. Every other class
+/// means the lock no longer describes the project.
+// DELETE THIS ATTRIBUTE IN plan-60-D Phase 2, which wires this into `install`.
+#[allow(dead_code)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum DriftClass {
+    /// Declared in `project.json`, absent from the lock.
+    Added,
+    /// Present in the lock, no longer declared.
+    Removed,
+    /// `pin: false` and the declared version (the ABI floor) moved.
+    FloorMoved {
+        declared: String,
+        locked: String,
+        selected: String,
+    },
+    /// `pin: true` and the declared version moved.
+    PinMoved { declared: String, locked: String },
+    /// Same ident, different package name.
+    Renamed { declared: String, locked: String },
+}
+
+/// Diff a manifest's registry dependencies against a lock's packages, matched on
+/// `ident` (plan-60-D §4.1).
+///
+/// Collects **all** differences rather than returning the first, so a project
+/// with three drifted dependencies reports three lines. Pure: no I/O, no
+/// registry. An empty result when the caller has already observed a
+/// `projectHash` mismatch is the `Unattributable` case (§4.2) — see
+/// `install`, which owns that decision because only it knows a mismatch occurred.
+// DELETE THIS ATTRIBUTE IN plan-60-D Phase 2, which wires this into `install`.
+#[allow(dead_code)]
+pub(crate) fn classify_drift(
+    manifest: &std::collections::HashMap<String, JsonValue>,
+    lock_packages: &[LockedPackage],
+) -> Vec<(String, DriftClass)> {
+    let declared: Vec<_> = manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+        .into_iter()
+        .flatten()
+        .filter_map(project_package_dependency)
+        .filter(is_registry_dependency)
+        .collect();
+
+    let mut drift = Vec::new();
+
+    for dep in &declared {
+        match lock_packages.iter().find(|entry| entry.ident == dep.ident) {
+            None => drift.push((dep.ident.clone(), DriftClass::Added)),
+            Some(entry) => {
+                if dep.name != entry.name {
+                    drift.push((
+                        dep.ident.clone(),
+                        DriftClass::Renamed {
+                            declared: dep.name.clone(),
+                            locked: entry.name.clone(),
+                        },
+                    ));
+                }
+                if dep.version != entry.requested {
+                    drift.push((
+                        dep.ident.clone(),
+                        if dep.pin {
+                            DriftClass::PinMoved {
+                                declared: dep.version.clone(),
+                                locked: entry.requested.clone(),
+                            }
+                        } else {
+                            DriftClass::FloorMoved {
+                                declared: dep.version.clone(),
+                                locked: entry.requested.clone(),
+                                selected: entry.selected.clone(),
+                            }
+                        },
+                    ));
+                }
+            }
+        }
+    }
+
+    for entry in lock_packages {
+        if !declared.iter().any(|dep| dep.ident == entry.ident) {
+            drift.push((entry.ident.clone(), DriftClass::Removed));
+        }
+    }
+
+    drift
+}
+
 /// Is this dependency a **registry** resolution node?
 ///
 /// Two conditions, and both matter:
@@ -1205,6 +1301,155 @@ mod tests {
             vec![requirer("a", &[("missing", "zz")], None)],
         );
         assert!(select_node_err(&node).contains("no install-eligible version"));
+    }
+
+    /// plan-60-D §4.1, one case per row of the classification table.
+    ///
+    /// The pair that matters most is `FloorMoved` vs `PinMoved`: identical
+    /// version drift, and `pin` alone decides whether install warns and
+    /// continues or refuses. Getting that backwards would either block every
+    /// floating project or silently install a pinned project's wrong version.
+    #[test]
+    fn classify_drift_covers_every_class() {
+        let locked = |name: &str, ident: &str, requested: &str, selected: &str| LockedPackage {
+            name: name.to_string(),
+            ident: ident.to_string(),
+            requested: requested.to_string(),
+            selected: selected.to_string(),
+            hash: "h".to_string(),
+            ident_key: String::new(),
+            ident_fingerprint: String::new(),
+            state: "available".to_string(),
+        };
+        let manifest_of = |packages: &str| {
+            let text = manifest_with_packages(packages);
+            parse_project_json(&text, std::path::Path::new("project.json")).expect("parse")
+        };
+        let dep = |name: &str, ident: &str, version: &str, pin: bool| {
+            format!(
+                "{{\"name\":\"{name}\",\"ident\":\"{ident}\",\"version\":\"{version}\",\"pin\":{pin}}}"
+            )
+        };
+
+        // Added: declared, not locked.
+        assert_eq!(
+            classify_drift(
+                &manifest_of(&dep("shape", "ada#shape", "1.0.0", false)),
+                &[]
+            ),
+            vec![("ada#shape".to_string(), DriftClass::Added)]
+        );
+
+        // Removed: locked, not declared.
+        assert_eq!(
+            classify_drift(
+                &manifest_of(""),
+                &[locked("shape", "ada#shape", "1.0.0", "1.0.0")]
+            ),
+            vec![("ada#shape".to_string(), DriftClass::Removed)]
+        );
+
+        // FloorMoved: pin: false, version differs. Warn-and-continue.
+        assert_eq!(
+            classify_drift(
+                &manifest_of(&dep("shape", "ada#shape", "1.4.0", false)),
+                &[locked("shape", "ada#shape", "1.3.0", "1.3.2")]
+            ),
+            vec![(
+                "ada#shape".to_string(),
+                DriftClass::FloorMoved {
+                    declared: "1.4.0".to_string(),
+                    locked: "1.3.0".to_string(),
+                    // The user needs the SELECTED version: it is what lands on disk.
+                    selected: "1.3.2".to_string(),
+                }
+            )]
+        );
+
+        // PinMoved: same drift, pin: true. Error.
+        assert_eq!(
+            classify_drift(
+                &manifest_of(&dep("shape", "ada#shape", "1.4.0", true)),
+                &[locked("shape", "ada#shape", "1.3.0", "1.3.0")]
+            ),
+            vec![(
+                "ada#shape".to_string(),
+                DriftClass::PinMoved {
+                    declared: "1.4.0".to_string(),
+                    locked: "1.3.0".to_string(),
+                }
+            )]
+        );
+
+        // Renamed: same ident, different name.
+        assert_eq!(
+            classify_drift(
+                &manifest_of(&dep("newname", "ada#shape", "1.0.0", false)),
+                &[locked("shape", "ada#shape", "1.0.0", "1.0.0")]
+            ),
+            vec![(
+                "ada#shape".to_string(),
+                DriftClass::Renamed {
+                    declared: "newname".to_string(),
+                    locked: "shape".to_string(),
+                }
+            )]
+        );
+
+        // No difference in any diffable field → empty. `install` reads this as
+        // Unattributable (§4.2) because only it knows a hash mismatch occurred;
+        // `pin`/`source` are hashed but not recorded in the lock.
+        assert!(classify_drift(
+            &manifest_of(&dep("shape", "ada#shape", "1.0.0", false)),
+            &[locked("shape", "ada#shape", "1.0.0", "1.0.0")]
+        )
+        .is_empty());
+    }
+
+    /// §4.1: classification collects ALL differences before deciding, so a
+    /// project with several drifted dependencies reports every one rather than
+    /// stopping at the first.
+    #[test]
+    fn classify_drift_reports_every_drifted_dependency() {
+        let locked = |name: &str, ident: &str, requested: &str| LockedPackage {
+            name: name.to_string(),
+            ident: ident.to_string(),
+            requested: requested.to_string(),
+            selected: requested.to_string(),
+            hash: "h".to_string(),
+            ident_key: String::new(),
+            ident_fingerprint: String::new(),
+            state: "available".to_string(),
+        };
+        let text = manifest_with_packages(
+            "{\"name\":\"a\",\"ident\":\"o#a\",\"version\":\"2.0.0\",\"pin\":true},\
+             {\"name\":\"b\",\"ident\":\"o#b\",\"version\":\"2.0.0\",\"pin\":false},\
+             {\"name\":\"c\",\"ident\":\"o#c\",\"version\":\"1.0.0\",\"pin\":false}",
+        );
+        let manifest =
+            parse_project_json(&text, std::path::Path::new("project.json")).expect("parse");
+        let drift = classify_drift(
+            &manifest,
+            &[
+                locked("a", "o#a", "1.0.0"),
+                locked("b", "o#b", "1.0.0"),
+                locked("gone", "o#gone", "1.0.0"),
+            ],
+        );
+        // a: PinMoved, b: FloorMoved, c: Added, o#gone: Removed — all four.
+        assert_eq!(drift.len(), 4, "{drift:?}");
+        assert!(drift
+            .iter()
+            .any(|(i, c)| i == "o#a" && matches!(c, DriftClass::PinMoved { .. })));
+        assert!(drift
+            .iter()
+            .any(|(i, c)| i == "o#b" && matches!(c, DriftClass::FloorMoved { .. })));
+        assert!(drift
+            .iter()
+            .any(|(i, c)| i == "o#c" && *c == DriftClass::Added));
+        assert!(drift
+            .iter()
+            .any(|(i, c)| i == "o#gone" && *c == DriftClass::Removed));
     }
 
     #[test]
