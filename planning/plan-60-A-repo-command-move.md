@@ -40,10 +40,10 @@ negotiate. Sub-plans B–F point back here.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree builds | `cargo build` → exit 0 | UNVERIFIED at authoring |
-| Unit suite green at HEAD | `cargo test --bin mfb` → exit 0 | UNVERIFIED at authoring |
-| Registry acceptance suite runnable and green at HEAD | `cargo test --test repo_acceptance` → exit 0 | UNVERIFIED at authoring |
-| `mfb-repo` server binary builds (the acceptance suite shells out to it) | `cargo build --manifest-path repository/Cargo.toml --bin mfb-repo` → exit 0 | UNVERIFIED at authoring |
+| Working tree builds | `cargo build` → exit 0 | MET (2026-07-21, exit 0 in 1m13s) |
+| Unit suite green at HEAD | `cargo test --bin mfb` → exit 0 | MET (2026-07-21, 3138 passed / 0 failed / 1 ignored) |
+| Registry acceptance suite runnable and green at HEAD | `cargo test --test repo_acceptance` → exit 0 | MET (2026-07-21, 19 passed / 0 failed) |
+| `mfb-repo` server binary builds (the acceptance suite shells out to it) | `cargo build --manifest-path repository/Cargo.toml --bin mfb-repo` → exit 0 | MET (2026-07-21, exit 0) |
 
 Everything below is written against the world where these hold. There are no
 hedges for the world where they don't.
@@ -124,6 +124,32 @@ Help constants live in `src/main.rs`: `USAGE` at `:45` (lines 53–57 cover pkg,
 | CLI-reference **prose** mentions of a moved command (same file, outside the table) | 3 | same command → :215 (`publish`/`check-abi` build quietly), :305 (`publish` log-index output), :458 (See Also link) |
 | Usage-string assertions in `pkg.rs` unit tests | 5 | `src/cli/pkg.rs:1884-1891` — one assertion per moved command |
 | `tests/repo_acceptance.rs` total lines | 2240 | `wc -l tests/repo_acceptance.rs` → 2240 |
+| **Live-doc hits naming a moved command** (Phase 1, measured 2026-07-21) | **24 across 6 files** | see the file list below |
+
+#### Live-doc file list (Phase 1 result — all must be rewritten)
+
+Measured with the *corrected* census command (see Corrections #1):
+
+```
+grep -rn 'pkg publish\|pkg transfer\|pkg check-abi\|pkg release-state' --include='*.md' . \
+  | grep -v 'planning/old-plans/' | grep -v 'bugs/completed-bugs/' \
+  | grep -v 'planning/old-moved-to-src-spec/' | grep -v '^planning/plan-60'
+```
+
+| File | Hits | Lines |
+|---|---|---|
+| `src/docs/spec/package-manager/01_repository-protocol.md` | 13 | 4, 79, 80, 81, 85, 86, 95, 96, 379, 1008, 1010, 1046, 1047 |
+| `src/docs/spec/tooling/07_cli-reference.md` | 7 | 51, 54, 55, 63 (table); 215, 305, 458 (prose) |
+| `src/docs/spec/architecture/03_packages.md` | 1 | 30 |
+| `src/docs/spec/package/03_metadata-encoding.md` | 1 | 183 |
+| `src/docs/spec/package-manager/spec.md` | 1 | 4 |
+| `src/docs/spec/tooling/spec.md` | 1 | 14 |
+
+**Archived records — must NOT be rewritten** (confirmed by path): 5 hits in
+`bugs/completed-bugs/` (bug-282, bug-277), 8 in `planning/old-plans/`
+(plan-36, plan-48-A, plan-48-B, plan-10, plan-10-B), 1 in
+`planning/old-moved-to-src-spec/repository.md`. Self-references inside
+`planning/plan-60-*.md` are this plan describing the change and also stay.
 
 ### Verified properties
 
@@ -143,10 +169,12 @@ Help constants live in `src/main.rs`: `USAGE` at `:45` (lines 53–57 cover pkg,
   (`.ai/specifications.md`). CLI output is named in that file's list of contracts
   that must be spec-updated in the same change. Confirmed by reading the file —
   this is a hard gate, not optional cleanup.
-- **UNVERIFIED: whether any doc outside `src/docs/spec/` and `planning/` invokes a
-  moved command.** Historical `planning/old-plans/*` and `bugs/completed-bugs/*`
-  hits are archived records and must NOT be rewritten. Phase 1 measures the live
-  set.
+- **RESOLVED (Phase 1, 2026-07-21): no doc outside `src/docs/spec/` and
+  `planning/` invokes a moved command.** The 24 live hits are all under
+  `src/docs/spec/`; every hit outside it is an archived record
+  (`bugs/completed-bugs/`, `planning/old-plans/`,
+  `planning/old-moved-to-src-spec/`) and must NOT be rewritten. See the
+  live-doc file list above.
 
 ## 3. Design Overview
 
@@ -262,12 +290,16 @@ code; `packages/` layout; `mfb machine|key|org|token`.
 Settles the one UNVERIFIED population before any code moves, so Phase 3's scope
 is known rather than discovered.
 
-- [ ] Run `grep -rn 'pkg publish\|pkg transfer\|pkg check-abi\|pkg release-state' --include='*.md' . | grep -v '^./planning/old-plans/' | grep -v '^./bugs/completed-bugs/' | grep -v '^./planning/old-moved-to-src-spec/'` and record the exact file:line list in this plan's §2 table.
-- [ ] Confirm which hits are **live docs** (must be rewritten) vs **archived
+- [x] Run the census grep and record the exact file:line list in this plan's §2
+      table. **The command as written does not work** — its `^./` anchors match
+      nothing on this platform, so all three exclusions silently no-op. Corrected
+      command and result are in §2; see Corrections #1.
+- [x] Confirm which hits are **live docs** (must be rewritten) vs **archived
       records** (must NOT be rewritten). Archived plans and completed bug reports
-      describe history and stay as written.
-- [ ] Write the resulting live-doc count into the Measured populations table with
-      its command.
+      describe history and stay as written. → 24 live (all under
+      `src/docs/spec/`), 14 archived.
+- [x] Write the resulting live-doc count into the Measured populations table with
+      its command. → 24 across 6 files.
 
 Acceptance: §2's Measured populations table has no UNVERIFIED row, and the
 live-doc file list is written into this plan.
@@ -320,10 +352,21 @@ Commit: —
 - [ ] `src/docs/spec/package-manager/spec.md:4` and
       `src/docs/spec/tooling/spec.md:14` — both name `mfb pkg publish` in prose.
       Update to `mfb repo publish`.
-- [ ] `src/docs/spec/package-manager/01_repository-protocol.md:379` — names
-      `mfb pkg publish`. Update. Re-check `:442` and `:445`, which name `mfb pkg
-      verify` (**not** moved — leave alone).
+- [ ] `src/docs/spec/package-manager/01_repository-protocol.md` — **13 hits, not
+      the single `:379` this plan originally claimed** (Corrections #2): lines 4,
+      79, 80, 81, 85, 86, 95, 96, 379, 1008, 1010, 1046, 1047. Includes the
+      endpoint-table "used by" column (`:79`–`:96`), the `## pkg publish:
+      Validate-then-Publish` **section heading** at `:1008` and its command line
+      at `:1010`, and two See Also links at `:1046`–`:1047`. Re-check `:442` and
+      `:445`, which name `mfb pkg verify` (**not** moved — leave alone).
+- [ ] `src/docs/spec/architecture/03_packages.md:30` — names `mfb pkg publish
+      <owner_name> <package>`. **Missed by the original plan** (Corrections #2).
+      Update to `mfb repo publish <owner_name> [path]`.
+- [ ] `src/docs/spec/package/03_metadata-encoding.md:183` — names `mfb pkg
+      check-abi`. **Missed by the original plan** (Corrections #2). Update.
 - [ ] Update every live doc found in Phase 1; leave archived records untouched.
+      Re-run the corrected census command afterwards — it must return 0 hits
+      outside `planning/` and the archived paths.
 - [ ] Tests: rewrite the 23 test arg-vectors in `tests/repo_acceptance.rs` from
       `["pkg", "<cmd>", …]` to `["repo", "<cmd>", …]`.
 
@@ -364,7 +407,32 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in DURING execution. -->
+**#1 — Phase 1's census command has three broken exclusion filters.**
+(Found in Phase 1, 2026-07-21.) The command anchors its excludes with `^./`
+(`grep -v '^./planning/old-plans/'`), but `grep -rn <pat> .` on this platform
+emits paths *without* the `./` prefix, so all three `grep -v`s match nothing and
+every archived record survives the filter. As written the command reports 38
+hits and would have led to rewriting 14 archived bug reports and old plans —
+exactly what the task text says must not happen. Corrected by dropping the `^.`
+anchor (and excluding `plan-60`'s own self-references); the corrected command and
+its 24-hit result are recorded in §2. Fixed in the Phase 1 task text.
+
+**#2 — Phase 3's live-doc scope was understated by 15 hits and 2 whole files.**
+(Found in Phase 1, 2026-07-21.) The plan named 4 spec files and asserted
+`01_repository-protocol.md:379` as a single hit. Measured reality:
+
+- `01_repository-protocol.md` has **13** hits, not 1. The 12 unlisted ones are
+  load-bearing: the endpoint table's "used by" column (`:79`–`:96`) and, notably,
+  a `## pkg publish: Validate-then-Publish` **section heading** at `:1008` —
+  a stale heading that `mfb spec` renders verbatim.
+- `src/docs/spec/architecture/03_packages.md:30` — not mentioned anywhere in the plan.
+- `src/docs/spec/package/03_metadata-encoding.md:183` — not mentioned anywhere in the plan.
+
+Root cause: §2's Measured populations table only ever counted
+`07_cli-reference.md`, so the "3 prose mentions" row was measured against one
+file and then read as if it covered the tree. Phase 3 is re-scoped in place with
+the per-file line lists. This does not change any other letter's scope — B–F
+touch no spec prose about publisher commands.
 
 ## Summary
 
