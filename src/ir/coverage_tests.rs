@@ -348,13 +348,24 @@ fn link_function() -> IrLinkFunction {
         bind_in: vec![],
         bind_state: None,
         bind_state_resource: None,
-        // plan-58-B: NOT exercised here. `buffers` does not ride the `.mfp` wire
-        // yet — plan-58-C owns the format and its version bump — so putting an
-        // IrBuffer here would round-trip to nothing and prove the opposite of what
-        // it looked like it proved. The new Mul/Add/Sub arms are covered through
-        // `result` below, which IS encoded and decoded.
-        buffers: vec![],
-        result_length: None,
+        // plan-58-C: `buffers` and `result_length` now ride the wire, so the
+        // full-surface round trip covers them here. The SIZE expression uses all
+        // three arithmetic arms so tags 6-8 decode inside a buffer too, not only
+        // through `result`.
+        buffers: vec![crate::ir::IrBuffer {
+            slot: "db".to_string(),
+            size: IrLinkExpr::Sub(
+                Box::new(IrLinkExpr::Add(
+                    Box::new(IrLinkExpr::Mul(
+                        Box::new(IrLinkExpr::Var("path".to_string())),
+                        Box::new(IrLinkExpr::Int(2)),
+                    )),
+                    Box::new(IrLinkExpr::Int(16)),
+                )),
+                Box::new(IrLinkExpr::Int(1)),
+            ),
+        }],
+        result_length: Some(IrLinkExpr::Var("status".to_string())),
         // Exercise every IrLinkExpr arm across success_on/result.
         success_on: Some(IrLinkExpr::Compare {
             op: "=".to_string(),
@@ -600,12 +611,21 @@ fn rejects_a_previous_format_version() {
     let project = empty_project("plain");
     let mut bytes = encode_binary_repr(&project);
     // Rewrite the version word (after the 4 magic bytes) to the previous version.
-    bytes[4..6].copy_from_slice(&4u16.to_le_bytes());
+    //
+    // Derived from the constant rather than hardcoded: this test pinned a literal
+    // `4` through the 4->5 bump and had to be hand-edited at 5->6, which is
+    // exactly the kind of edit that gets forgotten and leaves the gate untested
+    // against the version that actually precedes the current one.
+    let previous = crate::ir::binary::BINARY_REPR_VERSION - 1;
+    bytes[4..6].copy_from_slice(&previous.to_le_bytes());
     let err = match decode_binary_repr(&bytes) {
         Err(err) => err,
-        Ok(_) => panic!("v4 must be rejected"),
+        Ok(_) => panic!("v{previous} must be rejected"),
     };
-    assert!(err.contains("version 4 unsupported"), "{err}");
+    assert!(
+        err.contains(&format!("version {previous} unsupported")),
+        "{err}"
+    );
 }
 
 /// A CSTRUCT count is an attacker-controlled u32, so it is an allocation
@@ -1673,4 +1693,209 @@ fn op_loc_returns_the_stored_location_for_every_variant() {
         body: vec![],
         loc: l,
     });
+}
+
+/// plan-58-C: `buffers` and `result_length` must survive the `.mfp` round trip
+/// with their expression trees intact.
+///
+/// Structural, not `is_some()`: a buffer whose SIZE decodes to the wrong tree is
+/// a wrong allocation size, which is the whole failure class plan-58 exists to
+/// prevent. `binary_round_trip_link_expr_variants` shows how easily a shallow
+/// assertion here passes on a broken decoder.
+#[test]
+fn binary_round_trip_carries_buffers_and_length() {
+    fn render(expr: &IrLinkExpr) -> String {
+        match expr {
+            IrLinkExpr::Var(name) => name.clone(),
+            IrLinkExpr::Int(value) => value.to_string(),
+            IrLinkExpr::Mul(l, r) => format!("({} * {})", render(l), render(r)),
+            IrLinkExpr::Add(l, r) => format!("({} + {})", render(l), render(r)),
+            IrLinkExpr::Sub(l, r) => format!("({} - {})", render(l), render(r)),
+            IrLinkExpr::Not(inner) => format!("!{}", render(inner)),
+            IrLinkExpr::And(l, r) => format!("({} && {})", render(l), render(r)),
+            IrLinkExpr::Or(l, r) => format!("({} || {})", render(l), render(r)),
+            IrLinkExpr::Compare { op, lhs, rhs } => {
+                format!("({} {op} {})", render(lhs), render(rhs))
+            }
+        }
+    }
+    let mut lf = link_function();
+    lf.buffers = vec![
+        crate::ir::IrBuffer {
+            slot: "one".to_string(),
+            size: IrLinkExpr::Mul(
+                Box::new(IrLinkExpr::Var("frames".to_string())),
+                Box::new(IrLinkExpr::Int(4)),
+            ),
+        },
+        // Two buffers, so the vector length round-trips rather than "the first".
+        crate::ir::IrBuffer {
+            slot: "two".to_string(),
+            size: IrLinkExpr::Int(64),
+        },
+    ];
+    lf.result_length = Some(IrLinkExpr::Sub(
+        Box::new(IrLinkExpr::Var("status".to_string())),
+        Box::new(IrLinkExpr::Int(1)),
+    ));
+    let mut project = empty_project("buf");
+    project.link_functions = vec![lf];
+    let bytes = encode_binary_repr(&project);
+    let decoded = decode_binary_repr(&bytes).expect("decode");
+    let f = &decoded.link_functions[0];
+    assert_eq!(f.buffers.len(), 2, "both buffers survive");
+    assert_eq!(f.buffers[0].slot, "one");
+    assert_eq!(render(&f.buffers[0].size), "(frames * 4)");
+    assert_eq!(f.buffers[1].slot, "two");
+    assert_eq!(render(&f.buffers[1].size), "64");
+    assert_eq!(
+        render(f.result_length.as_ref().expect("LENGTH survives")),
+        "(status - 1)"
+    );
+}
+
+/// A `buffers` count is an attacker-controlled u32, so it is an allocation
+/// primitive unless bounded — the same reasoning as `MAX_CSTRUCTS`.
+#[test]
+fn rejects_an_over_limit_buffer_count() {
+    let mut project = empty_project("buf");
+    project.link_functions = vec![link_function()];
+    let bytes = encode_binary_repr(&project);
+    // Locate the buffers count by re-encoding with a different length and
+    // diffing — the same trick `rejects_an_invalid_slot_direction` uses.
+    let mut two = project.clone();
+    two.link_functions[0].buffers.push(crate::ir::IrBuffer {
+        slot: "x".to_string(),
+        size: IrLinkExpr::Int(1),
+    });
+    let b = encode_binary_repr(&two);
+    let idx = bytes
+        .iter()
+        .zip(b.iter())
+        .position(|(x, y)| x != y)
+        .expect("the buffer count differs somewhere");
+    let mut corrupt = bytes.clone();
+    corrupt[idx..idx + 4].copy_from_slice(&9_999u32.to_le_bytes());
+    let err = match decode_binary_repr(&corrupt) {
+        Err(err) => err,
+        Ok(_) => panic!("an over-limit buffer count must be rejected"),
+    };
+    assert!(err.contains("exceeds the 16 limit"), "{err}");
+}
+
+/// The gap called out in plan-58-C §2.3: the decode path accepts ANY UTF-8 as a
+/// slot ctype, and nothing tested that `ir::verify` catches a crafted one.
+///
+/// The layering is deliberate — the decoder carries names, `ir::verify` judges
+/// them — but that only holds if the judging is actually exercised.
+#[test]
+fn rejects_a_crafted_unknown_slot_ctype() {
+    let mut project = empty_project("ctype");
+    let mut lf = link_function();
+    lf.abi_slots = vec![IrAbiSlot {
+        name: "path".to_string(),
+        ctype: "CBogus".to_string(),
+        direction: crate::ir::AbiDirection::In,
+    }];
+    lf.buffers.clear();
+    lf.result_length = None;
+    project.link_functions = vec![lf];
+    let bytes = encode_binary_repr(&project);
+    // It DECODES, and it passes the STRUCTURAL check: the decoder carries ctype
+    // names without judging them, and `verify_package` judges shape, not rules.
+    let decoded = decode_binary_repr(&bytes).expect("an unknown ctype still decodes");
+    assert_eq!(decoded.link_functions[0].abi_slots[0].ctype, "CBogus");
+    assert!(
+        verify_package(&decoded).is_ok(),
+        "the structural check is not where a bad ctype is caught"
+    );
+    // The SEMANTIC check is. Both run on a decoded package (`nir::lower` calls
+    // verify_package then verify_semantics), so a crafted ctype is rejected —
+    // but only because the rule gate runs, which is what this pins.
+    let err = crate::ir::verify_semantics(&decoded).expect_err("an unknown ctype must be rejected");
+    assert!(err.contains("CBogus"), "{err}");
+    assert!(err.contains("NATIVE_ABI_UNKNOWN_CTYPE"), "{err}");
+}
+
+/// The package-path twins for plan-58-A's buffer rules, reached through a real
+/// encode/decode rather than a hand-built `IrProject`.
+///
+/// `ir/verify/tests.rs` covers the rules against constructed IR; this covers the
+/// path a crafted `.mfp` actually takes, so a decoder that dropped `buffers` on
+/// the floor would show up here as a rule that stopped firing.
+#[test]
+fn rejects_crafted_malformed_buffers_after_decode() {
+    let base = || {
+        let mut lf = link_function();
+        lf.params = vec![("n".to_string(), "Integer".to_string())];
+        lf.return_type = crate::ir::BYTE_LIST_TYPE.to_string();
+        lf.return_resource = false;
+        lf.abi_slots = vec![
+            IrAbiSlot {
+                name: "buf".to_string(),
+                ctype: "CBuffer".to_string(),
+                direction: crate::ir::AbiDirection::Out,
+            },
+            IrAbiSlot {
+                name: "n".to_string(),
+                ctype: "CInt64".to_string(),
+                direction: crate::ir::AbiDirection::In,
+            },
+        ];
+        lf.abi_return_name = "status".to_string();
+        lf.abi_return_ctype = "CInt32".to_string();
+        lf.consts = vec![];
+        lf.free = None;
+        lf.success_on = None;
+        lf.result = Some(IrLinkExpr::Var("buf".to_string()));
+        lf.buffers = vec![crate::ir::IrBuffer {
+            slot: "buf".to_string(),
+            size: IrLinkExpr::Var("n".to_string()),
+        }];
+        lf.result_length = Some(IrLinkExpr::Var("status".to_string()));
+        lf
+    };
+    let judge = |lf: crate::ir::IrLinkFunction| -> Result<(), String> {
+        let mut project = empty_project("crafted");
+        project.link_functions = vec![lf];
+        let bytes = encode_binary_repr(&project);
+        let decoded = decode_binary_repr(&bytes).expect("decode");
+        crate::ir::verify_semantics(&decoded)
+    };
+
+    // The baseline must pass, or every case below is vacuous.
+    judge(base()).expect("a well-formed CBuffer package must verify");
+
+    // Bad direction. Asserted only as "rejected", not on a specific rule:
+    // `IN CBuffer` legitimately trips THREE rules — NATIVE_ABI_UNKNOWN_CTYPE
+    // (CBuffer is not valid as an argument), NATIVE_ABI_UNBOUND_SLOT (an IN slot
+    // with no parameter), and NATIVE_BUFFER_INVALID (rule 1) — and
+    // `verify_semantics` surfaces only the FIRST. Pinning one here would be
+    // pinning diagnostic order. `ir::verify::tests::rejects_cbuffer_in_slot`
+    // asserts the rule itself against constructed IR.
+    let mut lf = base();
+    lf.abi_slots[0].direction = crate::ir::AbiDirection::In;
+    assert!(judge(lf).is_err(), "an IN CBuffer must be rejected");
+
+    // Missing BUFFER clause — the shape a pre-plan-58-C package decodes as.
+    let mut lf = base();
+    lf.buffers.clear();
+    assert!(judge(lf).unwrap_err().contains("NATIVE_BUFFER_INVALID"));
+
+    // BUFFER naming a slot that does not exist.
+    let mut lf = base();
+    lf.buffers[0].slot = "ghost".to_string();
+    assert!(judge(lf).unwrap_err().contains("NATIVE_BUFFER_INVALID"));
+
+    // LENGTH with no CBuffer result.
+    let mut lf = base();
+    lf.abi_slots[0].ctype = "CInt64".to_string();
+    lf.buffers.clear();
+    lf.return_type = "Integer".to_string();
+    assert!(judge(lf).unwrap_err().contains("NATIVE_BUFFER_INVALID"));
+
+    // A returned CBuffer with no LENGTH.
+    let mut lf = base();
+    lf.result_length = None;
+    assert!(judge(lf).unwrap_err().contains("NATIVE_BUFFER_INVALID"));
 }

@@ -1,0 +1,29 @@
+' bug-251 regression fixture, half A — see
+' tests/rt-behavior/native/native-link-alias-collision-rt.
+'
+' This package and its sibling declare a LINK block with the SAME alias
+' (`fooLink`) and the SAME function name (`raw`), each bound to a DIFFERENT
+' native symbol. The link-function merge used to de-duplicate on the
+' package-internal (alias, name) pair in a project-global namespace, so the
+' second package's thunk was dropped and its calls silently routed to the
+' first package's symbol.
+'
+' `op()` returns 7 iff THIS package's own symbol answered.
+
+LINK "sqlite3" AS fooLink
+  FUNC raw(pattern AS String, other AS String) AS Integer
+    SYMBOL "sqlite3_strglob"
+    ABI (pattern CString, other CString) AS status CInt32
+    RETURN status
+  END FUNC
+END LINK
+
+EXPORT FUNC op() AS Integer
+  ' Both symbols return 0 for these arguments, which is what makes a misroute
+  ' invisible in the return value alone — the routing is proved by the pair of
+  ' distinct constants the consumer combines.
+  IF fooLink::raw("abc", "abc") = 0 THEN
+    RETURN 7
+  END IF
+  RETURN 0
+END FUNC

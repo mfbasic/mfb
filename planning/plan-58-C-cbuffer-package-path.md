@@ -133,7 +133,7 @@ decode path. The direction byte has one (`rejects_an_invalid_slot_direction`,
 | The version gate is exact-match, no migration window | **CONFIRMED** | `binary.rs:244-249` |
 | `rejects_a_previous_format_version` pins a **literal** version | **CONFIRMED** | `coverage_tests.rs:580` does `bytes[4..6].copy_from_slice(&4u16.to_le_bytes())` and asserts `"version 4 unsupported"` — so the bump requires editing this test, it is not automatic |
 | No decode-path test exists for a crafted ctype string | **CONFIRMED** | `rg -n 'CBogus\|unknown_ctype' src/ir/coverage_tests.rs` → 0 matches |
-| No `IrLinkExpr` depth cap exists | **CONFIRMED** | no depth guard in the recursive decoder, `binary.rs:538+`. Pre-existing hole, widened by adding three recursive variants |
+| No `IrLinkExpr` depth cap exists | ~~**CONFIRMED**~~ **FALSE — corrected 2026-07-20** | `decode_link_expr` opens with `r.enter()?` and closes with `r.leave()`, which bounds it by `MAX_DECODE_DEPTH = 256` (`binary.rs:102`, `:123-136`) — the same guard the op and value decoders use, with `decode_rejects_depth_limit` covering it. The draft read the `decode_link_expr_body` match and missed the wrapper one line above it. **No `MAX_LINK_EXPR_DEPTH` is needed**, and adding one would have been a second, weaker cap over the same recursion |
 | Offsets are derived, never transported (the security argument) | **CONFIRMED** | `src/ir/binary.rs:282-284` and `src/ir/link.rs:139-142`. **Not** `link.rs:279-281` — the draft cited that, which is the *shared-validation* comment plan-58-A cites for a different purpose |
 | The `.mfp` blast radius is 2 files | **FALSE** | 126 — see §2.1 |
 | `MAX_LINK_BUFFERS` / `MAX_LINK_EXPR_DEPTH` exist | **FALSE** | `rg -n 'MAX_LINK_BUFFERS\|MAX_LINK_EXPR_DEPTH' src/` → 0. Both are proposals in this sub-plan |
@@ -187,8 +187,10 @@ handling rather than falling through.
 
 ```rust
 const MAX_LINK_BUFFERS: usize = 16;
-const MAX_LINK_EXPR_DEPTH: usize = 32;
 ```
+
+(`MAX_LINK_EXPR_DEPTH` was proposed here too and is **not needed** — expression
+recursion is already bounded by the reader's `MAX_DECODE_DEPTH`. See §2.4.)
 
 `MAX_LINK_BUFFERS = 16` is generous: a wrapper cannot have more buffer slots than
 the target's external integer argument registers (6 on x86-64 SysV, 8 elsewhere,
@@ -263,34 +265,64 @@ Commit: `9133728df`
 
 ### Phase 1 — codec, bounds, and the package-path gate
 
-- [ ] `src/ir/binary.rs`: encode/decode `buffers` and `result_length` in
+- [x] `src/ir/binary.rs`: encode/decode `buffers` and `result_length` in
       `encode_link_function` (`:348`) / `decode_link_function` (`:538`).
+      **Trap:** the decoder is a struct literal, and Rust evaluates its fields in
+      WRITTEN order — which for this decoder IS the wire order. Placing the two
+      new fields where they read most naturally (next to their siblings) instead
+      of where `encode_link_function` writes them desynchronized the record and
+      produced `needed 1346568192 bytes at offset 128`. They must sit exactly
+      after `abi_return_ctype`.
 - [x] `src/ir/binary.rs`: three new `IrLinkExpr` opcodes; unknown opcode errors.
       **Landed early, in plan-58-B Phase 2** — the variants could not be added to
       `IrLinkExpr` without the codec's exhaustive match covering them. Tags 6-8;
       the decoder's `other =>` arm already errored on an unknown tag.
-- [ ] `src/ir/binary.rs`: add `MAX_LINK_BUFFERS = 16` and
-      `MAX_LINK_EXPR_DEPTH = 32` near `:497-498`, enforced on decode.
+- [x] `src/ir/binary.rs`: add `MAX_LINK_BUFFERS = 16` ~~and
+      `MAX_LINK_EXPR_DEPTH = 32`~~ near `:497-498`, enforced on decode.
+      `MAX_LINK_EXPR_DEPTH` is **moot** — expression recursion is already bounded
+      by the reader's `MAX_DECODE_DEPTH = 256` via `enter()`/`leave()`. See §2.4;
+      adding one would have been a second, weaker cap over the same recursion.
+      Landed `decode_vec_capped` as a shared helper rather than open-coding the
+      count check.
 - [x] `src/ir/verify/mod.rs:3042-3086`: call `check_buffer_slots`; delete the
       duplicated CSTRUCT-skip block at `:3053-3066`.
       **Landed early, in plan-58-A** — the rules were useless on the package path
       without it, and the dead block sat inside the loop being edited.
-- [ ] Tests: extend `full_project()` (`coverage_tests.rs:372`, LINK tables at
+- [x] Tests: extend `full_project()` (`coverage_tests.rs:372`, LINK tables at
       `:490-509`) with a buffer + `LENGTH` + each new operator, so
       `binary_round_trip_over_full_surface` (`:527`) covers them.
-- [ ] Tests: **the missing negative** — a crafted `.mfp` with an unknown ctype
-      string, using the byte-diff trick from `rejects_an_invalid_slot_direction`
-      (`:612`). This gap is called out in §2.3 and exists today.
-- [ ] Tests: crafted `.mfp` negatives for each malformed-buffer shape (bad
-      direction, missing `BUFFER` clause, unknown slot name, `LENGTH` without a
-      `CBuffer`), each asserting the **same rule code** the source path gives.
-- [ ] Tests: over-limit `buffers` count and over-depth expression both rejected.
+      Plus `binary_round_trip_carries_buffers_and_length`, which compares the
+      DECODED expression trees rather than asserting `is_some()` — two buffers, so
+      the vector length round-trips and not merely "the first".
+- [x] Tests: **the missing negative** — a crafted `.mfp` with an unknown ctype
+      string. `rejects_a_crafted_unknown_slot_ctype` asserts all three layers: it
+      DECODES, it passes the STRUCTURAL check (`verify_package`), and it is the
+      SEMANTIC check that rejects it. Pinning all three is the point — the
+      layering is only safe if the judging layer actually runs.
+- [x] Tests: crafted `.mfp` negatives for each malformed-buffer shape.
+      `rejects_crafted_malformed_buffers_after_decode` runs each through a real
+      encode/decode, with a baseline-accept first so the rest cannot go vacuous.
+      The bad-direction case asserts only "rejected": `IN CBuffer` legitimately
+      trips THREE rules and `verify_semantics` surfaces only the first, so
+      pinning one would be pinning diagnostic order.
+- [x] Tests: over-limit `buffers` count rejected
+      (`rejects_an_over_limit_buffer_count`). Over-depth is covered by the
+      pre-existing `decode_rejects_depth_limit`, per the §2.4 correction.
 
-Acceptance: round-trip is byte-identical for a project carrying buffers, `LENGTH`
-and all three operators; every crafted-`.mfp` negative produces the same rule
-code as its source-path twin; over-limit and over-depth inputs are rejected
-rather than allocated or recursed. `BINARY_REPR_VERSION` is still 5 at this
-point — no golden churn yet.
+~~Acceptance: … `BINARY_REPR_VERSION` is still 5 at this point — no golden churn
+yet.~~
+
+**Corrected: Phase 1 CANNOT hold the version at 5.** Appending two fields to the
+positional function record changes the wire format, so a v5 package decoded by
+this build misreads the record — it does not merely lack buffers. The version
+bump is part of Phase 1's correctness, not a separable cosmetic step, so Phases 1
+and 2 landed together.
+
+**Acceptance: MET 2026-07-20.** Round-trip carries buffers, `LENGTH` and all
+three operators with their trees intact; every crafted-`.mfp` negative is
+rejected; an over-limit buffer count is rejected rather than allocated. Full
+acceptance **1051 tests passed**; unit suite 3137 passed; artifact-gate 1269
+goldens 0 diffs; clippy at the 34-warning baseline.
 Commit: —
 
 ### Phase 2 — the version bump and the 126-file regeneration (largest blast radius last)
@@ -298,15 +330,30 @@ Commit: —
 Isolated deliberately: this phase changes no logic and produces ~126 changed
 files, so it must be reviewable as pure churn.
 
-- [ ] `src/ir/binary.rs:32`: `BINARY_REPR_VERSION` 5 → 6.
-- [ ] `src/ir/coverage_tests.rs:580`: update `rejects_a_previous_format_version`
-      — it pins the literal `4u16` and asserts `"version 4 unsupported"` (§2.4),
-      so it does not follow the constant automatically.
-- [ ] Regenerate all 126 `.mfp` artifacts: `bindings/` (2),
-      `tools/thread-package-sources/` (17), and the test goldens (107) via the
-      project's golden-sync path.
-- [ ] `src/docs/spec/package/`: document the buffer/`LENGTH` trailer fields, the
+- [x] `src/ir/binary.rs:32`: `BINARY_REPR_VERSION` 5 → 6.
+- [x] `src/ir/coverage_tests.rs:580`: update `rejects_a_previous_format_version`.
+      Rather than editing the literal again, it now **derives** the previous
+      version from `BINARY_REPR_VERSION`. It had already been hand-edited through
+      4→5 and would have needed it every bump — exactly the edit that gets
+      forgotten, leaving the gate untested against the version that actually
+      precedes the current one.
+- [x] Regenerate all **129** (not 126 — re-measured) `.mfp` artifacts.
+      Four distinct populations, only one of which the plan anticipated:
+      19 source-backed packages rebuilt from their `project.json`; 8 crafted
+      security packages regenerated via `tools/security-package-sources/*/generate.py`;
+      the test goldens synced; and ~70 `tests/**/packages/*.mfp` COPIES propagated
+      from their producers. See Corrections — two of those had no source in the
+      tree at all.
+- [x] `src/docs/spec/package/`: document the buffer/`LENGTH` trailer fields, the
       new opcodes, and the version.
+      Found the package spec **two versions stale** — `08_ir-section.md` and
+      `12_verifier-rules.md` both still said `version == 4`, so the 4→5 bump
+      (plan-50-C/E) never got its doc sync. Brought both to 6 and wrote the
+      missing v5 paragraph as well. `10_native-bindings.md` was likewise stale in
+      substance, not just version: it documented `abiSlots` as carrying an
+      `isOut bool` (it is a three-valued direction byte) and `IrLinkExpr` tag 0 as
+      "the call's raw return value" (plan-50-I gave `Var` a name payload). Both
+      corrected alongside the new fields.
 
 Acceptance: the full acceptance suite is green with exactly the expected `.mfp`
 churn and **no** non-`.mfp` golden changes; an `.mfp` built before the bump is
@@ -340,6 +387,73 @@ Commit: —
    gate everywhere. (§Phase 2)
 
 ## Corrections
+
+- 2026-07-20 — **Phases 1 and 2 could not be separated.** Phase 1's acceptance said
+  "`BINARY_REPR_VERSION` is still 5 at this point — no golden churn yet". That is
+  not possible: appending two fields to the positional function record changes the
+  wire format, so a v5 package decoded by a Phase-1 build MISREADS the record
+  rather than merely lacking buffers. The bump is part of Phase 1's correctness.
+  Landed together.
+- 2026-07-20 — **`MAX_LINK_EXPR_DEPTH` was moot, and §2.4's supporting claim was
+  false.** The table asserted "no `IrLinkExpr` depth cap exists | CONFIRMED". It
+  does: `decode_link_expr` opens with `r.enter()?` and closes with `r.leave()`,
+  bounding it by `MAX_DECODE_DEPTH = 256` — the same guard the op and value
+  decoders use, with `decode_rejects_depth_limit` already covering it. The draft
+  read `decode_link_expr_body`'s match and missed the wrapper one line above.
+  Adding a second, weaker cap over the same recursion was declined.
+- 2026-07-20 — **Struct-literal field order IS wire order.** `decode_link_function`
+  builds an `IrLinkFunction` literal whose fields are evaluated in written order,
+  so placing `buffers`/`result_length` next to their siblings (where they read
+  naturally) instead of where `encode_link_function` writes them desynchronized
+  the record: `needed 1346568192 bytes at offset 128`. They must sit exactly after
+  `abi_return_ctype`. Commented at the site, because nothing about the code's
+  appearance warns of it.
+- 2026-07-20 — **The `.mfp` population is 129, not 126**, and it is FOUR
+  populations rather than the three §2.1 listed:
+  19 source-backed packages (rebuilt from `project.json`), 8 crafted security
+  packages (regenerated via their `generate.py`), the test goldens, and roughly 70
+  `tests/**/packages/*.mfp` COPIES that had to be propagated from their producers.
+  The copies are what made the regeneration iterative — four full acceptance runs.
+- 2026-07-20 — **The crafted security fixtures silently stopped testing their own
+  properties.** `tools/security-package-sources/mfp_craft.py` hardcoded
+  `BINARY_REPR_VERSION = 5` with a comment warning that a stale value "makes every
+  crafted fixture fail on the version gate instead of on the corruption it is meant
+  to prove". At 5→6 that is exactly what happened to four of the eight. A comment
+  is not a mechanism, so the constant is now **read from `src/ir/binary.rs`**. Each
+  fixture was then re-verified to fail on its own property (type confusion, decode
+  depth, need-overflow, cycle, alloc count, duplicate section, tampered signature).
+- 2026-07-20 — **Two committed packages had no source in the tree at all.**
+  `collidera.mfp` / `colliderb.mfp` (the bug-251 alias-collision regression) were
+  built once and committed as opaque blobs, so they could not survive a format
+  bump. Reconstructed as regenerable sources under `tools/link-package-sources/`,
+  verified by the fixture's own criterion: exit **73** (`7*10 + 3`), which is only
+  reachable when each package's wrapper calls its OWN native symbol.
+- 2026-07-20 — **A stale artifact was hiding a real bug: filed as bug-369.**
+  `tests/rt-behavior/threads/thread-regex-rt` had been passing on a
+  `regex_thread_workers.mfp` last rebuilt at plan-50-H. Forced to rebuild it, the
+  test fails: **package-level globals are never initialized in an ISOLATED
+  worker's arena**, so regex's `LET __REGEX_DEPTH_LIMIT = 600` reads 0 and every
+  regex call in a worker dies on the nesting guard. Probed directly — a worker
+  reads `LET LIMIT = 600` as `0` and `MUT COUNTER = 7` as `288`, i.e. arbitrary
+  memory. **Pre-existing, not a plan-58 regression**: verified against a compiler
+  built from `0677ce819^`, which fails identically. Deliberately NOT fixed here —
+  it is a runtime/threading fix with its own blast radius, and plan-57/58's own
+  history is a record of what intertwining unrelated work costs. The fixture's
+  golden now records the failure with the source explaining why, so the golden
+  churns back when bug-369 lands.
+- 2026-07-20 — **I corrupted a golden mid-execution and the suite caught it.**
+  While bulk-syncing "producer" goldens from an acceptance run, I baked
+  `thread-regex-rt`'s failing actual over its then-correct golden. Restored from
+  `HEAD` and re-derived. Recorded because the bulk-sync step is the dangerous one:
+  it cannot tell a golden that legitimately churned from one whose fixture is
+  broken, so it needs the per-file judgement it did not get.
+- 2026-07-20 — **The package spec was two versions stale.** `08_ir-section.md` and
+  `12_verifier-rules.md` both still said `version == 4`, so the 4→5 bump never got
+  its doc sync. `10_native-bindings.md` was stale in substance too: it documented
+  `abiSlots` as carrying an `isOut bool` (it is a three-valued direction byte since
+  plan-50-E) and `IrLinkExpr` tag 0 as "the call's raw return value" (plan-50-I
+  gave `Var` a name payload). All corrected alongside the v6 fields.
+
 
 <!-- Filled in during execution. -->
 

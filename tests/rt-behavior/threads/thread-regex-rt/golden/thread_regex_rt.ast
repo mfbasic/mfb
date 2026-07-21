@@ -14,18 +14,18 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 7,
+      "line": 22,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "t1", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "regex_thread_workers.countDigits" }, { "kind": "string", "value": "a1b2c3d4" }] }, "line": 8 },
-      { "kind": "binding", "mutable": false, "name": "t2", "type": "Thread OF Nothing TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "regex_thread_workers.normalizeSpaces" }, { "kind": "string", "value": "hello   world  foo" }] }, "line": 9 },
-      { "kind": "binding", "mutable": false, "name": "digits", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 10 },
-      { "kind": "binding", "mutable": false, "name": "normalized", "type": "String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t2" }] }, "line": 11 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "digits=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "digits" }] } }] }, "line": 12 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "normalized=" }, "right": { "kind": "identifier", "value": "normalized" } }] }, "line": 13 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      { "kind": "binding", "mutable": false, "name": "t1", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "regex_thread_workers.countDigits" }, { "kind": "string", "value": "a1b2c3d4" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "t2", "type": "Thread OF Nothing TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "regex_thread_workers.normalizeSpaces" }, { "kind": "string", "value": "hello   world  foo" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "digits", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "normalized", "type": "String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t2" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "digits=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "digits" }] } }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "normalized=" }, "right": { "kind": "identifier", "value": "normalized" } }] }, "line": 28 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 29 }
       ]
     }
     ]

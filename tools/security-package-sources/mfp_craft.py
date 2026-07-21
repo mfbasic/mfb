@@ -19,14 +19,42 @@ committed fixtures were produced with it.
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 import struct
 
-# Mirrors `BINARY_REPR_VERSION` in src/ir/binary.rs. The hand-encoded MFBR bodies
-# below reproduce that format byte for byte, so this must move with it — a stale
-# value makes every crafted fixture fail on the version gate instead of on the
-# corruption it is meant to prove. These bodies carry no LINK trailer, so the
-# v4->v5 slot-direction / Var-payload / CSTRUCT changes do not reach them.
-BINARY_REPR_VERSION = 5
+# `BINARY_REPR_VERSION`, READ FROM src/ir/binary.rs rather than restated here.
+#
+# The hand-encoded MFBR bodies below reproduce that format byte for byte, so this
+# must move with it — a stale value makes every crafted fixture fail on the
+# VERSION GATE instead of on the corruption it is meant to prove, silently
+# converting a suite of decode-hardening tests into a suite of version tests.
+#
+# That is not hypothetical: it happened at the 5->6 bump (plan-58-C), where four
+# of the eight fixtures started failing on the version instead of their own
+# property. The constant was previously hand-maintained with a comment warning
+# about exactly this. A comment is not a mechanism, so it is now derived.
+#
+# These bodies carry no LINK trailer, so the LINK-side format changes (v4->v5
+# slot-direction / Var-payload / CSTRUCT, v5->v6 buffers / LENGTH) do not reach
+# them and a version bump alone keeps them valid.
+def _binary_repr_version() -> int:
+    source = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "..", "..", "src", "ir", "binary.rs",
+    )
+    with open(source, "r", encoding="utf-8") as handle:
+        match = re.search(r"BINARY_REPR_VERSION: u16 = (\d+);", handle.read())
+    if not match:
+        raise SystemExit(
+            "could not read BINARY_REPR_VERSION from src/ir/binary.rs — "
+            "if the constant was renamed, update this reader rather than "
+            "hardcoding a value"
+        )
+    return int(match.group(1))
+
+
+BINARY_REPR_VERSION = _binary_repr_version()
 from dataclasses import dataclass
 from typing import List, Tuple
 

@@ -29,7 +29,7 @@ pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// simply leaves every link function stateless. This avoids re-churning every
 /// committed `.mfp` (including the hand-crafted security decode-hardening vectors,
 /// which pin an exact version).
-pub const BINARY_REPR_VERSION: u16 = 5;
+pub const BINARY_REPR_VERSION: u16 = 6;
 
 // --- low-level writers -----------------------------------------------------
 
@@ -365,6 +365,19 @@ fn encode_link_function(out: &mut Vec<u8>, f: &IrLinkFunction) {
     });
     put_str(out, &f.abi_return_name);
     put_str(out, &f.abi_return_ctype);
+    // plan-58-C: the CBuffer surface, appended to the positional record. Rides the
+    // 5->6 bump for the same reason BIND IN rode 4->5 — the record has no
+    // per-field tags, so a field cannot be added without a version break.
+    //
+    // `max_buffer_bytes` is deliberately NOT here: the allocation ceiling is the
+    // CONSUMING project's project.json `maxBuffer`, since thunks are emitted when
+    // an executable links. A package carrying one would let a binding raise an
+    // application's memory ceiling on its behalf.
+    put_vec(out, &f.buffers, |o, b| {
+        put_str(o, &b.slot);
+        encode_link_expr(o, &b.size);
+    });
+    encode_opt_link_expr(out, &f.result_length);
     // plan-50-E: BIND IN, as field 15 of the positional record. Rides plan-50-C's
     // 4->5 bump — the record has no per-field tags, so it could not be added later
     // without a second break.
@@ -518,6 +531,37 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
 const MAX_CSTRUCTS: usize = 256;
 const MAX_CSTRUCT_FIELDS: usize = 64;
 
+/// Most `BUFFER … SIZE` clauses one LINK function may carry (plan-58-C §4.2).
+///
+/// A wrapper cannot have more `OUT CBuffer` slots than the target's external
+/// integer argument registers — 6 on x86-64 SysV, 8 elsewhere — so 16 is already
+/// unreachable by real code. It exists to bound allocation on a crafted file, not
+/// to constrain anything a person would write.
+const MAX_LINK_BUFFERS: usize = 16;
+
+/// `decode_vec` with a cap on the element count.
+///
+/// `put_vec` writes an attacker-controlled `u32`, so an uncapped count is an
+/// allocation primitive; `label` names the table in the diagnostic.
+fn decode_vec_capped<T, F: Fn(&mut IrReader) -> Result<T, String>>(
+    r: &mut IrReader,
+    max: usize,
+    label: &str,
+    f: F,
+) -> Result<Vec<T>, String> {
+    let count = r.count()?;
+    if count > max {
+        return Err(format!(
+            "PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED: {count} {label} exceeds the {max} limit"
+        ));
+    }
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        out.push(f(r)?);
+    }
+    Ok(out)
+}
+
 /// Decode the `CSTRUCT` table. Carries field names and ctypes only; the layout is
 /// recomputed by `ir::verify`, which is why a crafted package cannot dictate an
 /// offset.
@@ -575,11 +619,6 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         // package whose CBuffer slot reached the marshaler with no capacity would
         // hand a C function a zero-length buffer. plan-58-C must land the wire
         // format in the SAME change that removes that refusal.
-        buffers: Vec::new(),
-        // Same story as `buffers`: source-path only until plan-58-C lands the
-        // wire format. Safe today only because a decoded CBuffer slot with no
-        // BUFFER clause fails to lower rather than marshalling a bad buffer.
-        result_length: None,
         // Stays `None`: the BIND STATE resource-slot NAME is source-only surface
         // syntax that binds nothing at the package boundary, so it never rode the
         // wire. Its check ran when this package was built from source.
@@ -600,6 +639,17 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         })?,
         abi_return_name: r.string()?,
         abi_return_ctype: r.string()?,
+        // plan-58-C. Struct-literal fields are evaluated in WRITTEN order, which
+        // for this decoder IS the wire order — so these must sit exactly where
+        // `encode_link_function` writes them (after `abi_return_ctype`, before
+        // `bind_in`), not where they read most naturally next to their siblings.
+        buffers: decode_vec_capped(r, MAX_LINK_BUFFERS, "LINK buffers", |r| {
+            Ok(crate::ir::IrBuffer {
+                slot: r.string()?,
+                size: decode_link_expr(r)?,
+            })
+        })?,
+        result_length: decode_opt_link_expr(r)?,
         bind_in: decode_vec(r, |r| {
             Ok(crate::ir::IrBindIn {
                 slot: r.string()?,

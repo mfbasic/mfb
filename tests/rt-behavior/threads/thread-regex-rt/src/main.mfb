@@ -2,7 +2,22 @@ IMPORT io
 IMPORT thread
 IMPORT regex_thread_workers
 
-REM Proves the regex package works inside an isolated worker thread (own arena).
+REM Intended to prove the regex package works inside an isolated worker thread
+REM (own arena). It currently proves the OPPOSITE, and the golden records that.
+REM
+REM bug-369: package-level globals are never initialized in a worker's arena, so
+REM regex's `LET __REGEX_DEPTH_LIMIT AS Integer = 600` reads 0 there. The guard
+REM `IF depth > __REGEX_DEPTH_LIMIT` is then true at the first node, so EVERY
+REM regex call inside a worker fails with "nesting limit exceeded".
+REM
+REM This is pre-existing, not a plan-58 regression: a compiler built from before
+REM that work fails identically. The test had been passing only because its
+REM committed `regex_thread_workers.mfp` was stale (last rebuilt at plan-50-H);
+REM plan-58-C's BINARY_REPR_VERSION 5->6 bump forced a rebuild and removed the
+REM staleness that was hiding it.
+REM
+REM When bug-369 is fixed this golden churns back to `digits=4` /
+REM `normalized=hello_world_foo`. That churn is the signal.
 
 FUNC main AS Integer
   LET t1 AS Thread OF Nothing TO Integer = thread::start(regex_thread_workers::countDigits, "a1b2c3d4")

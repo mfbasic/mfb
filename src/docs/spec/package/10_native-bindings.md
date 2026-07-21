@@ -79,31 +79,49 @@ symbol           str          C symbol name to bind
 params           vec<(name str, type str)>     MFBASIC-facing parameters
 returnType       str          MFBASIC-facing return type
 returnResource   bool         whether the return is an owned resource handle
-abiSlots         vec<(name str, ctype str, isOut bool)>   C-facing ABI slots
+abiSlots         vec<(name str, ctype str, direction u8)>  C-facing ABI slots
 abiReturnName    str          name of the C-facing return slot
 abiReturnCtype   str          C type of the return slot
+buffers          vec<(slot str, size IrLinkExpr)>   BUFFER <slot> SIZE <expr> clauses
+resultLength     optional IrLinkExpr           RETURN … LENGTH <expr>
+bindIn           vec<(slot str, fields vec<…>)>     BIND IN field bindings
 consts           vec<(slot str, value str)>    fixed constant arguments
 successOn        optional IrLinkExpr           SUCCESS_ON predicate
 result           optional IrLinkExpr           result/ERROR_ON mapping expression
 free             optional (slot str, symbol str)  paired free/close for a returned resource
 ```
 
-`optional X` is a `u8` present-flag (`0`/`1`) followed by the encoding of `X` when present. Constant argument `value`s are serialized as their string form. C types (`ctype`, `abiReturnCtype`) are stored as **strings** (e.g. the source-level C type spelling), not as a numeric ABI-type enum — there is no `CInt8`/`CInt16`/… code table in the format. Likewise the `OUT`/value distinction for each slot is the per-slot `isOut` boolean, not a numeric direction enum.
+`optional X` is a `u8` present-flag (`0`/`1`) followed by the encoding of `X` when present. Constant argument `value`s are serialized as their string form. C types (`ctype`, `abiReturnCtype`) are stored as **strings** (e.g. the source-level C type spelling), not as a numeric ABI-type enum — there is no `CInt8`/`CInt16`/… code table in the format.
+
+`direction` is a `u8`: `0` = in, `1` = out, `2` = inout. A value outside `0..=2` is a decode **error**, never a silent default — it decides whether the callee writes through the slot. (This field was a bool before `INOUT` existed; a bool could not express three states and two bools would have admitted an illegal fourth.)
+
+`buffers` records the `BUFFER <slot> SIZE <expr>` clauses that size an `OUT CBuffer` slot, and `resultLength` the `RETURN … LENGTH <expr>` that says how many of its bytes the callee wrote. Both are bounded on decode: at most **16** buffers per function, which is already unreachable for real code since a wrapper cannot have more buffer slots than the target has external integer argument registers (6 on x86-64 SysV, 8 elsewhere). The cap exists to bound allocation on a crafted file.
+
+The allocation **ceiling** for a `CBuffer` is deliberately *not* in this record. It is the consuming project's `maxBuffer` (./mfb spec tooling project-manifest), because `LINK` thunks are emitted when an executable links — so a package cannot raise an application's memory ceiling on its behalf.
 
 `free` records the paired deallocation/close symbol and the slot it applies to, so a returned native resource can be released by the generated lexical drop.
 
 ## `IrLinkExpr`
 
-`successOn` and `result` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node: [[src/ir/binary.rs:encode_link_expr]]
+`successOn`, `result`, `resultLength` and each buffer's `size` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node: [[src/ir/binary.rs:encode_link_expr]]
 
 ```text
-0 = Var                       the call's raw return value
+0 = Var(name str)             the value of a named ABI slot, or of the ABI return
 1 = Int(value str)            an integer literal (serialized as a string)
 2 = Compare { op str, lhs, rhs }
 3 = And(lhs, rhs)
 4 = Or(lhs, rhs)
 5 = Not(inner)
+6 = Mul(lhs, rhs)             integer arithmetic, for BUFFER … SIZE / … LENGTH
+7 = Add(lhs, rhs)
+8 = Sub(lhs, rhs)
 ```
+
+`Var` carries the name it reads. It was a *nameless* variant meaning "the native return" until plan-50-I, and lowering mapped every identifier onto it — so `SUCCESS_ON typo = 0` silently meant `status = 0`.
+
+An unknown tag is a decode **error**, never a defaulted node, which is what lets tags be appended without a compatibility window.
+
+Recursion is bounded by the reader's shared decode-depth cap (256 levels), the same guard the op and value decoders use — a crafted package cannot blow the decoder stack through deep nesting.
 
 These encode the `SUCCESS_ON`/`ERROR_ON` conditions and the success/error mapping in a portable form so the importer can regenerate the same success-test and result construction the original `LINK` block specified.
 
