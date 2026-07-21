@@ -133,17 +133,36 @@ two arguments, cwd-only via `Path::new(".")`. There is no flag handling.
   "available" | "deprecated")`), and its exact branch admits any non-`blocked`,
   non-`legal-tombstoned` state (`:809-814`). This matches the spec at
   `src/docs/spec/package-manager/01_repository-protocol.md:832-835` — read both.
-- **UNVERIFIED and load-bearing: whether a `file://`-added package whose `.mfp`
-  ident contains `#` is treated as a registry dependency by `resolve()`.**
-  Reading `src/cli/resolve.rs:176` shows the seed filter is
-  `.filter(|dep| dep.ident.contains('#'))` — it keys on **ident**, not on
-  `source`. A signed package added by `file://` carries an `owner#package` ident
-  in its header, so on this reading `resolve()` would fetch its `/index` and
-  `install()` would then overwrite the local copy with a registry blob. If true
-  this is a pre-existing defect in `mfb pkg update`, not something this letter
-  introduces — but this letter routes `add` through the same path, so it would
-  become reachable from `add` too. **Phase 1 settles this empirically before any
-  code changes.**
+- **CONFIRMED (Phase 1 spike, 2026-07-21): a `file://`-added package whose `.mfp`
+  ident contains `#` WAS treated as a registry dependency, and `mfb pkg update`
+  silently replaced the user's local file with a registry blob.** The §5 defect
+  branch is the real one. The reading of the seed filter was correct: it keyed on
+  **ident**, not `source`, and `add_package_from_file` copies the ident out of the
+  `.mfp` header (`src/cli/pkg.rs:566`), not out of the URL — so a
+  published-then-file-added package carries registry coordinates.
+
+  **Observed, not inferred.** The spike published `alice#spike_pkg@0.2.0` to the
+  registry and added `0.1.0` locally by `file://`. `mfb pkg update` then printed:
+
+  ```
+  Resolution:
+    + spike_pkg 0.2.0 (available)
+  Wrote 1 resolved package(s) to mfb.lock
+  Installed spike_pkg 0.2.0 (available)
+  ```
+
+  `mfb.lock` recorded `"requested": "0.2.0", "selected": "0.2.0"`, and the bytes
+  of `packages/spike_pkg.mfp` changed — the version string in the header went
+  from `0.1.0` to `0.2.0`. The user's local package was replaced by a different
+  version with no diagnostic and no way to opt out.
+
+  This is a **pre-existing data-loss defect in `mfb pkg update`**, not one this
+  letter introduces — but this letter routes `add` through the same path, which
+  would have made it reachable from `add` too. Fixed here per §5 and AGENTS.md
+  ("a bug you find is a bug you fix"). Regression test:
+  `spike_file_added_package_with_registry_ident_survives_update` in
+  `tests/repo_acceptance.rs`, A/B-verified — restoring the ident-only filter
+  makes it fail.
 
 ## 3. Design Overview
 
@@ -280,15 +299,24 @@ the `.mfp` format; the trust chain; exit codes.
 The one unproven premise. It runs first and cheaply because it can invalidate
 §4.2 and §5.
 
-- [ ] In `tests/repo_acceptance.rs`, publish a package as `alice#spike_pkg`, then
+- [x] In `tests/repo_acceptance.rs`, publish a package as `alice#spike_pkg`, then
       in a fresh consumer project run `mfb pkg add file://<path to the built
       .mfp>` and inspect the written `project.json` — record the exact `ident`
-      and `source` values.
-- [ ] Run `mfb pkg update` in that consumer and observe whether `mfb.lock` gains
+      and `source` values. → ident `alice#spike_pkg`, source the `file://` URL.
+- [x] Run `mfb pkg update` in that consumer and observe whether `mfb.lock` gains
       a `spike_pkg` entry and whether `packages/spike_pkg.mfp` bytes change.
-- [ ] Write the finding — with the observed JSON and the byte comparison — into
+      → **Both.** Lock gained `"selected": "0.2.0"`; the installed bytes changed
+      from the local 0.1.0 to the registry's 0.2.0.
+- [x] Write the finding — with the observed JSON and the byte comparison — into
       §2's Verified properties, replacing the UNVERIFIED bullet.
-- [ ] Pick the §5 branch and record it in Corrections.
+- [x] Pick the §5 branch and record it in Corrections. → **defect branch.**
+- [x] **Added task:** fix it. `is_registry_dependency` is now the single
+      predicate used by BOTH `resolve()`'s seeding and plan-60-B's
+      `registry_dependency_count`, requiring an `owner#pkg` ident **and** a
+      non-`file://` source. One predicate, because the two callers silently
+      diverging is exactly the class of bug this is.
+- [x] **Added task:** keep the spike as the permanent regression test, and prove
+      it can fail (restoring the ident-only filter makes it red).
 
 Acceptance: §2 has no UNVERIFIED bullet, and §5's branch is chosen with the
 observed evidence written down. If the defect branch is taken, this phase also
@@ -418,8 +446,49 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in DURING execution. Phase 1's finding and the §5 branch chosen go
-     here first. -->
+**#1 — §5's branch: the DEFECT branch, confirmed empirically.** (Phase 1 spike,
+2026-07-21.) `mfb pkg update` silently replaced a `file://`-added local package
+with a registry blob of a different version. Full evidence in §2's Verified
+properties; the short form is that the spike added local `0.1.0` and `update`
+installed registry `0.2.0` over it, recording `"selected": "0.2.0"` in the lock.
+
+**The fix, and why it is one predicate rather than two.** §5 says to change the
+seed filter to key on `source`. Done — but implemented as a single
+`is_registry_dependency(dep)` used by **both** `resolve()`'s seeding *and*
+plan-60-B's `registry_dependency_count`. Those two must agree exactly or
+`apply_manifest_change` either calls `resolve()` on a set it will reject, or
+takes the zero-dependency path while real dependencies still need locking. Two
+copies of a filter that must never diverge is the same class of bug as the one
+being fixed, so there is now one definition and a test
+(`registry_dependency_count_matches_the_resolver_seeding_filter`) that fails if
+a caller drifts from it.
+
+**Both directions are A/B-verified**, not assumed: restoring the ident-only
+filter makes the acceptance regression test red, and dropping the `#` check makes
+the unit agreement test red.
+
+**#2 — the spike's first draft measured the wrong baseline, and would have
+"confirmed" the bug after it was fixed.** (Phase 1, 2026-07-21.) It captured the
+local `.mfp` bytes from the *package build directory* before publishing, then
+compared against the consumer's installed copy. But publishing **rebuilds
+`spike_pkg.mfp` in place**, so the consumer's `pkg add file://…` copied the
+freshly-built `0.2.0`, and the byte comparison failed for a reason that had
+nothing to do with resolution. The fixed test takes its baseline from the
+consumer's `packages/` directory immediately after `add` — i.e. it asserts the
+real invariant, "`update` does not change what `add` installed". Worth recording
+because the first version failed *both* before and after the fix, which is the
+signature of a test measuring the wrong thing rather than a bug.
+
+**#3 — a consequence of the fix, deliberately left to plan-60-E.** With the
+filter corrected, `mfb pkg update` on a project whose *only* dependency is a
+`file://` package now exits 1 with `"project.json declares no registry
+dependencies to resolve"`, where it previously "succeeded" by corrupting the
+package. That error is the pre-existing behavior for any project with no registry
+dependencies, so the fix makes such projects **consistent** rather than newly
+broken — but a clean no-op would be better, and plan-60-B §4.3 already defines
+that policy. Not done here: plan-60-B Phase 2 explicitly forbids rewiring
+`update()` ("letter E decides its final shape"), and widening C to redesign
+`update` would undercut that. **Recorded as an input to plan-60-E.**
 
 ## Summary
 

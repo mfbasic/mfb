@@ -39,6 +39,30 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 
 If either is incomplete, this plan cannot start, full stop.
 
+### Input from plan-60-C (added 2026-07-21) — `update` on a registry-free project
+
+plan-60-C fixed a data-loss defect: `resolve()` seeded registry nodes by **ident**
+alone, so a package that was published and then added by `file://` (which copies
+its ident out of the `.mfp` header) was resolved against the registry, and
+`mfb pkg update` silently overwrote the user's local copy with a registry blob of
+a different version. The seed filter now also requires a non-`file://` `source`.
+
+**The consequence this letter owns:** `mfb pkg update` on a project whose only
+dependencies are `file://` packages now exits **1** with `"project.json declares
+no registry dependencies to resolve"`. That is the pre-existing behavior for any
+project with no registry dependencies — the fix made such projects consistent
+rather than newly broken — but it is still the wrong answer. plan-60-B §4.3
+already defines the right one: a project with no registry dependencies has
+nothing to lock, which is a clean no-op, not a failure.
+
+This was deliberately **not** fixed in C, because plan-60-B Phase 2 forbids
+rewiring `update()` and assigns its final shape to this letter. When deciding
+that shape, make `update` on a registry-free project succeed as a no-op
+(and drop a stale `mfb.lock`, per §4.3) rather than error. Add a test covering a
+`file://`-only project; plan-60-C's
+`spike_file_added_package_with_registry_ident_survives_update` is a ready-made
+fixture to extend.
+
 > **Corrected 2026-07-21 (plan-60-C Corrections).** These rows originally used
 > unanchored greps (`grep -c 'fn confirm'`, `grep -c 'fn apply_manifest_change'`)
 > that count **every** mention, not the definition — and plan-60-B names its tests

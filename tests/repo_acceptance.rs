@@ -983,6 +983,129 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     );
 }
 
+/// plan-60-C Phase 1 (spike): does a `file://`-added package whose header
+/// carries an `owner#pkg` ident get resolved against the **registry** by
+/// `mfb pkg update`?
+///
+/// This matters because `add_package_from_file` copies the ident out of the
+/// `.mfp` header (`src/cli/pkg.rs:566`), not out of the URL, so a published
+/// package added by file *does* carry a `#`. `resolve()` seeds its nodes with
+/// `.filter(|dep| dep.ident.contains('#'))` (`src/cli/resolve.rs:253`), which
+/// keys on the ident and ignores `source`. If that filter admits this
+/// dependency, `mfb pkg update` silently replaces the user's local file with a
+/// registry blob.
+///
+/// Publishes a *different* version to the registry than the one added locally,
+/// so a substitution is unambiguous rather than a no-op byte-for-byte.
+#[test]
+fn spike_file_added_package_with_registry_ident_survives_update() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    let package_dir = work.path().join("spike_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let manifest_path = package_dir.join("project.json");
+    let seed = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#spike_pkg\",\n",
+    );
+    std::fs::write(&manifest_path, &seed).unwrap();
+
+    // Build and sign 0.1.0 locally — this is the copy the consumer adds by file.
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["build", "--sign", "alice", package_dir_arg]
+    )
+    .status
+    .success());
+    let mfp_path = package_dir.join("spike_pkg.mfp");
+
+    // Publish a DIFFERENT version (0.2.0) to the registry, so if resolution
+    // swaps the local file the bytes must change. NOTE: publishing rebuilds
+    // `spike_pkg.mfp` in place, so the consumer below adds the 0.2.0 artifact —
+    // the baseline for the survival check must therefore be read from the
+    // consumer's `packages/` *after* the add, not from this path before it.
+    let bumped = seed.replace("\"version\": \"0.1.0\"", "\"version\": \"0.2.0\"");
+    std::fs::write(&manifest_path, bumped).unwrap();
+    let published = run_mfb(
+        &repo,
+        home.path(),
+        &["repo", "publish", "alice", package_dir_arg],
+    );
+    assert!(
+        published.status.success(),
+        "publish failed: {}",
+        String::from_utf8_lossy(&published.stderr)
+    );
+
+    // Consumer adds the LOCAL 0.1.0 by file://.
+    let app_dir = work.path().join("spike_consumer");
+    let app_dir_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_dir_arg]).status.success());
+    assert!(run_mfb_in(
+        &repo,
+        home.path(),
+        &app_dir,
+        &["pkg", "add", &format!("file://{}", mfp_path.display())]
+    )
+    .status
+    .success());
+
+    // OBSERVATION 1: what did the add actually write?
+    let consumer_manifest = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
+    eprintln!("SPIKE consumer project.json:\n{consumer_manifest}");
+    assert!(
+        consumer_manifest.contains("alice#spike_pkg"),
+        "the spike's premise is that a file:// add records a registry-shaped \
+         ident; if this fails the premise is void: {consumer_manifest}"
+    );
+
+    // The baseline: exactly what `add` put in the consumer's packages/.
+    let installed = app_dir.join("packages/spike_pkg.mfp");
+    let before_update = std::fs::read(&installed).unwrap();
+
+    // OBSERVATION 2: does `update` resolve it, and do the local bytes survive?
+    let update = run_mfb_in(&repo, home.path(), &app_dir, &["pkg", "update"]);
+    eprintln!(
+        "SPIKE update exit={:?}\nstdout:\n{}\nstderr:\n{}",
+        update.status.code(),
+        String::from_utf8_lossy(&update.stdout),
+        String::from_utf8_lossy(&update.stderr)
+    );
+
+    let after_update = std::fs::read(&installed).unwrap();
+    assert_eq!(
+        before_update, after_update,
+        "REGRESSION (plan-60-C §5 defect branch): `mfb pkg update` replaced the \
+         file://-added local package with a registry blob. A dependency whose \
+         `source` is a file:// URL must not be a registry resolution node — the \
+         ident alone is not enough, because `add_package_from_file` copies the \
+         ident out of the .mfp header, so a published-then-file-added package \
+         carries a registry-shaped ident."
+    );
+
+    // And the lock must not claim to have resolved it.
+    let lock = std::fs::read_to_string(app_dir.join("mfb.lock")).unwrap_or_default();
+    assert!(
+        !lock.contains("spike_pkg"),
+        "a file:// dependency must not appear in mfb.lock as a resolved \
+         registry package: {lock}"
+    );
+}
+
 /// plan-60-A: the end-to-end proof of both halves of this letter — that
 /// publishing dispatches from `mfb repo` at all, and that `publish`'s new
 /// optional path really defaults to the current directory.

@@ -147,17 +147,36 @@ pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> R
     install(project_dir)
 }
 
-/// How many registry (`<owner>#<package>`) dependencies does this manifest
-/// declare? A locally-added package (a `file://` copy, whose `ident` is just its
-/// name) is not a registry dependency, does not participate in resolution, and
-/// so does not keep a lock alive.
+/// Is this dependency a **registry** resolution node?
 ///
-/// This **must** stay identical to the seeding filter in `resolve()` — the
-/// `.filter(|dep| dep.ident.contains('#'))` there is what makes an entry a
-/// registry dependency, and `resolve()` errors with "declares no registry
-/// dependencies to resolve" on an empty set. If the two disagree,
-/// `apply_manifest_change` either calls `resolve()` on a set it will reject, or
-/// takes the zero-dependency path while real dependencies still need locking.
+/// Two conditions, and both matter:
+///
+/// - The ident must be `<owner>#<package>`. A bare name has no registry
+///   coordinates to look up.
+/// - The source must not be a `file://` URL. **This is the plan-60-C §5 fix.**
+///   `add_package_from_file` copies the ident out of the `.mfp` *header*
+///   (`src/cli/pkg.rs:566`), not out of the URL, so a package that was published
+///   and then added by file carries a registry-shaped ident. Keying only on the
+///   ident therefore admitted it as a resolver node, and `mfb pkg update`
+///   silently replaced the user's local file with whatever version the registry
+///   currently served — a different package than the one they added, with no
+///   diagnostic. See `spike_file_added_package_with_registry_ident_survives_update`
+///   in `tests/repo_acceptance.rs` for the reproduction.
+///
+/// A `file://` dependency still contributes to `projectHash`, so it still
+/// requires the lock rewrite; it is simply not something the resolver selects.
+///
+/// **Single source of truth on purpose.** `resolve()`'s seeding and
+/// `registry_dependency_count` must agree exactly: if they drift,
+/// `apply_manifest_change` either calls `resolve()` on a set it will reject with
+/// "declares no registry dependencies to resolve", or takes the zero-dependency
+/// path while real dependencies still need locking.
+fn is_registry_dependency(dep: &crate::manifest::package::ProjectPackageDependency) -> bool {
+    dep.ident.contains('#') && !dep.source.starts_with("file://")
+}
+
+/// How many registry dependencies does this manifest declare? See
+/// [`is_registry_dependency`] for what counts and why.
 fn registry_dependency_count(manifest: &std::collections::HashMap<String, JsonValue>) -> usize {
     manifest
         .get("packages")
@@ -165,7 +184,7 @@ fn registry_dependency_count(manifest: &std::collections::HashMap<String, JsonVa
         .into_iter()
         .flatten()
         .filter_map(project_package_dependency)
-        .filter(|dep| dep.ident.contains('#'))
+        .filter(is_registry_dependency)
         .count()
 }
 
@@ -259,7 +278,7 @@ pub(crate) fn resolve(
         .into_iter()
         .flatten()
         .filter_map(project_package_dependency)
-        .filter(|dep| dep.ident.contains('#'))
+        .filter(is_registry_dependency)
         .collect();
     if registry_deps.is_empty() {
         return Err("project.json declares no registry dependencies to resolve".to_string());
@@ -1067,6 +1086,20 @@ mod tests {
             count(&format!("{local},{registry}")),
             1,
             "only the registry one"
+        );
+
+        // plan-60-C §5: the case that made this a data-loss bug. A package that
+        // was published and THEN added by `file://` carries a registry-shaped
+        // ident, because `add_package_from_file` copies the ident out of the
+        // .mfp header rather than the URL. Keying on the ident alone admitted
+        // it as a resolver node and `mfb pkg update` overwrote the user's local
+        // file with a registry blob. `source` is what disambiguates.
+        let published_then_file_added = "{\"name\":\"shape\",\"ident\":\"ada#shape\",\
+             \"version\":\"1.0.0\",\"source\":\"file:///tmp/shape.mfp\"}";
+        assert_eq!(
+            count(published_then_file_added),
+            0,
+            "a file:// source is never a registry dep, whatever its ident says"
         );
     }
 
