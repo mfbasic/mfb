@@ -14,10 +14,17 @@ Files in this directory:
 
 ## One-time setup
 
+Run every command below **from this directory** (`repository/`). `flyctl` reads
+the app name from the `fly.toml` in the working directory; from anywhere else
+these commands either target the wrong app or fail with `app not found`. Pass
+`-a <app>` explicitly if you must run them from elsewhere.
+
 ```sh
-# 1. Pick a unique app name (edits fly.toml).
-fly apps create my-mfb-repo            # or: fly launch --no-deploy --copy-config
-#    then set `app = "my-mfb-repo"` in fly.toml
+# 1. Pick a unique app name. Set `app = "<name>"` in fly.toml FIRST, then create
+#    the app under that exact name — every later command resolves the app
+#    through fly.toml, so a name that disagrees with it fails at step 2.
+#    fly.toml ships with `app = "mfb-repo"`; keep it only if that name is free.
+fly apps create <name>                 # or: fly launch --no-deploy --copy-config
 
 # 2. Persistent volume for the metadata DB + server keypair.
 #    Create it in the same region as `primary_region`.
@@ -44,10 +51,25 @@ fly scale count 1
 
 The signed-metadata root ceremony runs once, against the deployed volume DB:
 
+Substitute your real bucket name for `<bucket>` (`fly storage list`, or
+`fly secrets list` to confirm `BUCKET_NAME` is set). Do **not** write
+`$BUCKET_NAME` here: `-C` takes a single string that your *local* shell expands
+first, so the variable resolves to the empty string on your machine and the
+server sees `s3:///packages`, which is rejected as naming no bucket.
+
 ```sh
-fly ssh console -C "mfb-repo init-root --dbpath /data/meta.db \
-    --datapath s3://$BUCKET_NAME/packages --registry-id my-registry"
+fly ssh console -u mfb -C "mfb-repo init-root --dbpath /data/meta.db \
+    --datapath s3://<bucket>/packages --registry-id my-registry"
 ```
+
+`init-root` touches only the metadata DB — it recognizes an `s3://` data path
+and skips the blob backend entirely, so it needs no `--s3-endpoint` even on
+Tigris.
+
+`-u mfb` matters: `fly ssh console` connects as **root** by default, but the
+image runs the server as the unprivileged `mfb` user (uid 10001) that owns
+`/data`. Writing the DB as root leaves root-owned SQLite files the server then
+cannot write.
 
 Store the printed **root PRIVATE key** offline — it is never persisted on the
 server. Pin the printed root fingerprint out of band. (`reanchor` is likewise
@@ -59,14 +81,24 @@ run via `fly ssh console`.)
 it, so a publish abandoned between the upload and the commit leaves bytes nothing
 will ever name. `mfb-repo gc` reclaims them:
 
+Unlike `init-root`, `gc` really reaches the blob store, so on Tigris (or any
+S3-compatible store) it needs `--s3-endpoint`. The server picks that endpoint up
+from `AWS_ENDPOINT_URL_S3` via `docker-entrypoint.sh`, but `fly ssh console -C`
+execs the binary directly and bypasses the entrypoint — omit the flag and the
+AWS SDK silently targets real AWS S3 instead of your bucket. Read the value your
+app actually has with `fly ssh console -C "printenv AWS_ENDPOINT_URL_S3"`
+(Tigris is `https://fly.storage.tigris.dev`), and substitute `<bucket>` as above.
+
 ```sh
 # Dry run — lists every unreachable blob with its size, age, and location.
-fly ssh console -C "mfb-repo gc --dbpath /data/meta.db \
-    --datapath s3://$BUCKET_NAME/packages"
+fly ssh console -u mfb -C "mfb-repo gc --dbpath /data/meta.db \
+    --datapath s3://<bucket>/packages \
+    --s3-endpoint https://fly.storage.tigris.dev"
 
 # Same thing, then actually delete.
-fly ssh console -C "mfb-repo gc --dbpath /data/meta.db \
-    --datapath s3://$BUCKET_NAME/packages --delete"
+fly ssh console -u mfb -C "mfb-repo gc --dbpath /data/meta.db \
+    --datapath s3://<bucket>/packages \
+    --s3-endpoint https://fly.storage.tigris.dev --delete"
 ```
 
 It is a dry run unless `--delete` is given, and it never runs on its own — the
