@@ -710,6 +710,78 @@ pub(crate) fn project_json_with_updated_ident_key(
     Err(format!("project.json does not declare package `{name}`"))
 }
 
+/// Remove one or more dependency entries by `ident` (plan-60-F §4.3).
+///
+/// Rebuilds the `packages` array from the entries that survive, rather than
+/// splicing each removal out of the text — splicing has to reason about which
+/// comma belongs to which neighbour, and gets the first/last/only cases wrong in
+/// different ways. Surviving entries keep their **original text** byte for byte,
+/// so per-entry formatting and comments survive; only the separators between
+/// them are regenerated.
+///
+/// Removing every entry leaves `"packages": []`, which is what plan-60-B §4.3's
+/// zero-dependency path expects.
+pub(crate) fn project_json_without_packages(
+    contents: &str,
+    idents: &[&str],
+) -> Result<String, String> {
+    let Some((array_start, array_end)) = json_array_bounds(contents, "packages") else {
+        return Err("could not locate project.json `packages` array".to_string());
+    };
+
+    let mut kept: Vec<&str> = Vec::new();
+    let mut removed = 0usize;
+    let mut cursor = array_start + 1;
+    while cursor < array_end {
+        let Some(object_start) = contents[cursor..array_end].find('{').map(|at| cursor + at) else {
+            break;
+        };
+        let Some(object_end) = matching_json_delimiter(contents, object_start, b'{', b'}') else {
+            return Err("malformed project.json `packages` entry".to_string());
+        };
+        let object = &contents[object_start..=object_end];
+        let entry_ident = object
+            .parse::<JsonValue>()
+            .ok()
+            .and_then(|value| value.get::<HashMap<String, JsonValue>>().cloned())
+            .and_then(|entry| {
+                entry
+                    .get("ident")
+                    .or_else(|| entry.get("name"))
+                    .and_then(|value| value.get::<String>())
+                    .cloned()
+            });
+        match entry_ident {
+            Some(ident) if idents.contains(&ident.as_str()) => removed += 1,
+            _ => kept.push(object),
+        }
+        cursor = object_end + 1;
+    }
+
+    if removed == 0 {
+        return Err(format!(
+            "project.json declares none of: {}",
+            idents.join(", ")
+        ));
+    }
+
+    let mut array = String::from("[");
+    if !kept.is_empty() {
+        for (index, object) in kept.iter().enumerate() {
+            array.push_str(if index == 0 { "\n    " } else { ",\n    " });
+            array.push_str(object);
+        }
+        array.push_str("\n  ");
+    }
+    array.push(']');
+
+    let mut out = String::new();
+    out.push_str(&contents[..array_start]);
+    out.push_str(&array);
+    out.push_str(&contents[array_end + 1..]);
+    Ok(out)
+}
+
 /// Rewrite a declared dependency's `version`, and optionally its `pin`, by
 /// surgical string edit (plan-60-E §4.1).
 ///
@@ -1462,7 +1534,93 @@ mod tests {
         assert!(err.contains("already declares package"));
     }
 
+    fn three_package_manifest() -> String {
+        "{\n  \"name\": \"app\",\n  \"packages\": [\n    {\n      \"name\": \"a\",\n      \"ident\": \"o#a\",\n      \"version\": \"1.0.0\"\n    },\n    {\n      \"name\": \"b\",\n      \"ident\": \"o#b\",\n      \"version\": \"2.0.0\"\n    },\n    {\n      \"name\": \"c\",\n      \"ident\": \"o#c\",\n      \"version\": \"3.0.0\"\n    }\n  ]\n}\n".to_string()
+    }
+
+    /// plan-60-F §4.3: removing the first, middle, last and only entry. Each
+    /// result must re-parse as valid JSON — a dangling comma is the failure mode
+    /// this class of surgical edit gets wrong, and it differs per position.
     #[test]
+    fn project_json_without_packages_removes_at_every_position() {
+        let contents = three_package_manifest();
+        for (target, survivors) in [
+            ("o#a", vec!["o#b", "o#c"]),
+            ("o#b", vec!["o#a", "o#c"]),
+            ("o#c", vec!["o#a", "o#b"]),
+        ] {
+            let out = project_json_without_packages(&contents, &[target]).unwrap();
+            let parsed = out.parse::<JsonValue>().expect("valid json");
+            let packages = parsed
+                .get::<HashMap<String, JsonValue>>()
+                .and_then(|m| m.get("packages"))
+                .and_then(|v| v.get::<Vec<JsonValue>>())
+                .expect("packages array");
+            assert_eq!(packages.len(), 2, "removing {target}: {out}");
+            assert!(!out.contains(target), "removing {target}: {out}");
+            for survivor in survivors {
+                assert!(
+                    out.contains(survivor),
+                    "removing {target} lost {survivor}: {out}"
+                );
+            }
+        }
+    }
+
+    /// Removing every entry leaves an empty array, which is what plan-60-B
+    /// §4.3's zero-dependency path expects to find.
+    #[test]
+    fn project_json_without_packages_can_empty_the_array() {
+        let out = project_json_without_packages(&three_package_manifest(), &["o#a", "o#b", "o#c"])
+            .unwrap();
+        let parsed = out.parse::<JsonValue>().expect("valid json");
+        let packages = parsed
+            .get::<HashMap<String, JsonValue>>()
+            .and_then(|m| m.get("packages"))
+            .and_then(|v| v.get::<Vec<JsonValue>>())
+            .expect("packages array");
+        assert!(packages.is_empty(), "{out}");
+        // ...and the rest of the manifest survives.
+        assert!(out.contains("\"name\": \"app\""), "{out}");
+    }
+
+    /// Removing the ONLY entry — the single-entry array is its own case.
+    #[test]
+    fn project_json_without_packages_removes_the_only_entry() {
+        let contents = "{\n  \"name\": \"app\",\n  \"packages\": [\n    {\n      \"name\": \"a\",\n      \"ident\": \"o#a\",\n      \"version\": \"1.0.0\"\n    }\n  ]\n}\n";
+        let out = project_json_without_packages(contents, &["o#a"]).unwrap();
+        out.parse::<JsonValue>().expect("valid json");
+        assert!(!out.contains("o#a"), "{out}");
+    }
+
+    /// Multiple removals in one call — the cascade's shape.
+    #[test]
+    fn project_json_without_packages_removes_several_at_once() {
+        let out =
+            project_json_without_packages(&three_package_manifest(), &["o#a", "o#c"]).unwrap();
+        out.parse::<JsonValue>().expect("valid json");
+        assert!(!out.contains("o#a") && !out.contains("o#c"), "{out}");
+        assert!(out.contains("o#b"), "{out}");
+    }
+
+    /// Surviving entries keep their original text, so per-entry formatting is
+    /// preserved rather than re-serialized.
+    #[test]
+    fn project_json_without_packages_preserves_survivor_formatting() {
+        let out = project_json_without_packages(&three_package_manifest(), &["o#a"]).unwrap();
+        assert!(
+            out.contains("{\n      \"name\": \"b\",\n      \"ident\": \"o#b\",\n      \"version\": \"2.0.0\"\n    }"),
+            "survivor text must be byte-identical: {out}"
+        );
+    }
+
+    #[test]
+    fn project_json_without_packages_errors_when_none_match() {
+        let err =
+            project_json_without_packages(&three_package_manifest(), &["o#missing"]).unwrap_err();
+        assert!(err.contains("declares none of"), "{err}");
+    }
+
     /// plan-60-E §4.1: pin state is PRESERVED unless a flag was passed. This is
     /// the property that separates the targeted form from `add` — bumping a
     /// floating dependency's ABI floor must not silently pin it.

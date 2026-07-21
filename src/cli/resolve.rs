@@ -373,6 +373,15 @@ fn registry_dependency_count(manifest: &std::collections::HashMap<String, JsonVa
 pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
     let (manifest, _contents) = read_manifest(project_dir)?;
     let Some(lock) = read_lock(project_dir)? else {
+        // plan-60-F §4.6: distinguish "no lock because nothing is declared" from
+        // "no lock but dependencies are declared". The first is a correctly
+        // configured project — after `mfb pkg remove` took the last dependency,
+        // or in a fresh `mfb init` — and reporting it as an error told the user
+        // to run a command that would do nothing.
+        if registry_dependency_count(&manifest) == 0 {
+            println!("nothing to install: project.json declares no registry dependencies");
+            return Ok(());
+        }
         return Err("no mfb.lock; run `mfb pkg update` to resolve dependencies first".to_string());
     };
     // A drifted request set means the lock may no longer describe the project.
@@ -1130,13 +1139,45 @@ mod tests {
     #[test]
     fn install_without_a_lock_errors_before_network() {
         let dir = tempfile::tempdir().expect("temp dir");
+        // plan-60-F §4.6: the fixture now DECLARES a dependency. That is what
+        // this test was always about — "dependencies are declared but there is
+        // no lock" is the error case — but it originally used an empty manifest,
+        // which §4.6 reclassifies as a correctly configured project with nothing
+        // to install. The protected behavior (early error, no /blob fetch) is
+        // unchanged; the fixture now actually exercises it.
         std::fs::write(
             dir.path().join("project.json"),
-            "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{\"root\":\"src\"}]}",
+            manifest_with_packages(
+                "{\"name\":\"shape\",\"ident\":\"ada#shape\",\"version\":\"1.0.0\"}",
+            ),
         )
         .expect("manifest");
         // No mfb.lock present -> early error, no /blob fetch.
         assert!(install(dir.path()).unwrap_err().contains("no mfb.lock"));
+    }
+
+    /// plan-60-F §4.6: a project that declares no registry dependencies has
+    /// nothing to install, which is success — not the "run `mfb pkg update`"
+    /// error, which told the user to run a command that would do nothing.
+    /// Reached after `mfb pkg remove` takes the last dependency, and in a fresh
+    /// `mfb init` project.
+    #[test]
+    fn install_without_declared_dependencies_is_a_no_op() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("project.json"), manifest_with_packages(""))
+            .expect("manifest");
+        assert!(
+            install(dir.path()).is_ok(),
+            "a project with nothing declared has nothing to install"
+        );
+        // A local file:// package is not a registry dependency either, so it
+        // must not resurrect the error.
+        std::fs::write(
+            dir.path().join("project.json"),
+            manifest_with_packages("{\"name\":\"shape\",\"source\":\"file://shape.mfp\"}"),
+        )
+        .expect("manifest");
+        assert!(install(dir.path()).is_ok());
     }
 
     #[test]
