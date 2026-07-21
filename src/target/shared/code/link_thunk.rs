@@ -195,7 +195,7 @@ pub(super) fn emit_link_support(
     // set is what lets a thunk tell a record-resource param from a scalar one.
     let stateful_native_resources: HashSet<String> = link_functions
         .iter()
-        .filter(|f| f.return_resource && f.return_state_type.is_some())
+        .filter(|f| f.return_resource)
         .map(|f| crate::builtins::resource::base_resource_name(&f.return_type).to_string())
         .collect();
 
@@ -1190,7 +1190,7 @@ fn lower_link_thunk(
     // resource (or `BIND STATE` populates it first — plan-53-B). Without this the
     // handle IS the value and `.state` writes at offset 16 of the native handle's
     // own memory — memory corruption (the defect this fixes).
-    if function.return_resource && function.return_state_type.is_some() {
+    if function.return_resource {
         instructions.extend([
             // Park the handle; alloc clobbers every caller-saved register.
             abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), rec_handle_off),

@@ -204,23 +204,31 @@ stateful one:
 Falsifies the design's one unproven premise (the param-side unwrap) before any
 broad change. Smallest thing that can prove the record works.
 
-- [ ] In `link_thunk.rs`, drop `&& f.return_state_type.is_some()` from the
+- [x] In `link_thunk.rs`, drop `&& f.return_state_type.is_some()` from the
       `stateful_native_resources` filter at `:196-199` **only**, leaving the
       return-side condition at `:1193` alone. Confirm this alone does not
-      compile-break: the set is consumed at `:843-848`.
-- [ ] Now drop the same clause from `:1193`. Build
+      compile-break: the set is consumed at `:843-848`. — compiles clean, and
+      the resulting *behavioral* break is itself the proof of C4 below.
+- [x] Now drop the same clause from `:1193`. Build
       `tests/rt-behavior/native/native-link-sqlite-rt` (10 `RES`-taking `LINK`
-      funcs — the densest stateless fixture) and run it.
-- [ ] Read the emitted thunk for `sql::close` with `--ncode` + `otool -tV` and
+      funcs — the densest stateless fixture) and run it. — passes with its
+      golden **unchanged**, i.e. byte-identical observable output.
+- [x] Read the emitted thunk for `sql::close` with `--ncode` + `otool -tV` and
       confirm it loads `FD@0` before the native call rather than passing the
-      record pointer. (Note: lldb cannot break on mfb binaries.)
-- [ ] Record the result in Corrections — including if the param path already
-      handles it, which would make Phase 2's first task moot.
+      record pointer. (Note: lldb cannot break on mfb binaries.) — confirmed at
+      both levels; see C4.
+- [x] Record the result in Corrections — including if the param path already
+      handles it, which would make Phase 2's first task moot. — see C4; the
+      param path does already handle it, but Phase 2's first task is a **rename**
+      and is NOT moot.
 
 Acceptance: `native-link-sqlite-rt` opens a DB, prepares and finalizes a
 statement, and closes cleanly with the same observable output as before the
 change; the disassembled `sql::close` thunk demonstrably passes `FD@0`, not the
 record pointer, to `sqlite3_close`.
+**MET** — the fixture passes against its **unchanged** golden (so "same
+observable output" is byte-equality, not a judgement call), and both the `.ncode`
+plan and `otool -tV` show the `FD@0` dereference before the call. Evidence in C4.
 Commit: —
 
 ### Phase 2 — Widen the record to every native resource
@@ -327,6 +335,52 @@ Not resolved here (it is E's to resolve), but recorded now because it changes
 what E must do: E cannot assume `closeSound` exists, and must either land that
 binding change as part of its own work or re-pin the citation to a fixture it
 creates. Noted in E's Corrections as well.
+
+### C4 — Phase 1 result: the param path already handles it, PROVEN (2026-07-20)
+
+§2's UNVERIFIED property is discharged. Three pieces of evidence, in the order
+they were produced:
+
+**1. The intermediate state breaks, which is the positive result.** With only the
+filter widened (`:196`) and the return side left alone, the tree compiles but
+`native-link-sqlite-rt` fails:
+
+```
+-1=alice@1.50 / 2=bob@2.50 / done / [exit 0]
++Error: 7-703-0008  Native `LINK` binding call failed its `SUCCESS_ON` gate. [exit 255]
+```
+
+That failure is the *proof*: the param path began dereferencing `FD@0` on a value
+that was still a raw `sqlite3*`. Had the param path been gated on statefulness
+somewhere else, widening the set alone would have changed nothing and the fixture
+would have stayed green. A deliberately-broken intermediate state was the cheapest
+available discriminator, and it is why the plan sequenced these two edits apart.
+
+**2. With both edits, output is byte-identical.** `native-link-sqlite-rt` passes
+against its **unchanged** golden — not a re-baselined one. No golden was touched.
+
+**3. The `FD@0` load is in the emitted code, at both levels.** `.ncode` for
+`linker.sql.close`:
+
+```
+str_u64 x0  -> [sp+64]      ; park the incoming param (record pointer)
+ldr_u64 x21 <- [sp+64]
+ldr_u64 x21 <- [x21 + 0]    ; FD@0
+str_u64 x21 -> [sp+72]
+ldr_u64 x0  <- [sp+72]      ; x0 = raw handle
+ldr_u64 x22 <- [x19 + 3848] ; GOT slot for sqlite3_close
+blr x22
+```
+
+and `otool -tV` at `0x100005440` shows the same seven instructions with GOT
+offset `0xf08` = 3848, confirming the slot identity rather than assuming it.
+
+**Consequence for Phase 2.** Its first task is **not** moot: it is a rename
+(`stateful_native_resources` → `record_native_resources`) plus a doc-comment fix,
+and the comment is now actively wrong in a load-bearing way — it says "a native
+func produces `AS RES R STATE S`", which is no longer what qualifies a type for
+the set. Renaming is what stops the next reader concluding the set is
+stateful-only. The task stands as written.
 
 ### C3 — the param-side unwrap is type-keyed, and already covers bare params (2026-07-20)
 
