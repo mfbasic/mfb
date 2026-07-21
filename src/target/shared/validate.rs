@@ -1640,6 +1640,7 @@ mod tests {
             link_functions: Vec::new(),
             link_cstructs: Vec::new(),
             native_libraries: Default::default(),
+            max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
         }
     }
 
@@ -1708,6 +1709,7 @@ mod tests {
             link_functions: Vec::new(),
             link_cstructs: Vec::new(),
             native_libraries: Default::default(),
+            max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
         }
     }
 

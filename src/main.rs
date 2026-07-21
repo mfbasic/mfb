@@ -867,6 +867,64 @@ mod tests {
         fs::remove_dir_all(root).expect("remove temp dir");
     }
 
+    /// plan-58-C: `maxBuffer` is the `OUT CBuffer` allocation ceiling in MiB.
+    /// Whole number, 1..=4096; anything else is rejected rather than silently
+    /// clamped, because a manifest that says 0 or "big" means the author has a
+    /// belief about the ceiling that the build would otherwise quietly ignore.
+    #[test]
+    fn validate_project_manifest_checks_max_buffer() {
+        let root = test_temp_dir("validate_project_manifest_checks_max_buffer");
+        let project_dir = root.join("app");
+        fs::create_dir_all(&project_dir).expect("project dir");
+        let manifest = |max_buffer: &str| {
+            format!(
+                concat!(
+                    "{{\n",
+                    "  \"name\": \"app\",\n",
+                    "  \"version\": \"0.1.0\",\n",
+                    "  \"mfb\": \"1.0\",\n",
+                    "  \"kind\": \"executable\",\n",
+                    "  \"maxBuffer\": {},\n",
+                    "  \"sources\": [{{ \"root\": \"src\" }}]\n",
+                    "}}\n"
+                ),
+                max_buffer
+            )
+        };
+        let path = project_dir.join("project.json");
+        for good in ["1", "64", "128", "4096"] {
+            fs::write(&path, manifest(good)).expect("project manifest");
+            assert!(
+                validate_project_manifest(&path).is_ok(),
+                "maxBuffer {good} must be accepted"
+            );
+        }
+        for bad in ["0", "-1", "4097", "64.5", "\"64\"", "true"] {
+            fs::write(&path, manifest(bad)).expect("project manifest");
+            assert!(
+                validate_project_manifest(&path).is_err(),
+                "maxBuffer {bad} must be rejected"
+            );
+        }
+        // Omitted entirely is fine — it defaults to 64 MiB.
+        fs::write(
+            &path,
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"sources\": [{ \"root\": \"src\" }]\n",
+                "}\n"
+            ),
+        )
+        .expect("project manifest");
+        assert!(validate_project_manifest(&path).is_ok());
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
     fn test_temp_dir(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
             "mfb_{name}_{}_{}",

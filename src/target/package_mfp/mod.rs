@@ -441,6 +441,7 @@ mod tests {
             link_aliases: Vec::new(),
             docs: crate::ir::ProjectDocs::default(),
             native_libraries: Default::default(),
+            max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
         }
     }
 

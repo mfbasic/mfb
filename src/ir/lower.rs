@@ -323,6 +323,9 @@ pub fn lower_project_with_external_functions(
         // Assembled from the manifest by the build path (plan-46-B §4.3), which
         // is where project.json is read; the AST carries no manifest data.
         native_libraries: crate::binary_repr::NativeLibraryTable::default(),
+        // Overwritten from project.json by `assemble_max_buffer` on the build
+        // path; this default is what a synthesized or test-built project gets.
+        max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
     }
 }
 

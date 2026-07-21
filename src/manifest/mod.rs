@@ -22,6 +22,81 @@ pub(crate) fn parse_project_json(
         .ok_or_else(|| format!("'{}' must contain a JSON object", project_path.display()))
 }
 
+/// The default `maxBuffer`, in MiB — the ceiling on a single `OUT CBuffer`
+/// allocation (plan-58-C).
+///
+/// A CBuffer's size is a runtime expression over the wrapper's parameters, so
+/// without a ceiling it is an unbounded allocation request driven by the caller.
+/// 64 MiB is 64 MB of arena under the kind-2 byte-list layout, and ~5.8 minutes
+/// of stereo 48 kHz s16 audio.
+pub(crate) const DEFAULT_MAX_BUFFER_MIB: u64 = 64;
+
+/// The largest `maxBuffer` a project may ask for, in MiB. 4 GiB is far past any
+/// real use and keeps `mib * 1024 * 1024` clear of `i64` trouble in the emitted
+/// size gate.
+pub(crate) const MAX_MAX_BUFFER_MIB: u64 = 4096;
+
+/// Read `maxBuffer` (in MiB) from a validated manifest, defaulting to
+/// [`DEFAULT_MAX_BUFFER_MIB`].
+///
+/// Returns bytes, which is what the codegen size gate compares against. The
+/// manifest states MiB because that is the unit a person reasons about when
+/// deciding how much memory one native read may claim.
+///
+/// **This is the CONSUMING project's setting, not the binding's.** LINK thunks
+/// are emitted when an executable links, so the app that imports a binding
+/// decides its own memory ceiling — a binding cannot raise it on the app's
+/// behalf.
+pub(crate) fn max_buffer_bytes(manifest: &HashMap<String, JsonValue>) -> u64 {
+    manifest
+        .get("maxBuffer")
+        .and_then(|value| value.get::<f64>())
+        .map(|mib| *mib as u64)
+        .unwrap_or(DEFAULT_MAX_BUFFER_MIB)
+        .clamp(1, MAX_MAX_BUFFER_MIB)
+        * 1024
+        * 1024
+}
+
+/// Validate an optional `maxBuffer`: a positive integer number of MiB, at most
+/// [`MAX_MAX_BUFFER_MIB`].
+fn validate_max_buffer(
+    manifest: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+) -> bool {
+    let Some(value) = manifest.get("maxBuffer") else {
+        return true;
+    };
+    let (line, column) = field_position(contents, "maxBuffer");
+    let span_end = column + "\"maxBuffer\"".len();
+    let Some(mib) = value.get::<f64>() else {
+        rules::show_diagnostic(
+            "PROJECT_JSON_FIELD_TYPE",
+            "Field `maxBuffer` must be a number of MiB, for example `\"maxBuffer\": 128`.",
+            project_path,
+            line,
+            column,
+            span_end,
+        );
+        return false;
+    };
+    if *mib < 1.0 || mib.fract() != 0.0 || *mib > MAX_MAX_BUFFER_MIB as f64 {
+        rules::show_diagnostic(
+            "PROJECT_JSON_FIELD_TYPE",
+            &format!(
+                "Field `maxBuffer` must be a whole number of MiB between 1 and {MAX_MAX_BUFFER_MIB}."
+            ),
+            project_path,
+            line,
+            column,
+            span_end,
+        );
+        return false;
+    }
+    true
+}
+
 pub(crate) fn validate_project_manifest(
     project_path: &Path,
 ) -> Result<HashMap<String, JsonValue>, ()> {
@@ -239,7 +314,7 @@ fn validate_sources(
         return false;
     }
 
-    let mut valid = true;
+    let mut valid = validate_max_buffer(manifest, project_path, contents);
     for (index, source) in sources.iter().enumerate() {
         let Some(source) = source.get::<HashMap<String, JsonValue>>() else {
             rules::show_diagnostic(

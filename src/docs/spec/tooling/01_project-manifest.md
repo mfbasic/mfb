@@ -41,6 +41,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `libraries` | object | no | native `LINK` library locators, keyed by logical library name (see *Library Locator Entries*) |
 | `resources` | array of objects | no | data files the build copies into the output tree (see *Resource Entries*) |
 | `targets` | array | no | reserved; emitted by `mfb init` as `["native"]` and **not read by any stage** (bug-326-A14) |
+| `maxBuffer` | number | no | ceiling on a single native `OUT CBuffer` allocation, in MiB. Whole number, 1–4096; defaults to **64**. See *Native buffer ceiling* |
 | `config` | object | no | build-time runtime tunables baked into the executable (see ⁴) |
 
 Identity-chain fields (`identKey` and the key fingerprints) are **not**
@@ -94,6 +95,22 @@ absent, non-numeric, or below one read chunk (8 KiB, which could not hold a sing
 chunk); unknown keys under `config` are ignored. It is not a runtime env var or
 setter — the value is fixed into the binary at build time.
 [[src/manifest/mod.rs:stdin_log_cap]]
+
+## Native buffer ceiling (`maxBuffer`)
+
+A native `LINK` wrapper with an `OUT CBuffer` slot sizes its buffer from a `BUFFER … SIZE` expression over the wrapper's parameters (./mfb spec language native-libraries). That size is a *runtime* value chosen by the caller, so without a ceiling it is an unbounded allocation request.
+
+`maxBuffer` sets that ceiling, in MiB:
+
+```json
+{ "maxBuffer": 256 }
+```
+
+- Whole number, 1 to 4096. Anything else — a string, a fraction, zero, out of range — is `PROJECT_JSON_FIELD_TYPE`.
+- Omitted, it defaults to **64** MiB, which is about 5.8 minutes of stereo 48 kHz 16-bit audio.
+- A `SIZE` above the ceiling (or negative) raises `ErrInvalidArgument` **before** allocating, so an over-large request costs nothing.
+
+It is the **consuming** project's setting. `LINK` thunks are emitted when an executable links, so the application importing a binding decides how much memory one native read may claim; a binding package neither carries a ceiling nor can raise the application's.
 
 ## Source Entries
 

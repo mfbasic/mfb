@@ -108,6 +108,7 @@ pub(super) fn emit_link_support(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     libraries: &LinkLibraries,
+    max_buffer_bytes: u64,
 ) -> Result<LinkSupport, String> {
     let mut data_objects = Vec::new();
 
@@ -181,6 +182,7 @@ pub(super) fn emit_link_support(
             globals_base,
             free_slot,
             &stateful_native_resources,
+            max_buffer_bytes,
         )?);
     }
 
@@ -333,6 +335,15 @@ fn lower_link_thunk(
     globals_base: usize,
     free_slot: Option<usize>,
     stateful_native_resources: &HashSet<String>,
+    // `max_buffer_bytes`: the largest `BUFFER … SIZE` an `OUT CBuffer` may
+    // request, from project.json `maxBuffer` (MiB), default 64 (plan-58-C). The
+    // buffer is an arena block sized by a runtime expression over the wrapper's
+    // parameters, so without a ceiling it is an unbounded allocation request
+    // driven by the caller. A request above it, or a negative one, raises
+    // `ErrInvalidArgument` BEFORE allocating. This is the CONSUMING project's
+    // setting: thunks are emitted when an executable links, so a binding cannot
+    // raise an app's memory ceiling on its behalf.
+    max_buffer_bytes: u64,
 ) -> Result<CodeFunction, String> {
     let symbol = link_thunk_symbol(&function.alias, &function.name);
     let n_params = function.params.len();
@@ -351,18 +362,6 @@ fn lower_link_thunk(
         .iter()
         .filter(|slot| slot.direction.writes_back() && !is_struct_ctype(&slot.ctype))
         .count();
-
-    /// The largest `BUFFER … SIZE` an `OUT CBuffer` may request, in bytes
-    /// (plan-58-B §4.2).
-    ///
-    /// The buffer is an arena block sized by a runtime expression, so without a cap a
-    /// wrapper parameter is an unbounded allocation request. 64 MiB under the kind-2
-    /// byte-list layout is 64 MB of arena (1.0x, since a kind-2 block is `40 + N`),
-    /// and it is what sets plan-58-D's ~5.8 minute stereo-48kHz audio ceiling.
-    ///
-    /// A request above this, or a negative one, raises `ErrInvalidArgument` BEFORE
-    /// allocating — a negative size would otherwise compute a nonsense block size.
-    pub(crate) const CBUFFER_MAX_BYTES: i64 = 64 * 1024 * 1024;
 
     const STATUS_OFF: usize = 8;
     const CRET_OFF: usize = 16;
@@ -638,7 +637,7 @@ fn lower_link_thunk(
         instructions.extend([
             abi::compare_immediate(&size_reg, "0"),
             abi::branch_lt(&buffer_size_fail),
-            abi::move_immediate("%v9", "Integer", &CBUFFER_MAX_BYTES.to_string()),
+            abi::move_immediate("%v9", "Integer", &max_buffer_bytes.to_string()),
             abi::compare_registers(&size_reg, "%v9"),
             abi::branch_gt(&buffer_size_fail),
         ]);
@@ -2235,6 +2234,7 @@ mod tests {
                 0,
                 None,
                 &HashSet::new(),
+                TEST_MAX_BUFFER_BYTES,
             )
         };
 
@@ -2262,6 +2262,11 @@ mod tests {
         );
         assert!(lower(8).is_ok(), "eight is AAPCS64's limit");
     }
+
+    /// The `maxBuffer` ceiling these tests lower against: the project.json
+    /// default of 64 MiB. Named rather than inlined so a test asserting the gate
+    /// reads against the same number the default produces.
+    const TEST_MAX_BUFFER_BYTES: u64 = 64 * 1024 * 1024;
 
     /// Every ctype the allow-list accepts must reach a real marshaling arm.
     ///
@@ -2328,8 +2333,16 @@ mod tests {
                 buffers: vec![],
                 result_length: None,
             };
-            let lowered =
-                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
+            let lowered = lower_link_thunk(
+                &function,
+                &[],
+                &HashMap::new(),
+                0,
+                0,
+                None,
+                &HashSet::new(),
+                TEST_MAX_BUFFER_BYTES,
+            );
             assert!(
                 lowered.is_ok(),
                 "accepted return ctype {ctype} does not lower: {:?}",
@@ -2366,8 +2379,16 @@ mod tests {
                 buffers: vec![],
                 result_length: None,
             };
-            let lowered =
-                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
+            let lowered = lower_link_thunk(
+                &function,
+                &[],
+                &HashMap::new(),
+                0,
+                0,
+                None,
+                &HashSet::new(),
+                TEST_MAX_BUFFER_BYTES,
+            );
             assert!(
                 lowered.is_ok(),
                 "accepted argument ctype {ctype} does not lower: {:?}",
@@ -2409,8 +2430,16 @@ mod tests {
                 }],
                 result_length: Some(crate::ir::IrLinkExpr::Var("status".to_string())),
             };
-            let lowered =
-                lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
+            let lowered = lower_link_thunk(
+                &function,
+                &[],
+                &HashMap::new(),
+                0,
+                0,
+                None,
+                &HashSet::new(),
+                TEST_MAX_BUFFER_BYTES,
+            );
             assert!(
                 lowered.is_ok(),
                 "accepted OUT-slot ctype {ctype} does not lower: {:?}",

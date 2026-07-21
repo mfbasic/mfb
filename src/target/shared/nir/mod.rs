@@ -40,6 +40,9 @@ pub(crate) struct NirModule {
     /// from that binding's `.mfp` section 10 at codegen instead. Carried verbatim
     /// from the IR.
     pub(crate) native_libraries: crate::binary_repr::NativeLibraryTable,
+    /// The `OUT CBuffer` allocation ceiling in bytes (project.json `maxBuffer`,
+    /// in MiB). See `IrProject::max_buffer_bytes`.
+    pub(crate) max_buffer_bytes: u64,
 }
 
 /// The internal text symbol of the per-program native `LINK` load-time

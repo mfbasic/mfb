@@ -42,6 +42,7 @@ fn empty_project(name: &str) -> IrProject {
         link_aliases: vec![],
         docs: ProjectDocs::default(),
         native_libraries: Default::default(),
+        max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
     }
 }
 
@@ -527,6 +528,7 @@ fn full_project() -> IrProject {
         link_aliases: vec![("openAlias".to_string(), "sqliteLink.open".to_string())],
         docs: ProjectDocs::default(),
         native_libraries: Default::default(),
+        max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
     }
 }
 

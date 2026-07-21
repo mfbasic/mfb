@@ -45,6 +45,13 @@ pub struct IrProject {
     /// against it — an imported binding's locators come from that binding's
     /// section 10 instead, read straight off the `.mfp` at codegen (plan-46-C).
     pub(crate) native_libraries: crate::binary_repr::NativeLibraryTable,
+    /// The ceiling on a single `OUT CBuffer` allocation, in bytes, from the
+    /// project.json `maxBuffer` field in MiB (plan-58-C). Defaults to 64 MiB.
+    ///
+    /// Not encoded into a `.mfp`, deliberately: LINK thunks are emitted when an
+    /// executable links, so the ceiling that applies is the CONSUMING project's.
+    /// A binding cannot raise an app's memory ceiling on its behalf.
+    pub(crate) max_buffer_bytes: u64,
 }
 
 impl IrProject {

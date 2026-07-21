@@ -213,7 +213,20 @@ Unlike `SIZE`, a `LENGTH` expression is evaluated **after** the call, so it may 
 
 The buffer's *capacity* deliberately stays at the full `SIZE` after truncation. That is what lets the arena reclaim the whole block — block size is computed from capacity, so lowering it would leak the tail — and `capacity > count` is sanctioned headroom (§Collections); a value-semantic copy is shrink-to-fit, so the slack disappears the first time the list is copied.
 
-A `SIZE` that is negative or larger than **64 MiB** raises `ErrInvalidArgument` before anything is allocated: the size comes from a wrapper parameter, so without a cap it is an unbounded allocation request driven by the caller.
+A `SIZE` that is negative, or larger than the project's buffer ceiling, raises `ErrInvalidArgument` **before anything is allocated**: the size comes from a wrapper parameter, so without a ceiling it is an unbounded allocation request driven by the caller.
+
+That ceiling is **64 MiB** by default and is set per project by the `maxBuffer` field in `project.json`, in MiB:
+
+```json
+{
+  "name": "recorder",
+  "maxBuffer": 256
+}
+```
+
+Valid values are whole numbers from 1 to 4096 (MiB); anything else is `PROJECT_JSON_FIELD_TYPE`. The default of 64 MiB is ~5.8 minutes of stereo 48 kHz 16-bit audio.
+
+`maxBuffer` is the **consuming** project's setting, not the binding's. `LINK` thunks are emitted when an executable links, so the application that imports a binding decides how much memory one native read may claim — a binding cannot raise an application's ceiling on its behalf, and a package does not carry one.
 
 > Implementation status (plan-58-B): `OUT CBuffer` marshals — the thunk allocates the byte list, hands the callee a pointer to its data region, and truncates to `LENGTH` on return. `BUFFER` and `LENGTH` clauses do **not** yet ride the `.mfp` wire format (plan-58-C owns it), so a `CBuffer` binding cannot currently be consumed from a compiled package: decoding one yields a slot with no `BUFFER` clause, which fails to lower with a diagnostic rather than marshalling a zero-capacity buffer.
 

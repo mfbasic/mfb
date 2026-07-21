@@ -485,6 +485,11 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             if !assemble_native_libraries_for_ir(&mut ir, &manifest, &options.location) {
                 return Err(());
             }
+            // plan-58-C: the `OUT CBuffer` allocation ceiling. Read here rather
+            // than encoded into a package, because LINK thunks are emitted when
+            // an EXECUTABLE links — so the ceiling that applies is this project's,
+            // and an imported binding cannot raise it on the app's behalf.
+            ir.max_buffer_bytes = crate::manifest::max_buffer_bytes(&manifest);
             // A host `mfb test` links the driver into a unique temporary
             // directory (removed after the run) so nothing is ever left in the
             // project directory. A cross `-target` test build has no host binary

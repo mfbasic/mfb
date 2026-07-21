@@ -503,6 +503,9 @@ fn decode_project(r: &mut IrReader) -> Result<IrProject, String> {
         // by the consumer's codegen straight off the package (plan-46-C), not
         // carried in the decoded IR.
         native_libraries: crate::binary_repr::NativeLibraryTable::default(),
+        // Not on the wire: the CONSUMING project's project.json sets it, so a
+        // decoded package must not carry (or override) a ceiling.
+        max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
     })
 }
 

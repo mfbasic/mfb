@@ -109,6 +109,16 @@ FUNC main() AS Integer
   LET past AS List OF Byte = libc::preadBytes(fd, 8, 900)
   io::print("past_len " & toString(len(past)))
 
+  ' plan-58-C: the maxBuffer ceiling. This project.json sets `"maxBuffer": 1`,
+  ' so a SIZE of 1 MiB is allowed and 1 MiB + 1 is not. The gate runs BEFORE the
+  ' allocation, so an over-cap request costs nothing and raises
+  ' ErrInvalidArgument rather than claiming the arena.
+  LET big AS List OF Byte = libc::preadBytes(fd, 1048576, 0)
+  io::print("at_cap_len " & toString(len(big)))
+
+  LET over AS List OF Byte = libc::preadBytes(fd, 1048577, 0)
+  io::print("over_cap unreachable " & toString(len(over)))
+
   LET closed AS Integer = libc::closeFd(fd)
   io::print("closed " & toString(closed))
   RETURN 0

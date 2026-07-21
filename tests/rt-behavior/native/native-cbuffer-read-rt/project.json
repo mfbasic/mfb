@@ -2,14 +2,33 @@
   "name": "native_cbuffer_read_rt",
   "version": "0.1.0",
   "mfb": "1.0",
+  "maxBuffer": 1,
   "kind": "executable",
   "libraries": {
     "c": [
-      { "os": "macos", "type": "system", "source": "libSystem.dylib" },
-      { "os": "linux", "type": "system", "source": "libc.so.6" }
+      {
+        "os": "macos",
+        "type": "system",
+        "source": "libSystem.dylib"
+      },
+      {
+        "os": "linux",
+        "type": "system",
+        "source": "libc.so.6"
+      }
     ]
   },
-  "sources": [ { "root": "src", "role": "main", "include": ["**/*.mfb"] } ],
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
   "entry": "main",
-  "targets": ["native"]
+  "targets": [
+    "native"
+  ]
 }

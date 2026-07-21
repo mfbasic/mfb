@@ -687,6 +687,7 @@ mod binary_repr_tests {
             link_aliases: vec![],
             docs: ProjectDocs::default(),
             native_libraries: Default::default(),
+            max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
         }
     }
 
@@ -771,6 +772,7 @@ mod binary_repr_tests {
             link_aliases: vec![],
             docs: ProjectDocs::default(),
             native_libraries: Default::default(),
+            max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
         }
     }
 

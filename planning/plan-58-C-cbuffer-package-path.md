@@ -226,15 +226,55 @@ Two incidental notes on that function, found while reading it:
 
 Ordered so the expensive, mechanical churn is isolated from the logic.
 
+### Phase 0 — `maxBuffer`: make the buffer ceiling a project setting
+
+Added 2026-07-20 at the user's request, mid-execution. plan-58-B landed the
+ceiling as a hardcoded `CBUFFER_MAX_BYTES = 64 MiB`; it is now the project.json
+`maxBuffer` field, in MiB, defaulting to 64.
+
+- [x] `src/manifest/mod.rs`: `DEFAULT_MAX_BUFFER_MIB` (64), `MAX_MAX_BUFFER_MIB`
+      (4096), `max_buffer_bytes(manifest)`, and `validate_max_buffer` wired into
+      `validate_project_manifest`. A non-integer, zero, negative, out-of-range or
+      wrongly-typed value is `PROJECT_JSON_FIELD_TYPE` — rejected rather than
+      clamped, because a manifest saying `0` states a belief the build would
+      otherwise silently ignore.
+- [x] Thread it: `IrProject::max_buffer_bytes` → `NirModule` →
+      `emit_link_support` → `lower_link_thunk` → the emitted size gate, which now
+      compares against the project's value instead of a constant.
+- [x] `src/cli/build.rs`: read it from the manifest on the executable path.
+- [x] **Deliberately NOT on the `.mfp` wire.** LINK thunks are emitted when an
+      EXECUTABLE links, so the ceiling that applies is the consuming project's. A
+      binding cannot raise an application's memory ceiling on its behalf, and a
+      package carries no ceiling at all. This is why Phase 0 does not touch the
+      codec or the version.
+- [x] Spec: `17_native-libraries.md` (the ceiling paragraph) and
+      `01_project-manifest.md` (the field table plus a *Native buffer ceiling*
+      section).
+- [x] Tests: `validate_project_manifest_checks_max_buffer` covers 1/64/128/4096
+      accepted and 0/-1/4097/64.5/"64"/true rejected, plus omitted-defaults-to-64.
+
+**Acceptance: MET on aarch64 (2026-07-20).** `native-cbuffer-read-rt` sets
+`"maxBuffer": 1`, and its golden records both sides of that boundary:
+`at_cap_len 26` for a request of exactly 1 MiB, and
+`Error: 7-705-0002 Argument value is not valid` for 1 MiB + 1 — raised before
+allocating. Every other CBuffer fixture omits `maxBuffer` and so exercises the
+64 MiB default.
+Commit: —
+
 ### Phase 1 — codec, bounds, and the package-path gate
 
 - [ ] `src/ir/binary.rs`: encode/decode `buffers` and `result_length` in
       `encode_link_function` (`:348`) / `decode_link_function` (`:538`).
-- [ ] `src/ir/binary.rs`: three new `IrLinkExpr` opcodes; unknown opcode errors.
+- [x] `src/ir/binary.rs`: three new `IrLinkExpr` opcodes; unknown opcode errors.
+      **Landed early, in plan-58-B Phase 2** — the variants could not be added to
+      `IrLinkExpr` without the codec's exhaustive match covering them. Tags 6-8;
+      the decoder's `other =>` arm already errored on an unknown tag.
 - [ ] `src/ir/binary.rs`: add `MAX_LINK_BUFFERS = 16` and
       `MAX_LINK_EXPR_DEPTH = 32` near `:497-498`, enforced on decode.
-- [ ] `src/ir/verify/mod.rs:3042-3086`: call `check_buffer_slots`; delete the
+- [x] `src/ir/verify/mod.rs:3042-3086`: call `check_buffer_slots`; delete the
       duplicated CSTRUCT-skip block at `:3053-3066`.
+      **Landed early, in plan-58-A** — the rules were useless on the package path
+      without it, and the dead block sat inside the loop being edited.
 - [ ] Tests: extend `full_project()` (`coverage_tests.rs:372`, LINK tables at
       `:490-509`) with a buffer + `LENGTH` + each new operator, so
       `binary_round_trip_over_full_surface` (`:527`) covers them.
