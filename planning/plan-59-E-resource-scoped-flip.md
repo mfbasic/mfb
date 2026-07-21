@@ -78,7 +78,11 @@ this sub-plan replaces with plan-59-D's runtime identity check.
 | `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` emit sites | 1 | `grep -rn TYPE_RESOURCE_INVALIDATE_NOT_OWNER src/ --include="*.rs"` → `mod.rs:2497` (plus `:146` registration, 2 tests, 2 comments) |
 | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` emit sites | 3 | same command → `mod.rs:930`, `:1163`, `:1660` (plus `:147`, 3 tests, 2 comments) |
 | Syntax fixtures asserting these two rules | 5 | the fixtures re-baselined during the terminology purge: `resource-invalidate-not-owner-invalid`, `resource-non-owner-return-invalid`, `resource-collection-close-floated-invalid`, `resource-collection-not-owner-invalid`, `ownership-collection-resource-invalid` |
-| Spec sections describing the removed model | UNMEASURED — §15, §15.6, §23 at minimum | Phase 1's first task |
+| Spec **files** naming either rule (by name or code) | **6** | `grep -rln "TYPE_RESOURCE_INVALIDATE_NOT_OWNER\|TYPE_RESOURCE_ELEMENT_NOT_OWNER\|2-203-0086\|2-203-0100" src/docs/spec/ \| wc -l` → 6 |
+| Individual mentions across those files | **10** | per-file `grep -c`: §15 → 4, §14 → 2, §23 → 1, `package/12` → 1, `threading/08` → 1, `diagnostics/01` → 1 |
+| …stating the rule as **behavior** (must change) | 5 | §14:94, §14:131, `package/12`:81, `threading/08`:84, `diagnostics/01` row |
+| …stating it as **rationale** (must be re-founded) | 1 | §23:46 — "Soundness rests on the ownership rule" |
+| …§15/§15.6, the model's home (mixed; rewritten wholesale in Phase 4) | 4 | `grep -c` on `15_resource-management.md` |
 
 ### Verified properties
 
@@ -126,14 +130,19 @@ the new model the compiler cannot statically tell whether a parameter escapes.
 
 Measures the doc blast radius before any code moves.
 
-- [ ] Enumerate every spec section that describes binding-scoped ownership: §15,
+- [x] Enumerate every spec section that describes binding-scoped ownership: §15,
       §15.6, §23 (escape analysis), §14.9, `package/12_verifier-rules.md`,
       `threading/08_queue-semantics.md`. Record the count and command above.
-- [ ] For each, note whether it states the rule as *behavior* (must change) or as
-      *rationale* (must be re-founded on identity).
+      — **6 files, 10 mentions.** The plan's guessed list was exactly right; no
+      file it named is absent and none it did not name appears. Counts and
+      commands are in Measured populations.
+- [x] For each, note whether it states the rule as *behavior* (must change) or as
+      *rationale* (must be re-founded on identity). — classified below (C3).
 
 Acceptance: the spec surface is measured and written into this document with its
 command.
+**MET** — 6 files / 10 mentions, measured with the commands recorded in the
+table, and each classified behavior-vs-rationale in C3.
 Commit: —
 
 ### Phase 2 — `TYPE_USE_AFTER_MOVE` under aliasing (before any deletion)
@@ -230,6 +239,31 @@ Commit: —
   converted fixture still records what the rule was protecting.
 
 ## Corrections
+
+### C3 — the spec surface, classified (2026-07-20)
+
+Six files, ten mentions. Phase 1 asked for behavior-vs-rationale per site,
+because the two need opposite treatment: a *behavior* statement becomes false and
+must change, while a *rationale* must be re-founded or the model loses its
+justification.
+
+| Site | Kind | What it says / what Phase 4 must do |
+|---|---|---|
+| `architecture/23_escape-analysis.md:46` | **RATIONALE** | "Soundness rests on the ownership rule (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, §15.6): … so a resource reached only through a pointer cannot escape a callee." This is the load-bearing one — it is the *whole* soundness argument for escape analysis, and it evaporates when the rule goes. Re-found on plan-59-D's identity skip + plan-59-B's flag. |
+| `language/14_memory-semantics.md:94` | BEHAVIOR | Lists RES-binding a non-owning collection element as rejected (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`). Becomes legal. |
+| `language/14_memory-semantics.md:131` | BEHAVIOR + rationale | "rejected … `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` rather than tracked as a move" — describes both the rejection and *why* it is not a move. Both change. |
+| `package/12_verifier-rules.md:81` | BEHAVIOR | Lists the rule among the verifier's resource-linearity checks. |
+| `threading/08_queue-semantics.md:84` | BEHAVIOR | "a resource held only through a non-owning pointer cannot be transferred, rejected … with `TYPE_RESOURCE_INVALIDATE_NOT_OWNER`". Transfer rules need restating under scope ownership. |
+| `diagnostics/01_rule-codes.md` | BEHAVIOR | The two code rows; become retired-reserved rows, never recycled. |
+| `language/15_resource-management.md` (×4) | MIXED | The model's home. Rewritten wholesale in Phase 4 rather than patched mention-by-mention. |
+
+**The §23 entry is the one to watch.** Every other site can be edited locally;
+§23 requires a *replacement argument*, and if that argument is not convincing
+then plan-59-E's premise is in trouble rather than its prose. Note also that
+plan-59-D's Correction C7 narrowed what the identity skip actually buys — so the
+replacement argument must lean on the combination (static deactivation still
+covers syntactic returns, D's skip backstops non-syntactic ones, B's flag makes a
+second close a defined no-op), not on identity alone.
 
 ### C2 — plan-59-B's runtime proof is INHERITED by this sub-plan (2026-07-20)
 
