@@ -1,11 +1,21 @@
-//! `mfb repo`/`key`/`org`/`token`/`machine` account commands.
+//! `mfb repo`/`key`/`org`/`token`/`machine` account commands, plus the dispatch
+//! for the publisher-side package commands (plan-60-A).
+//!
+//! `publish`/`check-abi`/`release-state`/`transfer`/`transfer-accept` are
+//! dispatched here but *implemented* in `super::pkg`, next to the private
+//! helpers they use. Only the command surface moved.
 //!
 //! coverage:off (success arms) — every non-Usage code path here performs live
-//! HTTP against a registry (register/auth/link/trust/rotate/grant/issue/revoke)
-//! and mutates on-disk key material, so it cannot run in a unit test. The unit
-//! tests below cover the pure argument-shape validation (the `Usage` arms); the
-//! network success paths are exercised by the tests/ registry integration
-//! harness.
+//! HTTP against a registry (register/auth/link/trust/rotate/grant/issue/revoke,
+//! and the five publisher commands) and mutates on-disk key material, so it
+//! cannot run in a unit test. The unit tests below cover the pure argument-shape
+//! validation (the `Usage` arms); the network success paths are exercised by the
+//! tests/ registry integration harness.
+//!
+//! Note the publisher arms are *not* wholly coverage:off: their argument
+//! destructuring is unit-tested on both sides of every arity boundary, and the
+//! `reaches_dispatch` probes execute each arm body all the way to its
+//! `super::pkg::…` call. Only the network-bound implementations are excluded.
 
 use std::io::BufRead;
 use std::path::Path;

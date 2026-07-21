@@ -361,49 +361,68 @@ Commit: 9d3a67608
 
 ### Phase 3 — Rewrite help constants and the spec
 
-- [ ] `src/main.rs:96` `PKG_HELP`: remove the five moved commands; keep
+- [x] `src/main.rs:96` `PKG_HELP`: remove the five moved commands; keep
       `add`/`info`/`doc`/`verify`/`validate`/`install`/`update`.
-- [ ] `src/main.rs:120` `REPO_HELP`: add the five under a **Publishing** heading,
+- [x] `src/main.rs:120` `REPO_HELP`: add the five under a **Publishing** heading,
       with `publish <owner> [path]` — `[path]`, not `<package>` (§4.2).
-- [ ] `src/main.rs:45` `USAGE`: verify lines 53–57 and 60–62 still name a correct
+- [x] `src/main.rs:45` `USAGE`: verify lines 53–57 and 60–62 still name a correct
       representative subset; adjust the `Run 'mfb pkg --help'` / `mfb repo --help`
       pointers if the split changed which commands are worth surfacing.
-- [ ] `src/docs/spec/tooling/07_cli-reference.md`: move the 4 table rows (`:51`,
+- [x] `src/docs/spec/tooling/07_cli-reference.md`: move the 4 table rows (`:51`,
       `:54`, `:55`, `:63` — five commands, since `transfer`/`transfer-accept`
       share `:63`) from the `pkg` block into the `repo` block, renaming each
       command and fixing `publish`'s argument to `<owner_name> [path]`. Exit-code
       columns are unchanged.
-- [ ] `src/docs/spec/tooling/07_cli-reference.md`: update the 3 **prose** mentions
+- [x] `src/docs/spec/tooling/07_cli-reference.md`: update the 3 **prose** mentions
       outside the table — `:215` (`pkg publish`/`pkg check-abi` run the build
       quietly), `:305` (`pkg publish` prints the log index), `:458` (the See Also
       link naming `pkg publish`). These are in the same file as the table and are
       easy to miss when only the table is edited.
-- [ ] `src/docs/spec/package-manager/spec.md:4` and
+- [x] `src/docs/spec/package-manager/spec.md:4` and
       `src/docs/spec/tooling/spec.md:14` — both name `mfb pkg publish` in prose.
       Update to `mfb repo publish`.
-- [ ] `src/docs/spec/package-manager/01_repository-protocol.md` — **13 hits, not
+- [x] `src/docs/spec/package-manager/01_repository-protocol.md` — **13 hits, not
       the single `:379` this plan originally claimed** (Corrections #2): lines 4,
       79, 80, 81, 85, 86, 95, 96, 379, 1008, 1010, 1046, 1047. Includes the
       endpoint-table "used by" column (`:79`–`:96`), the `## pkg publish:
       Validate-then-Publish` **section heading** at `:1008` and its command line
       at `:1010`, and two See Also links at `:1046`–`:1047`. Re-check `:442` and
       `:445`, which name `mfb pkg verify` (**not** moved — leave alone).
-- [ ] `src/docs/spec/architecture/03_packages.md:30` — names `mfb pkg publish
+- [x] `src/docs/spec/architecture/03_packages.md:30` — names `mfb pkg publish
       <owner_name> <package>`. **Missed by the original plan** (Corrections #2).
       Update to `mfb repo publish <owner_name> [path]`.
-- [ ] `src/docs/spec/package/03_metadata-encoding.md:183` — names `mfb pkg
+- [x] `src/docs/spec/package/03_metadata-encoding.md:183` — names `mfb pkg
       check-abi`. **Missed by the original plan** (Corrections #2). Update.
-- [ ] Update every live doc found in Phase 1; leave archived records untouched.
+- [x] Update every live doc found in Phase 1; leave archived records untouched.
       Re-run the corrected census command afterwards — it must return 0 hits
       outside `planning/` and the archived paths.
-- [ ] Tests: rewrite the 23 test arg-vectors in `tests/repo_acceptance.rs` from
-      `["pkg", "<cmd>", …]` to `["repo", "<cmd>", …]`.
+- [x] Tests: rewrite the 23 test arg-vectors in `tests/repo_acceptance.rs` from
+      `["pkg", "<cmd>", …]` to `["repo", "<cmd>", …]`. Exactly 23, matching the
+      plan's count. Also fixed 2 stale string labels the count did not include.
+- [x] **Added task** (Corrections #5): fix the line-broken `mfb pkg\npublish` at
+      `07_cli-reference.md:214`, which no single-line grep can see.
+- [x] **Added task** (Corrections #5): fix 2 live code comments naming
+      `pkg check-abi` — `src/binary_repr/reader.rs:1210`,
+      `src/binary_repr/tests.rs:2863`.
+- [x] **Added task**: re-pick the witness commands in
+      `run_pkg_usage_errors_show_the_full_pkg_command_set`, and add
+      `help_lists_each_moved_command_under_repo_only` to pin §1's
+      exactly-one-parent goal directly rather than by proxy.
+- [x] **Added task** (Corrections #6): add the runtime proof from the Validation
+      Plan as a permanent acceptance test.
 
-Acceptance: `cargo build` regenerates the embedded spec; `cargo test --bin mfb
-spec` passes; `mfb spec tooling --all` and `mfb spec package-manager --all` render
-with no leaked `[[` markers; `cargo test --test repo_acceptance` passes;
-`grep -rn '"pkg", "publish"' tests/` returns 0 hits.
-Commit: —
+Acceptance — **all VERIFIED**: `cargo build` regenerates the embedded spec (exit
+0); `cargo test --bin mfb spec` passes (48 passed); `mfb spec tooling --all` and
+`mfb spec package-manager --all` render with 0 leaked `[[` markers; `cargo test
+--test repo_acceptance` passes (20 passed, was 19 — the runtime proof is the
+new one); `grep -rn '"pkg", "publish"' tests/` returns 0 hits.
+
+Strengthened beyond the written criterion: the "no live hits remain" check is
+**not** the plan's grep, which cannot see a line-broken command name. It is
+(a) a whitespace-flexible regex over every `.md` and `.rs` outside the archived
+paths → 0 hits, and (b) a grep over the *rendered* `mfb spec` output for all
+four affected topics → 0 hits.
+Commit: eb4a0187e
 
 ## Validation Plan
 
@@ -425,6 +444,18 @@ Commit: —
   `src/docs/spec/package-manager/01_repository-protocol.md`.
 - **Acceptance:** `cargo build && cargo test --bin mfb && cargo test --test repo_acceptance`.
 
+### Validation results (2026-07-21)
+
+| Item | Result |
+|---|---|
+| Arity coverage, all five commands | **DONE** — `repo_publisher_commands_pin_their_arity` covers too-few, too-many and a reaches-dispatch probe per command; `publish`'s 1-arg and 2-arg forms asserted equal |
+| Rewritten usage assertions in `pkg.rs` | **DONE** — `run_pkg_rejects_the_moved_publisher_commands`, 5 commands × 4 arities |
+| 23 rewritten acceptance arg-vectors | **DONE** — exactly 23, `grep '"pkg", "publish"' tests/` → 0 |
+| Coverage check | **DONE** — `coverage:off` at `pkg.rs:108` stayed with `publish_package_project`. The new `repo.rs` arms are **not** excluded: their destructuring is tested on both sides of every arity boundary and the `reaches_dispatch` probes execute each arm body through to its `super::pkg::…` call. `repo.rs`'s module annotation was updated to say so, since it previously implied the whole file's non-Usage paths were excluded. |
+| Runtime proof | **DONE** — landed as a permanent acceptance test rather than a manual check (Corrections #6) |
+| Doc sync | **DONE** — 6 files, not the 4 listed (Corrections #2) |
+| Acceptance | **PASS** — build exit 0; 3143 unit passed / 0 failed; 20 repo_acceptance passed / 0 failed |
+
 ## Open Decisions
 
 - **Should the unknown-subcommand error name the new location?** Recommended:
@@ -433,6 +464,14 @@ Commit: —
   rather than a bare `unknown pkg command`. This is not an alias (it still exits
   2 and does nothing), and it is the difference between a five-second fix and a
   grep through the help text. (§4.2)
+
+  **RESOLVED (2026-07-21): adopted as recommended.** Implemented in
+  `run_pkg_command`'s fallback as a `matches!` guard over the five names, placed
+  *above* the generic unknown-command arm. It emits `mfb pkg <cmd> has moved to
+  mfb repo <cmd>` and still exits 2 without doing any work, so it is not an
+  alias. Asserted at unit level for all five commands across four arities each,
+  and end-to-end in the acceptance suite (`pkg publish alice` exits 2 with this
+  message from a directory where `repo publish alice` succeeds).
 
 ## Corrections
 
@@ -495,6 +534,48 @@ never reference the outer `paths` binding. The fix still lands (the eager call
 moves into the four pre-existing arms that do use it), and §4.3's *goal* is met,
 but for a simpler reason than the plan gives: there is no duplicate resolution to
 reconcile, only an eager call to make lazy.
+
+**#5 — A command name wrapped across a line break defeats the census entirely.**
+(Found in Phase 3, 2026-07-21.) `07_cli-reference.md:214` reads ``…`mfb test`,
+`mfb pkg`` / ``publish`, and…`` — the name is split by a hard wrap, so *no*
+single-line pattern matches it, including the plan's census command and my own
+Phase 1 verification. It survived the whole rewrite and was caught only by
+grepping the **rendered** `mfb spec tooling --all` output, where the reflowed
+text put `mfb pkg publish` back on one line.
+
+This makes the Phase 1 census method — not just its filters — unreliable: a
+source grep systematically under-reports a hard-wrapped prose corpus. Re-swept
+with a whitespace-flexible regex (`pkg\s+(publish|check-abi|…)`) over every
+`.md` **and** `.rs` outside the archived paths, which found the wrapped hit plus
+two live code comments in `src/binary_repr/` naming `pkg check-abi` that were
+outside the plan's `--include='*.md'` scope altogether. Final state verified
+both ways: 0 source hits and 0 hits in the rendered spec for all four affected
+topics. **Any future letter doing a rename census should grep rendered output,
+not just source.**
+
+**#6 — The Validation Plan's runtime proof had no home.** (Found in Phase 3,
+2026-07-21.) The plan specifies publishing with `mfb repo publish alice` from
+inside the package directory as end-to-end proof of both the move and the new
+default path, but no phase task creates it, so it would have been a one-off
+manual check that verified the letter and then evaporated. Landed instead as a
+permanent acceptance test,
+`repo_publish_without_a_path_publishes_the_current_directory`, which needed a new
+`run_mfb_in` harness helper (the existing `run_mfb` cannot set a working
+directory, which is why no existing test could cover a defaulted path). It
+asserts the artifact reaches the registry *index* by installing it by ident from
+a fresh consumer project, and asserts the old spelling exits 2 from the same
+directory.
+
+**#7 — Process-global state in a unit test.** (Found in Phase 3, 2026-07-21.)
+The first version of `repo_publish_defaults_its_path_to_the_current_directory`
+used `set_current_dir` under `ENV_LOCK`. That lock does not help: the working
+directory is process-global and the other ~3140 tests in the binary do not take
+it, so any of them resolving a relative path concurrently could observe the temp
+directory. One unreproducible single-test failure was observed before this was
+removed. The test now asserts the dispatch-level claim without mutating global
+state (the 1-arg form forwards exactly `Path::new(".")`), and the true
+current-directory semantics moved to the acceptance suite, where a subprocess
+makes them safe to exercise. 7 consecutive full-suite runs green afterwards.
 
 ## Summary
 
