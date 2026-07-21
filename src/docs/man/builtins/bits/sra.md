@@ -34,14 +34,27 @@ logical right shift `bits::sr`, which zero-fills the vacated high bits. For a
 non-negative `value` the two produce identical results. For the left shift see
 `bits::sl`.
 
+`sra` is not the same as signed division by a power of two. Because the
+discarded low bits are dropped rather than rounded, a negative result is
+rounded toward negative infinity, not toward zero: `bits::sra(-1, 1)` is `-1`
+where `-1 / 2` is `0`, and `bits::sra(-3, 1)` is `-2`. A `count` of `63`
+therefore collapses `value` to `0` when it is non-negative and to `-1` (all
+bits set) when it is negative.
+
 Unlike the total bitwise operations, `sra` validates `count`: it first checks
 that `count` is in the range `0` to `63` inclusive and raises
 `ErrInvalidArgument` for any value outside it, before performing the shift.
-Larger shift amounts are not
-implicitly clamped or reduced modulo the width. The operation has no side
-effects and lowers to a native variable arithmetic-shift instruction inline
-rather than calling a runtime helper, producing identical results on the native
-and Binary Representation execution paths. [[src/target/shared/code/builder_bits.rs:lower_bits_shift]]
+Larger shift amounts are not implicitly clamped or reduced modulo the width —
+that is the difference from the rotates `bits::rl64` and `bits::rr64`, which
+accept any `count` and let the hardware reduce it. [[src/target/shared/code/builder_bits.rs:lower_bits_shift]] [[src/target/shared/code/builder_bits.rs:lower_bits_rotate]]
+
+The operation has no side effects and lowers inline to the target-neutral `asrv`
+machine op rather than calling a runtime helper. Every backend encodes it
+natively: `asrv Xd, Xn, Xm` on AArch64, `sra rd, rs1, rs2` on RISC-V, and a
+`mov` of the count into `rcx` followed by `sar dst, cl` on x86-64, whose shift
+instruction takes its variable count only in `cl`. The result is identical on
+every architecture and on both the native and Binary Representation execution
+paths. [[src/target/shared/abi.rs:arithmetic_shift_right_variable]] [[src/arch/aarch64/encode/emitter.rs:emit_asrv]] [[src/arch/riscv64/encode/emitter.rs:emit_r]] [[src/arch/x86_64/encode/emitter.rs:var_shift]]
 
 ## Parameters
 
@@ -95,4 +108,5 @@ END SUB
 - `mfb man bits sr`
 - `mfb man bits sl`
 - `mfb man bits band`
+- `mfb man bits rr64`
 - `mfb man bits package`
