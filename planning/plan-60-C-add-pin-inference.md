@@ -409,7 +409,7 @@ test can fail: temporarily move the `project.json` write before the `resolve`
 call in `apply_manifest_change`, confirm the test goes red, restore.
 **VERIFIED — and this check earned its keep (Corrections #5): the test the plan
 pointed at is VACUOUS for this mutation.** 21 acceptance / 3154 unit, 0 failed.
-Commit: —
+Commit: ddb4c8898
 
 ### Phase 4 — Docs
 
