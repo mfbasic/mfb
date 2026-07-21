@@ -369,7 +369,7 @@ removed — verify by temporarily disabling the filter and confirming red.
 makes `update_targeted_applies_the_abi_advisory_and_preserves_pin` fail on "the
 advisory must name the skipped version". The acceptance case uses a **real**
 dropped `EXPORT FUNC`, not a synthetic ABI map.
-Commit: —
+Commit: 4380c2ad8
 
 ### Phase 3 — The confirmation gate and applying the change
 
@@ -389,7 +389,7 @@ Acceptance: `cargo test --test repo_acceptance` passes. The pin-preservation
 assertion must check the literal `"pin"` value in the written `project.json`, not
 merely that the command succeeded. **VERIFIED** — every pin assertion reads the
 literal `"pin": true` / `"pin": false` text back out of the written manifest.
-Commit: —
+Commit: 4380c2ad8
 
 ### Phase 4 — Docs
 
@@ -405,8 +405,9 @@ Commit: —
 
 Acceptance: `cargo build && cargo test --bin mfb spec` pass; `mfb spec tooling
 --all` renders with no leaked `[[` markers. **VERIFIED** — build exit 0, 48 spec
-tests, 0 leaked markers.
-Commit: —
+tests, 0 leaked markers. Full project acceptance
+(`scripts/test-accept.sh`) green: 1069 tests, 0 mismatches.
+Commit: 4380c2ad8
 
 ## Validation Plan
 
@@ -451,7 +452,31 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in DURING execution. -->
+**#1 — the `[location]` removal is safe, re-verified rather than trusted.**
+(Phase 1, 2026-07-21.) §2 claims all four `pkg update` call sites use the bare
+form. Re-checked before dropping the argument: still four, still all bare. The
+new `update_treats_a_path_positional_as_an_undeclared_ident` test pins the
+consequence — `mfb pkg update ./foo` is now an undeclared *ident*, not a
+directory — so the reinterpretation is asserted rather than merely documented.
+
+**#2 — `project_json_with_updated_version` matches on `ident`, not `name`.**
+(Phase 1, 2026-07-21.) §4.6 specifies
+`project_json_with_updated_version(contents, name, version, pin)`, mirroring the
+sibling `project_json_with_updated_ident_key`, which keys on `name`. But the
+targeted `update` form takes an **ident** (`<owner>#<package>`), and name ≠ ident
+in general — `name` is the local `packages/<name>.mfp` filename while `ident` is
+the registry coordinate. Keying on `name` would have required the caller to
+translate, or would have silently updated the wrong entry when the two differ.
+Implemented against `ident`, which falls back to `name` when absent (matching
+`project_package_dependency`), so a bare-name entry is still reachable — asserted
+by `project_json_with_updated_version_matches_a_bare_name_entry`.
+
+**#3 — plan-60-C's deferred `update` fix landed here, as planned.** (Phase 1,
+2026-07-21.) See the Prerequisites note: a project with no registry dependencies
+now makes bare `update` a clean no-op that drops a stale `mfb.lock`, rather than
+taking `resolve()`'s "declares no registry dependencies to resolve" error. This
+is plan-60-B §4.3's policy applied to `update()`, which plan-60-B Phase 2
+explicitly reserved for this letter.
 
 ## Summary
 
