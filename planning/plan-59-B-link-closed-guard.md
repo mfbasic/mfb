@@ -190,7 +190,7 @@ the part provable now and the part that genuinely needs plan-59-E:
 
 The deferred half is a *requirement*, not an aspiration: E must not be marked
 complete without it.
-Commit: —
+Commit: 0b5b08fae, a21b203c5
 
 ### Phase 2 — Guard every resource param; close ops set the bit
 
@@ -228,22 +228,38 @@ both build and run their existing fixtures unchanged.
   demonstrable** — not because the guard is absent, but because no source path
   reaches it (C6). The mechanism is in place and verified in emitted code (C7);
   the runtime demonstration moves to plan-59-E with the criterion intact.
-Commit: —
+Commit: 0b5b08fae, a21b203c5
 
 ### Phase 3 — Error-path integration and TRAP (blast radius last)
 
-- [ ] Confirm the guard's error result is catchable by an inline `TRAP` on a
+- [~] Confirm the guard's error result is catchable by an inline `TRAP` on a
       `LINK` call. This interacts with bug-371/372's fix (inline `TRAP` on a
-      native `LINK` call) — re-read that fix before assuming.
-- [ ] Confirm the guard does not disturb `ERROR_ON` / `SUCCESS_ON` handling: a
-      guard failure must not be reported as a native-call failure.
-- [ ] Tests: a fixture that wraps a closed-resource `LINK` call in `TRAP(e)` and
-      asserts `e.message` names the closed resource.
+      native `LINK` call) — re-read that fix before assuming. — **not
+      demonstrable today** (C6): no source path reaches the guard, so there is
+      nothing for a `TRAP` to catch. Structurally the guard joins the *same*
+      error path every other `LINK` failure uses (`RESULT_ERR_TAG` + message
+      register, like `alloc_fail`), and bug-371's `RESULT_ERROR_SOURCE_REGISTER`
+      zeroing at `done` covers it because the guard branches to `done` like every
+      other epilogue. **Remaining:** the demonstration, in plan-59-E.
+- [x] Confirm the guard does not disturb `ERROR_ON` / `SUCCESS_ON` handling: a
+      guard failure must not be reported as a native-call failure. — **confirmed
+      from emitted code**, and it is structural rather than incidental: see C9.
+- [~] Tests: a fixture that wraps a closed-resource `LINK` call in `TRAP(e)` and
+      asserts `e.message` names the closed resource. — **Remaining:** gated on
+      plan-59-E with the other runtime fixtures (C6), recorded in E's
+      Corrections C2 as a requirement for E's completion.
 
 Acceptance: `TRAP` catches a closed-resource `LINK` failure with a correct
 message; `scripts/test-accept.sh` passes for `native*` with a hermetic
 `MFB_HOME`.
-Commit: —
+
+**PARTIALLY MET.** `scripts/test-accept.sh … 'native*' 'libsnd*' 'resource*'` →
+106 tests green with a hermetic `MFB_HOME`; the `ERROR_ON`/`SUCCESS_ON`
+non-interference is proven from emitted code (C9). The `TRAP` demonstration is
+carried to plan-59-E unchanged (C6, and E's C2), because there is no source path
+that produces a closed-resource `LINK` failure for a `TRAP` to catch until E
+lands.
+Commit: 0b5b08fae, a21b203c5
 
 ## Validation Plan
 
@@ -423,6 +439,30 @@ closer table not reaching codegen means scope exit cannot emit a close; here, it
 meant a close op could not mark its own record. Worth noting for whoever fixes
 bug-374 — the NIR field added here is most of the plumbing that fix needs, so it
 should reuse `NirModule::native_resources` rather than adding a second channel.
+
+### C9 — `SUCCESS_ON` non-interference is structural, and the guard's placement is confirmed empirically (2026-07-20)
+
+Read out of `linker.sql.exec`'s emitted instruction stream, by index:
+
+| # | instruction | what it is |
+|---|---|---|
+| 26–27 | `cmp_imm x8, 0` / `b.ne …_resource_closed` | **the guard** |
+| 44 | `cmp_imm x0, 0` | the CString allocation check |
+| 86 | `blr x21` | **the native call** |
+| 100–104 | `cmp x8, x9` / `b.eq …_cmp0_end` | **the `SUCCESS_ON` gate** |
+
+Two things follow, both of which the plan wanted established:
+
+1. **A guard failure cannot be reported as a native-call failure.** The guard
+   branches away at 27, so on a closed resource neither the call at 86 nor the
+   gate at 100 is ever reached. The guard's epilogue sets its own code, tag and
+   message and branches to `done`. The two error sources cannot be confused
+   because they are not both live on any path.
+2. **C3's placement claim is confirmed empirically, not just by reading.** The
+   guard at 26–27 precedes the CString allocation at 44, so the error branch
+   cannot leak an allocation. This is the property the phase's ordering argument
+   rests on, and it is now observed in emitted code rather than argued from where
+   the Rust sits.
 
 ### C2 — §2's "zero closed-flag reads" claim is confirmed (2026-07-20)
 
