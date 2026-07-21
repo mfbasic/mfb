@@ -11,10 +11,4 @@ tests/syntax/resources/state-opaque-narrow-return-invalid/src/main.mfb:21 error[
      | ^
 tests/syntax/resources/state-opaque-narrow-return-invalid/src/main.mfb:21 error[2-203-0041 TYPE_RETURN_MISMATCH]: return value type does not match function success type
                RETURN value has type File, expected File STATE Cursor.
-  19 | ' state and the value's is unknown.
-  20 | FUNC launder(RES f AS File) AS RES File STATE Cursor
-  21 |   RETURN f
-     | ^
-tests/syntax/resources/state-opaque-narrow-return-invalid/src/main.mfb:21 error[2-203-0086 TYPE_RESOURCE_INVALIDATE_NOT_OWNER]: only the owning scope may close, return, or transfer a resource
-               Binding `f` is a non-owning resource pointer; only the owning scope may close, `RETURN`, or transfer it.
 [exit 1]

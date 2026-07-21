@@ -149,8 +149,6 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RESULT_NOT_MATCHABLE",
     "TYPE_RESULT_IS_IMPLICIT",
     "TYPE_THREAD_RESULT_REMOVED",
-    "TYPE_RESOURCE_INVALIDATE_NOT_OWNER",
-    "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
     "TYPE_MEMBER_NOT_VISIBLE",
     // ir::verify is the sole implementer: the condition is knowable only from
     // escape analysis' ownership decision, which syntaxcheck does not compute
@@ -952,20 +950,12 @@ impl TypeEnv {
                             self.check_binding_state_agreement(name, type_, value, locals);
                         }
                     }
-                    // A collection `get`/`getOr` yields a *pointer* to a
-                    // resource element; it cannot be RES-bound (§15.6) —
-                    // syntaxcheck's TYPE_RESOURCE_ELEMENT_NOT_OWNER.
-                    if self.current_owners.borrow().contains(name.as_str())
-                        && self.is_resource_or_resource_union(resource_base_type(type_))
-                        && value.as_ref().is_some_and(is_resource_element_pointer)
-                    {
-                        self.emit(
-                            "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
-                            format!(
-                                "Binding `{name}` is a non-owning collection element, not an owner; a non-owning resource pointer cannot be bound with `RES`. Use it inline or via `FOR EACH` (§15.6)."
-                            ),
-                        );
-                    }
+                    // plan-59-E: RES-binding a collection element used to be
+                    // rejected here (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, retired).
+                    // Under scope ownership a `RES` is a pointer to the one
+                    // resource, and an element is such a pointer like any other,
+                    // so the binding is legal and closes exactly once — by
+                    // whichever scope ends up owning it.
                     // An initializer-less binding must be annotated, immutable
                     // ones must have a value, and MUT needs a defaultable type
                     // (syntaxcheck's check_binding_shape None-value arms).
@@ -1185,19 +1175,12 @@ impl TypeEnv {
                                 "RETURN value does not have a known type.".to_string(),
                             );
                         }
-                        // A non-owning collection element cannot be returned
-                        // (§15.6, TYPE_RESOURCE_ELEMENT_NOT_OWNER return arm).
-                        if is_resource_element_pointer(value)
-                            && self.infer_type(value, locals).is_some_and(|t| {
-                                self.is_resource_or_resource_union(resource_base_type(&t))
-                            })
-                        {
-                            self.emit(
-                                "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
-                                "RETURN value is a non-owning collection element, not an owner; a non-owning resource pointer cannot be returned (§15.6)."
-                                    .to_string(),
-                            );
-                        }
+                        // plan-59-E: returning a collection element used to be
+                        // rejected here (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`,
+                        // retired). Under scope ownership the element is a pointer
+                        // to the one resource and returning it hands that pointer
+                        // to the caller, whose scope becomes the outermost one
+                        // touching it.
                         // plan-59-C: returning a bare `RES` parameter under a
                         // CONCRETE `STATE` is the `launder` shape — an unprovable
                         // narrowing. The declared return names a STATE the checker
@@ -1698,24 +1681,12 @@ impl TypeEnv {
                 for v in values {
                     self.check_value_depth(v, locals, depth + 1);
                 }
-                // Only a RES binding (an owner) may be stored in a resource
-                // collection; a temporary (a call result) is not an owner
-                // (§15.6, TYPE_RESOURCE_ELEMENT_NOT_OWNER element arm).
-                if let Some(element) = type_.strip_prefix("List OF ") {
-                    let inner = element.strip_prefix("RES ").unwrap_or(element);
-                    if element.starts_with("RES ") && self.is_resource_or_resource_union(inner) {
-                        for v in values {
-                            if !matches!(v, IrValue::Local(_)) {
-                                self.emit(
-                                    "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
-                                    format!(
-                                        "Only a `RES` binding may be added as a collection element; `{inner}` is a temporary or non-owning resource pointer, not an owner. Bind it with `RES` first (§15.6)."
-                                    ),
-                                );
-                            }
-                        }
-                    }
-                }
+                // plan-59-E: storing a non-`RES`-binding in a resource collection
+                // used to be rejected here (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`,
+                // retired). Under scope ownership the collection holds pointers to
+                // resources owned by the outermost scope that touches them, so a
+                // temporary is as admissible as a binding; the resource is still
+                // closed exactly once, by that scope.
                 // A crafted list whose elements do not match its element type is
                 // a type confusion: codegen lays out and reads elements
                 // uniformly by the declared element type.
@@ -2582,28 +2553,27 @@ impl TypeEnv {
                 }
             }
             if let Some(consumed) = self.consumed_resource(op, locals) {
-                // A non-owning pointer (RES parameter, FOR EACH element) never owns the
-                // close obligation — syntaxcheck's TYPE_RESOURCE_INVALIDATE_NOT_OWNER.
-                if non_owning.contains(&consumed) {
-                    self.emit(
-                        "TYPE_RESOURCE_INVALIDATE_NOT_OWNER",
-                        format!(
-                            "Binding `{consumed}` is a non-owning resource pointer; only the owning scope may close, `RETURN`, or transfer it."
-                        ),
-                    );
-                } else {
-                    // plan-59-E: closing/returning/transferring through ONE name
-                    // consumes the resource, so every name that may denote it is
-                    // consumed too. Without this the rule stays silent on a real
-                    // use-after-close reached through an alias — a false negative,
-                    // which is the invisible failure mode this sub-plan guards
-                    // against.
-
-                    for alias in alias_closure(&consumed, aliases) {
-                        moved.insert(alias);
-                    }
-                    moved.insert(consumed);
+                // plan-59-E: a non-owning pointer (a `RES` parameter, a `FOR EACH`
+                // element) used to be forbidden from closing/returning/transferring
+                // here (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, retired). That rule
+                // is what made `closeSound(RES sound AS SoundFile)` — "take a
+                // handle, give it back" — unwritable in any form.
+                //
+                // Under scope ownership ANY holder of the pointer may close it, and
+                // the outermost scope that touches it closes it once if nobody
+                // already did. `non_owning` is therefore no longer consulted to
+                // reject; the consume is tracked for every binding alike, which is
+                // what keeps `TYPE_USE_AFTER_MOVE` honest afterwards.
+                //
+                // Closing/returning/transferring through ONE name consumes the
+                // resource, so every name that MAY denote it is consumed too.
+                // Without this the rule stays silent on a real use-after-close
+                // reached through an alias — a false negative, and the invisible
+                // failure mode this sub-plan guards against (Phase 2).
+                for alias in alias_closure(&consumed, aliases) {
+                    moved.insert(alias);
                 }
+                moved.insert(consumed);
             }
             match op {
                 IrOp::Bind {

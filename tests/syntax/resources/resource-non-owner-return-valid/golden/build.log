@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-non-owner-return-valid
+Wrote AST to tests/syntax/resources/resource-non-owner-return-valid/resource_non_owner_return_valid.ast
+Wrote IR to tests/syntax/resources/resource-non-owner-return-valid/resource_non_owner_return_valid.ir
+[exit 0]

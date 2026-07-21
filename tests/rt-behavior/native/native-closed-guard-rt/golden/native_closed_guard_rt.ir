@@ -1,0 +1,105 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_closed_guard_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 17,
+    "visibility": "public",
+    "name": "Info",
+    "fields": [
+    { "visibility": null, "line": 18, "name": "n", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "closeVia",
+    "line": 69,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "d", "line": 69, "type": "Db", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "d" }] } }
+    ]
+  },
+  {
+    "name": "closeViaTracked",
+    "line": 73,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "d", "line": 73, "type": "Tracked", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "sql.closeTracked", "args": [{ "kind": "local", "name": "d" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 77,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 81, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "closeVia", "args": [{ "kind": "local", "name": "db" }] } },
+    { "op": "bind", "line": 83, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.exec", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (n INTEGER)" }] } },
+    {
+      "op": "if",
+      "line": 83,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 83, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "eval", "line": 84, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stateless code=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } },
+      { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stateless message=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "message" } }] } }
+      ]
+    },
+    { "op": "bind", "line": 90, "mutable": false, "name": "tr", "type": "Tracked STATE Info", "value": { "kind": "call", "type": "Tracked STATE Info", "target": "sql.openTracked", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 91, "value": { "kind": "call", "type": "Nothing", "target": "closeViaTracked", "args": [{ "kind": "local", "name": "tr" }] } },
+    { "op": "bind", "line": 92, "mutable": false, "name": "$trap_res1", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "sql.execTracked", "args": [{ "kind": "local", "name": "tr" }, { "kind": "const", "type": "String", "value": "CREATE TABLE t (n INTEGER)" }] } },
+    {
+      "op": "if",
+      "line": 92,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 92, "mutable": false, "name": "e2", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "stateful code=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e2" }, "member": "code" }] } }] } }
+      ]
+    },
+    { "op": "bind", "line": 99, "mutable": false, "name": "d2", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Nothing", "target": "closeVia", "args": [{ "kind": "local", "name": "d2" }] } },
+    { "op": "bind", "line": 101, "mutable": false, "name": "$trap_res2", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "closeVia", "args": [{ "kind": "local", "name": "d2" }] } },
+    {
+      "op": "if",
+      "line": 101,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 101, "mutable": false, "name": "e3", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "eval", "line": 102, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "double-close code=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e3" }, "member": "code" }] } }] } }
+      ]
+    },
+    { "op": "eval", "line": 106, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "return", "line": 107, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

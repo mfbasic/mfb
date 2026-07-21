@@ -1,8 +1,0 @@
-IMPORT fs
-
-' Only a `RES` binding (the owner) may be stored in a resource collection; a
-' temporary resource is not an owner (§15.6).
-FUNC main AS Integer
-  LET handles AS List OF RES File = [fs::openFile("tests/syntax/resources/ownership-collection-resource-invalid/src/main.mfb")]
-  RETURN len(handles)
-END FUNC

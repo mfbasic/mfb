@@ -1,0 +1,41 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_invalidate_not_owner_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "consume",
+    "line": 17,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "f", "line": 17, "type": "File", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 21,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 22, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "consume", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

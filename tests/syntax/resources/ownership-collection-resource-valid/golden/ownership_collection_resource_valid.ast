@@ -1,0 +1,27 @@
+{
+  "project": "ownership_collection_resource_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 9 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/ownership-collection-resource-valid/src/main.mfb" }] }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "handles" }] }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

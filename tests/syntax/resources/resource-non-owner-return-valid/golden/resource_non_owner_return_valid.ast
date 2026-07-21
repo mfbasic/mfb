@@ -1,0 +1,43 @@
+{
+  "project": "resource_non_owner_return_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "steal",
+      "line": 20,
+      "params": [
+      { "name": "p", "type": "File", "resource": true, "state": null, "default": null, "line": 20 }
+      ],
+      "returnType": "File", "returnResource": true, "returnState": null,
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "p" }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/resource-non-owner-return-valid/src/main.mfb" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "call", "callee": "steal", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "g" }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 28 }
+      ]
+    }
+    ]
+  }
+  ]
+}

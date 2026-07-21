@@ -1,0 +1,40 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_collection_close_floated_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 15,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 16, "mutable": true, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [] } },
+    { "op": "bind", "line": 17, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 18,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } },
+      "body": [
+      { "op": "bind", "line": 19, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/resources/resource-collection-close-floated-valid/src/main.mfb" }] } },
+      { "op": "assign", "line": 20, "name": "handles", "value": { "kind": "call", "type": "List OF RES File", "target": "collections.append", "args": [{ "kind": "local", "name": "handles" }, { "kind": "local", "name": "f" }] } },
+      { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+      { "op": "assign", "line": 22, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

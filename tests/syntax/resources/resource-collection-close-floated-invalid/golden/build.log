@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/syntax/resources/resource-collection-close-floated-invalid
-  10 |     RES f AS File = fs::openFile("tests/syntax/resources/resource-collection-close-floated-invalid/src/main.mfb")
-  11 |     handles = collections::append(handles, f)
-  12 |     fs::close(f)
-     | ^
-tests/syntax/resources/resource-collection-close-floated-invalid/src/main.mfb:12 error[2-203-0086 TYPE_RESOURCE_INVALIDATE_NOT_OWNER]: only the owning scope may close, return, or transfer a resource
-               Binding `f` is a non-owning resource pointer; only the owning scope may close, `RETURN`, or transfer it.
-[exit 1]

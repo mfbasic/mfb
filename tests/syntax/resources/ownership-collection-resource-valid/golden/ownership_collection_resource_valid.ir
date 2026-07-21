@@ -1,0 +1,27 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "ownership_collection_resource_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": false, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [{ "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/resources/ownership-collection-resource-valid/src/main.mfb" }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "handles" }] } }
+    ]
+  }
+  ]
+}

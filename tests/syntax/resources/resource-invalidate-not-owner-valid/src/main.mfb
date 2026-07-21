@@ -1,0 +1,25 @@
+' plan-59-E: CONVERTED from `resource-invalidate-not-owner-invalid`.
+'
+' This fixture used to assert that a `RES` parameter could not be closed by the
+' callee (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, 2-203-0086 — now retired). Under
+' resource-scoped ownership a `RES` is a pointer to the ONE resource and any
+' holder may close it; the outermost scope that touches it closes it once if
+' nobody already did.
+'
+' It is kept, not deleted, so what the original protected stays traceable: that
+' this shape is DECIDED rather than accidental. Only the verdict changed — it now
+' asserts the code compiles.
+'
+' This is `res.md` §8's headline benefit in miniature: "'Take a handle, give it
+' back' becomes writable. Not expressible today in any form."
+IMPORT fs
+
+SUB consume(RES f AS File)
+  fs::close(f)
+END SUB
+
+FUNC main AS Integer
+  RES f AS File = fs::createTempFile()
+  consume(f)
+  RETURN 0
+END FUNC

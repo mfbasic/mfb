@@ -18,10 +18,35 @@
 //!
 //! The analysis is purely syntactic over the AST and depends only on which local
 //! names are `RES` bindings, so the type checker and IR lowering compute the
-//! same answer independently. It is sound because a non-owning resource pointer cannot
-//! escape a callee (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`): a resource only ever
-//! enters a collection inside the function that owns it, by direct insertion of
-//! a `RES`-binding identifier.
+//! same answer independently.
+//!
+//! **Soundness (re-founded by plan-59-E).** This used to rest on
+//! `TYPE_RESOURCE_INVALIDATE_NOT_OWNER`: a non-owning resource pointer could not
+//! escape a callee, so a resource only ever entered a collection inside the
+//! function that owned it. That rule is retired — a resource is now owned by the
+//! outermost scope that touches it, and any holder of the pointer may close,
+//! `RETURN`, or transfer it. The syntactic scan is therefore no longer a complete
+//! account of where a resource can go.
+//!
+//! What carries the guarantee instead is a layered argument, and the layers
+//! matter individually:
+//!
+//! 1. **Ownership hand-off is still decided statically where it is syntactically
+//!    visible.** `emit_return_exit` deactivates the cleanup for a returned `RES`
+//!    binding, resource union, or `List OF RES` (`deactivate_resource_cleanup` /
+//!    `deactivate_owned_list`), so the common case emits no close at all in the
+//!    escaping scope.
+//! 2. **Runtime pointer identity backstops the cases (1) cannot see**
+//!    (plan-59-D): at scope exit a cleanup whose record pointer equals the value
+//!    escaping the scope skips both close and reclaim.
+//! 3. **A second close is a defined no-op, not corruption** (plan-59-B): every
+//!    resource record carries a closed/moved flag at offset 8, and both the
+//!    built-in helpers and every native `LINK` thunk test it before acting.
+//!
+//! So this pass no longer needs to prove that a resource cannot escape; it needs
+//! only to compute where ownership *floats*, with (2) and (3) ensuring that a
+//! resource which escapes by a route the scan does not model is still closed
+//! exactly once rather than twice or never.
 
 use crate::ast::{CallArg, Expression, Function, Statement};
 use std::collections::{HashMap, HashSet};

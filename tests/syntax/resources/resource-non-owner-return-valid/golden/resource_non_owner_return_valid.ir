@@ -1,0 +1,42 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_non_owner_return_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "steal",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "p", "line": 20, "type": "File", "default": null }
+    ],
+    "returns": "File",
+    "body": [
+    { "op": "return", "line": 21, "value": { "kind": "local", "name": "p" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 25, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/resources/resource-non-owner-return-valid/src/main.mfb" }] } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "g", "type": "File", "value": { "kind": "call", "type": "File", "target": "steal", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "g" }] } },
+    { "op": "return", "line": 28, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

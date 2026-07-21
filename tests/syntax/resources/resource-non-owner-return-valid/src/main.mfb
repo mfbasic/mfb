@@ -1,0 +1,29 @@
+' plan-59-E: CONVERTED from `resource-non-owner-return-invalid`.
+'
+' Used to assert a `RES` parameter could not be RETURNed
+' (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, retired). Returning the pointer hands it
+' to the caller, whose scope becomes the outermost one touching the resource, so
+' it is closed exactly once — there.
+'
+' Kept rather than deleted so the original intent stays traceable; only the
+' verdict changed.
+IMPORT fs
+
+' plan-52-A row 10: `RETURN` of a non-owning parameter is rejected. This is the
+' rule the whole STATE model rests on: a bare parameter may forget the state its
+' argument carries (§15.5) ONLY because that pointer cannot outlive the frame it
+' was passed to. If it could escape, the opaque reading would leak a resource
+' whose state type nobody agrees on.
+'
+' Its sibling resource-invalidate-not-owner-invalid pins the close case;
+' this one pins the escape.
+FUNC steal(RES p AS File) AS RES File
+  RETURN p
+END FUNC
+
+FUNC main AS Integer
+  RES f AS File = fs::openFile("tests/syntax/resources/resource-non-owner-return-valid/src/main.mfb")
+  RES g AS File = steal(f)
+  fs::close(g)
+  RETURN 0
+END FUNC

@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-invalidate-not-owner-valid
+Wrote AST to tests/syntax/resources/resource-invalidate-not-owner-valid/resource_invalidate_not_owner_valid.ast
+Wrote IR to tests/syntax/resources/resource-invalidate-not-owner-valid/resource_invalidate_not_owner_valid.ir
+[exit 0]

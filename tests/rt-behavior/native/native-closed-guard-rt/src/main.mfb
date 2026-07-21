@@ -1,0 +1,108 @@
+' plan-59-B's runtime proof, inherited by plan-59-E (E's Correction C2).
+'
+' The closed/moved guard landed in plan-59-B, but no source path could reach it:
+' setting the closed bit required a registered close op, a close op could only be
+' called from the owning scope (TYPE_RESOURCE_INVALIDATE_NOT_OWNER), and that
+' call marked the binding moved (TYPE_USE_AFTER_MOVE). The two static rules
+' jointly closed the space. plan-59-E retires the first, which is what makes this
+' fixture expressible at all -- and it is exactly why the guard had to land
+' BEFORE the flip: it is the runtime backstop that replaces the deleted rule.
+'
+' Both binding shapes are covered, per plan-59-B Phase 2: one STATELESS (`Db`)
+' and one STATEFUL (`Tracked ... STATE Info`), because the 80-byte record differs
+' between them only in whether STATE@16 is populated, and the guard reads the
+' flag at offset 8 in both.
+IMPORT io
+
+TYPE Info
+  n AS Integer
+END TYPE
+
+RESOURCE Db CLOSE BY sql::close
+RESOURCE Tracked CLOSE BY sql::closeTracked
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC openTracked(path AS String) AS RES Tracked STATE Info
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC exec(RES db AS Db, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC execTracked(RES db AS Tracked, statement AS String) AS Nothing
+    SYMBOL "sqlite3_exec"
+    ABI (db CPtr, statement CString, callback CPtr, arg CPtr, errmsg CPtr) AS status CInt32
+    CONST callback = NOTHING
+    CONST arg = NOTHING
+    CONST errmsg = NOTHING
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC closeTracked(RES db AS Tracked) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' Closing through a SECOND name is the reachable path. `closeVia` is an ordinary
+' call, not a registered close op, so the caller's binding is NOT marked moved and
+' the use afterwards is statically invisible -- which is precisely the case the
+' runtime guard exists to catch now that the static rule is gone.
+FUNC closeVia(RES d AS Db) AS Nothing
+  sql::close(d)
+END FUNC
+
+FUNC closeViaTracked(RES d AS Tracked) AS Nothing
+  sql::closeTracked(d)
+END FUNC
+
+FUNC main() AS Integer
+  ' 1. STATELESS: a LINK op on a closed resource is refused, trappably, and the
+  '    native symbol is NOT called -- sqlite3_exec on a freed handle would fault
+  '    or report its own error rather than this one.
+  RES db AS Db = sql::open(":memory:")
+  closeVia(db)
+  sql::exec(db, "CREATE TABLE t (n INTEGER)") TRAP(e)
+    io::print("stateless code=" & toString(e.code))
+    io::print("stateless message=" & e.message)
+    RECOVER
+  END TRAP
+
+  ' 2. STATEFUL: the same guard on a record that also carries a STATE payload.
+  RES tr AS Tracked STATE Info = sql::openTracked(":memory:")
+  closeViaTracked(tr)
+  sql::execTracked(tr, "CREATE TABLE t (n INTEGER)") TRAP(e2)
+    io::print("stateful code=" & toString(e2.code))
+    RECOVER
+  END TRAP
+
+  ' 3. A DOUBLE CLOSE is refused rather than repeated: the second call never
+  '    reaches sqlite3_close, so libsqlite3 is not asked to free a freed handle.
+  RES d2 AS Db = sql::open(":memory:")
+  closeVia(d2)
+  closeVia(d2) TRAP(e3)
+    io::print("double-close code=" & toString(e3.code))
+    RECOVER
+  END TRAP
+
+  io::print("done")
+  RETURN 0
+END FUNC

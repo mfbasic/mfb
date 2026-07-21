@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-collection-not-owner-valid
+Wrote AST to tests/syntax/resources/resource-collection-not-owner-valid/resource_collection_not_owner_valid.ast
+Wrote IR to tests/syntax/resources/resource-collection-not-owner-valid/resource_collection_not_owner_valid.ir
+[exit 0]

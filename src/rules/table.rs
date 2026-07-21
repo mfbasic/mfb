@@ -612,11 +612,17 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "ordinary collections cannot store resource or thread ownership",
     },
+    // RETIRED by plan-59-E, not emitted. A resource is owned by the outermost
+    // scope that touches it, so a collection element of resource type is a
+    // pointer to the one resource like any other holder, and binding or returning
+    // one is legal. Kept as a reserved row rather than deleted so `2-203-0100` is
+    // never recycled for a different meaning — the `PROJECT_JSON_VALID`
+    // (`2-200-0010`) precedent above.
     Rule {
         code: "2-203-0100",
         name: "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
         severity: Severity::Error,
-        message: "a non-owning collection element of resource type is not an owner",
+        message: "reserved: retired by plan-59-E (resource-scoped ownership)",
     },
     Rule {
         code: "2-203-0101",
@@ -957,11 +963,21 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "STATE must be a copyable, defaultable data type",
     },
+    // RETIRED by plan-59-E, not emitted. Ownership moved from the binding to the
+    // outermost scope that touches the resource: any holder of the pointer may
+    // close, `RETURN`, or transfer it, and the owning scope closes it once if
+    // nobody already did. What replaces this rule is a runtime backstop, not
+    // nothing — plan-59-B's closed/moved guard makes a second close a defined
+    // `ErrResourceClosed`, and `TYPE_USE_AFTER_MOVE` still catches every case it
+    // can prove (now including aliased ones, plan-59-E Phase 2).
+    //
+    // Reserved rather than deleted so `2-203-0086` is never recycled for a
+    // different meaning — the `PROJECT_JSON_VALID` (`2-200-0010`) precedent.
     Rule {
         code: "2-203-0086",
         name: "TYPE_RESOURCE_INVALIDATE_NOT_OWNER",
         severity: Severity::Error,
-        message: "only the owning scope may close, return, or transfer a resource",
+        message: "reserved: retired by plan-59-E (resource-scoped ownership)",
     },
     Rule {
         code: "2-203-0087",

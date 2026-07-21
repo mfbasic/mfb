@@ -1,0 +1,25 @@
+' plan-59-E: CONVERTED from `resource-collection-close-floated-invalid`.
+'
+' Used to assert that a binding whose ownership had floated to a collection could
+' not itself close the resource (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, retired).
+' Under scope ownership the floated binding is still a pointer to the one
+' resource and may close it; the collection's scope then finds it already closed
+' and its own close is a defined no-op (plan-59-B's flag).
+'
+' Kept rather than deleted; only the verdict changed.
+IMPORT collections
+IMPORT fs
+
+' Once a resource's ownership floats into an outer-scope collection it becomes
+' a plain pointer: the binding may no longer close it (§15.6).
+FUNC main AS Integer
+  MUT handles AS List OF RES File = []
+  MUT i AS Integer = 0
+  WHILE i < 2
+    RES f AS File = fs::openFile("tests/syntax/resources/resource-collection-close-floated-valid/src/main.mfb")
+    handles = collections::append(handles, f)
+    fs::close(f)
+    i = i + 1
+  WEND
+  RETURN 0
+END FUNC

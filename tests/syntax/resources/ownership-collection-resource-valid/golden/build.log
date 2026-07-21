@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/ownership-collection-resource-valid
+Wrote AST to tests/syntax/resources/ownership-collection-resource-valid/ownership_collection_resource_valid.ast
+Wrote IR to tests/syntax/resources/ownership-collection-resource-valid/ownership_collection_resource_valid.ir
+[exit 0]

@@ -1,0 +1,16 @@
+' plan-59-E: CONVERTED from `ownership-collection-resource-invalid`.
+'
+' Used to assert that a non-`RES` temporary could not be stored in a resource
+' collection (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, retired). The collection holds
+' pointers to resources owned by the outermost scope that touches them, so a
+' temporary is as admissible as a binding.
+'
+' Kept rather than deleted; only the verdict changed.
+IMPORT fs
+
+' Only a `RES` binding (the owner) may be stored in a resource collection; a
+' temporary resource is not an owner (§15.6).
+FUNC main AS Integer
+  LET handles AS List OF RES File = [fs::openFile("tests/syntax/resources/ownership-collection-resource-valid/src/main.mfb")]
+  RETURN len(handles)
+END FUNC

@@ -2666,8 +2666,16 @@ fn rejects_use_after_close() {
 }
 
 #[test]
-fn rejects_non_owner_resource_close() {
-    // A RES parameter is a non-owning pointer; closing it is invalid.
+fn accepts_close_of_a_res_parameter() {
+    // plan-59-E: was `rejects_non_owner_resource_close`. A `RES` parameter used to
+    // be a non-owning pointer that could not be closed
+    // (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, retired). Under scope ownership any
+    // holder may close, which is exactly what makes `closeSound(RES sound AS
+    // SoundFile)` — "take a handle, give it back" — writable at all.
+    //
+    // Converted rather than deleted: what it protected (that this shape is
+    // *decided*, not accidental) is still worth asserting, with the opposite
+    // verdict.
     let body = vec![IrOp::Eval {
         value: IrValue::Call {
             target: "fs.close".to_string(),
@@ -2678,7 +2686,7 @@ fn rejects_non_owner_resource_close() {
         loc: IrSourceLoc::default(),
     }];
     let f = func_returns("run", "Nothing", vec![param("h", "File", None)], body);
-    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_INVALIDATE_NOT_OWNER");
+    accept(&project(vec![f], vec![]));
 }
 
 // --- link functions --------------------------------------------------------
@@ -3646,19 +3654,28 @@ fn rejects_double_move_close_then_return() {
 // --- resource element not owner (list literal + get pointer) ---------------
 
 #[test]
-fn rejects_temporary_in_resource_list() {
-    // List OF RES File with a non-local element (a call result) — not an owner.
+fn accepts_temporary_in_resource_list() {
+    // plan-59-E: was `rejects_temporary_in_resource_list`
+    // (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, retired). A resource collection holds
+    // pointers to resources owned by the outermost scope that touches them, so a
+    // temporary is as admissible as a `RES` binding; the resource is still closed
+    // exactly once, by that scope.
+    // List OF RES File with a non-local element (a call result).
     let body = vec![ret(IrValue::ListLiteral {
         type_: "List OF RES File".to_string(),
         values: vec![IrValue::Call {
-            target: "fs.open".to_string(),
+            // `fs.openFile`, not `fs.open`: the latter takes (path, mode), and
+            // the one-arg call left a TYPE_CALL_ARGUMENT_MISMATCH that the old
+            // expect_rule assertion silently tolerated. Asserting cleanliness
+            // surfaced it.
+            target: "fs.openFile".to_string(),
             args: vec![const_of("String", "f")],
             type_: "File".to_string(),
             loc: IrSourceLoc::default(),
         }],
     })];
     let f = func_returns("run", "List OF RES File", vec![], body);
-    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_ELEMENT_NOT_OWNER");
+    accept(&project(vec![f], vec![]));
 }
 
 // --- capture out-of-range inside a Bind value ------------------------------
@@ -4568,7 +4585,10 @@ fn get_call(list: &str, ret_type: &str) -> IrValue {
 }
 
 #[test]
-fn rejects_res_bind_of_non_owning_element() {
+fn accepts_res_bind_of_a_collection_element() {
+    // plan-59-E: was `rejects_res_bind_of_non_owning_element`
+    // (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, retired). A `RES` is a pointer to the
+    // one resource, and an element is such a pointer like any other holder.
     // RES h = collections.get(xs, 0) where the element type is a resource.
     let body = vec![bind("h", "File", Some(get_call("xs", "File")), true, false)];
     let mut f = func_returns(
@@ -4579,11 +4599,15 @@ fn rejects_res_bind_of_non_owning_element() {
     );
     f.resource_owners
         .insert("h".to_string(), crate::escape::ResOwner::Local);
-    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_ELEMENT_NOT_OWNER");
+    accept(&project(vec![f], vec![]));
 }
 
 #[test]
-fn rejects_return_non_owning_resource_element() {
+fn accepts_return_of_a_resource_collection_element() {
+    // plan-59-E: was `rejects_return_non_owning_resource_element`
+    // (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, retired). Returning the element hands
+    // the pointer to the caller, whose scope becomes the outermost one touching
+    // the resource.
     // RETURN collections.get(xs, 0) whose element is a resource.
     let body = vec![ret(get_call("xs", "File"))];
     let f = func_returns(
@@ -4592,7 +4616,7 @@ fn rejects_return_non_owning_resource_element() {
         vec![param("xs", "List OF RES File", None)],
         body,
     );
-    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_ELEMENT_NOT_OWNER");
+    accept(&project(vec![f], vec![]));
 }
 
 // --- is_defaultable branches (MUT without value) ---------------------------
@@ -4989,9 +5013,12 @@ fn move_in_while_body_propagates() {
 }
 
 #[test]
-fn move_in_foreach_body_non_owning() {
-    // Inside FOR EACH, the element is non-owning; closing it is a not-owner error,
-    // exercising the ForEach arm of check_resource_moves.
+fn close_in_foreach_body_is_accepted() {
+    // plan-59-E: was `move_in_foreach_body_non_owning`. Closing a `FOR EACH`
+    // element used to be a not-owner error (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`,
+    // retired); under scope ownership any holder may close. Still exercises the
+    // ForEach arm of `check_resource_moves`, which is what the original was
+    // really protecting — only the verdict changed.
     let fe = IrOp::ForEach {
         name: "el".to_string(),
         type_: "File".to_string(),
@@ -5006,7 +5033,7 @@ fn move_in_foreach_body_non_owning() {
         vec![fe],
     );
     let _ = &mut f;
-    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_INVALIDATE_NOT_OWNER");
+    accept(&project(vec![f], vec![]));
 }
 
 #[test]

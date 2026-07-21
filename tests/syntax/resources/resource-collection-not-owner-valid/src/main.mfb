@@ -1,0 +1,18 @@
+' plan-59-E: CONVERTED from `resource-collection-not-owner-invalid`.
+'
+' Used to assert that a collection element could not be RES-bound
+' (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, 2-203-0100 — now retired). An element is a
+' pointer to the one resource like any other holder, so the binding is legal.
+'
+' Kept rather than deleted; only the verdict changed.
+IMPORT collections
+IMPORT fs
+
+' A collections::get() of a resource element yields a pointer, not an owner; it cannot be
+' bound with RES (§15.6).
+FUNC main AS Integer
+  RES a AS File = fs::openFile("tests/syntax/resources/resource-collection-not-owner-valid/src/main.mfb")
+  LET handles AS List OF RES File = [a]
+  RES elem AS File = collections::get(handles, 0)
+  RETURN 0
+END FUNC

@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_collection_not_owner_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 13,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 14, "mutable": false, "name": "a", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/resources/resource-collection-not-owner-valid/src/main.mfb" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "handles", "type": "List OF RES File", "value": { "kind": "list", "type": "List OF RES File", "values": [{ "kind": "local", "name": "a" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "elem", "type": "File", "value": { "kind": "call", "type": "File", "target": "collections.get", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "return", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

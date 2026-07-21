@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/syntax/resources/resource-non-owner-return-invalid
-  10 | ' this one pins the escape.
-  11 | FUNC steal(RES p AS File) AS RES File
-  12 |   RETURN p
-     | ^
-tests/syntax/resources/resource-non-owner-return-invalid/src/main.mfb:12 error[2-203-0086 TYPE_RESOURCE_INVALIDATE_NOT_OWNER]: only the owning scope may close, return, or transfer a resource
-               Binding `p` is a non-owning resource pointer; only the owning scope may close, `RETURN`, or transfer it.
-[exit 1]
