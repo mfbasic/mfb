@@ -184,7 +184,9 @@ FUNC readFrames(file AS RES SoundFile, frames AS Integer, channels AS Integer) A
 END FUNC
 ```
 
-`SIZE` is in **bytes**, and the expression ranges over the wrapper's parameters and the function's ABI slots — exactly like `SUCCESS_ON` / `RETURN`. Naming anything else is `NATIVE_ABI_UNBOUND_SLOT`.
+`SIZE` is in **bytes**, and the expression may read the wrapper's **parameters** and its **`CONST` pins** — nothing else. Naming anything else is `NATIVE_ABI_UNBOUND_SLOT`.
+
+That is narrower than `SUCCESS_ON` / `RETURN`, and deliberately so. Those are evaluated *after* the native call, so they may read the ABI return and `OUT` slots. A `BUFFER … SIZE` decides how many bytes to allocate *before* the call runs, so the ABI return and every `OUT` slot are still uninitialized at that point. Naming one is not a typo but a causality error, and it would silently size a buffer from stack garbage — so it is rejected rather than accepted and read.
 
 Deriving the capacity from a sibling slot by naming convention (a `buflen CInt64` next to a `buf OUT CBuffer`) was rejected: it is implicit, unstated in the `ABI` line, and silently picks the wrong slot whenever a C function takes two lengths. The clause states the relationship the C API actually has.
 

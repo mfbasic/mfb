@@ -5751,11 +5751,46 @@ fn rejects_buffer_size_naming_unknown_slot() {
     expect_rule(&cbuffer_project(lf), "NATIVE_ABI_UNBOUND_SLOT");
 }
 
-/// A SIZE expression may read the ABI return and any slot, not only parameters —
-/// the same surface `SUCCESS_ON`/`RETURN` range over.
+/// A SIZE expression may NOT read the ABI return — a causality error, not an
+/// unbound name. `SUCCESS_ON`/`RETURN` are evaluated after the call and may read
+/// it; a `BUFFER SIZE` is evaluated during staging, so at that point the status
+/// word is uninitialized frame memory. Sizing an allocation from it would be a
+/// silent wrong answer of the worst kind.
+///
+/// plan-58-A shipped rule 9 accepting this. Caught while implementing plan-58-B's
+/// staging pass, where there is demonstrably nothing to load.
 #[test]
-fn accepts_buffer_size_reading_a_sibling_slot() {
+fn rejects_buffer_size_reading_the_abi_return() {
     let mut lf = cbuffer_fn();
     lf.buffers[0].size = crate::ir::IrLinkExpr::Var("status".to_string());
+    expect_rule(&cbuffer_project(lf), "NATIVE_ABI_UNBOUND_SLOT");
+}
+
+/// Same for an OUT slot: its value is whatever the callee writes, which has not
+/// happened yet.
+#[test]
+fn rejects_buffer_size_reading_an_out_slot() {
+    let mut lf = cbuffer_fn();
+    lf.abi_slots.push(crate::ir::IrAbiSlot {
+        name: "written".to_string(),
+        ctype: "CInt64".to_string(),
+        direction: crate::ir::AbiDirection::Out,
+    });
+    lf.buffers[0].size = crate::ir::IrLinkExpr::Var("written".to_string());
+    expect_rule(&cbuffer_project(lf), "NATIVE_ABI_UNBOUND_SLOT");
+}
+
+/// A CONST pin IS readable: it is a compile-time immediate, so it exists during
+/// staging.
+#[test]
+fn accepts_buffer_size_reading_a_const_pin() {
+    let mut lf = cbuffer_fn();
+    lf.abi_slots.push(crate::ir::IrAbiSlot {
+        name: "cap".to_string(),
+        ctype: "CInt64".to_string(),
+        direction: crate::ir::AbiDirection::In,
+    });
+    lf.consts = vec![("cap".to_string(), 4096)];
+    lf.buffers[0].size = crate::ir::IrLinkExpr::Var("cap".to_string());
     accept(&cbuffer_project(lf));
 }

@@ -1,8 +1,20 @@
 $ mfb build -ast -ir tests/syntax/native/native-cbuffer-size-unbound-invalid
-   6 |   FUNC badSize(n AS Integer) AS List OF Byte
-   7 |     SYMBOL "demo_read"
-   8 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+  11 |   FUNC badSize(n AS Integer) AS List OF Byte
+  12 |     SYMBOL "demo_read"
+  13 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
      | ^
-tests/syntax/native/native-cbuffer-size-unbound-invalid/src/lib.mfb:8 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
-               Native function `badSize` `BUFFER buf SIZE` expression reads `nosuch`, which is not a parameter, an ABI slot, or the ABI return.
+tests/syntax/native/native-cbuffer-size-unbound-invalid/src/lib.mfb:13 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
+               Native function `badSize` `BUFFER buf SIZE` expression reads `nosuch`, which is not a wrapper parameter or a CONST pin.
+  19 |   FUNC sizeFromStatus(n AS Integer) AS List OF Byte
+  20 |     SYMBOL "demo_read2"
+  21 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-size-unbound-invalid/src/lib.mfb:21 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
+               Native function `sizeFromStatus` `BUFFER buf SIZE` expression reads `status`, which is not known until after the native call; a BUFFER SIZE is evaluated before it.
+  27 |   FUNC sizeFromOut(n AS Integer) AS List OF Byte
+  28 |     SYMBOL "demo_read3"
+  29 |     ABI (buf OUT CBuffer, n CInt64, written OUT CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-size-unbound-invalid/src/lib.mfb:29 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
+               Native function `sizeFromOut` `BUFFER buf SIZE` expression reads `written`, which is not known until after the native call; a BUFFER SIZE is evaluated before it.
 [exit 1]

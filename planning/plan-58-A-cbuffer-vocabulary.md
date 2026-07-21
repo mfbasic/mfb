@@ -409,7 +409,7 @@ plus `pub(crate) buffers: Vec<IrBuffer>` on `IrLinkFunction`.
 | 6 | a `CBuffer` slot not named by `RETURN` | `NATIVE_BUFFER_INVALID` — an unreachable buffer is always a mistake, and unlike a scalar OUT it costs an allocation |
 | 7 | `RETURN` names a `CBuffer` slot but `return_type != "List OF Byte"` | `NATIVE_BUFFER_INVALID` |
 | 8 | `return_type == "List OF Byte"` but `RETURN` does not name a `CBuffer` slot | `NATIVE_BUFFER_INVALID` — closes the §2.3 hole |
-| 9 | a `BUFFER` `SIZE` expression naming an unknown slot/param | `NATIVE_ABI_UNBOUND_SLOT` (existing; reuse `link_expr_var_names`, `src/ir/link.rs:163-175`) |
+| 9 | a `BUFFER` `SIZE` expression naming anything other than a wrapper **parameter** or a **`CONST` pin** — including the ABI return and any `OUT` slot | `NATIVE_ABI_UNBOUND_SLOT` (existing; reuse `link_expr_var_names`, `src/ir/link.rs:163-175`). **Tightened during plan-58-B** from "an unknown slot/param"; see Corrections |
 
 Rules 4, 5 and 9 reuse existing diagnostics — do not mint new codes for
 conditions the existing rules already name. Rules 1, 2, 3, 6, 7, 8 share one new
@@ -657,6 +657,23 @@ the plan-57 precondition, checked once before plan-58-A begins.
   `NATIVE_ABI_UNBOUND_SLOT`; `INOUT` fires the existing "INOUT on a non-CSTRUCT"
   rule. Rule 1 still contributes the message that actually explains the mistake.
   The goldens record all of them, so a future change that drops one is visible.
+
+- **Rule 9's accept set was too wide, and it was a causality error rather than a
+  cosmetic one.** As shipped, rule 9 accepted a `BUFFER … SIZE` expression that
+  named the ABI return or any ABI slot — "the same surface `SUCCESS_ON`/`RETURN`
+  range over". That is wrong. `SUCCESS_ON`/`RETURN` are emitted *after* the native
+  call; a `SIZE` expression is emitted during **staging**, to decide the
+  allocation size before the call runs. At that point the status word and every
+  `OUT` slot word are uninitialized frame memory, so `BUFFER buf SIZE status`
+  would have sized an allocation from stack garbage — silently, with no
+  diagnostic. Found while implementing plan-58-B Phase 1, where the staging pass
+  demonstrably has nothing to load. **Tightened** (never weakened) to: wrapper
+  parameters and `CONST` pins only, with a message that distinguishes the three
+  cases. plan-58-A's own
+  `accepts_buffer_size_reading_a_sibling_slot` test asserted the bad behavior and
+  is now `rejects_buffer_size_reading_the_abi_return`, joined by
+  `rejects_buffer_size_reading_an_out_slot` and
+  `accepts_buffer_size_reading_a_const_pin`.
 
 ### From the 2026-07-19 → 2026-07-20 replan
 

@@ -636,21 +636,44 @@ pub(crate) fn check_buffer_slots(view: &BufferSlotsView) -> Vec<CStructFault> {
             )),
             Some(_) => {}
         }
-        // Rule 9: every identifier a SIZE expression reads must resolve. An
-        // unresolved name here is not cosmetic — it is the capacity of a buffer a
-        // C function is about to write into.
+        // Rule 9: every identifier a SIZE expression reads must resolve, AND must
+        // be something whose value exists *before the call*.
+        //
+        // This is narrower than `SUCCESS_ON`/`RETURN`, deliberately. Those are
+        // evaluated after the call, so they may read the ABI return and OUT slots.
+        // A `SIZE` expression is evaluated during staging — it decides how many
+        // bytes to allocate before the C function runs — so the only values in
+        // existence are the wrapper's parameters (spilled to the frame on entry)
+        // and `CONST` pins (compile-time immediates). Reading the ABI return or an
+        // OUT slot here is not an unbound name but a *causality* error: it would
+        // silently size the buffer from an uninitialized frame word.
+        //
+        // plan-58-A shipped this accepting slots and the ABI return, which was
+        // wrong; found while implementing plan-58-B's staging pass, where there is
+        // demonstrably nothing to load. See that plan's Corrections.
         for read in size_reads {
             if *read == "NOTHING"
-                || *read == view.abi_return_name
                 || view.param_names.contains(read)
-                || view.slots.iter().any(|(n, _, _)| n == read)
+                || view.const_slots.contains(read)
             {
                 continue;
             }
+            let known_after_call = *read == view.abi_return_name
+                || view
+                    .slots
+                    .iter()
+                    .any(|(n, _, d)| n == read && d.writes_back());
+            let why = if known_after_call {
+                "which is not known until after the native call; a BUFFER SIZE is evaluated before it"
+            } else if view.slots.iter().any(|(n, _, _)| n == read) {
+                "which is an ABI slot with no value of its own before the call; name the wrapper parameter or CONST pin that feeds it"
+            } else {
+                "which is not a wrapper parameter or a CONST pin"
+            };
             faults.push(fault(
                 "NATIVE_ABI_UNBOUND_SLOT",
                 format!(
-                    "Native function `{name}` `BUFFER {slot} SIZE` expression reads `{read}`, which is not a parameter, an ABI slot, or the ABI return."
+                    "Native function `{name}` `BUFFER {slot} SIZE` expression reads `{read}`, {why}."
                 ),
             ));
         }
