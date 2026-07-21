@@ -10,7 +10,7 @@ FUNC main AS Integer
   collections::forEach(numbers, LAMBDA(x AS Integer) -> total = total + x)
   io::print(toString(total))
 
-  ' A captured `MUT List` grows through the borrow; the grow (a reallocation)
+  ' A captured `MUT List` grows through the capture; the grow (a reallocation)
   ' is written back to the outer binding's slot (§12.3).
   MUT doubled AS List OF Integer = []
   collections::forEach(numbers, LAMBDA(x AS Integer) -> doubled = collections::append(doubled, x + x))

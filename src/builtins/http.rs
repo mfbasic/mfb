@@ -267,7 +267,7 @@ pub(crate) fn default_argument_padding(
 
 /// Whether argument `index` of `name` consumes (moves) its resource operand.
 /// `respondFile` takes ownership of the `RES File` it serves (§F.5.5), closing
-/// it by lexical drop; every other server call borrows.
+/// it by lexical drop; every other server call only uses the handle.
 pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
     matches!((name, index), (RESPOND_FILE, 0))
 }

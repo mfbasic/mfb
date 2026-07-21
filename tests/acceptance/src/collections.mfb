@@ -184,9 +184,9 @@ TESTING
         expectInteger(collections::getOr(names, "Grace", 7), 7)
         expectInteger(collections::getOr(default := 8, key := "Grace", value := names), 8)
       END TCASE
-      TCASE "string default is owned, not a borrow"
+      TCASE "string default is owned, not an alias"
         ' A getOr miss whose default is a String must return an OWNED copy: the
-        ' "get" group below reads String map values, and a borrowed default here
+        ' "get" group below reads String map values, and an aliased default here
         ' would be double-freed and corrupt the arena, trapping that later read.
         LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one" }
         expectString(collections::getOr(codes, 2, "two"), "two")

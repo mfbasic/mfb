@@ -141,7 +141,7 @@ mod tests {
         let shown = display_name("#json_parse");
         assert_eq!(shown, "__json_parse");
         assert!(matches!(shown, std::borrow::Cow::Owned(_)));
-        // Non-internal names pass through unchanged (borrowed, no allocation).
+        // Non-internal names pass through unchanged (`Cow::Borrowed`, no allocation).
         let plain = display_name("parse");
         assert_eq!(plain, "parse");
         assert!(matches!(plain, std::borrow::Cow::Borrowed(_)));

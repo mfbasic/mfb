@@ -355,7 +355,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 /// guaranteed to invoke the callback only synchronously during the call, never
 /// to store, forward, return, or concurrently/cross-thread invoke it. A lambda
 /// passed in such a position may capture an outer `MUT` binding as a temporary
-/// call-bound borrow of that binding's slot (§11.2). The callback argument is
+/// call-bound reference to that binding's slot (§11.2). The callback argument is
 /// matched after normalization, so the index is the canonical parameter order.
 ///
 /// `forEach`'s action (index 1) is the only such position today; `transform`,

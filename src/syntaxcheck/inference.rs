@@ -754,7 +754,7 @@ impl<'a> SyntaxChecker<'a> {
         line: usize,
     ) -> Type {
         // `s.state` on a `RES` binding/parameter yields its declared `STATE`
-        // record. The owner and a borrower may both read it (and replace it via
+        // record. The owner and a non-owning holder may both read it (and replace it via
         // `s.state = WITH s.state { ... }`).
         if member == "state" {
             if let Expression::Identifier(name) = target {
@@ -1402,7 +1402,7 @@ impl<'a> SyntaxChecker<'a> {
                     line,
                 );
             } else if capture.mutable && self.is_resource_type(&capture.type_) {
-                // A non-escaping callback may borrow a `MUT` binding, but never a
+                // A non-escaping callback may capture a `MUT` binding by-ref, but never a
                 // resource: resource ownership rules are unchanged (§12.4).
                 self.report(
                     "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
@@ -1414,7 +1414,7 @@ impl<'a> SyntaxChecker<'a> {
                     line,
                 );
             } else if capture.mutable {
-                // A permitted non-escaping `MUT` borrow: the binding is loaned to
+                // A permitted non-escaping `MUT` by-ref capture: the binding is loaned to
                 // the callback for the duration of the synchronous call and is the
                 // outer binding's again once it returns.
             } else if self.is_resource_type(&capture.type_) {
@@ -2253,7 +2253,7 @@ mod tests {
         // An assignment-bodied lambda whose target is an outer MUT binding pushes
         // the target as a capture; it is a mutable capture and is rejected.
         let src = "IMPORT collections\nFUNC main AS Integer\n  MUT total AS Integer = 0\n  LET numbers AS List OF Integer = [1, 2, 3]\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> total = total + x)\n  RETURN total\nEND FUNC\n";
-        // forEach is a non-escaping position, so the MUT borrow may be permitted;
+        // forEach is a non-escaping position, so the MUT by-ref capture may be permitted;
         // either way the assign-target capture arm is exercised.
         let _ = check_src(src);
     }

@@ -998,7 +998,7 @@ fn f2i_nearest_never_clobbers_its_own_dst() {
             "{dst}: movabs must stay gone: {b:02x?}"
         );
     }
-    // The GPR borrowed for the correction term is pushed first and popped last,
+    // The GPR commandeered for the correction term is pushed first and popped last,
     // and is never `dst` — so whichever register the caller asked the result in,
     // the sequence cannot destroy it. (0x50+rd = push, 0x58+rd = pop.)
     for (dst, dst_num) in [("rax", 0u8), ("rcx", 1), ("rbx", 3), ("r10", 10)] {
@@ -1007,11 +1007,11 @@ fn f2i_nearest_never_clobbers_its_own_dst() {
         let popped = b[b.len() - 1] - 0x58;
         assert_eq!(
             pushed, popped,
-            "{dst}: must restore the register it borrowed"
+            "{dst}: must restore the register it commandeered"
         );
         assert_ne!(
             pushed, dst_num,
-            "{dst}: the borrowed scratch must not be dst itself: {b:02x?}"
+            "{dst}: the commandeered scratch must not be dst itself: {b:02x?}"
         );
     }
 }
@@ -2642,9 +2642,9 @@ fn ties_away_encodes_the_exact_fraction_sequence() {
             0x66, 0x41, 0x0f, 0x5c, 0xd7
         ]
     );
-    // The borrowed GPR is chosen to differ from dst: with dst == rax it must not
+    // The commandeered GPR is chosen to differ from dst: with dst == rax it must not
     // push/pop the register it is about to return in.
     let with_rax_dst = bytes("fcvtas_x_from_d", &[("dst", "rax"), ("src", "xmm3")]);
-    assert_eq!(with_rax_dst[0], 0x51, "dst == rax must borrow rcx, not rax");
+    assert_eq!(with_rax_dst[0], 0x51, "dst == rax must commandeer rcx, not rax");
     assert_eq!(*with_rax_dst.last().unwrap(), 0x59, "and restore rcx");
 }

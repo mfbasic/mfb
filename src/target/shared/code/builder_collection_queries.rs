@@ -1,11 +1,11 @@
 use super::*;
 
 impl CodeBuilder<'_> {
-    /// `collections::get`/`getOr` extract an element as a borrow into the
+    /// `collections::get`/`getOr` extract an element as an alias into the
     /// container's data region for inline composite / nested-collection payloads
     /// (`emit_load_collection_payload`). By value semantics `get` returns an
     /// **owned** value the caller may bind, store, and free, so copy such a
-    /// borrow into a standalone arena block (scalars are by-value and `String`
+    /// alias into a standalone arena block (scalars are by-value and `String`
     /// is already materialized fresh, so they pass through). plan-02 Phase 8.
     pub(super) fn materialize_owned_element(
         &mut self,
@@ -2007,7 +2007,7 @@ impl CodeBuilder<'_> {
         // aliasing question the comment below already records.
         //
         // A failing reducer: no cleanup — the accumulator may still alias the
-        // borrowed seed (no owning copy is inserted for it), so freeing it here
+        // aliased seed (no owning copy is inserted for it), so freeing it here
         // would be a use-after-free after the handler recovers; the success path
         // likewise leaves intermediate accumulators unfreed (plan-26-B).
         self.emit_callback_failure_exit(None)?;
@@ -2051,7 +2051,7 @@ impl CodeBuilder<'_> {
     ///
     /// `cleanup` names the member's private, uniquely-owned intermediate to free
     /// (`transform`/`filter`: the partial output list; `forEach`: none). `reduce`
-    /// passes `None`: its accumulator may still alias the **borrowed** seed on an
+    /// passes `None`: its accumulator may still alias the **non-owned** seed on an
     /// iteration-1 failure (the seed reaches codegen as a bare local with no owning
     /// copy), so freeing it would be a use-after-free after the handler recovers —
     /// and the success path already leaves intermediate accumulators unfreed, so
@@ -2248,7 +2248,7 @@ impl CodeBuilder<'_> {
     /// fresh (bug-307).
     ///
     /// Every arm of `emit_load_collection_payload` except `String` hands back a
-    /// borrow -- a scalar loaded from the packed data region, or a pointer into it.
+    /// alias -- a scalar loaded from the packed data region, or a pointer into it.
     /// The `String` arm is the exception: it `arena_alloc`s a fresh owned block
     /// (`emit_materialize_string_from_bytes`) because a packed String has no
     /// standalone header to point at. That block was moved into the callback's

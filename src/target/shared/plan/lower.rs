@@ -138,7 +138,7 @@ pub(super) fn storage_for_type(
     type_storage: &HashMap<String, StorageType>,
 ) -> Result<StorageType, String> {
     // A `RES`-marked collection element (`RES File`) stores exactly like the
-    // bare resource it borrows: a pointer to the record (§15.6).
+    // bare resource it points at: a pointer to the record (§15.6).
     let type_ = type_.strip_prefix("RES ").unwrap_or(type_);
     // A resource carrying `STATE T` likewise stores exactly like its base: one
     // pointer to the record, the state being a pointer *inside* it. Strip the

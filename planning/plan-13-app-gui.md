@@ -40,7 +40,7 @@ References (read first):
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
 | The spec permits a `RES` parameter to name a resource union | `rg -n 'no generic resource supertype' src/docs/spec/language/15_resource-management.md` → still present at `:30` | **NOT MET — the spec forbids it** |
-| All three checkers accept variant→union widening in a borrow parameter | `rg -n 'WIDGET_VARIANTS' src/` | **NOT MET** |
+| All three checkers accept variant→union widening in a non-owning parameter | `rg -n 'WIDGET_VARIANTS' src/` | **NOT MET** |
 | App mode works on both target platforms | `ls src/target/macos_aarch64/app/ src/target/linux_gtk/` | **MET** |
 | A GTK4 Linux box is reachable for backend proof | `grep -n 'GTK4' .ai/remote_systems.md` → `:39`, box 2232 | **MET** |
 
@@ -296,7 +296,7 @@ Dependency list, in the form the executor checks:
 
 | Unit | Was | Effort | Produces |
 |---|---|---|---|
-| **13-A** | A Phase 0 | small | the spec amendment + the three checkers accepting variant→union widening in borrow position |
+| **13-A** | A Phase 0 | small | the spec amendment + the three checkers accepting variant→union widening in non-owning position |
 | **13-B** | B Phase 1 | medium | `text::AttributeString`, the span/LUT encoding, `text::setAttribute`/`getAttributes`/`&` |
 | **13-C** | A Phase 1 | medium | the `app::` package: 11 types, 32 functions as overload sets, close-op registration, **and the ability for an emitted helper to mint a `RES` record outside `LINK`** (§2.4 gap b — new capability) |
 | **13-D** | A Phase 2 | medium–large **(measure first)** | `_mfb_rt_app_layout` + the `headless` host + the golden layout matrix |
@@ -320,7 +320,7 @@ broken binary.
 
 ## Compatibility / Format Impact
 
-- **Changed (13-A):** `15_resource-management.md` gains the variant→union borrow-parameter
+- **Changed (13-A):** `15_resource-management.md` gains the variant→union non-owning-parameter
   amendment; three checkers accept it. Widening stays directional — a union actual into a
   concrete parameter must still be rejected, and every registered close op and
   `thread::transfer`/`accept` keeps concrete-typed parameters, so no blocklist is needed.

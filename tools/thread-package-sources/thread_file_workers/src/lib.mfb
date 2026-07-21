@@ -1,7 +1,7 @@
 IMPORT thread
 IMPORT fs
 
-' Receives a File as a start argument. A resource parameter is a borrow (the
+' Receives a File as a start argument. A resource parameter is a non-owning pointer (the
 ' language grants ownership only via thread::accept), so the worker uses it
 ' without closing; the handle is released when the process's owner side drops.
 EXPORT ISOLATED FUNC acceptFile(t AS ThreadWorker OF Nothing TO Integer, RES f AS File) AS Integer

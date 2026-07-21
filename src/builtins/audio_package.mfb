@@ -556,7 +556,7 @@ FUNC __mml_encode(samples AS List OF Integer) AS List OF Byte
 END FUNC
 
 ' Encode the samples and write them to the open output stream. A no-op for empty
-' PCM. The stream is borrowed — the caller keeps and closes it. The stream must be
+' PCM. Only a pointer to the stream is passed — the caller owns and closes it. The stream must be
 ' 48 kHz mono (what the sequencer renders).
 SUB __audio_play_samples(RES out AS AudioOutput, samples AS List OF Integer)
   IF len(samples) = 0 THEN

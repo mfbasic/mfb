@@ -18,7 +18,7 @@ use crate::target::shared::abi;
 
 // OpenSSL handles share this fixed record layout (distinct from the `File`
 // layout used by `Socket`/`UdpSocket`). An accepted (server-side) `TlsSocket`
-// stores 0 in the `SSL_CTX*` slot: the marker that it borrows the listener's
+// stores 0 in the `SSL_CTX*` slot: the marker that it points at the listener's
 // shared server context and must not free it (plan-06-tls-server.md §5.1).
 pub(super) const TLS_OFFSET_FD: usize = 0;
 pub(super) const TLS_OFFSET_CLOSED: usize = 8;

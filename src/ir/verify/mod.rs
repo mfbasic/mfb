@@ -143,7 +143,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RESULT_NOT_MATCHABLE",
     "TYPE_RESULT_IS_IMPLICIT",
     "TYPE_THREAD_RESULT_REMOVED",
-    "TYPE_RESOURCE_BORROW_INVALIDATE",
+    "TYPE_RESOURCE_INVALIDATE_NOT_OWNER",
     "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
     "TYPE_MEMBER_NOT_VISIBLE",
     // ir::verify is the sole implementer: the condition is knowable only from
@@ -304,18 +304,18 @@ fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -
         // Resource use-after-move is a separate dataflow pass (straight-line
         // within a block; moves on any fall-through branch propagate past the
         // join, mirroring syntaxcheck's MaybeMoved).
-        let mut borrowed: HashSet<String> = function
+        let mut non_owning: HashSet<String> = function
             .params
             .iter()
             .filter(|p| env.is_resource_or_resource_union(resource_base_type(&p.type_)))
             .map(|p| p.name.clone())
             .collect();
         // A RES binding whose ownership floats into a collection
-        // (ResOwner::Float) is borrow-only afterwards: the collection owns the
+        // (ResOwner::Float) is non-owning afterwards: the collection owns the
         // close obligation (§15.6).
         for (name, owner) in &function.resource_owners {
             if matches!(owner, crate::escape::ResOwner::Float(_)) {
-                borrowed.insert(name.clone());
+                non_owning.insert(name.clone());
             }
             // bug-291: the resource flows into a collection this function
             // RETURNs, but the collection is declared after it, so it has no
@@ -341,7 +341,7 @@ fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -
             &mut locals,
             &mut HashSet::new(),
             &function.resource_owners,
-            &borrowed,
+            &non_owning,
         );
     }
     // Global initializers are lowered into a synthetic function later; verify
@@ -919,17 +919,17 @@ impl TypeEnv {
                             self.check_binding_state_agreement(name, type_, value, locals);
                         }
                     }
-                    // A collection `get`/`getOr` yields a *borrow* of a
+                    // A collection `get`/`getOr` yields a *pointer* to a
                     // resource element; it cannot be RES-bound (§15.6) —
                     // syntaxcheck's TYPE_RESOURCE_ELEMENT_NOT_OWNER.
                     if self.current_owners.borrow().contains(name.as_str())
                         && self.is_resource_or_resource_union(resource_base_type(type_))
-                        && value.as_ref().is_some_and(is_resource_element_borrow)
+                        && value.as_ref().is_some_and(is_resource_element_pointer)
                     {
                         self.emit(
                             "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
                             format!(
-                                "Binding `{name}` is a borrowed collection element, not an owner; a borrowed resource cannot be bound with `RES`. Use it inline or via `FOR EACH` (§15.6)."
+                                "Binding `{name}` is a non-owning collection element, not an owner; a non-owning resource pointer cannot be bound with `RES`. Use it inline or via `FOR EACH` (§15.6)."
                             ),
                         );
                     }
@@ -1152,16 +1152,16 @@ impl TypeEnv {
                                 "RETURN value does not have a known type.".to_string(),
                             );
                         }
-                        // A borrowed collection element cannot be returned
+                        // A non-owning collection element cannot be returned
                         // (§15.6, TYPE_RESOURCE_ELEMENT_NOT_OWNER return arm).
-                        if is_resource_element_borrow(value)
+                        if is_resource_element_pointer(value)
                             && self.infer_type(value, locals).is_some_and(|t| {
                                 self.is_resource_or_resource_union(resource_base_type(&t))
                             })
                         {
                             self.emit(
                                 "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
-                                "RETURN value is a borrowed collection element, not an owner; a borrowed resource cannot be returned (§15.6)."
+                                "RETURN value is a non-owning collection element, not an owner; a non-owning resource pointer cannot be returned (§15.6)."
                                     .to_string(),
                             );
                         }
@@ -1426,7 +1426,7 @@ impl TypeEnv {
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
                     branch.insert(name.clone(), type_.clone());
-                    // The element binding is an immutable (borrowed) view.
+                    // The element binding is an immutable, non-owning view.
                     branch_muts.insert(name.clone(), false);
                     self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
                     self.check_ops(
@@ -1659,7 +1659,7 @@ impl TypeEnv {
                                 self.emit(
                                     "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
                                     format!(
-                                        "Only a `RES` binding may be added as a collection element; `{inner}` is a temporary or borrowed resource, not an owner. Bind it with `RES` first (§15.6)."
+                                        "Only a `RES` binding may be added as a collection element; `{inner}` is a temporary or non-owning resource pointer, not an owner. Bind it with `RES` first (§15.6)."
                                     ),
                                 );
                             }
@@ -2436,7 +2436,7 @@ impl TypeEnv {
         locals: &mut HashMap<String, String>,
         moved: &mut HashSet<String>,
         owners: &HashMap<String, crate::escape::ResOwner>,
-        borrowed: &HashSet<String>,
+        non_owning: &HashSet<String>,
     ) {
         // A branch that always leaves the function never reaches the join, so
         // its moves must not leak past it (syntaxcheck merges only fall-through
@@ -2461,7 +2461,7 @@ impl TypeEnv {
                     &mut locals.clone(),
                     &mut branch_moved,
                     owners,
-                    borrowed,
+                    non_owning,
                 );
                 if !diverges(body) {
                     for name in branch_moved {
@@ -2490,13 +2490,13 @@ impl TypeEnv {
                 }
             }
             if let Some(consumed) = self.consumed_resource(op, locals) {
-                // A borrow (RES parameter, FOR EACH element) never owns the
-                // close obligation — syntaxcheck's TYPE_RESOURCE_BORROW_INVALIDATE.
-                if borrowed.contains(&consumed) {
+                // A non-owning pointer (RES parameter, FOR EACH element) never owns the
+                // close obligation — syntaxcheck's TYPE_RESOURCE_INVALIDATE_NOT_OWNER.
+                if non_owning.contains(&consumed) {
                     self.emit(
-                        "TYPE_RESOURCE_BORROW_INVALIDATE",
+                        "TYPE_RESOURCE_INVALIDATE_NOT_OWNER",
                         format!(
-                            "Binding `{consumed}` is a borrowed resource; only its owner may close, `RETURN`, or transfer it."
+                            "Binding `{consumed}` is a non-owning resource pointer; only the owning scope may close, `RETURN`, or transfer it."
                         ),
                     );
                 } else {
@@ -2510,7 +2510,7 @@ impl TypeEnv {
                     // `RES new = old` transfers ownership: the source binding is
                     // moved. Only a RES-declared bind (an entry in the
                     // function's resource-owner table) moves; a plain LET of a
-                    // resource local is a borrow.
+                    // resource local does not move ownership.
                     if owners.contains_key(name) {
                         if let Some(IrValue::Local(source)) = value {
                             if locals
@@ -2543,18 +2543,18 @@ impl TypeEnv {
                 IrOp::ForEach {
                     name, type_, body, ..
                 } => {
-                    // The element binding is a borrow of the collection's slot.
+                    // The element binding is a non-owning pointer copied from the collection's slot.
                     let mut fe_locals = locals.clone();
                     fe_locals.insert(name.clone(), type_.clone());
-                    let mut fe_borrowed = borrowed.clone();
-                    fe_borrowed.insert(name.clone());
+                    let mut fe_non_owning = non_owning.clone();
+                    fe_non_owning.insert(name.clone());
                     let mut branch_moved = moved.clone();
                     self.check_resource_moves(
                         body,
                         &mut fe_locals,
                         &mut branch_moved,
                         owners,
-                        &fe_borrowed,
+                        &fe_non_owning,
                     );
                     for n in branch_moved {
                         if locals.contains_key(&n) {
@@ -3923,13 +3923,13 @@ impl TypeEnv {
     /// | stateless    | ✗               | ✓          |
     ///
     /// **A bare parameter accepts anything and this must stay that way.** Bare
-    /// reads as "opaque" at a parameter — sound because a borrow cannot escape the
+    /// reads as "opaque" at a parameter — sound because a non-owning pointer cannot escape the
     /// frame that took it — and every close op depends on it: `FUNC close(RES db AS
     /// Db)` names no STATE and must accept a `Db` whatever its owner attached.
     /// Tightening bare to stateless-only would break every one of them.
     ///
     /// Note the intuitive rule is the unsafe one: allowing `stateless → STATE T`
-    /// so a parameter may attach is precisely what makes two disagreeing borrows
+    /// so a parameter may attach is precisely what makes two disagreeing state types
     /// reachable with **no stateful binding anywhere** — `a(RES p AS File STATE
     /// Cursor)` allocates, then `b(RES p AS File STATE Label)` reads that block as
     /// a Label.
@@ -4030,7 +4030,7 @@ impl TypeEnv {
     /// | carries `T2` | ✗                            | ✗            |
     /// | stateless    | ✓ **the one true attach point** | ✓         |
     ///
-    /// `stateful → bare` is safe for a **parameter** (a borrow cannot escape the
+    /// `stateful → bare` is safe for a **parameter** (a non-owning pointer cannot escape the
     /// frame, so forgetting the state is unobservable) and unsafe for a **binding**
     /// (an owner escapes). Yes for params, no for owners — the escape distinction
     /// is the whole rule.
@@ -4986,9 +4986,9 @@ fn integer_constant_value(value: &IrValue) -> Option<i128> {
     }
 }
 
-/// Whether an IR value is a `collections.get`/`getOr` call — a *borrow* of a
-/// collection element (mirrors `syntaxcheck::helpers::is_resource_element_borrow`).
-fn is_resource_element_borrow(value: &IrValue) -> bool {
+/// Whether an IR value is a `collections.get`/`getOr` call — a *pointer* to a
+/// collection element (mirrors `syntaxcheck::helpers::is_resource_element_pointer`).
+fn is_resource_element_pointer(value: &IrValue) -> bool {
     matches!(
         value,
         IrValue::Call { target, .. } | IrValue::CallResult { target, .. }

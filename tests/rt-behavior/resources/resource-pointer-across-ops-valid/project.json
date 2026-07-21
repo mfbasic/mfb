@@ -1,5 +1,5 @@
 {
-  "name": "resource_borrow_across_ops_valid",
+  "name": "resource_pointer_across_ops_valid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

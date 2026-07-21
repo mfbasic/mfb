@@ -1665,7 +1665,7 @@ pub(crate) fn lower_tls_accept_helper(
     )?;
     instructions.push(abi::label(&hs_timeout_cleared));
     // Build the TlsSocket record { fd, closed = 0, ssl, ctx = 0 } — the zero
-    // ctx slot marks a borrowed (listener-owned) server context, which the
+    // ctx slot marks a non-owned (listener-owned) server context, which the
     // close helper must not free (plan-06-tls-server.md §6.4).
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
@@ -2416,7 +2416,7 @@ pub(crate) fn lower_tls_close_listener_helper(
         &load_fail,
     )?;
     // SSL_CTX_free(ctx) — the listener owns the shared server context and
-    // frees it exactly once here; accepted sockets only borrow it.
+    // frees it exactly once here; accepted sockets only point at it.
     emit_dlsym(
         &mut EmitCtx {
             symbol,

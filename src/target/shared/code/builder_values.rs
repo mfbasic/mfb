@@ -45,7 +45,7 @@ impl CodeBuilder<'_> {
         // block (a nested `String` field is byte-inlined, so one `arena_free`
         // reclaims it), but a *standalone* `String` produced by a call may be a
         // shared rodata constant NOT loaded through the tracked static-string
-        // path, or a borrowed view into an argument — indistinguishable from a
+        // path, or a non-owned view into an argument — indistinguishable from a
         // fresh block at this point, and freeing one is a wild `arena_free` that
         // corrupts the arena. String temps therefore leak until scope exit as
         // they did pre-plan-25; the benchmark's poison is large *list* temps,
@@ -140,7 +140,7 @@ impl CodeBuilder<'_> {
     }
 
     /// Whether lowering `value` yields a pointer this scope does **not** own — an
-    /// alias/borrow into another value, or a *static* `String` constant in rodata
+    /// alias into another value, or a *static* `String` constant in rodata
     /// (`static_string_value`). Either must be deep-copied into the arena before a
     /// binding/global/return can own it, so the eventual scope-drop `arena_free`
     /// reclaims a real arena block and never an aliased or static one.
@@ -167,7 +167,7 @@ impl CodeBuilder<'_> {
     }
 
     /// A NIR value node that yields a pointer to a **pre-existing** arena block
-    /// (an alias / borrow) rather than a freshly allocated one. Storing such a
+    /// (an alias) rather than a freshly allocated one. Storing such a
     /// value into an owned slot without copying would alias another owner, so
     /// [`lower_value_owned`](Self::lower_value_owned) deep-copies these.
     pub(super) fn value_is_aliasing_source(value: &NirValue) -> bool {
@@ -272,7 +272,7 @@ impl CodeBuilder<'_> {
                 let type_ = local.type_.clone();
                 let stack_offset = local.stack_offset;
                 let by_ref = local.by_ref;
-                // A non-borrowed `Float` local loads straight into an FP register
+                // A non-aliased `Float` local loads straight into an FP register
                 // (`ldr d`) under the `d`-native model, so it feeds float
                 // arithmetic with no `ldr x` + `fmov` shuttle (plan-01
                 // float-dnative). A `by_ref` local needs a pointer deref first, so
@@ -292,7 +292,7 @@ impl CodeBuilder<'_> {
                     // A reference local's slot holds a pointer to the parent
                     // binding's slot; deref it to read the live value/block
                     // pointer. For a scalar this yields the value; for a block it
-                    // yields the block pointer (a borrow into the block).
+                    // yields the block pointer (an alias into the block).
                     self.emit(abi::load_u64(&register, &register, 0));
                 }
                 Ok(ValueResult {
@@ -302,10 +302,10 @@ impl CodeBuilder<'_> {
                 })
             }
             NirValue::LocalRef { name, type_ } => {
-                // The address of the binding's slot (a borrow of the slot), used to
+                // The address of the binding's slot (a reference to the slot), used to
                 // seed a non-escaping callback's env so the callback observes and
                 // updates the live binding. The callback may
-                // change the binding through this borrow, so any folded constant the
+                // change the binding through this reference, so any folded constant the
                 // outer scope held for it is now stale and must be cleared, else a
                 // later read folds to the pre-call value.
                 let local = self
@@ -1223,7 +1223,7 @@ impl CodeBuilder<'_> {
                     });
                 }
                 // A data union inlines the active variant's flat record block at
-                // +16 (plan-02 §4.3); the extracted record is a borrow into the
+                // +16 (plan-02 §4.3); the extracted record is an alias into the
                 // union at that offset.
                 let source = self.lower_value(value)?;
                 let register = self.allocate_register()?;
@@ -1266,7 +1266,7 @@ impl CodeBuilder<'_> {
                     })?
                     .to_string();
                 // The payload is inlined at +16 (plan-02 §4.3): a block payload
-                // yields a borrow pointer into the Result; a scalar payload is the
+                // yields an alias pointer into the Result; a scalar payload is the
                 // 8-byte value.
                 let register = self.allocate_register()?;
                 if self.result_payload_is_block(&type_) {

@@ -8,7 +8,7 @@ END TYPE
 ' plan-52-A row 1: a BARE `RES` parameter accepts an argument whose owner
 ' attached a STATE. Bare reads as "opaque" at a parameter — `p.state` is
 ' inaccessible inside (rows 2/3) — and that erasure is sound only because a
-' borrow cannot escape the frame that borrowed it. The owner's state must
+' parameter pointer cannot escape the callee's frame. The owner's state must
 ' therefore survive the call untouched. See `mfb spec language
 ' resource-management` §15.5.
 SUB opaque(RES p AS File)
@@ -20,7 +20,7 @@ FUNC main AS Integer
   RES f AS File STATE Cursor = fs::openFile(path, "write")
   f.state.pos = 42
   opaque(f)
-  io::print(toString(f.state.pos))   ' 42 — the borrow did not disturb the state
+  io::print(toString(f.state.pos))   ' 42 — the call did not disturb the state
   fs::close(f)
   fs::deleteFile(path)
   RETURN 0

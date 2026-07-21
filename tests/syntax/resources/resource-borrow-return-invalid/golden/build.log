@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/syntax/resources/resource-borrow-return-invalid
-  10 | ' this one pins the escape.
-  11 | FUNC steal(RES p AS File) AS RES File
-  12 |   RETURN p
-     | ^
-tests/syntax/resources/resource-borrow-return-invalid/src/main.mfb:12 error[2-203-0086 TYPE_RESOURCE_BORROW_INVALIDATE]: a borrowed resource cannot be closed, returned, or transferred
-               Binding `p` is a borrowed resource; only its owner may close, `RETURN`, or transfer it.
-[exit 1]

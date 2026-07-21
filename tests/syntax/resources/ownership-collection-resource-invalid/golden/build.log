@@ -3,6 +3,6 @@ $ mfb build -ast -ir tests/syntax/resources/ownership-collection-resource-invali
    5 | FUNC main AS Integer
    6 |   LET handles AS List OF RES File = [fs::openFile("tests/syntax/resources/ownership-collection-resource-invalid/src/main.mfb")]
      | ^
-tests/syntax/resources/ownership-collection-resource-invalid/src/main.mfb:6 error[2-203-0100 TYPE_RESOURCE_ELEMENT_NOT_OWNER]: a borrowed collection element of resource type is not an owner
-               Only a `RES` binding may be added as a collection element; `File` is a temporary or borrowed resource, not an owner. Bind it with `RES` first (§15.6).
+tests/syntax/resources/ownership-collection-resource-invalid/src/main.mfb:6 error[2-203-0100 TYPE_RESOURCE_ELEMENT_NOT_OWNER]: a non-owning collection element of resource type is not an owner
+               Only a `RES` binding may be added as a collection element; `File` is a temporary or non-owning resource pointer, not an owner. Bind it with `RES` first (§15.6).
 [exit 1]

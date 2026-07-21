@@ -310,7 +310,7 @@ then freed. Workload `list.mfb:708-724` = ~99,100 alloc+copy+free/run.
 **Root cause (file:line).** `__collections_window`/`__collections_chunks`
 (`collections_package.mfb:283-313`) build the outer `List OF List` by appending
 freshly-sliced pieces — per-piece sub-alloc + double copy + arena free churn.
-`__collections_flatten` (`:257-266`) borrows each inner list (`get`) then bulk-append-
+`__collections_flatten` (`:257-266`) reads each inner list (`get`) then bulk-append-
 copies it into the result (200×100 bulk appends/run).
 
 **Fixes.**

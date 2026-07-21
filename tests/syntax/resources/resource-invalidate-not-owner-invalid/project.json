@@ -1,5 +1,5 @@
 {
-  "name": "resource_borrow_return_invalid",
+  "name": "resource_invalidate_not_owner_invalid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

@@ -2350,7 +2350,7 @@ fn emit_write_integer_to_stderr_with_labels(
     // pre-change lowering). The counter lives in SCRATCH[12] (AArch64 x22 / x86
     // rdi / riscv scratch): the loop body never touches that register and the
     // divide's implicit rax:rdx clobber does not reach it, so it persists across
-    // every iteration. The hyphen store below borrows SCRATCH[16] (the just-freed
+    // every iteration. The hyphen store below reuses SCRATCH[16] (the just-freed
     // digit register) for the `-` byte so it does not disturb the counter.
     if hyphenate {
         ctx.instructions

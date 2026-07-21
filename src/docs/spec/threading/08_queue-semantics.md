@@ -79,9 +79,10 @@ enqueue success:
   to separate the success path, where the sent/transferred binding is moved, from
   the error handler, where it remains owned by the sender and can be released. The
   syntaxchecker treats the argument at index 1 of `thread.start`, `thread.send`, and
-  `thread.transfer` as a move (`ExprMode::Transfer`); a borrowed resource cannot be
-  transferred, rejected on the IR with `TYPE_RESOURCE_BORROW_INVALIDATE`
-  ("Binding `<name>` is a borrowed resource; only its owner may close, `RETURN`, or transfer it."). [[src/ir/verify/mod.rs:check_resource_moves]]
+  `thread.transfer` as a move (`ExprMode::Transfer`); a resource held only through a
+  non-owning pointer cannot be transferred, rejected on the IR with
+  `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` ("only the owning scope may close, return, or
+  transfer a resource"). [[src/ir/verify/mod.rs:check_resource_moves]]
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal

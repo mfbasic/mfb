@@ -88,7 +88,7 @@ string (the IR `Global` is just a name). [[src/target/shared/nir/lower.rs:lower_
 |-------|---------------|-------|
 | `Const` | `const` | `type`, `value` (both strings) |
 | `Local` | `local` | `name` |
-| `LocalRef` | `localRef` | `name`, `type` — address of a slot (borrow), to capture a `MUT` into a non-escaping callback env |
+| `LocalRef` | `localRef` | `name`, `type` — address of a slot (a reference), to capture a `MUT` into a non-escaping callback env |
 | `Global` | `global` | `name`, `type` (`type` empty after lowering) |
 | `FunctionRef` | `functionRef` | `name`, `type` |
 | `Closure` | `closure` | `name`, `type`, `captures[]` |

@@ -38,7 +38,7 @@ impl CodeBuilder<'_> {
 
     pub(super) fn is_pointer_collection_payload_type(&self, type_: &str) -> bool {
         // A resource handle is a single 8-byte pointer to its record; a collection
-        // slot stores a borrow of that pointer exactly like any other pointer
+        // slot stores a copy of that pointer exactly like any other pointer
         // payload (§15.6). Resource *unions* carry a tag and are not pointer
         // payloads. A **flat** nested collection is inlined as its own block in
         // the data region (plan-02 §4.4, Phase 5a); only a *non-flat* nested
@@ -2069,7 +2069,7 @@ impl CodeBuilder<'_> {
                 Ok(result)
             }
             // An inlined record/union slot block or a flat nested collection block
-            // is read as a borrow pointer to the block within the data region
+            // is read as an alias pointer to the block within the data region
             // (plan-02 §4.2–§4.4). Its own offsets are relative to that base.
             other if self.inline_collection_payload_size(other).is_some() => Ok(data),
             other if is_collection_type(other) => Ok(data),
@@ -2082,7 +2082,7 @@ impl CodeBuilder<'_> {
     /// Copy an existing heap `String` value (a pointer to `[u64 len][bytes][nul]`)
     /// into a fresh owned arena string. `getOr`'s found path materializes its
     /// `String` result fresh (`emit_load_collection_payload`), so `getOr`'s
-    /// default path must copy the borrowed default the same way — otherwise the
+    /// default path must copy the aliased default the same way — otherwise the
     /// owned-result contract (`materialize_owned_element` frees the result at
     /// scope end, but deliberately skips `String` assuming it is already fresh)
     /// double-frees the caller's default and corrupts the arena free-list, which
@@ -2599,7 +2599,7 @@ mod kind2_layout_tests {
     }
 
     /// A `RES` element marker is an ownership axis, not part of the value type,
-    /// and a resource borrow is never a fixed-width payload.
+    /// and a resource pointer is never a fixed-width payload.
     #[test]
     fn resource_elements_keep_entries() {
         assert_eq!(list_entry_stride("File"), COLLECTION_ENTRY_SIZE);

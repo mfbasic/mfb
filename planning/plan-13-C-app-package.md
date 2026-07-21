@@ -12,7 +12,7 @@ Registers `app::` so programs typecheck against the full surface — with no sha
 solver, and no native window.
 
 The single behavioral outcome: a program using the entire `app::` surface — including
-`Widget`-union overload resolution, per-widget close ops and RES-borrow rules — compiles
+`Widget`-union overload resolution, per-widget close ops and RES ownership rules — compiles
 and is rejected exactly where it should be, while creating nothing.
 
 References (read first):
@@ -186,7 +186,7 @@ Commit: —
       internal, registry-only close ops.
 - [ ] Stub every function against the not-yet-built shadow tree.
 - [ ] Tests under `tests/syntax/app/`: arity; overload resolution (`Window` vs `Widget`,
-      `Window` vs `Container`); variant→union widening accepted; RES-borrow rejection;
+      `Window` vs `Container`); variant→union widening accepted; RES non-owner rejection;
       use-after-`close` rejected on a `Window`; **`app::destroy(...)` in user code rejected
       as an unknown function**; skipped-middle-argument rejected with
       `TYPE_CALL_ARITY_MISMATCH`.

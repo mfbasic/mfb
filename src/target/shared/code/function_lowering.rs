@@ -20,8 +20,8 @@ pub(super) fn expanded_nir_union_variants<'a>(
 }
 
 /// Collect the names of every local whose address is taken (`LocalRef`) anywhere
-/// in `ops`. A loop-promoted local must have *no* such borrow, since a callback
-/// holding the borrow could read or mutate the slot while the value lives only in
+/// in `ops`. A loop-promoted local must have *no* such slot reference, since a callback
+/// holding it could read or mutate the slot while the value lives only in
 /// a register (plan-03 Stage D part 2). The matches are exhaustive on purpose:
 /// missing a `LocalRef` would be unsound, so the compiler must force every
 /// variant to be handled.

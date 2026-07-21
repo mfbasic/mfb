@@ -4,7 +4,7 @@ IMPORT io
 ' Serves one line to the first accepted client, then tears everything down.
 ' Both listen overloads (4-arg default backlog, 5-arg explicit backlog) and
 ' both accept overloads (blocking, timed) are exercised. The listener is
-' borrowed by accept and closed once at the end (never consumed by accept).
+' passed to accept as a pointer and closed once at the end (never consumed by accept).
 FUNC serveOnce(RES listener AS TlsListener) AS Integer
   RES client = tls::accept(listener)
   tls::writeText(client, "hello\n")

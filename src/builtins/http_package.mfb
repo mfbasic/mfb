@@ -1104,7 +1104,7 @@ FUNC __http_serverSSL(port AS Integer, certPath AS String, keyPath AS String, ho
 END FUNC
 
 ' Plaintext accept -> parse -> dispatch -> respond -> close (one connection).
-' The listener is borrowed (stays open for the next call); the accepted socket
+' Only a pointer to the listener is passed (it stays open for the next call); the accepted socket
 ' is owned and closed by lexical drop at return.
 SUB __http_handleRequest(RES listener AS net::Listener, routes AS List OF Route)
   RES sock AS net::Socket = net::accept(listener)

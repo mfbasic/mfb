@@ -5,7 +5,7 @@ IMPORT native_resource_link_valid AS demo
 IMPORT io
 
 ' `demo::Db` is recognized as a resource (RES binds only resource types), so this
-' parameter type-checks; the function borrows `db` by default.
+' parameter type-checks; the function receives a pointer to `db`, not ownership.
 FUNC describe(RES db AS demo::Db) AS Nothing
   io::print("has db")
 END FUNC

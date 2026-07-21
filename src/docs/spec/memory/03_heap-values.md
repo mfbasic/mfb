@@ -54,7 +54,7 @@ stores, by field type:
 - **scalar** (`Boolean`/`Byte`/`Integer`/`Float`/`Fixed`/enum): the value inline.
 - **`String`**: a `U64` **block-relative offset** into the record's own data
   region, where the `String`'s flat block (`{U64 len, bytes, U8 nul}`, 8-aligned)
-  is embedded inline. The field read recovers the borrow pointer as
+  is embedded inline. The field read recovers the interior pointer as
   `recordBase + offset`; the offset is relative to the record base, so a whole-
   block `memcpy` is a correct deep copy and the inlined `String` comes along.
 - **flat composite** — a nested record, a data `Union`, a `List`/`Map`, or a
@@ -126,7 +126,7 @@ Result
 
 A scalar success payload occupies the 8-byte word at `+16`; a block payload
 (`String`, record, union, collection, the `Err` `Error`, or a nested `Result`) is
-inlined whole at `+16` and `size` covers it. Reading the value yields a borrow
+inlined whole at `+16` and `size` covers it. Reading the value yields an interior
 pointer into the block (`base + 16`) for a block payload, or the 8-byte value for
 a scalar. Copy/transfer is one generic `memcpy`.
 
@@ -146,7 +146,7 @@ DataUnionObject (flat)
 (scalar slots inline; `String`/flat-record fields inlined by block-relative
 offset — relative to the union base at `+16`). Constructing a variant wraps its
 built record block at `+16`; `MATCH` dispatches on `tag@0`; extracting a variant
-yields a borrow pointer to the record at `+16`. The `size` word makes copy/free
+yields an interior pointer to the record at `+16`. The `size` word makes copy/free
 generic (read the size, `memcpy`, then deep-copy only the active variant's
 pointer fields). The union is variable-length, so a `List`/`Map` of a data union
 stores each union block inline by its runtime `size`.
@@ -189,7 +189,7 @@ asserts tie every per-backend resource layout to this offset, so a future
 resource whose closed flag drifts off offset 8 fails to build.
 [[src/target/shared/code/error_constants.rs:RESOURCE_RECORD_SIZE_BYTES]] [[src/target/shared/code/error_constants.rs:RESOURCE_OFFSET_CLOSED]] [[src/target/shared/code/error_constants.rs:RESOURCE_MOVED_BIT]]
 
-A borrow of a resource shares the record, and therefore shares the `state`
+Every pointer to a resource shares the one record, and therefore shares the `state`
 pointer. Scope-drop reclaims the two buffers and the `STATE` payload but leaves
 the 80-byte record itself as a tombstone carrying the flags — see
 `./mfb spec memory arenas`.

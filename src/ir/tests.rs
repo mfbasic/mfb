@@ -4315,7 +4315,7 @@ END FUNC
 "#,
         );
         let j = json_of(&ir);
-        // A MUT slot-borrow capture produces a by_ref binding / LocalRef.
+        // A MUT slot-reference capture produces a by_ref binding / LocalRef.
         assert!(j.contains("localRef"), "{j}");
     }
 

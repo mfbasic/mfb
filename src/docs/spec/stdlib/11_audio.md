@@ -61,8 +61,8 @@ little-endian; the result is `noteFrames * 2` bytes.
 **MML** (Music Macro Language) — a small source-companion sequencer, overloaded by
 its second argument on a single `String` track or a `List OF String` of tracks.
 It pre-renders every track to mono `s16le` PCM at 48 kHz, mixes them (summing with
-clamping), and writes the audio to `output` — a borrowed open `AudioOutput` the
-caller owns and closes (open it at 48 kHz mono). Malformed MML raises
+clamping), and writes the audio to `output` — a pointer to an open `AudioOutput`
+that the caller's scope owns and closes (open it at 48 kHz mono). Malformed MML raises
 `ErrInvalidArgument` (`7-705-0002`) *before* anything is written; the strings are
 validated at the call.
 

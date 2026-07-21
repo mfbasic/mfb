@@ -197,7 +197,7 @@ pub(crate) fn default_argument_padding(
 
 /// Whether argument `index` of `name` consumes (moves) its resource operand.
 /// `tls.close` consumes the handle it closes (either shape); `tls.accept`
-/// borrows its listener (it stays open for the next accept).
+/// only uses its listener (it stays open for the next accept).
 pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
     matches!((name, index), (CLOSE, 0) | (CLOSE_LISTENER, 0))
 }

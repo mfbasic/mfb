@@ -57,8 +57,8 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn merge_local_info(&self, left: LocalInfo, right: &LocalInfo) -> LocalInfo {
-        // Ownership/borrow dataflow moved to `ir::verify` (TYPE_USE_AFTER_MOVE /
-        // TYPE_RESOURCE_BORROW_INVALIDATE, plan-20-Z); only the type shape is
+        // Ownership dataflow moved to `ir::verify` (TYPE_USE_AFTER_MOVE /
+        // TYPE_RESOURCE_INVALIDATE_NOT_OWNER, plan-20-Z); only the type shape is
         // merged here now.
         let _ = right;
         LocalInfo {
@@ -547,7 +547,7 @@ impl<'a> SyntaxChecker<'a> {
                 let iterable_type =
                     self.infer_expression(file, iterable, locals, *line, ExprMode::Read);
                 let element_type = match iterable_type {
-                    // Iterating `List OF RES File` yields a *borrow* of each
+                    // Iterating `List OF RES File` yields a *pointer* to each
                     // element (`File`), not the `RES`-marked slot type (§15.6).
                     Type::List(element) => strip_res(&element).clone(),
                     Type::Map(key, value) => Type::User(format!(
@@ -557,10 +557,10 @@ impl<'a> SyntaxChecker<'a> {
                     )),
                     _other => Type::Unknown,
                 };
-                // Iterating a resource collection yields a *borrow* of each
+                // Iterating a resource collection yields a *pointer* to each
                 // element; the loop variable may not close, `RETURN`, or transfer
                 // the resource (§15.6).
-                let _element_borrowed = self.is_resource_type(&element_type);
+                let _element_is_resource = self.is_resource_type(&element_type);
                 let mut nested = locals.clone();
                 nested.insert(
                     name.clone(),
@@ -1254,7 +1254,7 @@ END FUNC
     #[test]
     fn return_get_of_resource_element_is_walked() {
         // RETURN whose value is a `get` on a resource collection reaches the
-        // is_resource_element_borrow guard in the RETURN arm.
+        // is_resource_element_pointer guard in the RETURN arm.
         let src = "\
 IMPORT collections
 IMPORT fs
@@ -1271,7 +1271,7 @@ END FUNC
     }
 
     #[test]
-    fn foreach_over_resource_list_marks_element_borrowed() {
+    fn foreach_over_resource_list_marks_element_non_owning() {
         // Iterating `List OF RES File` reaches the resource-element ForEach path
         // (is_resource_type on the stripped element type).
         let src = "\

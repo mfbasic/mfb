@@ -182,7 +182,7 @@ impl CodeBuilder<'_> {
         }
         // `s.state` on a `RES` value loads the shared `STATE` payload pointer
         // from the resource record. Because a resource value is a pointer to its
-        // record, a borrow and the owner address the same payload.
+        // record, an alias and the owner address the same payload.
         if member == "state" {
             if let Some(state_type) =
                 crate::builtins::resource::state_type_name(&target_value.type_)
@@ -279,7 +279,7 @@ impl CodeBuilder<'_> {
             payload_offset + 8 * field_index,
         ));
         if inline_string {
-            // The slot holds a block-relative offset; the borrow pointer to the
+            // The slot holds a block-relative offset; the alias pointer to the
             // inlined `String` block is the record base plus that offset
             // (plan-02 §4.2). `target_value.location` survives this add.
             self.emit(abi::add_registers(
@@ -350,7 +350,7 @@ impl CodeBuilder<'_> {
 
         // Gather one value slot per field — the new value where updated, else the
         // old field value read from the target (a `String` field yields the
-        // borrow pointer `base + offset`) — then rebuild the inlined record so a
+        // alias pointer `base + offset`) — then rebuild the inlined record so a
         // resized `String` is re-laid-out with correct offsets (plan-02 §4.5).
         let mut field_slots = Vec::with_capacity(fields.len());
         for (index, (_, field_type)) in fields.iter().enumerate() {

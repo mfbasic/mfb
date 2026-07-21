@@ -885,7 +885,7 @@ impl CodeBuilder<'_> {
             } else if !already_standalone
                 && self.inline_collection_payload_size(&value.type_).is_some()
             {
-                // A borrow / inline-payload return is promoted to a standalone
+                // An alias / inline-payload return is promoted to a standalone
                 // arena block. A value already deep-copied by
                 // `lower_returned_value` is standalone and skips this.
                 self.materialize_inline_value_in_arena(&value.type_, &value.location)?
@@ -1153,7 +1153,7 @@ impl CodeBuilder<'_> {
         // set, so it is safe to park it in the current-error slot and let whoever
         // catches it ADOPT the block (freed once), rather than propagating loose
         // interior pointers that force the catcher to rebuild — which orphaned this
-        // block on every cross-call propagation (design "b"). A borrow / aliasing
+        // block on every cross-call propagation (design "b"). An alias / aliasing
         // source is NOT owned here (`lower_value` returns another owner's pointer),
         // so it keeps the legacy loose-register path and the catcher rebuilds a copy.
         let adopt = !Self::value_is_aliasing_source(error);
@@ -1506,7 +1506,7 @@ impl CodeBuilder<'_> {
             } else if crate::builtins::is_builtin_call(target) {
                 false
             } else {
-                // Ordinary user calls borrow the resource: the caller retains
+                // Ordinary user calls do not move the resource's ownership: the caller retains
                 // ownership and its scope-drop cleanup. Only the fixed
                 // invalidation events (registered close, thread transfer,
                 // `RETURN`) hand off ownership.
@@ -2149,10 +2149,10 @@ impl CodeBuilder<'_> {
     /// Lower a returned value as a caller-owned, standalone block. An aliasing
     /// source of a freeable flat type is deep-copied here (plan-02 Phase 8): the
     /// returned block must outlive this scope's frees and is owned/freed by the
-    /// caller, so it cannot remain a borrow into a local that is about to be
+    /// caller, so it cannot remain an alias into a local that is about to be
     /// freed. The bool is `already_standalone` — true when the result is a fresh
     /// standalone allocation (a copy made here) that must NOT be re-materialized;
-    /// false for a fresh value or a borrow of a non-flat type, which keep the
+    /// false for a fresh value or an alias of a non-flat type, which keep the
     /// existing inline-payload materialization. A returned thread/resource local
     /// is a move (never freeable-flat) and is handled by cleanup deactivation.
     fn lower_returned_value(
@@ -2198,11 +2198,11 @@ impl CodeBuilder<'_> {
     /// binding. Returns `None` (cleanup untouched, copy kept) when the move would
     /// be unsound:
     ///
-    /// - A **parameter** or `by_ref` local is a borrow of the caller's block (it
+    /// - A **parameter** or `by_ref` local is a reference into the caller's block (it
     ///   has no `OwnedValue` free), so returning its pointer without copying would
     ///   let the caller's binding double-free the source — the copy is load-bearing.
     /// - A **`FOR EACH` iterable** whose iterator still reads the block, or an
-    ///   **address-taken** local an escaping closure env may borrow, could leave a
+    ///   **address-taken** local an escaping closure env may reference, could leave a
     ///   dangling reader if the block moved out.
     fn plan_returned_move(&mut self, value: Option<&NirValue>) -> Option<Vec<ActiveCleanup>> {
         let NirValue::Local(name) = value? else {
@@ -2219,7 +2219,7 @@ impl CodeBuilder<'_> {
             return None;
         }
         // Only a binding that owns its block (has a live `OwnedValue` free at this
-        // slot) can be moved; parameters and borrows have none, so this is the
+        // slot) can be moved; parameters and aliases have none, so this is the
         // authoritative ownership gate.
         let index = self.active_cleanups.iter().rposition(|cleanup| {
             matches!(cleanup, ActiveCleanup::OwnedValue(c) if c.stack_offset == stack_offset)

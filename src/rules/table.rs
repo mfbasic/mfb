@@ -616,7 +616,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-203-0100",
         name: "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
         severity: Severity::Error,
-        message: "a borrowed collection element of resource type is not an owner",
+        message: "a non-owning collection element of resource type is not an owner",
     },
     Rule {
         code: "2-203-0101",
@@ -959,9 +959,9 @@ pub(super) const RULES: &[Rule] = &[
     },
     Rule {
         code: "2-203-0086",
-        name: "TYPE_RESOURCE_BORROW_INVALIDATE",
+        name: "TYPE_RESOURCE_INVALIDATE_NOT_OWNER",
         severity: Severity::Error,
-        message: "a borrowed resource cannot be closed, returned, or transferred",
+        message: "only the owning scope may close, return, or transfer a resource",
     },
     Rule {
         code: "2-203-0087",

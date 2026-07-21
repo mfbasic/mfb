@@ -620,7 +620,7 @@ impl<'a> FileParser<'a> {
                 }
                 self.advance();
                 // A `RES` value marks a resource-transfer collection
-                // (`Map OF K TO RES File`, §15.6): the value is a resource borrow
+                // (`Map OF K TO RES File`, §15.6): the value is a resource pointer
                 // whose scope-ownership transfers across a function boundary.
                 let value_res = self.match_keyword(Keyword::Res);
                 let second = self.parse_type_name()?;
@@ -636,7 +636,7 @@ impl<'a> FileParser<'a> {
 
             if name.eq_ignore_ascii_case("List") || name.eq_ignore_ascii_case("Result") {
                 // `List OF RES File` (§15.6): a resource-transfer list whose
-                // element is a borrow whose scope-ownership transfers across a
+                // element is a pointer whose scope-ownership transfers across a
                 // function boundary. (`Result OF RES …` is not meaningful, but the
                 // marker is harmless there and rejected later by type checking.)
                 let element_res =

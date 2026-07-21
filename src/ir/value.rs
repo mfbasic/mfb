@@ -23,7 +23,7 @@ pub(crate) enum IrValue {
     },
     Local(String),
     Global(String),
-    /// The *address* of a local binding's slot (a borrow of the slot itself, not
+    /// The *address* of a local binding's slot (a reference to the slot itself, not
     /// a read of its value). Used to capture a `MUT` binding into a non-escaping
     /// callback's environment so the callback observes and updates the live
     /// binding through the slot.
@@ -47,7 +47,7 @@ pub(crate) enum IrValue {
         index: u32,
         type_: String,
         /// When set, the env slot at `index` holds a pointer to the parent
-        /// binding's slot (a non-escaping `MUT` borrow), so the capture binds a
+        /// binding's slot (a non-escaping `MUT` by-ref capture), so the capture binds a
         /// *reference* local: reads and writes deref through the slot pointer.
         /// Otherwise it is an ordinary by-value capture.
         by_ref: bool,

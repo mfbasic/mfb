@@ -1,4 +1,4 @@
-' A List may hold borrows of a native resource, but the element must carry the
+' A List may hold pointers to a native resource, but the element must carry the
 ' `RES` ownership-axis marker (`List OF RES Db`); a bare `List OF Db` is rejected
 ' just like `AS Db` without `RES` (§15.6).
 EXPORT RESOURCE Db CLOSE BY demoLink::close

@@ -700,7 +700,7 @@ impl ToIrJson for IrValue {
                 type_,
                 by_ref,
             } => {
-                // Emit `byRef` only for a slot-borrow capture so ordinary by-value
+                // Emit `byRef` only for a slot-reference capture so ordinary by-value
                 // captures keep their existing serialization.
                 if *by_ref {
                     format!(

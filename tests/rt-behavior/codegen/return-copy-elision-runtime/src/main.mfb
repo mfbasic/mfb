@@ -13,13 +13,13 @@ FUNC build(n AS Integer) AS List OF Integer
   RETURN r
 END FUNC
 
-' Returns its parameter unchanged: the parameter is a borrow of the caller's
+' Returns its parameter unchanged: the parameter is an alias of the caller's
 ' block, so the deep copy stays (eliding it would double-free the source).
 FUNC ident(xs AS List OF Integer) AS List OF Integer
   RETURN xs
 END FUNC
 
-' Conditional: moves the owned local on the TRUE path, returns the borrowed
+' Conditional: moves the owned local on the TRUE path, returns the aliased
 ' parameter (kept copy) on the FALSE path. The owned local must be freed on the
 ' FALSE path (its move-elision is restored for that sibling path).
 FUNC pick(cond AS Boolean, xs AS List OF Integer) AS List OF Integer

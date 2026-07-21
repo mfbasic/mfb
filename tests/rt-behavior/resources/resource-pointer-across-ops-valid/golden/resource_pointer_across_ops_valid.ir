@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "resource_borrow_across_ops_valid",
+  "project": "resource_pointer_across_ops_valid",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -37,7 +37,7 @@
     { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "logLine", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "first" }] } },
     { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "logLine", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "second" }] } },
     { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
-    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "borrowed" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "pointer" }] } },
     { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

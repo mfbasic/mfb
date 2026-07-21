@@ -11,7 +11,7 @@ END TYPE
 
 ' plan-52-A row 5 (plan-52-C): STATE type confusion, from safe source, with no
 ' LINK and no threads. The owner allocates a `Cursor` and stores 42 in it; the
-' borrow declares `STATE Label` and reads that same untagged block back as a
+' callee declares `STATE Label` and reads that same untagged block back as a
 ' `Label`, interpreting the integer 42 as a String header.
 '
 ' The payload carries no runtime type tag — its type comes entirely from

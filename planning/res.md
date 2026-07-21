@@ -114,7 +114,7 @@ built-in `File` (no LINK involved). Scratch programs, not kept.
 | 6 | `AS RES File STATE Cursor` + `RETURN <stateful>` | `TYPE_RETURN_MISMATCH` (→ plan-52-D) |
 | 7 | STATE on a return, returning a **stateless** value | compiles — the annotation is fully **inert** |
 | 8 | Union-STATE / non-defaultable-STATE on a **return** | both compile — verify rules never fire (→ plan-52-D) |
-| 9 | `RETURN` of a borrowed param | rejected — `TYPE_RESOURCE_BORROW_INVALIDATE` |
+| 9 | `RETURN` of a borrowed param | rejected — `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` |
 | 10 | **A resource record is never freed** | no `arena_free` of a File/Socket record anywhere |
 | 11 | `RESOURCE` declaration | has **no** STATE clause (`src/ast/items.rs:540-567`) |
 
@@ -337,7 +337,7 @@ work, file it fresh against the plan.
 - **One rule instead of two.** The collection carve-out (§3.3) disappears. Float applies
   everywhere, for the same reason everywhere.
 - **"Take a handle, give it back" becomes writable.** Not expressible today in any form.
-- **Fewer ideas to hold.** No owner-vs-borrow split, no `TYPE_RESOURCE_BORROW_INVALIDATE`,
+- **Fewer ideas to hold.** No owner-vs-borrow split, no `TYPE_RESOURCE_INVALIDATE_NOT_OWNER`,
   no `TYPE_RESOURCE_ELEMENT_NOT_OWNER`.
 - **It matches the C libraries underneath**, which alias handles freely and always have.
 - **It is what the author expected** (§0). That is evidence about which model is the

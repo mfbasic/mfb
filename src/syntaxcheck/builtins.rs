@@ -7,13 +7,13 @@ use super::*;
 /// hand-written per-package checkers this table replaced (bug-324): every one
 /// of them had the same body apart from the `ExprMode` passed to
 /// `infer_expression`. The mode matters because it decides whether an argument
-/// is borrowed or moved, so it is data on the row rather than a default.
+/// is used without moving ownership, or moved, so it is data on the row rather than a default.
 #[derive(Clone, Copy)]
 enum ArgMode {
     /// Every argument is read.
     Read,
-    /// Every argument is borrowed.
-    Borrow,
+    /// Every argument is used without moving ownership.
+    Use,
     /// A resource-owning package: `consumes(callee, index)` selects
     /// `ExprMode::Transfer` for the argument a call takes ownership of, and
     /// every other argument uses `default`.
@@ -111,7 +111,7 @@ const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
         expected_arguments: builtins::fs::expected_arguments,
         args: ArgMode::Consuming {
             consumes: builtins::fs::consumes_argument,
-            default: ExprMode::Borrow,
+            default: ExprMode::Use,
         },
     },
     BuiltinPackage {
@@ -122,7 +122,7 @@ const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
             builtins::os::resolve_call(name, arg_types).map(|call| call.return_type)
         },
         expected_arguments: builtins::os::expected_arguments,
-        args: ArgMode::Borrow,
+        args: ArgMode::Use,
     },
     BuiltinPackage {
         name: "net",
@@ -134,7 +134,7 @@ const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
         expected_arguments: builtins::net::expected_arguments,
         args: ArgMode::Consuming {
             consumes: builtins::net::consumes_argument,
-            default: ExprMode::Borrow,
+            default: ExprMode::Use,
         },
     },
     BuiltinPackage {
@@ -147,7 +147,7 @@ const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
         expected_arguments: builtins::tls::expected_arguments,
         args: ArgMode::Consuming {
             consumes: builtins::tls::consumes_argument,
-            default: ExprMode::Borrow,
+            default: ExprMode::Use,
         },
     },
     BuiltinPackage {
@@ -160,7 +160,7 @@ const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
         expected_arguments: builtins::audio::expected_arguments,
         args: ArgMode::Consuming {
             consumes: builtins::audio::consumes_argument,
-            default: ExprMode::Borrow,
+            default: ExprMode::Use,
         },
     },
     BuiltinPackage {
@@ -244,7 +244,7 @@ const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
             builtins::vector::resolve_call(name, arg_types).map(|call| call.return_type)
         },
         expected_arguments: builtins::vector::expected_arguments,
-        args: ArgMode::Borrow,
+        args: ArgMode::Use,
     },
 ];
 
@@ -372,7 +372,7 @@ impl<'a> SyntaxChecker<'a> {
             .map(|(index, argument)| {
                 let mode = match package.args {
                     ArgMode::Read => ExprMode::Read,
-                    ArgMode::Borrow => ExprMode::Borrow,
+                    ArgMode::Use => ExprMode::Use,
                     ArgMode::Consuming { consumes, default } => {
                         if consumes(callee, index) {
                             ExprMode::Transfer
@@ -764,7 +764,7 @@ impl<'a> SyntaxChecker<'a> {
             .iter()
             .enumerate()
             .map(|(index, argument)| {
-                // License a `MUT` borrow for a lambda in a non-escaping callback
+                // License a `MUT` by-ref capture for a lambda in a non-escaping callback
                 // position (e.g. `forEach`'s action). `infer_lambda` consumes it;
                 // reset afterward so a non-lambda argument never carries it.
                 self.nonescaping_callback = builtins::is_nonescaping_callback_arg(member, index);
@@ -1819,7 +1819,7 @@ mod builtins_tests {
 
     #[test]
     fn append_resource_binding_valid() {
-        // Appending a RES binding to a `List OF RES File` stores a borrow (valid).
+        // Appending a RES binding to a `List OF RES File` stores a pointer (valid).
         let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  MUT xs AS List OF RES File = []\n  xs = collections::append(xs, f)\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }

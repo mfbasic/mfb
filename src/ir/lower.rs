@@ -183,14 +183,14 @@ struct LowerContext<'a> {
     /// or `None` when the trapped value is discarded (bare-statement form).
     recover_targets: Vec<RecoverTarget>,
     /// Names of `MUT` local bindings in scope. A lambda in a non-escaping
-    /// callback position captures these by slot-borrow rather than by value.
+    /// callback position captures these by slot reference rather than by value.
     /// Not scope-precise — only ever consulted
     /// for capture classification, where a stale non-`MUT` entry is impossible
-    /// (only `MUT` binds are inserted) and a borrow is memory-safe regardless.
+    /// (only `MUT` binds are inserted) and a slot reference is memory-safe regardless.
     mutable_locals: HashSet<String>,
     /// Set true only while lowering the argument in a compiler-known
     /// non-escaping callback position (e.g. `forEach`'s action). The lambda
-    /// lowering consumes it to license `MUT` slot-borrow captures.
+    /// lowering consumes it to license `MUT` slot-reference captures.
     nonescaping_callback: bool,
     /// Source location of the statement (or match case / declaration) currently
     /// being lowered. Stamped onto every `IrOp` so relocated diagnostics report
@@ -930,7 +930,7 @@ fn lower_param(
         .clone()
         .unwrap_or_else(|| "Unknown".to_string());
     // A `RES` parameter's `STATE T` rides in the type string so the callee can
-    // address the borrowed resource's shared state payload.
+    // address the pointed-to resource's shared state payload.
     let type_ = match &param.state_type {
         Some(state) => format!("{type_} STATE {state}"),
         None => type_,
@@ -1072,7 +1072,7 @@ fn lower_statement(
                 None => lowered_type,
             };
             locals.insert(name.clone(), lowered_type.clone());
-            // Track `MUT` bindings so a non-escaping callback can borrow them by
+            // Track `MUT` bindings so a non-escaping callback can capture them by
             // slot rather than copy them by value.
             if *mutable {
                 context.mutable_locals.insert(name.clone());
@@ -1856,7 +1856,7 @@ fn statement_terminates(statement: &Statement) -> bool {
 fn collection_iteration_type(type_: &str) -> Option<String> {
     type_
         .strip_prefix("List OF ")
-        // Iterating `List OF RES File` yields a borrow of each element; the loop
+        // Iterating `List OF RES File` yields a pointer to each element; the loop
         // variable's type is the bare resource (`File`), not `RES File` (§15.6).
         .map(|element| element.strip_prefix("RES ").unwrap_or(element).to_string())
         .or_else(|| {
@@ -3100,7 +3100,7 @@ fn lower_expression_with_expected(
             // function value — MUST fall through to the general path below,
             // which supplies the expected type and sets `nonescaping_callback`.
             // Diverting those too silently dropped `forEach`'s licence for a
-            // lambda to slot-borrow a `MUT` capture.
+            // lambda to slot-reference a `MUT` capture.
             let builtin_predicate_arg =
                 (builtins::collections::unary_callback_member(&canonical_callee)
                     && normalized_builtin.len() == 2)
@@ -3140,7 +3140,7 @@ fn lower_expression_with_expected(
                     .map(|(index, argument)| {
                         let expected =
                             call_argument_expected_type(callee, index, arguments, locals, context);
-                        // License a `MUT` slot-borrow capture for a lambda in a
+                        // License a `MUT` slot-reference capture for a lambda in a
                         // non-escaping callback position (e.g. `forEach`'s action).
                         // The lambda lowering consumes it; reset afterward so a
                         // non-lambda argument never carries it.
@@ -3418,7 +3418,7 @@ fn lower_expression_with_expected(
                     }
                 }
             }
-            // A `MUT` capture in a proven non-escaping position is a borrow of the
+            // A `MUT` capture in a proven non-escaping position is a reference to the
             // parent's slot, not a by-value copy. Everything else
             // is an ordinary copy capture.
             let by_ref = captures
@@ -3526,7 +3526,7 @@ fn lower_expression_with_expected(
                         .zip(by_ref.iter())
                         .map(|(capture, &by_ref)| {
                             if by_ref {
-                                // Capture the parent slot's address (a borrow), so
+                                // Capture the parent slot's address (by-ref), so
                                 // the callback observes and updates the live binding.
                                 IrValue::LocalRef {
                                     name: capture.name.clone(),

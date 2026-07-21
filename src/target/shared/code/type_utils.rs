@@ -275,7 +275,7 @@ pub(super) fn is_collection_type(type_: &str) -> bool {
 
 pub(super) fn list_element_type(type_: &str) -> Option<String> {
     let element = type_.strip_prefix("List OF ")?;
-    // A `List OF RES File` element stores and is read as the bare resource borrow
+    // A `List OF RES File` element stores and is read as the bare resource pointer
     // (`File`); the `RES` ownership-axis marker is not part of the value (§15.6).
     Some(strip_res_marker(element).to_string())
 }

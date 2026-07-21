@@ -6,7 +6,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::User(name) => {
                 self.resource_registry.is_resource(name) || self.is_resource_union(name)
             }
-            // A `RES`-marked element (`RES File`) is a resource (a borrow of one).
+            // A `RES`-marked element (`RES File`) is a resource (a pointer to one).
             Type::Res(inner) => self.is_resource_type(inner),
             _ => false,
         }
@@ -32,7 +32,7 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     /// Whether a type transitively contains a thread handle. Threads may never
-    /// live in a collection; resources may (as borrows, §15.6), so collection
+    /// live in a collection; resources may (as pointers, §15.6), so collection
     /// element and `Map` *value* positions use this rather than the combined
     /// resource-or-thread predicate.
     pub(super) fn contains_thread(&self, type_: &Type) -> bool {
@@ -146,7 +146,7 @@ impl<'a> SyntaxChecker<'a> {
 
     /// Whether `value` is an identifier naming a resource `RES` binding or
     /// parameter — the only resource expression that may be stored in a
-    /// collection (its slot holds a borrow of that binding).
+    /// collection (its slot holds a pointer copied from that binding).
     pub(super) fn collection_element_is_resource_binding(
         &self,
         value: &Expression,
@@ -161,14 +161,14 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     /// The expression mode for a collection element: a resource binding is a
-    /// borrow (it stays usable after insertion), everything else is consumed.
+    /// pointer copy (it stays usable after insertion), everything else is consumed.
     pub(super) fn collection_element_mode(
         &self,
         value: &Expression,
         locals: &HashMap<String, LocalInfo>,
     ) -> ExprMode {
         if self.collection_element_is_resource_binding(value, locals) {
-            ExprMode::Borrow
+            ExprMode::Use
         } else {
             ExprMode::Transfer
         }
@@ -200,8 +200,8 @@ impl<'a> SyntaxChecker<'a> {
             | Type::Scalar
             | Type::String
             | Type::Unknown => true,
-            // A collection slot holds a *borrow* of a resource (`RES File`),
-            // which copies freely — copying the collection makes more borrows,
+            // A collection slot holds a *pointer* to a resource (`RES File`),
+            // which copies freely — copying the collection makes more pointers,
             // never another resource. A standalone resource stays non-copyable
             // (the `Type::User` arm below); §15.6.
             Type::Res(_) => true,
@@ -513,7 +513,7 @@ mod resources_tests {
     /// arena -- but only the resource itself was sendability-checked. `ir::verify`
     /// constrains a STATE type to be copyable and defaultable, which does NOT imply
     /// sendable: a record holding `List OF RES File` satisfies both, yet carries
-    /// resource borrows to sender-owned resources that §15.6 forbids from crossing.
+    /// resource pointers to sender-owned resources that §15.6 forbids from crossing.
     #[test]
     fn resource_plane_state_payload_must_be_sendable() {
         let unsendable = "IMPORT thread\nIMPORT fs\nTYPE Holder\n  files AS List OF RES File\nEND TYPE\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Integer RES File STATE Holder TO Integer, seed AS Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
@@ -680,12 +680,12 @@ mod resources_tests {
         let _ = check_src(src);
     }
 
-    // ---- resource-borrow list literal (collection_element_mode Borrow) -----
+    // ---- non-owning list literal (collection_element_mode Use) --------------
 
     #[test]
-    fn resource_binding_in_list_literal_borrows() {
-        // A `List OF RES File` literal `[f]` naming a RES binding stores a borrow
-        // (collection_element_mode Borrow path) and is accepted.
+    fn resource_binding_in_list_literal_stores_pointer() {
+        // A `List OF RES File` literal `[f]` naming a RES binding stores a pointer
+        // (collection_element_mode Use path) and is accepted.
         let src = "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  RETURN 0\nEND FUNC\n";
         assert!(accepts(src));
     }
@@ -693,7 +693,7 @@ mod resources_tests {
     #[test]
     fn resource_list_copyability_and_res_arm() {
         // Copying a `List OF RES File` walks the is_copyable Res arm (a resource
-        // borrow copies freely) and is accepted.
+        // a pointer copies freely) and is accepted.
         let src = "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  LET ys AS List OF RES File = xs\n  RETURN 0\nEND FUNC\n";
         assert!(accepts(src));
     }
@@ -716,7 +716,7 @@ mod resources_tests {
     #[test]
     fn resource_list_argument_copyability_arm() {
         // Passing a `List OF RES File` as a call argument runs argument_mode_for_type
-        // which walks is_copyable_type over List -> Res (a borrow copies freely).
+        // which walks is_copyable_type over List -> Res (a pointer copies freely).
         let src = "IMPORT fs\nFUNC use(xs AS List OF RES File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  RETURN use(xs)\nEND FUNC\n";
         let _ = check_src(src);
     }
@@ -788,7 +788,7 @@ mod resources_tests {
     fn res_element_argument_walks_is_resource_res_arm() {
         // Passing a `List OF RES File` value where argument-mode inspects the
         // element walks is_resource_type over a `Res` wrapper.
-        let src = "IMPORT fs\nFUNC borrowAll(xs AS List OF RES File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  RETURN borrowAll(xs)\nEND FUNC\n";
+        let src = "IMPORT fs\nFUNC useAll(xs AS List OF RES File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  LET xs AS List OF RES File = [f]\n  RETURN useAll(xs)\nEND FUNC\n";
         let _ = check_src(src);
     }
 
@@ -802,7 +802,7 @@ mod resources_tests {
 
     #[test]
     fn recursive_resource_type_seen_collision_walk() {
-        // A self-referential record carrying a resource borrow walks the seen-set
+        // A self-referential record carrying a resource pointer walks the seen-set
         // collision return in contains_resource_or_thread over User(Type).
         let src = "IMPORT fs\nTYPE Wrap\n  inner AS List OF Wrap\n  files AS List OF RES File\nEND TYPE\nFUNC main AS Integer\n  LET m AS Map OF Wrap TO Integer = Map OF Wrap TO Integer {}\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);

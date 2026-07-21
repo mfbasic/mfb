@@ -19,7 +19,7 @@ requires `--mem` too, or the build fails.
 The raw capability (dereferencing an overlay's fields, indexing a window, pointer
 math) is legal **only inside the declaring block**. Outside, the overlay type is an
 **opaque resource** — you can only pass it through the block's own `FUNC`s. This
-reuses the §15 resource model's opacity, borrow-only, no-copy, no-store-in-collection,
+reuses the §15 resource model's opacity, non-owning, no-copy, no-store-in-collection,
 and thread rules *for free*, and makes the block the single audited trust boundary,
 exactly like `LINK`.
 
@@ -570,7 +570,7 @@ The overlay/window types are a resource subclass with these deltas from §15:
    "never field-accessed" rule — but only inside, like `CPtr` inside `LINK` ABI).
 2. **Backed by raw memory, not an arena allocation** (the descriptor is allocated;
    the target memory is not).
-3. Otherwise unchanged: bound with `RES`, borrowed at calls, auto-closed by lexical
+3. Otherwise unchanged: bound with `RES`, passed by pointer at calls, auto-closed by lexical
    drop, never copied/stored-in-collection, thread-sendable only with
    `THREAD_SENDABLE`.
 

@@ -153,7 +153,7 @@ fn emit_address_from_sockaddr(
     addr_fail: &str,
 ) -> Result<(), String> {
     // The three shared refs are `&'a` fields, so reading them out is
-    // independent of the `&mut ctx` borrow — only the two streams need `ctx.`.
+    // independent of the `&mut ctx` reference — only the two streams need `ctx.`.
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;

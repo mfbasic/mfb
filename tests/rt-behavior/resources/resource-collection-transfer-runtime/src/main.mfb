@@ -4,7 +4,7 @@ IMPORT io
 
 ' `AS List OF RES File` transfers scope-ownership of the referenced resources to
 ' the caller (§15.6): the callee does not close them, the caller's scope adopts
-' them and closes each once at its exit. The collection only ever holds borrows.
+' them and closes each once at its exit. The collection only ever holds pointers.
 FUNC openTwo() AS List OF RES File
   MUT handles AS List OF RES File = []
   RES a AS File = fs::openFile("tests/rt-behavior/resources/resource-collection-transfer-runtime/src/main.mfb")

@@ -10,8 +10,9 @@ IMPORT collections
 ' `Db` is a NATIVE resource (plan-link-update.md §5). Its hidden representation
 ' is the raw `sqlite3*` pointer (a `CPtr`) — there is no MFBASIC backing record.
 ' It slots into the resource model of plan-resource-overhaul.md exactly like the
-' built-in `File`/`Socket`: it is bound with `RES`, uniquely owned, borrowed at
-' ordinary calls, and auto-closed on scope-drop through its registered close op.
+' built-in `File`/`Socket`: it is bound with `RES`, owned by a scope, passed as a
+' pointer at ordinary calls, and auto-closed on scope-drop through its registered
+' close op.
 '
 ' Importer usage (in an application package that does `IMPORT sqlite3`):
 '
@@ -19,7 +20,7 @@ IMPORT collections
 '
 '   FUNC main() AS Integer
 '     RES db AS sqlite3::Db = sqlite3::create("app.db")   ' or sqlite3::open(...)
-'     ' ... borrow db through wrappers that take `RES db AS Db` ...
+'     ' ... use db through wrappers that take `RES db AS Db` ...
 '     ' db is closed automatically by lexical drop when main's scope ends, on
 '     ' every exit path, or explicitly with sqlite3::close(db).
 '     sqlite3::close(db)                                  ' optional early close
@@ -171,8 +172,8 @@ LINK "sqlite3" AS sqliteLink
   END FUNC
 
   ' int sqlite3_busy_timeout(sqlite3 *db, int ms)
-  ' An ordinary call: it borrows the handle (borrow-by-default) without
-  ' consuming it, so the caller keeps `db` live afterward.
+  ' An ordinary call: it receives a pointer to the one resource without
+  ' invalidating it, so the caller keeps `db` live afterward.
   FUNC busyTimeout(RES db AS Db, ms AS Integer) AS Nothing
     SYMBOL "sqlite3_busy_timeout"
     ABI (db CPtr, ms CInt32) AS status CInt32
@@ -181,7 +182,7 @@ LINK "sqlite3" AS sqliteLink
 
   ' sqlite3_int64 sqlite3_last_insert_rowid(sqlite3*)
   ' The ROWID of the most recent successful INSERT on this connection — the value
-  ' an `INTEGER PRIMARY KEY` / AUTOINCREMENT column received. Borrows db; a plain
+  ' an `INTEGER PRIMARY KEY` / AUTOINCREMENT column received. Takes a pointer to db; a plain
   ' value-returning call (the C return IS the result), like columnCount. Returns 0
   ' when no row has ever been inserted on the connection.
   FUNC lastInsertRowId(RES db AS Db) AS Integer
@@ -192,7 +193,7 @@ LINK "sqlite3" AS sqliteLink
 
   ' int sqlite3_changes(sqlite3*)
   ' The number of rows the most recent INSERT/UPDATE/DELETE on this connection
-  ' modified, inserted, or deleted. Borrows db; a plain value-returning call.
+  ' modified, inserted, or deleted. Takes a pointer to db; a plain value-returning call.
   FUNC changes(RES db AS Db) AS Integer
     SYMBOL "sqlite3_changes"
     ABI (db CPtr) AS count CInt32
@@ -202,7 +203,7 @@ LINK "sqlite3" AS sqliteLink
   ' int sqlite3_exec(sqlite3*, const char *sql,
   '                  int (*callback)(void*,int,char**,char**), void *arg,
   '                  char **errmsg)
-  ' Borrows db; runs one or more statements with no result rows. The three
+  ' Takes a pointer to db; runs one or more statements with no result rows. The three
   ' trailing pointers are all wanted as NULL — no per-row callback, no callback
   ' argument, and no error-message buffer (failures come back via status) — and
   ' are pinned with CONST (plan-link-update.md §5c).
@@ -217,7 +218,7 @@ LINK "sqlite3" AS sqliteLink
 
   ' int sqlite3_prepare_v2(sqlite3*, const char *sql, int nByte,
   '                        sqlite3_stmt **ppStmt, const char **pzTail)
-  ' Borrows db, produces a `RES Stmt` through the ppStmt OUT pointer. nByte = -1
+  ' Takes a pointer to db, produces a `RES Stmt` through the ppStmt OUT pointer. nByte = -1
   ' (read to NUL) and pzTail = NULL (no trailing-SQL pointer wanted) are fixed
   ' values the caller never supplies, pinned with CONST (plan-link-update.md §5c).
   FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
@@ -232,7 +233,7 @@ LINK "sqlite3" AS sqliteLink
   ' int sqlite3_bind_text(sqlite3_stmt*, int iCol, const char *zVal, int nByte,
   '                       void(*destructor)(void*))
   ' Binds a UTF-8 string to a positional (1-based) parameter slot of a prepared
-  ' statement and borrows stmt — an ordinary call, so the same statement may be
+  ' statement and takes a pointer to stmt — an ordinary call, so the same statement may be
   ' bound slot by slot before stepping. The full native signature is stated in the
   ' ABI line; the two trailing arguments are fixed values the caller never
   ' supplies, pinned with CONST (plan-link-update.md §5c):
@@ -250,7 +251,7 @@ LINK "sqlite3" AS sqliteLink
 
   ' int sqlite3_bind_int64(sqlite3_stmt*, int iCol, sqlite3_int64 iVal)
   ' Binds a 64-bit INTEGER to a positional (1-based) slot, surfaced straight from
-  ' MFBASIC's `Integer`. Borrows stmt. Unlike bindText (which leans on column
+  ' MFBASIC's `Integer`. Takes a pointer to stmt. Unlike bindText (which leans on column
   ' affinity to coerce digits), this binds a genuine SQLite INTEGER value.
   FUNC bindInt(RES stmt AS Stmt, iCol AS Integer, iVal AS Integer) AS Nothing
     SYMBOL "sqlite3_bind_int64"
@@ -259,7 +260,7 @@ LINK "sqlite3" AS sqliteLink
   END FUNC
 
   ' int sqlite3_bind_double(sqlite3_stmt*, int iCol, double rVal)
-  ' Binds a FLOAT to a positional (1-based) slot from MFBASIC's `Float`. Borrows
+  ' Binds a FLOAT to a positional (1-based) slot from MFBASIC's `Float`. Takes a pointer to
   ' stmt. The marshaling boundary never produces NaN/Inf on the way in, since the
   ' source `Float` is always finite (mfbasic.md §3).
   FUNC bindDouble(RES stmt AS Stmt, iCol AS Integer, rVal AS Float) AS Nothing
@@ -269,7 +270,7 @@ LINK "sqlite3" AS sqliteLink
   END FUNC
 
   ' int sqlite3_bind_null(sqlite3_stmt*, int iCol)
-  ' Binds SQL NULL to a positional (1-based) slot. Borrows stmt. This is the only
+  ' Binds SQL NULL to a positional (1-based) slot. Takes a pointer to stmt. This is the only
   ' way to bind a real NULL — bindText of "" binds an empty string, not NULL.
   FUNC bindNull(RES stmt AS Stmt, iCol AS Integer) AS Nothing
     SYMBOL "sqlite3_bind_null"
@@ -279,7 +280,7 @@ LINK "sqlite3" AS sqliteLink
 
   ' int sqlite3_bind_parameter_index(sqlite3_stmt*, const char *zName)
   ' Maps a named parameter (":aValue", "@x", "$y" — the leading sigil INCLUDED) to
-  ' its 1-based index, or 0 when the statement has no such parameter. Borrows stmt.
+  ' its 1-based index, or 0 when the statement has no such parameter. Takes a pointer to stmt.
   ' A plain value-returning call: the C return IS the result, named `idx` and
   ' selected with `RETURN idx` like sqlite3_column_count — no success gate, since 0
   ' "not found" is a meaningful index the caller may inspect, not an error.
@@ -290,7 +291,7 @@ LINK "sqlite3" AS sqliteLink
   END FUNC
 
   ' int sqlite3_step(sqlite3_stmt*)
-  ' Borrows stmt — an ordinary call, so the caller may step the same statement
+  ' Takes a pointer to stmt — an ordinary call, so the caller may step the same statement
   ' again on the next loop iteration. Returns SQLITE_ROW (100) when a row is
   ' ready, SQLITE_DONE (101) when finished, or an error code. The Boolean wrapper
   ' means "a row is available". Two clauses express the three-way outcome:
@@ -308,7 +309,7 @@ LINK "sqlite3" AS sqliteLink
   END FUNC
 
   ' const unsigned char *sqlite3_column_text(sqlite3_stmt*, int iCol)
-  ' Borrows stmt. Returns a UTF-8 C string owned by SQLite (valid only until the
+  ' Takes a pointer to stmt. Returns a UTF-8 C string owned by SQLite (valid only until the
   ' next step/finalize). The `CPtr` return paired with the wrapper's `AS String`
   ' tells the generated marshaling thunk to COPY the bytes into an owned String
   ' immediately (copy-and-leave; the source is never freed) — plan-linker.md §12.4.
@@ -323,7 +324,7 @@ LINK "sqlite3" AS sqliteLink
   ' The name assigned to result column `col` — the AS alias, or the source column
   ' name otherwise. Like columnText the pointer is SQLite-owned UTF-8 valid only
   ' until finalize, so the `CPtr -> String` thunk copies it out at once
-  ' (copy-and-leave). Borrows stmt. `queryMaps` keys each row by this name.
+  ' (copy-and-leave). Takes a pointer to stmt. `queryMaps` keys each row by this name.
   FUNC columnName(RES stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_name"
     ABI (stmt CPtr, col CInt32) AS name CPtr
@@ -333,7 +334,7 @@ LINK "sqlite3" AS sqliteLink
   ' int sqlite3_column_type(sqlite3_stmt*, int iCol)
   ' The datatype code of the value in column `col` of the current result row:
   ' SQLITE_INTEGER (1), SQLITE_FLOAT (2), SQLITE_TEXT (3), SQLITE_BLOB (4), or
-  ' SQLITE_NULL (5). Borrows stmt; a plain value-returning call (the C return IS
+  ' SQLITE_NULL (5). Takes a pointer to stmt; a plain value-returning call (the C return IS
   ' the result), like columnCount. `rows` dispatches on it to pick the typed
   ' reader and therefore which `SqlValue` member each cell becomes.
   FUNC columnType(RES stmt AS Stmt, col AS Integer) AS Integer
@@ -344,7 +345,7 @@ LINK "sqlite3" AS sqliteLink
 
   ' sqlite3_int64 sqlite3_column_int64(sqlite3_stmt*, int iCol)
   ' Reads an INTEGER column as a 64-bit value, surfaced straight through the C
-  ' return (`AS value CInt64` + `RETURN value`) into MFBASIC's `Integer`. Borrows stmt. `rows`
+  ' return (`AS value CInt64` + `RETURN value`) into MFBASIC's `Integer`. Takes a pointer to stmt. `rows`
   ' calls it only when `columnType` reported SQLITE_INTEGER.
   FUNC columnInt(RES stmt AS Stmt, col AS Integer) AS Integer
     SYMBOL "sqlite3_column_int64"
@@ -355,7 +356,7 @@ LINK "sqlite3" AS sqliteLink
   ' double sqlite3_column_double(sqlite3_stmt*, int iCol)
   ' Reads a FLOAT column. The C `double` return maps to MFBASIC `Float`; the
   ' marshaling boundary rejects a NaN/Inf result (mfbasic.md §12.3), which a
-  ' well-formed numeric column never produces. Borrows stmt. `rows` calls it only
+  ' well-formed numeric column never produces. Takes a pointer to stmt. `rows` calls it only
   ' when `columnType` reported SQLITE_FLOAT.
   FUNC columnDouble(RES stmt AS Stmt, col AS Integer) AS Float
     SYMBOL "sqlite3_column_double"
@@ -364,7 +365,7 @@ LINK "sqlite3" AS sqliteLink
   END FUNC
 
   ' int sqlite3_column_count(sqlite3_stmt*)
-  ' The number of columns in the statement's current result row. Borrows stmt; a
+  ' The number of columns in the statement's current result row. Takes a pointer to stmt; a
   ' plain value-returning call where the C return IS the result, like
   ' sqlite3_column_text. Lets a generic query read every column without the caller
   ' knowing the schema in advance.
@@ -389,7 +390,7 @@ LINK "sqlite3" AS sqliteLink
   ' owns), the returned string is FRESHLY ALLOCATED and the caller OWNS it, so a
   ' plain copy-and-leave would leak it. The `FREE` block releases the original
   ' pointer with sqlite3_free() after the thunk has copied it into the owned
-  ' `String` result. Borrows stmt.
+  ' `String` result. Takes a pointer to stmt.
   FUNC expandedSql(RES stmt AS Stmt) AS String
     SYMBOL "sqlite3_expanded_sql"
     ABI (stmt CPtr) AS sql CPtr
@@ -414,7 +415,7 @@ LINK "sqlite3" AS sqliteLink
   ' const char *sqlite3_errmsg(sqlite3*)
   ' The English text of the most recent failed API call on this connection. Valid
   ' only until the next call on `db`; the thunk copies it out at once. A NULL
-  ' return (no error) copies as the empty string. Borrows db.
+  ' return (no error) copies as the empty string. Takes a pointer to db.
   FUNC errmsg(RES db AS Db) AS String
     SYMBOL "sqlite3_errmsg"
     ABI (db CPtr) AS message CPtr
@@ -424,7 +425,7 @@ LINK "sqlite3" AS sqliteLink
   ' int sqlite3_extended_errcode(sqlite3*)
   ' The extended result code of the most recent failed API call on this
   ' connection — e.g. SQLITE_CONSTRAINT_UNIQUE (2067), finer-grained than the
-  ' primary code SQLITE_CONSTRAINT (19). Borrows db; a plain value-returning call.
+  ' primary code SQLITE_CONSTRAINT (19). Takes a pointer to db; a plain value-returning call.
   FUNC extendedErrcode(RES db AS Db) AS Integer
     SYMBOL "sqlite3_extended_errcode"
     ABI (db CPtr) AS code CInt32
@@ -452,7 +453,7 @@ LET ERR_NATIVE_CALL_FAILED = 77030008
 ' Higher-level wrappers exported to importers. A binding package may add
 ' validation and ergonomics around the raw native symbols. Each producer returns
 ' `AS RES Db` (ownership moves to the caller); each operation takes `RES db AS Db`
-' and borrows it by default.
+' — a pointer to that same one connection, leaving ownership where it was.
 ' ---------------------------------------------------------------------------
 
 DOC
@@ -473,7 +474,7 @@ EXPORT FUNC open(path AS String, readOnly AS Boolean = FALSE) AS RES Db
     flags = SQLITE_OPEN_READONLY
   END IF
   RES db AS Db = sqliteLink::openV2(path, flags)
-  sqliteLink::busyTimeout(db, 5000)      ' borrows db
+  sqliteLink::busyTimeout(db, 5000)      ' pointer passed; db stays live
   RETURN db                              ' ownership moves to the caller (event #3)
 END FUNC
 
@@ -492,7 +493,7 @@ EXPORT FUNC create(path AS String) AS RES Db
   LET SQLITE_OPEN_READWRITE = 2          ' open for reading and writing
   LET SQLITE_OPEN_CREATE = 4             ' create the file if it does not exist
   RES db AS Db = sqliteLink::openV2(path, SQLITE_OPEN_READWRITE + SQLITE_OPEN_CREATE)
-  sqliteLink::busyTimeout(db, 5000)      ' borrows db
+  sqliteLink::busyTimeout(db, 5000)      ' pointer passed; db stays live
   RETURN db                              ' ownership moves to the caller (event #3)
 END FUNC
 
@@ -508,7 +509,7 @@ DOC
 END DOC
 EXPORT FUNC openOrCreate(path AS String) AS RES Db
   RES db AS Db = sqliteLink::open(path)
-  sqliteLink::busyTimeout(db, 5000)      ' borrows db
+  sqliteLink::busyTimeout(db, 5000)      ' pointer passed; db stays live
   RETURN db                              ' ownership moves to the caller (event #3)
 END FUNC
 
@@ -520,9 +521,10 @@ END FUNC
 '      runtime cleanup-failure ledger (it has no source-level result to route).
 '
 ' STRESS-TEST FINDING: this cannot be an ordinary wrapper `FUNC close(RES db AS
-' Db) ... sqliteLink::close(db)`. A parameter is a *borrow* (overhaul §3.3), and a
-' borrow may never invalidate — calling the registered close op on a borrowed
-' `db` is rejected (`TYPE_RESOURCE_BORROW_INVALIDATE`). Since the language has no
+' Db) ... sqliteLink::close(db)`. A parameter is a *pointer* to the one resource,
+' held by a scope that does not own it, and a non-owner may never invalidate —
+' calling the registered close op on such a
+' `db` is rejected (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`). Since the language has no
 ' `MOVE` annotation, a user function can never consume a resource parameter. The
 ' correct construct is therefore a **re-export alias** of the registered close op
 ' (overhaul §3.3 invalidation event #1 "and its re-export aliases"): `sqlite3::close`
@@ -531,11 +533,11 @@ END FUNC
 EXPORT FUNC close AS sqliteLink::close
 
 ' ---------------------------------------------------------------------------
-' Table operations. Each of these BORROWS `db` — ordinary calls borrow by
-' default (plan-resource-overhaul.md §3.3), so the caller still owns the handle
-' after the call and may keep using it. Only the four fixed events (the
+' Table operations. Each of these receives a POINTER to `db` — ordinary calls do
+' not move ownership (plan-resource-overhaul.md §3.3), so the owning scope is
+' unchanged and the caller's binding stays live. Only the four fixed events (the
 ' registered close op, thread::transfer, RETURN, and scope-drop) end a
-' resource's life; native `exec`/`prepare` are ordinary borrows, native
+' resource's life; native `exec`/`prepare` are ordinary calls, native
 ' `close`/`finalize` are the registered close ops. Identifier quoting is omitted
 ' for brevity.
 ' ---------------------------------------------------------------------------
@@ -547,7 +549,7 @@ DOC
   DESC text. Call this from a wrapper's error handler, before any other call on
   DESC `db` (and before `db` is closed), so SQLite's last-error state still
   DESC reflects the failure.
-  ARG db The open connection whose last error is read (borrowed).
+  ARG db The open connection whose last error is read (the caller stays the owner).
   RET An `Error` carrying SQLite's extended code and message.
 END DOC
 FUNC sqlError(RES db AS Db) AS Error
@@ -563,7 +565,7 @@ DOC
   INFO executes every statement in `sql` in order.
   SEC SQL injection safe: values must NOT be concatenated into `sql` — use the
   SEC parameterized `query` overloads for anything containing user input.
-  ARG db  The open connection (borrowed).
+  ARG db  The open connection (the caller stays the owner).
   ARG sql One or more SQL statements to run.
   ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
 END DOC
@@ -581,7 +583,7 @@ DOC
   FUNC begin
   GROUP Transactions
   DESC Begin a transaction (`BEGIN`).
-  ARG db The open connection (borrowed).
+  ARG db The open connection (the caller stays the owner).
 END DOC
 EXPORT FUNC begin(RES db AS Db) AS Nothing
   execute(db, "BEGIN")
@@ -591,7 +593,7 @@ DOC
   FUNC commit
   GROUP Transactions
   DESC Commit the current transaction (`COMMIT`).
-  ARG db The open connection (borrowed).
+  ARG db The open connection (the caller stays the owner).
 END DOC
 EXPORT FUNC commit(RES db AS Db) AS Nothing
   execute(db, "COMMIT")
@@ -601,7 +603,7 @@ DOC
   FUNC rollback
   GROUP Transactions
   DESC Roll back the current transaction (`ROLLBACK`).
-  ARG db The open connection (borrowed).
+  ARG db The open connection (the caller stays the owner).
 END DOC
 EXPORT FUNC rollback(RES db AS Db) AS Nothing
   execute(db, "ROLLBACK")
@@ -614,7 +616,7 @@ DOC
   DESC typically the new `INTEGER PRIMARY KEY`.
   WARN Read it immediately after the `INSERT`, before any other write on the
   WARN connection.
-  ARG db The open connection (borrowed).
+  ARG db The open connection (the caller stays the owner).
   RET The last inserted ROWID, or 0 if no `INSERT` has run on the connection.
 END DOC
 EXPORT FUNC lastInsertRowId(RES db AS Db) AS Integer
@@ -627,7 +629,7 @@ DOC
   DESC The number of rows changed, inserted, or deleted by the most recent
   DESC `INSERT`/`UPDATE`/`DELETE` on `db`.
   WARN Read it immediately after that write.
-  ARG db The open connection (borrowed).
+  ARG db The open connection (the caller stays the owner).
   RET The number of rows affected by the last write.
 END DOC
 EXPORT FUNC changes(RES db AS Db) AS Integer
@@ -642,7 +644,7 @@ DOC
   INFO With a `Map OF String TO String`, each entry becomes a `name type` column
   INFO definition; iteration order is implementation-defined but stable, which is
   INFO fine since column order in a `CREATE TABLE` is not significant.
-  ARG db      The open connection (borrowed).
+  ARG db      The open connection (the caller stays the owner).
   ARG name    Name of the table to create.
   ARG columns Column definitions: a raw SQL string, or a name -> SQLite-type map.
   ERROR 77050002 The `Map` overload was given an empty map (a table needs at least one column).
@@ -667,7 +669,7 @@ END FUNC
 ' a `MapEntry`, so `entry.key` is the column name and `entry.value` its type. The
 ' iteration order is implementation-defined but stable for a given map value
 ' (mfbasic.md §11), which is fine here — column order in a CREATE TABLE is not
-' significant. Borrows `db` and delegates to the String overload, which runs the
+' significant. Takes a pointer to `db` and delegates to the String overload, which runs the
 ' assembled statement through native `exec`.
 EXPORT FUNC createTable(RES db AS Db, name AS String, columns AS Map OF String TO String) AS Nothing
   MUT defs AS String = ""
@@ -682,14 +684,14 @@ EXPORT FUNC createTable(RES db AS Db, name AS String, columns AS Map OF String T
   ' An empty map would assemble `CREATE TABLE name ()`, which is a SQLite syntax
   ' error. Reject it up front with a clear message rather than a native failure.
   IF first THEN FAIL error(77050002, "sqlite3: createTable requires at least one column")
-  createTable(db, name, defs)             ' delegate to the String overload (borrows db)
+  createTable(db, name, defs)             ' delegate to the String overload (db stays live)
 END FUNC
 
 DOC
   FUNC dropTable
   GROUP Schema
   DESC `DROP TABLE name`.
-  ARG db   The open connection (borrowed).
+  ARG db   The open connection (the caller stays the owner).
   ARG name Name of the table to drop.
   ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
 END DOC
@@ -703,20 +705,20 @@ DOC
   FUNC listTables
   GROUP Schema
   DESC Return the names of all tables in the database, ordered by name.
-  ARG db The open connection (borrowed).
+  ARG db The open connection (the caller stays the owner).
   RET A list of table names.
   ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
 END DOC
 ' Demonstrates a result-set loop over a `RES Stmt`: prepare (produces the
-' statement), step (borrows it, once per row), columnText (borrows it), finalize
-' (consumes it). Because ordinary calls borrow, `stmt` stays live across every
+' statement), step (a pointer, once per row), columnText (a pointer), finalize
+' (consumes it). Because ordinary calls do not move ownership, `stmt` stays live across every
 ' loop iteration. If `step` fails partway, the still-owned `stmt` is finalized by
 ' lexical drop on the error exit — no leak.
 EXPORT FUNC listTables(RES db AS Db) AS List OF String
   RES stmt AS Stmt = sqliteLink::prepare(db, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
   MUT names AS List OF String = []
-  WHILE sqliteLink::step(stmt)              ' borrows stmt each iteration
-    names = collections::append(names, sqliteLink::columnText(stmt, 0))   ' borrows stmt
+  WHILE sqliteLink::step(stmt)              ' pointer passed each iteration
+    names = collections::append(names, sqliteLink::columnText(stmt, 0))   ' pointer passed; stmt stays live
   WEND
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN names
@@ -735,7 +737,7 @@ END FUNC
 ' are bound to placeholders through `bindText`, so a value containing quotes or
 ' SQL syntax can never alter the statement (no injection). Each `query` overload
 ' prepares the statement, binds the supplied values, walks the result set, and
-' finalizes. All native calls borrow `stmt`/`db`; if any step fails partway, the
+' finalizes. All native calls take a pointer to `stmt`/`db`; if any step fails partway, the
 ' still-owned `stmt` is finalized by lexical drop on the error exit — no leak.
 '
 ' Rows come back as `List OF List OF SqlValue`: one inner list per result row, one
@@ -751,18 +753,18 @@ DOC
   DESC Drain an already-prepared, already-bound statement into positional rows,
   DESC one `List OF SqlValue` per result row. Each cell is typed by the column's
   DESC runtime type (`columnType`): INTEGER -> `SqlInt`, FLOAT -> `SqlFloat`,
-  DESC TEXT/BLOB/NULL -> `SqlText`. Package-private; borrows `stmt`, so the caller
+  DESC TEXT/BLOB/NULL -> `SqlText`. Package-private; takes a pointer to `stmt`, so the caller
   DESC keeps ownership and remains responsible for finalizing it. Shared by the
   DESC `query` overloads.
-  ARG stmt The prepared, bound statement to drain (borrowed).
+  ARG stmt The prepared, bound statement to drain (the caller stays the owner).
   RET The result rows as a positional list of `SqlValue` lists.
 END DOC
 FUNC rows(RES stmt AS Stmt) AS List OF List OF SqlValue
   LET SQLITE_INTEGER = 1
   LET SQLITE_FLOAT = 2
-  LET cols = sqliteLink::columnCount(stmt)      ' borrows stmt
+  LET cols = sqliteLink::columnCount(stmt)      ' pointer passed; stmt stays live
   MUT out AS List OF List OF SqlValue = []
-  WHILE sqliteLink::step(stmt)                  ' borrows stmt; once per result row
+  WHILE sqliteLink::step(stmt)                  ' pointer passed; once per result row
     MUT row AS List OF SqlValue = []
     FOR i = 0 TO cols - 1
       ' Construct into a `SqlValue`-typed binding so the union member widens to
@@ -770,7 +772,7 @@ FUNC rows(RES stmt AS Stmt) AS List OF List OF SqlValue
       ' a concrete member on its own). The placeholder is overwritten on every
       ' branch below.
       MUT cell AS SqlValue = SqlInt[0]
-      LET kind = sqliteLink::columnType(stmt, i)             ' borrows stmt
+      LET kind = sqliteLink::columnType(stmt, i)             ' pointer passed; stmt stays live
       IF kind = SQLITE_INTEGER THEN
         cell = SqlInt[sqliteLink::columnInt(stmt, i)]
       ELSEIF kind = SQLITE_FLOAT THEN
@@ -796,8 +798,8 @@ DOC
   DESC Bind one `SqlValue` to a 1-based parameter slot, dispatching on its union
   DESC member to the correctly typed native binder (`SqlInt` -> a real INTEGER,
   DESC `SqlFloat` -> double, `SqlText` -> text, `SqlNull` -> a true NULL).
-  DESC Package-private; borrows `stmt`. Shared by the typed `query` overloads.
-  ARG stmt  The prepared statement to bind into (borrowed).
+  DESC Package-private; takes a pointer to `stmt`. Shared by the typed `query` overloads.
+  ARG stmt  The prepared statement to bind into (the caller stays the owner).
   ARG idx   The 1-based parameter slot to bind.
   ARG value The value to bind, typed by its `SqlValue` member.
   ERROR 77050002 A `SqlBlob` value was passed; faithful byte-list binding is not yet supported.
@@ -817,25 +819,25 @@ DOC
   DESC Drain an already-prepared, already-bound statement into NAMED rows: one
   DESC `Map OF String TO SqlValue` per result row, keyed by each column's name
   DESC (`columnName`) instead of by position. The cell typing rule is identical
-  DESC to `rows`. Package-private; borrows `stmt`. Shared by the `queryMaps`
+  DESC to `rows`. Package-private; takes a pointer to `stmt`. Shared by the `queryMaps`
   DESC overloads.
   DESC
   DESC Caveat: a map key is unique, so when a result set has two columns of the
   DESC same name the later one overwrites the earlier in that row's map. Use the
   DESC positional `rows`/`query` path when duplicate column names must survive.
-  ARG stmt The prepared, bound statement to drain (borrowed).
+  ARG stmt The prepared, bound statement to drain (the caller stays the owner).
   RET The result rows, each a map of column name to `SqlValue`.
 END DOC
 FUNC rowsAsMaps(RES stmt AS Stmt) AS List OF Map OF String TO SqlValue
   LET SQLITE_INTEGER = 1
   LET SQLITE_FLOAT = 2
-  LET cols = sqliteLink::columnCount(stmt)      ' borrows stmt
+  LET cols = sqliteLink::columnCount(stmt)      ' pointer passed; stmt stays live
   MUT out AS List OF Map OF String TO SqlValue = []
-  WHILE sqliteLink::step(stmt)                  ' borrows stmt; once per result row
+  WHILE sqliteLink::step(stmt)                  ' pointer passed; once per result row
     MUT row AS Map OF String TO SqlValue = Map OF String TO SqlValue {}
     FOR i = 0 TO cols - 1
       MUT cell AS SqlValue = SqlInt[0]          ' placeholder; overwritten below
-      LET kind = sqliteLink::columnType(stmt, i)             ' borrows stmt
+      LET kind = sqliteLink::columnType(stmt, i)             ' pointer passed; stmt stays live
       IF kind = SQLITE_INTEGER THEN
         cell = SqlInt[sqliteLink::columnInt(stmt, i)]
       ELSEIF kind = SQLITE_FLOAT THEN
@@ -866,7 +868,7 @@ DOC
   DESC Rows come back as `List OF List OF SqlValue` — one inner list per row, one
   DESC `SqlValue` per column, typed by each column's runtime type. Works for
   DESC `INSERT`/`UPDATE`/`DELETE` too (the row list is then empty).
-  ARG db     The open connection (borrowed).
+  ARG db     The open connection (the caller stays the owner).
   ARG sql    The SQL to prepare and run, with `?` or named placeholders.
   ARG params The values to bind, positional (list) or named (map), as text or `SqlValue`.
   RET The result rows, each a positional list of `SqlValue` cells.
@@ -991,7 +993,7 @@ DOC
   DESC Reach for this when the caller wants `row["name"]` rather than tracking
   DESC column order; reach for `query` when columns may share a name, since a map
   DESC collapses duplicate keys.
-  ARG db     The open connection (borrowed).
+  ARG db     The open connection (the caller stays the owner).
   ARG sql    The SQL to prepare and run, with `?` or named placeholders.
   ARG params The values to bind, positional (list) or named (map), as text or `SqlValue`.
   RET The result rows, each a map of column name to `SqlValue`.

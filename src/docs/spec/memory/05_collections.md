@@ -70,7 +70,7 @@ does not already say.
 | `Integer`, `Float`, `Fixed`, `Money` | 8 |
 
 Every other element type — `String`, a record, a union, a nested collection, a
-resource borrow — is variable-width and keeps the kind-0 layout. A `Map` always
+resource pointer — is variable-width and keeps the kind-0 layout. A `Map` always
 keeps its entries regardless of key or value width, because a map's entry
 carries a key offset that is not derivable from the index.
 

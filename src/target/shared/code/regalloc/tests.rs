@@ -137,7 +137,7 @@ fn linear_scan_spills_integer_across_arena_alloc() {
 }
 
 /// bug-54: when the caller-saved allocatable bank (`x8`–`x17`) is fully occupied
-/// at a spill-reload point, the "genuinely free" scratch selection borrows a
+/// at a spill-reload point, the "genuinely free" scratch selection commandeers a
 /// callee-saved register (`x20`+) but emits no save/restore for it. That register
 /// must therefore be recorded in the frame's callee-saved save set, or the
 /// callee silently clobbers the caller's `x20`.
@@ -198,7 +198,7 @@ fn linear_scan_records_callee_saved_reload_scratch_int() {
         64,
         &[],
     );
-    // v0 spilled (a slot was allocated), and the callee-saved register borrowed
+    // v0 spilled (a slot was allocated), and the callee-saved register commandeered
     // as its reload scratch is in the frame's save set.
     assert!(
         !outcome.spill_slots.is_empty(),

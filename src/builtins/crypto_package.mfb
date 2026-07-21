@@ -101,7 +101,7 @@ FUNC __crypto_appendBeWord(out AS List OF Byte, w AS Integer) AS List OF Byte
   RETURN result
 END FUNC
 
-' A fresh mutable copy of `data` (so appends don't disturb a borrowed input).
+' A fresh mutable copy of `data` (so appends don't disturb the caller's input).
 FUNC __crypto_copyBytes(data AS List OF Byte) AS List OF Byte
   MUT out AS List OF Byte = []
   LET n AS Integer = len(data)

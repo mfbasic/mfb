@@ -1,10 +1,10 @@
 ' plan-01 Phase 5 / plan-02 Phase 8 proof: owned, non-escaping flat values are
 ' freed at scope-drop, and copy-insertion makes every owner's block independent.
 ' Exercises: copy independence across `LET b = a`, returning a record (move) and
-' returning a borrowed field (`p.name`, copied on return), nested records / lists
+' returning a field of a parameter (`p.name`, copied on return), nested records / lists
 ' of records freed as one block, `WITH` rebuild independence, and a heavy churn
 ' loop that builds-and-drops a record + String + List every iteration. Runs under
-' always-on entropy poisoning, so any double-free, free-of-borrow, wrong-size
+' always-on entropy poisoning, so any double-free, free-of-an-alias, wrong-size
 ' free, or use-after-free of a scrubbed block surfaces as a loud crash rather
 ' than silent garbage; the churn loop also proves freed memory is reused (no
 ' unbounded growth).
@@ -27,7 +27,7 @@ FUNC makePerson(n AS String, c AS String) AS Person
   RETURN p
 END FUNC
 
-' Returns a borrow into a borrowed parameter: must be copied on return so the
+' Returns an alias into a parameter's block: must be copied on return so the
 ' caller owns an independent String (the parameter is the caller's, untouched).
 FUNC nameOf(p AS Person) AS String
   RETURN p.name

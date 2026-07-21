@@ -278,7 +278,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 }
 
 /// Whether argument `index` of `name` consumes (moves) its resource operand.
-/// `fs.close` consumes the `RES File` it closes; every other call borrows the
+/// `fs.close` consumes the `RES File` it closes; every other call only uses the
 /// file, which stays open.
 pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
     matches!((name, index), (CLOSE, 0))

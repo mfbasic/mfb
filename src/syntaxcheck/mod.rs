@@ -39,7 +39,7 @@ enum Type {
     /// A `RES`-marked collection element (`List OF RES File`, `Map ... TO RES
     /// File`). The `RES` is the mandatory resource ownership-axis marker for a
     /// resource appearing as an element — exactly as `RES f` / `RES f AS File`
-    /// mark a binding or parameter. The collection still holds a *borrow* and
+    /// mark a binding or parameter. The collection still holds a *pointer* and
     /// owns nothing; a scope owns the resource (§15.6).
     Res(Box<Type>),
     Function {
@@ -117,7 +117,7 @@ enum Flow {
 enum ExprMode {
     Read,
     Transfer,
-    Borrow,
+    Use,
 }
 
 /// Elaborate and check `ast`, returning the rejections collected in source
@@ -277,7 +277,7 @@ struct SyntaxChecker<'a> {
     close_op_aliases: HashMap<String, String>,
     /// Set true only while inferring the argument in a compiler-known
     /// *non-escaping* callback position (e.g. `forEach`'s action). A lambda
-    /// inferred here may capture an outer `MUT` binding as a call-bound borrow.
+    /// inferred here may capture an outer `MUT` binding by-ref for the call.
     /// `infer_lambda` consumes (resets) it on entry so nested lambdas in the
     /// callback body do not inherit the licence.
     nonescaping_callback: bool,
@@ -2156,7 +2156,7 @@ impl<'a> SyntaxChecker<'a> {
                 }
             }
 
-            let _borrowed = self.is_resource_type(&param_type);
+            let _is_resource = self.is_resource_type(&param_type);
             let state_type = param.state_type.clone();
             locals.insert(
                 param.name.clone(),
@@ -2236,7 +2236,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::List(element) => {
                 let inner = strip_res(element);
                 self.check_type_reference(file, inner, line);
-                // A `List` element may be a resource borrow (§15.6); only thread
+                // A `List` element may be a resource pointer (§15.6); only thread
                 // handles are forbidden in collections.
                 if self.contains_thread(inner) {
                     self.report_invalid_collection_element(file, line, "element", inner);
@@ -2247,7 +2247,7 @@ impl<'a> SyntaxChecker<'a> {
                 self.check_type_reference(file, key, line);
                 self.check_type_reference(file, value_inner, line);
                 // A resource may not be a `Map` key (handles are not comparable),
-                // but a `Map` *value* may be a resource borrow (§15.6).
+                // but a `Map` *value* may be a resource pointer (§15.6).
                 if self.contains_resource_or_thread(key) {
                     self.report_invalid_collection_element(file, line, "key", key);
                 }
@@ -2313,7 +2313,7 @@ impl<'a> SyntaxChecker<'a> {
                 // the message and resource types do. `ir::verify`'s copyable +
                 // defaultable rule does not imply sendable: a record like
                 // `TYPE S { files AS List OF RES File }` satisfies both yet carries
-                // resource borrows to sender-owned resources, which §15.6 forbids
+                // resource pointers to sender-owned resources, which §15.6 forbids
                 // from crossing.
                 if let Some(resource_state) = resource_state {
                     self.check_type_reference(file, resource_state, line);
@@ -2723,7 +2723,7 @@ mod checker_tests {
 
     #[test]
     fn resource_field_in_record_walk() {
-        // A record whose field carries a resource borrow walks the is_resource
+        // A record whose field carries a resource pointer walks the is_resource
         // branch inside check_type_decl.
         let _ = check_src(
             "IMPORT fs\nTYPE Holder\n  fs AS List OF RES File\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",

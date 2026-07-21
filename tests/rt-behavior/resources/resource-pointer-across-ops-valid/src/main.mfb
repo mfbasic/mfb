@@ -10,6 +10,6 @@ FUNC main AS Integer
   logLine(f, "first")
   logLine(f, "second")
   fs::close(f)
-  io::print("borrowed")
+  io::print("pointer")
   RETURN 0
 END FUNC

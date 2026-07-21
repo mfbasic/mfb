@@ -247,7 +247,7 @@ pub(crate) enum NirValue {
         value: String,
     },
     Local(String),
-    /// The address of a local binding's slot — a borrow of the slot itself (not
+    /// The address of a local binding's slot — a reference to the slot itself (not
     /// a read of its value) used to capture a `MUT` binding into a non-escaping
     /// callback's environment.
     LocalRef {

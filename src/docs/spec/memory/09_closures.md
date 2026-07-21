@@ -66,7 +66,7 @@ A slot's word holds one of two things, set by the capture's `by_ref` flag:
 - **By-ref capture (`by_ref = true`).** The slot stores a **pointer to the parent
   binding's slot** rather than a value. The capturing body binds a *reference*
   local that dereferences through this pointer on every read and write, so the
-  callback observes and mutates the live parent binding (a `MUT` slot-borrow). [[src/target/shared/nir/mod.rs:NirValue]] [[src/target/shared/code/builder_values.rs:399]]
+  callback observes and mutates the live parent binding (a by-reference `MUT` slot capture). [[src/target/shared/nir/mod.rs:NirValue]] [[src/target/shared/code/builder_values.rs:399]]
 
 A `Capture` read inside the body loads the raw slot word from the active
 environment at `index * 8`. For a by-value capture that word is the value/block
@@ -116,7 +116,7 @@ is one closure object, and every binding, argument, return, collection element, 
 map value that holds the function value holds a **copy of the 8-byte pointer** to
 that one object. A function value is never deep-copied — assigning it, passing it,
 returning it, or storing it into a collection copies the pointer only. This is the
-same discipline a resource handle follows (a borrowed pointer, `./mfb spec memory
+same discipline a resource handle follows (a non-owning pointer, `./mfb spec memory
 arenas`), and it is why `lower_value_owned`'s copy-insertion and the
 `is_freeable_flat_value` owned-value drop **exclude** function types: there is no
 per-value copy on a store and no per-value `arena_free` on scope drop. [[src/target/shared/code/builder_values.rs:is_freeable_flat_value]] [[src/target/shared/code/type_utils.rs:is_function_type]]

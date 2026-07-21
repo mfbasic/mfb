@@ -316,7 +316,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         RENDER if exact(arg_types, &[AUDIO_NOTE_TYPE]) => Cow::Borrowed("List OF Byte"),
         // `play(output, mml)` and `play(output, tracks)` — a single MML track or
-        // a list of tracks. Both write to the (borrowed) open output stream and
+        // a list of tracks. Both write to the (non-owned) open output stream and
         // return nothing; the caller keeps and closes the stream.
         PLAY if exact(arg_types, &[AUDIO_OUTPUT_TYPE, "String"])
             || exact(arg_types, &[AUDIO_OUTPUT_TYPE, "List OF String"]) =>
@@ -398,7 +398,7 @@ pub(crate) fn implementation_name(name: &str, arg_types: &[String]) -> Option<&'
 
 /// Whether argument `index` of `name` consumes (moves) its resource operand.
 /// `audio.close` (and its per-direction internal bodies) consumes the handle it
-/// closes; every other call borrows.
+/// closes; every other call only uses the handle.
 pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
     matches!(
         (name, index),

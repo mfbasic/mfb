@@ -195,7 +195,7 @@ impl CodeBuilder<'_> {
         // The materialized block is a fresh, freeable-flat arena block — register
         // it as a statement-scope temp exactly as an eager `Constructor` result is
         // (a native skips that registration at production, since it had no block
-        // then). An owner boundary (`lower_value_owned`) claims it; a borrow
+        // then). An owner boundary (`lower_value_owned`) claims it; an alias
         // boundary (a call arg, a container-copy) leaves it to be freed at
         // statement end. This is what keeps the lazy carrier's frees identical to
         // the eager path.

@@ -18,7 +18,7 @@ use crate::target::shared::abi;
 // owns saving the link register, not a slot named here. The
 // Darwin variadic `ioctl` spill is handled by the macOS `emit_terminal_size`
 // hook, which brackets its own `sub_sp`/`str x2, [sp]`/`add_sp` around the call
-// rather than borrowing a fixed slot here.
+// rather than commandeering a fixed slot here.
 const LOCALS_SIZE: usize = 64;
 const ARG0_OFFSET: usize = 8;
 const ARG1_OFFSET: usize = 16;

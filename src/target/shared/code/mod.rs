@@ -21,10 +21,10 @@ use super::runtime;
 /// 55 emitter helpers across 14 files spelled these five out longhand, which is
 /// most of the 31 `too_many_arguments` warnings and the 54 hand-written
 /// suppressions (bug-323 Phase 3). Unlike the `HelperBody` alias, this is NOT
-/// neutral by construction — it bundles two `&mut Vec` borrows — so every
+/// neutral by construction — it bundles two `&mut Vec` references — so every
 /// conversion is gated on `scripts/artifact-gate.sh` showing zero diffs.
 ///
-/// Rust permits disjoint borrows of `instructions` and `relocations` through a
+/// Rust permits disjoint mutable references to `instructions` and `relocations` through a
 /// single `&mut EmitCtx`, so a callee needing both still compiles.
 pub(super) struct EmitCtx<'a> {
     pub(super) symbol: &'a str,
@@ -113,7 +113,7 @@ struct CodeBuilder<'a> {
     /// iteration; it is loaded once before the loop and stored back once after.
     promoted_float_locals: HashMap<String, String>,
     /// Locals whose address is taken anywhere in the function (a `LocalRef`).
-    /// Such a local may be observed or mutated through the borrow, so it is never
+    /// Such a local may be observed or mutated through the slot reference, so it is never
     /// loop-promoted (its slot must stay authoritative).
     address_taken_locals: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
@@ -269,7 +269,7 @@ struct LocalValue {
     constant: Option<NirValue>,
     /// A *reference* local: the stack slot holds a pointer to another binding's
     /// slot rather than the value/block itself. Set for a non-escaping `MUT`
-    /// borrow capture, where reads and writes deref through the slot pointer so
+    /// by-ref capture, where reads and writes deref through the slot pointer so
     /// the live parent binding is observed and updated. False for every ordinary
     /// binding.
     by_ref: bool,

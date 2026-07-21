@@ -39,7 +39,7 @@ References (read first):
 ## 1. Goal
 
 - `app::Table` shadow node with **two** cell grids (header and data), `(row, col)` slots
-  holding widget **borrows**.
+  holding widget **pointers**.
 - `addTable`; the table `add*` overloads (born-attached into a cell, required `region`);
   `setWidget` (detach-occupant-then-attach; `ErrInvalidArgument` on a `Table` argument —
   no nesting) / `clearCell` (detach).
@@ -47,7 +47,7 @@ References (read first):
   `setRowHeight`.
 - **Native-side virtualization only** — no user-visible recycling. Roughly
   `visible rows × columns` native peers exist at a time; the shadow grid is complete.
-- Lifetime: cell slots are borrows; a cell widget's drop empties its cell; table
+- Lifetime: cell slots are pointers; a cell widget's drop empties its cell; table
   close/drop detaches all cells.
 
 ### Non-goals (explicit constraints)
@@ -76,7 +76,7 @@ References (read first):
 | Claim | Verdict | How checked |
 |---|---|---|
 | The solver must be re-entrant, and this unit is the reason | **CONFIRMED** | the 2026-07-09 plan-13-I says so in its own words: *"'re-entrant on the main thread' is a hard constraint that **this plan, not plan-13-C, is the reason for**"* |
-| Cells hold borrows, not owned handles | **CONFIRMED design** | §15.6 resources in collections; a cell slot never owns |
+| Cells hold pointers, not owned handles | **CONFIRMED design** | §15.6 resources in collections; a cell slot never owns |
 | B and C are independent | **CONFIRMED** | both 2026-07-09 docs say so, and neither seam block references the other's symbols |
 | Loop-body ownership float supports the §6 pattern | **UNVERIFIED** | a Prerequisites row — confirm against the escape-analysis spec before Phase 2 depends on it |
 | A 100 000-iteration loop-built grid drops each widget exactly once | **UNVERIFIED — an acceptance criterion** | proven under the leak checker |
@@ -102,7 +102,7 @@ disappears under scrolling, while the MFBASIC handle stays valid throughout. Tha
 stable logical cell, transient native peer — has no precedent in this codebase.
 
 **Where correctness risk concentrates:** the cell-drop interaction. A cell holds a
-*borrow*; the widget is owned by whatever bound it. So a widget dropping must empty its
+*pointer*; the widget is owned by whatever bound it. So a widget dropping must empty its
 cell, and a table dropping must detach rather than destroy. Get this backwards and either
 the table frees something it does not own (double free) or a dropped widget leaves a
 dangling native peer in a cell.
@@ -129,12 +129,12 @@ would create 100 000 native peers, which neither toolkit tolerates.
 
 ### Phase 1 — the shadow grid, headless
 
-- [ ] `app::Table` shadow node (two cell grids, `(row, col)` borrow slots) + the
+- [ ] `app::Table` shadow node (two cell grids, `(row, col)` pointer slots) + the
       `app::Widget` `Table` variant + `WIDGET_VARIANTS` row + the internal
       `app::destroy(RES app::Table)` close op; the three new types in the reserved range.
 - [ ] `addTable`; the table `add*` overloads (born-attached, required `region`);
       `setWidget` / `clearCell`; extents; `setColumnWidth`/`setRowHeight`.
-- [ ] Lifetime wiring: cell slots are borrows; a cell widget's drop empties its cell;
+- [ ] Lifetime wiring: cell slots are pointers; a cell widget's drop empties its cell;
       table close/drop detaches all cells.
 - [ ] **Confirm loop-body ownership float** against the escape-analysis spec before Phase 2
       depends on it.
@@ -143,7 +143,7 @@ would create 100 000 native peers, which neither toolkit tolerates.
       this as keeping "*most* of them" clear of A's container forms; the test enforces all.
 - [ ] Tests: `tests/syntax/app/table-*` — arity/types, union widening (`setWidget` accepts
       every variant), skipped-middle-argument rejection, **nested-table rejection**, extent
-      math, detach-not-destroy, RES-borrow rejection.
+      math, detach-not-destroy, RES non-owner rejection.
 
 Acceptance: the full Table surface typechecks; the shadow grid model is verified headless;
 a **100 000-iteration loop-built grid compiles and drops each widget exactly once**.
@@ -215,7 +215,7 @@ The engineering risk is the virtualizer's mapping: a stable logical cell whose n
 appears and disappears under scrolling, while the MFBASIC handle stays valid throughout.
 Nothing in this codebase does that today.
 
-The correctness risk is narrower and is about ownership direction: cells hold borrows, so a
+The correctness risk is narrower and is about ownership direction: cells hold pointers, so a
 widget's drop must empty its cell and a table's drop must detach. Backwards, and either the
 table frees what it does not own or a dropped widget leaves a live native peer behind.
 

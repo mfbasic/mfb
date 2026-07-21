@@ -215,7 +215,7 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction], is_x
     };
 
     // Indexed on purpose: the body rewrites `instructions[index]` in place while
-    // `classify` is still borrowing that same element, so an `iter_mut` borrow
+    // `classify` is still holding a reference to that same element, so an `iter_mut` reference
     // cannot span both halves.
     #[allow(clippy::needless_range_loop)]
     for index in 0..instructions.len() {

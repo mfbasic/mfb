@@ -552,7 +552,7 @@ pub enum Visibility {
 pub struct Param {
     pub name: String,
     pub type_name: Option<String>,
-    /// Whether this parameter was declared with `RES` (a borrowed/owned resource).
+    /// Whether this parameter was declared with `RES` (a resource pointer).
     pub resource: bool,
     /// The `STATE T` type attached to a `RES` parameter, if any.
     pub state_type: Option<String>,

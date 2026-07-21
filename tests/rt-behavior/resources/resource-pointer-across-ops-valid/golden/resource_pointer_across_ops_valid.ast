@@ -1,5 +1,5 @@
 {
-  "project": "resource_borrow_across_ops_valid",
+  "project": "resource_pointer_across_ops_valid",
   "files": [
   {
     "path": "src/main.mfb",
@@ -37,7 +37,7 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "logLine", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "first" }] }, "line": 10 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "logLine", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "second" }] }, "line": 11 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 12 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "borrowed" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "pointer" }] }, "line": 13 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
       ]
     }

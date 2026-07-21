@@ -2,7 +2,7 @@ IMPORT collections
 IMPORT fs
 IMPORT io
 
-' A resource opened in the loop body, whose borrow is appended to an
+' A resource opened in the loop body, whose pointer is appended to an
 ' outer-scope List, has its ownership float up to the List's scope (§15.6).
 ' It must stay open after the loop (used here), and be closed exactly once
 ' when main's scope exits.

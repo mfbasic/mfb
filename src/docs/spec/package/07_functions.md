@@ -74,11 +74,11 @@ Parameter flags (`paramFlags` u32):
 
 ```text
 bit 0 = has default
-bit 1 = resource borrow      (reserved; not currently emitted)
+bit 1 = resource non-owning  (reserved; not currently emitted)
 bit 2 = resource consume     (reserved; not currently emitted)
 ```
 
-`lower_function` sets only bit 0, and only when the parameter has a default (in which case `defaultConst` is also populated). The borrow/consume bits are defined by the format but are **not currently produced** — no `BORROW`/`MOVE` source syntax exists, and resource ownership is enforced by the compiler rather than encoded in these per-parameter bits today.
+`lower_function` sets only bit 0, and only when the parameter has a default (in which case `defaultConst` is also populated). The non-owning/consume bits are defined by the format but are **not currently produced** — no per-parameter ownership annotation syntax (such as `MOVE`) exists, and resource ownership is enforced by the compiler rather than encoded in these per-parameter bits today.
 
 ## See Also
 

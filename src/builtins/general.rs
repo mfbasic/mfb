@@ -627,7 +627,7 @@ fn exact_one_of(arg_types: &[String], expected: &[&str]) -> bool {
     arg_types.len() == 1 && expected.iter().any(|expected| arg_types[0] == *expected)
 }
 /// The element type of a `List`, with any `RES` ownership-axis marker stripped:
-/// a `List OF RES File` yields the borrow element type `File`, since reading or
+/// a `List OF RES File` yields the pointer element type `File`, since reading or
 /// inserting an element works with the bare resource value (§15.6).
 fn list_element(type_name: &str) -> Option<&str> {
     let element = type_name.strip_prefix("List OF ")?;

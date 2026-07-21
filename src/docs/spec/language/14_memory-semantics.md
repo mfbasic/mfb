@@ -28,7 +28,7 @@ Reassigning a `MUT` first drops the old value in the binding, then initializes t
 
 ## 14.3 Function calls and returns
 
-Function arguments are owned values. Passing an argument follows the same copy-or-move rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has been passed, except through a standard resource borrow described in §15.
+Function arguments are owned values. Passing an argument follows the same copy-or-move rules as assignment. A call cannot observe or mutate a caller-owned value after the argument has been passed, except through a resource pointer as described in §15.
 
 Returning a value moves it into the caller's return slot. Returning a local collection is valid because ownership leaves the callee before local scope cleanup. Returning a `MUT` collection freezes the mutable buffer into an immutable owned collection value. Returning a non-copyable local value moves it; the callee does not drop that moved-from binding.
 
@@ -46,7 +46,7 @@ A failed heap allocation surfaces as an ordinary language-level error — `ErrIn
 
 Closures capture `LET` bindings by value when the closure is created. Capturing a copyable value copies it into the closure environment unless the compiler can move it without changing later validity.
 
-Capturing `MUT` bindings is a compile-time error because closures do not capture live mutable cells. Capturing resource handles or any other non-copyable values is also a compile-time error in v1 unless a later non-escaping closure feature explicitly defines local borrowing or move rules.
+Capturing `MUT` bindings is a compile-time error because closures do not capture live mutable cells. Capturing resource handles or any other non-copyable values is also a compile-time error in v1 unless a later non-escaping closure feature explicitly defines how a captured pointer's lifetime or move is constrained.
 
 A closure environment is owned by the function value. Dropping the function value drops its captured values in reverse capture order.
 
@@ -60,9 +60,9 @@ Because cycles are impossible and each edge has one owner, dropping a recursive 
 
 ## 14.6 Containers and aliasing
 
-`List` and `Map` own every stored element, key, and value. Inserting into a container copies or moves the inserted value into the container; it never stores a borrowed alias to an external binding. Removing from a container moves the removed value out when the API returns it, or drops it when the API discards it.
+`List` and `Map` own every stored element, key, and value. Inserting into a container copies or moves the inserted value into the container; it never stores a non-owning alias to an external binding. Removing from a container moves the removed value out when the API returns it, or drops it when the API discards it.
 
-Ordinary containers cannot store thread handles, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **borrow** of a resource — a copy of the one handle pointer (§15.6). Such a borrow is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards borrows. Containers can store functions only when the function value is copyable or movable under the closure rules above.
+Ordinary containers cannot store thread handles, and cannot store resource handles as a `Map` *key* (handles are not comparable, §4.10). A `List` element or `Map` *value*, however, may hold a **pointer** to a resource — a copy of the one handle pointer (§15.6). Such a pointer is never an owner: the resource stays owned by a scope, which closes it exactly once on exit; the collection closes nothing, and copying or dropping a collection only copies or discards pointers. Containers can store functions only when the function value is copyable or movable under the closure rules above.
 
 No two live mutable bindings may refer to the same collection buffer. A `MUT` collection buffer may be destructively updated only while it is owned by that single live `MUT` binding. Reads produce owned values, not aliases into the buffer.
 
@@ -91,7 +91,7 @@ The compiler must diagnose:
 - Capturing resource handles in ordinary closures.
 - Capturing other non-copyable values in ordinary closures.
 - Storing thread handles in ordinary collections, or using a resource handle as a `Map` key.
-- Binding a borrowed collection element of resource type with `RES` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`), or otherwise treating such a borrow as an owner.
+- Binding a non-owning collection element of resource type with `RES` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`), or otherwise treating such a pointer as an owner.
 - Any control-flow path that could drop the same resource or owned value more than once.
 
 `.mfp` packages must preserve enough ownership metadata for import-time checking and Binary Representation semantic verification (see `./mfb spec package verifier-rules`).
@@ -125,10 +125,10 @@ bindings the outer scope knows propagate; branch-local resources die with the
 branch. Because "moved on *some* fall-through path" unions into the set, a
 subsequent use is rejected exactly as a definite move would be. [[src/ir/verify/mod.rs:check_resource_moves]]
 
-A *borrow* — a resource parameter, a `FOR EACH` element binding, or a `RES`
-binding whose ownership floated into a collection — never owns the close
-obligation, so closing/returning/transferring one is rejected as
-`TYPE_RESOURCE_BORROW_INVALIDATE` rather than tracked as a move. [[src/ir/verify/mod.rs:check_resource_moves]]
+A *non-owning pointer* — a resource parameter, a `FOR EACH` element binding, or a
+`RES` binding whose ownership floated up to a collection's scope — never carries the
+close obligation, so closing/returning/transferring one is rejected as
+`TYPE_RESOURCE_INVALIDATE_NOT_OWNER` rather than tracked as a move. [[src/ir/verify/mod.rs:check_resource_moves]]
 
 ## See Also
 

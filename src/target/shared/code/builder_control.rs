@@ -57,18 +57,18 @@ impl CodeBuilder<'_> {
                         name, type_, value, ..
                     } => {
                         let stack_offset = self.allocate_stack_object(name, 8);
-                        // A non-escaping `MUT` borrow capture: the env slot holds a
+                        // A non-escaping `MUT` by-ref capture: the env slot holds a
                         // pointer to the parent binding's slot, so this binding is a
                         // *reference* local — its slot stores that pointer and reads
-                        // /writes deref through it. It is a borrow:
+                        // /writes deref through it. It is non-owning:
                         // never deep-copied and never freed here (the parent owns
                         // and frees the value).
-                        let borrows_capture_slot =
+                        let by_ref_capture_slot =
                             matches!(value, Some(NirValue::Capture { by_ref: true, .. }));
                         // A reference local must never carry a folded constant: its
                         // value lives in the parent slot and can change underneath
                         // it, so every read must deref.
-                        let constant = if borrows_capture_slot {
+                        let constant = if by_ref_capture_slot {
                             None
                         } else {
                             value
@@ -81,7 +81,7 @@ impl CodeBuilder<'_> {
                                 type_: type_.clone(),
                                 stack_offset,
                                 constant,
-                                by_ref: borrows_capture_slot,
+                                by_ref: by_ref_capture_slot,
                             },
                         );
                         // Clear any stale vector-promotion for a rebound name (e.g.
@@ -89,11 +89,11 @@ impl CodeBuilder<'_> {
                         // another); it is re-established below only if this binding
                         // promotes (plan-01-vector).
                         self.promoted_vector_locals.remove(name);
-                        // A `MATCH` variant binding (`UnionExtract`) is a borrow
+                        // A `MATCH` variant binding (`UnionExtract`) is an alias
                         // into the matched union's inlined variant block: the union
                         // owns the data and frees it as one block on its own drop,
                         // so the binding is neither deep-copied nor freed here.
-                        let borrows_union_variant =
+                        let aliases_union_variant =
                             matches!(value, Some(NirValue::UnionExtract { .. }));
                         // A thread-boundary result (`thread::receive`/`waitFor`/…)
                         // is owned by the thread runtime / worker arena, not this
@@ -101,14 +101,14 @@ impl CodeBuilder<'_> {
                         let runtime_managed =
                             value.as_ref().is_some_and(Self::value_is_runtime_managed);
                         // This binding owns a freeable flat block that scope-drop
-                        // must free (plan-02 Phase 8). A borrowed capture slot is
+                        // must free (plan-02 Phase 8). A by-ref capture slot is
                         // not owned here — the parent binding remains the freer.
                         // A small-vector binding promoted to its lanes owns no
                         // arena block (plan-01-vector), so it is neither zero-init'd
                         // nor freed at scope-drop.
                         let promote_vector = self.promotable_vector_locals.contains(name);
-                        let owns_freeable_value = !borrows_union_variant
-                            && !borrows_capture_slot
+                        let owns_freeable_value = !aliases_union_variant
+                            && !by_ref_capture_slot
                             && !runtime_managed
                             && !promote_vector
                             && self.is_freeable_flat_value(type_);
@@ -125,8 +125,8 @@ impl CodeBuilder<'_> {
                             Some(crate::escape::ResOwner::Float(_))
                         );
                         let owns_resource_slot = !Self::is_thread_type(type_)
-                            && !borrows_union_variant
-                            && !borrows_capture_slot
+                            && !aliases_union_variant
+                            && !by_ref_capture_slot
                             && !floats_to_collection
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some());
@@ -180,10 +180,10 @@ impl CodeBuilder<'_> {
                                 return Ok(());
                             }
                             // Deep-copy aliasing sources so this binding owns an
-                            // independent flat block (plan-02 Phase 8); a borrowed
-                            // variant binding or borrowed capture slot aliases its
+                            // independent flat block (plan-02 Phase 8); an aliased
+                            // variant binding or by-ref capture slot aliases its
                             // source deliberately and is stored without copying.
-                            let result = if borrows_union_variant || borrows_capture_slot {
+                            let result = if aliases_union_variant || by_ref_capture_slot {
                                 self.lower_value(value)?
                             } else {
                                 self.lower_value_owned(value)?
@@ -249,12 +249,12 @@ impl CodeBuilder<'_> {
                                     name: name.clone(),
                                     symbol: Self::thread_drop_symbol(),
                                 }));
-                        } else if borrows_union_variant || borrows_capture_slot {
-                            // Borrowed — no cleanup (the parent binding frees it).
+                        } else if aliases_union_variant || by_ref_capture_slot {
+                            // Non-owning — no cleanup (the parent binding frees it).
                         } else if let crate::escape::ResOwner::Float(collection) = &resource_owner {
                             // Ownership floated to an outer collection's scope:
                             // register the record in that owned-list. This binding
-                            // is now a borrow and registers no static cleanup.
+                            // is now an alias and registers no static cleanup.
                             let collection = collection.clone();
                             self.emit_owned_list_push(&collection, stack_offset)?;
                         } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
@@ -497,7 +497,7 @@ impl CodeBuilder<'_> {
                                 result.clone()
                             };
                             if by_ref {
-                                // A reference local (non-escaping `MUT` borrow): write
+                                // A reference local (non-escaping `MUT` by-ref capture): write
                                 // through the slot pointer so the live parent binding is
                                 // updated, not a local copy.
                                 let slot_pointer = self.allocate_register()?;
@@ -534,7 +534,7 @@ impl CodeBuilder<'_> {
                         // Replace the resource's `STATE` payload: store the new
                         // record pointer into the resource record's state slot.
                         // The resource value is itself a pointer, so the update
-                        // is visible to the owner and any borrower.
+                        // is visible to the owner and every other pointer to it.
                         let stack_offset = self
                             .locals
                             .get(resource)
@@ -1489,7 +1489,7 @@ pub(super) fn string_self_append_operands<'v>(
 /// string self-append fast path when the target reappears as (or inside) a later
 /// operand of the concat chain (`s = s & x & s`): the operands are lowered one at
 /// a time *after* earlier ones have mutated the buffer, so a later read of `name`
-/// would see the already-extended value (bug-143). A `LocalRef` borrow of the
+/// would see the already-extended value (bug-143). A `LocalRef` reference to the
 /// same slot is equally hazardous.
 pub(super) fn nir_value_reads_local(value: &NirValue, name: &str) -> bool {
     match value {

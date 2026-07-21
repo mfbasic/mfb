@@ -2226,7 +2226,7 @@ fn emit_import_pem_item(
     //
     // `CFArrayGetValueAtIndex` follows the CoreFoundation *Get* rule: the ref is
     // UNRETAINED and owned by the array. Releasing ITEMS while holding only that
-    // borrowed pointer would leave `ref_off` dangling — a use-after-free, worse
+    // non-owned pointer would leave `ref_off` dangling — a use-after-free, worse
     // than the leak. So `CFRetain` first; the caller releases the ref once
     // `SecIdentityCreate` has taken its own.
     //

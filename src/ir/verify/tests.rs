@@ -2666,8 +2666,8 @@ fn rejects_use_after_close() {
 }
 
 #[test]
-fn rejects_borrowed_resource_close() {
-    // A RES parameter is borrowed; closing it is invalid.
+fn rejects_non_owner_resource_close() {
+    // A RES parameter is a non-owning pointer; closing it is invalid.
     let body = vec![IrOp::Eval {
         value: IrValue::Call {
             target: "fs.close".to_string(),
@@ -2678,7 +2678,7 @@ fn rejects_borrowed_resource_close() {
         loc: IrSourceLoc::default(),
     }];
     let f = func_returns("run", "Nothing", vec![param("h", "File", None)], body);
-    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_BORROW_INVALIDATE");
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_INVALIDATE_NOT_OWNER");
 }
 
 // --- link functions --------------------------------------------------------
@@ -3643,7 +3643,7 @@ fn rejects_double_move_close_then_return() {
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
 }
 
-// --- resource element not owner (list literal + get borrow) ----------------
+// --- resource element not owner (list literal + get pointer) ---------------
 
 #[test]
 fn rejects_temporary_in_resource_list() {
@@ -4556,7 +4556,7 @@ fn accepts_localref_and_functionref_values() {
     accept(&project(vec![helper, f], vec![]));
 }
 
-// --- resource element borrow (RES bind of collections.get) -----------------
+// --- non-owning element (RES bind of collections.get) ----------------------
 
 fn get_call(list: &str, ret_type: &str) -> IrValue {
     IrValue::Call {
@@ -4568,7 +4568,7 @@ fn get_call(list: &str, ret_type: &str) -> IrValue {
 }
 
 #[test]
-fn rejects_res_bind_of_borrowed_element() {
+fn rejects_res_bind_of_non_owning_element() {
     // RES h = collections.get(xs, 0) where the element type is a resource.
     let body = vec![bind("h", "File", Some(get_call("xs", "File")), true, false)];
     let mut f = func_returns(
@@ -4583,7 +4583,7 @@ fn rejects_res_bind_of_borrowed_element() {
 }
 
 #[test]
-fn rejects_return_borrowed_resource_element() {
+fn rejects_return_non_owning_resource_element() {
     // RETURN collections.get(xs, 0) whose element is a resource.
     let body = vec![ret(get_call("xs", "File"))];
     let f = func_returns(
@@ -4989,8 +4989,8 @@ fn move_in_while_body_propagates() {
 }
 
 #[test]
-fn move_in_foreach_body_borrowed() {
-    // Inside FOR EACH, the element is borrowed; closing it is a borrow-invalidate,
+fn move_in_foreach_body_non_owning() {
+    // Inside FOR EACH, the element is non-owning; closing it is a not-owner error,
     // exercising the ForEach arm of check_resource_moves.
     let fe = IrOp::ForEach {
         name: "el".to_string(),
@@ -5006,7 +5006,7 @@ fn move_in_foreach_body_borrowed() {
         vec![fe],
     );
     let _ = &mut f;
-    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_BORROW_INVALIDATE");
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_INVALIDATE_NOT_OWNER");
 }
 
 #[test]

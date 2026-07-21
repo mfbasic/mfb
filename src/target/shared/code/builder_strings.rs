@@ -283,7 +283,7 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&copy_original));
         // No replacement occurred. The caller owns and frees this result, so it
-        // must be a fresh arena block, not a borrow of the input `value` (which
+        // must be a fresh arena block, not an alias of the input `value` (which
         // may be a caller local or a static constant — freeing either would
         // double-free or fault). Deep-copy the input into the arena.
         let original_ptr = self.allocate_register()?;

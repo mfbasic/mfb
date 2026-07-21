@@ -1,7 +1,7 @@
 //! Resource escape analysis (mfbasic.md §15.6).
 //!
 //! A resource is owned by a *scope*. By default that is the scope where the
-//! resource is produced. When a borrow of a `RES` binding is added to a
+//! resource is produced. When a pointer to a `RES` binding is added to a
 //! collection (a `List` element or `Map` value), ownership **floats up** to the
 //! outermost scope that references the resource — the declaring scope of the
 //! outermost collection it reaches — and, when such a collection is `RETURN`ed,
@@ -18,8 +18,8 @@
 //!
 //! The analysis is purely syntactic over the AST and depends only on which local
 //! names are `RES` bindings, so the type checker and IR lowering compute the
-//! same answer independently. It is sound because a borrowed resource cannot
-//! escape a callee (`TYPE_RESOURCE_BORROW_INVALIDATE`): a resource only ever
+//! same answer independently. It is sound because a non-owning resource pointer cannot
+//! escape a callee (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`): a resource only ever
 //! enters a collection inside the function that owns it, by direct insertion of
 //! a `RES`-binding identifier.
 
@@ -68,7 +68,7 @@ impl FunctionEscape {
 
     /// Whether the binding's ownership has floated away from its own scope (into
     /// an outer collection, or out via return). Such a binding becomes
-    /// borrow-only: it may not close, `RETURN`, or `thread::transfer`.
+    /// non-owning: it may not close, `RETURN`, or `thread::transfer`.
     #[cfg(test)]
     pub fn floats(&self, res_name: &str) -> bool {
         !matches!(self.owner(res_name), ResOwner::Local)
@@ -87,7 +87,7 @@ enum Target {
     Returned,
 }
 
-/// One "a collection value carrying resource borrows flows into `target`" fact.
+/// One "a collection value carrying resource pointers flows into `target`" fact.
 struct Routing {
     target: Target,
     /// `RES`-binding names inserted directly as elements at this site.

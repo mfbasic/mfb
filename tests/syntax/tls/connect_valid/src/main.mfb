@@ -1,7 +1,7 @@
 IMPORT tls
 IMPORT io
 
-' Borrows a session for one request/response round trip (no close: the owner
+' Takes a pointer to a session for one request/response round trip (no close: the owner
 ' closes it).
 FUNC ioRound(RES c AS TlsSocket) AS Integer
   tls::writeText(c, "GET / HTTP/1.0\r\n\r\n")

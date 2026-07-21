@@ -298,7 +298,7 @@ every site that hands a value to a longer-lived owner (a `LET`/`MUT` bind, a glo
 store, an assignment, a closure capture, a `RETURN`) deep-copies (`copy_flat_block`)
 when the source is an *aliasing source* (a `Local`, `Global`, `Capture`,
 field/`MemberAccess` read, `UnionExtract`, or `Result` payload — all of which yield a
-borrow into an existing block) or a *static* `String` constant (which lives in rodata,
+an interior pointer into an existing block) or a *static* `String` constant (which lives in rodata,
 not the arena). Record/union/collection construction, collection inserts, and `WITH`
 already byte-copy their flat payloads inline, so they introduce no new aliases.
 
@@ -326,7 +326,7 @@ plain arena blocks this scope owns: **runtime-managed thread
 results** (`thread::receive`/`waitFor`/… yield values owned by the thread plumbing
 and the worker arena, bulk-freed at teardown); and **recursive / non-flat composites**
 (kept as pointer graphs, `type_is_flat` is false). Builtins that could otherwise return
-a borrow into an argument return an owned block instead (`collections::get`/`getOr`
+an interior pointer into an argument return an owned block instead (`collections::get`/`getOr`
 materialize the element; `strings::replace`'s no-op path returns a fresh copy), so a
 call result is always safe for the caller to own and free.
 

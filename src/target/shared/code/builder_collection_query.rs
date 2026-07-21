@@ -497,7 +497,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&use_default));
         if element_type == "String" {
             // See `lower_map_get_or`: the found path materializes a fresh owned
-            // string, so the default must be copied too — returning the borrow
+            // string, so the default must be copied too — returning the alias
             // double-frees it and corrupts the arena.
             let default_ptr = self.allocate_register()?;
             self.emit(abi::load_u64(
@@ -604,9 +604,9 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&use_default));
         if value_type == "String" {
-            // Copy the borrowed default into a fresh owned string so both paths
+            // Copy the aliased default into a fresh owned string so both paths
             // return an owned `String` (found path materializes fresh); returning
-            // the borrow double-frees it and corrupts the arena. See
+            // the alias double-frees it and corrupts the arena. See
             // `emit_copy_owned_string`.
             let default_ptr = self.allocate_register()?;
             self.emit(abi::load_u64(

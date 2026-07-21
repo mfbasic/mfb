@@ -18,7 +18,7 @@ The analysis produces, per `RES` binding name, one of two owners
 | `Local` | Closed at its own producing scope. The per-scope static cleanup is already correct; no float. |
 | `Float(C)` | Ownership floats to collection binding `C`'s scope. The obligation is drained from `C`'s scope's runtime owned-list, and transferred to the caller when `C` is `RETURN`ed. |
 
-A floated binding becomes borrow-only: it may not close, `RETURN`, or
+A floated binding becomes non-owning: it may not close, `RETURN`, or
 `thread::transfer` (`floats()` reports this; absent bindings are `Local`).
 [[src/escape.rs:FunctionEscape]]
 
@@ -32,8 +32,8 @@ It is consumed by **IR lowering**, which records the result per function as
 `resource_owners` — carried into the IR (and serialized into `.mfp` packages)
 so the resource-ownership rules run on the typed IR, on both the source and
 package paths. The escape decisions are what let the IR semantic verifier
-distinguish an owner from a borrow (`RES b = a` moves; a resource parameter or
-`FOR EACH` element borrows) without re-deriving ownership.
+distinguish an owner from a non-owning pointer (`RES b = a` moves; a resource
+parameter or `FOR EACH` element is only a pointer) without re-deriving ownership.
 
 ```text
 resource_owners = <escape analysis of the function> -> owners
@@ -43,8 +43,9 @@ There is a single implementation of the analyzer; it is invoked,
 not copy-pasted. The typed-IR verifier is the sole consumer of this ownership
 logic. [[src/ir/lower.rs:lower_function]] [[src/escape.rs:analyze_function]]
 
-Soundness rests on the borrow rule (`TYPE_RESOURCE_BORROW_INVALIDATE`,
-§15.6): a borrowed resource cannot escape a callee, so a resource enters a
+Soundness rests on the ownership rule (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`,
+§15.6): only the owning scope may close, return, or transfer a resource, so a
+resource reached only through a pointer cannot escape a callee. A resource enters a
 collection only inside the function that owns it, by direct insertion of a
 `RES`-binding identifier — which is exactly what the syntactic scan detects.
 
@@ -64,7 +65,7 @@ walks the body collecting *routing facts*. [[src/escape.rs:Analyzer]]
 order is the deterministic tiebreak used by the float target selection.
 [[src/escape.rs:declare]]
 
-A **routing** is "a collection value carrying resource borrows flows into a
+A **routing** is "a collection value carrying resource pointers flows into a
 target", where target is a variable (`LET`/`MUT` bind, assignment) or `Returned`
 (`RETURN <expr>`). [[src/escape.rs:Routing]] Each routing records:
 

@@ -576,7 +576,7 @@ impl CodeBuilder<'_> {
     /// bits are not `10` (bug-312 K2).
     ///
     /// `scratch` is clobbered; callers re-materialize the 0x3F payload mask after
-    /// calling, since this borrows the same register for the 0xC0 test.
+    /// calling, since this reuses the same register for the 0xC0 test.
     fn emit_continuation_byte_check(&mut self, byte: &str, scratch: &str, invalid: &str) {
         self.emit(abi::move_immediate(scratch, "Integer", "192")); // 0xC0
         self.emit(abi::and_registers(scratch, byte, scratch));

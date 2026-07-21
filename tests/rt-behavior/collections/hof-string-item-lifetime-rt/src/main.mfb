@@ -1,6 +1,6 @@
 ' bug-307: emit_load_collection_payload's String arm arena_allocs a FRESH owned
 ' block per element (a packed String has no standalone header to point at), unlike
-' every other arm, which hands back a borrow. That block was moved into the
+' every other arm, which hands back an alias. That block was moved into the
 ' callback's argument register and then never referenced again and never freed, so
 ' forEach/transform/filter over a List OF String grew arena RSS by one block per
 ' element per pass -- unbounded across repeated iteration.

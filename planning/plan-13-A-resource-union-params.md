@@ -4,7 +4,7 @@ Last updated: 2026-07-20
 Effort: small (<1h)
 Depends on: nothing. **This is plan-13's gate — every other unit is behind it.**
 Produces: the `15_resource-management.md` amendment, and all three checkers accepting
-variant→union widening in a borrow-parameter position. Consumed by 13-C and everything
+variant→union widening in a non-owning-parameter position. Consumed by 13-C and everything
 after it.
 
 The spec forbids what `app::` needs. `15_resource-management.md:30` says, verbatim:
@@ -28,7 +28,7 @@ References (read first):
 - `src/syntaxcheck/types.rs:117` (`compatible`) — already implements variant→union
   subsumption for *bindings*; this opens the parameter position only.
 - `src/syntaxcheck/resources.rs:4` (`is_resource_type`) — resource args are
-  `ExprMode::Borrow`.
+  `ExprMode::Use`.
 - `src/syntaxcheck/builtins.rs:426` (`check_term_builtin_call`), `:864`
   (`normalize_builtin_call_arguments`) — checker 1.
 - `src/ir/verify/mod.rs:4343` (`compatible`) — checker 3.
@@ -47,7 +47,7 @@ None. This unit blocks on nothing and is the feature's entry gate.
 ## 1. Goal
 
 - A `RES` parameter may name a **resource union**; an actual of any variant widens to it.
-- Widening is **variant→union only**, in **borrow position only**, and is
+- Widening is **variant→union only**, in **non-owning position only**, and is
   **representation-neutral** — the argument lowers to the same single handle either way,
   because a resource value already carries its own kind.
 - The reverse is still rejected: a union actual into a concrete parameter is a compile
@@ -60,7 +60,7 @@ None. This unit blocks on nothing and is the feature's entry gate.
 - **No `app::` code.** This unit ships a language capability and its tests. If it needs to
   mention `app::`, the split is wrong.
 - **No change to binding, returning, or consuming a union.** `RES w AS app::Widget = …`,
-  `AS RES <Union>` returns, and union-typed locals already work; only the borrow-parameter
+  `AS RES <Union>` returns, and union-typed locals already work; only the non-owning-parameter
   position opens.
 - **No structural matching, no generic supertype.** The amendment is narrow and
   directional. The spec sentence's other two prohibitions stay.
@@ -85,7 +85,7 @@ The 2026-07-09 draft established this and corrected an earlier draft that had ca
 
 | # | Where | Change |
 |---|---|---|
-| 1 | `src/syntaxcheck/builtins.rs` | generalize `param_types` from one flat list to a **per-overload table**; select the overload whose params are all `expression_compatible()` with the actuals. Note `term::` infers args in `ExprMode::Read`; a resource param must use `ExprMode::Borrow` |
+| 1 | `src/syntaxcheck/builtins.rs` | generalize `param_types` from one flat list to a **per-overload table**; select the overload whose params are all `expression_compatible()` with the actuals. Note `term::` infers args in `ExprMode::Read`; a resource param must use `ExprMode::Use` |
 | 2 | the package's `resolve_call` | called from `src/ir/lower.rs` with **no access to the type registry**; every package does context-free `exact()` string matching (`src/builtins/net.rs`). It cannot know `app.Button` is a variant of `app.Widget`. Fix: a package-local static variant table + a `widget_or(name)` predicate, with a `#[test]` pinning it against the registered union |
 | 3 | `src/ir/verify/mod.rs:4343` | per plan-20 the sole rejecter on both paths; its own `compatible()` must accept the same widening |
 
@@ -100,7 +100,7 @@ sub-plan is testable against a *user-declared* union with no GUI code anywhere.
 | The spec forbids resource-union parameters | **CONFIRMED** | `15_resource-management.md:30`, verbatim |
 | `compatible()` already does variant→union subsumption for bindings | **CONFIRMED** | `syntaxcheck/types.rs:117` |
 | No existing test covers the parameter position | **CONFIRMED** | `resource-union-valid` is a binding initializer (`RES s AS Stream = fs::createTempFile()`) |
-| Resource args are already borrow-mode | **CONFIRMED** | `is_resource_type` ⇒ `ExprMode::Borrow`, `syntaxcheck/resources.rs:4`. The only consuming modes are a close op's first arg and `thread::transfer` |
+| Resource args are already use-mode | **CONFIRMED** | `is_resource_type` ⇒ `ExprMode::Use`, `syntaxcheck/resources.rs:4`. The only consuming modes are a close op's first arg and `thread::transfer` |
 | Widening is representation-neutral | **CONFIRMED by construction** | a bound union carries a tag written from the statically-known initializer type; a *parameter* has no such site, and the handle already carries its kind — so no tagged temporary is materialized |
 | Directionality holds without a blocklist | **UNVERIFIED — this is the acceptance criterion** | proven by the `-invalid` fixture, not by reasoning |
 
@@ -137,7 +137,7 @@ language changed rather than a consumer of a change that stands on its own.
 ## Compatibility / Format Impact
 
 - **Changed:** `15_resource-management.md` gains the amendment; three checkers accept
-  variant→union widening in borrow-parameter position.
+  variant→union widening in non-owning-parameter position.
 - **Unchanged:** every existing program's behavior (this only *accepts* more); binding,
   returning and consuming a union; close ops, `thread::transfer`/`accept`; the emitted
   representation of any resource argument.
@@ -152,7 +152,7 @@ language changed rather than a consumer of a change that stands on its own.
 Land the specified rule before the code, so the code has something to be checked against.
 
 - [ ] Amend `src/docs/spec/language/15_resource-management.md:30`: a `RES` parameter may
-      name a resource union; widening is variant→union only, borrow-position only, and
+      name a resource union; widening is variant→union only, non-owning-position only, and
       representation-neutral. State explicitly that the reverse stays rejected and that
       close ops / `thread::transfer` / `thread::accept` are therefore unaffected.
 
@@ -163,7 +163,7 @@ Commit: —
 ### Phase 2 — the three checkers
 
 - [ ] Checker 1 (`src/syntaxcheck/builtins.rs`): per-overload `param_types` table,
-      selected by `expression_compatible()`, with `ExprMode::Borrow` for resource args.
+      selected by `expression_compatible()`, with `ExprMode::Use` for resource args.
 - [ ] Checker 2: the generic variant-predicate mechanism a package's `resolve_call` uses
       (the `app::` table itself lands in 13-C).
 - [ ] Checker 3 (`src/ir/verify/mod.rs:4343`): the same widening in its `compatible()`.

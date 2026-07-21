@@ -364,7 +364,7 @@ Scheme*).
 | `2-203-0053` | `TYPE_MAP_VALUE_MISMATCH` | error | map value type does not match the declared value type |
 | `2-203-0055` | `TYPE_USE_AFTER_MOVE` | error | binding is used after move |
 | `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | ordinary collections cannot store resource or thread ownership |
-| `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | a borrowed collection element of resource type is not an owner |
+| `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | a collection element of resource type is a pointer, not an owner |
 | `2-203-0101` | `TYPE_OVERLOAD_AMBIGUOUS` | error | return-type overload cannot be resolved without an expected type |
 | `2-203-0102` | `TYPE_INSTANTIATION_TOO_DEEP` | error | template instantiation is too deep |
 | `2-203-0058` | `TYPE_DUPLICATE_ARGUMENT_NAME` | error | call argument is supplied more than once |
@@ -421,7 +421,7 @@ Scheme*).
 | `2-203-0083` | `TYPE_RES_REQUIRES_RESOURCE` | error | RES binds only resource types |
 | `2-203-0084` | `TYPE_RESOURCE_FIELD_FORBIDDEN` | error | a record field cannot be a resource |
 | `2-203-0085` | `TYPE_STATE_INVALID` | error | STATE must be a copyable, defaultable data type |
-| `2-203-0086` | `TYPE_RESOURCE_BORROW_INVALIDATE` | error | a borrowed resource cannot be closed, returned, or transferred |
+| `2-203-0086` | `TYPE_RESOURCE_INVALIDATE_NOT_OWNER` | error | only the owning scope may close, return, or transfer a resource |
 | `2-203-0087` | `TYPE_MIXED_RESOURCE_UNION` | error | a union must be all-data or all-resource, never mixed |
 | `2-203-0088` | `TYPE_UNION_STATE_FORBIDDEN` | error | a resource union carries no STATE |
 | `2-203-0129` | `TYPE_STATE_MISMATCH` | error | a resource's STATE type is fixed at its owning binding and every other declaration of it must agree |

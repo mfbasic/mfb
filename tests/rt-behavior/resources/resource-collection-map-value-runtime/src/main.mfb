@@ -2,7 +2,7 @@ IMPORT collections
 IMPORT fs
 IMPORT io
 
-' A Map value may hold a borrow of a resource; collections::get() yields a borrow used
+' A Map value may hold a pointer to a resource; collections::get() yields that pointer, used
 ' inline (§15.6). The owner RES binding closes it once at scope exit.
 FUNC main AS Integer
   RES f AS File = fs::openFile("tests/rt-behavior/resources/resource-collection-map-value-runtime/src/main.mfb")

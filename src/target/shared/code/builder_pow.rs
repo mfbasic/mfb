@@ -626,7 +626,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&seg_done));
 
         // ax = set_hi(ax, j + 0x3ff00000)  (ADD, not OR, so the third-segment
-        // `j -= 0x100000` borrows into the exponent field correctly; for the other
+        // `j -= 0x100000` carries into the exponent field correctly; for the other
         // segments j <= 0xfffff so add == or).
         self.emit(abi::move_immediate(xm, "Integer", "1072693248")); // 0x3ff00000
         self.emit(abi::add_registers(xm, xt, xm)); // new hi word

@@ -10,19 +10,19 @@ FUNC readFirstLine(path AS String) AS String
 END FUNC
 ```
 
-A resource is closed exactly once. **Ordinary calls borrow.** Passing a `RES` binding to an ordinary function creates an exclusive, call-scoped borrow: the callee may use the handle and mutate its `STATE`, but does not take ownership, and the caller's binding stays live after the call. A `RES` binding is invalidated **only** by this fixed set of events, all visible at the call site:
+A resource is closed exactly once. **Ordinary calls do not move ownership.** There is one resource; a `RES` is a pointer to it. Passing a `RES` binding to an ordinary function hands the callee that same pointer to that same one resource: the callee may use the handle and mutate its `STATE`, but the owning scope is unchanged, and the caller's binding stays live after the call. A `RES` binding is invalidated **only** by this fixed set of events, all visible at the call site:
 
 1. the resource's **registered close op** (e.g. `fs::close(f)`) and its re-export aliases;
 2. **`thread::transfer`** of the resource (§16);
 3. **`RETURN`** of the resource (move out to the caller);
 4. **scope-drop** at the end of the binding's lexical scope (auto-close).
 
-A borrow grants *use* but never the right to *invalidate*: a callee that only borrowed a resource cannot close it, `RETURN` it, or `thread::transfer` it (`TYPE_RESOURCE_BORROW_INVALIDATE`) — those require ownership. There is no per-function borrow/consume inference and no `BORROW`/`MOVE` annotations: a call either is one of the four events or it borrows. A resource handle cannot be printed, compared, serialized, or captured by a lambda or ordinary closure. Its pointer may be copied only as a **borrow** into a `List` element or `Map` value (§15.6) — never duplicating the resource, and never as a `Map` key. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
+Holding the pointer grants *use* but never the right to *invalidate*: a callee that was not given ownership cannot close the resource, `RETURN` it, or `thread::transfer` it (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`) — those belong to the owning scope. There is no per-function ownership inference and no `MOVE` annotation: a call either is one of the four events or it leaves ownership where it was. A resource handle cannot be printed, compared, serialized, or captured by a lambda or ordinary closure. Its pointer may be copied into a `List` element or `Map` value (§15.6) — never duplicating the resource, and never as a `Map` key. A concrete resource handle may be sent to a thread only when that resource type is thread-sendable.
 
 ```basic
 RES f AS File = fs::open("app.db", "read")
-exec(f, "...")        ' borrow — f still live
-exec(f, "...")        ' borrow — f still live
+exec(f, "...")        ' pointer passed — f still live
+exec(f, "...")        ' pointer passed — f still live
 fs::close(f)          ' registered close → f invalidated
 ' exec(f, "...")      ' COMPILE ERROR: f used after close
 ```
@@ -61,7 +61,7 @@ A resource *type* carries no `STATE`: a `RESOURCE` declaration is `RESOURCE SfFi
 
 Bare therefore reads two ways: **"opaque"** at a parameter, and **"none"** at a return or a binding. The rule behind the asymmetry is **escape**, not ownership words:
 
-> A `RES` is an **alias** to one live resource — never a copy. Bare erases `STATE` only where that alias **cannot escape** the frame it appears in. A **parameter** is a non-owning alias confined to the callee's frame (it cannot close, `RETURN`, or transfer the resource — `TYPE_RESOURCE_BORROW_INVALIDATE`, §15), so the owner keeps the resource under its real STATE type and nothing is ever re-read as a different type; erasing STATE there ("opaque") is therefore unobservable. A **return** and a **binding** hand the resource to a new owner that re-declares its type — the resource **escapes to a re-typer** — so bare there must mean *provably no state*, or a stateful payload would be silently re-typed.
+> A `RES` is an **alias** to one live resource — never a copy. Bare erases `STATE` only where that alias **cannot escape** the frame it appears in. A **parameter** is a non-owning alias confined to the callee's frame (it cannot close, `RETURN`, or transfer the resource — `TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, §15), so the owner keeps the resource under its real STATE type and nothing is ever re-read as a different type; erasing STATE there ("opaque") is therefore unobservable. A **return** and a **binding** hand the resource to a new owner that re-declares its type — the resource **escapes to a re-typer** — so bare there must mean *provably no state*, or a stateful payload would be silently re-typed.
 
 So "bare accepts any state" is exactly and only the **non-escaping alias** case (a parameter). Every position where the resource escapes to a context that re-declares its type — a return, a binding, and a `thread::transfer` across the thread boundary (the plane names the STATE; `TYPE_STATE_MISMATCH` on disagreement, §16) — instead requires the STATE to be named in the contract, because the escape is a *move to a re-typer*, not an in-frame alias. See `./mfb spec architecture escape-analysis`.
 
@@ -88,7 +88,7 @@ The caller's binding **adopts** the carried state rather than re-initializing it
 
 The `STATE` rides an exported signature, so this works across a package boundary exactly as it does in-package.
 
-See `./mfb spec architecture escape-analysis` for the borrow/escape decision procedure this rule rests on.
+See `./mfb spec architecture escape-analysis` for the ownership/escape decision procedure this rule rests on.
 
 **Resource unions.** A union whose every variant is a resource type is itself a resource — a *resource union* — and is `RES`-bound like any other resource:
 
@@ -108,7 +108,7 @@ END MATCH
 ' scope end → drop closes the active variant via its registered close op
 ```
 
-A resource union owns exactly one resource at a time (the active variant), so it is atomic — a *choice* among resources, not a bundle. **Drop is tag-dispatched**: cleanup reads the union tag and calls the active variant's registered close op. Matching a resource union *borrows* the active variant (the union retains ownership and closes it on drop). A union may **not mix** data and resource variants (`TYPE_MIXED_RESOURCE_UNION`), and a resource union carries no `STATE`.
+A resource union owns exactly one resource at a time (the active variant), so it is atomic — a *choice* among resources, not a bundle. **Drop is tag-dispatched**: cleanup reads the union tag and calls the active variant's registered close op. Matching a resource union yields a pointer to the active variant (the union retains ownership and closes it on drop). A union may **not mix** data and resource variants (`TYPE_MIXED_RESOURCE_UNION`), and a resource union carries no `STATE`.
 
 To release a resource earlier than the end of its scope, or to observe a close failure, call the resource's explicit close operation (such as `fs::close(f)`). That operation consumes the handle and auto-propagates a close failure like any other call, so the close failure is directly observable. After an explicit close the binding is moved and is not closed again by lexical drop.
 
@@ -126,25 +126,25 @@ Compiled cleanup metadata must preserve enough information for runtime and audit
 
 ## 15.6 Resources in collections
 
-A resource is owned by a **scope** — never by a binding or a collection. A `RES` binding, a borrowed `RES` parameter, and a collection slot (a `List` element or `Map` value) all hold a **borrow**: a copy of the one handle pointer. Copying the pointer is a borrow, never a duplication of the resource, and a collection slot is a borrow, not a resource binding. None of these close the resource; the owning scope closes it exactly once on exit, on every path.
+A resource is owned by a **scope** — never by a binding or a collection. A `RES` binding, a `RES` parameter, and a collection slot (a `List` element or `Map` value) all hold **a copy of the one handle pointer**. Copying the pointer never duplicates the resource, and a collection slot is a pointer, not a resource binding. None of these close the resource; the owning scope closes it exactly once on exit, on every path.
 
-A resource appearing as a collection element carries the **`RES` ownership-axis marker**, exactly as a binding (`RES f`), a parameter (`RES f AS File`), or a return (`AS RES File`) does. The only spelling for a list of files is `List OF RES File` (and `Map OF String TO RES File` for a map value); a bare `List OF File` is rejected just like `LET f AS File` (`TYPE_RESOURCE_REQUIRES_RES`), and `RES` on a non-resource element is rejected like `RES x AS Integer` (`TYPE_RES_REQUIRES_RESOURCE`). The marker is an ownership annotation only — the collection is still an ordinary copyable collection of borrows and owns nothing.
+A resource appearing as a collection element carries the **`RES` ownership-axis marker**, exactly as a binding (`RES f`), a parameter (`RES f AS File`), or a return (`AS RES File`) does. The only spelling for a list of files is `List OF RES File` (and `Map OF String TO RES File` for a map value); a bare `List OF File` is rejected just like `LET f AS File` (`TYPE_RESOURCE_REQUIRES_RES`), and `RES` on a non-resource element is rejected like `RES x AS Integer` (`TYPE_RES_REQUIRES_RESOURCE`). The marker is an ownership annotation only — the collection is still an ordinary copyable collection of pointers and owns nothing.
 
 By default the owning scope is the scope where the resource is produced. The single rule that governs collections is **ownership floats up**:
 
-> Adding a borrow of a resource to a collection migrates the resource's owning scope up to the collection's scope when that scope outlives the current owner. Ownership always floats to the **outermost** scope that references the resource; it never moves down. If a referencing collection escapes the function (it is `RETURN`ed), ownership moves out to the caller, exactly like `RETURN`ing the resource itself.
+> Adding a pointer to a resource to a collection migrates the resource's owning scope up to the collection's scope when that scope outlives the current owner. Ownership always floats to the **outermost** scope that references the resource; it never moves down. If a referencing collection escapes the function (it is `RETURN`ed), ownership moves out to the caller, exactly like `RETURN`ing the resource itself.
 
 Consequences:
 
-- A borrow added to a **higher-scope** collection raises the owning scope to that collection's scope; the resource closes once when that outer scope exits, and every borrow (the original binding and the collection elements) is within that scope, so none dangles.
-- A borrow added to a **same- or lower-scope** collection leaves ownership unchanged; the collection just holds a borrow.
-- A binding whose ownership has floated to an outer scope becomes a plain **borrow**: still usable, but it no longer closes at its own scope exit and may not close, `RETURN`, or `thread::transfer` the resource (`TYPE_RESOURCE_BORROW_INVALIDATE`).
+- A pointer added to a **higher-scope** collection raises the owning scope to that collection's scope; the resource closes once when that outer scope exits, and every pointer (the original binding and the collection elements) is within that scope, so none dangles.
+- A pointer added to a **same- or lower-scope** collection leaves ownership unchanged; the collection just holds a pointer.
+- A binding whose ownership has floated to an outer scope becomes a plain **pointer**: still usable, but it no longer closes at its own scope exit and may not close, `RETURN`, or `thread::transfer` the resource (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`).
 
-Because all references are within the owning scope, `get` and `FOR EACH` of a resource element yield a **borrow**, statically safe with no runtime dependence on the closed flag (the flag is only a backstop that keeps the single close idempotent when a handle is reachable by more than one path). Such a borrow is not an owner: binding it with `RES`, or closing/returning/transferring it, is an error (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`). Collections of resources are ordinary copyable collections of pointers — no move-only or linearity — and the helpers that require a comparable element (`find`, `contains`, `replace`) remain unavailable because handles are not comparable, the same reason resources cannot be `Map` keys.
+Because all references are within the owning scope, `get` and `FOR EACH` of a resource element yield a **pointer**, statically safe with no runtime dependence on the closed flag (the flag is only a backstop that keeps the single close idempotent when a handle is reachable by more than one path). Such a pointer is not an owner: binding it with `RES`, or closing/returning/transferring it, is an error (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`). Collections of resources are ordinary copyable collections of pointers — no move-only or linearity — and the helpers that require a comparable element (`find`, `contains`, `replace`) remain unavailable because handles are not comparable, the same reason resources cannot be `Map` keys.
 
-A resource element placed into a collection must be a named `RES` binding (the owner); a temporary or a borrowed element is not an owner and cannot be stored (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`). [[src/rules/table.rs:TYPE_RESOURCE_ELEMENT_NOT_OWNER]]
+A resource element placed into a collection must be a named `RES` binding (the owner); a temporary or a non-owning element is not an owner and cannot be stored (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`). [[src/rules/table.rs:TYPE_RESOURCE_ELEMENT_NOT_OWNER]]
 
-**Returning a resource collection transfers scope-ownership to the caller**, exactly as `AS RES File` does for a single resource. A function returning `AS List OF RES File` releases the close obligations for the referenced resources — it does not close them — and the caller's binding scope **adopts** them, closing each once at its own exit. (A bare `List OF File` return is rejected for the missing `RES` marker.) On an error exit *before* the return, the resources are still closed by the function's scope, because they ride its owned-list until the `RETURN` transfers it. A resource collection may also be passed to a function, where the callee borrows its elements (and may not close them). The resources must be added to the collection at or after the collection's own binding so the obligation rides the collection; violating this is rejected (`TYPE_RESOURCE_RETURN_ORDER`) rather than compiled. [[src/rules/table.rs:TYPE_RESOURCE_RETURN_ORDER]] Before bug-291 it was not enforced, and a collection declared after its resource silently produced a returned handle that the function had already closed and the caller then closed again. Sharing a resource collection across threads remains out of scope.
+**Returning a resource collection transfers scope-ownership to the caller**, exactly as `AS RES File` does for a single resource. A function returning `AS List OF RES File` releases the close obligations for the referenced resources — it does not close them — and the caller's binding scope **adopts** them, closing each once at its own exit. (A bare `List OF File` return is rejected for the missing `RES` marker.) On an error exit *before* the return, the resources are still closed by the function's scope, because they ride its owned-list until the `RETURN` transfers it. A resource collection may also be passed to a function, where the callee receives pointers to its elements (and may not close them). The resources must be added to the collection at or after the collection's own binding so the obligation rides the collection; violating this is rejected (`TYPE_RESOURCE_RETURN_ORDER`) rather than compiled. [[src/rules/table.rs:TYPE_RESOURCE_RETURN_ORDER]] Before bug-291 it was not enforced, and a collection declared after its resource silently produced a returned handle that the function had already closed and the caller then closed again. Sharing a resource collection across threads remains out of scope.
 
 The float rules above are the source-level contract. The compiler implements them with a purely syntactic per-function **decision procedure** — which collection a binding floats to (outermost referencing scope, the special case that a returned collection declared before the resource forces a float at the same depth, fixpoint propagation along collection copy/append/nesting edges, the insertion-builtin set, and the declaration-order tiebreak) — that is specified in full by `./mfb spec architecture escape-analysis`. Programs depend only on the contract here, not on the procedure's mechanics.
 

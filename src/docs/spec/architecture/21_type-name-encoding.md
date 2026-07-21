@@ -97,7 +97,7 @@ flat string; only built-in package types are stripped to bare ids.
 
 A leading `RES ` on a collection element or value marks a **resource-transfer
 collection** ([language resource-management](./mfb spec language
-resource-management), §15.6): the element/value is a resource borrow whose
+resource-management), §15.6): the element/value is a pointer to a resource whose
 scope-ownership transfers across a function boundary.
 
 | Position | Canonical form | Notes |

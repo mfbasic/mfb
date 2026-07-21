@@ -187,7 +187,7 @@ pub(super) fn run(
     let evict_base = spill_base_offset + spill_slot_count * slot_bytes;
     let mut max_evictions = 0usize;
     let spilled_set: std::collections::HashSet<u32> = spilled.iter().copied().collect();
-    // Callee-saved registers borrowed by the *genuinely-free* scratch branch
+    // Callee-saved registers commandeered by the *genuinely-free* scratch branch
     // below. Unlike a colored home (recorded from `assignment` later) or an
     // eviction victim (save/restored around its single use), a genuinely-free
     // callee-saved scratch is written by this function and never bracketed, so
@@ -226,7 +226,7 @@ pub(super) fn run(
                 }
             }
         }
-        // (victim physical, evict-slot index) for registers borrowed by eviction.
+        // (victim physical, evict-slot index) for registers commandeered by eviction.
         let mut evictions: Vec<(String, usize)> = Vec::new();
         if !used_spilled.is_empty() || !def_spilled.is_empty() {
             // `occupied` holds a live value (no free scratch there); `reserved`
@@ -257,7 +257,7 @@ pub(super) fn run(
                     }
                     scratch_for.insert(v, name.to_string());
                 } else {
-                    // Every register is live, so borrow one that this instruction
+                    // Every register is live, so commandeer one that this instruction
                     // does not itself use, saving and restoring it around the use.
                     // One exists whenever the pool is at least as large as the
                     // instruction's distinct register-operand count. If it is not
@@ -318,7 +318,7 @@ pub(super) fn run(
             extra_callee_saved.push(phys.clone());
         }
     }
-    // Callee-saved registers borrowed only as genuinely-free reload scratch are
+    // Callee-saved registers commandeered only as genuinely-free reload scratch are
     // never colored homes, so they are absent from `assignment` — merge them in
     // so `finalize_frame` saves/restores them too (bug-54). The same generic
     // `run` colors both the Int and Fp classes, so this covers `x20`–`x28` and

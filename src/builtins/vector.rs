@@ -321,7 +321,7 @@ pub(crate) fn constant_type_name(name: &str) -> Option<&'static str> {
     let member = name.strip_prefix("vector.")?;
     let (_, type_name) = parse_constant(member)?;
     vector_shape(&type_name)?; // confirm it is a real vector type
-                               // Re-borrow as the &'static type id.
+                               // Re-derive the &'static type id.
     match type_name.as_str() {
         FLOAT2_TYPE => Some(FLOAT2_TYPE),
         FLOAT3_TYPE => Some(FLOAT3_TYPE),

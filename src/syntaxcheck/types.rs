@@ -370,7 +370,7 @@ impl<'a> SyntaxChecker<'a> {
     /// resource's *registered close op* consumes its single resource argument
     /// (overhaul invalidation event #1) — for native LINK resources this is the
     /// `LINK` CLOSE wrapper (plan-link-update.md §6). All other resource arguments
-    /// borrow by default.
+    /// do not move ownership by default.
     pub(super) fn call_argument_mode(
         &self,
         callee: &str,
@@ -398,11 +398,11 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn argument_mode_for_type(&self, expected: &Option<&Type>) -> ExprMode {
         match expected {
-            // Resources borrow by default: an ordinary call uses the handle for
+            // An ordinary call does not move a resource's ownership: it uses the handle for
             // the duration of the call but does not take ownership. Only the
             // fixed invalidation events (a registered close op, `thread::transfer`,
             // `RETURN`, and scope-drop) end a resource's life.
-            Some(type_) if self.is_resource_type(type_) => ExprMode::Borrow,
+            Some(type_) if self.is_resource_type(type_) => ExprMode::Use,
             Some(type_) if !self.is_copyable_type(type_) => ExprMode::Transfer,
             _ => ExprMode::Read,
         }
@@ -413,8 +413,8 @@ impl<'a> SyntaxChecker<'a> {
             // `thread.transfer` is resource-plane invalidation event #2: the
             // resource moves to the worker, so the sender binding is consumed.
             ("thread.start", 1) | ("thread.send", 1) | ("thread.transfer", 1) => ExprMode::Transfer,
-            ("thread.start", _) | ("thread.send", _) | ("thread.transfer", _) => ExprMode::Borrow,
-            _ => ExprMode::Borrow,
+            ("thread.start", _) | ("thread.send", _) | ("thread.transfer", _) => ExprMode::Use,
+            _ => ExprMode::Use,
         }
     }
 

@@ -663,7 +663,7 @@ pub(crate) const FS_MODE_REGULAR: &str = "32768";
 pub(crate) const FILE_OFFSET_FD: usize = 0;
 pub(crate) const FILE_OFFSET_CLOSED: usize = 8;
 /// Offset of the optional `STATE` payload pointer in a resource record. A
-/// resource value is a pointer to its arena record, so a borrow shares the same
+/// resource value is a pointer to its arena record, so every copy of the pointer shares the same
 /// record and therefore the same `STATE`. The slot is null until the owning
 /// `RES` binding default-initializes it.
 pub(crate) const FILE_OFFSET_STATE: usize = 16;

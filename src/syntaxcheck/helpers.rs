@@ -195,7 +195,7 @@ pub(super) fn strip_res(type_: &Type) -> &Type {
 }
 
 /// Whether an expression reads a single element out of a collection (`get` /
-/// `getOr`). Of resource type, the result is a borrow that may not be `RES`-bound
+/// `getOr`). Of resource type, the result is a non-owning pointer that may not be `RES`-bound
 /// (§15.6).
 /// Whether `type_name` is a raw C ABI type that may appear only inside an
 /// `ABI (...)` slot, never in a wrapper's MFBASIC-facing signature
@@ -833,12 +833,12 @@ END FUNC
         assert!(accepts(src), "{:?}", check_src(src));
     }
 
-    // ----- is_resource_element_borrow (get/getOr of a resource element) -----
+    // ----- is_resource_element_pointer (get/getOr of a resource element) -----
 
     #[test]
     fn res_binding_from_get_is_walked() {
         // Binds a RES from a `get` on a resource collection — drives
-        // is_resource_element_borrow's Call/native_member_bare branch.
+        // is_resource_element_pointer's Call/native_member_bare branch.
         let src = "\
 IMPORT collections
 IMPORT fs

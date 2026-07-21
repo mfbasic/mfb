@@ -903,12 +903,12 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         // No step rounds, so the just-below-half family can never be nudged onto a
         // tie. `2f` is exact (a doubling, and |2f| < 2), and at a genuine tie
         // |2f| is exactly 1, which is what carries the away-from-zero step.
-        // xmm15 is the FP scratch (bug-17); one GPR is borrowed across the
+        // xmm15 is the FP scratch (bug-17); one GPR is commandeered across the
         // sequence and restored, chosen to differ from `dst`.
         "fcvtas_x_from_d" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
-            // A borrowed GPR holds `d` for the final subtract. rax and rcx are
+            // A commandeered GPR holds `d` for the final subtract. rax and rcx are
             // both non-allocatable (bug-284 pins that), so either is safe to
             // clobber under a push/pop; pick whichever is not `dst`.
             let scratch = if dst == 0 { 1 } else { 0 };

@@ -165,7 +165,7 @@ serialize inline (the `to_json` indent argument is ignored for values).
 | `localRef` | `LocalRef` | `name`, `type` |
 | `functionRef` | `FunctionRef` | `name`, `type` |
 | `closure` | `Closure` | `name`, `type`, `captures` (value array) |
-| `capture` | `Capture` | `index`, `type`, and `byRef: true` **only** when slot-borrowed |
+| `capture` | `Capture` | `index`, `type`, and `byRef: true` **only** when captured by slot reference |
 | `call` | `Call` | `target`, `args` (value array) |
 | `callResult` | `CallResult` | `target`, `args` |
 | `constructor` | `Constructor` | `type`, `args` |
@@ -188,7 +188,7 @@ Record-update node (used by `with`):[[src/ir/types.rs:IrRecordUpdate]]
 ```
 
 `capture` is the one variant whose key set varies: by-value captures omit
-`byRef`, slot-borrow captures emit `"byRef": true`.[[src/ir/value.rs:IrValue]]
+`byRef`, slot-reference captures emit `"byRef": true`.[[src/ir/value.rs:IrValue]]
 
 ## Notes
 

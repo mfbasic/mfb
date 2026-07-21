@@ -148,7 +148,7 @@ impl CodeBuilder<'_> {
                     self.emit(abi::load_u64(rcur, abi::stack_pointer(), right_slot));
                     if inline_string_field[index] {
                         // The slot is a block-relative offset; recover the String
-                        // borrow pointer (record base + offset) before comparing.
+                        // alias pointer (record base + offset) before comparing.
                         self.emit(abi::load_u64(tmp, lcur, index * 8));
                         self.emit(abi::add_registers(lcur, lcur, tmp));
                         self.emit(abi::load_u64(tmp, rcur, index * 8));
