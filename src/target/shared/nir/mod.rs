@@ -35,6 +35,15 @@ pub(crate) struct NirModule {
     /// `CSTRUCT` declarations backing struct ABI slots (plan-50-E). The thunk
     /// needs each one's field ctypes to recompute its layout.
     pub(crate) link_cstructs: Vec<crate::ir::IrCStruct>,
+    /// plan-59-B: native `RESOURCE … CLOSE BY op` declarations, carried verbatim
+    /// from the IR so codegen can tell which `LINK` function is a resource's
+    /// registered close op — the one that must set `RESOURCE_CLOSED_BIT`.
+    ///
+    /// The IR verifier resolves this through `close_op_for`, but that table lives
+    /// at the IR layer and never reached the backend; without it a thunk cannot
+    /// know it is a close op, and the closed flag would be read by the guard and
+    /// never written by anything.
+    pub(crate) native_resources: Vec<crate::ir::IrNativeResource>,
     /// The project's **own** native library locators (plan-46-C), for a project
     /// that declares its own `LINK` block. An imported binding's locators are read
     /// from that binding's `.mfp` section 10 at codegen instead. Carried verbatim

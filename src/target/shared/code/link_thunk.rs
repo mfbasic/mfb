@@ -142,6 +142,7 @@ pub(super) fn emit_link_support(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     libraries: &LinkLibraries,
+    native_resources: &[crate::ir::IrNativeResource],
 ) -> Result<LinkSupport, String> {
     let LinkCodegenOptions {
         globals_base,
@@ -238,6 +239,14 @@ pub(super) fn emit_link_support(
         }
     }
 
+    // plan-59-B: the `LINK` functions that are some resource's registered
+    // `CLOSE BY` op, by dotted `alias.func` — the set that must set
+    // `RESOURCE_CLOSED_BIT` on the record it was handed.
+    let close_ops: HashSet<String> = native_resources
+        .iter()
+        .map(|r| r.close_function.clone())
+        .collect();
+
     let initializer = lower_link_initializer(
         link_functions,
         &library_index,
@@ -261,6 +270,7 @@ pub(super) fn emit_link_support(
                 max_buffer_bytes,
             },
             &record_native_resources,
+            close_ops.contains(&format!("{}.{}", function.alias, function.name)),
         )?);
     }
 
@@ -418,6 +428,7 @@ fn lower_link_thunk(
     record_fields: &HashMap<String, Vec<(String, String)>>,
     ctx: ThunkContext,
     record_native_resources: &HashSet<String>,
+    is_close_op: bool,
 ) -> Result<CodeFunction, String> {
     let ThunkContext {
         index,
@@ -995,6 +1006,30 @@ fn lower_link_thunk(
         abi::branch_link_register("%v16"),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CRET_OFF),
     ]);
+
+    // plan-59-B: a registered `CLOSE BY` op sets `RESOURCE_CLOSED_BIT` here —
+    // after the native call has returned, and BEFORE branching on its status.
+    //
+    // The ordering is bug-63's rule, mirrored from `fs_helpers_io.rs:1413-1420`:
+    // a close that FAILS has still released the underlying handle, so leaving the
+    // flag at 0 would let a later call sail past the guard and hand the C library
+    // a dead pointer — or, for an fd-like handle, one the OS has since recycled.
+    // The flag records "this handle was released", not "the release succeeded".
+    //
+    // Set unconditionally rather than OR-ed with the moved bit: a resource that
+    // was transferred away is already refused by the guard above, so control never
+    // reaches here for one.
+    if is_close_op {
+        for pidx in &resource_guard_params {
+            instructions.extend([
+                abi::load_u64("%v9", abi::stack_pointer(), param_base + pidx * 8),
+                abi::load_u64("%v10", "%v9", FILE_OFFSET_CLOSED),
+                abi::move_immediate("%v11", "Integer", &(1u64 << RESOURCE_CLOSED_BIT).to_string()),
+                abi::or_registers("%v10", "%v10", "%v11"),
+                abi::store_u64("%v10", "%v9", FILE_OFFSET_CLOSED),
+            ]);
+        }
+    }
     if needs_float {
         // A `double` return arrives in `d0`, not `x0`; stash its bits.
         instructions.extend([
@@ -2452,6 +2487,7 @@ mod tests {
                 &HashMap::new(),
                 TEST_THUNK_CONTEXT,
                 &HashSet::new(),
+                false,
             )
         };
 
@@ -2563,6 +2599,7 @@ mod tests {
                 &HashMap::new(),
                 TEST_THUNK_CONTEXT,
                 &HashSet::new(),
+                false,
             );
             assert!(
                 lowered.is_ok(),
@@ -2606,6 +2643,7 @@ mod tests {
                 &HashMap::new(),
                 TEST_THUNK_CONTEXT,
                 &HashSet::new(),
+                false,
             );
             assert!(
                 lowered.is_ok(),
@@ -2654,6 +2692,7 @@ mod tests {
                 &HashMap::new(),
                 TEST_THUNK_CONTEXT,
                 &HashSet::new(),
+                false,
             );
             assert!(
                 lowered.is_ok(),

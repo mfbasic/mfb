@@ -28,6 +28,7 @@ pub(crate) fn lower_module(
         functions: lower_functions(ir),
         link_functions: ir.link_functions.clone(),
         link_cstructs: ir.link_cstructs.clone(),
+        native_resources: ir.native_resources.clone(),
         native_libraries: ir.native_libraries.clone(),
         max_buffer_bytes: ir.max_buffer_bytes,
     })

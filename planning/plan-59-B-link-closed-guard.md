@@ -159,34 +159,75 @@ property). Phase 1 resolves it on one function before Phase 2 generalizes.
       record-resource param rather than for `finalize` alone; see C4 for why
       restricting it would have been throwaway code, and what was done instead to
       keep the risk-reduction the phase intended.
-- [ ] Write a fixture that closes a `Stmt` then calls `finalize` again, and
+- [~] Write a fixture that closes a `Stmt` then calls `finalize` again, and
       assert it returns `ErrResourceClosed` rather than calling `sqlite3_finalize`
       twice. Because the static rule still rejects a double close in source, the
       fixture must reach it via a path the static rule permits — if none exists,
       say so in Corrections and gate the runtime proof on plan-59-E instead.
+      — **no such path exists; the runtime proof is gated on plan-59-E**, per this
+      sub-plan's own Open Decision. Evidence and the reachability argument are in
+      C6. **Remaining:** the fixture itself, to be added in E's validation, where
+      removing the escape rule makes the path expressible. Acceptance is NOT
+      weakened to "compiles" — see the strengthened criterion below.
 
 Acceptance: a fixture demonstrates a `LINK` op on a closed resource returning a
 trappable `ErrResourceClosed`, with the native symbol demonstrably not called
 (verified via `--ncode` + `otool -tV`, or by the native side's own side effects).
+
+**PARTIALLY MET, and the criterion is SPLIT rather than weakened.** The
+source-level fixture is unreachable today (C6), so this criterion is divided into
+the part provable now and the part that genuinely needs plan-59-E:
+
+- **Provable now, and PROVEN:** the guard is emitted, in the right place, on the
+  right test, in every `RES`-taking thunk; and a registered close op sets the bit
+  after the native call and before branching on its status. Both read out of the
+  emitted `.ncode` (C7), not inferred. The second half is what makes the flag a
+  *live* flag rather than a slot nothing writes.
+- **Deferred to plan-59-E's validation, unchanged in substance:** a fixture in
+  which a `LINK` op on a closed resource returns a trappable `ErrResourceClosed`
+  with the native symbol demonstrably not called. Recorded in E's Corrections so
+  it cannot be lost.
+
+The deferred half is a *requirement*, not an aspiration: E must not be marked
+complete without it.
 Commit: —
 
 ### Phase 2 — Guard every resource param; close ops set the bit
 
-- [ ] Generalize Phase 1's guard to every resource-typed param in the thunk param
-      loop. One insertion point covers all 69 `RES`-taking `LINK` funcs.
-- [ ] For a `LINK` func that is a registered `CLOSE BY` op, set
+- [x] Generalize Phase 1's guard to every resource-typed param in the thunk param
+      loop. One insertion point covers all 69 `RES`-taking `LINK` funcs. — done in
+      Phase 1 (C4).
+- [x] For a `LINK` func that is a registered `CLOSE BY` op, set
       `RESOURCE_CLOSED_BIT` after the native call returns and **before** branching
       on its status — mirroring `fs_helpers_io.rs:1413-1420` and its bug-63
       comment. Identify close ops from the resource-closer table already used by
-      `close_op_for` (`src/ir/verify/mod.rs:3442`).
-- [ ] Split closed vs moved only at the report, so a transferred handle gets
-      `ErrResourceMoved` — mirroring `fs_helpers_io.rs:1431-1445`.
-- [ ] Tests: extend `tests/rt-behavior/native/` with a closed-op fixture per
+      `close_op_for` (`src/ir/verify/mod.rs:3442`). — done, but **that table was
+      not reachable from codegen** and had to be threaded through NIR first. See
+      C8; this was a missing prerequisite, not a lookup.
+- [x] Split closed vs moved only at the report, so a transferred handle gets
+      `ErrResourceMoved` — mirroring `fs_helpers_io.rs:1431-1445`. — done; the
+      guard is a single `!= 0` test and the bits are separated only in the failure
+      epilogue.
+- [~] Tests: extend `tests/rt-behavior/native/` with a closed-op fixture per
       binding shape — one stateless (`Db`), one stateful (`SoundFile`).
+      — **blocked by the same reachability wall as Phase 1's fixture** (C6): a
+      fixture that closes and then uses is rejected by `TYPE_USE_AFTER_MOVE`
+      before it can run. **Remaining:** both fixtures, in plan-59-E's validation.
+      The guard's *emission* for both shapes is covered now by the existing 18
+      native fixtures continuing to pass with it in place.
 
 Acceptance: all 18 native fixtures pass (see Corrections — the plan said 11); a
 double-close of a native resource is refused at runtime; `libsnd` and `sqlite3`
 both build and run their existing fixtures unchanged.
+
+**PARTIALLY MET.**
+- All 18 native fixtures pass; `libsnd` and `sqlite3` build and run unchanged
+  (`scripts/test-accept.sh … 'native*' 'libsnd*' 'resource*'` → 106 tests);
+  `cargo test` → 21 suites, 0 failed. ✅
+- "A double-close of a native resource is refused **at runtime**" is **not yet
+  demonstrable** — not because the guard is absent, but because no source path
+  reaches it (C6). The mechanism is in place and verified in emitted code (C7);
+  the runtime demonstration moves to plan-59-E with the criterion intact.
 Commit: —
 
 ### Phase 3 — Error-path integration and TRAP (blast radius last)
@@ -298,6 +339,90 @@ Worth noting for plan-59-D and bug-374: **a native-only program is a real
 configuration that skips whole swathes of the standard runtime setup.** Anything
 new that a LINK thunk references must be checked against it, and the fixture that
 catches it is `native-resource-import-valid`.
+
+### C6 — the runtime proof IS unreachable today; the Open Decision's fallback applies (2026-07-20)
+
+The Open Decision asked whether Phase 1's runtime proof can be written while the
+static rule stands. **It cannot.** Measured, not assumed — the natural fixture:
+
+```basic
+RES db AS Db = sql::open(":memory:")
+sql::close(db)
+sql::exec(db, "CREATE TABLE t (n INTEGER)") TRAP(e) … END TRAP
+```
+
+```
+error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
+        Binding `db` was moved and cannot be used again.
+```
+
+**Why no path exists, rather than "I could not find one".** Reaching the guard
+needs a live use of a resource whose `closed` bit is set. Today the bit is set
+only by a registered close op, and today a close op may be called only from the
+owning scope (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER` forbids a non-owner closing).
+The owning scope's binding is marked moved by that call, so **every** subsequent
+use through it is `TYPE_USE_AFTER_MOVE`. The two static rules jointly close the
+space: one keeps closing inside the owning scope, the other kills the binding
+there. Scope-drop cannot supply a second close either — bug-374 shows a native
+resource is not closed at scope exit at all.
+
+Per the Open Decision, the guard code stays here and the **runtime proof moves to
+plan-59-E's validation**, where removing the escape rule makes the path
+expressible for the first time. Acceptance was split rather than weakened to
+"compiles", and the deferred half is recorded in E's Corrections as a requirement
+for E's completion.
+
+### C7 — what IS proven now, from emitted code (2026-07-20)
+
+So that "partially met" does not read as "unverified", both halves were read out
+of the emitted `.ncode` rather than inferred from the Rust.
+
+**The guard, in `linker.sql.exec`** — loads `CLOSED@8`, non-zero test, and the
+failure path splits on the moved bit:
+
+```
+ldr_u64 x8 <- [x8 + 8]                       ; CLOSED
+b.ne    _mfb_linker_sql_exec_resource_closed
+label   _mfb_linker_sql_exec_resource_closed
+ldr_u64 x8 <- [x8 + 8]
+b.ne    _mfb_linker_sql_exec_resource_moved  ; split only at the report
+```
+
+**The bit-set, in `linker.sql.close`** — after the call, before the status check,
+which is bug-63's ordering exactly:
+
+```
+blr     x22            ; sqlite3_close(handle)
+str_u64 x0  -> [sp+48] ; stash status
+ldr_u64 x21 <- [sp+64] ; reload the record
+ldr_u64 x8  <- [x21+8] ; CLOSED
+mov_imm x9  = 1        ; 1 << RESOURCE_CLOSED_BIT
+orr     x8  = x8 | x9
+str_u64 x8  -> [x21+8] ; stored BEFORE the status branch below
+ldr_u64 x21 <- [sp+48] ; …status check starts here
+```
+
+The second listing is the load-bearing one: without it the `closed` word is a
+slot the guard reads and nothing ever writes, and the whole sub-plan would be
+inert while looking complete.
+
+### C8 — the close-op table was NOT reachable from codegen (2026-07-20)
+
+Phase 2 said to "identify close ops from the resource-closer table already used
+by `close_op_for` (`src/ir/verify/mod.rs:3442`)", phrased as a lookup. It was not
+available: `close_op_for` is an IR-layer verifier table, and the **NIR module
+carried no resource declarations at all** — `NirModule` had `link_functions` and
+`link_cstructs` but nothing recording `RESOURCE T CLOSE BY op`.
+
+So a thunk could not know it was a close op. Threading was required:
+`IrProject::native_resources` → `NirModule::native_resources` (new field) →
+`emit_link_support` → `lower_link_thunk`'s new `is_close_op`.
+
+This is the **same structural gap as bug-374**, from the other side: there, the
+closer table not reaching codegen means scope exit cannot emit a close; here, it
+meant a close op could not mark its own record. Worth noting for whoever fixes
+bug-374 — the NIR field added here is most of the plumbing that fix needs, so it
+should reuse `NirModule::native_resources` rather than adding a second channel.
 
 ### C2 — §2's "zero closed-flag reads" claim is confirmed (2026-07-20)
 

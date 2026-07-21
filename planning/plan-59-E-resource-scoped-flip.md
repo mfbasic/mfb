@@ -231,6 +231,34 @@ Commit: —
 
 ## Corrections
 
+### C2 — plan-59-B's runtime proof is INHERITED by this sub-plan (2026-07-20)
+
+plan-59-B's closed/moved guard is implemented and verified in emitted code, but
+its **runtime** proof is unreachable while the static rules stand, so it was
+gated on this sub-plan per B's own Open Decision. See plan-59-B Corrections C6
+(why no path exists) and C7 (what is already proven).
+
+**This sub-plan must not be marked complete without the following**, which are
+requirements carried over verbatim, not new scope:
+
+1. A fixture where a `LINK` op on a **closed** native resource returns a trappable
+   `ErrResourceClosed` (77030004), with the native symbol demonstrably **not**
+   called — via `--ncode`/`otool -tV` or the native side's own side effects.
+2. Closed-op fixtures for both binding shapes: one stateless (`Db`), one stateful
+   (`SoundFile`).
+3. B's Phase 3 items, which are equally unreachable today: that the guard's error
+   is catchable by an inline `TRAP` on a native `LINK` call (interacting with
+   bug-371/372's fix), and that a guard failure is not reported as a native-call
+   failure through `ERROR_ON`/`SUCCESS_ON`.
+
+Why this lands here specifically: removing `TYPE_RESOURCE_INVALIDATE_NOT_OWNER`
+is exactly what makes "close through one pointer, then use through another"
+expressible, so this sub-plan is the *first* point at which the guard is
+reachable from source. It is also the point of maximum need — the guard is the
+runtime backstop that replaces the static rule this sub-plan deletes, so shipping
+the deletion without demonstrating the backstop would remove a real protection
+and leave an unproven one in its place.
+
 ### C1 — Phase 3's `closeSound` citation points into an uncommitted working tree (2026-07-20)
 
 Phase 3's acceptance cites "the `bindings/libsnd` case at `src/lib.mfb:317`". At

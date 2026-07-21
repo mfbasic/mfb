@@ -1299,6 +1299,7 @@ pub(crate) fn lower_module_for_platform(
             &platform_imports,
             platform,
             &link_libraries,
+            &module.native_resources,
         )?;
         code_functions.extend(support.functions);
         data_objects.extend(support.data_objects);
