@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search — mfb-repo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead__inner">
+      <a class="brand" href="index.html">mfb-repo</a>
+      <form class="site-search" method="get" action="search.html" role="search">
+        <label class="vh" for="q">Search packages</label>
+        <input type="search" id="q" name="q" placeholder="owner#package" autocomplete="off" spellcheck="false">
+        <button type="submit">Search</button>
+      </form>
+    </div>
+  </header>
+
+  <main class="search-empty">
+    <div class="wrap">
+      <!-- STATE 3: empty query — /search.html with no q. Form only, no table. -->
+      <h2 class="section-title">Search packages</h2>
+      <div class="prose">
+        <p class="muted">
+          Enter a package name, an <span class="mono">owner#package</span> identifier,
+          or a keyword. Search matches identifiers and descriptions.
+        </p>
+      </div>
+
+      <form class="hero-search" method="get" action="search.html" role="search">
+        <label class="vh" for="q3">Search packages</label>
+        <input type="search" id="q3" name="q" placeholder="owner#package or keyword" autocomplete="off" spellcheck="false" autofocus>
+        <button type="submit">Search</button>
+      </form>
+
+      <div class="empty" role="note">
+        <p class="mono muted">Examples</p>
+        <p>
+          <a href="search.html">matrix</a> &middot;
+          <a href="search.html">linalg#matrix</a> &middot;
+          <a href="search.html">codec</a>
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="foot__inner">
+      <span class="mono">mfb-repo</span>
+      <span>Registry ID <span class="mono">mfb-repo.example</span></span>
+      <span class="foot__note">Anonymous &amp; read-only. Content is publisher-supplied and unverified by the registry.</span>
+    </div>
+  </footer>
+</body>
+</html>

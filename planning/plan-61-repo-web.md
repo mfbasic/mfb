@@ -26,6 +26,11 @@ toolchain. Sub-plans A and D add that data; B and C expose it.
 
 References:
 
+- **`planning/plan-61/` — the HTML/CSS mockups for the web surface**, plus
+  `DESIGN-RATIONALE.md`. Consumed by plan-61-C, which defines their scope in
+  §3.1: they are normative for *appearance only*. The plan documents own the
+  routes, the data shapes, and the escaping/CSP contract; where a mockup
+  disagrees, the plan wins.
 - `src/docs/spec/package-manager/01_repository-protocol.md` — the wire protocol
   and endpoint table this plan extends
 - `src/docs/spec/package/01_container-format.md` — the `.mfp` header, hard
@@ -161,7 +166,7 @@ rework beyond one column, one JSON field, and one template line.
 |---|---|---|---|
 | A | `plan-61-A-server-metadata-capture.md` | medium | `author`/`url` persisted; native targets recorded; schema + backfill |
 | B | `plan-61-B-read-endpoints.md` | medium | `GET /search`, `GET /packages/:ident`, `GET /packages/:ident/audit` |
-| C | `plan-61-C-web-ui.md` | medium | The three HTML pages, escaping, CSP |
+| C | `plan-61-C-web-ui.md` | medium | The three HTML pages, escaping, CSP (mockups in `planning/plan-61/`) |
 | D | `plan-61-D-description-field.md` | medium | `description` in `project.json` → new MFPC section 18, optional + warning |
 | E | `plan-61-E-description-surfacing.md` | small | Description ingested, searchable, rendered |
 | F | `plan-61-F-required-migration.md` | medium | 81 manifests migrated, goldens regenerated, field made required |

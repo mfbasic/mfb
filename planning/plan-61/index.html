@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mfb-repo — MFBASIC package registry</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead__inner">
+      <a class="brand" href="index.html">mfb-repo</a>
+      <span class="masthead__tag">Public, anonymous, read-only registry for the MFBASIC language.</span>
+      <form class="site-search" method="get" action="search.html" role="search">
+        <label class="vh" for="q">Search packages</label>
+        <input type="search" id="q" name="q" placeholder="owner#package" autocomplete="off" spellcheck="false">
+        <button type="submit">Search</button>
+      </form>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <section class="hero">
+        <h1>mfb-repo</h1>
+        <p class="lede">
+          A package registry for the MFBASIC language. Every package, every version,
+          and every state change is public and permanently visible &mdash; including
+          versions that have been deprecated or yanked. Nothing here can log in,
+          and nothing here can be changed from a browser.
+        </p>
+        <form class="hero-search" method="get" action="search.html" role="search">
+          <label class="vh" for="q2">Search packages</label>
+          <input type="search" id="q2" name="q" placeholder="Search by owner#package or keyword" autocomplete="off" spellcheck="false">
+          <button type="submit">Search</button>
+        </form>
+      </section>
+
+      <!-- ============================================================ -->
+      <!-- SERVER FINGERPRINT — this is the most load-bearing copy on   -->
+      <!-- the site. It must read as an instruction to the reader, not  -->
+      <!-- as a trust claim by the server. No check / shield / lock /   -->
+      <!-- green. The accent color is deliberately not green.           -->
+      <!-- ============================================================ -->
+      <section class="fingerprint" aria-labelledby="fp-title">
+        <div class="fingerprint__head">
+          <p class="eyebrow">Compare this &mdash; do not trust it on sight</p>
+          <h2 id="fp-title">Server fingerprint</h2>
+        </div>
+        <div class="fingerprint__body">
+          <p>
+            The value below is the key <strong>this server is presenting to you right now</strong>.
+            This page cannot prove that it is the real mfb-repo. An impostor serving a
+            forged copy of this site would show you a fingerprint too &mdash; its own &mdash;
+            and this same reassuring paragraph. So do not act on it here.
+          </p>
+
+          <code class="fingerprint__value">SHA256:9f2c1a7e4b0d63855c9e0f21ab74d3e6c8f01592ad6b7e4438cc21f0a9e5d7b3</code>
+
+          <p>
+            Obtain the fingerprint you <em>expect</em> from a source that does not pass
+            through this server &mdash; your organization&rsquo;s records, a colleague,
+            the project&rsquo;s signed release notes &mdash; and compare it character by
+            character with the value above. Only if the two match exactly, pin it locally:
+          </p>
+
+          <code class="cmd">mfb repo trust mfb-repo.example  SHA256:9f2c1a7e4b0d63855c9e0f21ab74d3e6c8f01592ad6b7e4438cc21f0a9e5d7b3</code>
+
+          <p class="fingerprint__warnoff">
+            If the two values differ, stop. You are not talking to the registry you think you are.
+          </p>
+        </div>
+      </section>
+
+      <h2 class="section-title">Using the registry</h2>
+      <div class="prose">
+        <p>
+          Search for a package to see its versions, native target matrix, and
+          publish history. Each package also exposes a transparency
+          <strong>Audit</strong> tab: an append-only log with inclusion proofs,
+          release-state transitions, and the registry&rsquo;s identity-key rotation
+          chain, so an independent monitor can check whether this registry is
+          showing the same history to everyone.
+        </p>
+        <p class="muted">
+          There are no accounts and no sign-in. Every action is a plain link or a
+          GET request; nothing on this site mutates state.
+        </p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="foot__inner">
+      <span class="mono">mfb-repo</span>
+      <span>Registry ID <span class="mono">mfb-repo.example</span></span>
+      <span class="foot__note">Anonymous &amp; read-only. Content is publisher-supplied and unverified by the registry.</span>
+    </div>
+  </footer>
+</body>
+</html>

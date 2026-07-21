@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>linalg#matrix — Audit — mfb-repo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead__inner">
+      <a class="brand" href="index.html">mfb-repo</a>
+      <form class="site-search" method="get" action="search.html" role="search">
+        <label class="vh" for="q">Search packages</label>
+        <input type="search" id="q" name="q" placeholder="owner#package" autocomplete="off" spellcheck="false">
+        <button type="submit">Search</button>
+      </form>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <div class="pkg-head">
+        <h1 class="pkg-head__ident">linalg<span class="sep">#</span>matrix</h1>
+        <div class="pkg-head__row">
+          <span class="muted">transparency log &amp; identity history</span>
+        </div>
+      </div>
+
+      <nav class="tabs" aria-label="Package views">
+        <a class="tab" href="package.html">Overview</a>
+        <a class="tab" href="audit.html" aria-current="page">Audit</a>
+      </nav>
+
+      <div class="prose">
+        <p>
+          This is an append-only transparency log for <span class="mono">linalg#matrix</span>.
+          It records an inclusion proof for every publish, every release-state
+          transition, and every rotation of the registry&rsquo;s identity key.
+          It is evidence for you to check &mdash; not an assurance that anything is
+          correct. To detect a registry that shows different histories to different
+          people, fetch this log from more than one vantage point and compare the
+          checkpoint root hashes, or script against the raw endpoint:
+        </p>
+        <p>
+          <a class="raw-link" href="/packages/linalg%23matrix/audit">/packages/linalg#matrix/audit &mdash; raw JSON</a>
+        </p>
+      </div>
+
+      <h2 class="section-title">Log checkpoint</h2>
+      <p class="table-caption">
+        A signed statement of the log&rsquo;s size and Merkle root at a point in time.
+        Two observers who see the same root at the same size are being shown the same log.
+      </p>
+      <div class="checkpoint">
+        <dl class="dl">
+          <dt>log size</dt>
+          <dd class="mono num">4188 entries</dd>
+          <dt>root hash</dt>
+          <dd><details class="hex"><summary><span class="hx">7b3e0a91c4d2...f05a</span></summary><code class="hex-full">7b3e0a91c4d2f6188ab5e3c07d9142fe6b0a8c37d5e1902fbc4a6d738e5f01927</code></details></dd>
+          <dt>signature</dt>
+          <dd><details class="hex"><summary><span class="hx">ed25519:sig:2f9a...</span></summary><code class="hex-full">ed25519:sig:2f9a17c8b0e34d6529a1f7be0c53d84e1096ab72fd5e380c47a9128be6f0d5a3c81b46e7290fad3c5b8e01792d64af5031c9e8b7a624f0d</code></details></dd>
+        </dl>
+      </div>
+
+      <h2 class="section-title">Publishes</h2>
+      <p class="table-caption">
+        Each publish is a leaf in the log. The leaf hash plus the checkpoint above
+        forms an inclusion proof that this exact release was recorded.
+      </p>
+      <table class="grid">
+        <thead>
+          <tr><th>version</th><th>leaf index</th><th>leaf hash</th></tr>
+        </thead>
+        <tbody>
+          <tr id="leaf-4187">
+            <td class="mono" data-label="version">4.2.0</td>
+            <td class="mono num" data-label="leaf index">4187</td>
+            <td data-label="leaf hash"><details class="hex"><summary><span class="hx">a1c93f...7d0e</span></summary><code class="hex-full">a1c93f6b28d0e4157fa9c3b60e82d491537ce0ab9d61f28e4c05a7b3f9012d0e</code></details></td>
+          </tr>
+          <tr id="leaf-4186">
+            <td class="mono" data-label="version">4.1.9</td>
+            <td class="mono num" data-label="leaf index">4186</td>
+            <td data-label="leaf hash"><details class="hex"><summary><span class="hx">3d02be...91af</span></summary><code class="hex-full">3d02be7c1f094a63d85e02b7c4160fa93e8d17b0562caf94018d3e67b2059c91af</code></details></td>
+          </tr>
+          <tr id="leaf-4166">
+            <td class="mono" data-label="version">4.0.0</td>
+            <td class="mono num" data-label="leaf index">4166</td>
+            <td data-label="leaf hash"><details class="hex"><summary><span class="hx">e58a41...cc23</span></summary><code class="hex-full">e58a4109fc7b2d3648a01e9db5c27f30841ba6e29d05fc71834e0a2b6d9f0cc23</code></details></td>
+          </tr>
+          <tr id="leaf-4102">
+            <td class="mono" data-label="version">3.5.2</td>
+            <td class="mono num" data-label="leaf index">4102</td>
+            <td data-label="leaf hash"><details class="hex"><summary><span class="hx">c07f19...4bd8</span></summary><code class="hex-full">c07f193ad6e2850b4c19f7e0a3d582610bfa9d47c3e80512a6b7f9013d8e4c4bd8</code></details></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 class="section-title">State changes</h2>
+      <p class="table-caption">
+        The full history of release-state transitions. A version being yanked or
+        deprecated is recorded here permanently; the version itself remains in the
+        registry and remains installable-by-reference.
+      </p>
+      <table class="grid">
+        <thead>
+          <tr><th>version</th><th>from</th><th>to</th><th>at</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono" data-label="version">4.1.9</td>
+            <td data-label="from"><span class="state state--available">available</span></td>
+            <td data-label="to"><span class="state state--yanked">yanked</span></td>
+            <td class="mono" data-label="at">2026-07-15T09:22:41Z</td>
+          </tr>
+          <tr>
+            <td class="mono" data-label="version">4.0.0</td>
+            <td data-label="from"><span class="state state--available">available</span></td>
+            <td data-label="to"><span class="state state--deprecated">deprecated</span></td>
+            <td class="mono" data-label="at">2026-05-30T14:07:10Z</td>
+          </tr>
+          <tr>
+            <td class="mono" data-label="version">3.5.2</td>
+            <td data-label="from"><span class="state state--available">available</span></td>
+            <td data-label="to"><span class="state state--yanked">yanked</span></td>
+            <td class="mono" data-label="at">2026-02-11T18:44:03Z</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2 class="section-title">Identity-key rotation chain</h2>
+      <p class="table-caption">
+        Each row is a signed hand-off from the previous identity key to the next.
+        A continuous chain is what lets you carry trust across a key rotation; a
+        gap or an unsigned link is what you are here to catch.
+      </p>
+      <table class="grid">
+        <thead>
+          <tr><th>old key</th><th>new key</th><th>signature</th><th>issued</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="old key"><span class="nil">genesis (no predecessor)</span></td>
+            <td data-label="new key"><details class="hex"><summary><span class="hx">ed25519:0f4c...11a0</span></summary><code class="hex-full">ed25519:0f4c9a71e3b208d5647fa0c1e39b8d2740196fce5a3b7d08214e6f9c0b3a11a0</code></details></td>
+            <td data-label="signature"><span class="nil">self-signed (genesis)</span></td>
+            <td class="mono" data-label="issued">2024-03-01</td>
+          </tr>
+          <tr>
+            <td data-label="old key"><details class="hex"><summary><span class="hx">ed25519:0f4c...11a0</span></summary><code class="hex-full">ed25519:0f4c9a71e3b208d5647fa0c1e39b8d2740196fce5a3b7d08214e6f9c0b3a11a0</code></details></td>
+            <td data-label="new key"><details class="hex"><summary><span class="hx">ed25519:8b21...9de4</span></summary><code class="hex-full">ed25519:8b21f70ac5d9e3416802bf7c1a05d938e64f0b27ca9d1e5380f7b46a2c019de4</code></details></td>
+            <td data-label="signature"><details class="hex"><summary><span class="hx">sig:5c7e...02fb</span></summary><code class="hex-full">sig:5c7e1980af346b2dc5019e7f80a3b641029dce8b7f450a26d1839fb0c74e502fb</code></details></td>
+            <td class="mono" data-label="issued">2025-09-14</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <hr>
+      <p class="muted prose">
+        Nothing on this page is confirmed by the registry beyond the fact that the
+        registry served it. The purpose of a transparency log is to let a third party
+        detect inconsistency &mdash; not to reassure a reader that there is none.
+      </p>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="foot__inner">
+      <span class="mono">mfb-repo</span>
+      <span>Registry ID <span class="mono">mfb-repo.example</span></span>
+      <span class="foot__note">Anonymous &amp; read-only. Content is publisher-supplied and unverified by the registry.</span>
+    </div>
+  </footer>
+</body>
+</html>

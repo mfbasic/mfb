@@ -24,6 +24,10 @@ References:
   (transparency as a security property)
 - `planning/old-moved-to-src-spec/repo-base.md:21-28` — the single
   self-contained binary principle
+- **`planning/plan-61/` — the HTML/CSS mockups.** Static reference renderings of
+  every page, plus `DESIGN-RATIONALE.md` explaining the visual decisions. Read
+  these before writing a template; do not redesign the pages from scratch. Scope
+  and authority are defined in §3.1.
 
 ## Prerequisites
 
@@ -112,6 +116,40 @@ log checkpoint, per-version inclusion proofs, release-state transitions, and
 ident-key rotations. Links to the raw JSON endpoint so a third-party monitor can
 script against it.
 
+### 3.1 The mockups are UI-only — this document owns everything else
+
+`planning/plan-61/` holds a finished static rendering of every page. It exists so
+the implementer does not re-derive the layout, the state cues, the responsive
+strategy, or the fingerprint copy. Map each file to the route above:
+
+| Mockup | Route |
+|---|---|
+| `index.html` | `GET /` |
+| `search.html`, `search-noresults.html`, `search-empty.html` | `GET /search.html?q=` — three renderings of **one** route, split into three files only so each state is visible |
+| `package.html` | `GET /p/:ident` |
+| `audit.html` | `GET /p/:ident/audit` |
+| `style.css` | served at `/style.css` |
+
+**Authority.** The mockups are normative for *appearance only* — markup
+structure, class names, copy, and the CSS. They are **not** normative for
+anything else, and where they disagree with this plan, this plan wins:
+
+- **Routes.** §3 above is the route table. Any path, form `action`, or `href` in
+  the mockups is illustrative; re-point them at the real routes.
+- **Data shapes.** Every value in the mockups is placeholder content. The real
+  fields come from plan-61-B's `SearchResponse`, `PackageDetailResponse`, and
+  `PackageAuditResponse`.
+- **Escaping, `safe_href`, and the CSP.** §2 is the security contract. The
+  mockups happen to satisfy it — no `<script>`, no inline `style=`, no external
+  fonts or images — but that is a property to *preserve*, not evidence that a
+  generated page is safe. Every value the templates interpolate still goes
+  through the §2 layers.
+
+Two notes for the implementer: `DESIGN-RATIONALE.md` describes a `preview/`
+subdirectory that is not present and is not part of the handoff — ignore it. And
+the mockups' hostile-content fixture (an `author` of `<script>alert(1)</script>`)
+is the same case Phase 3's XSS regression test asserts; keep them in sync.
+
 ## 4. The fingerprint must not overclaim
 
 The landing page shows the server fingerprint, but the wording matters. The
@@ -153,9 +191,16 @@ Commit: —
 
 ### Phase 2 — Landing and search pages
 
+- [ ] Add `GET /style.css`, serving the stylesheet from `planning/plan-61/style.css`
+      embedded in the binary (`include_str!`) with `Content-Type: text/css`. The
+      §2 CSP is `style-src 'self'` with no `'unsafe-inline'`, so the stylesheet
+      **must** be a real served route — there is no inline fallback. Keeping it
+      compiled in preserves the single self-contained binary principle.
 - [ ] Add `GET /` rendering the title, search form, and fingerprint with the §4
-      wording.
-- [ ] Add `GET /search.html?q=` rendering `SearchResponse`.
+      wording. Port the markup from `planning/plan-61/index.html` (§3.1).
+- [ ] Add `GET /search.html?q=` rendering `SearchResponse`. Port the markup from
+      `planning/plan-61/search.html`, and its two states from
+      `search-noresults.html` and `search-empty.html`.
 - [ ] Register both in the route table (`repository/src/server.rs:672-704`).
       Confirm the HTML routes do not shadow any existing JSON route — in
       particular that adding a `/` handler does not disturb `/health` or
@@ -174,14 +219,16 @@ Commit: —
 
 Last, because it renders the most publisher-controlled fields.
 
-- [ ] Add `GET /p/:ident` per §3. Handle `%23` in the path as in plan-61-B
-      Phase 1.
+- [ ] Add `GET /p/:ident` per §3, porting the markup from
+      `planning/plan-61/package.html` (§3.1). Handle `%23` in the path as in
+      plan-61-B Phase 1.
 - [ ] Render the version table with **every** state visible and labeled. A yanked
       version must be visually distinguished but present.
 - [ ] Render the native blob table: one row per target, `arch = NULL` shown as
       "any", `libc = NULL` shown as "—".
-- [ ] Add `GET /p/:ident/audit` per §3, linking to
-      `GET /packages/:ident/audit` for the raw JSON.
+- [ ] Add `GET /p/:ident/audit` per §3, porting the markup from
+      `planning/plan-61/audit.html`, and linking to `GET /packages/:ident/audit`
+      for the raw JSON.
 - [ ] Tests: **the XSS regression test** — publish a fixture whose `author` is
       `<script>alert(1)</script>` and whose `url` is `javascript:alert(1)`, then
       assert the rendered page contains the escaped text, contains no `<script`

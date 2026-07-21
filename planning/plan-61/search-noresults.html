@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Search: xyzzy — mfb-repo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="masthead__inner">
+      <a class="brand" href="index.html">mfb-repo</a>
+      <form class="site-search" method="get" action="search.html" role="search">
+        <label class="vh" for="q">Search packages</label>
+        <input type="search" id="q" name="q" value="xyzzy-no-such-package" placeholder="owner#package" autocomplete="off" spellcheck="false">
+        <button type="submit">Search</button>
+      </form>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <!-- STATE 2: no results. HTTP 200, not an error page. -->
+      <p class="summary">
+        <strong>0</strong> results for <span class="query-echo">xyzzy-no-such-package</span>
+      </p>
+
+      <div class="empty empty--center" role="note">
+        <h2>No packages match this query.</h2>
+        <p>Nothing in the registry matches <span class="query-echo">xyzzy-no-such-package</span>.</p>
+        <p class="muted">
+          Check spelling, or try a shorter term. Identifiers have the form
+          <span class="mono">owner#package</span> &mdash; the <span class="mono">#</span> is literal.
+        </p>
+        <p><a href="search-empty.html">Start a new search</a></p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="foot__inner">
+      <span class="mono">mfb-repo</span>
+      <span>Registry ID <span class="mono">mfb-repo.example</span></span>
+      <span class="foot__note">Anonymous &amp; read-only. Content is publisher-supplied and unverified by the registry.</span>
+    </div>
+  </footer>
+</body>
+</html>
