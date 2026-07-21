@@ -48,7 +48,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `pkg info` | `mfb pkg info <package>` | 0 ok; 2 usage; 1 failed |
 | `pkg verify` | `mfb pkg verify [--proof]` | 0 ok; 2 usage; 1 failed |
 | `pkg validate` | `mfb pkg validate <package>` | 0 valid; 2 usage; 1 invalid or failed |
-| `pkg update` | `mfb pkg update [location]` | 0 ok; 2 usage; 1 conflict or failed |
+| `pkg update` | `mfb pkg update [<owner>#<pkg>[@version]] [--pin\|--no-pin] [--yes]` | 0 ok; 2 usage; 1 conflict or failed |
 | `pkg install` | `mfb pkg install [location]` | 0 ok (incl. a warned ABI-floor drift); 2 usage; 1 unrecoverable lock drift or failed |
 | `pkg doc` | `mfb pkg doc <name-or-path> [--out file]` | 0 ok; 2 usage; 1 failed |
 | `repo register` | `mfb repo register <owner_name>` | 0 ok; 2 usage; 1 failed |
@@ -316,6 +316,73 @@ accepting "whatever was newest the day `add` ran".
 A `file://` add is always `pin: true` and `--no-pin` on one is a usage error:
 a local file has no registry version stream to float along. `--pin` on a
 `file://` target is accepted as a redundant statement of the existing behavior.
+
+## `pkg update` Targeted Form
+
+```text
+mfb pkg update                                  re-resolve everything declared
+mfb pkg update <owner>#<pkg>                    raise to newest compatible
+mfb pkg update <owner>#<pkg>@<version>          set exactly
+        [--pin | --no-pin] [--yes]
+```
+
+The bare form re-resolves every declared dependency and rewrites `mfb.lock`. A
+project that declares **no registry dependencies** — only `file://` packages, or
+none at all — has nothing to resolve; the bare form reports that, removes a
+stale `mfb.lock` if present, and exits `0`.
+
+A positional argument is an **ident**, never a path. `mfb pkg update foo` cannot
+mean both, so the `[location]` form does not exist; a target that is not declared
+in `project.json` is an error naming `mfb pkg add`, raised before any network
+access.
+
+**Pin state is preserved.** The targeted form never changes `pin` unless `--pin`
+or `--no-pin` is passed, so raising a floating dependency's ABI floor leaves it
+floating and re-versioning a pinned one leaves it pinned. `--pin` and `--no-pin`
+together are a usage error, matching `pkg add`.
+
+Moving a **pinned** dependency changes a deliberate choice, so it is confirmed
+first; `--yes` bypasses the prompt, and a non-interactive session without `--yes`
+is an error rather than a silent guess. Declining exits `0` having changed
+nothing. A floating dependency is not prompted — its version is a floor, not a
+promise.
+
+### Version selection and the ABI advisory
+
+With no `@version`, candidates are filtered in three stages:
+
+1. **Eligibility** — only `available` and `deprecated` releases.
+   `yanked` is selectable *only* by exact pin, so a bare update never moves a
+   dependency **onto** a yanked release.[[src/cli/pkg.rs:state_is_floating_eligible]]
+2. **Newer** — strictly greater than the currently declared version.
+3. **ABI** — the candidate's exported symbols must be a superset of the
+   currently declared version's, read from the index's per-version `abiIndex`.
+
+Stage 3 exists because a `pin: true` dependency bypasses ABI checking entirely
+during resolution — `select_node` takes the exact declared version as given.
+Without a pre-flight filter, a targeted update could move a pinned dependency
+onto a release that dropped a symbol the project uses: resolution would succeed
+and the **build** would fail.[[src/cli/resolve.rs:select_node]]
+
+**What the advisory proves, and what it does not.** It proves the candidate still
+exports everything the *currently declared version* exported. It does **not**
+prove the candidate satisfies the union of every requirer's needs — that union is
+assembled by the resolver from sibling packages' import tables and does not exist
+until resolution runs. This is a pre-flight advisory; the resolver remains the
+authority, and when it disagrees afterwards, it wins.
+
+When the newest eligible release fails stage 3, an older compatible one is
+**not** selected silently. The skipped version and the symbols it drops are
+named:
+
+```text
+alice#shape 2.0.0 is available but drops symbols the currently declared 1.4.0
+exports (foo, bar); selecting 1.6.0 instead. Use `@2.0.0` to take it anyway.
+```
+
+An explicit `@version` is always honored and skips the advisory entirely — the
+user has named the version themselves, which is the escape hatch the message
+points at.
 
 ## `pkg verify` Output
 

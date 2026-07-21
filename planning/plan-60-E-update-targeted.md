@@ -34,8 +34,8 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-60-B complete — `confirm` and `apply_manifest_change` exist | `grep -cE '^pub\(crate\) fn confirm' src/cli/mod.rs` → 1 and `grep -cE '^pub\(crate\) fn apply_manifest_change' src/cli/resolve.rs` → 1 | NOT MET at authoring |
-| plan-60-C complete — flag parsing and CLI-creatable `pin: false` | `grep -cE 'no_pin' src/cli/pkg.rs` → ≥ 1 **and** `mfb pkg add --no-pin <ident>` parses (a bare grep also matches a test name, so confirm the flag is dispatched, not merely mentioned) | NOT MET at authoring |
+| plan-60-B complete — `confirm` and `apply_manifest_change` exist | `grep -cE '^pub\(crate\) fn confirm' src/cli/mod.rs` → 1 and `grep -cE '^pub\(crate\) fn apply_manifest_change' src/cli/resolve.rs` → 1 | **MET** (2026-07-21) — → 1 and 1. plan-60-B archived. |
+| plan-60-C complete — flag parsing and CLI-creatable `pin: false` | `grep -cE 'no_pin' src/cli/pkg.rs` → ≥ 1 **and** `mfb pkg add --no-pin <ident>` parses (a bare grep also matches a test name, so confirm the flag is dispatched, not merely mentioned) | **MET** (2026-07-21) — → 5, and `mfb pkg add ada#x --pin --no-pin` exits 2 with the both-flags error, proving dispatch. plan-60-C archived. |
 
 If either is incomplete, this plan cannot start, full stop.
 
@@ -47,8 +47,14 @@ its ident out of the `.mfp` header) was resolved against the registry, and
 `mfb pkg update` silently overwrote the user's local copy with a registry blob of
 a different version. The seed filter now also requires a non-`file://` `source`.
 
-**The consequence this letter owns:** `mfb pkg update` on a project whose only
-dependencies are `file://` packages now exits **1** with `"project.json declares
+**DISCHARGED 2026-07-21** — implemented in Phase 1's commit (`d05d02dff`):
+`update()` now applies plan-60-B §4.3's policy directly (drop a stale lock,
+report, exit 0) instead of calling `resolve()` on an empty set. Asserted by
+plan-60-C's `spike_file_added_package_with_registry_ident_survives_update`,
+extended here exactly as this note suggested.
+
+**The consequence this letter owned:** `mfb pkg update` on a project whose only
+dependencies are `file://` packages exited **1** with `"project.json declares
 no registry dependencies to resolve"`. That is the pre-existing behavior for any
 project with no registry dependencies — the fix made such projects consistent
 rather than newly broken — but it is still the wrong answer. plan-60-B §4.3
@@ -310,20 +316,20 @@ algorithm; exit codes for the bare form.
 
 Everything that can be tested without a registry.
 
-- [ ] Replace the three `update` arms (`src/cli/pkg.rs:51`, `:54`, `:57`) with a
+- [x] Replace the three `update` arms (`src/cli/pkg.rs:51`, `:54`, `:57`) with a
       single `[command, rest @ ..]` arm feeding a parser built on plan-60-C's
       flag-parsing struct: zero or one positional, plus `--pin` / `--no-pin` /
       `--yes`.
-- [ ] Bare form (no positional) → `resolve::update(Path::new("."))`, unchanged.
-- [ ] Add `project_json_with_updated_version` to `src/manifest/package.rs`,
+- [x] Bare form (no positional) → `resolve::update(Path::new("."))`, unchanged.
+- [x] Add `project_json_with_updated_version` to `src/manifest/package.rs`,
       modelled on `project_json_with_updated_ident_key` (`:644`).
-- [ ] Implement §4.4's not-declared check against the parsed manifest, before any
+- [x] Implement §4.4's not-declared check against the parsed manifest, before any
       network call.
-- [ ] Tests in `src/cli/pkg.rs`: bare form still dispatches; `--pin --no-pin` is
+- [x] Tests in `src/cli/pkg.rs`: bare form still dispatches; `--pin --no-pin` is
       a usage error; an undeclared target errors with the `mfb pkg add` hint; a
       path-looking positional (`./foo`) produces the not-declared error rather
       than being treated as a location.
-- [ ] Tests in `src/manifest/package.rs`: `project_json_with_updated_version`
+- [x] Tests in `src/manifest/package.rs`: `project_json_with_updated_version`
       rewrites the version, optionally rewrites `pin`, leaves other dependencies
       and formatting untouched, and errors when the named package is absent —
       mirroring the existing `project_json_with_updated_ident_key` tests at
@@ -331,24 +337,26 @@ Everything that can be tested without a registry.
 
 Acceptance: `cargo test --bin mfb` passes; the four existing bare-`update`
 acceptance tests still pass unchanged (`cargo test --test repo_acceptance`).
-Commit: —
+**VERIFIED** — 3170 unit (from 3158) / 24 acceptance, 0 failed. The bare-form
+tests were not edited.
+Commit: d05d02dff
 
 ### Phase 2 — Version selection and the ABI advisory
 
-- [ ] Make `is_superset` (`src/cli/resolve.rs:415`) and `compare_versions`
+- [x] Make `is_superset` (`src/cli/resolve.rs:415`) and `compare_versions`
       (`:481`) `pub(crate)`.
-- [ ] Implement §4.2's selection: fetch index, filter eligible, compare against
+- [x] Implement §4.2's selection: fetch index, filter eligible, compare against
       the declared version, report already-latest and exit 0 when nothing is
       newer.
-- [ ] Implement §4.3's ABI filter and its skipped-version message.
-- [ ] Tests in `src/cli/pkg.rs`: a pure selection function taking
+- [x] Implement §4.3's ABI filter and its skipped-version message.
+- [x] Tests in `src/cli/pkg.rs`: a pure selection function taking
       `(declared_version, Vec<IndexVersion>)` and returning the choice or the
       already-latest verdict — covering: nothing newer; a newer eligible
       compatible version; a newer version that is `yanked` (must be skipped); a
       newest version that fails the ABI filter with an older compatible one
       behind it (must select the older **and** report the skip); and no
       compatible candidate at all.
-- [ ] Tests in `tests/repo_acceptance.rs`: publish two versions of a package
+- [x] Tests in `tests/repo_acceptance.rs`: publish two versions of a package
       where the newer one **drops an exported symbol**, then run
       `mfb pkg update <ident>` and assert the advisory fires and the older
       version is selected. This is what verifies §4.3's approximation against a
@@ -357,17 +365,21 @@ Commit: —
 Acceptance: `cargo test --bin mfb && cargo test --test repo_acceptance` pass,
 including the dropped-symbol case. That case must fail if the ABI filter is
 removed — verify by temporarily disabling the filter and confirming red.
+**VERIFIED, and A/B-checked**: replacing the `is_superset` predicate with `true`
+makes `update_targeted_applies_the_abi_advisory_and_preserves_pin` fail on "the
+advisory must name the skipped version". The acceptance case uses a **real**
+dropped `EXPORT FUNC`, not a synthetic ABI map.
 Commit: —
 
 ### Phase 3 — The confirmation gate and applying the change
 
-- [ ] Implement §4.5: for a `pin: true` target, print the consequence and call
+- [x] Implement §4.5: for a `pin: true` target, print the consequence and call
       `confirm`; declining exits 0 with no change.
-- [ ] Implement §4.6: build the proposed manifest text and call
+- [x] Implement §4.6: build the proposed manifest text and call
       `apply_manifest_change`.
-- [ ] Print a result line naming old version → new version and the resulting pin
+- [x] Print a result line naming old version → new version and the resulting pin
       state, consistent with plan-60-C's `(floating)` / `(pinned)` suffixes.
-- [ ] Tests in `tests/repo_acceptance.rs`: `update <ident>@<ver> --yes` on a
+- [x] Tests in `tests/repo_acceptance.rs`: `update <ident>@<ver> --yes` on a
       pinned dependency changes the version, rewrites `mfb.lock`, installs the
       new bytes, and leaves `"pin": true`; the same on a floating dependency
       needs no `--yes` and leaves `"pin": false`; `update <ident>@9.9.9`
@@ -375,23 +387,25 @@ Commit: —
 
 Acceptance: `cargo test --test repo_acceptance` passes. The pin-preservation
 assertion must check the literal `"pin"` value in the written `project.json`, not
-merely that the command succeeded.
+merely that the command succeeded. **VERIFIED** — every pin assertion reads the
+literal `"pin": true` / `"pin": false` text back out of the written manifest.
 Commit: —
 
 ### Phase 4 — Docs
 
-- [ ] `src/main.rs:96` `PKG_HELP`: replace the `update [path]` line with the
+- [x] `src/main.rs:96` `PKG_HELP`: replace the `update [path]` line with the
       three forms from §4.4 and add `--yes` to the Options block.
-- [ ] `src/main.rs:45` `USAGE:54` — the short `pkg update` line.
-- [ ] `src/docs/spec/tooling/07_cli-reference.md:52` — rewrite the `pkg update`
+- [x] `src/main.rs:45` `USAGE:54` — the short `pkg update` line.
+- [x] `src/docs/spec/tooling/07_cli-reference.md:52` — rewrite the `pkg update`
       row for the new argument shape. Note the removal of `[location]`.
-- [ ] Document in the tooling spec: pin preservation (§4.1), the eligibility
+- [x] Document in the tooling spec: pin preservation (§4.1), the eligibility
       filter (§4.2), and the ABI advisory including precisely what it does and
       does not prove (§4.3). Cite `[[src/cli/resolve.rs:select_node]]` and
       `[[src/cli/pkg.rs:state_is_floating_eligible]]`.
 
 Acceptance: `cargo build && cargo test --bin mfb spec` pass; `mfb spec tooling
---all` renders with no leaked `[[` markers.
+--all` renders with no leaked `[[` markers. **VERIFIED** — build exit 0, 48 spec
+tests, 0 leaked markers.
 Commit: —
 
 ## Validation Plan

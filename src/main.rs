@@ -105,7 +105,9 @@ Commands:
   verify [--proof]        Verify packages declared in project.json
   validate <pkg>          Check an existing package's signatures and structure
   install [path]          Install dependencies from mfb.lock (by hash)
-  update [path]           Resolve dependencies and write mfb.lock
+  update                  Re-resolve all dependencies and write mfb.lock
+  update <owner>#<pkg>[@ver] [--pin|--no-pin] [--yes]
+                          Update one declared dependency
 
 Publishing a package? Those commands live under 'mfb repo' —
 see 'mfb repo --help'.
@@ -113,8 +115,9 @@ see 'mfb repo --help'.
 Options:
   --proof                 (verify) Also print each dependency's inclusion proof
   --out <file>            (doc) Path to the generated HTML file (default: index.html)
-  --pin                   (add) Record the exact version; never float
-  --no-pin                (add) Float above this version, which becomes the ABI floor";
+  --pin                   (add, update) Record the exact version; never float
+  --no-pin                (add, update) Float above this version, which becomes the ABI floor
+  --yes                   (update) Skip the confirmation prompt when moving a pin";
 
 pub(crate) const REPO_HELP: &str = "\
 Usage: mfb repo <command> [arguments]

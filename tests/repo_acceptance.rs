@@ -983,6 +983,230 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     );
 }
 
+/// plan-60-E §4.2/§4.3/§4.1: the targeted `mfb pkg update` form.
+///
+/// Publishes 1.0.0 (exports `answer` + `extra`), 1.1.0 (a compatible superset)
+/// and 2.0.0 (**drops `extra`**). A bare targeted update must select 1.1.0, not
+/// 2.0.0, and must say why — the ABI filter exists because `select_node`'s pin
+/// branch takes an exact version with no ABI check at all.
+///
+/// Also asserts the two properties that separate this form from `add`: an
+/// explicit `@version` is honored regardless of the filter, and **pin state is
+/// preserved** unless a flag says otherwise.
+#[test]
+fn update_targeted_applies_the_abi_advisory_and_preserves_pin() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    let pkg_dir = work.path().join("adv_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", pkg_arg]).status.success());
+    let manifest_path = pkg_dir.join("project.json");
+    let base = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"1.0.0\",\n  \"ident\": \"alice#adv_pkg\",\n",
+    );
+    let publish_version = |version: &str, source: &str| {
+        std::fs::write(
+            &manifest_path,
+            base.replace(
+                "\"version\": \"1.0.0\"",
+                &format!("\"version\": \"{version}\""),
+            ),
+        )
+        .unwrap();
+        std::fs::write(pkg_dir.join("src/lib.mfb"), source).unwrap();
+        let out = run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg]);
+        assert!(
+            out.status.success(),
+            "publish {version} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+
+    let both = "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n\
+                EXPORT FUNC extra() AS Integer\n  RETURN 1\nEND FUNC\n";
+    publish_version("1.0.0", both);
+    publish_version("1.1.0", both);
+    // 2.0.0 drops `extra` — a real breaking change, not a synthetic ABI map.
+    publish_version(
+        "2.0.0",
+        "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n",
+    );
+
+    // Consumer takes 1.0.0, floating.
+    let app = work.path().join("adv_consumer");
+    let app_arg = app.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_arg]).status.success());
+    let run_in = |args: &[&str]| run_mfb_in(&repo, home.path(), &app, args);
+    assert!(run_in(&["pkg", "add", "alice#adv_pkg@1.0.0", "--no-pin"])
+        .status
+        .success());
+    let app_manifest = app.join("project.json");
+    assert!(std::fs::read_to_string(&app_manifest)
+        .unwrap()
+        .contains("\"pin\": false"));
+
+    // --- Bare targeted update: must take 1.1.0 and report skipping 2.0.0.
+    let update = run_in(&["pkg", "update", "alice#adv_pkg"]);
+    assert!(
+        update.status.success(),
+        "targeted update failed: {}",
+        String::from_utf8_lossy(&update.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&update.stderr);
+    assert!(
+        stderr.contains("2.0.0 is available but drops symbols"),
+        "the advisory must name the skipped version: {stderr}"
+    );
+    assert!(
+        stderr.contains("extra"),
+        "must name the dropped symbol: {stderr}"
+    );
+    assert!(stderr.contains("selecting 1.1.0"), "{stderr}");
+
+    let after = std::fs::read_to_string(&app_manifest).unwrap();
+    assert!(after.contains("\"version\": \"1.1.0\""), "{after}");
+    // §4.1: pin state survives a version bump.
+    assert!(
+        after.contains("\"pin\": false"),
+        "a targeted update must NOT change pin state: {after}"
+    );
+
+    // --- An explicit @version is the escape hatch: 2.0.0 is taken anyway.
+    let forced = run_in(&["pkg", "update", "alice#adv_pkg@2.0.0"]);
+    assert!(
+        forced.status.success(),
+        "an explicit @version must be honored: {}",
+        String::from_utf8_lossy(&forced.stderr)
+    );
+    let forced_manifest = std::fs::read_to_string(&app_manifest).unwrap();
+    assert!(
+        forced_manifest.contains("\"version\": \"2.0.0\""),
+        "{forced_manifest}"
+    );
+    assert!(
+        forced_manifest.contains("\"pin\": false"),
+        "still floating: {forced_manifest}"
+    );
+
+    // --- An unpublished version leaves everything byte-identical.
+    let lock_before = std::fs::read_to_string(app.join("mfb.lock")).unwrap();
+    let missing = run_in(&["pkg", "update", "alice#adv_pkg@9.9.9"]);
+    assert!(!missing.status.success());
+    assert_eq!(
+        std::fs::read_to_string(&app_manifest).unwrap(),
+        forced_manifest,
+        "a failed targeted update must leave project.json byte-identical"
+    );
+    assert_eq!(
+        std::fs::read_to_string(app.join("mfb.lock")).unwrap(),
+        lock_before,
+        "a failed targeted update must leave mfb.lock byte-identical"
+    );
+
+    // --- An undeclared target errors locally, with the `add` hint.
+    let undeclared = run_in(&["pkg", "update", "alice#nope"]);
+    assert!(!undeclared.status.success());
+    assert!(
+        String::from_utf8_lossy(&undeclared.stderr).contains("mfb pkg add alice#nope"),
+        "{}",
+        String::from_utf8_lossy(&undeclared.stderr)
+    );
+}
+
+/// plan-60-E §4.5: updating a PINNED dependency changes a deliberate choice, so
+/// it is confirmed. Non-interactive without `--yes` must error rather than hang
+/// or guess (plan-60-B §4.1); with `--yes` it proceeds and keeps the pin.
+#[test]
+fn update_of_a_pinned_dependency_requires_confirmation() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    let pkg_dir = work.path().join("pin_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", pkg_arg]).status.success());
+    let manifest_path = pkg_dir.join("project.json");
+    let base = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"1.0.0\",\n  \"ident\": \"alice#pin_pkg\",\n",
+    );
+    for version in ["1.0.0", "1.1.0"] {
+        std::fs::write(
+            &manifest_path,
+            base.replace(
+                "\"version\": \"1.0.0\"",
+                &format!("\"version\": \"{version}\""),
+            ),
+        )
+        .unwrap();
+        assert!(
+            run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg])
+                .status
+                .success()
+        );
+    }
+
+    let app = work.path().join("pin_consumer");
+    let app_arg = app.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_arg]).status.success());
+    let run_in = |args: &[&str]| run_mfb_in(&repo, home.path(), &app, args);
+    // An @version add pins (plan-60-C §4.1).
+    assert!(run_in(&["pkg", "add", "alice#pin_pkg@1.0.0"])
+        .status
+        .success());
+    let app_manifest = app.join("project.json");
+    assert!(std::fs::read_to_string(&app_manifest)
+        .unwrap()
+        .contains("\"pin\": true"));
+
+    // Without --yes on a non-TTY: refuse, and leave the manifest alone.
+    let before = std::fs::read_to_string(&app_manifest).unwrap();
+    let unconfirmed = run_in(&["pkg", "update", "alice#pin_pkg@1.1.0"]);
+    assert!(
+        !unconfirmed.status.success(),
+        "a pinned update must not proceed unconfirmed"
+    );
+    assert!(
+        String::from_utf8_lossy(&unconfirmed.stderr).contains("non-interactive"),
+        "{}",
+        String::from_utf8_lossy(&unconfirmed.stderr)
+    );
+    assert_eq!(std::fs::read_to_string(&app_manifest).unwrap(), before);
+
+    // With --yes: proceeds, and the pin SURVIVES.
+    let confirmed = run_in(&["pkg", "update", "alice#pin_pkg@1.1.0", "--yes"]);
+    assert!(
+        confirmed.status.success(),
+        "--yes must bypass the prompt: {}",
+        String::from_utf8_lossy(&confirmed.stderr)
+    );
+    let after = std::fs::read_to_string(&app_manifest).unwrap();
+    assert!(after.contains("\"version\": \"1.1.0\""), "{after}");
+    assert!(
+        after.contains("\"pin\": true"),
+        "the pin must survive the update: {after}"
+    );
+}
+
 /// plan-60-D §4.1: `install` diffs the manifest against the lock instead of
 /// refusing on the opaque `projectHash` alone.
 ///
