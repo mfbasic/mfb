@@ -83,6 +83,92 @@ pub(crate) fn update(project_dir: &Path) -> Result<(), String> {
     install(project_dir)
 }
 
+/// Apply a proposed `project.json` **resolve-first** (plan-60-B §4.2): resolve
+/// the new manifest before anything touches disk, so a resolution failure leaves
+/// the project exactly as it was.
+///
+/// Callers pass the complete proposed manifest *text*, not a mutation closure —
+/// the existing editors (`project_json_with_package`,
+/// `project_json_with_updated_ident_key`) work by surgical string edit to
+/// preserve formatting and comments, and this signature keeps that property.
+///
+/// The ordering is the whole point. `add`/`update`/`remove` previously wrote
+/// `project.json` and only then resolved, so a failed resolve left a manifest
+/// naming a dependency that could not be locked — and every subsequent
+/// `mfb pkg install` hard-errored on the now-stale lock.
+///
+/// **The accepted failure window is between steps 5 and 7.** If `install` fails
+/// (network, a blob that does not verify), `project.json` and `mfb.lock` are
+/// already written and mutually consistent — `projectHash` matches, because the
+/// lock was resolved from this exact manifest text. Only `packages/` is
+/// incomplete, which `mfb pkg install` recovers. That is strictly better than
+/// the alternative it replaces: a partially-populated `packages/` paired with a
+/// manifest that never mentioned the new dependency.
+// DELETE THIS ATTRIBUTE IN plan-60-C, the first consumer (`add`); plan-60-E
+// (`update`) and plan-60-F (`remove`) follow. plan-60-B lands the pipeline
+// before any consumer so all three share one implementation.
+#[allow(dead_code)]
+pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> Result<(), String> {
+    let project_path = project_dir.join("project.json");
+
+    // 1. Parse and validate the *proposed* text. Nothing is written if it is
+    //    malformed, so a caller that builds a bad manifest cannot corrupt the
+    //    project.
+    let manifest = parse_project_json(new_contents, &project_path)?;
+    validate_packages_array(&manifest)?;
+
+    // 2. No registry dependencies → the §4.3 path. `resolve()` cannot run on an
+    //    empty dependency set and a synthesized empty lock cannot be installed
+    //    (its `repoFingerprint` would be empty, which `install` rejects), so
+    //    there is nothing to lock and the lock must go.
+    if registry_dependency_count(&manifest) == 0 {
+        fs::write(&project_path, new_contents)
+            .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))?;
+        let lock = lock_path(project_dir);
+        if lock.exists() {
+            fs::remove_file(&lock)
+                .map_err(|err| format!("failed to remove '{}': {err}", lock.display()))?;
+        }
+        return Ok(());
+    }
+
+    // Read the previous lock *before* resolving, so the diff below can compare
+    // against it.
+    let previous = read_lock(project_dir)?;
+
+    // 3. Resolve. THIS MUST PRECEDE EVERY WRITE — it is the guarantee.
+    let lock = resolve(&manifest)?;
+
+    // 4-7. Resolution succeeded, so the change is viable; commit it.
+    print_lock_diff(previous.as_ref(), &lock);
+    fs::write(&project_path, new_contents)
+        .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))?;
+    write_lock(project_dir, &lock)?;
+    install(project_dir)
+}
+
+/// How many registry (`<owner>#<package>`) dependencies does this manifest
+/// declare? A locally-added package (a `file://` copy, whose `ident` is just its
+/// name) is not a registry dependency, does not participate in resolution, and
+/// so does not keep a lock alive.
+///
+/// This **must** stay identical to the seeding filter in `resolve()` — the
+/// `.filter(|dep| dep.ident.contains('#'))` there is what makes an entry a
+/// registry dependency, and `resolve()` errors with "declares no registry
+/// dependencies to resolve" on an empty set. If the two disagree,
+/// `apply_manifest_change` either calls `resolve()` on a set it will reject, or
+/// takes the zero-dependency path while real dependencies still need locking.
+fn registry_dependency_count(manifest: &std::collections::HashMap<String, JsonValue>) -> usize {
+    manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+        .into_iter()
+        .flatten()
+        .filter_map(project_package_dependency)
+        .filter(|dep| dep.ident.contains('#'))
+        .count()
+}
+
 /// `mfb pkg install`: apply a current `mfb.lock` — fetch each locked blob by
 /// hash, verify the full §3.5 chain against the locked ident key, and install.
 /// Never resolves and never calls `/index`.
@@ -873,6 +959,115 @@ mod tests {
     fn read_lock_absent_returns_none() {
         let dir = tempfile::tempdir().expect("temp dir");
         assert!(read_lock(dir.path()).expect("read").is_none());
+    }
+
+    /// A manifest with the given `packages` array body.
+    fn manifest_with_packages(packages: &str) -> String {
+        format!(
+            "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\
+             \"sources\":[{{\"root\":\"src\"}}],\"packages\":[{packages}]}}"
+        )
+    }
+
+    /// plan-60-B §4.3: a manifest with no registry dependencies writes
+    /// `project.json` and **removes** `mfb.lock`. There is nothing left to lock,
+    /// and an absent lock is the same state a freshly-`mfb init`-ed project is
+    /// in, which `mfb pkg install` already reports correctly.
+    #[test]
+    fn apply_manifest_change_zero_dependencies_writes_manifest_and_drops_the_lock() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path().join("project.json");
+        let lock = dir.path().join("mfb.lock");
+        std::fs::write(&project, manifest_with_packages("")).expect("seed manifest");
+        std::fs::write(&lock, "{\"lockfileVersion\":1}").expect("seed lock");
+
+        let new_contents = manifest_with_packages("");
+        apply_manifest_change(dir.path(), &new_contents).expect("zero-dependency path");
+
+        assert_eq!(
+            std::fs::read_to_string(&project).expect("read manifest"),
+            new_contents
+        );
+        assert!(
+            !lock.exists(),
+            "a project with no registry deps keeps no lock"
+        );
+    }
+
+    /// The same path must be fine when there is no lock to begin with — it is
+    /// the state `mfb init` leaves, and removing a file that is not there must
+    /// not be an error.
+    #[test]
+    fn apply_manifest_change_zero_dependencies_tolerates_a_missing_lock() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("project.json"), manifest_with_packages(""))
+            .expect("seed manifest");
+
+        apply_manifest_change(dir.path(), &manifest_with_packages("")).expect("no lock to remove");
+        assert!(!dir.path().join("mfb.lock").exists());
+    }
+
+    /// Malformed proposed text must be rejected **before** anything is written,
+    /// so a caller that builds a bad manifest cannot corrupt the project.
+    #[test]
+    fn apply_manifest_change_rejects_bad_text_without_writing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path().join("project.json");
+        let original = manifest_with_packages("");
+        std::fs::write(&project, &original).expect("seed manifest");
+
+        apply_manifest_change(dir.path(), "{not json").expect_err("must reject");
+        assert_eq!(
+            std::fs::read_to_string(&project).expect("read manifest"),
+            original,
+            "project.json must be byte-identical after a rejected change"
+        );
+
+        // `packages` present but not an array — caught by validate_packages_array.
+        let bad = "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\
+                   \"sources\":[{\"root\":\"src\"}],\"packages\":\"nope\"}";
+        apply_manifest_change(dir.path(), bad).expect_err("must reject non-array packages");
+        assert_eq!(
+            std::fs::read_to_string(&project).expect("read manifest"),
+            original
+        );
+    }
+
+    /// plan-60-B §4.3 hinges on "zero registry dependencies" meaning exactly
+    /// what `resolve()` means by it. `resolve()` seeds from
+    /// `project_package_dependency` filtered by `ident.contains('#')` and errors
+    /// on an empty set; if `registry_dependency_count` drifted from that filter,
+    /// `apply_manifest_change` would either call `resolve()` on a set it is
+    /// about to reject, or skip locking dependencies that genuinely need it.
+    ///
+    /// A local `file://`-added package has an `ident` equal to its name (no
+    /// `#`), so it must NOT count.
+    #[test]
+    fn registry_dependency_count_matches_the_resolver_seeding_filter() {
+        let local = "{\"name\":\"shape\",\"source\":\"file://shape.mfp\"}";
+        let registry = "{\"name\":\"shape\",\"ident\":\"ada#shape\",\"version\":\"1.0.0\"}";
+        let unnamed = "{\"version\":\"1.0.0\"}";
+
+        let count = |packages: &str| {
+            let text = manifest_with_packages(packages);
+            let manifest =
+                parse_project_json(&text, std::path::Path::new("project.json")).expect("parse");
+            registry_dependency_count(&manifest)
+        };
+
+        assert_eq!(count(""), 0, "no packages");
+        assert_eq!(
+            count(local),
+            0,
+            "a local file:// package is not a registry dep"
+        );
+        assert_eq!(count(unnamed), 0, "an unusable entry is not a registry dep");
+        assert_eq!(count(registry), 1);
+        assert_eq!(
+            count(&format!("{local},{registry}")),
+            1,
+            "only the registry one"
+        );
     }
 
     #[test]

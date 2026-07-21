@@ -289,30 +289,39 @@ short-circuit makes it fail. That works because the suite's stdin is not a
 terminal, so without the short-circuit `confirm` returns the non-TTY `Err` — which
 is what makes `Ok(true)` a genuine proof that the short-circuit precedes any I/O,
 rather than a tautology.
-Commit: —
+Commit: ee0a58fd0
 
 ### Phase 2 — `apply_manifest_change`
 
-- [ ] Add `pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> Result<(), String>`
+- [x] Add `pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> Result<(), String>`
       to `src/cli/resolve.rs`, implementing §4.2's seven steps in order.
-- [ ] Implement the §4.3 zero-dependency path: write `project.json`, remove
+- [x] Implement the §4.3 zero-dependency path: write `project.json`, remove
       `mfb.lock` if present, skip resolve and install, return `Ok`.
-- [ ] Do **not** rewire `update()` (`src/cli/resolve.rs:72`) to use it. `update`'s
+- [x] Do **not** rewire `update()` (`src/cli/resolve.rs:72`) to use it. `update`'s
       bare form re-resolves the *on-disk* manifest, which is a different
-      operation; letter E decides its final shape.
-- [ ] Add a targeted `#[allow(dead_code)]` **only if** `cargo check --all-targets`
-      reports the new function as unused before C lands, with a comment naming
-      plan-60-C as the consumer — and delete the attribute in C. Per AGENTS.md,
-      "consumed by a later phase" attributes rot; if C is landing in the same
-      session, prefer landing B and C together over adding the attribute.
-- [ ] Tests in `src/cli/resolve.rs`: the zero-dependency path writes the manifest
-      and removes an existing `mfb.lock` (use a `tempfile::tempdir` project, as
-      the existing lock round-trip test at `:1026` does). The resolve-failure
-      path cannot be unit-tested without a registry — it is covered by the
-      acceptance test in Phase 3.
+      operation; letter E decides its final shape. — Confirmed untouched.
+- [x] Add a targeted `#[allow(dead_code)]`, with a comment naming plan-60-C as
+      the consumer — and delete the attribute in C. Needed: the build warns
+      without it.
+- [x] Tests in `src/cli/resolve.rs`: the zero-dependency path writes the manifest
+      and removes an existing `mfb.lock`. Plus three the plan did not list:
+      the zero-dependency path with **no** lock present (the `mfb init` state —
+      removing a file that is not there must not error); malformed proposed text
+      rejected with `project.json` byte-identical afterwards, covering both bad
+      JSON and a non-array `packages`; and the resolver-agreement test below.
+- [x] **Added task** (Corrections #4): `registry_dependency_count` must apply
+      `resolve()`'s `.filter(|dep| dep.ident.contains('#'))`. My first version
+      omitted it and would have mis-classified a local `file://` package as a
+      registry dependency.
 
 Acceptance: `cargo test --bin mfb` passes; a unit test proves that a manifest with
 an empty `packages` array results in `project.json` written and `mfb.lock` absent.
+**VERIFIED** — 3150 passed / 0 failed (from 3146), 0 warnings.
+
+`registry_dependency_count_matches_the_resolver_seeding_filter` is
+**A/B-verified**: dropping the `#` filter makes it fail. It exists because §4.3's
+whole policy rests on "zero registry dependencies" meaning exactly what
+`resolve()` means by it.
 Commit: —
 
 ### Phase 3 — Acceptance coverage for the resolve-first guarantee
@@ -410,6 +419,23 @@ targeted `#[allow(dead_code)]` naming the letter that must delete it (E), per th
 plan's own guidance for the Phase 2 case. Note the attribute is longer-lived than
 Phase 2's: C consumes `apply_manifest_change`, but nothing consumes `confirm`
 until E.
+
+**#4 — "zero registry dependencies" is not "zero package entries".** (Found in
+Phase 2, 2026-07-21.) §4.3's policy turns on a manifest declaring no registry
+dependencies, but the plan never says how to count them, and the obvious reading
+is wrong. `project_package_dependency` (`src/manifest/package.rs:494`) parses
+**any** well-formed `packages` entry, including a locally-added `file://` copy
+whose `ident` defaults to its bare name. What makes an entry a *registry*
+dependency is `resolve()`'s extra `.filter(|dep| dep.ident.contains('#'))`
+(`src/cli/resolve.rs:253`).
+
+My first implementation omitted that filter. The consequence would not have been
+cosmetic: a project whose only entry is a local `file://` package would have been
+counted as having 1 registry dependency, so `apply_manifest_change` would call
+`resolve()` — which immediately errors `"project.json declares no registry
+dependencies to resolve"`. Every `add`/`remove` on such a project would fail.
+`registry_dependency_count` now mirrors the resolver filter exactly, with a test
+that fails if the two ever drift.
 
 ## Summary
 
