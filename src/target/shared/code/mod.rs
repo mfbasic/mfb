@@ -136,6 +136,16 @@ struct CodeBuilder<'a> {
     /// function-level locals that stay live (and visible) in the trap body.
     cleanup_scope_starts: Vec<usize>,
     pending_result_slots: Option<PendingResultSlots>,
+    /// plan-59-D: the stack slot holding the value **escaping** this scope, set
+    /// only while emitting a `RETURN`'s cleanups.
+    ///
+    /// A resource whose record pointer equals this value is escaping to the
+    /// caller and must NOT be closed or reclaimed by the scope it is leaving —
+    /// its obligation moves with it. `None` on every other exit path, and that is
+    /// load-bearing rather than incidental: on an error exit the resource has not
+    /// escaped (§15.6) and must still be closed, and `EXIT`/`CONTINUE` spill no
+    /// pending result at all, so a comparison there would read a stale slot.
+    escaping_value_slot: Option<usize>,
     error_arena_restore_slot: Option<usize>,
     /// When set, an inline built-in error return (`emit_error_register_return`)
     /// branches to this label instead of returning, leaving the raw `Result` in
@@ -2704,6 +2714,7 @@ fn lower_direct_builtin_runtime_helper(
         active_cleanups: Vec::new(),
         cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
+        escaping_value_slot: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
         emitting_error_route: false,

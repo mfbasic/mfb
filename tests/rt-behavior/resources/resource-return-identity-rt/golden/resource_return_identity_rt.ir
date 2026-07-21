@@ -1,0 +1,63 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_return_identity_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "makeFile",
+    "line": 33,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 33, "type": "String", "default": null }
+    ],
+    "returns": "File",
+    "body": [
+    { "op": "bind", "line": 34, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "x" }] } },
+    { "op": "return", "line": 36, "value": { "kind": "local", "name": "f" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 39,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 40, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "/tmp/mfb_resource_return_identity_rt.txt" } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "h", "type": "File", "value": { "kind": "call", "type": "File", "target": "makeFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "h" }, { "kind": "const", "type": "String", "value": "y" }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "r", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "got", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.readAll", "args": [{ "kind": "local", "name": "r" }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "r" }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "contents=" }, "right": { "kind": "local", "name": "got" } }] } },
+    { "op": "bind", "line": 55, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 56,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "500" } },
+      "body": [
+      { "op": "bind", "line": 57, "mutable": false, "name": "t", "type": "File", "value": { "kind": "call", "type": "File", "target": "makeFile", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "eval", "line": 58, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "t" }] } },
+      { "op": "assign", "line": 59, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "escaped=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
+    { "op": "eval", "line": 63, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "return", "line": 64, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

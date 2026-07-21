@@ -1543,6 +1543,26 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&ptr, abi::stack_pointer(), offset));
             self.emit(abi::compare_immediate(&ptr, "0"));
             self.emit(abi::branch_eq(&done));
+
+            // plan-59-D: the identity skip. This resource's record pointer equals
+            // the value escaping the scope, so it is being RETURNed — its close
+            // obligation moves to the caller and this scope must neither close nor
+            // reclaim it. Branch past both, to `done` rather than `reclaim`.
+            //
+            // Same control-flow shape as `emit_resource_block_reclaim`'s
+            // moved-bit skip; only the predicate differs — a pointer compare
+            // instead of a flag test.
+            //
+            // `escaping_value_slot` is `Some` only while emitting a `RETURN`'s
+            // cleanups, so this is inert on every other exit path. That is what
+            // keeps §15.6's rule intact: on an error exit *before* the return the
+            // resource has not escaped and is still closed here.
+            if let Some(escaping) = self.escaping_value_slot {
+                let escaping_ptr = self.allocate_register()?;
+                self.emit(abi::load_u64(&escaping_ptr, abi::stack_pointer(), escaping));
+                self.emit(abi::compare_registers(&ptr, &escaping_ptr));
+                self.emit(abi::branch_eq(&done));
+            }
         }
         let arg = NirValue::Local(cleanup.name.clone());
         self.emit_raw_call(
@@ -2109,7 +2129,21 @@ impl CodeBuilder<'_> {
         };
         if !cleanups.is_empty() {
             self.store_pending_current_result();
-            self.emit_cleanups(&cleanups)?;
+            // plan-59-D: only a `RETURN` carries a value out of this scope, so
+            // only here is a cleanup allowed to skip on pointer identity. The
+            // slot is the one `store_pending_current_result` just wrote, which is
+            // live precisely across `emit_cleanups` (cleanups clobber every
+            // caller-saved register, so the result must be parked anyway).
+            //
+            // Left `None` for `ExitDestination::Trap`: routing to a handler is
+            // not an escape, and §15 requires the resource still be closed.
+            let previous_escaping = self.escaping_value_slot;
+            if matches!(destination, ExitDestination::Return) {
+                self.escaping_value_slot = self.pending_result_slots.map(|slots| slots.value);
+            }
+            let result = self.emit_cleanups(&cleanups);
+            self.escaping_value_slot = previous_escaping;
+            result?;
             self.load_pending_result_registers();
         }
         match destination {

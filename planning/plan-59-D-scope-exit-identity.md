@@ -152,17 +152,33 @@ Commit: 3d80f5689
 
 ### Phase 2 — Single-resource identity skip
 
-- [ ] Emit the pointer compare and skip for `ActiveCleanup::Resource` at scope
-      exit, mirroring `emit_resource_block_reclaim`'s skip-label shape.
-- [ ] Apply to the `RETURN`-a-resource path only; collections are Phase 3.
-- [ ] Tests: `tests/rt-behavior/resources/resource-return-identity-rt` — a
+- [x] Emit the pointer compare and skip for `ActiveCleanup::Resource` at scope
+      exit, mirroring `emit_resource_block_reclaim`'s skip-label shape. — emitted
+      in `emit_resource_cleanup_call`, immediately after the existing null-slot
+      skip and branching to the same `resource_cleanup_done` label, so it skips
+      **both** close and reclaim. Verified in emitted `.ncode` (C6).
+- [x] Apply to the `RETURN`-a-resource path only; collections are Phase 3.
+      — enforced by a new `escaping_value_slot` field that is `Some` **only**
+      while emitting an `ExitDestination::Return`'s cleanups, and restored after.
+      `EXIT`/`CONTINUE` (the other dispatcher) and every error exit leave it
+      `None`, so the skip is structurally inert there.
+- [x] Tests: `tests/rt-behavior/resources/resource-return-identity-rt` — a
       function that returns a resource it opened (already legal today) must close
       it exactly once, in the caller. Assert via an observable side effect, not
-      just exit code.
+      just exit code. — added. The side effect is the **file contents**: the
+      caller writes `"y"` to the returned handle and reads back `"xy"`, which is
+      only possible if the callee did not close it. 500 further escapes guard
+      against a lucky single pass.
 
 Acceptance: the new fixture shows exactly one close for a returned resource;
 existing `resource-return-ownership-valid` and `resource-state-return-rt` still
 pass unchanged.
+**MET** — `contents=xy` / `escaped=500` / `done`, exit 0; acceptance 110 tests
+across `resource*` `native*` `libsnd*` `trap*`; `cargo test` 21 suites, 0 failed.
+**But read C7 before relying on this phase**: the skip is currently *redundant*
+with an existing static deactivation for the `RETURN <local>` case, so this
+fixture passes with or without it. That is recorded rather than presented as
+proof the new code is load-bearing.
 Commit: —
 
 ### Phase 3 — Collections and unions
@@ -331,6 +347,71 @@ assuming, and `EXIT`/`CONTINUE` route through
 a pending result at all. That second dispatcher is where Phase 2 must be careful:
 with no escaping value in play, its skip must be unconditionally off rather than
 comparing against a stale slot.
+
+### C6 — the skip as emitted (2026-07-20)
+
+From `makeFile`'s emitted `.ncode`, with slot 264 identified as
+`pending_result_value_31` in the same function's stack-slot table:
+
+```
+ldr_u64 x8 <- [sp+16]            ; this resource's record pointer
+cmp_imm x8, 0
+b.eq    resource_cleanup_done_26 ; pre-existing null-slot skip (bug-246)
+ldr_u64 x9 <- [sp+264]           ; pending_result_value — the ESCAPING value
+cmp     x8, x9
+b.eq    resource_cleanup_done_26 ; plan-59-D identity skip
+…
+bl      _mfb_rt_fs_fs_close      ; otherwise close, then reclaim
+```
+
+It targets `resource_cleanup_done`, which sits *after* both
+`resource_reclaim_skip` and `resource_block_free_skip`, so a match skips close
+**and** reclamation — the sub-plan's stated requirement, not just the close.
+
+### C7 — the skip is REDUNDANT with an existing static deactivation, and the sub-plan's premise needs narrowing (2026-07-20)
+
+**This is the most important finding of the phase and it qualifies the whole
+sub-plan.** §2's Current State says "Today the static rule does this job: a
+resource cannot escape a callee, so scope exit can close unconditionally." That
+is not the mechanism actually in play.
+
+There is already a **static** deactivation — `deactivate_resource_cleanup`
+(`builder_codegen_primitives.rs:1398`), called at `:2341` when a `RETURN`'s value
+is a `NirValue::Local` whose type has a close function. It *removes* the cleanup
+from `active_cleanups` at the return site, so **no close is emitted on the return
+path at all**. Sibling arms handle returned resource unions (bug-141) and
+returned `List OF RES` collections.
+
+Confirmed empirically: `makeFile` (which opens, writes, and returns a `File`)
+contains exactly **one** `_mfb_rt_fs_fs_close`, and it is on the
+auto-propagated-error path, not the return path.
+
+Consequences, stated plainly:
+
+- **`resource-return-identity-rt` passes with or without plan-59-D's skip.** It
+  documents the guarantee, which is worth having, but it does **not** demonstrate
+  that the new code is load-bearing. Presenting it as proof would be exactly the
+  vacuous-coverage failure this plan warns about elsewhere.
+- **The runtime skip's value is as a backstop for what static deactivation cannot
+  see** — a return whose value is not a simple local name. Static deactivation is
+  keyed on `NirValue::Local(name)` matching a registered cleanup by name; a
+  returned value that is not syntactically that local is invisible to it.
+- **The skip is not what solves the plan-59-E aliasing case.** Under E,
+  `RES g = passThrough(h)` gives one scope two bindings denoting one resource, so
+  two cleanups fire on one record. Pointer-identity-vs-*escaping-value* does not
+  address that at all — it is a double close, which plan-59-B's `closed` flag
+  makes a defined no-op. §3's framing implies identity covers this; it does not.
+
+**What this means for the sub-plan.** The skip is correct, inert where it must be,
+and cheap, so it stays. But D's premise — that E cannot land without runtime
+identity — is **overstated**: static deactivation plus B's flag already cover the
+two concrete cases. D is defense-in-depth for the non-syntactic-return case, and
+its Phase 3 (collections) and Phase 4 (exit paths) should be judged against that
+narrower claim rather than against §3's stronger one.
+
+**Deliberately not done:** removing the static deactivation in favour of the
+runtime skip. It would trade a compile-time guarantee for a runtime compare and
+churn every resource-returning golden, for no correctness gain.
 
 ### C2 — the `Commit:` lines and populations here are unverified as of 2026-07-20
 

@@ -1,0 +1,65 @@
+' plan-59-D Phase 2: a resource that ESCAPES its scope by being returned is
+' closed exactly once — by the caller — and zero times by the scope it left.
+'
+' The assertion is an observable side effect, not an exit code: a leak or a
+' premature close is invisible to exit status, which is why §15's guarantee has
+' to be checked by watching the handle actually work.
+'
+' `makeFile` opens a File and returns it. If the callee's scope-exit cleanup
+' closed it on the way out, the caller's `fs::writeAll` below would fail on a
+' closed handle and the file would read "x" instead of "xy". The file contents
+' are therefore the proof: they can only be "xy" if the resource survived the
+' return, and the program can only exit 0 if the caller's own scope then closed
+' it exactly once.
+'
+' Two mechanisms keep this correct and they are NOT the same one:
+'
+'   1. Static deactivation (`deactivate_resource_cleanup`) removes the cleanup at
+'      a `RETURN <local>` site, so no close is emitted on the return path at all.
+'      This is what already made this shape work before plan-59-D.
+'   2. plan-59-D's runtime identity skip compares each cleanup's record pointer
+'      against the escaping value and skips close+reclaim on a match. It is the
+'      backstop for the cases static deactivation cannot see, and it is inert on
+'      every non-escaping path (an error exit stores an error into the pending
+'      slot, never a record pointer, so the compare cannot match).
+'
+' The error path is deliberately still exercised: `writeAll` can fail, and on
+' that auto-propagated exit the resource has NOT escaped and must still be
+' closed (§15.6). That close is emitted and the identity skip must not suppress
+' it.
+IMPORT io
+IMPORT fs
+
+FUNC makeFile(path AS String) AS RES File
+  RES f AS File = fs::openFile(path, "write")
+  fs::writeAll(f, "x")
+  RETURN f
+END FUNC
+
+FUNC main() AS Integer
+  LET path AS String = "/tmp/mfb_resource_return_identity_rt.txt"
+
+  RES h AS File = makeFile(path)
+  ' Only reachable on a live handle: the callee must not have closed it.
+  fs::writeAll(h, "y")
+  fs::close(h)
+
+  ' Read it back: "xy" proves both writes landed on the same open handle.
+  RES r AS File = fs::openFile(path)
+  LET got AS String = fs::readAll(r)
+  fs::close(r)
+  io::print("contents=" & got)
+
+  ' Repeat the escape many times. A resource closed twice, or never, shows up
+  ' here as a failure or as unbounded fd growth rather than as a lucky pass.
+  MUT i AS Integer = 0
+  WHILE i < 500
+    RES t AS File = makeFile(path)
+    fs::close(t)
+    i = i + 1
+  WEND
+  io::print("escaped=" & toString(i))
+
+  io::print("done")
+  RETURN 0
+END FUNC
