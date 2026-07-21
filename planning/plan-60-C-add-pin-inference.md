@@ -357,7 +357,7 @@ Acceptance: `cargo test --bin mfb` passes with a test per matrix row. The
 `--pin --no-pin` case asserts exit-2 usage, not a silent winner. **VERIFIED** —
 3154 passed / 0 failed (from 3150); `parse_add_options_rejects_bad_argument_shapes`
 asserts the `Usage` variant (exit 2) for both flag orderings.
-Commit: —
+Commit: 68afd94e2
 
 ### Phase 3 — Rewire both add paths onto `apply_manifest_change` (largest blast radius)
 

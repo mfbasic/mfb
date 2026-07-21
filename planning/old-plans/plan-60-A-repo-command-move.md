@@ -455,6 +455,7 @@ Commit: eb4a0187e
 | Runtime proof | **DONE** — landed as a permanent acceptance test rather than a manual check (Corrections #6) |
 | Doc sync | **DONE** — 6 files, not the 4 listed (Corrections #2) |
 | Acceptance | **PASS** — build exit 0; 3143 unit passed / 0 failed; 20 repo_acceptance passed / 0 failed |
+| Full project acceptance (`scripts/test-accept.sh`, per `.ai/compiler.md`) | **PASS** — 1069 tests ran, 0 mismatches, exit 0. First run had exactly 1 mismatch, the expected `USAGE` golden (Corrections #8). |
 
 ## Open Decisions
 
@@ -576,6 +577,30 @@ removed. The test now asserts the dispatch-level claim without mutating global
 state (the 1-arg form forwards exactly `Path::new(".")`), and the true
 current-directory semantics moved to the acceptance suite, where a subprocess
 makes them safe to exercise. 7 consecutive full-suite runs green afterwards.
+
+**#8 — The plan's Acceptance line omits the project's real acceptance gate.**
+(Found in Phase 3, 2026-07-21.) §Validation Plan defines acceptance as `cargo
+build && cargo test --bin mfb && cargo test --test repo_acceptance`. That is not
+the project gate: `.ai/compiler.md:67` requires `scripts/test-accept.sh` for any
+change that can affect generated diagnostics — and CLI output is exactly that.
+Running it surfaced one mismatch the plan's three commands cannot see:
+`tests/syntax/packages/audit-usage/golden/audit_usage.audit` embeds the whole
+`USAGE` constant, because `mfb audit --format yaml` prints the top-level usage
+screen on a bad flag. Phase 3 changes `USAGE`, so that golden necessarily moves
+with it.
+
+Regenerated only after the four-question investigation the repo requires: the
+golden originates in `79eccc799` (audit's deterministic reports), it protects
+"bad flag → error + usage screen" which the diff leaves intact (only the two
+Repository blocks differ; the `error:` line is byte-identical), it is the sole
+capture of `USAGE` in the tree, and it is a snapshot of a constant this letter is
+chartered to change rather than an assertion this letter contradicts. Re-run
+after sync: **1069 tests, 0 mismatches.**
+
+The `- [x]` box for Phase 3's acceptance was ticked against the plan's weaker
+command list before this ran. Sub-plans B–F inherit the same understated
+Acceptance line — **use `scripts/test-accept.sh`, not just the three cargo
+commands.**
 
 ## Summary
 
