@@ -245,14 +245,16 @@ severity is `error`.
 
 ### `2-200` — `project.json` validation & build orchestration
 
-The low block (`0001`-`0013`) validates `project.json`; the high block
+The low block (`0001`-`0015`) validates `project.json`; the high block
 (`0100`/`0101`) reports orchestration failures. Note `2-200-0010` is the
-registry's only `info`, and `2-200-0009` one of exactly six `warn` rules
+registry's only `info`, and `2-200-0009` one of exactly eight `warn` rules
 (with `2-200-0012 PROJECT_JSON_UNKNOWN_MODE`,
 `2-201-0017 PRIVATE_SHADOWS_PUBLIC`,
 `2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER`,
-`2-203-0108 TYPE_MONEY_LITERAL_PRECISION`, and
-`2-203-0109 MONEY_INEXACT_FLOAT_LITERAL`); every other rule is `error`.
+`2-203-0108 TYPE_MONEY_LITERAL_PRECISION`,
+`2-203-0109 MONEY_INEXACT_FLOAT_LITERAL`,
+`2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED`, and
+`2-203-0117 NATIVE_LIBRARY_UNUSED`); every other rule is `error`.
 [[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |
