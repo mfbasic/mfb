@@ -2247,6 +2247,50 @@ mod tests {
         abi_ctype_valid_as_argument, abi_ctype_valid_as_return, IrAbiSlot, IrLinkFunction,
     };
 
+    /// plan-59-A Phase 3: a native `LINK` resource must never reach the
+    /// buffer-free path in `emit_resource_block_reclaim`.
+    ///
+    /// Since plan-59-A every native resource is an 80-byte record, so it now flows
+    /// through the same drop-reclamation as a built-in `File`. Words 24..72 of a
+    /// native record are zeroed by the thunk and are NOT buffer pointers; handing
+    /// them to `arena_free` would free addresses the resource never owned.
+    ///
+    /// What keeps that from happening is `resource_uses_io_buffers`, which is a
+    /// bare name comparison against `"File"`. That makes the guarantee POSITIONAL
+    /// — true only because no other type is spelled `File` — and plan-59-A's Open
+    /// Decision required it be pinned by a test rather than asserted, precisely
+    /// because a positional fact is the kind that drifts.
+    ///
+    /// This test fails the moment a second type is given I/O buffers, which is the
+    /// signal to re-check whether native records can reach that path.
+    #[test]
+    fn only_the_builtin_file_resource_uses_io_buffers() {
+        // The one type that owns the two fixed-capacity I/O buffers.
+        assert!(CodeBuilder::resource_uses_io_buffers("File"));
+        // A `STATE`-carrying spelling is still the same base type.
+        assert!(CodeBuilder::resource_uses_io_buffers("File STATE Cursor"));
+
+        // Every resource type a native `LINK` block declares in-tree, plus the
+        // other built-in resources. None may take the buffer-free path.
+        for type_ in [
+            "Db",
+            "Stmt",
+            "SoundFile",
+            "SoundFile STATE FileInfo",
+            "Socket",
+            "Listener",
+            "UdpSocket",
+            "AudioInput",
+            "AudioOutput",
+        ] {
+            assert!(
+                !CodeBuilder::resource_uses_io_buffers(type_),
+                "{type_} must not take the I/O-buffer free path: its record's \
+                 words 24..72 are not buffer pointers"
+            );
+        }
+    }
+
     /// bug-296: a LINK thunk calls a real C function, so its arguments follow the
     /// target's EXTERNAL C ABI. SysV x86-64 passes six integer arguments in
     /// registers; the backend's `CALL_ARGS` extends the list with rax/rbp for

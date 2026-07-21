@@ -259,29 +259,65 @@ resource surviving a full lifecycle. `cargo test` green.
 'resource*'` → 106 tests passed (105 before the new fixture); `cargo test` → 21
 suites, 0 failed. No golden anywhere in the tree changed except the new
 fixture's own seeded set.
-Commit: —
+Commit: e99578d29
 
 ### Phase 3 — Drop and reclamation (largest blast radius, last)
 
 The record now reaches the reclaim path; make sure it never frees native memory.
 
-- [ ] In `emit_resource_block_reclaim` (`builder_codegen_primitives.rs:1606`),
+- [x] In `emit_resource_block_reclaim` (`builder_codegen_primitives.rs:1606`),
       confirm `has_io_buffers` is false for every native `LINK` resource — a
       native record's words 24..72 are zeroed, but this path must not be asked to
-      free them. Add a test if the guarantee is only positional.
-- [ ] Confirm scope-drop calls the registered close op with the record (which the
-      close-op thunk then unwraps), not with `FD@0` directly — the two must not
-      double-unwrap.
-- [ ] Run the acceptance suite for the native area and diff goldens: any
+      free them. Add a test if the guarantee is only positional. — it **is** only
+      positional, so the test was added:
+      `only_the_builtin_file_resource_uses_io_buffers` in `link_thunk.rs`. See C8.
+- [x] ~~Confirm scope-drop calls the registered close op with the record (which
+      the close-op thunk then unwraps), not with `FD@0` directly — the two must
+      not double-unwrap.~~ — **moot: the premise is false.** Scope-drop does not
+      call the close op *at all* for a user-declared resource, so there is no
+      double-unwrap to rule out. This is a pre-existing HIGH-severity leak, filed
+      as **bug-374**. See C9.
+- [x] Run the acceptance suite for the native area and diff goldens: any
       `.ncode` golden covering a stateless native resource will change shape.
       Re-baseline **only** after confirming each diff is the record wrap and
-      nothing else.
-- [ ] Tests: extend `native-link-free-rt` to assert no arena growth across a
+      nothing else. — **zero goldens changed**, so no re-baselining was needed or
+      done. See C10 for why the predicted churn did not happen.
+- [~] Tests: extend `native-link-free-rt` to assert no arena growth across a
       1000-iteration open/close loop, mirroring plan-52-B's retention check.
+      — **Retention measured, and it is NOT flat; the assertion cannot be written
+      as "no growth" today because bug-374 makes it false.** Measured, explicit
+      open/close of a native `Db` (`/usr/bin/time -l`, macOS aarch64):
+
+      | iterations | peak RSS |
+      |---|---|
+      | 1 000 | 3 948 544 B |
+      | 20 000 | 11 829 248 B |
+
+      ≈ **415 B/iteration**, which is the 80-byte record never being reclaimed
+      (bug-374's second half) plus allocator bookkeeping. **Remaining:** write the
+      assertion as part of bug-374's Phase 1 regression fixture, where it fails
+      before the fix and passes after. Deliberately NOT weakened to "bounded" here
+      — see C9.
 
 Acceptance: `scripts/test-accept.sh` passes for `native*` and `resource*` with a
 hermetic `MFB_HOME`; the retention loop shows bounded arena use; no golden
 outside the native area changed.
+
+**PARTIALLY MET — and the criterion is strengthened, not weakened.**
+
+- `scripts/test-accept.sh … 'native*' 'libsnd*' 'resource*'` → green. ✅
+- No golden changed anywhere in the tree, let alone outside the native area. ✅
+- **"The retention loop shows bounded arena use" is NOT met, and must not be
+  ticked.** Retention is ~415 B/iteration (table above), so arena use is bounded
+  only in the sense that any linear growth is. The original wording is too weak to
+  be checkable — "bounded" is satisfied by a leak. It is therefore **replaced with
+  a checkable criterion**: *peak RSS for an N-iteration native open/close loop
+  must be flat in N, within allocator noise, matching the built-in `File` path.*
+  That criterion currently **fails**, for the reason filed as bug-374, and it is
+  that bug's Phase 3 acceptance to satisfy.
+
+This phase is therefore complete for everything plan-59-A itself changes, and
+carries one task (`- [~]`) explicitly handed to bug-374 rather than closed.
 Commit: —
 
 ## Validation Plan
@@ -469,6 +505,100 @@ the flag observable.
 **The `.ir` golden does not pin the record wrap** — `grep -c resource` over it is
 0, because the wrap is a codegen-level change below IR. The behavioural pin is
 `build.log`'s captured runtime output, not the `.ir`.
+
+### C8 — `has_io_buffers` is positional, now pinned by a test; and the probe found bug-373 (2026-07-20)
+
+The Open Decision required Phase 3 to *prove* `has_io_buffers` is false for every
+native resource rather than assert it. Result: the guarantee is **positional**,
+exactly as feared. `resource_uses_io_buffers`
+(`builder_codegen_primitives.rs:1358`) is a bare name comparison:
+
+```rust
+crate::builtins::resource::base_resource_name(type_) == "File"
+```
+
+Nothing enforces that no other type is spelled `File`. Pinned by a new test,
+`only_the_builtin_file_resource_uses_io_buffers` (`link_thunk.rs`), which fails
+the moment a second type gains I/O buffers.
+
+There is also a **second, structural** defense the plan did not credit: the thunk
+zeroes words 24..72, and `emit_free_resource_block` null-guards
+(`builder_codegen_primitives.rs:1678-1679`), so even a native record that *did*
+reach the buffer-free path would free nothing. The Open Decision's feared failure
+mode — "a native handle's words 24..72 would be handed to `arena_free`" — is
+therefore double-defended, not single-defended.
+
+**The adversarial probe surfaced a separate defect.** Declaring an actual
+`RESOURCE File` in a `LINK` block does not build at all; it fails with an
+internal error, `NIR declares unused runtime helper 'fs'`, with no rule code and
+no span. `RESOURCE Socket` gives the same for `'net'`. Filed as **bug-373**
+(pre-existing: the stateful path fails identically, and that path predates
+plan-59-A). Worth noting that this bug is currently what makes the positional
+guarantee *unreachable* in practice — a guarantee resting on an error message,
+which is why the test above matters independently.
+
+### C9 — Phase 3 task 2's premise is FALSE: native resources are never closed at scope exit (2026-07-20)
+
+The task was to confirm scope-drop passes the *record* to the close op rather
+than `FD@0`, so the two do not double-unwrap. Neither happens: **scope-drop emits
+no close and no reclaim for a user-declared resource at all.**
+
+For `FUNC dropIt()` binding a `RES db AS Db` and returning, `--ncode` shows the
+function's relocations contain `sql_open` and nothing else — no `sql_close`, no
+`resource_cleanup_reclaim`, no `resource_reclaim_skip`. The identical shape with
+a built-in `File` emits all three.
+
+Measured cost, 20 000 iterations, macOS aarch64:
+
+| Variant | peak RSS |
+|---|---|
+| relies on scope drop | **2 920 579 072 B ≈ 2.92 GB** |
+| explicit `sql::close` | **10 452 992 B ≈ 10.4 MB** |
+
+≈146 KB retained per dropped resource, 279×.
+
+**This is pre-existing, not caused by plan-59-A.** The stateful native path emits
+the same zero close/reclaim instructions, and that path has been record-wrapped
+since plan-53-A — before and after this sub-plan. Root cause:
+`resource_cleanup_symbol` resolves through `builtin_resource_close_function`,
+an 8-entry map of built-ins only, so a user `RESOURCE … CLOSE BY` yields `None`
+and `builder_control.rs:260`'s `else if` silently falls through.
+
+It also **contradicts the spec**, which is why it is a bug and not a design
+choice — §15's opening states resources are closed by lexical drop on every exit
+path, and §15's own worked example is a *native* `RESOURCE SfFile CLOSE BY
+sfClose`.
+
+Filed as **bug-374** (HIGH, Correctness), with the recommendation that it land
+*after* plan-59-B: every in-tree native program closes explicitly today precisely
+because drop does not, so adding drop-close turns each into a double close, which
+plan-59-B's `closed` flag makes a defined no-op.
+
+**Consequence for plan-59-D**, recorded in that sub-plan's Corrections: D's
+subject is skipping scope-exit cleanup for an escaping resource. For native
+resources there is currently no scope-exit cleanup to skip, so D's identity check
+is a no-op for them until bug-374 lands.
+
+**Note on the new fixture.** `native-stateless-record-rt`'s `openOnly()` helper
+drops without closing, so under bug-374 it currently leaks ~146 KB × 200 ≈ 29 MB.
+That is harmless at this size and the fixture is *deliberately kept that way* —
+it becomes a ready-made regression guard the moment bug-374 is fixed.
+
+### C10 — the predicted golden churn did not happen (2026-07-20)
+
+Phase 3 anticipated that "any `.ncode` golden covering a stateless native
+resource will change shape" and budgeted for careful re-baselining. **No golden
+changed anywhere in the tree** across the whole sub-plan — verified by
+`git status --short -- tests/` being empty after each phase, and by two full
+acceptance runs.
+
+The reason is the same one plan-52-B recorded when it made the identical wrong
+prediction: no in-tree fixture carries an `.ncode`/`.nir` golden for a native
+resource producer. The record wrap is real and is visible in a freshly emitted
+`--ncode` plan, but nothing pins it. So the *runtime* fixtures are what actually
+guard this change — which is an argument for the `rt-behavior` fixture added in
+Phase 2, and a standing gap worth knowing about: the codegen change at the heart
+of plan-59-A is invisible to the artifact gate.
 
 ### C3 — the param-side unwrap is type-keyed, and already covers bare params (2026-07-20)
 

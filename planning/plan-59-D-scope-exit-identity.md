@@ -219,7 +219,47 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+### C1 — native resources have NO scope-exit cleanup to skip (2026-07-20, from plan-59-A Phase 3)
+
+This sub-plan's whole subject is making scope-exit cleanup *skip* a resource that
+escaped. For a user-declared `RESOURCE T CLOSE BY nativeOp` — the form every
+native binding uses — there is currently **no scope-exit cleanup at all**: no
+close call, no reclaim, no diagnostic. Found while executing plan-59-A Phase 3
+and filed as **bug-374** (HIGH, Correctness); see plan-59-A Correction C9 for the
+evidence, including a 2.92 GB vs 10.4 MB peak-RSS contrast over 20 000
+iterations.
+
+Root cause: `resource_cleanup_symbol` resolves through
+`builtin_resource_close_function`, an 8-entry map of built-ins only, so
+`builder_control.rs:260`'s `else if let Some(symbol) = …` silently falls through
+for a user resource and no `ActiveCleanup::Resource` is ever pushed.
+
+**What this changes for this sub-plan:**
+
+- Phase 1's enumeration of `ActiveCleanup` variants is still valid, but it must
+  record that the variants are populated **only for built-in resources today**.
+  The "10 `ActiveCleanup::Resource` reference sites" figure is a count of
+  *emission* sites, not evidence that native resources reach them.
+- Phase 2's identity skip will be correct but **inert for native resources**
+  until bug-374 lands — there is no cleanup to skip. Any fixture written to prove
+  the skip must therefore use a **built-in** resource, or it will pass vacuously
+  by skipping nothing.
+- This is *not* a blocker for D. The skip is needed for built-in resources
+  regardless, and it is the right shape for native ones once they register
+  cleanups.
+
+**Sequencing.** bug-374 recommends landing after plan-59-B (whose `closed` flag
+makes the resulting second close a defined no-op). If it lands before this
+sub-plan, D's fixtures should cover both resource kinds; if after, D's acceptance
+must not claim native coverage it does not have.
+
+### C2 — the `Commit:` lines and populations here are unverified as of 2026-07-20
+
+Recorded so the next reader does not mistake this sub-plan's Measured populations
+for re-checked figures. `ActiveCleanup::Resource` → 10 sites was independently
+re-run and **confirmed** at execution start
+(`grep -rn "ActiveCleanup::Resource" src/ --include="*.rs" | wc -l` → 10). The two
+`UNMEASURED` rows remain unmeasured; they are Phase 1's tasks.
 
 ## Summary
 
