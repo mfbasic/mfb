@@ -811,6 +811,7 @@ impl<'a> FileParser<'a> {
         let mut bind_in: Vec<BindIn> = Vec::new();
         let mut bind_state: Option<BindState> = None;
         let mut buffers: Vec<BufferSpec> = Vec::new();
+        let mut result_length: Option<Expression> = None;
         let mut free: Option<FreeSpec> = None;
 
         while !self.is_at_end() {
@@ -875,6 +876,12 @@ impl<'a> FileParser<'a> {
             // statements, so `Keyword::Return` here can only be this clause.
             if self.match_keyword(Keyword::Return) {
                 result = self.parse_expression();
+                // plan-58-B: `RETURN <expr> LENGTH <expr>`. `LENGTH` is an
+                // ordinary identifier, not an operator, so `parse_expression`
+                // stops cleanly before it and this is unambiguous.
+                if self.match_identifier_ci("LENGTH") {
+                    result_length = self.parse_expression();
+                }
                 self.consume_statement_end("Expected end of statement after RETURN.");
                 self.skip_separators();
                 continue;
@@ -959,6 +966,7 @@ impl<'a> FileParser<'a> {
             bind_in,
             bind_state,
             buffers,
+            result_length,
             free,
             line: func_token.line,
         })

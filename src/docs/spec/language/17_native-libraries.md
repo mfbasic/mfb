@@ -180,7 +180,7 @@ FUNC readFrames(file AS RES SoundFile, frames AS Integer, channels AS Integer) A
   SYMBOL "sf_readf_short"
   ABI (sndfile CPtr, buf OUT CBuffer, frames CInt64) AS read CInt64
   BUFFER buf SIZE frames * channels * 2
-  RETURN buf
+  RETURN buf LENGTH read * channels * 2
 END FUNC
 ```
 
@@ -198,8 +198,24 @@ A `CBuffer` is legal in exactly one position, and every other use is rejected wi
 * It must be the slot `RETURN` names. Unlike a scalar `OUT`, which merely goes unread, an unreturned buffer costs a runtime-sized allocation whose bytes nothing can observe.
 * The wrapper's return type must then be `List OF Byte` — and, conversely, **a wrapper returning `List OF Byte` must return a `CBuffer` slot.** Nothing else can produce a byte list.
 * It cannot be a `CSTRUCT` field (a struct field needs a constant offset) and cannot be the ABI return proper (`AS r CBuffer`): a C function fills storage the caller passed in, it does not return a buffer whose size the caller declared.
+* It **must** carry a `RETURN <slot> LENGTH <expr>` clause. See below.
 
-> Implementation status (plan-58-A): the vocabulary, the clause and all of the rules above are in place, but **no marshaling is implemented yet** — a declaration that passes every rule still fails to lower, by design and with a diagnostic naming `CBuffer`. plan-58-B adds the allocation and copy-out. Until then `BUFFER` clauses also do not ride the `.mfp` wire format (plan-58-C), which is safe only because nothing lowers.
+**Reporting what was written (`RETURN <slot> LENGTH <expr>`).** The buffer is allocated at its full `SIZE` capacity, but a C bulk read routinely writes less — a short read, an EOF, an error. `LENGTH` says, in **bytes**, how much the callee actually wrote, and it is what the returned list's length becomes:
+
+```basic
+  BUFFER buf SIZE frames * channels * 2
+  RETURN buf LENGTH read * channels * 2
+```
+
+Unlike `SIZE`, a `LENGTH` expression is evaluated **after** the call, so it may read the ABI return and any `OUT` slot — which is the point, since that is where the callee reports what it wrote. The value is **clamped to `[0, capacity]`**: `read(2)`, `pread(2)` and `sf_read_short` all return `-1` on error and `0` at EOF, and an unclamped negative stored as a length is a huge *unsigned* value that would send every later read off the end of the block.
+
+`LENGTH` is **mandatory** on a returned `CBuffer`, not optional. Without it the list's length would be the buffer's full capacity, so a callee that short-writes would leave the remainder as uninitialized arena memory readable as ordinary data. Requiring the clause closes that by construction and costs nothing at run time; zero-filling every buffer instead would mean an O(N) write on every call, including the calls that fill it completely. A callee that always fills the buffer simply writes `LENGTH n`.
+
+The buffer's *capacity* deliberately stays at the full `SIZE` after truncation. That is what lets the arena reclaim the whole block — block size is computed from capacity, so lowering it would leak the tail — and `capacity > count` is sanctioned headroom (§Collections); a value-semantic copy is shrink-to-fit, so the slack disappears the first time the list is copied.
+
+A `SIZE` that is negative or larger than **64 MiB** raises `ErrInvalidArgument` before anything is allocated: the size comes from a wrapper parameter, so without a cap it is an unbounded allocation request driven by the caller.
+
+> Implementation status (plan-58-B): `OUT CBuffer` marshals — the thunk allocates the byte list, hands the callee a pointer to its data region, and truncates to `LENGTH` on return. `BUFFER` and `LENGTH` clauses do **not** yet ride the `.mfp` wire format (plan-58-C owns it), so a `CBuffer` binding cannot currently be consumed from a compiled package: decoding one yields a slot with no `BUFFER` clause, which fails to lower with a diagnostic rather than marshalling a zero-capacity buffer.
 
 **Pinning constant and NULL arguments (`CONST slot = value`).** The `ABI (...)` line always states the true native signature — every C argument in C order. Some of those arguments are fixed values the caller never supplies (a `-1` length, a NULL callback, a sentinel destructor). `CONST <slot> = <value>` pins one ABI slot to a fixed value and removes it from the wrapper's parameter list. The value is checked against the slot's declared ABI type. `NOTHING` pins a C NULL on a pointer slot; a pointer-sized integer literal pins a sentinel pointer (e.g. `-1` for SQLite's `SQLITE_TRANSIENT`). A `CONST` slot is input-only — marking it `OUT` or as the result is rejected (`NATIVE_CONST_OUT`), and pinning an unknown slot is `NATIVE_CONST_UNKNOWN_SLOT`. A pin is call metadata baked into the native frame; it never materializes as a source value, so it cannot forge or leak a `CPtr`. A pinned integer is lowered as a 64-bit **bit pattern**, so the full unsigned range is available: `CONST flags = 0xFFFFFFFFFFFFFFFF` pins all sixty-four bits, exactly as the equivalent `-1` does. [[src/ir/lower.rs:link_const_bits]]
 

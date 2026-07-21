@@ -461,6 +461,14 @@ pub(crate) struct IrLinkFunction {
     /// moment marshaling lands, plan-58-C must carry this on the wire or a
     /// packaged binding would marshal a zero-capacity buffer.
     pub(crate) buffers: Vec<IrBuffer>,
+    /// `RETURN <expr> LENGTH <expr>` (plan-58-B): how many of the returned
+    /// buffer's bytes the callee wrote, in bytes. Clamped to `[0, capacity]` at
+    /// runtime, so a callee returning `-1` or a count past the buffer cannot
+    /// produce a list that reads out of bounds.
+    ///
+    /// Mandatory whenever `RETURN` names a `CBuffer`; see `check_buffer_slots`.
+    /// Source-path only in plan-58-B, like `buffers` — plan-58-C owns the wire.
+    pub(crate) result_length: Option<IrLinkExpr>,
 }
 
 /// One `BUFFER <slot> SIZE <expr>` clause — the byte capacity of an `OUT CBuffer`
@@ -518,6 +526,11 @@ pub(crate) struct BufferSlotsView<'a> {
     /// computed `RETURN` (`RETURN status = 0`) or no `RETURN` at all — neither can
     /// surface a buffer, which is exactly what rules 6 and 8 turn on.
     pub(crate) result_slot: Option<&'a str>,
+    /// The identifiers `RETURN … LENGTH <expr>` reads, or `None` when there is no
+    /// `LENGTH` clause. Unlike `SIZE`, a `LENGTH` expression is evaluated AFTER
+    /// the call, so it may read the ABI return and OUT slots — that is the whole
+    /// point, since the callee reports there how much it wrote.
+    pub(crate) length_reads: Option<Vec<&'a str>>,
 }
 
 /// Validate every `CBuffer` slot and `BUFFER` clause, returning each fault found
@@ -694,6 +707,62 @@ pub(crate) fn check_buffer_slots(view: &BufferSlotsView) -> Vec<CStructFault> {
             ));
         }
     }
+    // Rule 10 (plan-58-B): a CBuffer MUST carry a LENGTH clause.
+    //
+    // Not a style rule. Without one the list's `count` is its full capacity, so a
+    // callee that writes fewer bytes than the buffer holds leaves the remainder as
+    // uninitialized arena memory that ordinary code then reads as data. That was
+    // observed, not theorized: a `pread` short-write surfaced stale bytes as the
+    // wrapper's result during plan-58-B Phase 2.
+    //
+    // Requiring LENGTH closes it by construction and costs nothing at runtime,
+    // which is why it beat zero-filling the buffer (an O(N) memset paid on every
+    // call, including the ones that fill it completely). Every real C bulk-read
+    // API reports how much it wrote, so there is always something to name; a
+    // fill-completely callee writes `LENGTH n`.
+    if let Some(slot) = view.result_slot {
+        if is_buffer_slot(slot) && view.length_reads.is_none() {
+            faults.push(fault(
+                "NATIVE_BUFFER_INVALID",
+                format!(
+                    "Native function `{name}` returns CBuffer slot `{slot}` without a `RETURN {slot} LENGTH <expr>` clause; without one the result would expose the buffer's unwritten bytes."
+                ),
+            ));
+        }
+    }
+    // Rule 11: a LENGTH clause is meaningless unless RETURN names a CBuffer —
+    // every other result is a scalar with no length to set.
+    if view.length_reads.is_some() && !view.result_slot.is_some_and(is_buffer_slot) {
+        faults.push(fault(
+            "NATIVE_BUFFER_INVALID",
+            format!(
+                "Native function `{name}` declares `RETURN … LENGTH`, but `RETURN` does not name an OUT CBuffer slot; only a buffer has a length to set."
+            ),
+        ));
+    }
+    // Rule 12: every name a LENGTH expression reads must resolve. The accept set
+    // is the WIDE one here — parameters, CONST pins, any ABI slot, and the ABI
+    // return — because LENGTH is evaluated after the call, when all of those hold
+    // real values. Contrast rule 9.
+    if let Some(reads) = &view.length_reads {
+        for read in reads {
+            if *read == "NOTHING"
+                || *read == view.abi_return_name
+                || view.param_names.contains(read)
+                || view.const_slots.contains(read)
+                || view.slots.iter().any(|(n, _, _)| n == read)
+            {
+                continue;
+            }
+            faults.push(fault(
+                "NATIVE_ABI_UNBOUND_SLOT",
+                format!(
+                    "Native function `{name}` `RETURN … LENGTH` expression reads `{read}`, which is not a parameter, a CONST pin, an ABI slot, or the ABI return."
+                ),
+            ));
+        }
+    }
+
     // Rule 8: the converse, and the reason this checker had to land with the
     // ctype rather than after it. A wrapper declaring `AS List OF Byte` without a
     // CBuffer result compiled *before* plan-58 and produced garbage:

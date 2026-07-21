@@ -336,6 +336,13 @@ pub struct LinkFunction {
     /// `OUT CBuffer` slot. Exactly one per CBuffer slot; validated by
     /// `ir::check_buffer_slots`, not here.
     pub buffers: Vec<BufferSpec>,
+    /// The `LENGTH <expr>` tail of `RETURN <expr> LENGTH <expr>` (plan-58-B): how
+    /// many of the buffer's bytes the callee actually wrote, in bytes.
+    ///
+    /// **Mandatory on a `CBuffer`**, not optional. Without it the list's `count`
+    /// would be its full capacity, so a callee that short-writes leaves stale
+    /// arena bytes readable as program data — observed during plan-58-B Phase 2.
+    pub result_length: Option<Expression>,
     /// `SUCCESS_ON <expr>` gate, if any (the De Morgan complement of `ERROR_ON`).
     pub success_on: Option<Expression>,
     /// `RETURN <expr>` result clause, if any. A bare `RETURN db` names the

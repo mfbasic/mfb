@@ -573,6 +573,10 @@ fn decode_link_function(r: &mut IrReader) -> Result<IrLinkFunction, String> {
         // hand a C function a zero-length buffer. plan-58-C must land the wire
         // format in the SAME change that removes that refusal.
         buffers: Vec::new(),
+        // Same story as `buffers`: source-path only until plan-58-C lands the
+        // wire format. Safe today only because a decoded CBuffer slot with no
+        // BUFFER clause fails to lower rather than marshalling a bad buffer.
+        result_length: None,
         // Stays `None`: the BIND STATE resource-slot NAME is source-only surface
         // syntax that binds nothing at the package boundary, so it never rode the
         // wire. Its check ran when this package was built from source.

@@ -6,13 +6,13 @@ LINK "demo" AS demoLink
     SYMBOL "demo_read"
     ABI (buf CBuffer, n CInt64) AS status CInt32
     BUFFER buf SIZE n
-    RETURN buf
+    RETURN buf LENGTH status
   END FUNC
 
   FUNC readInOut(n AS Integer) AS List OF Byte
     SYMBOL "demo_read2"
     ABI (buf INOUT CBuffer, n CInt64) AS status CInt32
     BUFFER buf SIZE n
-    RETURN buf
+    RETURN buf LENGTH status
   END FUNC
 END LINK

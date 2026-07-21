@@ -31,7 +31,7 @@ LINK "c" AS libc
     SYMBOL "pread"
     ABI (fd CInt32, buf OUT CBuffer, nbyte CInt64, offset CInt64) AS got CInt64
     BUFFER buf SIZE nbyte
-    RETURN buf
+    RETURN buf LENGTH got
   END FUNC
 
   ' plan-58-B Phase 2: a SIZE expression with arithmetic. This is the shape every
@@ -46,7 +46,7 @@ LINK "c" AS libc
     SYMBOL "pread"
     ABI (fd CInt32, buf OUT CBuffer, nbyte CInt64, offset CInt64) AS got CInt64
     BUFFER buf SIZE pairs * 2
-    RETURN buf
+    RETURN buf LENGTH got
   END FUNC
 
   FUNC closeFd(fd AS Integer) AS Integer
@@ -88,6 +88,26 @@ FUNC main() AS Integer
   LET pairs AS List OF Byte = libc::preadPairs(fd, 10, 5, 0)
   io::print("pairs_len " & toString(len(pairs)))
   io::print("pairs " & encoding::base64Encode(pairs))
+
+  ' Phase 3, the short read — the case LENGTH exists for. The file is 26 bytes;
+  ' asking for 100 from offset 20 leaves pread able to write only 6. Without a
+  ' LENGTH clause `count` would be the full 100-byte capacity and the trailing 94
+  ' bytes of uninitialized arena memory would be readable as data. With it,
+  ' `count` is what the callee reported.
+  LET short AS List OF Byte = libc::preadBytes(fd, 100, 20)
+  io::print("short_len " & toString(len(short)))
+  io::print("short " & encoding::base64Encode(short))
+
+  ' The clamp's negative arm: pread on a closed/bad fd returns -1. An unclamped
+  ' -1 stored to `count` is a huge UNSIGNED value, and every later read walks off
+  ' the block. Clamped to 0, this is simply an empty list.
+  LET bad AS List OF Byte = libc::preadBytes(-1, 8, 0)
+  io::print("bad_len " & toString(len(bad)))
+
+  ' Reading entirely past EOF: pread returns 0, so the list is empty rather than
+  ' 8 bytes of arena garbage.
+  LET past AS List OF Byte = libc::preadBytes(fd, 8, 900)
+  io::print("past_len " & toString(len(past)))
 
   LET closed AS Integer = libc::closeFd(fd)
   io::print("closed " & toString(closed))

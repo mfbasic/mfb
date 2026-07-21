@@ -13,6 +13,6 @@ LINK "demo" AS demoLink
     SYMBOL "demo_read2"
     ABI (n CInt64, value OUT CInt32) AS status CInt32
     BUFFER value SIZE n
-    RETURN value
+    RETURN value LENGTH status
   END FUNC
 END LINK

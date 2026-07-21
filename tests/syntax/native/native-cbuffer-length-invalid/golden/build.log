@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/native/native-cbuffer-length-invalid
+  17 |   FUNC noLength(n AS Integer) AS List OF Byte
+  18 |     SYMBOL "demo_read"
+  19 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-length-invalid/src/lib.mfb:19 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `noLength` returns CBuffer slot `buf` without a `RETURN buf LENGTH <expr>` clause; without one the result would expose the buffer's unwritten bytes.
+  26 |   FUNC strayLength(n AS Integer) AS Integer
+  27 |     SYMBOL "demo_count"
+  28 |     ABI (n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-length-invalid/src/lib.mfb:28 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `strayLength` declares `RETURN … LENGTH`, but `RETURN` does not name an OUT CBuffer slot; only a buffer has a length to set.
+  33 |   FUNC badLength(n AS Integer) AS List OF Byte
+  34 |     SYMBOL "demo_read2"
+  35 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-length-invalid/src/lib.mfb:35 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
+               Native function `badLength` `RETURN … LENGTH` expression reads `nosuch`, which is not a parameter, a CONST pin, an ABI slot, or the ABI return.
+[exit 1]

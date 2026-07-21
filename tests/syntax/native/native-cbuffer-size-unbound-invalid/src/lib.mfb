@@ -12,7 +12,7 @@ LINK "demo" AS demoLink
     SYMBOL "demo_read"
     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
     BUFFER buf SIZE nosuch
-    RETURN buf
+    RETURN buf LENGTH status
   END FUNC
 
   ' The ABI return: real, but does not exist yet.
@@ -20,7 +20,7 @@ LINK "demo" AS demoLink
     SYMBOL "demo_read2"
     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
     BUFFER buf SIZE status
-    RETURN buf
+    RETURN buf LENGTH status
   END FUNC
 
   ' An OUT slot: whatever the callee writes, which has not happened yet.
@@ -28,6 +28,6 @@ LINK "demo" AS demoLink
     SYMBOL "demo_read3"
     ABI (buf OUT CBuffer, n CInt64, written OUT CInt64) AS status CInt32
     BUFFER buf SIZE written
-    RETURN buf
+    RETURN buf LENGTH status
   END FUNC
 END LINK

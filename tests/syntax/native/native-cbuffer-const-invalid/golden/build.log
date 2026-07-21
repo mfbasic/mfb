@@ -5,4 +5,10 @@ $ mfb build -ast -ir tests/syntax/native/native-cbuffer-const-invalid
      | ^
 tests/syntax/native/native-cbuffer-const-invalid/src/lib.mfb:7 error[2-203-0097 NATIVE_CONST_OUT]: a CONST-pinned ABI slot cannot also be OUT
                Native function `pinned` pins ABI slot `buf` with CONST, which cannot also be OUT.
+   5 |   FUNC pinned(n AS Integer) AS List OF Byte
+   6 |     SYMBOL "demo_read"
+   7 |     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-const-invalid/src/lib.mfb:7 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `pinned` returns CBuffer slot `buf` without a `RETURN buf LENGTH <expr>` clause; without one the result would expose the buffer's unwritten bytes.
 [exit 1]

@@ -212,6 +212,7 @@ mod tests {
                     bind_in: Vec::new(),
                     bind_state: None,
                     buffers: Vec::new(),
+                    result_length: None,
                     success_on,
                     result: None,
                     free: None,

@@ -1,0 +1,39 @@
+' plan-58-B rules 10, 11 and 12 — the `RETURN <expr> LENGTH <expr>` clause.
+'
+' Rule 10 is the load-bearing one, and it is a correctness rule rather than a
+' style rule. A CBuffer's block is allocated at its full SIZE capacity; without a
+' LENGTH clause the list's `count` stays at that capacity, so a callee that
+' writes fewer bytes than the buffer holds leaves the remainder as uninitialized
+' ARENA memory which ordinary code then reads as data.
+'
+' That was observed, not theorized: during plan-58-B Phase 2 a short `pread`
+' surfaced stale arena bytes as the wrapper's result. Requiring LENGTH closes it
+' by construction and costs nothing at runtime — which is why it was preferred
+' over zero-filling the buffer, an O(N) memset paid on every call including the
+' ones that fill it completely. Every real C bulk-read API reports how much it
+' wrote, so there is always something to name.
+LINK "demo" AS demoLink
+  ' Rule 10: returns a CBuffer with no LENGTH.
+  FUNC noLength(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    RETURN buf
+  END FUNC
+
+  ' Rule 11: a LENGTH clause with no CBuffer to apply it to. A scalar result has
+  ' no length to set, so this is a mistake rather than a harmless no-op.
+  FUNC strayLength(n AS Integer) AS Integer
+    SYMBOL "demo_count"
+    ABI (n CInt64) AS status CInt32
+    RETURN status LENGTH n
+  END FUNC
+
+  ' Rule 12: a LENGTH expression naming nothing real.
+  FUNC badLength(n AS Integer) AS List OF Byte
+    SYMBOL "demo_read2"
+    ABI (buf OUT CBuffer, n CInt64) AS status CInt32
+    BUFFER buf SIZE n
+    RETURN buf LENGTH nosuch
+  END FUNC
+END LINK

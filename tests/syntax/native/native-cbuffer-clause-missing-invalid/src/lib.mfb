@@ -13,6 +13,6 @@ LINK "demo" AS demoLink
     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
     BUFFER buf SIZE n
     BUFFER buf SIZE 4096
-    RETURN buf
+    RETURN buf LENGTH status
   END FUNC
 END LINK

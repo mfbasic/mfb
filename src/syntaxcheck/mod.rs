@@ -455,7 +455,8 @@ impl<'a> SyntaxChecker<'a> {
         let uses_buffers = !function.buffers.is_empty()
             || function.abi.slots.iter().any(|s| s.ctype == "CBuffer")
             || function.abi.return_ctype == "CBuffer"
-            || function.return_type.as_deref() == Some(crate::ir::BYTE_LIST_TYPE);
+            || function.return_type.as_deref() == Some(crate::ir::BYTE_LIST_TYPE)
+            || function.result_length.is_some();
         if !uses_buffers {
             return;
         }
@@ -469,6 +470,11 @@ impl<'a> SyntaxChecker<'a> {
                 names
             })
             .collect();
+        let length_names: Option<Vec<String>> = function.result_length.as_ref().map(|expr| {
+            let mut names = Vec::new();
+            link_expr_idents(expr, &mut names);
+            names
+        });
         let view = crate::ir::BufferSlotsView {
             function: &function.name,
             slots: function
@@ -494,6 +500,9 @@ impl<'a> SyntaxChecker<'a> {
                 Some(crate::ast::Expression::Identifier(name)) => Some(name.as_str()),
                 _ => None,
             },
+            length_reads: length_names
+                .as_ref()
+                .map(|names| names.iter().map(String::as_str).collect::<Vec<&str>>()),
         };
         for fault in crate::ir::check_buffer_slots(&view) {
             self.report(fault.rule, &fault.message, file, function.abi.line);
@@ -990,7 +999,7 @@ impl<'a> SyntaxChecker<'a> {
             let by_buffer_size = function.buffers.iter().any(|b| {
                 let mut names = Vec::new();
                 link_expr_idents(&b.size, &mut names);
-                names.iter().any(|n| *n == param.name)
+                names.contains(&param.name)
             });
             if !by_slot && !by_bind && !by_buffer_size {
                 self.report(

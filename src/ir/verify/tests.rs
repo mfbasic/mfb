@@ -2709,6 +2709,7 @@ fn link_fn() -> crate::ir::IrLinkFunction {
         result: Some(crate::ir::IrLinkExpr::Var("value".to_string())),
         free: None,
         buffers: vec![],
+        result_length: None,
     }
 }
 
@@ -5625,6 +5626,10 @@ fn cbuffer_fn() -> crate::ir::IrLinkFunction {
         slot: "buf".to_string(),
         size: crate::ir::IrLinkExpr::Var("n".to_string()),
     }];
+    // Mandatory since plan-58-B rule 10: `status` is what the callee reports it
+    // wrote. Unlike SIZE, a LENGTH expression MAY read the ABI return, because it
+    // is evaluated after the call.
+    lf.result_length = Some(crate::ir::IrLinkExpr::Var("status".to_string()));
     lf
 }
 
@@ -5792,5 +5797,62 @@ fn accepts_buffer_size_reading_a_const_pin() {
     });
     lf.consts = vec![("cap".to_string(), 4096)];
     lf.buffers[0].size = crate::ir::IrLinkExpr::Var("cap".to_string());
+    accept(&cbuffer_project(lf));
+}
+
+/// Rule 10: a returned CBuffer must carry a LENGTH clause.
+///
+/// Without one the list's `count` is its full capacity, so a callee that writes
+/// fewer bytes than the buffer holds leaves the remainder as uninitialized arena
+/// memory that ordinary code reads as data. Observed during plan-58-B Phase 2
+/// before this rule existed: a short `pread` surfaced stale bytes as the result.
+#[test]
+fn rejects_returned_cbuffer_without_length() {
+    let mut lf = cbuffer_fn();
+    lf.result_length = None;
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+/// Rule 11: a LENGTH clause with no CBuffer to apply it to. Every other result is
+/// a scalar, which has no length to set, so this is a mistake rather than a no-op.
+#[test]
+fn rejects_length_without_a_cbuffer_result() {
+    let mut lf = link_fn();
+    lf.result_length = Some(crate::ir::IrLinkExpr::Var("value".to_string()));
+    expect_rule(&cbuffer_project(lf), "NATIVE_BUFFER_INVALID");
+}
+
+/// Rule 12: a LENGTH expression naming nothing real.
+#[test]
+fn rejects_length_naming_unknown_slot() {
+    let mut lf = cbuffer_fn();
+    lf.result_length = Some(crate::ir::IrLinkExpr::Var("nosuch".to_string()));
+    expect_rule(&cbuffer_project(lf), "NATIVE_ABI_UNBOUND_SLOT");
+}
+
+/// The accept set for LENGTH is the WIDE one — it is evaluated after the call, so
+/// an OUT slot holds a real value by then. This is the deliberate asymmetry with
+/// rule 9's SIZE, and asserting it stops the two from being "unified" later.
+#[test]
+fn accepts_length_reading_an_out_slot() {
+    let mut lf = cbuffer_fn();
+    lf.abi_slots.push(crate::ir::IrAbiSlot {
+        name: "written".to_string(),
+        ctype: "CInt64".to_string(),
+        direction: crate::ir::AbiDirection::Out,
+    });
+    lf.result_length = Some(crate::ir::IrLinkExpr::Var("written".to_string()));
+    accept(&cbuffer_project(lf));
+}
+
+/// A LENGTH may scale a callee's ELEMENT count to bytes — the plan-58-B Phase 2
+/// arithmetic, on the post-call side.
+#[test]
+fn accepts_length_scaling_the_abi_return() {
+    let mut lf = cbuffer_fn();
+    lf.result_length = Some(crate::ir::IrLinkExpr::Mul(
+        Box::new(crate::ir::IrLinkExpr::Var("status".to_string())),
+        Box::new(crate::ir::IrLinkExpr::Int(2)),
+    ));
     accept(&cbuffer_project(lf));
 }

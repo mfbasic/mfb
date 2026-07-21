@@ -451,6 +451,7 @@ fn link_functions(ast: &AstProject) -> Vec<IrLinkFunction> {
                                 size: lower_link_expr(&b.size),
                             })
                             .collect(),
+                        result_length: native.result_length.as_ref().map(lower_link_expr),
                     });
                 }
             }

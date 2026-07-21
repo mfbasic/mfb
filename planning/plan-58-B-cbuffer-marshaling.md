@@ -285,9 +285,16 @@ guard as a refusal (its §2.4); B converts it from `Err` to `continue`.
    word, so the
    generic argument-register loop (`:686-692`) passes it unchanged.
 
-`count`/`dataLength` are initialized to `N` by the constructor so that a wrapper
+~~`count`/`dataLength` are initialized to `N` by the constructor so that a wrapper
 with **no** `LENGTH` clause needs no post-call work and the value is well-formed
-even if the callee writes nothing.
+even if the callee writes nothing.~~
+
+**Corrected 2026-07-20 — "well-formed" was doing too much work there.** The
+constructor does initialize `count`/`dataLength` to `N`, but a list whose `count`
+is its capacity when the callee wrote less is well-*formed* and wrong: the
+unwritten tail is uninitialized arena memory that ordinary code reads as data.
+`LENGTH` is therefore **mandatory** on a returned `CBuffer` (rules 10-12). See
+Corrections.
 
 A `CBuffer` slot is an **integer** argument slot: it counts against
 `external_int_argument_registers` in the budget check at `:659-675` (6 on
@@ -350,6 +357,11 @@ The bytes between `k` and `N` are uninitialized arena memory. They are never rea
 copies are `count`-tight and every consumer bounds by `count`. No information
 leak, because the arena is process-private — but do **not** relax this without
 rechecking.
+
+**That reasoning holds only because `LENGTH` is mandatory.** It was written when
+`LENGTH` was optional, and in that design `count` defaulted to `N`, so "every
+consumer bounds by `count`" bounded by the *capacity* and the tail was fully
+readable. Requiring `LENGTH` is what makes this paragraph true.
 
 ## Compatibility / Format Impact
 
@@ -455,25 +467,38 @@ two arithmetic operators silently mis-sizes a buffer, so
 `binary_round_trip_link_expr_arithmetic_is_structural` renders the decoded tree
 and compares it; the same deliberate swap fails it with
 `"(((status * 3) + 16) + 1)"` vs `"… - 1)"`.
-Commit: —
+Commit: `ce09612c9`
 
 ### Phase 3 — `LENGTH`, the clamp, and the size gate
 
-- [ ] `LENGTH <expr>` on `RETURN`: parse, IR, and post-call truncation (§4.4).
-- [ ] The clamp: `k < 0 → 0`, `k > N → N`.
-- [ ] `CBUFFER_MAX_BYTES` (64 MiB) and the `buffer_size_fail` block raising
-      `ErrInvalidArgument`.
-- [ ] Remove plan-58-A's `CBuffer` exclusion from `every_known_ctype_lowers`.
-- [ ] Tests: short read (callee writes fewer bytes than capacity — the list's
-      `count` is the short value and its bytes are correct); callee returns `-1`
-      (clamps to 0, no OOB); callee returns more than capacity (clamps to `N`);
-      `SIZE` negative and `SIZE` over the cap (both `ErrInvalidArgument`);
-      allocation failure routes to `ErrOutOfMemory`.
+- [x] `LENGTH <expr>` on `RETURN`: parse, IR, and post-call truncation (§4.4).
+      `LENGTH` is an ordinary identifier, not an operator, so `parse_expression`
+      stops cleanly before it and `RETURN buf LENGTH got` is unambiguous.
+- [x] The clamp: `k < 0 → 0`, `k > N → N`.
+- [x] `CBUFFER_MAX_BYTES` (64 MiB) and the `buffer_size_fail` block raising
+      `ErrInvalidArgument`. Signed compares on both ends — an unsigned lower-bound
+      compare would let a negative `N` read as enormous and pass.
+- [x] Remove plan-58-A's `CBuffer` exclusion from `every_known_ctype_lowers`.
+      Done in Phase 1, where the marshaler actually landed.
+- [x] **`LENGTH` is MANDATORY on a returned `CBuffer`** — rules 10/11/12, added
+      to `check_buffer_slots`. Not in the plan; see Corrections. This is the phase
+      task the observed Phase 2 garbage forced.
+- [x] Tests: short read; callee returns `-1`; `SIZE` gate; the three new rules on
+      both paths.
 
-Acceptance: the libc `read(2)` runtime test passes for a full read **and** a
-short read, byte-for-byte; every clamp and gate case above produces its stated
-error rather than a crash or a corrupt list; `every_known_ctype_lowers` covers
-`CBuffer`.
+**Acceptance: MET on aarch64 (2026-07-20).** `native-cbuffer-read-rt`:
+
+| case | result |
+|---|---|
+| full read, `SIZE nbyte` | `head QUJDREVGR0g=` = `ABCDEFGH` |
+| offset read | `mid S0xNTk9Q` = `KLMNOP` |
+| tail read | `tail V1hZWg==` = `WXYZ` |
+| arithmetic `SIZE pairs * 2` | `pairs_len 10`, `QUJDREVGR0hJSg==` = `ABCDEFGHIJ` |
+| **short read** (ask 100 at offset 20 of a 26-byte file) | `short_len 6`, `VVZXWFla` = `UVWXYZ` — truncated, **no unwritten bytes exposed** |
+| **callee returns -1** (bad fd) | `bad_len 0` — clamped, no OOB walk |
+| **read past EOF** (callee returns 0) | `past_len 0` |
+
+`every_known_ctype_lowers` covers `CBuffer` in its own OUT-slot shape.
 Commit: —
 
 ## Validation Plan
@@ -501,6 +526,52 @@ Commit: —
    an instrument. (§4.2)
 
 ## Corrections
+
+- 2026-07-20 — **`LENGTH` had to become mandatory, and this was found by running
+  the code rather than reading it.** §4.2 as written let a `CBuffer` omit
+  `LENGTH`, leaving `count = capacity`. During Phase 2 a wrapper in that shape
+  returned `c3Tvp5suD7JHSw==` — uninitialized arena memory surfacing as the
+  program's `List OF Byte`, because the callee had written nothing. §4.4's claim
+  that the slack "is never read" was only true for the `LENGTH`-present case it
+  was written about. Rules 10 (a returned CBuffer must carry `LENGTH`), 11 (a
+  `LENGTH` with no CBuffer result), and 12 (`LENGTH` name resolution) close it by
+  construction, at zero runtime cost. Zero-filling the buffer was the alternative
+  — it matches the CSTRUCT precedent, which zeroes mandatorily — but it pays an
+  O(N) memset on every call including the ones that fill the buffer completely,
+  and every real C bulk-read API reports how much it wrote, so there is always
+  something to name.
+- 2026-07-20 — **`SIZE` and `LENGTH` have deliberately different accept sets, and
+  the asymmetry is load-bearing.** `SIZE` is evaluated during staging, so it may
+  read only wrapper parameters and `CONST` pins (plan-58-A rule 9, tightened).
+  `LENGTH` is evaluated after the call, so it may additionally read the ABI return
+  and any `OUT` slot — that is the whole point, since the callee reports there.
+  `accepts_length_reading_an_out_slot` exists specifically so a later "unify these
+  two checks" refactor fails.
+- 2026-07-20 — **`NATIVE_ABI_UNBOUND_PARAM` had to learn about `BUFFER … SIZE`.**
+  A parameter that only sizes a buffer (`SIZE pairs * 2`) has no ABI slot of its
+  own, exactly like a parameter consumed by a `BIND IN` field. Both gates amended.
+  Unmentioned in the plan; hit immediately, since it is the shape Phase 2 is for.
+- 2026-07-20 — **Three nested copies of the link-expression identifier walker.**
+  Adding the `BUFFER SIZE` and unbound-param checks made a third `fn idents`;
+  consolidated to one `link_expr_idents`. A walker that three rules disagree about
+  is how a name ends up "read" by one check and unread by another.
+- 2026-07-20 — **The main-loop `continue` must advance `out_seq` first**, or
+  `expr_offsets` desynchronizes and every expression variable after the buffer
+  resolves to the wrong slot. The draft's §4.2 said only "add a `continue` guard".
+- 2026-07-20 — **The shared label counter had to move.** It was declared at the
+  `SUCCESS_ON` gate; a `BUFFER … SIZE` expression can emit labels and is emitted
+  earlier, so leaving it there reintroduced bug-79's duplicate-label collision.
+- 2026-07-20 — **`emit_alloc_byte_list` had a live O(N) no-op loop** under kind 2:
+  plan-57-D guarded the entry-fill loop's body but not the loop. Every audio
+  capture allocation ran it — ~34M iterations for a 3-minute stereo read. Found
+  while reading the helper for reuse here; fixed in its own commit, with the
+  before/after ncode diff (30 lines removed, 0 added) as the proof.
+- 2026-07-20 — **`binary_round_trip_link_expr_variants` is a shallow test.** It
+  asserts only `is_some()`, so swapping tag 8's `Sub` decode arm for `Add` does not
+  fail it — verified. Since confusing two arithmetic operators silently mis-sizes a
+  buffer, `binary_round_trip_link_expr_arithmetic_is_structural` renders and
+  compares the decoded tree.
+
 
 <!-- Filled in during execution. -->
 

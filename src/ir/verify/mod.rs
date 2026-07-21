@@ -3142,6 +3142,11 @@ impl TypeEnv {
                         Some(crate::ir::IrLinkExpr::Var(name)) => Some(name.as_str()),
                         _ => None,
                     },
+                    length_reads: function.result_length.as_ref().map(|expr| {
+                        let mut names = Vec::new();
+                        crate::ir::link_expr_var_names(expr, &mut names);
+                        names
+                    }),
                 };
                 for fault in crate::ir::check_buffer_slots(&view) {
                     self.emit(fault.rule, fault.message);

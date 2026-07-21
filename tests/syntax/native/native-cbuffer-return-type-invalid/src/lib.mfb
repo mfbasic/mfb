@@ -6,6 +6,6 @@ LINK "demo" AS demoLink
     SYMBOL "demo_read"
     ABI (buf OUT CBuffer, n CInt64) AS status CInt32
     BUFFER buf SIZE n
-    RETURN buf
+    RETURN buf LENGTH status
   END FUNC
 END LINK

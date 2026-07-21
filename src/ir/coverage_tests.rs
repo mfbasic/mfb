@@ -353,6 +353,7 @@ fn link_function() -> IrLinkFunction {
         // it looked like it proved. The new Mul/Add/Sub arms are covered through
         // `result` below, which IS encoded and decoded.
         buffers: vec![],
+        result_length: None,
         // Exercise every IrLinkExpr arm across success_on/result.
         success_on: Some(IrLinkExpr::Compare {
             op: "=".to_string(),

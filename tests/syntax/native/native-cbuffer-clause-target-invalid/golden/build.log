@@ -11,4 +11,10 @@ tests/syntax/native/native-cbuffer-clause-target-invalid/src/lib.mfb:7 error[2-2
      | ^
 tests/syntax/native/native-cbuffer-clause-target-invalid/src/lib.mfb:14 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
                Native function `notABuffer` declares `BUFFER value SIZE`, but ABI slot `value` is `CInt32`, not a CBuffer.
+  12 |   FUNC notABuffer(n AS Integer) AS Integer
+  13 |     SYMBOL "demo_read2"
+  14 |     ABI (n CInt64, value OUT CInt32) AS status CInt32
+     | ^
+tests/syntax/native/native-cbuffer-clause-target-invalid/src/lib.mfb:14 error[2-203-0132 NATIVE_BUFFER_INVALID]: a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte
+               Native function `notABuffer` declares `RETURN … LENGTH`, but `RETURN` does not name an OUT CBuffer slot; only a buffer has a length to set.
 [exit 1]

@@ -352,6 +352,18 @@ fn lower_link_thunk(
         .filter(|slot| slot.direction.writes_back() && !is_struct_ctype(&slot.ctype))
         .count();
 
+    /// The largest `BUFFER … SIZE` an `OUT CBuffer` may request, in bytes
+    /// (plan-58-B §4.2).
+    ///
+    /// The buffer is an arena block sized by a runtime expression, so without a cap a
+    /// wrapper parameter is an unbounded allocation request. 64 MiB under the kind-2
+    /// byte-list layout is 64 MB of arena (1.0x, since a kind-2 block is `40 + N`),
+    /// and it is what sets plan-58-D's ~5.8 minute stereo-48kHz audio ceiling.
+    ///
+    /// A request above this, or a negative one, raises `ErrInvalidArgument` BEFORE
+    /// allocating — a negative size would otherwise compute a nonsense block size.
+    pub(crate) const CBUFFER_MAX_BYTES: i64 = 64 * 1024 * 1024;
+
     const STATUS_OFF: usize = 8;
     const CRET_OFF: usize = 16;
     // Scratch slot 24 is reserved for string-return marshaling (RET_OFF).
@@ -488,6 +500,9 @@ fn lower_link_thunk(
     let encoding_fail = format!("{symbol}_encoding_fail");
     let nan_fail = format!("{symbol}_nan_fail");
     let inf_fail = format!("{symbol}_inf_fail");
+    // plan-58-B: the runtime size gate for `BUFFER … SIZE`.
+    let buffer_size_fail = format!("{symbol}_buffer_size_fail");
+    let needs_buffer_size = !cbuffer_slots.is_empty();
     let done = format!("{symbol}_done");
 
     // Map wrapper-parameter name -> declared order (its incoming register).
@@ -614,6 +629,19 @@ fn lower_link_thunk(
             &mut instructions,
         );
         instructions.push(abi::store_u64(&size_reg, abi::stack_pointer(), size_off));
+
+        // Gate the size BEFORE allocating. A negative `N` would compute a nonsense
+        // block size, and an unbounded one is a whole-arena request driven
+        // straight from a wrapper parameter. Signed compares on both ends: an
+        // unsigned compare would let a negative `N` read as enormous and pass the
+        // lower bound.
+        instructions.extend([
+            abi::compare_immediate(&size_reg, "0"),
+            abi::branch_lt(&buffer_size_fail),
+            abi::move_immediate("%v9", "Integer", &CBUFFER_MAX_BYTES.to_string()),
+            abi::compare_registers(&size_reg, "%v9"),
+            abi::branch_gt(&buffer_size_fail),
+        ]);
 
         // Allocate the block and spill its pointer to the OUT word. The helper
         // writes the header (count/capacity/dataLength/dataCapacity all `N`) and
@@ -1009,11 +1037,68 @@ fn lower_link_thunk(
             // states the intent, and stops a future edit to the default from
             // silently changing what a CBuffer returns.
             "CBuffer" => {
-                instructions.push(abi::load_u64(
-                    RESULT_VALUE_REGISTER,
-                    abi::stack_pointer(),
-                    out_off,
-                ));
+                // Truncate to what the callee actually wrote, then hand back the
+                // block pointer — which IS the wrapper's `List OF Byte`.
+                //
+                // `LENGTH` is mandatory on a CBuffer (plan-58-B rule 10), so this
+                // arm always has one to evaluate. Its expression is evaluated
+                // HERE, after the call, which is why it may read the ABI return
+                // and OUT slots that `BUFFER … SIZE` may not.
+                let length = function
+                    .result_length
+                    .as_ref()
+                    .expect("check_buffer_slots requires LENGTH on a returned CBuffer");
+                let mut vreg = LINK_EXPR_VREG_BASE;
+                let k = emit_link_expr(
+                    length,
+                    &expr_offsets,
+                    &mut vreg,
+                    &symbol,
+                    &mut counter,
+                    &mut instructions,
+                );
+                // Clamp to [0, N]. Not defensive padding: `pread`/`read` return
+                // -1 on error and `sf_read_short` returns -1 or 0 at EOF. An
+                // unclamped negative stored to `count` is a huge UNSIGNED value,
+                // and every later collection read then walks off the block. An
+                // over-capacity value does the same more slowly.
+                // No counter suffix: a thunk has ONE `RETURN`, and rule 6 requires
+                // a CBuffer to be the slot it names, so at most one CBuffer per
+                // thunk reaches this arm and these labels cannot collide.
+                let neg = format!("{symbol}_cbuf_len_neg");
+                let capped = format!("{symbol}_cbuf_len_capped");
+                let size_off = cbuffer_size_base
+                    + cbuffer_slots
+                        .iter()
+                        .position(|&idx| {
+                            function.abi_slots[idx].name.as_str() == result_var.unwrap_or_default()
+                        })
+                        .expect("the returned CBuffer is in cbuffer_slots")
+                        * 8;
+                instructions.extend([
+                    abi::compare_immediate(&k, "0"),
+                    abi::branch_lt(&neg),
+                    // Reload N: the call clobbered everything.
+                    abi::load_u64("%v9", abi::stack_pointer(), size_off),
+                    abi::compare_registers(&k, "%v9"),
+                    abi::branch_le(&capped),
+                    abi::move_register(&k, "%v9"),
+                    abi::branch(&capped),
+                    abi::label(&neg),
+                    abi::move_immediate(&k, "Integer", "0"),
+                    abi::label(&capped),
+                ]);
+                // `capacity`/`dataCapacity` deliberately stay at N. That is what
+                // makes `arena_free` reclaim the whole block: `emit_flat_block_size`
+                // sizes from capacity, so lowering it to k would leak the tail.
+                // `05_collections.md:173-198` sanctions `capacity > count` as
+                // headroom, and a value copy is shrink-to-fit.
+                instructions.extend([
+                    abi::load_u64("%v10", abi::stack_pointer(), out_off),
+                    abi::store_u64(&k, "%v10", COLLECTION_OFFSET_COUNT),
+                    abi::store_u64(&k, "%v10", COLLECTION_OFFSET_DATA_LENGTH),
+                    abi::move_register(RESULT_VALUE_REGISTER, "%v10"),
+                ]);
             }
             _ => {
                 instructions.push(abi::load_u64(
@@ -1222,6 +1307,12 @@ fn lower_link_thunk(
             &inf_fail,
             ERR_FLOAT_INF_CODE,
             ERR_FLOAT_INF_SYMBOL,
+        ),
+        (
+            needs_buffer_size,
+            &buffer_size_fail,
+            ERR_INVALID_ARGUMENT_CODE,
+            ERR_INVALID_ARGUMENT_SYMBOL,
         ),
     ] {
         if !needed {
@@ -2133,6 +2224,7 @@ mod tests {
             result: None,
             free: None,
             buffers: vec![],
+            result_length: None,
         };
         let lower = |count: usize| {
             lower_link_thunk(
@@ -2234,6 +2326,7 @@ mod tests {
                 result: None,
                 free: None,
                 buffers: vec![],
+                result_length: None,
             };
             let lowered =
                 lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
@@ -2271,6 +2364,7 @@ mod tests {
                 result: None,
                 free: None,
                 buffers: vec![],
+                result_length: None,
             };
             let lowered =
                 lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
@@ -2313,6 +2407,7 @@ mod tests {
                     slot: "buf".to_string(),
                     size: crate::ir::IrLinkExpr::Var("n".to_string()),
                 }],
+                result_length: Some(crate::ir::IrLinkExpr::Var("status".to_string())),
             };
             let lowered =
                 lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
