@@ -37,8 +37,8 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-60-B complete — `confirm`, `apply_manifest_change`, and the zero-dependency policy | `grep -cE '^pub\(crate\) fn confirm' src/cli/mod.rs` → 1 and `grep -cE '^pub\(crate\) fn apply_manifest_change' src/cli/resolve.rs` → 1 | NOT MET at authoring |
-| plan-60-C complete — flag parsing for a `pkg` subcommand | `grep -cE 'no_pin' src/cli/pkg.rs` → ≥ 1 **and** `mfb pkg add --no-pin <ident>` parses (a bare grep also matches a test name, so confirm the flag is dispatched, not merely mentioned) | NOT MET at authoring |
+| plan-60-B complete — `confirm`, `apply_manifest_change`, and the zero-dependency policy | `grep -cE '^pub\(crate\) fn confirm' src/cli/mod.rs` → 1 and `grep -cE '^pub\(crate\) fn apply_manifest_change' src/cli/resolve.rs` → 1 | **MET** (2026-07-21) — → 1 and 1. Archived. |
+| plan-60-C complete — flag parsing for a `pkg` subcommand | `grep -cE 'no_pin' src/cli/pkg.rs` → ≥ 1 **and** `mfb pkg add --no-pin <ident>` parses (a bare grep also matches a test name, so confirm the flag is dispatched, not merely mentioned) | **MET** (2026-07-21) — → 9, flag dispatches. Archived. |
 
 If either is incomplete, this plan cannot start, full stop.
 
@@ -388,8 +388,9 @@ assert `alice#user` is absent from `project.json` — asserting only that the
 command succeeded would pass even if the cascade silently removed nothing but the
 named target. **VERIFIED, and A/B-checked**: replacing the closure with just the
 named target makes the test fail ("Removed 1 package(s)" instead of 2). 25
-acceptance passed / 0 failed.
-Commit: —
+acceptance passed / 0 failed. Full project acceptance
+(`scripts/test-accept.sh`) green: 1069 tests, 0 mismatches.
+Commit: 7d30d4731
 
 ### Phase 5 — Docs
 
