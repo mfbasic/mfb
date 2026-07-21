@@ -22,7 +22,10 @@ and key fingerprints are lowercase **hex**.
 ## Transport and Endpoint Base
 
 The base URL comes from the `MFB_REPO_URL` environment variable, falling back to
-`DEFAULT_REPO_URL` = `http://127.0.0.1:7777`.[[repository/src/client.rs:repo_url_from_env]][[repository/src/lib.rs:DEFAULT_REPO_URL]]
+`DEFAULT_REPO_URL` = `https://mfb-repo.fly.dev`, the public hosted
+registry.[[repository/src/client.rs:repo_url_from_env]][[repository/src/lib.rs:DEFAULT_REPO_URL]]
+A local dev registry is reached by setting `MFB_REPO_URL=http://127.0.0.1:7777`
+explicitly; it is no longer the default.
 Every request URL is `format!("{base}{path}")` with any trailing slashes
 trimmed from the base, so `MFB_REPO_URL=https://repo.example/` and the path
 `/publish` produce `https://repo.example/publish`.[[repository/src/client.rs:post_json]]
