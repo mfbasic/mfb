@@ -259,7 +259,7 @@ ceiling as a hardcoded `CBUFFER_MAX_BYTES = 64 MiB`; it is now the project.json
 `Error: 7-705-0002 Argument value is not valid` for 1 MiB + 1 — raised before
 allocating. Every other CBuffer fixture omits `maxBuffer` and so exercises the
 64 MiB default.
-Commit: —
+Commit: `9133728df`
 
 ### Phase 1 — codec, bounds, and the package-path gate
 
