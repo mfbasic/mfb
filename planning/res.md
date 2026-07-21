@@ -235,6 +235,23 @@ Note the interaction: **§3 (resource-scoped) and this table are in tension.** T
 table's soundness rests on the borrow rule; the resource-scoped model weakens it.
 If both are wanted, this needs re-derivation. **Unresolved.**
 
+> **RESOLVED by plan-59-C (2026-07-20).** Annotation only — the analysis above is
+> deliberately left as written, since this document records the reasoning as it
+> stood and editing its argument destroys that record.
+>
+> The tension was overstated. `STATE` agreement does **not** rest on the escape
+> rule: it is checked independently wherever a type is *named* — at bindings,
+> parameters and returns — and that check is unaffected by who may close the
+> resource. Verified by compiling a probe, not by reading: three of the four
+> positions already reject disagreement with no escape involved.
+>
+> Only one narrow case actually broke under the resource-scoped model — the bare
+> **parameter**, the single position where the checker deliberately does not know
+> the concrete `STATE`. It is closed by one static rule,
+> `TYPE_STATE_OPAQUE_NARROWING` (2-203-0133): an opaque `STATE` may not be
+> narrowed to a concrete one. No re-derivation of the table was needed and no
+> runtime `STATE` machinery was added.
+
 ---
 
 ## 5. Open questions

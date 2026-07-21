@@ -152,7 +152,7 @@ Acceptance: the bare-param population is measured and written into this document
 with its command, and case (c) is either empty or enumerated.
 **MET** — population measured into the table above with commands; case (c) is
 empty, established by two independent searches (see C1).
-Commit: —
+Commit: 9f0404d60
 
 ### Phase 2 — Fix §15.5's wording
 
@@ -179,7 +179,7 @@ Acceptance: §15.5 describes the behavior the probe in §2 demonstrates; spec te
 green.
 **MET** — §15.5 now states the assertion-and-check model, with the §2 probe
 inlined as its worked example; `cargo test --bin mfb spec` → 48 passed.
-Commit: —
+Commit: 9f0404d60
 
 ### Phase 3 — Add the narrowing rule
 
@@ -210,7 +210,7 @@ and caret, in both the return and binding positions; opaque→opaque,
 concrete→matching-concrete, and a producer naming its own state all still
 compile (`state-opaque-narrow-valid`, exit 0). `cargo test` → 21 suites, 0
 failed; acceptance → 109 tests across `state*` `resource*` `native*` `libsnd*`.
-Commit: —
+Commit: 9f0404d60
 
 ## Validation Plan
 
