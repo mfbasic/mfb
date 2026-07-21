@@ -48,7 +48,8 @@ References:
 - `src/target/shared/code/builder_control.rs:240-291` — the ownership branch
 - `src/escape.rs:85-103` — `ResOwner`, which defaults a plain bind to `Local`
 - `src/docs/spec/language/15_resource-management.md:143` — §15.6, the rule broken
-- `bugs/bug-373-…-internal-error.md` — where this was found
+- `bugs/completed-bugs/bug-373-user-resource-shadowing-builtin-name-internal-error.md`
+  — where this was found (see its Correction, 2026-07-21)
 
 ## Failing Reproduction
 

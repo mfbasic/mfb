@@ -353,6 +353,21 @@ resolves to it**. Recorded in this plan rather than silently worked around; the
 fixture avoids it by making a real `fs::open`/`fs::writeAll` call. bug-373's
 Root Cause section should be widened accordingly when it is worked.
 
+**Correction (2026-07-21, while working bug-373).** The diagnosis above is
+wrong in its specifics, though right that a second trigger exists. A `RES`
+parameter of type `File` declares no helper: `required_helpers` walks only
+`function.body` (`src/target/shared/runtime/usage.rs:129-131`) and never
+inspects params. The program described here builds clean; verified directly.
+What actually triggers it is a local **`Bind`** of a built-in resource type —
+`RES g AS File = f` — via `usage.rs:142-147`. C's fixture is therefore immune
+for a different reason than stated: it has no aliasing rebind, not merely
+because it makes a real `fs::` call.
+
+The underlying defect is not the helper bookkeeping at all: codegen emits a
+close for such a rebind, so it closes the *caller's* resource at the callee's
+scope exit (`7-703-0004`, exit 255). Filed as **bug-375**; the internal error
+is the compile-time barrier in front of it, not a false positive.
+
 ### C1 — case (c) is empty, checked two ways (2026-07-20)
 
 §2's UNVERIFIED property — "whether anything legitimate needs opaque → concrete"
