@@ -212,13 +212,16 @@ reports what the file is.
 ```basic
 FUNC readSamples(RES sndfile AS SoundFile, items AS Integer) AS List OF Byte
   SYMBOL "sf_read_short"
-  ABI (h CPtr, buf OUT CBuffer, n CInt64) AS got CInt64
+  ABI (sndfile CPtr, buf OUT CBuffer, items CInt64) AS got CInt64
   BUFFER buf SIZE items * 2
   SUCCESS_ON got >= 0
   RETURN buf LENGTH got * 2
 END FUNC
 ```
 
+- The ABI slot names must MATCH the wrapper parameter names — slots bind by
+  name. The draft wrote `ABI (h CPtr, …, n CInt64)` against parameters
+  `sndfile`/`items`, which is `NATIVE_ABI_UNBOUND_PARAM` on both. Corrected above.
 - `SIZE items * 2` — bytes, because one item is one s16 sample.
 - `LENGTH got * 2` — `sf_read_short` returns **items read**, so the byte length
   is `got * 2`. plan-58-B clamps it to `[0, SIZE]`.
@@ -246,6 +249,16 @@ not an error condition.
 
 ### 4.3 Docs
 
+**Correction (2026-07-20): a binding package has no man pages.** `mfb man` serves
+only the built-in packages — `mfb man libsnd loadSound` answers
+"unknown package `libsnd`", and there is no `src/docs/man/libsnd/`. A binding's
+DOC blocks ride its `.mfp` doc section for an importer's tooling instead. So
+`scripts/update_man.sh` is **not** part of this sub-plan (running it only
+regenerates the built-ins, which churned eight unrelated `audio/` pages that had
+drifted from their source DOCs — reverted, since that drift is pre-existing and
+belongs in its own change). The DOCs below are still required; only the man-page
+rendering step and its acceptance clause are moot.
+
 - `Sound` gets a type DOC per `.ai/man_type_template.md`.
 - `loadSound`'s DOC states the `MAX_LOAD_BYTES` cap **in seconds as well as
   bytes** (§2.5) and points at `readSamples` for longer audio.
@@ -271,37 +284,73 @@ not an error condition.
 
 ### Phase 1 — `readSamples` and its byte/item scaling (the uncertain part)
 
-- [ ] Add `readSamples` to the `LINK` block (`lib.mfb:72-146`) exactly as §4.1.
-- [ ] Tests: decode a WAV fixture whose exact PCM bytes are known and compare
-      byte-for-byte — this is what proves the `* 2` scalings in `SIZE` and
-      `LENGTH` are both right.
-- [ ] Tests: a short read at EOF (request more items than remain) returns the
-      real remaining byte count, not the requested one.
-- [ ] Tests: an error path — read from a closed/invalid handle — surfaces through
-      `sndError` as an `Error`, exercising `SUCCESS_ON got >= 0` and the clamp on
-      a negative `got`.
-- [ ] Re-sync `tests/rt-behavior/native/libsnd-open-file-info-rt` goldens and
+- [x] Add `readSamples` to the `LINK` block (`lib.mfb:72-146`) ~~exactly~~ as §4.1,
+      with the slot names corrected to match the parameter names (slots bind by
+      name; the draft's `h`/`n` against `sndfile`/`items` is
+      `NATIVE_ABI_UNBOUND_PARAM` twice).
+- [x] Tests: decode a WAV fixture whose exact PCM bytes are known and compare
+      byte-for-byte — `tests/rt-behavior/native/libsnd-read-samples-rt`, reusing
+      the bug-364 probe whose 16 PCM bytes are literally 0..15.
+- [x] Tests: a short read at EOF (request more items than remain) returns the
+      real remaining byte count, not the requested one — 100 items requested,
+      16 bytes returned.
+- [~] Tests: an error path. **Partially covered, and the gap is recorded rather
+      than papered over.** The clamp on a negative `got` is exercised by
+      plan-58-B's `native-cbuffer-read-rt` (a `pread` on a bad fd returns -1 and
+      yields an empty list). Reading from a CLOSED libsnd handle is not tested
+      here: `closeFile` is the registered close op, so the resource is dropped
+      and a use-after-close is a compile-time resource error rather than a
+      runtime one — there is no way to reach `sf_read_short` with a stale handle
+      from safe MFBASIC. Recorded as not-reachable rather than claimed.
+- [x] Re-sync `tests/rt-behavior/native/libsnd-open-file-info-rt` goldens and
       confirm the only change is the added thunk.
 
-Acceptance: the WAV fixture decodes byte-identically to a known-good decode; the
-EOF short read returns the correct shorter length; the error path produces an
-`Error` rather than a crash or a garbage-length list.
+**Acceptance: MET on macos-aarch64 (2026-07-20).**
+
+```
+exact len=16 bytes=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+short len=16 bytes=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15   <- asked 100 items
+items1 len=0 | items2 len=4 | items3 len=0 | items4 len=8
+zero  len=0
+```
+
+The decoded PCM is byte-identical to bytes known by construction, so both `* 2`
+scalings are right. `items1`/`items3` returning 0 pins a property of the C API
+the plan did not mention: **`sf_read_short` reads only WHOLE FRAMES**, so an item
+count that is not a multiple of the channel count reads nothing at all. That is
+why `loadSound` passes `frames * channels`, which is always a multiple; a caller
+passing an odd count silently gets an empty list. Documented at the wrapper.
 Commit: —
 
 ### Phase 2 — `Sound`, `loadSound`, the cap, and the docs
 
-- [ ] `EXPORT TYPE Sound` and `EXPORT FUNC loadSound` per §4.2.
-- [ ] `MAX_LOAD_BYTES` = 64 MiB, with the over-cap error naming size and cap.
-- [ ] DOCs per §4.3; `scripts/update_man.sh`.
-- [ ] `project.json` version → 1.3.0.
-- [ ] Tests: `loadSound` on WAV **and** FLAC (proving `sf_read_short` converts
-      from the native encoding, which is the whole reason to use libsndfile);
-      an over-cap file producing the named error; a mono file and a stereo file
-      reporting the right geometry.
+- [x] `EXPORT TYPE Sound` and `EXPORT FUNC loadSound` per §4.2.
+      Record construction is `T[field := value]`, not `T(field: value)` as the
+      draft's prose implied.
+- [x] `MAX_LOAD_BYTES` = 64 MiB, with the over-cap error naming size and cap.
+- [x] DOCs per §4.3. ~~`scripts/update_man.sh`~~ — moot: binding packages have no
+      man pages (see §4.3's correction).
+- [x] `project.json` version → 1.3.0.
+- [x] Tests: `loadSound` on WAV **and** FLAC, an over-cap file producing the named
+      error, and mono + stereo geometry — `tests/rt-behavior/native/libsnd-load-sound-rt`.
+      The over-cap fixture must contain REAL data: libsndfile derives `frames`
+      from the bytes present, not from the `data` chunk header, so a 44-byte file
+      claiming 200 MiB reports 0 frames and sails under the cap. The fixture
+      writes 68 MiB in 64 KiB appends instead (0.8 s).
 
-Acceptance: `loadSound` on a FLAC returns PCM byte-identical to the same audio
-decoded from WAV; the over-cap error names both numbers; `mfb man libsnd
-loadSound` renders with the duration caveat.
+**Acceptance: MET on macos-aarch64 (2026-07-20)**, with the man-page clause
+dropped as moot (§4.3):
+
+```
+wav  rate=8000 ch=2 len=16 pcm=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+flac rate=8000 ch=2 len=16 pcm=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+pcm_identical=TRUE
+geometry_identical=TRUE
+mono rate=8000 ch=1 len=8 pcm=0,1,2,3,4,5,6,7
+over_cap_error=libsnd: …_big.wav decodes to 71303168 bytes, over the 67108864 byte limit; stream it with readSamples instead
+```
+
+FLAC and WAV decode byte-identically, and the cap message names both numbers.
 Commit: —
 
 ### Phase 3 — end-to-end playback on hardware (largest blast radius last)

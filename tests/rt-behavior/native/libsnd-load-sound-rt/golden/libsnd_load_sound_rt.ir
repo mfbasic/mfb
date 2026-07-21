@@ -1,0 +1,269 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "libsnd_load_sound_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "probeWav",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "List OF Byte",
+    "body": [
+    { "op": "bind", "line": 19, "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "82" }, { "kind": "const", "type": "Byte", "value": "73" }, { "kind": "const", "type": "Byte", "value": "70" }, { "kind": "const", "type": "Byte", "value": "70" }, { "kind": "const", "type": "Byte", "value": "52" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "87" }, { "kind": "const", "type": "Byte", "value": "65" }, { "kind": "const", "type": "Byte", "value": "86" }, { "kind": "const", "type": "Byte", "value": "69" }, { "kind": "const", "type": "Byte", "value": "102" }, { "kind": "const", "type": "Byte", "value": "109" }, { "kind": "const", "type": "Byte", "value": "116" }, { "kind": "const", "type": "Byte", "value": "32" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "64" }, { "kind": "const", "type": "Byte", "value": "31" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "125" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "4" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "100" }, { "kind": "const", "type": "Byte", "value": "97" }, { "kind": "const", "type": "Byte", "value": "116" }, { "kind": "const", "type": "Byte", "value": "97" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "3" }, { "kind": "const", "type": "Byte", "value": "4" }, { "kind": "const", "type": "Byte", "value": "5" }, { "kind": "const", "type": "Byte", "value": "6" }, { "kind": "const", "type": "Byte", "value": "7" }, { "kind": "const", "type": "Byte", "value": "8" }, { "kind": "const", "type": "Byte", "value": "9" }, { "kind": "const", "type": "Byte", "value": "10" }, { "kind": "const", "type": "Byte", "value": "11" }, { "kind": "const", "type": "Byte", "value": "12" }, { "kind": "const", "type": "Byte", "value": "13" }, { "kind": "const", "type": "Byte", "value": "14" }, { "kind": "const", "type": "Byte", "value": "15" }] } },
+    { "op": "return", "line": 20, "value": { "kind": "local", "name": "bytes" } }
+    ]
+  },
+  {
+    "name": "probeFlac",
+    "line": 24,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "List OF Byte",
+    "body": [
+    { "op": "bind", "line": 25, "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "102" }, { "kind": "const", "type": "Byte", "value": "76" }, { "kind": "const", "type": "Byte", "value": "97" }, { "kind": "const", "type": "Byte", "value": "67" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "34" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "26" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "26" }, { "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "244" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "240" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "4" }, { "kind": "const", "type": "Byte", "value": "26" }, { "kind": "const", "type": "Byte", "value": "193" }, { "kind": "const", "type": "Byte", "value": "239" }, { "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "233" }, { "kind": "const", "type": "Byte", "value": "108" }, { "kind": "const", "type": "Byte", "value": "175" }, { "kind": "const", "type": "Byte", "value": "27" }, { "kind": "const", "type": "Byte", "value": "224" }, { "kind": "const", "type": "Byte", "value": "211" }, { "kind": "const", "type": "Byte", "value": "41" }, { "kind": "const", "type": "Byte", "value": "51" }, { "kind": "const", "type": "Byte", "value": "26" }, { "kind": "const", "type": "Byte", "value": "79" }, { "kind": "const", "type": "Byte", "value": "194" }, { "kind": "const", "type": "Byte", "value": "168" }, { "kind": "const", "type": "Byte", "value": "132" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "40" }, { "kind": "const", "type": "Byte", "value": "32" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "114" }, { "kind": "const", "type": "Byte", "value": "101" }, { "kind": "const", "type": "Byte", "value": "102" }, { "kind": "const", "type": "Byte", "value": "101" }, { "kind": "const", "type": "Byte", "value": "114" }, { "kind": "const", "type": "Byte", "value": "101" }, { "kind": "const", "type": "Byte", "value": "110" }, { "kind": "const", "type": "Byte", "value": "99" }, { "kind": "const", "type": "Byte", "value": "101" }, { "kind": "const", "type": "Byte", "value": "32" }, { "kind": "const", "type": "Byte", "value": "108" }, { "kind": "const", "type": "Byte", "value": "105" }, { "kind": "const", "type": "Byte", "value": "98" }, { "kind": "const", "type": "Byte", "value": "70" }, { "kind": "const", "type": "Byte", "value": "76" }, { "kind": "const", "type": "Byte", "value": "65" }, { "kind": "const", "type": "Byte", "value": "67" }, { "kind": "const", "type": "Byte", "value": "32" }, { "kind": "const", "type": "Byte", "value": "49" }, { "kind": "const", "type": "Byte", "value": "46" }, { "kind": "const", "type": "Byte", "value": "53" }, { "kind": "const", "type": "Byte", "value": "46" }, { "kind": "const", "type": "Byte", "value": "48" }, { "kind": "const", "type": "Byte", "value": "32" }, { "kind": "const", "type": "Byte", "value": "50" }, { "kind": "const", "type": "Byte", "value": "48" }, { "kind": "const", "type": "Byte", "value": "50" }, { "kind": "const", "type": "Byte", "value": "53" }, { "kind": "const", "type": "Byte", "value": "48" }, { "kind": "const", "type": "Byte", "value": "50" }, { "kind": "const", "type": "Byte", "value": "49" }, { "kind": "const", "type": "Byte", "value": "49" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }, { "kind": "const", "type": "Byte", "value": "248" }, { "kind": "const", "type": "Byte", "value": "100" }, { "kind": "const", "type": "Byte", "value": "24" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "3" }, { "kind": "const", "type": "Byte", "value": "72" }, { "kind": "const", "type": "Byte", "value": "3" }, { "kind": "const", "type": "Byte", "value": "64" }, { "kind": "const", "type": "Byte", "value": "64" }, { "kind": "const", "type": "Byte", "value": "5" }, { "kind": "const", "type": "Byte", "value": "4" }, { "kind": "const", "type": "Byte", "value": "36" }, { "kind": "const", "type": "Byte", "value": "32" }, { "kind": "const", "type": "Byte", "value": "208" }, { "kind": "const", "type": "Byte", "value": "192" }, { "kind": "const", "type": "Byte", "value": "224" }, { "kind": "const", "type": "Byte", "value": "96" }, { "kind": "const", "type": "Byte", "value": "65" }, { "kind": "const", "type": "Byte", "value": "193" }, { "kind": "const", "type": "Byte", "value": "133" }, { "kind": "const", "type": "Byte", "value": "133" }, { "kind": "const", "type": "Byte", "value": "15" }, { "kind": "const", "type": "Byte", "value": "14" }, { "kind": "const", "type": "Byte", "value": "189" }, { "kind": "const", "type": "Byte", "value": "232" }] } },
+    { "op": "return", "line": 26, "value": { "kind": "local", "name": "bytes" } }
+    ]
+  },
+  {
+    "name": "monoWav",
+    "line": 35,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "List OF Byte",
+    "body": [
+    { "op": "bind", "line": 36, "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "82" }, { "kind": "const", "type": "Byte", "value": "73" }, { "kind": "const", "type": "Byte", "value": "70" }, { "kind": "const", "type": "Byte", "value": "70" }, { "kind": "const", "type": "Byte", "value": "44" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "87" }, { "kind": "const", "type": "Byte", "value": "65" }, { "kind": "const", "type": "Byte", "value": "86" }, { "kind": "const", "type": "Byte", "value": "69" }, { "kind": "const", "type": "Byte", "value": "102" }, { "kind": "const", "type": "Byte", "value": "109" }, { "kind": "const", "type": "Byte", "value": "116" }, { "kind": "const", "type": "Byte", "value": "32" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "64" }, { "kind": "const", "type": "Byte", "value": "31" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "62" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "100" }, { "kind": "const", "type": "Byte", "value": "97" }, { "kind": "const", "type": "Byte", "value": "116" }, { "kind": "const", "type": "Byte", "value": "97" }, { "kind": "const", "type": "Byte", "value": "8" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "3" }, { "kind": "const", "type": "Byte", "value": "4" }, { "kind": "const", "type": "Byte", "value": "5" }, { "kind": "const", "type": "Byte", "value": "6" }, { "kind": "const", "type": "Byte", "value": "7" }] } },
+    { "op": "return", "line": 37, "value": { "kind": "local", "name": "bytes" } }
+    ]
+  },
+  {
+    "name": "oversizeHeader",
+    "line": 47,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "List OF Byte",
+    "body": [
+    { "op": "bind", "line": 49, "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "82" }, { "kind": "const", "type": "Byte", "value": "73" }, { "kind": "const", "type": "Byte", "value": "70" }, { "kind": "const", "type": "Byte", "value": "70" }, { "kind": "const", "type": "Byte", "value": "36" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "64" }, { "kind": "const", "type": "Byte", "value": "4" }, { "kind": "const", "type": "Byte", "value": "87" }, { "kind": "const", "type": "Byte", "value": "65" }, { "kind": "const", "type": "Byte", "value": "86" }, { "kind": "const", "type": "Byte", "value": "69" }, { "kind": "const", "type": "Byte", "value": "102" }, { "kind": "const", "type": "Byte", "value": "109" }, { "kind": "const", "type": "Byte", "value": "116" }, { "kind": "const", "type": "Byte", "value": "32" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "64" }, { "kind": "const", "type": "Byte", "value": "31" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "125" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "4" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "16" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "100" }, { "kind": "const", "type": "Byte", "value": "97" }, { "kind": "const", "type": "Byte", "value": "116" }, { "kind": "const", "type": "Byte", "value": "97" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "64" }, { "kind": "const", "type": "Byte", "value": "4" }] } },
+    { "op": "return", "line": 50, "value": { "kind": "local", "name": "bytes" } }
+    ]
+  },
+  {
+    "name": "silenceBlock",
+    "line": 54,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "List OF Byte",
+    "body": [
+    { "op": "bind", "line": 55, "mutable": true, "name": "block", "type": "List OF Byte", "value": null },
+    { "op": "bind", "line": 56, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 57,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "65536" } },
+      "body": [
+      { "op": "assign", "line": 58, "name": "block", "value": { "kind": "call", "type": "List OF Byte", "target": "collections.append", "args": [{ "kind": "local", "name": "block" }, { "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] } },
+      { "op": "assign", "line": 59, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "line": 61, "value": { "kind": "local", "name": "block" } }
+    ]
+  },
+  {
+    "name": "describe",
+    "line": 64,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "label", "line": 64, "type": "String", "default": null },
+    { "name": "rate", "line": 64, "type": "Integer", "default": null },
+    { "name": "ch", "line": 64, "type": "Integer", "default": null },
+    { "name": "pcm", "line": 64, "type": "List OF Byte", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 65, "mutable": true, "name": "out", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": " rate=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "rate" }] } }, "right": { "kind": "const", "type": "String", "value": " ch=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "ch" }] } }, "right": { "kind": "const", "type": "String", "value": " len=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "pcm" }] }] } }, "right": { "kind": "const", "type": "String", "value": " pcm=" } } },
+    { "op": "bind", "line": 66, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 67,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "pcm" }] } },
+      "body": [
+      { "op": "assign", "line": 68, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Byte", "target": "collections.get", "args": [{ "kind": "local", "name": "pcm" }, { "kind": "local", "name": "i" }] }] } } },
+      {
+        "op": "if",
+        "line": 69,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "pcm" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+        "then": [
+        { "op": "assign", "line": 70, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "," } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 72, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 74, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "out" }] } }
+    ]
+  },
+  {
+    "name": "overCap",
+    "line": 79,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 80, "mutable": false, "name": "bigPath", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/libsnd_load_sound_rt_big.wav" } },
+    {
+      "op": "if",
+      "line": 81,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "bigPath" }] },
+      "then": [
+      { "op": "eval", "line": 82, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "bigPath" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 85, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeBytes", "args": [{ "kind": "local", "name": "bigPath" }, { "kind": "call", "type": "List OF Byte", "target": "oversizeHeader", "args": [] }] } },
+    { "op": "bind", "line": 86, "mutable": false, "name": "block", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "silenceBlock", "args": [] } },
+    { "op": "bind", "line": 87, "mutable": true, "name": "written", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 88,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "written" }, "right": { "kind": "const", "type": "Integer", "value": "1088" } },
+      "body": [
+      { "op": "eval", "line": 89, "value": { "kind": "call", "type": "Nothing", "target": "fs.appendBytes", "args": [{ "kind": "local", "name": "bigPath" }, { "kind": "local", "name": "block" }] } },
+      { "op": "assign", "line": 90, "name": "written", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "written" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "line": 92, "mutable": false, "name": "big", "type": "Sound", "value": { "kind": "call", "type": "Sound", "target": "libsnd.loadSound", "args": [{ "kind": "local", "name": "bigPath" }] } },
+    { "op": "eval", "line": 93, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "unreachable: over-cap load returned " }, "right": { "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "call", "type": "Unknown", "target": "len", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "big" }, "member": "pcm" }] }] } }] } },
+    { "op": "eval", "line": 94, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "bigPath" }] } },
+    { "op": "return", "line": 95, "value": null },
+    {
+      "op": "trap",
+      "line": 96,
+      "name": "e",
+      "body": [
+      { "op": "eval", "line": 99, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "over_cap_error=" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "e" }, "member": "message" } }] } },
+      { "op": "eval", "line": 100, "value": { "kind": "call", "type": "Unknown", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "bigPath" }] } },
+      { "op": "return", "line": 101, "value": null }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 105,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 106, "mutable": false, "name": "wavPath", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/libsnd_load_sound_rt.wav" } },
+    { "op": "bind", "line": 107, "mutable": false, "name": "flacPath", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/libsnd_load_sound_rt.flac" } },
+    {
+      "op": "if",
+      "line": 108,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "wavPath" }] },
+      "then": [
+      { "op": "eval", "line": 109, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "wavPath" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 111,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "flacPath" }] },
+      "then": [
+      { "op": "eval", "line": 112, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "flacPath" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 114, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeBytes", "args": [{ "kind": "local", "name": "wavPath" }, { "kind": "call", "type": "List OF Byte", "target": "probeWav", "args": [] }] } },
+    { "op": "eval", "line": 115, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeBytes", "args": [{ "kind": "local", "name": "flacPath" }, { "kind": "call", "type": "List OF Byte", "target": "probeFlac", "args": [] }] } },
+    { "op": "bind", "line": 117, "mutable": false, "name": "fromWav", "type": "Sound", "value": { "kind": "call", "type": "Sound", "target": "libsnd.loadSound", "args": [{ "kind": "local", "name": "wavPath" }] } },
+    { "op": "eval", "line": 118, "value": { "kind": "call", "type": "Nothing", "target": "describe", "args": [{ "kind": "const", "type": "String", "value": "wav " }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromWav" }, "member": "samplerate" }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromWav" }, "member": "channels" }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromWav" }, "member": "pcm" }] } },
+    { "op": "bind", "line": 120, "mutable": false, "name": "fromFlac", "type": "Sound", "value": { "kind": "call", "type": "Sound", "target": "libsnd.loadSound", "args": [{ "kind": "local", "name": "flacPath" }] } },
+    { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "describe", "args": [{ "kind": "const", "type": "String", "value": "flac" }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromFlac" }, "member": "samplerate" }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromFlac" }, "member": "channels" }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromFlac" }, "member": "pcm" }] } },
+    { "op": "bind", "line": 125, "mutable": true, "name": "same", "type": "Boolean", "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Unknown", "target": "len", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromWav" }, "member": "pcm" }] }, "right": { "kind": "call", "type": "Unknown", "target": "len", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromFlac" }, "member": "pcm" }] } } },
+    { "op": "bind", "line": 126, "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 127,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "local", "name": "same" }, "right": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "j" }, "right": { "kind": "call", "type": "Unknown", "target": "len", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromWav" }, "member": "pcm" }] } } },
+      "body": [
+      {
+        "op": "if",
+        "line": 128,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "call", "type": "Unknown", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromWav" }, "member": "pcm" }, { "kind": "local", "name": "j" }] }, "right": { "kind": "call", "type": "Unknown", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromFlac" }, "member": "pcm" }, { "kind": "local", "name": "j" }] } },
+        "then": [
+        { "op": "assign", "line": 129, "name": "same", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 131, "name": "j", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "j" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 133, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pcm_identical=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "same" }] } }] } },
+    {
+      "op": "if",
+      "line": 134,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "AND", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromWav" }, "member": "samplerate" }, "right": { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromFlac" }, "member": "samplerate" } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromWav" }, "member": "channels" }, "right": { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "fromFlac" }, "member": "channels" } } },
+      "then": [
+      { "op": "eval", "line": 135, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "geometry_identical=TRUE" }] } }
+      ],
+      "else": [
+      { "op": "eval", "line": 137, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "geometry_identical=FALSE" }] } }
+      ]
+    },
+    { "op": "bind", "line": 141, "mutable": false, "name": "monoPath", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/libsnd_load_sound_rt_mono.wav" } },
+    {
+      "op": "if",
+      "line": 142,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "monoPath" }] },
+      "then": [
+      { "op": "eval", "line": 143, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "monoPath" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 145, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeBytes", "args": [{ "kind": "local", "name": "monoPath" }, { "kind": "call", "type": "List OF Byte", "target": "monoWav", "args": [] }] } },
+    { "op": "bind", "line": 146, "mutable": false, "name": "mono", "type": "Sound", "value": { "kind": "call", "type": "Sound", "target": "libsnd.loadSound", "args": [{ "kind": "local", "name": "monoPath" }] } },
+    { "op": "eval", "line": 147, "value": { "kind": "call", "type": "Nothing", "target": "describe", "args": [{ "kind": "const", "type": "String", "value": "mono" }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "mono" }, "member": "samplerate" }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "mono" }, "member": "channels" }, { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "mono" }, "member": "pcm" }] } },
+    { "op": "eval", "line": 148, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "monoPath" }] } },
+    { "op": "eval", "line": 151, "value": { "kind": "call", "type": "Nothing", "target": "overCap", "args": [] } },
+    { "op": "eval", "line": 153, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "wavPath" }] } },
+    { "op": "eval", "line": 154, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "flacPath" }] } },
+    { "op": "eval", "line": 155, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 156, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

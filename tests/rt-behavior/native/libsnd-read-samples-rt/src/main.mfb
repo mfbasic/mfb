@@ -1,0 +1,144 @@
+' plan-58-D Phase 1: runtime proof that `readSamples`' two `* 2` scalings are
+' both correct, and that the OUT CBuffer marshaling underneath them is.
+'
+' `sf_read_short` counts ITEMS (one sample in one channel), and this binding
+' works in BYTES, so the wrapper scales twice:
+'
+'   BUFFER buf SIZE items * 2     items -> the buffer's byte capacity
+'   RETURN buf LENGTH got * 2     items libsndfile wrote -> byte length
+'
+' Both are silent when wrong. `SIZE items` would allocate half the buffer
+' libsndfile is told it may fill, so the callee writes past the block; `LENGTH
+' got` would return half the bytes actually decoded. Neither produces a
+' diagnostic, so the only proof is comparing the decoded PCM byte for byte
+' against bytes whose values are known by construction.
+'
+' The probe is the same hand-built 4-frame stereo 16-bit WAV the bug-364 fixture
+' uses, whose 16 data bytes are literally 0..15. So the decoded PCM must come
+' back as exactly 0,1,2,...,15 — a wrong scaling shows up immediately as a wrong
+' length, wrong values, or both.
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+RESOURCE SoundFile CLOSE BY snd::closeFile
+
+TYPE FileInfo
+  frames     AS Integer
+  samplerate AS Integer
+  channels   AS Integer
+  format     AS Integer
+  sections   AS Integer
+  seekable   AS Integer
+END TYPE
+
+LINK "libsnd" AS snd
+  CSTRUCT SfFileInfo AS FileInfo
+    frames     CInt64
+    samplerate CInt32
+    channels   CInt32
+    format     CInt32
+    sections   CInt32
+    seekable   CInt32
+  END CSTRUCT
+
+  FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
+    SYMBOL "sf_open"
+    ABI (path CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
+    CONST mode = 16 ' SFM_READ
+    BIND STATE file = info
+    ERROR_ON file = NOTHING
+    RETURN file
+  END FUNC
+
+  FUNC readSamples(RES sndfile AS SoundFile STATE FileInfo, items AS Integer) AS List OF Byte
+    SYMBOL "sf_read_short"
+    ABI (sndfile CPtr, buf OUT CBuffer, items CInt64) AS got CInt64
+    BUFFER buf SIZE items * 2
+    SUCCESS_ON got >= 0
+    RETURN buf LENGTH got * 2
+  END FUNC
+
+  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
+    SYMBOL "sf_close"
+    ABI (sndfile CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' The same 4-frame stereo 16-bit 8000 Hz WAV as the bug-364 fixture: 44-byte
+' RIFF header then 16 PCM bytes that are exactly 0..15.
+FUNC probeWav() AS List OF Byte
+  LET bytes AS List OF Byte = [82, 73, 70, 70, 52, 0, 0, 0, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 2, 0, 64, 31, 0, 0, 0, 125, 0, 0, 4, 0, 16, 0, 100, 97, 116, 97, 16, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  RETURN bytes
+END FUNC
+
+FUNC dump(label AS String, data AS List OF Byte) AS Nothing
+  MUT out AS String = label & " len=" & toString(len(data)) & " bytes="
+  MUT i AS Integer = 0
+  WHILE i < len(data)
+    out = out & toString(collections::get(data, i))
+    IF i < len(data) - 1 THEN
+      out = out & ","
+    END IF
+    i = i + 1
+  WEND
+  io::print(out)
+END FUNC
+
+FUNC main() AS Integer
+  LET path AS String = "target/libsnd_read_samples_rt.wav"
+  IF fs::fileExists(path) THEN
+    fs::deleteFile(path)
+  END IF
+  fs::writeBytes(path, probeWav())
+
+  ' --- exact read: 4 frames * 2 channels = 8 items = 16 bytes ---------------
+  RES h1 AS SoundFile STATE FileInfo = snd::openFile(path)
+  LET all AS List OF Byte = snd::readSamples(h1, 8)
+  dump("exact", all)
+  snd::closeFile(h1)
+
+  ' --- short read at EOF: ask for 100 items, only 8 exist ------------------
+  ' Proves LENGTH reports what libsndfile ACTUALLY wrote, not what was asked
+  ' for. With `LENGTH` absent this would be 200 bytes of arena memory.
+  RES h2 AS SoundFile STATE FileInfo = snd::openFile(path)
+  LET over AS List OF Byte = snd::readSamples(h2, 100)
+  dump("short", over)
+  snd::closeFile(h2)
+
+  ' --- partial reads, and libsndfile's whole-frame constraint ---------------
+  ' `sf_read_short` counts items but only ever reads WHOLE FRAMES: an item count
+  ' that is not a multiple of the channel count reads nothing at all. On this
+  ' 2-channel file, odd counts give 0 and even counts give count/2 frames.
+  '
+  ' Pinned here because it is a property of the C API, not of this binding, and
+  ' it is the reason `loadSound` computes `frames * channels` (always a multiple)
+  ' rather than letting a caller pick an arbitrary item count. A caller who
+  ' passes an odd count silently gets an empty list.
+  '
+  ' The even cases are also what prove `SIZE items * 2` scales with `items`: a
+  ' SIZE that ignored the parameter would return 16 bytes here, not 4 and 8.
+  RES h3 AS SoundFile STATE FileInfo = snd::openFile(path)
+  dump("items1", snd::readSamples(h3, 1))
+  snd::closeFile(h3)
+  RES h3b AS SoundFile STATE FileInfo = snd::openFile(path)
+  dump("items2", snd::readSamples(h3b, 2))
+  snd::closeFile(h3b)
+  RES h3c AS SoundFile STATE FileInfo = snd::openFile(path)
+  dump("items3", snd::readSamples(h3c, 3))
+  snd::closeFile(h3c)
+  RES h3d AS SoundFile STATE FileInfo = snd::openFile(path)
+  dump("items4", snd::readSamples(h3d, 4))
+  snd::closeFile(h3d)
+
+  ' --- zero items: a legal degenerate request ------------------------------
+  RES h4 AS SoundFile STATE FileInfo = snd::openFile(path)
+  LET none AS List OF Byte = snd::readSamples(h4, 0)
+  dump("zero", none)
+  snd::closeFile(h4)
+
+  fs::deleteFile(path)
+  io::print("ok")
+  RETURN 0
+END FUNC

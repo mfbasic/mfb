@@ -1,0 +1,157 @@
+' plan-58-D Phase 2: `loadSound` decodes a whole file into interleaved s16le PCM.
+'
+' The acceptance criterion is that a FLAC decodes byte-identically to the same
+' audio as WAV. That is the whole reason to route through libsndfile rather than
+' parsing WAV directly: `sf_read_short` converts from the file's native encoding,
+' so a compressed container and a raw one must yield the same samples.
+'
+' Both fixtures here are the SAME 4-frame stereo 8000 Hz recording whose 16 PCM
+' bytes are exactly 0..15, so the expected output is known by construction rather
+' than by trusting one decode to validate the other. The FLAC was produced from
+' the WAV with `sndfile-convert` and embedded as a byte literal, so the test needs
+' no external file and no encoder at run time.
+IMPORT io
+IMPORT fs
+IMPORT libsnd
+IMPORT collections
+
+FUNC probeWav() AS List OF Byte
+  LET bytes AS List OF Byte = [82, 73, 70, 70, 52, 0, 0, 0, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 2, 0, 64, 31, 0, 0, 0, 125, 0, 0, 4, 0, 16, 0, 100, 97, 116, 97, 16, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  RETURN bytes
+END FUNC
+
+' The same audio, FLAC-encoded by sndfile-convert.
+FUNC probeFlac() AS List OF Byte
+  LET bytes AS List OF Byte = [102, 76, 97, 67, 0, 0, 0, 34, 16, 0, 16, 0, 0, 0, 26, 0, 0, 26, 1, 244, 2, 240, 0, 0, 0, 4, 26, 193, 239, 1, 233, 108, 175, 27, 224, 211, 41, 51, 26, 79, 194, 168, 132, 0, 0, 40, 32, 0, 0, 0, 114, 101, 102, 101, 114, 101, 110, 99, 101, 32, 108, 105, 98, 70, 76, 65, 67, 32, 49, 46, 53, 46, 48, 32, 50, 48, 50, 53, 48, 50, 49, 49, 0, 0, 0, 0, 255, 248, 100, 24, 0, 3, 72, 3, 64, 64, 5, 4, 36, 32, 208, 192, 224, 96, 65, 193, 133, 133, 15, 14, 189, 232]
+  RETURN bytes
+END FUNC
+
+' Takes the fields rather than the record: a parameter declared
+' `AS libsnd::Sound` does not resolve its fields (they type as Unknown), so the
+' record is destructured at the call site instead.
+' A mono 4-frame 8000 Hz WAV, PCM bytes 0..7. Proves loadSound reports the file's
+' own geometry rather than assuming stereo, and that `frames * channels` is the
+' right item count for a 1-channel file too.
+FUNC monoWav() AS List OF Byte
+  LET bytes AS List OF Byte = [82, 73, 70, 70, 44, 0, 0, 0, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 1, 0, 64, 31, 0, 0, 128, 62, 0, 0, 2, 0, 16, 0, 100, 97, 116, 97, 8, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7]
+  RETURN bytes
+END FUNC
+
+' The header for a WAV declaring a 68 MiB data chunk — just over loadSound's
+' 64 MiB cap.
+'
+' A header claiming a size the file does not have does NOT work: libsndfile
+' derives `frames` from the bytes actually present, not from the chunk header, so
+' a 44-byte file with a 200 MiB claim reports 0 frames and sails under the cap.
+' (Tried; that is why the data is really written below.)
+FUNC oversizeHeader() AS List OF Byte
+  ' RIFF | 36+71303168 | WAVE | fmt (PCM stereo 8000Hz) | data | 71303168
+  LET bytes AS List OF Byte = [82, 73, 70, 70, 36, 0, 64, 4, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 2, 0, 64, 31, 0, 0, 0, 125, 0, 0, 4, 0, 16, 0, 100, 97, 116, 97, 0, 0, 64, 4]
+  RETURN bytes
+END FUNC
+
+' One 64 KiB block of silence, appended repeatedly to reach the declared size.
+FUNC silenceBlock() AS List OF Byte
+  MUT block AS List OF Byte
+  MUT i AS Integer = 0
+  WHILE i < 65536
+    block = collections::append(block, toByte(0))
+    i = i + 1
+  WEND
+  RETURN block
+END FUNC
+
+FUNC describe(label AS String, rate AS Integer, ch AS Integer, pcm AS List OF Byte) AS Nothing
+  MUT out AS String = label & " rate=" & toString(rate) & " ch=" & toString(ch) & " len=" & toString(len(pcm)) & " pcm="
+  MUT i AS Integer = 0
+  WHILE i < len(pcm)
+    out = out & toString(collections::get(pcm, i))
+    IF i < len(pcm) - 1 THEN
+      out = out & ","
+    END IF
+    i = i + 1
+  WEND
+  io::print(out)
+END FUNC
+
+' Its own function because TRAP is function-level and must sit at the bottom,
+' after normal flow.
+FUNC overCap() AS Nothing
+  LET bigPath AS String = "target/libsnd_load_sound_rt_big.wav"
+  IF fs::fileExists(bigPath) THEN
+    fs::deleteFile(bigPath)
+  END IF
+  ' 68 MiB of real data, in 64 KiB appends: 1088 blocks.
+  fs::writeBytes(bigPath, oversizeHeader())
+  LET block AS List OF Byte = silenceBlock()
+  MUT written AS Integer = 0
+  WHILE written < 1088
+    fs::appendBytes(bigPath, block)
+    written = written + 1
+  WEND
+  LET big = libsnd::loadSound(bigPath)
+  io::print("unreachable: over-cap load returned " & toString(len(big.pcm)))
+  fs::deleteFile(bigPath)
+  RETURN
+  TRAP(e)
+    ' The message must name BOTH the file's size and the cap — "too large" with
+    ' no numbers is unactionable.
+    io::print("over_cap_error=" & e.message)
+    fs::deleteFile(bigPath)
+    RETURN
+  END TRAP
+END FUNC
+
+FUNC main() AS Integer
+  LET wavPath AS String = "target/libsnd_load_sound_rt.wav"
+  LET flacPath AS String = "target/libsnd_load_sound_rt.flac"
+  IF fs::fileExists(wavPath) THEN
+    fs::deleteFile(wavPath)
+  END IF
+  IF fs::fileExists(flacPath) THEN
+    fs::deleteFile(flacPath)
+  END IF
+  fs::writeBytes(wavPath, probeWav())
+  fs::writeBytes(flacPath, probeFlac())
+
+  LET fromWav = libsnd::loadSound(wavPath)
+  describe("wav ", fromWav.samplerate, fromWav.channels, fromWav.pcm)
+
+  LET fromFlac = libsnd::loadSound(flacPath)
+  describe("flac", fromFlac.samplerate, fromFlac.channels, fromFlac.pcm)
+
+  ' The criterion, asserted rather than eyeballed across two printed lines.
+  ' Element-wise: a `List OF Byte` is not `=`-comparable.
+  MUT same AS Boolean = len(fromWav.pcm) = len(fromFlac.pcm)
+  MUT j AS Integer = 0
+  WHILE same AND j < len(fromWav.pcm)
+    IF collections::get(fromWav.pcm, j) <> collections::get(fromFlac.pcm, j) THEN
+      same = FALSE
+    END IF
+    j = j + 1
+  WEND
+  io::print("pcm_identical=" & toString(same))
+  IF fromWav.samplerate = fromFlac.samplerate AND fromWav.channels = fromFlac.channels THEN
+    io::print("geometry_identical=TRUE")
+  ELSE
+    io::print("geometry_identical=FALSE")
+  END IF
+
+  ' --- mono geometry ------------------------------------------------------
+  LET monoPath AS String = "target/libsnd_load_sound_rt_mono.wav"
+  IF fs::fileExists(monoPath) THEN
+    fs::deleteFile(monoPath)
+  END IF
+  fs::writeBytes(monoPath, monoWav())
+  LET mono = libsnd::loadSound(monoPath)
+  describe("mono", mono.samplerate, mono.channels, mono.pcm)
+  fs::deleteFile(monoPath)
+
+  ' --- the cap, and that its message names BOTH numbers --------------------
+  overCap()
+
+  fs::deleteFile(wavPath)
+  fs::deleteFile(flacPath)
+  io::print("ok")
+  RETURN 0
+END FUNC

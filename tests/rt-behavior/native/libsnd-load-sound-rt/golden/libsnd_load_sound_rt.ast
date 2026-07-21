@@ -1,0 +1,278 @@
+{
+  "project": "libsnd_load_sound_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 13 },
+    { "module": "fs", "line": 14 },
+    { "module": "libsnd", "line": 15 },
+    { "module": "collections", "line": 16 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "probeWav",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "82" }, { "kind": "number", "value": "73" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "52" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "87" }, { "kind": "number", "value": "65" }, { "kind": "number", "value": "86" }, { "kind": "number", "value": "69" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "109" }, { "kind": "number", "value": "116" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "31" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "125" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "116" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "11" }, { "kind": "number", "value": "12" }, { "kind": "number", "value": "13" }, { "kind": "number", "value": "14" }, { "kind": "number", "value": "15" }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "bytes" }, "line": 20 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "probeFlac",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "102" }, { "kind": "number", "value": "76" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "67" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "34" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "26" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "26" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "244" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "240" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "26" }, { "kind": "number", "value": "193" }, { "kind": "number", "value": "239" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "233" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "175" }, { "kind": "number", "value": "27" }, { "kind": "number", "value": "224" }, { "kind": "number", "value": "211" }, { "kind": "number", "value": "41" }, { "kind": "number", "value": "51" }, { "kind": "number", "value": "26" }, { "kind": "number", "value": "79" }, { "kind": "number", "value": "194" }, { "kind": "number", "value": "168" }, { "kind": "number", "value": "132" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "40" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "114" }, { "kind": "number", "value": "101" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "101" }, { "kind": "number", "value": "114" }, { "kind": "number", "value": "101" }, { "kind": "number", "value": "110" }, { "kind": "number", "value": "99" }, { "kind": "number", "value": "101" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "105" }, { "kind": "number", "value": "98" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "76" }, { "kind": "number", "value": "65" }, { "kind": "number", "value": "67" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "49" }, { "kind": "number", "value": "46" }, { "kind": "number", "value": "53" }, { "kind": "number", "value": "46" }, { "kind": "number", "value": "48" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "50" }, { "kind": "number", "value": "48" }, { "kind": "number", "value": "50" }, { "kind": "number", "value": "53" }, { "kind": "number", "value": "48" }, { "kind": "number", "value": "50" }, { "kind": "number", "value": "49" }, { "kind": "number", "value": "49" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "255" }, { "kind": "number", "value": "248" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "24" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "72" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "36" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "208" }, { "kind": "number", "value": "192" }, { "kind": "number", "value": "224" }, { "kind": "number", "value": "96" }, { "kind": "number", "value": "65" }, { "kind": "number", "value": "193" }, { "kind": "number", "value": "133" }, { "kind": "number", "value": "133" }, { "kind": "number", "value": "15" }, { "kind": "number", "value": "14" }, { "kind": "number", "value": "189" }, { "kind": "number", "value": "232" }] }, "line": 25 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "bytes" }, "line": 26 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "monoWav",
+      "line": 35,
+      "params": [
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "82" }, { "kind": "number", "value": "73" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "44" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "87" }, { "kind": "number", "value": "65" }, { "kind": "number", "value": "86" }, { "kind": "number", "value": "69" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "109" }, { "kind": "number", "value": "116" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "31" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "128" }, { "kind": "number", "value": "62" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "116" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "7" }] }, "line": 36 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "bytes" }, "line": 37 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "oversizeHeader",
+      "line": 47,
+      "params": [
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "82" }, { "kind": "number", "value": "73" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "36" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "87" }, { "kind": "number", "value": "65" }, { "kind": "number", "value": "86" }, { "kind": "number", "value": "69" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "109" }, { "kind": "number", "value": "116" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "31" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "125" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "116" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "4" }] }, "line": 49 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "bytes" }, "line": 50 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "silenceBlock",
+      "line": 54,
+      "params": [
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "block", "type": "List OF Byte", "value": null, "line": 55 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 56 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "65536" } },
+        "line": 57,
+        "body": [
+        { "kind": "assignment", "name": "block", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "block" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "0" }] }] }, "line": 58 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 59 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "block" }, "line": 61 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "describe",
+      "line": 64,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 64 },
+      { "name": "rate", "type": "Integer", "default": null, "line": 64 },
+      { "name": "ch", "type": "Integer", "default": null, "line": 64 },
+      { "name": "pcm", "type": "List OF Byte", "default": null, "line": 64 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " rate=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "rate" }] } }, "right": { "kind": "string", "value": " ch=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ch" }] } }, "right": { "kind": "string", "value": " len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pcm" }] }] } }, "right": { "kind": "string", "value": " pcm=" } }, "line": 65 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 66 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pcm" }] } },
+        "line": 67,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "pcm" }, { "kind": "identifier", "value": "i" }] }] } }, "line": 68 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pcm" }] }, "right": { "kind": "number", "value": "1" } } },
+          "line": 69,
+          "then": [
+          { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "," } }, "line": 70 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 72 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "out" }] }, "line": 74 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "overCap",
+      "line": 79,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bigPath", "type": "String", "value": { "kind": "string", "value": "target/libsnd_load_sound_rt_big.wav" }, "line": 80 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "bigPath" }] },
+        "line": 81,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "bigPath" }] }, "line": 82 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "bigPath" }, { "kind": "call", "callee": "oversizeHeader", "arguments": [] }] }, "line": 85 },
+      { "kind": "binding", "mutable": false, "name": "block", "type": "List OF Byte", "value": { "kind": "call", "callee": "silenceBlock", "arguments": [] }, "line": 86 },
+      { "kind": "binding", "mutable": true, "name": "written", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 87 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "written" }, "right": { "kind": "number", "value": "1088" } },
+        "line": 88,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.appendBytes", "arguments": [{ "kind": "identifier", "value": "bigPath" }, { "kind": "identifier", "value": "block" }] }, "line": 89 },
+        { "kind": "assignment", "name": "written", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "written" }, "right": { "kind": "number", "value": "1" } }, "line": 90 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "big", "type": null, "value": { "kind": "call", "callee": "libsnd.loadSound", "arguments": [{ "kind": "identifier", "value": "bigPath" }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "unreachable: over-cap load returned " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "big" }, "member": "pcm" }] }] } }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "bigPath" }] }, "line": 94 },
+      { "kind": "return", "value": null, "line": 95 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 96,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "over_cap_error=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "message" } }] }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "bigPath" }] }, "line": 100 },
+      { "kind": "return", "value": null, "line": 101 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 105,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "wavPath", "type": "String", "value": { "kind": "string", "value": "target/libsnd_load_sound_rt.wav" }, "line": 106 },
+      { "kind": "binding", "mutable": false, "name": "flacPath", "type": "String", "value": { "kind": "string", "value": "target/libsnd_load_sound_rt.flac" }, "line": 107 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "wavPath" }] },
+        "line": 108,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "wavPath" }] }, "line": 109 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "flacPath" }] },
+        "line": 111,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "flacPath" }] }, "line": 112 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "wavPath" }, { "kind": "call", "callee": "probeWav", "arguments": [] }] }, "line": 114 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "flacPath" }, { "kind": "call", "callee": "probeFlac", "arguments": [] }] }, "line": 115 },
+      { "kind": "binding", "mutable": false, "name": "fromWav", "type": null, "value": { "kind": "call", "callee": "libsnd.loadSound", "arguments": [{ "kind": "identifier", "value": "wavPath" }] }, "line": 117 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "string", "value": "wav " }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromWav" }, "member": "samplerate" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromWav" }, "member": "channels" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromWav" }, "member": "pcm" }] }, "line": 118 },
+      { "kind": "binding", "mutable": false, "name": "fromFlac", "type": null, "value": { "kind": "call", "callee": "libsnd.loadSound", "arguments": [{ "kind": "identifier", "value": "flacPath" }] }, "line": 120 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "string", "value": "flac" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromFlac" }, "member": "samplerate" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromFlac" }, "member": "channels" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromFlac" }, "member": "pcm" }] }, "line": 121 },
+      { "kind": "binding", "mutable": true, "name": "same", "type": "Boolean", "value": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromWav" }, "member": "pcm" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromFlac" }, "member": "pcm" }] } }, "line": 125 },
+      { "kind": "binding", "mutable": true, "name": "j", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 126 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "identifier", "value": "same" }, "right": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromWav" }, "member": "pcm" }] } } },
+        "line": 127,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromWav" }, "member": "pcm" }, { "kind": "identifier", "value": "j" }] }, "right": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromFlac" }, "member": "pcm" }, { "kind": "identifier", "value": "j" }] } },
+          "line": 128,
+          "then": [
+          { "kind": "assignment", "name": "same", "value": { "kind": "boolean", "value": false }, "line": 129 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "j", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "j" }, "right": { "kind": "number", "value": "1" } }, "line": 131 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pcm_identical=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "same" }] } }] }, "line": 133 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "AND", "left": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromWav" }, "member": "samplerate" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromFlac" }, "member": "samplerate" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromWav" }, "member": "channels" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "fromFlac" }, "member": "channels" } } },
+        "line": 134,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "geometry_identical=TRUE" }] }, "line": 135 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "geometry_identical=FALSE" }] }, "line": 137 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "monoPath", "type": "String", "value": { "kind": "string", "value": "target/libsnd_load_sound_rt_mono.wav" }, "line": 141 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "monoPath" }] },
+        "line": 142,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "monoPath" }] }, "line": 143 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "monoPath" }, { "kind": "call", "callee": "monoWav", "arguments": [] }] }, "line": 145 },
+      { "kind": "binding", "mutable": false, "name": "mono", "type": null, "value": { "kind": "call", "callee": "libsnd.loadSound", "arguments": [{ "kind": "identifier", "value": "monoPath" }] }, "line": 146 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "string", "value": "mono" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "mono" }, "member": "samplerate" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "mono" }, "member": "channels" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "mono" }, "member": "pcm" }] }, "line": 147 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "monoPath" }] }, "line": 148 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "overCap", "arguments": [] }, "line": 151 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "wavPath" }] }, "line": 153 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "flacPath" }] }, "line": 154 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 155 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 156 }
+      ]
+    }
+    ]
+  }
+  ]
+}

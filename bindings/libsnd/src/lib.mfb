@@ -32,13 +32,13 @@ DOC
   INFO x86_64 and riscv64 in both glibc and musl. A Linux console build emits
   INFO both libc flavors, and a bundled library is present for each.
   EXAMPLE
-    IMPORT io
+    IMPORT audio
     IMPORT libsnd
 
     FUNC main() AS Integer
-      FOR EACH f IN libsnd::getFormats()
-        io::print(f.extension & " | " & f.name)
-      NEXT
+      LET s = libsnd::loadSound("chime.flac")
+      RES out AS AudioOutput = audio::openOutput(s.samplerate, s.channels, 512)
+      audio::write(out, s.pcm)
       RETURN 0
     END FUNC
   END EXAMPLE
@@ -56,6 +56,20 @@ EXPORT TYPE AudioFormat
   format    AS Integer
   name      AS String
   extension AS String
+END TYPE
+
+DOC
+  TYPE Sound
+  DESC A whole decoded audio file: its geometry plus its raw PCM, ready to hand
+  DESC straight to `audio::write`.
+  PROP samplerate Frames per second, as recorded in the file — 44100, 48000 and so on. Pass it to `audio::openOutput`; nothing here resamples.
+  PROP channels Channels per frame: 1 for mono, 2 for stereo. `audio::openOutput` accepts only these two, so a file with more will not play without downmixing.
+  PROP pcm Interleaved signed 16-bit little-endian samples — exactly the layout `audio::write` expects. One frame is `channels * 2` bytes, and the samples of a frame are adjacent (L, R, L, R, ...).
+END DOC
+EXPORT TYPE Sound
+  samplerate AS Integer
+  channels   AS Integer
+  pcm        AS List OF Byte
 END TYPE
 
 RESOURCE SoundFile CLOSE BY sndLink::closeFile
@@ -127,6 +141,38 @@ LINK "libsnd" AS sndLink
     SUCCESS_ON status = 0
   END FUNC
 
+  ' plan-58-D: the streaming read primitive `loadSound` is built on.
+  '
+  '   sf_count_t sf_read_short(SNDFILE *sndfile, short *ptr, sf_count_t items);
+  '
+  ' `items`, NOT frames — one item is one sample in ONE channel, so a stereo
+  ' frame is two items. `sf_readf_short` is the frame-wise twin; this binding
+  ' uses the item-wise call so the caller does the channel arithmetic once, in
+  ' `loadSound`, rather than the binding doing it invisibly.
+  '
+  ' Both `* 2` scalings are the s16 sample width: SIZE converts items to the
+  ' buffer's BYTE capacity, and LENGTH converts the items libsndfile reports it
+  ' wrote back into bytes. Getting either wrong is silent — a `SIZE items` would
+  ' allocate half the buffer needed and libsndfile would write past it — which is
+  ' why the byte-comparison test in this plan's Phase 1 exists.
+  '
+  ' `LENGTH got * 2` is clamped to [0, SIZE] by the thunk, so a short read at EOF
+  ' yields a correspondingly shorter list and a negative `got` yields an empty
+  ' one rather than a huge unsigned length.
+  '
+  ' `items` MUST be a whole multiple of the file's channel count. libsndfile only
+  ' ever reads whole frames, so an item count that straddles a frame boundary
+  ' reads NOTHING and this returns an empty list — verified on a 2-channel file:
+  ' 1 item -> 0 bytes, 2 -> 4, 3 -> 0, 4 -> 8. That is a property of the C API,
+  ' not of this wrapper, and it is why `loadSound` passes `frames * channels`.
+  FUNC readSamples(RES sndfile AS SoundFile, items AS Integer) AS List OF Byte
+    SYMBOL "sf_read_short"
+    ABI (sndfile CPtr, buf OUT CBuffer, items CInt64) AS got CInt64
+    BUFFER buf SIZE items * 2
+    SUCCESS_ON got >= 0
+    RETURN buf LENGTH got * 2
+  END FUNC
+
   FUNC errNum(RES sndfile AS SoundFile) AS Integer
     SYMBOL "sf_error"
     ABI (sndfile CPtr) AS status CInt32
@@ -181,4 +227,61 @@ EXPORT FUNC getFormats() AS List OF AudioFormat
     formats = collections::append(formats, info)
   NEXT
   RETURN formats
+END FUNC
+
+' The largest file `loadSound` will decode into memory, in bytes.
+'
+' 64 MiB is about 5 minutes 49 seconds of stereo 48 kHz 16-bit audio. The cap
+' exists because `loadSound` is a whole-file read: the decoded PCM is one
+' contiguous byte list, and its size is driven entirely by the file the caller
+' names. A program that needs longer audio should stream it through
+' `readSamples` in chunks instead.
+LET MAX_LOAD_BYTES AS Integer = 67108864
+
+DOC
+  FUNC loadSound
+  GROUP Decoding
+  DESC Decode an entire audio file into interleaved 16-bit PCM, in one call.
+  DESC Any format the bundled libsndfile can read — WAV, FLAC, AIFF and others —
+  DESC comes back in the single layout `audio::write` plays.
+  ARG path Path to the audio file to decode.
+  RET The file's sample rate, channel count, and its complete PCM.
+  INFO Nothing is resampled or downmixed. The returned `samplerate` and
+  INFO `channels` are the file's own, and `audio::openOutput` must be opened with
+  INFO those same values or the audio plays at the wrong speed or pitch.
+  WARN The whole file is decoded into memory. Files above 64 MiB of PCM — about
+  WARN 5 minutes 49 seconds of stereo 48 kHz audio — are refused rather than
+  WARN allocated. Stream longer audio with `readSamples` instead.
+  ERROR 77030007 libsndfile or one of its dependencies could not be loaded; raised at startup, before `main` runs.
+  ERROR 77050002 The file's decoded size exceeds the 64 MiB limit. The message names both the file's size and the cap.
+  EXAMPLE
+    IMPORT audio
+    IMPORT libsnd
+
+    FUNC main() AS Integer
+      LET s = libsnd::loadSound("chime.flac")
+      RES out AS AudioOutput = audio::openOutput(s.samplerate, s.channels, 512)
+      audio::write(out, s.pcm)
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+EXPORT FUNC loadSound(path AS String) AS Sound
+  RES handle AS SoundFile STATE FileInfo = sndLink::openFile(path)
+  LET info AS FileInfo = handle.state
+
+  ' Items, not frames: one item is one sample in one channel, so a stereo frame
+  ' is two items. This product is always a whole multiple of `channels`, which is
+  ' what `sf_read_short` requires — it reads only whole frames, and an item count
+  ' that straddles a frame boundary reads nothing at all.
+  LET items AS Integer = info.frames * info.channels
+  LET bytes AS Integer = items * 2
+  IF bytes > MAX_LOAD_BYTES THEN
+    FAIL error(77050002, "libsnd: " & path & " decodes to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; stream it with readSamples instead")
+  END IF
+
+  ' A truncated or malformed file simply yields fewer bytes than `frames`
+  ' promised — the LENGTH clamp handles it — and that is not an error here.
+  LET pcm AS List OF Byte = sndLink::readSamples(handle, items)
+  RETURN Sound[samplerate := info.samplerate, channels := info.channels, pcm := pcm]
 END FUNC

@@ -1,0 +1,271 @@
+{
+  "project": "libsnd_read_samples_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 20 },
+    { "module": "fs", "line": 21 },
+    { "module": "collections", "line": 22 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "SoundFile", "closeFn": "snd.closeFile", "threadSendable": false, "line": 24 },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "FileInfo",
+      "line": 26,
+      "fields": [
+      { "visibility": null, "name": "frames", "type": "Integer", "line": 27 },
+      { "visibility": null, "name": "samplerate", "type": "Integer", "line": 28 },
+      { "visibility": null, "name": "channels", "type": "Integer", "line": 29 },
+      { "visibility": null, "name": "format", "type": "Integer", "line": 30 },
+      { "visibility": null, "name": "sections", "type": "Integer", "line": 31 },
+      { "visibility": null, "name": "seekable", "type": "Integer", "line": 32 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "libsnd",
+      "alias": "snd",
+      "line": 35,
+      "cstructs": [
+      {
+        "kind": "cstruct",
+        "name": "SfFileInfo",
+        "mapsTo": "FileInfo",
+        "line": 36,
+        "fields": [
+        {
+          "name": "frames",
+          "ctype": "CInt64",
+          "line": 37
+        },
+        {
+          "name": "samplerate",
+          "ctype": "CInt32",
+          "line": 38
+        },
+        {
+          "name": "channels",
+          "ctype": "CInt32",
+          "line": 39
+        },
+        {
+          "name": "format",
+          "ctype": "CInt32",
+          "line": 40
+        },
+        {
+          "name": "sections",
+          "ctype": "CInt32",
+          "line": 41
+        },
+        {
+          "name": "seekable",
+          "ctype": "CInt32",
+          "line": 42
+        }
+        ]
+      }
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "openFile",
+        "symbol": "sf_open",
+        "returnResource": true,
+        "returnType": "SoundFile",
+        "returnState": "FileInfo",
+        "line": 45,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 45 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 47 },
+          { "name": "mode", "ctype": "CInt32", "out": false, "line": 47 },
+          { "name": "info", "ctype": "SfFileInfo", "out": true, "line": 47 }
+          ],
+          "returnName": "file",
+          "returnCType": "CPtr"
+        },
+        "consts": [
+        { "slot": "mode", "value": { "kind": "number", "value": "16" }, "line": 48 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": {
+          "kind": "bindState",
+          "resourceSlot": "file",
+          "structSlot": "info"
+        },
+        "successOn": { "kind": "unary", "operator": "NOT", "operand": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "file" }, "right": { "kind": "identifier", "value": "NOTHING" } } },
+        "result": { "kind": "identifier", "value": "file" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "readSamples",
+        "symbol": "sf_read_short",
+        "returnResource": false,
+        "returnType": "List OF Byte",
+        "returnState": null,
+        "line": 54,
+        "params": [
+        { "name": "sndfile", "type": "SoundFile", "resource": true, "state": "FileInfo", "default": null, "line": 54 },
+        { "name": "items", "type": "Integer", "default": null, "line": 54 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "sndfile", "ctype": "CPtr", "out": false, "line": 56 },
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 56 },
+          { "name": "items", "ctype": "CInt64", "out": false, "line": 56 }
+          ],
+          "returnName": "got",
+          "returnCType": "CInt64"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "got" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "buf" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "closeFile",
+        "symbol": "sf_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 62,
+        "params": [
+        { "name": "sndfile", "type": "SoundFile", "resource": true, "state": "FileInfo", "default": null, "line": 62 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "sndfile", "ctype": "CPtr", "out": false, "line": 64 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "probeWav",
+      "line": 71,
+      "params": [
+      ],
+      "returnType": "List OF Byte",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "82" }, { "kind": "number", "value": "73" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "70" }, { "kind": "number", "value": "52" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "87" }, { "kind": "number", "value": "65" }, { "kind": "number", "value": "86" }, { "kind": "number", "value": "69" }, { "kind": "number", "value": "102" }, { "kind": "number", "value": "109" }, { "kind": "number", "value": "116" }, { "kind": "number", "value": "32" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "64" }, { "kind": "number", "value": "31" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "125" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "100" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "116" }, { "kind": "number", "value": "97" }, { "kind": "number", "value": "16" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "11" }, { "kind": "number", "value": "12" }, { "kind": "number", "value": "13" }, { "kind": "number", "value": "14" }, { "kind": "number", "value": "15" }] }, "line": 72 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "bytes" }, "line": 73 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dump",
+      "line": 76,
+      "params": [
+      { "name": "label", "type": "String", "default": null, "line": 76 },
+      { "name": "data", "type": "List OF Byte", "default": null, "line": 76 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "out", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "data" }] }] } }, "right": { "kind": "string", "value": " bytes=" } }, "line": 77 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 78 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "data" }] } },
+        "line": 79,
+        "body": [
+        { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "data" }, { "kind": "identifier", "value": "i" }] }] } }, "line": 80 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "binary", "operator": "-", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "data" }] }, "right": { "kind": "number", "value": "1" } } },
+          "line": 81,
+          "then": [
+          { "kind": "assignment", "name": "out", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "out" }, "right": { "kind": "string", "value": "," } }, "line": 82 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 84 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "out" }] }, "line": 86 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 89,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/libsnd_read_samples_rt.wav" }, "line": 90 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "line": 91,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 92 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "call", "callee": "probeWav", "arguments": [] }] }, "line": 94 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "h1", "type": "SoundFile", "value": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 97 },
+      { "kind": "binding", "mutable": false, "name": "all", "type": "List OF Byte", "value": { "kind": "call", "callee": "snd.readSamples", "arguments": [{ "kind": "identifier", "value": "h1" }, { "kind": "number", "value": "8" }] }, "line": 98 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "exact" }, { "kind": "identifier", "value": "all" }] }, "line": 99 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "h1" }] }, "line": 100 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "h2", "type": "SoundFile", "value": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 105 },
+      { "kind": "binding", "mutable": false, "name": "over", "type": "List OF Byte", "value": { "kind": "call", "callee": "snd.readSamples", "arguments": [{ "kind": "identifier", "value": "h2" }, { "kind": "number", "value": "100" }] }, "line": 106 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "short" }, { "kind": "identifier", "value": "over" }] }, "line": 107 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "h2" }] }, "line": 108 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "h3", "type": "SoundFile", "value": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 122 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "items1" }, { "kind": "call", "callee": "snd.readSamples", "arguments": [{ "kind": "identifier", "value": "h3" }, { "kind": "number", "value": "1" }] }] }, "line": 123 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "h3" }] }, "line": 124 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "h3b", "type": "SoundFile", "value": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 125 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "items2" }, { "kind": "call", "callee": "snd.readSamples", "arguments": [{ "kind": "identifier", "value": "h3b" }, { "kind": "number", "value": "2" }] }] }, "line": 126 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "h3b" }] }, "line": 127 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "h3c", "type": "SoundFile", "value": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 128 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "items3" }, { "kind": "call", "callee": "snd.readSamples", "arguments": [{ "kind": "identifier", "value": "h3c" }, { "kind": "number", "value": "3" }] }] }, "line": 129 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "h3c" }] }, "line": 130 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "h3d", "type": "SoundFile", "value": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 131 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "items4" }, { "kind": "call", "callee": "snd.readSamples", "arguments": [{ "kind": "identifier", "value": "h3d" }, { "kind": "number", "value": "4" }] }] }, "line": 132 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "h3d" }] }, "line": 133 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "h4", "type": "SoundFile", "value": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 136 },
+      { "kind": "binding", "mutable": false, "name": "none", "type": "List OF Byte", "value": { "kind": "call", "callee": "snd.readSamples", "arguments": [{ "kind": "identifier", "value": "h4" }, { "kind": "number", "value": "0" }] }, "line": 137 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "zero" }, { "kind": "identifier", "value": "none" }] }, "line": 138 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "h4" }] }, "line": 139 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 141 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 142 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 143 }
+      ]
+    }
+    ]
+  }
+  ]
+}

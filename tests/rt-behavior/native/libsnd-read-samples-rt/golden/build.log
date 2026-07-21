@@ -1,0 +1,17 @@
+$ mfb build -ast -ir tests/rt-behavior/native/libsnd-read-samples-rt
+Wrote AST to tests/rt-behavior/native/libsnd-read-samples-rt/libsnd_read_samples_rt.ast
+Wrote IR to tests/rt-behavior/native/libsnd-read-samples-rt/libsnd_read_samples_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/native/libsnd-read-samples-rt
+Wrote executable to tests/rt-behavior/native/libsnd-read-samples-rt/build/libsnd_read_samples_rt.out
+[exit 0]
+$ tests/rt-behavior/native/libsnd-read-samples-rt/build/libsnd_read_samples_rt.out
+exact len=16 bytes=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+short len=16 bytes=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+items1 len=0 bytes=
+items2 len=4 bytes=0,1,2,3
+items3 len=0 bytes=
+items4 len=8 bytes=0,1,2,3,4,5,6,7
+zero len=0 bytes=
+ok
+[exit 0]
