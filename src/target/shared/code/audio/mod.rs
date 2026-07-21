@@ -169,17 +169,24 @@ fn emit_alloc_byte_list(
         abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_LENGTH),
         abi::store_u64("%v10", "%v15", COLLECTION_OFFSET_DATA_CAPACITY),
         // entry array: entry[i] = { USED, value_offset=i, value_length=1 }
-        abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE), // entry cursor
-        abi::move_immediate("%v13", "Integer", "0"),                // i
-        abi::label(&entry_loop),
-        abi::compare_registers("%v13", "%v10"),
-        abi::branch_ge(&entry_done),
-        // kind 2 has no entry array to fill (plan-57-D). Emitting this with a
-        // zero stride would rewrite one entry over the data region `count`
-        // times and run past the block, so it is skipped outright.
     ]);
+    // kind 2 has no entry array to fill (plan-57-D), so the ENTIRE loop is
+    // skipped — not just its body.
+    //
+    // plan-57-D guarded only the body, which left `label; cmp i,count;
+    // bge done; i++; b loop` behind: a no-op loop that still ran `count` times at
+    // RUNTIME. Every audio capture allocation paid it, and it scales with the
+    // buffer — a 3-minute stereo 48 kHz read burned ~34 million iterations doing
+    // nothing. Correct output, silently linear waste, which is why nothing caught
+    // it. The header stores above already set count/capacity/dataLength/
+    // dataCapacity, so under kind 2 there is nothing left for the loop to do.
     if byte_list_entry_stride() != 0 {
         instructions.extend([
+            abi::add_immediate("%v11", "%v15", COLLECTION_HEADER_SIZE), // entry cursor
+            abi::move_immediate("%v13", "Integer", "0"),                // i
+            abi::label(&entry_loop),
+            abi::compare_registers("%v13", "%v10"),
+            abi::branch_ge(&entry_done),
             abi::move_immediate("%v14", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
             abi::store_u8("%v14", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
             abi::store_u64(abi::ZERO, "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
@@ -188,11 +195,9 @@ fn emit_alloc_byte_list(
             abi::move_immediate("%v14", "Integer", "1"),
             abi::store_u64("%v14", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
             abi::add_immediate("%v11", "%v11", byte_list_entry_stride()),
+            abi::add_immediate("%v13", "%v13", 1),
+            abi::branch(&entry_loop),
+            abi::label(&entry_done),
         ]);
     }
-    instructions.extend([
-        abi::add_immediate("%v13", "%v13", 1),
-        abi::branch(&entry_loop),
-        abi::label(&entry_done),
-    ]);
 }
