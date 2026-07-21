@@ -1205,11 +1205,21 @@ fn spike_file_added_package_with_registry_ident_survives_update() {
 
     // OBSERVATION 2: does `update` resolve it, and do the local bytes survive?
     let update = run_mfb_in(&repo, home.path(), &app_dir, &["pkg", "update"]);
-    eprintln!(
-        "SPIKE update exit={:?}\nstdout:\n{}\nstderr:\n{}",
-        update.status.code(),
-        String::from_utf8_lossy(&update.stdout),
+
+    // plan-60-E: a project whose only dependency is a `file://` package has no
+    // registry dependencies, so `update` is a clean no-op rather than an error.
+    // Before plan-60-C's fix it "succeeded" by corrupting the package; between
+    // that fix and plan-60-E it exited 1 with "declares no registry
+    // dependencies to resolve".
+    assert!(
+        update.status.success(),
+        "update on a file://-only project must be a no-op, not an error: {}",
         String::from_utf8_lossy(&update.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&update.stdout).contains("No registry dependencies"),
+        "{}",
+        String::from_utf8_lossy(&update.stdout)
     );
 
     let after_update = std::fs::read(&installed).unwrap();

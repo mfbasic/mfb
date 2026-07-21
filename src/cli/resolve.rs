@@ -71,6 +71,27 @@ struct Node {
 /// printing a diff against the previous lock.
 pub(crate) fn update(project_dir: &Path) -> Result<(), String> {
     let (manifest, _contents) = read_manifest(project_dir)?;
+
+    // plan-60-E (input from plan-60-C Corrections #3): a project with no
+    // registry dependencies has nothing to resolve. `resolve()` would error
+    // with "declares no registry dependencies to resolve", which is the wrong
+    // answer for a project that legitimately has only `file://` packages — or
+    // none at all. Apply plan-60-B §4.3's policy instead: nothing to lock, so
+    // drop a stale lock and succeed.
+    //
+    // This became reachable when plan-60-C fixed `resolve()` to exclude
+    // `file://` dependencies by `source`; before that such a project resolved
+    // (and corrupted itself).
+    if registry_dependency_count(&manifest) == 0 {
+        let lock = lock_path(project_dir);
+        if lock.exists() {
+            fs::remove_file(&lock)
+                .map_err(|err| format!("failed to remove '{}': {err}", lock.display()))?;
+        }
+        println!("No registry dependencies to resolve; mfb.lock is not needed.");
+        return Ok(());
+    }
+
     let previous = read_lock(project_dir)?;
     let lock = resolve(&manifest)?;
     print_lock_diff(previous.as_ref(), &lock);
@@ -675,7 +696,10 @@ fn select_node(node: &Node) -> Result<Selection, String> {
 }
 
 /// Whether `exports` provides every `(symbol, hash)` in `required`.
-fn is_superset(exports: &BTreeMap<String, String>, required: &BTreeMap<String, String>) -> bool {
+pub(crate) fn is_superset(
+    exports: &BTreeMap<String, String>,
+    required: &BTreeMap<String, String>,
+) -> bool {
     required
         .iter()
         .all(|(symbol, hash)| exports.get(symbol) == Some(hash))
@@ -741,7 +765,7 @@ fn compare_version_components(a: &str, b: &str) -> std::cmp::Ordering {
 
 /// Compare two dotted version strings: numeric components compared as numbers,
 /// a `-prerelease` suffix sorting below the same release.
-fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+pub(crate) fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     fn split(version: &str) -> (Vec<&str>, Option<&str>) {
         let (release, pre) = match version.split_once('-') {

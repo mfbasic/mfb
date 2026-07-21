@@ -152,11 +152,6 @@ pub(crate) fn local_paths_for_repo(
 ///
 /// Split out from `confirm` so the decision itself is unit-testable without a
 /// terminal; `confirm` is then a thin TTY-gated shell around it.
-// DELETE THIS ATTRIBUTE IN plan-60-E. Unused until `update`/`remove` call
-// `confirm` (plan-60-E and -F); plan-60-B builds the primitive before either
-// consumer exists so both can share one implementation. It is exercised by this
-// module's tests today.
-#[allow(dead_code)]
 pub(crate) fn answer_is_yes(answer: &str) -> bool {
     matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
@@ -169,9 +164,6 @@ pub(crate) fn answer_is_yes(answer: &str) -> bool {
 /// A non-interactive stdin is an **error**, not a silent no: these prompts guard
 /// destructive changes, and a script that pipes input deserves to be told its
 /// answer was never read rather than having the operation quietly skipped.
-// DELETE THIS ATTRIBUTE IN plan-60-E, which is the first consumer (`update`);
-// plan-60-F (`remove`) is the second. See the note on `answer_is_yes`.
-#[allow(dead_code)]
 pub(crate) fn confirm(question: &str, assume_yes: bool) -> Result<bool, String> {
     use std::io::{IsTerminal, Write};
 

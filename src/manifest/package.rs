@@ -710,6 +710,118 @@ pub(crate) fn project_json_with_updated_ident_key(
     Err(format!("project.json does not declare package `{name}`"))
 }
 
+/// Rewrite a declared dependency's `version`, and optionally its `pin`, by
+/// surgical string edit (plan-60-E §4.1).
+///
+/// Matched on **`ident`**, not `name`: the targeted `mfb pkg update` form names
+/// an `<owner>#<package>` ident, and `ident` defaults to `name` when absent, so
+/// this finds a bare-name entry too.
+///
+/// `new_pin` is `None` for the default behavior — **pin state is preserved**
+/// unless the user passed `--pin`/`--no-pin`. That is the whole point of the
+/// targeted form: bumping a floating dependency's ABI floor must not silently
+/// pin it, and re-pinning a pinned one must not silently unpin it.
+///
+/// Like its sibling `project_json_with_updated_ident_key`, this edits the text
+/// rather than re-serializing the manifest, so formatting and comments survive.
+pub(crate) fn project_json_with_updated_version(
+    contents: &str,
+    ident: &str,
+    new_version: &str,
+    new_pin: Option<bool>,
+) -> Result<String, String> {
+    let Some((array_start, array_end)) = json_array_bounds(contents, "packages") else {
+        return Err("could not locate project.json `packages` array".to_string());
+    };
+    let mut cursor = array_start + 1;
+    while cursor < array_end {
+        let Some(object_start) = contents[cursor..array_end].find('{').map(|at| cursor + at) else {
+            break;
+        };
+        let Some(object_end) = matching_json_delimiter(contents, object_start, b'{', b'}') else {
+            return Err("malformed project.json `packages` entry".to_string());
+        };
+        let object = &contents[object_start..=object_end];
+        let entry = object
+            .parse::<JsonValue>()
+            .ok()
+            .and_then(|value| value.get::<HashMap<String, JsonValue>>().cloned());
+        let entry_ident = entry.as_ref().and_then(|entry| {
+            entry
+                .get("ident")
+                .or_else(|| entry.get("name"))
+                .and_then(|value| value.get::<String>())
+                .cloned()
+        });
+        if entry_ident.as_deref() != Some(ident) {
+            cursor = object_end + 1;
+            continue;
+        }
+
+        // Rewrite `version` in place. Every dependency this command can target
+        // already has one, so an absent field is a malformed entry rather than
+        // something to append.
+        let field_at = json_field_name_position(object, "version")
+            .ok_or_else(|| format!("project.json entry for `{ident}` has no `version` field"))?;
+        let colon = find_json_punct(object, field_at + "\"version\"".len(), b':')
+            .ok_or_else(|| "malformed version field".to_string())?;
+        let value_start = next_json_string_start(object, colon + 1)
+            .ok_or_else(|| "malformed version value".to_string())?;
+        let value_end = json_string_end(object, value_start)
+            .ok_or_else(|| "malformed version value".to_string())?;
+
+        let mut rewritten = String::new();
+        rewritten.push_str(&object[..value_start]);
+        rewritten.push_str(&json_string(new_version));
+        rewritten.push_str(&object[value_end..]);
+
+        // Only touch `pin` when explicitly asked to.
+        if let Some(pin) = new_pin {
+            rewritten = rewrite_pin_field(&rewritten, pin)?;
+        }
+
+        let mut updated = String::new();
+        updated.push_str(&contents[..object_start]);
+        updated.push_str(&rewritten);
+        updated.push_str(&contents[object_end + 1..]);
+        return Ok(updated);
+    }
+    Err(format!("project.json does not declare package `{ident}`"))
+}
+
+/// Set a dependency object's `pin` to `pin`, adding the field if absent.
+fn rewrite_pin_field(object: &str, pin: bool) -> Result<String, String> {
+    let literal = if pin { "true" } else { "false" };
+    if let Some(field_at) = json_field_name_position(object, "pin") {
+        let colon = find_json_punct(object, field_at + "\"pin\"".len(), b':')
+            .ok_or_else(|| "malformed pin field".to_string())?;
+        // The value is a bare `true`/`false` literal, not a string, so scan for
+        // its extent rather than reusing the string helpers.
+        let value_start = object[colon + 1..]
+            .find(|c: char| !c.is_whitespace())
+            .map(|at| colon + 1 + at)
+            .ok_or_else(|| "malformed pin value".to_string())?;
+        let value_end = object[value_start..]
+            .find(|c: char| c == ',' || c == '}' || c.is_whitespace())
+            .map(|at| value_start + at)
+            .ok_or_else(|| "malformed pin value".to_string())?;
+        let mut out = String::new();
+        out.push_str(&object[..value_start]);
+        out.push_str(literal);
+        out.push_str(&object[value_end..]);
+        return Ok(out);
+    }
+    // Absent: append before the closing brace, matching the sibling editor.
+    let before_close = object[..object.len() - 1].trim_end_matches([' ', '\t', '\r', '\n']);
+    let closing = &object[before_close.len()..];
+    let mut out = String::new();
+    out.push_str(before_close);
+    out.push_str(",\n      \"pin\": ");
+    out.push_str(literal);
+    out.push_str(closing);
+    Ok(out)
+}
+
 fn json_array_bounds(contents: &str, field: &str) -> Option<(usize, usize)> {
     let field_start = json_field_name_position(contents, field)?;
     let colon = find_json_punct(contents, field_start + field.len() + 2, b':')?;
@@ -1348,6 +1460,83 @@ mod tests {
         let err =
             project_json_with_package(contents, manifest, &dependency("dep", "")).unwrap_err();
         assert!(err.contains("already declares package"));
+    }
+
+    #[test]
+    /// plan-60-E §4.1: pin state is PRESERVED unless a flag was passed. This is
+    /// the property that separates the targeted form from `add` — bumping a
+    /// floating dependency's ABI floor must not silently pin it.
+    #[test]
+    fn project_json_with_updated_version_preserves_pin_by_default() {
+        let contents = "{\n  \"packages\": [\n    {\n      \"name\": \"shape\",\n      \"ident\": \"ada#shape\",\n      \"version\": \"1.0.0\",\n      \"pin\": false\n    }\n  ]\n}\n";
+        let out = project_json_with_updated_version(contents, "ada#shape", "1.4.0", None).unwrap();
+        assert!(out.contains("\"version\": \"1.4.0\""), "{out}");
+        assert!(
+            out.contains("\"pin\": false"),
+            "pin must survive untouched: {out}"
+        );
+        // A pinned entry likewise keeps its pin.
+        let pinned = contents.replace("\"pin\": false", "\"pin\": true");
+        let out = project_json_with_updated_version(&pinned, "ada#shape", "1.4.0", None).unwrap();
+        assert!(out.contains("\"pin\": true"), "{out}");
+    }
+
+    #[test]
+    fn project_json_with_updated_version_rewrites_pin_when_asked() {
+        let contents = "{\n  \"packages\": [\n    {\n      \"name\": \"shape\",\n      \"ident\": \"ada#shape\",\n      \"version\": \"1.0.0\",\n      \"pin\": false\n    }\n  ]\n}\n";
+        let out =
+            project_json_with_updated_version(contents, "ada#shape", "1.4.0", Some(true)).unwrap();
+        assert!(out.contains("\"pin\": true"), "{out}");
+        let out =
+            project_json_with_updated_version(contents, "ada#shape", "1.4.0", Some(false)).unwrap();
+        assert!(out.contains("\"pin\": false"), "{out}");
+    }
+
+    /// A dependency with no `pin` field gets one appended, mirroring the
+    /// sibling `identKey` editor's behavior.
+    #[test]
+    fn project_json_with_updated_version_appends_a_missing_pin() {
+        let contents = "{\n  \"packages\": [\n    {\n      \"name\": \"shape\",\n      \"ident\": \"ada#shape\",\n      \"version\": \"1.0.0\"\n    }\n  ]\n}\n";
+        let out =
+            project_json_with_updated_version(contents, "ada#shape", "1.4.0", Some(true)).unwrap();
+        assert!(out.contains("\"pin\": true"), "{out}");
+        assert!(out.contains("\"version\": \"1.4.0\""), "{out}");
+    }
+
+    /// The edit is surgical: sibling dependencies and the file's formatting are
+    /// untouched. Re-serializing the manifest would destroy both.
+    #[test]
+    fn project_json_with_updated_version_leaves_siblings_and_formatting_alone() {
+        let contents = "{\n  \"name\": \"app\",\n  \"packages\": [\n    {\n      \"name\": \"other\",\n      \"ident\": \"ada#other\",\n      \"version\": \"9.9.9\",\n      \"pin\": true\n    },\n    {\n      \"name\": \"shape\",\n      \"ident\": \"ada#shape\",\n      \"version\": \"1.0.0\",\n      \"pin\": false\n    }\n  ]\n}\n";
+        let out = project_json_with_updated_version(contents, "ada#shape", "1.4.0", None).unwrap();
+        assert!(
+            out.contains(
+                "\"ident\": \"ada#other\",\n      \"version\": \"9.9.9\",\n      \"pin\": true"
+            ),
+            "the sibling entry must be byte-identical: {out}"
+        );
+        assert!(out.starts_with("{\n  \"name\": \"app\","), "{out}");
+        assert!(out.ends_with("]\n}\n"), "{out}");
+        // Exactly one version changed.
+        assert_eq!(out.matches("\"version\": \"1.4.0\"").count(), 1, "{out}");
+        assert_eq!(out.matches("\"version\": \"9.9.9\"").count(), 1, "{out}");
+    }
+
+    /// Matched on `ident`, which defaults to `name` when absent — so a
+    /// bare-name entry is still reachable.
+    #[test]
+    fn project_json_with_updated_version_matches_a_bare_name_entry() {
+        let contents = "{\n  \"packages\": [\n    {\n      \"name\": \"shape\",\n      \"version\": \"1.0.0\"\n    }\n  ]\n}\n";
+        let out = project_json_with_updated_version(contents, "shape", "2.0.0", None).unwrap();
+        assert!(out.contains("\"version\": \"2.0.0\""), "{out}");
+    }
+
+    #[test]
+    fn project_json_with_updated_version_errors_when_absent() {
+        let contents = "{\n  \"packages\": [\n    {\n      \"name\": \"shape\",\n      \"version\": \"1.0.0\"\n    }\n  ]\n}\n";
+        let err =
+            project_json_with_updated_version(contents, "ada#missing", "2.0.0", None).unwrap_err();
+        assert!(err.contains("does not declare package"), "{err}");
     }
 
     #[test]
