@@ -5,8 +5,8 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Footgun
 
-Status: Open
-Regression Test: (none yet — Phase 1 adds `tests/syntax/resources/resource-shadows-builtin-invalid`)
+Status: Fixed (2026-07-21)
+Regression Test: `tests/syntax/resources/resource-shadows-builtin-invalid`
 
 Declaring a user resource whose name collides with a built-in resource type —
 `RESOURCE File`, `RESOURCE Socket`, `RESOURCE Listener`, … — does not produce a
@@ -149,6 +149,63 @@ either declare the helper only when a call actually resolves to it, or not
 declare it on a bare type reference. Phase 1's audit should therefore enumerate
 both routes, and Phase 2's acceptance must cover the non-shadowing case above.
 
+#### Correction (2026-07-21): the second route is real, but its cause is not this bug
+
+The section above is **half wrong**, and the half that is wrong matters, because
+it would have driven the fix into weakening the `validate.rs:107` invariant that
+the Non-goals forbid touching.
+
+*Wrong as written:* a `RES` **parameter** of type `File` declares nothing.
+`required_helpers` walks only `function.body`
+(`src/target/shared/runtime/usage.rs:129-131`); it never inspects params, global
+bindings, or a `ForEach` loop variable's type. Verified — this program builds
+clean:
+
+```basic
+IMPORT fs
+FUNC useIt(RES f AS File) AS Integer
+  RETURN 0
+END FUNC
+FUNC main() AS Integer
+  RETURN 0
+END FUNC
+```
+
+*Right in substance:* a non-shadowing route does exist, but it needs a local
+**`Bind`**, not a parameter. `usage.rs:142-147` declares the helper for any
+`Bind` whose declared type is a builtin resource. Adding one line to the program
+above reproduces the internal error:
+
+```basic
+FUNC useIt(RES f AS File) AS Integer
+  RES g AS File = f          ' <- this line, not the parameter
+  RETURN 0
+END FUNC
+```
+
+*Why the fix did not follow this section's advice.* The obvious repair — mirror
+`usage.rs`'s rule in `validate.rs`'s `used_helpers`, exactly as the existing
+resource-**union** block at `validate.rs:68-94` already does — is **wrong**, and
+tracing it is what exposed a far more serious defect. Codegen really does emit a
+close for `g` (`builder_control.rs:260-268`; the only non-owning escape hatches
+are `UnionExtract`, `Capture{by_ref}`, and a floated collection — an initializer
+that is a plain local reference is treated as *owning*). So the helper is
+genuinely used, and the unused-helper error is **not** a false positive here: it
+is a loud compile-time failure standing in front of a program that would
+otherwise miscompile. Silencing it would have converted that into a runtime
+fault — precisely the outcome the Non-goals forbid.
+
+That underlying defect is now **bug-375**: `RES g AS File = f` closes the
+*caller's* resource at the callee's scope exit, contradicting §15.6 ("the owning
+scope closes it exactly once"). Confirmed at runtime, not by inference:
+
+```
+Error: 7-703-0004  Resource handle is already closed.   [exit 255]
+```
+
+Route 2 is therefore left deliberately unfixed here and is owned by bug-375.
+This bug fixes the shadowing route only, which is what its Goal states.
+
 ## Goal
 
 - A `RESOURCE` declaration whose name matches a `BUILTIN_RESOURCES` key is
@@ -209,41 +266,96 @@ user's type is worse than refusing it.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/syntax/resources/resource-shadows-builtin-invalid` reproducing
+- [x] Add `tests/syntax/resources/resource-shadows-builtin-invalid` reproducing
       the `RESOURCE File` case; confirm it fails today with the *internal* error
       (`NIR declares unused runtime helper 'fs'`), which is the documented wrong
       behavior.
-- [ ] Add a positive contrast fixture with a non-colliding native resource name,
+- [x] Add a positive contrast fixture with a non-colliding native resource name,
       guarding against the fix over-rejecting.
-- [ ] Confirm the 8-name blast radius above by grepping every in-tree `RESOURCE`
+- [x] Confirm the 8-name blast radius above by grepping every in-tree `RESOURCE`
       declaration for collisions; record the verdict here.
 
-Acceptance: the negative fixture fails with the internal error (not a clean
-diagnostic); the positive fixture passes; the audit lists a verdict per name.
+Reproduction confirmed before any change, all three rows of the table above
+exactly as filed: `RESOURCE File` → `unused runtime helper 'fs'`,
+`RESOURCE Socket` → `'net'`, `RESOURCE Db` → builds and runs.
+
+No new positive fixture was added: `native-resource-link-valid` already *is* the
+contrast the phase asks for — the same native-resource shape (`LINK` block,
+`CLOSE BY`, `RES` return) under the non-colliding names `Db`/`Stmt`. Adding a
+second would duplicate it. It still compiles after the fix.
+
+Audit verdict — every `RESOURCE` declaration in `tests/`, `bindings/`,
+`examples/`, and `src/docs/`, by name and count:
+
+| Name | Occurrences | Collides? |
+| --- | --- | --- |
+| `Db` | 27 | no |
+| `Stmt` | 7 | no |
+| `SoundFile` | 6 | no |
+| `Handle` | 2 | no |
+| `Tracked`, `T`, `SfFile` | 1 each | no |
+
+**Zero in-tree collisions with any of the 8 built-in names**, confirming the
+Blast Radius section. Independently re-checked by building the repro under each
+of the 8 built-in names (all rejected) plus `Db`/`SoundFile`/`Stmt`/`MyFile`
+(all still build) — so the check is exactly as wide as intended, with no
+over-rejection.
+
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Add the collision rule to `src/rules/table.rs` (next free `2-203-xxxx`).
-- [ ] Emit it from the `RESOURCE` declaration check when
+- [x] Add the collision rule to `src/rules/table.rs` (next free `2-203-xxxx`).
+- [x] Emit it from the `RESOURCE` declaration check when
       `is_builtin_resource(name)` holds.
-- [ ] Document it in `src/docs/spec/diagnostics/01_rule-codes.md` and in the
+- [x] Document it in `src/docs/spec/diagnostics/01_rule-codes.md` and in the
       resource-management spec's declaration section.
 
-Acceptance: the Phase 1 negative fixture now fails with the *new* rule code and
-a span on the `RESOURCE` line; the positive fixture still compiles;
+Landed as `2-203-0134 RESOURCE_SHADOWS_BUILTIN`. `0134` is the next free code:
+`0054` and `0057` are retired gaps and were deliberately not recycled.
+
+Two notes where the plan's own references were slightly off:
+
+- The predicate is `is_builtin_resource_type`
+  (`src/builtins/resource.rs:257`), reached through the crate-level wrapper
+  `builtins::is_resource_type` (`src/builtins/mod.rs:121`) — not
+  `is_builtin_resource`. No change to it was needed, as predicted.
+- The emission site is **not** where `RESOURCE_CLOSE_*` are emitted (those are in
+  the resolver, `src/resolver/resolution.rs:496`, which has no access to the
+  built-in resource table). It is `SyntaxChecker::check_resource_decl`
+  (`src/syntaxcheck/mod.rs:423`) — a hook that already existed, was already
+  wired into `check()`, and was empty. It runs long before lowering, so the
+  placement risk the Fix Design flagged does not arise: `validate.rs:107` is
+  never reached.
+
+Acceptance met: the negative fixture reports `2-203-0134` twice with spans on
+lines 14 and 15; `native-resource-link-valid` still compiles;
 `validate.rs:107` is not reached.
 Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Seed goldens for both new fixtures.
-- [ ] `cargo test --bin mfb spec` — `every_rule_is_documented_in_the_spec`,
+- [x] Seed goldens for both new fixtures.
+- [x] `cargo test --bin mfb spec` — `every_rule_is_documented_in_the_spec`,
       `spec_links_resolve`, `spec_citations_resolve`.
-- [ ] `cargo test`; `scripts/test-accept.sh target/debug/mfb <tmp> 'resource*'
+- [x] `cargo test`; `scripts/test-accept.sh target/debug/mfb <tmp> 'resource*'
       'native*'` with a hermetic `MFB_HOME`.
 
-Acceptance: full suite green; the only golden delta is the two new fixtures.
+One golden, not two (only one fixture was added — see Phase 1). `sync-goldens.sh`
+never *creates* goldens, so `golden/build.log` was seeded empty first, then
+synced.
+
+- `cargo test --bin mfb spec` — 48 passed, 0 failed.
+- `cargo test` — 3138 passed, 0 failed, 1 ignored, plus all integration
+  binaries green.
+- `scripts/test-accept.sh … 'resource*' 'native*'` under a hermetic `MFB_HOME` —
+  107 tests ran, all passed.
+- `cargo fmt --check` — the two files this bug touched are clean. Three
+  unrelated files (`arch/x86_64/encode/tests.rs`, `ir/verify/mod.rs`,
+  `target/shared/code/link_thunk.rs`) carry pre-existing diffs from other work
+  in this shared tree and were deliberately left untouched.
+
+Acceptance met: full suite green; the only golden delta is the new fixture.
 Commit: —
 
 ## Validation Plan
@@ -257,11 +369,13 @@ Commit: —
 
 ## Open Decisions
 
-- **Should all 8 built-in names be rejected, or only those whose helper is
-  actually reachable in the current module?** Recommend rejecting all 8
-  unconditionally: a collision that happens to build today because the helper
-  was elided is a latent failure that appears when an unrelated import is added.
-  Uniform rejection is the predictable rule.
+- ~~**Should all 8 built-in names be rejected, or only those whose helper is
+  actually reachable in the current module?**~~ **Resolved as recommended:** all
+  8 are rejected unconditionally, independent of whether the helper would be
+  reachable. Verified by building the repro under each of the 8 names. The
+  reasoning in the recommendation held up — conditional rejection would make the
+  diagnostic appear only once an unrelated import pulled the helper back in,
+  which is the least predictable possible rule.
 
 ## Summary
 
@@ -273,3 +387,12 @@ existing predicate.
 Left untouched: the `validate.rs:107` unused-helper invariant (which is correct
 and caught this), every non-colliding resource name, and the question of whether
 shadowing should ever be *permitted* — this bug only makes the refusal legible.
+
+**Outcome:** the placement risk did not materialize — the emission site
+(`syntaxcheck::check_resource_decl`) runs long before lowering, so the new
+diagnostic always wins. The real finding was elsewhere: chasing this bug's
+"route 2" showed the `validate.rs:107` error is not a false positive but a
+compile-time barrier in front of a genuine miscompile, now filed as **bug-375**
+(`RES g AS T = f` closes the caller's resource). The Non-goal that forbade
+weakening that check turned out to be load-bearing for a reason the original
+report did not know.

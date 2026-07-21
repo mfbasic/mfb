@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-shadows-builtin-invalid
+  12 | ' The non-colliding contrast is `native-resource-link-valid`, which declares the
+  13 | ' same shape of native resource under the names `Db`/`Stmt` and still compiles.
+  14 | RESOURCE File CLOSE BY demoLink::close
+     | ^
+tests/syntax/resources/resource-shadows-builtin-invalid/src/lib.mfb:14 error[2-203-0134 RESOURCE_SHADOWS_BUILTIN]: a RESOURCE declaration cannot reuse the name of a built-in resource type
+               RESOURCE `File` reuses the name of a built-in resource type. Rename it (for example `MyFile`); a user resource cannot shadow a built-in.
+  13 | ' same shape of native resource under the names `Db`/`Stmt` and still compiles.
+  14 | RESOURCE File CLOSE BY demoLink::close
+  15 | RESOURCE Socket CLOSE BY demoLink::finalize
+     | ^
+tests/syntax/resources/resource-shadows-builtin-invalid/src/lib.mfb:15 error[2-203-0134 RESOURCE_SHADOWS_BUILTIN]: a RESOURCE declaration cannot reuse the name of a built-in resource type
+               RESOURCE `Socket` reuses the name of a built-in resource type. Rename it (for example `MySocket`); a user resource cannot shadow a built-in.
+[exit 1]

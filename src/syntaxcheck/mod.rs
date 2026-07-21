@@ -422,9 +422,29 @@ impl<'a> SyntaxChecker<'a> {
     /// `collect_native_resources` (plan-link-update.md §8/§10).
     pub(super) fn check_resource_decl(
         &mut self,
-        _file: &AstFile,
-        _resource: &crate::ast::ResourceDecl,
+        file: &AstFile,
+        resource: &crate::ast::ResourceDecl,
     ) {
+        // bug-373: a user RESOURCE that reuses a built-in resource name is
+        // rejected here rather than left to collide. `collect_native_resources`
+        // registers it over the built-in entry, but the built-in's close op is
+        // still what pulls that helper into the module, so the program reaches
+        // codegen believing both meanings of the name at once and dies on the
+        // internal "declares unused runtime helper" invariant. Reject the
+        // collision uniformly — including when the helper happens to be elided
+        // today, since that only makes the failure latent until an unrelated
+        // import brings it back.
+        if builtins::is_resource_type(&resource.name) {
+            self.report(
+                "RESOURCE_SHADOWS_BUILTIN",
+                &format!(
+                    "RESOURCE `{}` reuses the name of a built-in resource type. Rename it (for example `My{}`); a user resource cannot shadow a built-in.",
+                    resource.name, resource.name
+                ),
+                file,
+                resource.line,
+            );
+        }
     }
 
     /// Native-specific checks on a `LINK` block: `CPtr` containment and ABI

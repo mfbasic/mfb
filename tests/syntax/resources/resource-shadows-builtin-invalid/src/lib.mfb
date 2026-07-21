@@ -1,0 +1,36 @@
+' bug-373: a user RESOURCE may not reuse a built-in resource type's name.
+' `File` and `Socket` are both BUILTIN_RESOURCES keys, so each declaration is
+' rejected with RESOURCE_SHADOWS_BUILTIN at check time.
+'
+' Before the fix these did not collide-check at all: the built-in's close op
+' still pulled its runtime helper into the module while the user's CLOSE BY was
+' what actually ran, and the build died downstream in the NIR validator with the
+' internal, span-less `NIR declares unused runtime helper 'fs'`. This fixture
+' pins that the collision is refused here, with a rule code and a span on the
+' RESOURCE line, and never reaches that invariant.
+'
+' The non-colliding contrast is `native-resource-link-valid`, which declares the
+' same shape of native resource under the names `Db`/`Stmt` and still compiles.
+RESOURCE File CLOSE BY demoLink::close
+RESOURCE Socket CLOSE BY demoLink::finalize
+
+LINK "sqlite3" AS demoLink
+  FUNC open(path AS String) AS RES File
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC close(RES db AS File) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC finalize(RES sock AS Socket) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (sock CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

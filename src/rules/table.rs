@@ -1088,6 +1088,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a CBuffer slot or BUFFER SIZE clause is invalid: a CBuffer must be an OUT slot with exactly one BUFFER clause, named by RETURN, on a wrapper returning List OF Byte",
     },
     Rule {
+        code: "2-203-0134",
+        name: "RESOURCE_SHADOWS_BUILTIN",
+        severity: Severity::Error,
+        message: "a RESOURCE declaration cannot reuse the name of a built-in resource type",
+    },
+    Rule {
         code: "2-200-0011",
         name: "PROJECT_ENTRY_INVALID",
         severity: Severity::Error,
