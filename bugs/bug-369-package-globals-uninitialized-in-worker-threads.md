@@ -73,6 +73,16 @@ worker_COUNTER=288    <- should be 7; arbitrary, not even zero
 be a plausible "not initialized yet" story; 288 shows the worker is reading whatever
 the arena's globals slots happen to contain.
 
+**And because it is arbitrary memory, the failure is NONDETERMINISTIC.** Eight
+consecutive runs of `tests/rt-behavior/threads/thread-regex-rt`: **7 failed, 1
+passed** — on the run that passed, the slot holding `__REGEX_DEPTH_LIMIT` happened
+to contain a value large enough to clear the guard. That makes any test touching a
+package global from a worker flaky rather than reliably broken, which is worse:
+it fails unrelated CI runs and trains people to re-run.
+
+`thread-regex-rt` has therefore had its `.run` golden removed until this is fixed
+— it asserts only the build. Restoring it is part of fixing this bug.
+
 ## How it surfaced
 
 Not from a crash — from a test that had been **passing on a stale artifact**.

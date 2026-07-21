@@ -1,0 +1,45 @@
+' plan-58-D Phase 3: the end-to-end deliverable — decode a real compressed audio
+' file with libsnd and play it through audio::write.
+'
+' The fixture is a 0.25 s 440 Hz stereo tone at 44100 Hz, shipped as FLAC. FLAC
+' rather than WAV on purpose: a WAV would prove only that bytes moved, while a
+' FLAC proves libsndfile actually DECODED, which is the entire reason this
+' binding exists.
+'
+' What this asserts mechanically: the geometry libsnd reports matches the file
+' (44100 Hz, 2 channels, 11025 frames = 44100 bytes of s16le), the PCM length is
+' an exact whole number of frames as audio::write requires, and openOutput/write
+' complete without error at that geometry.
+'
+' What it CANNOT assert is that the tone is audible and correct. That is a
+' by-ear check a human has to make; a green run here means the pipeline is
+' sound, not that a speaker moved.
+IMPORT io
+IMPORT os
+IMPORT audio
+IMPORT libsnd
+
+FUNC main() AS Integer
+  LET path AS String = os::resourcePath("tone.flac")
+  LET s = libsnd::loadSound(path)
+
+  io::print("rate=" & toString(s.samplerate))
+  io::print("channels=" & toString(s.channels))
+  io::print("bytes=" & toString(len(s.pcm)))
+
+  LET bytesPerFrame AS Integer = s.channels * 2
+  ' `/`, NOT `DIV`. MFBASIC inverts the BASIC tradition: `DIV` is FRACTIONAL
+  ' division and always returns Float, while `/` truncates toward zero when both
+  ' operands are integers (./mfb spec language types). `DIV` here printed
+  ' `11025.00` — right value, wrong type.
+  io::print("frames=" & toString(len(s.pcm) / bytesPerFrame))
+  ' audio::write rejects a length that is not frame-aligned, so this must hold
+  ' before the call rather than being discovered inside it.
+  io::print("frame_aligned=" & toString(len(s.pcm) MOD bytesPerFrame = 0))
+
+  RES out AS AudioOutput = audio::openOutput(s.samplerate, s.channels, 512)
+  audio::write(out, s.pcm)
+  audio::close(out)
+  io::print("played=TRUE")
+  RETURN 0
+END FUNC

@@ -12,20 +12,20 @@
   "functions": [
   {
     "name": "main",
-    "line": 22,
+    "line": 34,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 23, "mutable": false, "name": "t1", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "regex_thread_workers.countDigits", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "a1b2c3d4" }] } },
-    { "op": "bind", "line": 24, "mutable": false, "name": "t2", "type": "Thread OF Nothing TO String", "value": { "kind": "call", "type": "Thread OF Nothing TO String", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "regex_thread_workers.normalizeSpaces", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "hello   world  foo" }] } },
-    { "op": "bind", "line": 25, "mutable": false, "name": "digits", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t1" }] } },
-    { "op": "bind", "line": 26, "mutable": false, "name": "normalized", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t2" }] } },
-    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "digits=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "digits" }] } }] } },
-    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "normalized=" }, "right": { "kind": "local", "name": "normalized" } }] } },
-    { "op": "return", "line": 29, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 35, "mutable": false, "name": "t1", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "regex_thread_workers.countDigits", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "a1b2c3d4" }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "t2", "type": "Thread OF Nothing TO String", "value": { "kind": "call", "type": "Thread OF Nothing TO String", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "regex_thread_workers.normalizeSpaces", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "hello   world  foo" }] } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "digits", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t1" }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "normalized", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t2" }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "digits=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "digits" }] } }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "normalized=" }, "right": { "kind": "local", "name": "normalized" } }] } },
+    { "op": "return", "line": 41, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

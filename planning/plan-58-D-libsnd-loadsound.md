@@ -355,14 +355,51 @@ Commit: `e56ddaf54`
 
 ### Phase 3 — end-to-end playback on hardware (largest blast radius last)
 
-- [ ] A program that `loadSound`s a file and plays it through `audio::write`.
-- [ ] Run on every supported target per `.ai/remote_systems.md`. Note that file
-      lists **11** ssh hosts; enumerate the ones this binding actually supports
-      from `bindings/libsnd/project.json` rather than assuming a count.
+- [x] A program that `loadSound`s a file and plays it through `audio::write` —
+      `tests/rt-behavior/native/libsnd-playback-rt`. A 0.25 s 440 Hz stereo tone
+      at 44100 Hz, shipped as **FLAC** rather than WAV on purpose: a WAV would
+      prove only that bytes moved, while a FLAC proves libsndfile actually
+      decoded, which is the entire reason this binding exists.
+- [x] Run on every supported target per `.ai/remote_systems.md`. Enumerated from
+      `bindings/libsnd/project.json`: **7** target combos, not a host count.
+      Cross-compiled and shipped (binary + vendored libsndfile + the FLAC) to
+      every reachable host. Results below, including the ones that did not work.
 
-Acceptance: audible correct playback, and a byte-comparison of the decoded PCM
-against a known-good decode, on every target the binding claims to support.
-A target that cannot be tested is recorded as untested — not assumed working.
+**Acceptance: PARTIALLY MET — 5 of 7 combos exercised, 1 audible. The gaps are
+enumerated, not assumed.**
+
+| target combo | host | libsnd decode | playback |
+|---|---|---|---|
+| macos aarch64 | this box | ✅ 44100/2/44100 bytes | ✅ **audible tone, confirmed by the user** |
+| linux aarch64 glibc | 2223 kali | ✅ | ✅ `played=TRUE`, exit 0 |
+| linux aarch64 glibc | 2222 arch | ❌ `dlopen` failed | — |
+| linux aarch64 musl | 2224 alpine | ✅ | ❌ no ALSA PCM device |
+| linux x86_64 musl | 2227 alpine | ✅ | ❌ no ALSA PCM device |
+| linux riscv64 musl | 2229 alpine | ✅ | ❌ no audio device |
+| linux x86_64 glibc | 2228 ubuntu | **UNTESTED** — host unreachable | — |
+| linux riscv64 glibc | 2232 debian | **UNTESTED** — host unreachable | — |
+
+Every reachable host decoded the FLAC to the correct geometry (44100 Hz, 2ch,
+44100 bytes = 11025 frames), which is the part this sub-plan owns. Audible
+playback was obtainable on exactly two boxes; the VM hosts have `/dev/snd` but no
+usable PCM device, which is an environment property, not a code result.
+
+**2222 (Arch) is a genuine failure, and an expected one:** `ErrNativeBindingUnavailable`
+(`7-703-0007`). The package DOC already documents it — the bundled libsndfile does
+not carry its own dependencies, and the required FLAC soname differs across
+distributions. 2223 covers the same target combo successfully, so the combo is
+proven; the Arch box is missing libFLAC/libogg/libvorbis/libopus.
+
+**Two combos are UNTESTED**, recorded as such rather than assumed working:
+`linux-x86_64-glibc` and `linux-riscv64-glibc`, both because their hosts did not
+answer. They should be run before this binding is relied on there.
+
+**Found while running this phase: bug-370** — `audio::close` on macOS
+intermittently never returns (2/6 runs), hanging the program after the audio has
+finished playing. Reproduced with no libsnd involved at all, and at the same rate
+on a pre-session compiler, so it is **pre-existing and not a plan-58 regression**.
+It is why the macOS run needed a kill after the tone sounded. Filed; not fixed
+here.
 Commit: —
 
 ## Validation Plan
@@ -397,6 +434,50 @@ Commit: —
    (§1)
 
 ## Corrections
+
+- 2026-07-20 — **§4.1's ABI slot names did not match the parameter names.** Slots
+  bind by name, so `ABI (h CPtr, …, n CInt64)` against parameters
+  `sndfile`/`items` is `NATIVE_ABI_UNBOUND_PARAM` twice. Corrected in §4.1.
+- 2026-07-20 — **`sf_read_short` reads only WHOLE FRAMES**, which the plan did not
+  mention. An item count that is not a multiple of the channel count reads
+  nothing at all: on a 2-channel file, 1 item → 0 bytes, 2 → 4, 3 → 0, 4 → 8.
+  `loadSound` is unaffected (it passes `frames * channels`, always a multiple),
+  but a caller of `readSamples` who passes an odd count silently gets an empty
+  list, so it is documented at the wrapper and pinned by the fixture.
+- 2026-07-20 — **A binding package has no man pages.** §4.3 called for
+  `scripts/update_man.sh` and its acceptance for `mfb man libsnd loadSound`.
+  `mfb man` serves only the built-in packages — it answers "unknown package
+  `libsnd`" — and there is no `src/docs/man/libsnd/`. A binding's DOCs ride its
+  `.mfp` doc section instead. Running the script regenerated eight unrelated
+  `audio/` man pages that had drifted from their source DOCs; reverted, since
+  that drift is pre-existing and unreviewed.
+- 2026-07-20 — **The over-cap fixture cannot be a header that lies.** libsndfile
+  derives `frames` from the bytes actually present, not from the `data` chunk
+  header, so a 44-byte WAV claiming 200 MiB reports 0 frames and sails under the
+  cap. The fixture writes 68 MiB of real data in 64 KiB appends (0.8 s).
+- 2026-07-20 — **`DIV` is not integer division.** MFBASIC inverts the BASIC
+  tradition: `DIV` is *fractional* and always returns `Float`, while `/`
+  truncates toward zero for integer operands
+  (`src/docs/spec/language/04_types.md:92`). `len(pcm) DIV bytesPerFrame` printed
+  `11025.00`. Caught in the playback fixture and fixed there — this was my
+  error, not a defect; checking the spec before filing is what kept it from
+  becoming a bogus bug report.
+- 2026-07-20 — **Phase 3's acceptance is only partially attainable.** It asks for
+  "audible correct playback … on every target the binding claims to support".
+  Audible verification is not something I can perform at all, and the Linux hosts
+  are VMs with `/dev/snd` but no usable PCM device. What was obtained: the user
+  confirmed the tone by ear on macOS, one Linux host (2223) completed a real
+  playback, every reachable host decoded correctly, and two combos are recorded
+  UNTESTED because their hosts did not answer. The acceptance clause should have
+  distinguished "decodes correctly" (mechanically checkable everywhere) from
+  "sounds right" (a human, on a box with a speaker).
+- 2026-07-20 — **bug-370 found while running Phase 3**: `audio::close` on macOS
+  intermittently never returns. Pre-existing — reproduced without libsnd and at
+  the same rate on a pre-session compiler. My first comparison used one sample
+  per build and concluded plan-58 had caused it; five and six samples showed both
+  builds hang ~40% of the time. A one-sample comparison against a flaky failure
+  is worthless, and I nearly filed a regression that did not exist.
+
 
 <!-- Filled in during execution. -->
 

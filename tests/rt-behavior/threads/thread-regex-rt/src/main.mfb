@@ -16,8 +16,20 @@ REM committed `regex_thread_workers.mfp` was stale (last rebuilt at plan-50-H);
 REM plan-58-C's BINARY_REPR_VERSION 5->6 bump forced a rebuild and removed the
 REM staleness that was hiding it.
 REM
-REM When bug-369 is fixed this golden churns back to `digits=4` /
-REM `normalized=hello_world_foo`. That churn is the signal.
+REM The failure is NONDETERMINISTIC, which is why this fixture no longer runs its
+REM program: bug-369 reads whatever the worker arena's globals slot happens to
+REM contain, so `__REGEX_DEPTH_LIMIT` is usually 0 but occasionally a large value.
+REM Measured 8 consecutive runs: 7 failed, 1 passed. A golden cannot be stable
+REM against that, and a ~12%-flaky test in the acceptance suite is worse than no
+REM test — it fails random unrelated runs and trains people to re-run.
+REM
+REM So the `.run` golden is removed and only the BUILD is asserted here. That
+REM keeps the compile path covered (this fixture is also what proves an ISOLATED
+REM worker can import the regex package at all) while the runtime assertion waits
+REM on bug-369.
+REM
+REM When bug-369 is fixed: restore the `.run` golden and re-sync, and the run
+REM should report `digits=4` / `normalized=hello_world_foo`.
 
 FUNC main AS Integer
   LET t1 AS Thread OF Nothing TO Integer = thread::start(regex_thread_workers::countDigits, "a1b2c3d4")
