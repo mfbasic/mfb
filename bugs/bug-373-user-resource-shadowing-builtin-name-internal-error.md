@@ -127,6 +127,28 @@ where an unrelated-looking message surfaces.
 The contrast cases are immune because a non-colliding name never causes a
 built-in helper to be declared in the first place.
 
+### The trigger is broader than name collision (added 2026-07-20)
+
+Found while building plan-59-C's positive fixture (that plan's Correction C7):
+the same internal error fires for a program that **does not shadow anything**. A
+file that imports `fs` and declares `RES` parameters of type `File` — but never
+*calls* an `fs::` function — fails identically:
+
+```
+error: NIR declares unused runtime helper 'fs'
+```
+
+So the general trigger is **any program in which a built-in resource helper is
+declared but no call resolves to it**; name shadowing is one way to reach that
+state, not the only one. Merely *referring* to a built-in resource type is enough
+to declare its helper.
+
+This widens the bug and slightly changes the fix: rejecting the name collision
+(Phase 2) closes the shadowing route but **not** this one. A complete fix must
+either declare the helper only when a call actually resolves to it, or not
+declare it on a bare type reference. Phase 1's audit should therefore enumerate
+both routes, and Phase 2's acceptance must cover the non-shadowing case above.
+
 ## Goal
 
 - A `RESOURCE` declaration whose name matches a `BUILTIN_RESOURCES` key is

@@ -137,6 +137,12 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     // filters it out and it surfaces only via the package path's `check()`, which
     // renders unlocated (`error: TYPE_STATE_MISMATCH: …`, no file:line).
     "TYPE_STATE_MISMATCH",
+    // plan-59-C: the opaque-narrowing rule is the STATE-agreement rule's sibling
+    // and is likewise implemented only here — it needs the function's parameter
+    // list to tell an opaque value from a stateless one, which syntaxcheck does
+    // not track. Same reasoning as TYPE_STATE_MISMATCH above; without this entry
+    // it renders unlocated.
+    "TYPE_STATE_OPAQUE_NARROWING",
     // Likewise ir::verify is the sole implementer of the BIND STATE validation
     // (plan-53-B) — syntaxcheck never inspects a `LINK` function's BIND STATE.
     "NATIVE_BIND_STATE_INVALID",
@@ -191,6 +197,22 @@ fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -
         env.current_kind.replace(function.kind.clone());
         env.current_owners
             .replace(function.resource_owners.keys().cloned().collect());
+        // plan-59-C: a parameter whose type is a resource and which names no
+        // `STATE` is OPAQUE, not stateless — §15.5's parameter row accepts "any
+        // state or none". Recorded per-function so the binding and return arms can
+        // tell an opaque value from a provably stateless one; the two are
+        // indistinguishable by type string alone.
+        env.current_opaque_params.replace(
+            function
+                .params
+                .iter()
+                .filter(|p| {
+                    env.is_resource_or_resource_union(resource_base_type(&p.type_))
+                        && crate::builtins::resource::state_type_name(&p.type_).is_none()
+                })
+                .map(|p| p.name.clone())
+                .collect(),
+        );
         // A declared return type is a type reference too (`AS List OF File`
         // needs the RES element marking like any collection declaration).
         if !function.name.starts_with('$') {
@@ -535,6 +557,15 @@ struct TypeEnv {
     /// The RES-declared binding names of the function currently being checked
     /// (its `resource_owners` table), for the RES ownership-axis rules.
     current_owners: RefCell<HashSet<String>>,
+    /// plan-59-C: the names of this function's **bare `RES` parameters** — the one
+    /// position where the checker deliberately does not know the concrete `STATE`
+    /// (§15.5's parameter row: bare accepts "any state or none").
+    ///
+    /// A bare parameter and a genuinely stateless resource have the SAME type
+    /// string, so `state_type_name` cannot tell them apart; only provenance can.
+    /// This set is that provenance, and it is what makes
+    /// `TYPE_STATE_OPAQUE_NARROWING` expressible.
+    current_opaque_params: RefCell<HashSet<String>>,
     /// Type name → (declaring file, declared visibility) for cross-file
     /// visibility checks (private = same file only).
     type_decl_info: HashMap<String, (String, String)>,
@@ -716,6 +747,7 @@ impl TypeEnv {
             loop_stack: RefCell::new(Vec::new()),
             allow_sub_call: Cell::new(false),
             current_owners: RefCell::new(HashSet::new()),
+            current_opaque_params: RefCell::new(HashSet::new()),
             type_decl_info,
             private_fields,
         }
@@ -1164,6 +1196,23 @@ impl TypeEnv {
                                 "RETURN value is a non-owning collection element, not an owner; a non-owning resource pointer cannot be returned (§15.6)."
                                     .to_string(),
                             );
+                        }
+                        // plan-59-C: returning a bare `RES` parameter under a
+                        // CONCRETE `STATE` is the `launder` shape — an unprovable
+                        // narrowing. The declared return names a STATE the checker
+                        // cannot show the opaque value carries.
+                        if self.is_opaque_state_value(value) {
+                            let ret = self.current_return.borrow().clone();
+                            if let Some(declared) =
+                                crate::builtins::resource::state_type_name(&ret)
+                            {
+                                self.emit(
+                                    "TYPE_STATE_OPAQUE_NARROWING",
+                                    format!(
+                                        "RETURN declares `STATE {declared}`, but the returned value is a bare `RES` parameter whose STATE is opaque — it carries some state or none, and the compiler cannot prove it is a `{declared}`."
+                                    ),
+                                );
+                            }
                         }
                         self.check_return_type(value, locals);
                         let ret = self.current_return.borrow().clone();
@@ -4034,6 +4083,18 @@ impl TypeEnv {
     /// frame, so forgetting the state is unobservable) and unsafe for a **binding**
     /// (an owner escapes). Yes for params, no for owners — the escape distinction
     /// is the whole rule.
+    /// plan-59-C: is `value` a direct read of a bare `RES` parameter — i.e. a value
+    /// whose `STATE` is **opaque** ("some state or none") rather than known-absent?
+    ///
+    /// Deliberately narrow: only a direct `Var` read counts. Anything that has
+    /// passed through a call has that call's declared return type, which names its
+    /// `STATE` (or names none) and is checked on its own terms. Widening this to a
+    /// dataflow analysis would be the whole-program aliasing analysis §3 rejects.
+    fn is_opaque_state_value(&self, value: &IrValue) -> bool {
+        matches!(value, IrValue::Local(name)
+            if self.current_opaque_params.borrow().contains(name.as_str()))
+    }
+
     fn check_binding_state_agreement(
         &self,
         name: &str,
@@ -4044,6 +4105,23 @@ impl TypeEnv {
         let Some(value) = value else {
             return;
         };
+        // plan-59-C: binding a bare `RES` parameter under a CONCRETE `STATE` is an
+        // unprovable narrowing — the checker knows only that it carries *some*
+        // state. Checked before the agreement arms below, which cannot see it: an
+        // opaque value's type string names no STATE, so `state_type_name` returns
+        // `None` and it would otherwise be treated as provably stateless and
+        // silently adopt the declared type.
+        if self.is_opaque_state_value(value) {
+            if let Some(declared) = crate::builtins::resource::state_type_name(type_) {
+                self.emit(
+                    "TYPE_STATE_OPAQUE_NARROWING",
+                    format!(
+                        "binding `{name}` declares `STATE {declared}`, but its initializer is a bare `RES` parameter whose STATE is opaque — it carries some state or none, and the compiler cannot prove it is a `{declared}`."
+                    ),
+                );
+                return;
+            }
+        }
         let Some(actual) = self.infer_type(value, locals) else {
             return;
         };

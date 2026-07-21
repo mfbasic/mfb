@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/state-opaque-narrow-bind-invalid
+  17 | ' distinguishes them.
+  18 | FUNC launder(RES f AS File) AS Nothing
+  19 |   RES g AS File STATE Cursor = f
+     | ^
+tests/syntax/resources/state-opaque-narrow-bind-invalid/src/main.mfb:19 error[2-203-0133 TYPE_STATE_OPAQUE_NARROWING]: an opaque resource STATE cannot be narrowed to a concrete STATE type
+               binding `g` declares `STATE Cursor`, but its initializer is a bare `RES` parameter whose STATE is opaque — it carries some state or none, and the compiler cannot prove it is a `Cursor`.
+[exit 1]

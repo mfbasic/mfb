@@ -1,0 +1,78 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "state_opaque_narrow_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 3,
+    "visibility": "public",
+    "name": "Cursor",
+    "fields": [
+    { "visibility": null, "line": 4, "name": "pos", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "passThrough",
+    "line": 17,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 17, "type": "File", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 18, "mutable": false, "name": "g", "type": "File", "value": { "kind": "local", "name": "f" } }
+    ]
+  },
+  {
+    "name": "adopt",
+    "line": 23,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "f", "line": 23, "type": "File STATE Cursor", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 24, "mutable": false, "name": "g", "type": "File STATE Cursor", "value": { "kind": "local", "name": "f" } }
+    ]
+  },
+  {
+    "name": "make",
+    "line": 29,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "File STATE Cursor",
+    "body": [
+    { "op": "bind", "line": 30, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/syntax/resources/state-opaque-narrow-valid/src/main.mfb" }] } },
+    { "op": "return", "line": 31, "value": { "kind": "local", "name": "f" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 34,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 35, "mutable": false, "name": "h", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File STATE Cursor", "target": "make", "args": [] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "passThrough", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "adopt", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "h" }] } },
+    { "op": "return", "line": 39, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

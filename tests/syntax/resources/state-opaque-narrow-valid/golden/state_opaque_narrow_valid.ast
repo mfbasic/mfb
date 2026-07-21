@@ -1,0 +1,81 @@
+{
+  "project": "state_opaque_narrow_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Cursor",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "pos", "type": "Integer", "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "passThrough",
+      "line": 17,
+      "params": [
+      { "name": "f", "type": "File", "resource": true, "state": null, "default": null, "line": 17 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "g", "type": "File", "value": { "kind": "identifier", "value": "f" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "adopt",
+      "line": 23,
+      "params": [
+      { "name": "f", "type": "File", "resource": true, "state": "Cursor", "default": null, "line": 23 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "g", "type": "File", "value": { "kind": "identifier", "value": "f" }, "line": 24 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "make",
+      "line": 29,
+      "params": [
+      ],
+      "returnType": "File", "returnResource": true, "returnState": "Cursor",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/syntax/resources/state-opaque-narrow-valid/src/main.mfb" }] }, "line": 30 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "f" }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 34,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "Cursor", "name": "h", "type": "File", "value": { "kind": "call", "callee": "make", "arguments": [] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "passThrough", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "adopt", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
+      ]
+    }
+    ]
+  }
+  ]
+}

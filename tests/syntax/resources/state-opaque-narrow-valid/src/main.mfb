@@ -1,0 +1,40 @@
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' plan-59-C's POSITIVE fixture: the narrowing rule must reject only the
+' unprovable case, and leave the bare-parameter opt-out intact. That opt-out is
+' load-bearing — every close op depends on it (`FUNC close(RES db AS Db)` names
+' no STATE and works for every `Db`), so a rule that over-rejected here would
+' require one overload of every close op per state type its callers might attach.
+'
+' Three shapes that must all still compile:
+
+' 1. opaque -> opaque. Passing an opaque value on as opaque claims nothing the
+'    checker cannot discharge. Opacity propagates as opacity.
+FUNC passThrough(RES f AS File) AS Nothing
+  RES g AS File = f
+END FUNC
+
+' 2. concrete -> matching concrete. The state type is known on both sides and
+'    they agree, so the binding ADOPTS it (§15.5's binding row).
+FUNC adopt(RES f AS File STATE Cursor) AS Nothing
+  RES g AS File STATE Cursor = f
+END FUNC
+
+' 3. A producer that KNOWS the state type may still name it. The rule constrains
+'    only values whose state is opaque, never a creator's own declaration.
+FUNC make() AS RES File STATE Cursor
+  RES f AS File STATE Cursor = fs::openFile("tests/syntax/resources/state-opaque-narrow-valid/src/main.mfb")
+  RETURN f
+END FUNC
+
+FUNC main AS Integer
+  RES h AS File STATE Cursor = make()
+  passThrough(h)
+  adopt(h)
+  fs::close(h)
+  RETURN 0
+END FUNC

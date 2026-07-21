@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/state-opaque-narrow-valid
+Wrote AST to tests/syntax/resources/state-opaque-narrow-valid/state_opaque_narrow_valid.ast
+Wrote IR to tests/syntax/resources/state-opaque-narrow-valid/state_opaque_narrow_valid.ir
+[exit 0]

@@ -1,0 +1,28 @@
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' plan-59-C: a BARE `RES` parameter's STATE is OPAQUE — §15.5's parameter row
+' accepts "any state or none" — so it may not be narrowed to a concrete STATE on
+' the way out. This is the `launder` shape: the checker knows only that `f`
+' carries *some* state, so declaring a `STATE Cursor` return is a claim it cannot
+' discharge (TYPE_STATE_OPAQUE_NARROWING).
+'
+' Note this is NOT type confusion — it is an unprovable narrowing, the same shape
+' as any other. It needs no runtime support, which is why STATE stays entirely
+' compile-time checked.
+'
+' Distinct from resource-state-bare-return-invalid, which is the MIRROR case: a
+' bare RETURN of a value that provably carries a state. Here the return names a
+' state and the value's is unknown.
+FUNC launder(RES f AS File) AS RES File STATE Cursor
+  RETURN f
+END FUNC
+
+FUNC main AS Integer
+  RES h AS File = fs::openFile("tests/syntax/resources/state-opaque-narrow-return-invalid/src/main.mfb")
+  fs::close(h)
+  RETURN 0
+END FUNC

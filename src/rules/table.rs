@@ -982,6 +982,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "a resource's STATE type is fixed at its owning binding and every other declaration of it must agree",
     },
     Rule {
+        code: "2-203-0133",
+        name: "TYPE_STATE_OPAQUE_NARROWING",
+        severity: Severity::Error,
+        message: "an opaque resource STATE cannot be narrowed to a concrete STATE type",
+    },
+    Rule {
         code: "2-203-0131",
         name: "TYPE_RESOURCE_RETURN_ORDER",
         severity: Severity::Error,

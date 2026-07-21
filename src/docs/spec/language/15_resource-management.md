@@ -56,14 +56,24 @@ A resource *type* carries no `STATE`: a `RESOURCE` declaration is `RESOURCE SfFi
 | Position | `RES x AS SfFile` (bare) | `RES x AS SfFile STATE FileInfo` |
 |---|---|---|
 | **Parameter** | accepts a `SfFile` carrying **any state or none**; `x.state` is **not** accessible | accepts **only** a `SfFile` carrying a `FileInfo`; `x.state` is accessible |
-| **Return** | returns a resource carrying **no** state | returns a resource **carrying** a `FileInfo` |
-| **Binding** | binds a resource carrying **no** state | **attaches** a default-initialized `FileInfo` (when the value carries none), or **adopts** the one the value already carries |
+| **Return** | **asserts** the resource has no state; rejected if it carries one | returns a resource **carrying** a `FileInfo` |
+| **Binding** | **asserts** the resource has no state; rejected if it carries one | **attaches** a default-initialized `FileInfo` (when the value carries none), or **adopts** the one the value already carries |
 
-Bare therefore reads two ways: **"opaque"** at a parameter, and **"none"** at a return or a binding. The rule behind the asymmetry is **escape**, not ownership words:
+Bare therefore reads two ways: **"opaque"** at a parameter, and **"asserts none"** at a return or a binding. Bare never *strips* a `STATE` — at a return or a binding it is a claim that there is none, and the claim is checked:
 
-> A `RES` is an **alias** to one live resource — never a copy. Bare erases `STATE` only where that alias **cannot escape** the frame it appears in. A **parameter** is a non-owning alias confined to the callee's frame (it cannot close, `RETURN`, or transfer the resource — `TYPE_RESOURCE_INVALIDATE_NOT_OWNER`, §15), so the owner keeps the resource under its real STATE type and nothing is ever re-read as a different type; erasing STATE there ("opaque") is therefore unobservable. A **return** and a **binding** hand the resource to a new owner that re-declares its type — the resource **escapes to a re-typer** — so bare there must mean *provably no state*, or a stateful payload would be silently re-typed.
+```basic
+RES a AS File STATE Cur = fs::open("/tmp/x.txt", "w")
+RES b AS File           = a    ' error 2-203-0129: `b` is bare but its initializer
+                               '   carries STATE `Cur`
+```
 
-So "bare accepts any state" is exactly and only the **non-escaping alias** case (a parameter). Every position where the resource escapes to a context that re-declares its type — a return, a binding, and a `thread::transfer` across the thread boundary (the plane names the STATE; `TYPE_STATE_MISMATCH` on disagreement, §16) — instead requires the STATE to be named in the contract, because the escape is a *move to a re-typer*, not an in-frame alias. See `./mfb spec architecture escape-analysis`.
+The rule behind the asymmetry is **what the compiler can prove about the STATE type**, not escape and not ownership words:
+
+> A resource's `STATE` type is fixed **once, at the binding that creates it**, and carries no runtime tag. Every later declaration that names a `STATE` is therefore checked against that fixed type and must agree (`TYPE_STATE_MISMATCH`) [[src/rules/table.rs:TYPE_STATE_MISMATCH]]. A **return** and a **binding** are positions where the declaration names a type, so each is checked directly — a bare one asserts "no state" and is rejected against a stateful resource, exactly as a mismatched concrete one is. A **parameter** is the single position that deliberately declines to name the type: bare there means *opaque* — "some state or none" — so that one close op serves every state its callers attach. Opacity is sound because it is **unobservable**: `x.state` is inaccessible through a bare parameter, so no code can read the payload under a type the compiler has not checked.
+
+The asymmetry is thus about **knowledge, not lifetime**. `STATE` agreement holds independently of whether a resource escapes: the check happens wherever a type is named, and the one place no type is named is the one place nothing can be misread. A `thread::transfer` across the thread boundary is checked the same way (the plane names the `STATE`; `TYPE_STATE_MISMATCH` on disagreement, §16). See `./mfb spec architecture escape-analysis`.
+
+Because a bare parameter is opaque rather than stateless, an opaque `STATE` may not be **narrowed** to a concrete one: a bare `RES f AS SfFile` parameter cannot be returned or bound as `RES … AS SfFile STATE FileInfo`, since the compiler knows only that `f` has *some* state and cannot discharge the claim that it is a `FileInfo` (`TYPE_STATE_OPAQUE_NARROWING`). Opacity propagates as opacity; only a producer that knows the type may name it.
 
 The parameter row is what lets a close op accept a resource whatever state its owner attached — `FUNC close(RES db AS Db)` names no `STATE` and works for every `Db`, precisely because that alias never escapes to re-read `.state` under a new type.
 

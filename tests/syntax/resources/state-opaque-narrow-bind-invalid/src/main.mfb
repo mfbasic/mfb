@@ -1,0 +1,26 @@
+IMPORT fs
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' plan-59-C, the binding arm: re-binding a bare (opaque) `RES` parameter under a
+' concrete STATE is the same unprovable narrowing as returning it. The binding
+' would otherwise be read as the ONE true attach point (§15.5's binding row:
+' "attaches a default-initialized FileInfo when the value carries none") and
+' would attach a `Cursor` over whatever state the caller's resource really
+' carries — the exact silent re-typing TYPE_STATE_MISMATCH exists to prevent,
+' reached through the one position where the type is unknown.
+'
+' `state_type_name` cannot catch this on its own: an opaque value and a provably
+' stateless one have the SAME type string, so only the parameter's provenance
+' distinguishes them.
+FUNC launder(RES f AS File) AS Nothing
+  RES g AS File STATE Cursor = f
+END FUNC
+
+FUNC main AS Integer
+  RES h AS File = fs::openFile("tests/syntax/resources/state-opaque-narrow-bind-invalid/src/main.mfb")
+  fs::close(h)
+  RETURN 0
+END FUNC
