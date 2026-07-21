@@ -320,7 +320,7 @@ the plan did not mention: **`sf_read_short` reads only WHOLE FRAMES**, so an ite
 count that is not a multiple of the channel count reads nothing at all. That is
 why `loadSound` passes `frames * channels`, which is always a multiple; a caller
 passing an odd count silently gets an empty list. Documented at the wrapper.
-Commit: —
+Commit: `e56ddaf54`
 
 ### Phase 2 — `Sound`, `loadSound`, the cap, and the docs
 
@@ -351,7 +351,7 @@ over_cap_error=libsnd: …_big.wav decodes to 71303168 bytes, over the 67108864 
 ```
 
 FLAC and WAV decode byte-identically, and the cap message names both numbers.
-Commit: —
+Commit: `e56ddaf54`
 
 ### Phase 3 — end-to-end playback on hardware (largest blast radius last)
 
