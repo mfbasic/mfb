@@ -634,6 +634,14 @@ fn lower_link_expr(expr: &Expression) -> IrLinkExpr {
                     lhs,
                     rhs,
                 },
+                // plan-58-B: integer arithmetic for `BUFFER … SIZE` / `LENGTH`.
+                // Before these arms `SIZE frames * channels` fell into the `_`
+                // below and lowered to the literal 0 — a silently zero-capacity
+                // buffer, which is exactly the class of failure this whole
+                // sub-plan exists to prevent.
+                "*" => IrLinkExpr::Mul(lhs, rhs),
+                "+" => IrLinkExpr::Add(lhs, rhs),
+                "-" => IrLinkExpr::Sub(lhs, rhs),
                 _ => IrLinkExpr::Int(0),
             }
         }

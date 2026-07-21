@@ -183,7 +183,10 @@ pub(crate) fn link_expr_var_names<'a>(expr: &'a IrLinkExpr, out: &mut Vec<&'a st
         IrLinkExpr::Int(_) => {}
         IrLinkExpr::Compare { lhs, rhs, .. }
         | IrLinkExpr::And(lhs, rhs)
-        | IrLinkExpr::Or(lhs, rhs) => {
+        | IrLinkExpr::Or(lhs, rhs)
+        | IrLinkExpr::Mul(lhs, rhs)
+        | IrLinkExpr::Add(lhs, rhs)
+        | IrLinkExpr::Sub(lhs, rhs) => {
             link_expr_var_names(lhs, out);
             link_expr_var_names(rhs, out);
         }
@@ -807,6 +810,21 @@ pub(crate) enum IrLinkExpr {
     And(Box<IrLinkExpr>, Box<IrLinkExpr>),
     Or(Box<IrLinkExpr>, Box<IrLinkExpr>),
     Not(Box<IrLinkExpr>),
+    /// Integer arithmetic (plan-58-B §4.1), added for `BUFFER … SIZE` and
+    /// `RETURN … LENGTH`: a C bulk API sizes its buffer from its arguments
+    /// (`frames * channels * 2`), never from a constant, and a callee reports a
+    /// count in elements that has to be scaled to bytes. Without these a CBuffer
+    /// could only ever be sized and truncated in raw bytes, which no real audio
+    /// or codec API speaks.
+    ///
+    /// Wrapping is two's-complement, matching every other integer path here. The
+    /// values these feed are range-gated where it matters — a `SIZE` result is
+    /// checked against `[0, CBUFFER_MAX_BYTES]` before it reaches an allocation,
+    /// and a `LENGTH` result is clamped to the buffer's capacity — so an overflow
+    /// cannot become an out-of-bounds size.
+    Mul(Box<IrLinkExpr>, Box<IrLinkExpr>),
+    Add(Box<IrLinkExpr>, Box<IrLinkExpr>),
+    Sub(Box<IrLinkExpr>, Box<IrLinkExpr>),
 }
 
 #[cfg(test)]

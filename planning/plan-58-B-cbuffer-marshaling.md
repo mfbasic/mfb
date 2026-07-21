@@ -418,18 +418,43 @@ hazard: handing over the block pointer would have let the callee overwrite the
 **x86-64: cross-compiles and encodes cleanly (linux-x86_64 glibc + musl,
 linux-aarch64 glibc + musl), but is NOT yet runtime-verified** — this host is
 macOS aarch64. Recorded as outstanding rather than claimed; see Corrections.
-Commit: —
+Commit: `73d23cd31`
 
 ### Phase 2 — `IrLinkExpr` arithmetic
 
-- [ ] Add `Mul`/`Add`/`Sub` to `IrLinkExpr` (`src/ir/link.rs:514-534`), the AST
+- [x] Add `Mul`/`Add`/`Sub` to `IrLinkExpr` (`src/ir/link.rs:514-534`), the AST
       parse for them, and their evaluation in the thunk expression emitter
       (`link_thunk.rs`, `LINK_EXPR_VREG_BASE` range).
-- [ ] Tests: unit coverage for each operator, including a `SIZE items * 2`
+      **No AST parse work was needed** — `parse_expression` already produces
+      `Expression::Binary` for `*`/`+`/`-`; the gap was purely in `lower_link_expr`,
+      whose `_` arm silently folded them to the literal `0`.
+- [x] Five sites, not three: `IrLinkExpr` itself, `link_expr_var_names`,
+      `lower_link_expr`, `emit_link_expr`, and **two exhaustive matches the plan
+      did not name** — the `.mfp` codec (`ir/binary.rs`, new tags 6-8) and the NIR
+      JSON dump (`target/shared/nir/json.rs`).
+- [x] Teach `NATIVE_ABI_UNBOUND_PARAM` that a parameter consumed only by a
+      `BUFFER … SIZE` expression is consumed. Not in the plan; found immediately,
+      because `SIZE pairs * 2` is the whole point of the phase and `pairs` has no
+      ABI slot of its own. Both gates. Exactly the amendment plan-50-E had to make
+      for `BIND IN` fields.
+- [x] Consolidate the identifier walker. There were three nested copies of
+      `fn idents` after the above; a walker three rules disagree about is how a
+      name ends up "read" by one check and unread by another. Now one
+      `link_expr_idents`.
+- [x] Tests: unit coverage for each operator, including a `SIZE items * 2`
       expression resolving to the right byte count.
 
-Acceptance: a wrapper declaring `BUFFER buf SIZE items * 2` allocates exactly
-`2 * items` bytes, asserted against the block header.
+**Acceptance: MET on aarch64 (2026-07-20).** `preadPairs(fd, 10, 5, 0)` declares
+`BUFFER buf SIZE pairs * 2` with `pairs = 5`, and returns `pairs_len 10` with
+bytes `QUJDREVGR0hJSg==` = `ABCDEFGHIJ` — the right count AND the right bytes.
+
+Note on the test that proves it: `binary_round_trip_link_expr_variants` asserts
+only `is_some()`, so it passes even when a decode arm builds the wrong node —
+verified by swapping tag 8's `Sub` for `Add`, which it did not catch. Confusing
+two arithmetic operators silently mis-sizes a buffer, so
+`binary_round_trip_link_expr_arithmetic_is_structural` renders the decoded tree
+and compares it; the same deliberate swap fails it with
+`"(((status * 3) + 16) + 1)"` vs `"… - 1)"`.
 Commit: —
 
 ### Phase 3 — `LENGTH`, the clamp, and the size gate

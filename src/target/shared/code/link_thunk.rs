@@ -1566,6 +1566,21 @@ fn emit_link_expr(
                 &(*value as u64).to_string(),
             ));
         }
+        // plan-58-B: integer arithmetic, so a `BUFFER … SIZE` can scale a
+        // frame/element count to bytes (`frames * channels * 2`) and a `LENGTH`
+        // can scale a callee's element count back. Two's-complement wrapping,
+        // like every other integer path here; the results are range-gated by
+        // their consumers (SIZE against CBUFFER_MAX_BYTES, LENGTH clamped to
+        // capacity), so an overflow cannot become an out-of-bounds size.
+        IrLinkExpr::Mul(lhs, rhs) | IrLinkExpr::Add(lhs, rhs) | IrLinkExpr::Sub(lhs, rhs) => {
+            let lhs_reg = emit_link_expr(lhs, offsets, vreg, symbol, counter, instructions);
+            let rhs_reg = emit_link_expr(rhs, offsets, vreg, symbol, counter, instructions);
+            instructions.push(match expr {
+                IrLinkExpr::Mul(..) => abi::multiply_registers(&dst, &lhs_reg, &rhs_reg),
+                IrLinkExpr::Add(..) => abi::add_registers(&dst, &lhs_reg, &rhs_reg),
+                _ => abi::subtract_registers(&dst, &lhs_reg, &rhs_reg),
+            });
+        }
         IrLinkExpr::Var(name) => {
             let off = offsets.get(name.as_str()).copied().unwrap_or_else(|| {
                 unreachable!(

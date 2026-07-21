@@ -125,6 +125,27 @@ enum ExprMode {
 /// `ir::verify`'s relocated diagnostics and renders both in one line-ordered
 /// pass (plan-20-Z). An `Err` is a pre-check augmentation failure that already
 /// reported itself.
+/// Every identifier a LINK clause expression reads, in source order.
+///
+/// One copy, shared by the `SUCCESS_ON`/`RETURN` resolution check, the
+/// `BUFFER … SIZE` rule-9 check, and the unbound-parameter check. It was three
+/// nested `fn idents` before plan-58-B; a walker that three rules disagree about
+/// is how a name gets treated as "read" by one check and unread by another.
+///
+/// `Expression::Identifier` carries no line of its own, which is why every caller
+/// reports at the `ABI` line rather than the expression's.
+fn link_expr_idents(expr: &crate::ast::Expression, out: &mut Vec<String>) {
+    match expr {
+        crate::ast::Expression::Identifier(name) => out.push(name.clone()),
+        crate::ast::Expression::Binary { left, right, .. } => {
+            link_expr_idents(left, out);
+            link_expr_idents(right, out);
+        }
+        crate::ast::Expression::Unary { operand, .. } => link_expr_idents(operand, out),
+        _ => {}
+    }
+}
+
 pub fn check_project_collect(
     project_dir: &Path,
     ast: &AstProject,
@@ -427,20 +448,6 @@ impl<'a> SyntaxChecker<'a> {
     /// names the offending slot. See the plan's Corrections — buying slot-level
     /// spans means widening a carrier four landed rules also use.
     fn check_buffer_slots(&mut self, file: &AstFile, function: &crate::ast::LinkFunction) {
-        // Every identifier a BUFFER SIZE expression reads. Mirrors the local
-        // `idents` in `check_link_function_in`; `Expression::Identifier` carries no
-        // line of its own, which is the other reason spans land on the ABI line.
-        fn idents(expr: &crate::ast::Expression, out: &mut Vec<String>) {
-            match expr {
-                crate::ast::Expression::Identifier(name) => out.push(name.clone()),
-                crate::ast::Expression::Binary { left, right, .. } => {
-                    idents(left, out);
-                    idents(right, out);
-                }
-                crate::ast::Expression::Unary { operand, .. } => idents(operand, out),
-                _ => {}
-            }
-        }
         // Nothing to check unless the function actually uses the feature. The
         // `List OF Byte` return rule (rule 8) is the exception — it fires on a
         // function with no CBuffer and no BUFFER clause at all, which is precisely
@@ -458,7 +465,7 @@ impl<'a> SyntaxChecker<'a> {
             .iter()
             .map(|b| {
                 let mut names = Vec::new();
-                idents(&b.size, &mut names);
+                link_expr_idents(&b.size, &mut names);
                 names
             })
             .collect();
@@ -910,25 +917,12 @@ impl<'a> SyntaxChecker<'a> {
         // `SUCCESS_ON typo = 0` silently meant `status = 0`, and an expression
         // could not read any other slot despite the spec saying it could.
         {
-            /// Every identifier a link expression reads. `Expression::Identifier`
-            /// carries no line, so callers report at the ABI line.
-            fn idents(expr: &crate::ast::Expression, out: &mut Vec<String>) {
-                match expr {
-                    crate::ast::Expression::Identifier(name) => out.push(name.clone()),
-                    crate::ast::Expression::Binary { left, right, .. } => {
-                        idents(left, out);
-                        idents(right, out);
-                    }
-                    crate::ast::Expression::Unary { operand, .. } => idents(operand, out),
-                    _ => {}
-                }
-            }
             let mut names: Vec<String> = Vec::new();
             for expr in [&function.success_on, &function.result]
                 .into_iter()
                 .flatten()
             {
-                idents(expr, &mut names);
+                link_expr_idents(expr, &mut names);
             }
             for name in names {
                 // `NOTHING` is a literal, not a slot.
@@ -982,8 +976,10 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         // Every wrapper parameter must be consumed: by an ABI slot of the same
-        // name, or by a `BIND IN` field that binds it (plan-50-E — a parameter
-        // feeding a struct field has no slot of its own).
+        // name, by a `BIND IN` field that binds it (plan-50-E — a parameter
+        // feeding a struct field has no slot of its own), or by a `BUFFER … SIZE`
+        // expression (plan-58-B — a parameter that only sizes an OUT CBuffer,
+        // e.g. `BUFFER buf SIZE pairs * 2`, likewise has no slot of its own).
         for param in &function.params {
             let by_slot = function.abi.slots.iter().any(|s| s.name == param.name);
             let by_bind = function.bind_in.iter().any(|b| {
@@ -991,7 +987,12 @@ impl<'a> SyntaxChecker<'a> {
                     matches!(&f.value, crate::ast::Expression::Identifier(n) if *n == param.name)
                 })
             });
-            if !by_slot && !by_bind {
+            let by_buffer_size = function.buffers.iter().any(|b| {
+                let mut names = Vec::new();
+                link_expr_idents(&b.size, &mut names);
+                names.iter().any(|n| *n == param.name)
+            });
+            if !by_slot && !by_bind && !by_buffer_size {
                 self.report(
                     "NATIVE_ABI_UNBOUND_PARAM",
                     &format!(

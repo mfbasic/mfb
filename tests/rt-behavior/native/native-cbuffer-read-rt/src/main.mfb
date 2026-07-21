@@ -34,6 +34,21 @@ LINK "c" AS libc
     RETURN buf
   END FUNC
 
+  ' plan-58-B Phase 2: a SIZE expression with arithmetic. This is the shape every
+  ' real C bulk API needs — a buffer sized from a frame/element count times a
+  ' width, never from a constant. Before the Mul/Add/Sub arms existed, `pairs * 2`
+  ' fell through lowering's `_` arm to the literal 0, so this would have allocated
+  ' a zero-length buffer with no diagnostic.
+  ' `pairs` has NO ABI slot of its own — it exists only to size the buffer. That
+  ' is the case NATIVE_ABI_UNBOUND_PARAM had to be taught about, the same way
+  ' plan-50-E taught it about BIND IN fields.
+  FUNC preadPairs(fd AS Integer, nbyte AS Integer, pairs AS Integer, offset AS Integer) AS List OF Byte
+    SYMBOL "pread"
+    ABI (fd CInt32, buf OUT CBuffer, nbyte CInt64, offset CInt64) AS got CInt64
+    BUFFER buf SIZE pairs * 2
+    RETURN buf
+  END FUNC
+
   FUNC closeFd(fd AS Integer) AS Integer
     SYMBOL "close"
     ABI (fd CInt32) AS status CInt32
@@ -66,6 +81,13 @@ FUNC main() AS Integer
   ' And a different nbyte proves the middle one survived.
   LET tail AS List OF Byte = libc::preadBytes(fd, 4, 22)
   io::print("tail " & encoding::base64Encode(tail))
+
+  ' Phase 2: `SIZE pairs * 2` must allocate exactly 2*pairs bytes. 5 pairs = 10
+  ' bytes from offset 0 is "ABCDEFGHIJ"; a zero-length buffer or a wrong product
+  ' shows up in both the length and the bytes.
+  LET pairs AS List OF Byte = libc::preadPairs(fd, 10, 5, 0)
+  io::print("pairs_len " & toString(len(pairs)))
+  io::print("pairs " & encoding::base64Encode(pairs))
 
   LET closed AS Integer = libc::closeFd(fd)
   io::print("closed " & toString(closed))

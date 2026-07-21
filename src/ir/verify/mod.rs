@@ -3182,7 +3182,15 @@ impl TypeEnv {
                         .iter()
                         .any(|f| f.param.as_deref() == Some(pname.as_str()))
                 });
-                if !abi_slot_names.contains(pname.as_str()) && !by_bind {
+                // plan-58-B: likewise a parameter that only sizes an OUT CBuffer
+                // (`BUFFER buf SIZE pairs * 2`) has no slot of its own, and is
+                // consumed all the same.
+                let by_buffer_size = function.buffers.iter().any(|b| {
+                    let mut names = Vec::new();
+                    crate::ir::link_expr_var_names(&b.size, &mut names);
+                    names.contains(&pname.as_str())
+                });
+                if !abi_slot_names.contains(pname.as_str()) && !by_bind && !by_buffer_size {
                     self.emit(
                         "NATIVE_ABI_UNBOUND_PARAM",
                         format!(

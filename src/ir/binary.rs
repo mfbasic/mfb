@@ -438,6 +438,24 @@ fn encode_link_expr(out: &mut Vec<u8>, expr: &IrLinkExpr) {
             put_u8(out, 5);
             encode_link_expr(out, inner);
         }
+        // plan-58-B. Tags 6-8 are new; an older reader rejects them as an
+        // invalid tag rather than misreading one, since `decode_link_expr_body`
+        // has always erred on an unknown tag.
+        IrLinkExpr::Mul(lhs, rhs) => {
+            put_u8(out, 6);
+            encode_link_expr(out, lhs);
+            encode_link_expr(out, rhs);
+        }
+        IrLinkExpr::Add(lhs, rhs) => {
+            put_u8(out, 7);
+            encode_link_expr(out, lhs);
+            encode_link_expr(out, rhs);
+        }
+        IrLinkExpr::Sub(lhs, rhs) => {
+            put_u8(out, 8);
+            encode_link_expr(out, lhs);
+            encode_link_expr(out, rhs);
+        }
     }
 }
 
@@ -657,6 +675,18 @@ fn decode_link_expr_body(r: &mut IrReader) -> Result<IrLinkExpr, String> {
             Box::new(decode_link_expr(r)?),
         )),
         5 => Ok(IrLinkExpr::Not(Box::new(decode_link_expr(r)?))),
+        6 => Ok(IrLinkExpr::Mul(
+            Box::new(decode_link_expr(r)?),
+            Box::new(decode_link_expr(r)?),
+        )),
+        7 => Ok(IrLinkExpr::Add(
+            Box::new(decode_link_expr(r)?),
+            Box::new(decode_link_expr(r)?),
+        )),
+        8 => Ok(IrLinkExpr::Sub(
+            Box::new(decode_link_expr(r)?),
+            Box::new(decode_link_expr(r)?),
+        )),
         other => Err(format!("invalid LINK expr tag {other}")),
     }
 }

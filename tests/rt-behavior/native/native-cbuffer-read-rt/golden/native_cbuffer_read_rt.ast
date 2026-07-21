@@ -80,18 +80,51 @@
       },
       {
         "kind": "linkFunc",
+        "name": "preadPairs",
+        "symbol": "pread",
+        "returnResource": false,
+        "returnType": "List OF Byte",
+        "returnState": null,
+        "line": 45,
+        "params": [
+        { "name": "fd", "type": "Integer", "default": null, "line": 45 },
+        { "name": "nbyte", "type": "Integer", "default": null, "line": 45 },
+        { "name": "pairs", "type": "Integer", "default": null, "line": 45 },
+        { "name": "offset", "type": "Integer", "default": null, "line": 45 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 47 },
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 47 },
+          { "name": "nbyte", "ctype": "CInt64", "out": false, "line": 47 },
+          { "name": "offset", "ctype": "CInt64", "out": false, "line": 47 }
+          ],
+          "returnName": "got",
+          "returnCType": "CInt64"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": null,
+        "result": { "kind": "identifier", "value": "buf" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
         "name": "closeFd",
         "symbol": "close",
         "returnResource": false,
         "returnType": "Integer",
         "returnState": null,
-        "line": 37,
+        "line": 52,
         "params": [
-        { "name": "fd", "type": "Integer", "default": null, "line": 37 }
+        { "name": "fd", "type": "Integer", "default": null, "line": 52 }
         ],
         "abi": {
           "slots": [
-          { "name": "fd", "ctype": "CInt32", "out": false, "line": 39 }
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 54 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -112,25 +145,28 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 44,
+      "line": 59,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/native_cbuffer_read_rt.bin" }, "line": 45 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "ABCDEFGHIJKLMNOPQRSTUVWXYZ" }] }, "line": 46 },
-      { "kind": "binding", "mutable": false, "name": "fd", "type": "Integer", "value": { "kind": "call", "callee": "libc.openRead", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 48 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fd_ok " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "fd" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 49 },
-      { "kind": "binding", "mutable": false, "name": "head", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadBytes", "arguments": [{ "kind": "identifier", "value": "fd" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "0" }] }, "line": 55 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "head_len " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "head" }] }] } }] }, "line": 56 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "head " }, "right": { "kind": "call", "callee": "encoding.base64Encode", "arguments": [{ "kind": "identifier", "value": "head" }] } }] }, "line": 59 },
-      { "kind": "binding", "mutable": false, "name": "mid", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadBytes", "arguments": [{ "kind": "identifier", "value": "fd" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "10" }] }, "line": 63 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mid " }, "right": { "kind": "call", "callee": "encoding.base64Encode", "arguments": [{ "kind": "identifier", "value": "mid" }] } }] }, "line": 64 },
-      { "kind": "binding", "mutable": false, "name": "tail", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadBytes", "arguments": [{ "kind": "identifier", "value": "fd" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "22" }] }, "line": 67 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tail " }, "right": { "kind": "call", "callee": "encoding.base64Encode", "arguments": [{ "kind": "identifier", "value": "tail" }] } }] }, "line": 68 },
-      { "kind": "binding", "mutable": false, "name": "closed", "type": "Integer", "value": { "kind": "call", "callee": "libc.closeFd", "arguments": [{ "kind": "identifier", "value": "fd" }] }, "line": 70 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "closed " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "closed" }] } }] }, "line": 71 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 72 }
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "target/native_cbuffer_read_rt.bin" }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "ABCDEFGHIJKLMNOPQRSTUVWXYZ" }] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "fd", "type": "Integer", "value": { "kind": "call", "callee": "libc.openRead", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fd_ok " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "fd" }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "name": "head", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadBytes", "arguments": [{ "kind": "identifier", "value": "fd" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "0" }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "head_len " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "head" }] }] } }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "head " }, "right": { "kind": "call", "callee": "encoding.base64Encode", "arguments": [{ "kind": "identifier", "value": "head" }] } }] }, "line": 74 },
+      { "kind": "binding", "mutable": false, "name": "mid", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadBytes", "arguments": [{ "kind": "identifier", "value": "fd" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "10" }] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mid " }, "right": { "kind": "call", "callee": "encoding.base64Encode", "arguments": [{ "kind": "identifier", "value": "mid" }] } }] }, "line": 79 },
+      { "kind": "binding", "mutable": false, "name": "tail", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadBytes", "arguments": [{ "kind": "identifier", "value": "fd" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "22" }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tail " }, "right": { "kind": "call", "callee": "encoding.base64Encode", "arguments": [{ "kind": "identifier", "value": "tail" }] } }] }, "line": 83 },
+      { "kind": "binding", "mutable": false, "name": "pairs", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadPairs", "arguments": [{ "kind": "identifier", "value": "fd" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "0" }] }, "line": 88 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pairs_len " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pairs" }] }] } }] }, "line": 89 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pairs " }, "right": { "kind": "call", "callee": "encoding.base64Encode", "arguments": [{ "kind": "identifier", "value": "pairs" }] } }] }, "line": 90 },
+      { "kind": "binding", "mutable": false, "name": "closed", "type": "Integer", "value": { "kind": "call", "callee": "libc.closeFd", "arguments": [{ "kind": "identifier", "value": "fd" }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "closed " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "closed" }] } }] }, "line": 93 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 94 }
       ]
     }
     ]

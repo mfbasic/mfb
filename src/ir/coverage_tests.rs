@@ -347,6 +347,11 @@ fn link_function() -> IrLinkFunction {
         bind_in: vec![],
         bind_state: None,
         bind_state_resource: None,
+        // plan-58-B: NOT exercised here. `buffers` does not ride the `.mfp` wire
+        // yet — plan-58-C owns the format and its version bump — so putting an
+        // IrBuffer here would round-trip to nothing and prove the opposite of what
+        // it looked like it proved. The new Mul/Add/Sub arms are covered through
+        // `result` below, which IS encoded and decoded.
         buffers: vec![],
         // Exercise every IrLinkExpr arm across success_on/result.
         success_on: Some(IrLinkExpr::Compare {
@@ -359,7 +364,17 @@ fn link_function() -> IrLinkFunction {
                 Box::new(IrLinkExpr::Var("status".to_string())),
                 Box::new(IrLinkExpr::Not(Box::new(IrLinkExpr::Int(1)))),
             )),
-            Box::new(IrLinkExpr::Int(2)),
+            // plan-58-B tags 6-8: Mul/Add/Sub. Nested so all three decode.
+            Box::new(IrLinkExpr::Sub(
+                Box::new(IrLinkExpr::Add(
+                    Box::new(IrLinkExpr::Mul(
+                        Box::new(IrLinkExpr::Var("status".to_string())),
+                        Box::new(IrLinkExpr::Int(2)),
+                    )),
+                    Box::new(IrLinkExpr::Int(16)),
+                )),
+                Box::new(IrLinkExpr::Int(1)),
+            )),
         )),
         free: Some(IrFree {
             slot: "return".to_string(),
@@ -660,6 +675,66 @@ fn binary_round_trip_link_expr_variants() {
     assert!(decoded.link_functions[0].success_on.is_some());
     assert!(decoded.link_functions[0].result.is_none());
     assert!(decoded.link_functions[0].free.is_none());
+}
+
+/// The arithmetic variants must round-trip **structurally**, not merely survive.
+///
+/// `binary_round_trip_link_expr_variants` above asserts only `is_some()`, so it
+/// passes even when a decode arm builds the wrong node — swapping tag 8's `Sub`
+/// for `Add` does not fail it. That is a real gap for plan-58-B's operators,
+/// where confusing two of them silently mis-sizes a buffer, so this renders the
+/// decoded tree and compares it.
+#[test]
+fn binary_round_trip_link_expr_arithmetic_is_structural() {
+    fn render(expr: &IrLinkExpr) -> String {
+        match expr {
+            IrLinkExpr::Var(name) => name.clone(),
+            IrLinkExpr::Int(value) => value.to_string(),
+            IrLinkExpr::Mul(l, r) => format!("({} * {})", render(l), render(r)),
+            IrLinkExpr::Add(l, r) => format!("({} + {})", render(l), render(r)),
+            IrLinkExpr::Sub(l, r) => format!("({} - {})", render(l), render(r)),
+            IrLinkExpr::Not(inner) => format!("!{}", render(inner)),
+            IrLinkExpr::And(l, r) => format!("({} && {})", render(l), render(r)),
+            IrLinkExpr::Or(l, r) => format!("({} || {})", render(l), render(r)),
+            IrLinkExpr::Compare { op, lhs, rhs } => {
+                format!("({} {op} {})", render(lhs), render(rhs))
+            }
+        }
+    }
+
+    // Deliberately asymmetric: `Sub` and `Add` swapped, or either confused with
+    // `Mul`, changes the rendering.
+    let expr = IrLinkExpr::Sub(
+        Box::new(IrLinkExpr::Add(
+            Box::new(IrLinkExpr::Mul(
+                Box::new(IrLinkExpr::Var("status".to_string())),
+                Box::new(IrLinkExpr::Int(3)),
+            )),
+            Box::new(IrLinkExpr::Int(16)),
+        )),
+        Box::new(IrLinkExpr::Int(1)),
+    );
+    let want = "(((status * 3) + 16) - 1)";
+    assert_eq!(
+        render(&expr),
+        want,
+        "the fixture itself must render as expected"
+    );
+
+    let mut lf = link_function();
+    lf.result = Some(expr);
+    lf.success_on = None;
+    let mut project = empty_project("arith");
+    project.link_functions = vec![lf];
+    let bytes = encode_binary_repr(&project);
+    let decoded = decode_binary_repr(&bytes).expect("decode");
+    let got = render(
+        decoded.link_functions[0]
+            .result
+            .as_ref()
+            .expect("result survives the round trip"),
+    );
+    assert_eq!(got, want, "arithmetic must round-trip structurally");
 }
 
 #[test]

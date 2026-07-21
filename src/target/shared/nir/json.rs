@@ -497,6 +497,23 @@ fn link_expr_json(expr: &crate::ir::IrLinkExpr) -> String {
                 link_expr_json(operand)
             )
         }
+        // plan-58-B integer arithmetic. Spelled as a `binary` node with an `op`
+        // rather than three `kind`s, matching how `compare` already reads.
+        crate::ir::IrLinkExpr::Mul(lhs, rhs)
+        | crate::ir::IrLinkExpr::Add(lhs, rhs)
+        | crate::ir::IrLinkExpr::Sub(lhs, rhs) => {
+            let op = match expr {
+                crate::ir::IrLinkExpr::Mul(..) => "*",
+                crate::ir::IrLinkExpr::Add(..) => "+",
+                _ => "-",
+            };
+            format!(
+                "{{ \"kind\": \"binary\", \"op\": {}, \"lhs\": {}, \"rhs\": {} }}",
+                json_string(op),
+                link_expr_json(lhs),
+                link_expr_json(rhs)
+            )
+        }
     }
 }
 
