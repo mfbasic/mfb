@@ -24,7 +24,8 @@ use std::path::Path;
 /// `mfb` screen advertises only `repo register`/`repo auth`, so every error that
 /// leaves the user hunting for a subcommand points at the full sub-help
 /// (plan-42 §4.5).
-pub(crate) const REPO_HELP_HINT: &str = "Run 'mfb repo --help' for all repository & auth commands.";
+pub(crate) const REPO_HELP_HINT: &str =
+    "Run 'mfb repo --help' for all repository, auth & publishing commands.";
 
 pub(crate) enum RepoCommandError {
     Usage(String),
