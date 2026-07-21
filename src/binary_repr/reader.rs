@@ -1207,7 +1207,7 @@ pub(super) fn validate_abi_index(
             // bug-282 B1: the loop above is driven by EXPORT_TABLE, so a callable
             // ABI entry naming no EXPORT_TABLE row was never reached and its
             // sigHash never recomputed. Such an entry flows into
-            // `package_info().exports`, `pkg check-abi` and the registry
+            // `package_info().exports`, `repo check-abi` and the registry
             // `abi_index`, and can satisfy an importer's used-symbol pin at
             // resolve time for a function that does not exist -- failing much
             // later at merge with a far more confusing error. Require the

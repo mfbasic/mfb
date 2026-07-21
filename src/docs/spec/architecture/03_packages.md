@@ -27,7 +27,7 @@ The package entry written to `project.json` includes:
 Other `pkg` subcommands round out package management:[[src/main.rs]]
 
 - `mfb pkg info <package>` prints metadata from a compiled `.mfp`.
-- `mfb pkg publish <owner_name> <package>` builds, signs, and publishes a package
+- `mfb repo publish <owner_name> [path]` builds, signs, and publishes a package
   project under a registered repository owner.
 - `mfb pkg doc <name-or-path> [--out file]` renders HTML documentation from a
   compiled package.[[src/doc.rs]]

@@ -1,7 +1,7 @@
 # Repository Protocol
 
 The wire protocol between the `mfb` client and a repository (registry) service.
-It backs five commands: `mfb repo register`, `mfb repo auth`, `mfb pkg publish`,
+It backs five commands: `mfb repo register`, `mfb repo auth`, `mfb repo publish`,
 `mfb build --sign`, and — for registry idents — `mfb pkg add`. `mfb pkg add`
 accepts either a `file://…​.mfp` URL (copied into `packages/` locally, no
 protocol) or an `<owner>#<package>[@version]` ident, which resolves `GET
@@ -76,14 +76,14 @@ response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]]
 | `/log/publish` | GET | none | `?ident=&version=` | `LogEntry` | `pkg verify --proof` |
 | `/index/<owner>#<package>` | GET | none | — | `IndexResponse` | `pkg add` (registry) |
 | `/blob/<hash>` | GET | none | — | raw blob bytes (or `302` to a presigned URL in S3 mode) | `pkg add` (registry) |
-| `/blob/<hash>` | HEAD | none | — | `200` if present, `404` otherwise (no body) | `pkg publish` (dedup probe) |
-| `/blob/<hash>` | PUT | `Authorization: Bearer` session token | raw bytes (`application/octet-stream`) | `201` stored, `200` already present | `pkg publish` (vendor blobs) |
-| `/release-state` | POST | session + ident signature | `ReleaseStateRequest` | `ReleaseStateResponse` | `pkg release-state` |
+| `/blob/<hash>` | HEAD | none | — | `200` if present, `404` otherwise (no body) | `repo publish` (dedup probe) |
+| `/blob/<hash>` | PUT | `Authorization: Bearer` session token | raw bytes (`application/octet-stream`) | `201` stored, `200` already present | `repo publish` (vendor blobs) |
+| `/release-state` | POST | session + ident signature | `ReleaseStateRequest` | `ReleaseStateResponse` | `repo release-state` |
 | `/orgs/members` | POST | session + ident signature | `OrgMemberRequest` | `OrgMemberResponse` | `org grant`/`org remove` |
 | `/tokens` | POST | session + ident signature | `TokenIssueRequest` | `TokenIssueResponse` | `token issue` |
 | `/tokens/revoke` | POST | session + ident signature | `TokenRevokeRequest` | `TokenRevokeResponse` | `token revoke` |
-| `/packages/transfer/offer` | POST | session + ident signature | `TransferOfferRequest` | `TransferResponse` | `pkg transfer` |
-| `/packages/transfer/accept` | POST | session + ident signature | `TransferAcceptRequest` | `TransferResponse` | `pkg transfer-accept` |
+| `/packages/transfer/offer` | POST | session + ident signature | `TransferOfferRequest` | `TransferResponse` | `repo transfer` |
+| `/packages/transfer/accept` | POST | session + ident signature | `TransferAcceptRequest` | `TransferResponse` | `repo transfer-accept` |
 | `/root.json` | GET | none | — | `RootResponse` | `repo trust` |
 | `/snapshot.json` | GET | none | — | `SignedMetadataResponse` | `repo trust` |
 | `/timestamp.json` | GET | none | — | `SignedMetadataResponse` | `repo trust` |
@@ -92,8 +92,8 @@ response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]]
 | `/machines/link/fetch` | POST | pairing code + proof | `LinkFetchRequest` | `LinkFetchResponse` | `repo link` |
 | `/machines/revoke/challenge` | POST | none (challenge issuance) | `RevokeChallengeRequest` | `ChallengeResponse` | `machine revoke` (step 1) |
 | `/machines/revoke` | POST | ident signature | `RevokeRequest` | `RevokeResponse` | `machine revoke` (step 2) |
-| `/validate` | POST | session token | `PackageArtifactRequest` | `ValidatePackageResponse` | `pkg publish` (step 1) |
-| `/publish` | POST | session token | `PackageArtifactRequest` | `PublishPackageResponse` | `pkg publish` (step 2) |
+| `/validate` | POST | session token | `PackageArtifactRequest` | `ValidatePackageResponse` | `repo publish` (step 1) |
+| `/publish` | POST | session token | `PackageArtifactRequest` | `PublishPackageResponse` | `repo publish` (step 2) |
 
 [[repository/src/server.rs:serve]]
 
@@ -376,7 +376,7 @@ Client behaviour: the last-seen checkpoint is pinned per repository
 fetch verifies the signature under the pinned server key and enforces
 append-only growth — a smaller size is a **ROLLBACK** and the same size with
 a different root is a **FORK**, both hard `REGISTRY_LOG_ROLLBACK` errors that
-never re-pin. `mfb pkg publish` refuses to upload before a verified
+never re-pin. `mfb repo publish` refuses to upload before a verified
 checkpoint fetch and, after publishing, verifies its own publish entry's
 inclusion proof against a fresh checkpoint. `mfb pkg verify --proof`
 additionally demands a verifying inclusion proof for each Verified
@@ -1005,9 +1005,9 @@ success it writes the artifact blob to `<hash>.mfp` (only if not already
 present — `blobStored` reflects whether a new write occurred) and records the
 package version.[[repository/src/server.rs:publish_package]]
 
-## `pkg publish`: Validate-then-Publish
+## `repo publish`: Validate-then-Publish
 
-`mfb pkg publish <owner_name> <package>` is a build-then-two-call sequence:[[src/cli/pkg.rs:publish_package_project]]
+`mfb repo publish <owner_name> [path]` is a build-then-two-call sequence:[[src/cli/pkg.rs:publish_package_project]]
 
 1. Validate the package `project.json`; require kind `package`.
 2. `build --sign <owner>` in `Validate` mode to produce the signed `<name>.mfp`.
@@ -1043,5 +1043,5 @@ fetching blobs first would mean acting on attacker-supplied hashes.
 * ./mfb spec package-manager key-store — on-disk keypair and session-token storage (the rollback target and session source)
 * ./mfb spec package-manager owner-names — owner-name validation and case folding applied before every request
 * ./mfb spec package container-format — the `.mfp` bytes carried in `artifact` and parsed during validation
-* ./mfb spec tooling cli-reference — `repo register`/`repo auth`/`pkg publish` command surface and exit codes
-* ./mfb spec tooling project-manifest — the `project.json` that `pkg publish` reads before building
+* ./mfb spec tooling cli-reference — `repo register`/`repo auth`/`repo publish` command surface and exit codes
+* ./mfb spec tooling project-manifest — the `project.json` that `repo publish` reads before building

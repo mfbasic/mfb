@@ -357,7 +357,7 @@ still spell the old command until Phase 3 rewrites them.
 §4.3's guard was **A/B-verified, not assumed**: reverting `paths` to eager
 resolution makes `arity_errors_do_not_depend_on_the_key_store` fail, so the test
 is not vacuous.
-Commit: —
+Commit: 9d3a67608
 
 ### Phase 3 — Rewrite help constants and the spec
 

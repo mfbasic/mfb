@@ -11,7 +11,7 @@ the command help.
 This package owns the *formats and algorithms*. The build *pipeline* those
 commands drive is `./mfb spec architecture`; the language they compile is
 `./mfb spec language`; the `.mfp` byte format is `./mfb spec package`; the
-registry/signing workflow behind `pkg publish`/`repo`/`build --sign` is
+registry/signing workflow behind `repo publish`/`repo`/`build --sign` is
 `./mfb spec package-manager`.
 
 ## Reading order

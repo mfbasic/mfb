@@ -56,10 +56,11 @@ Package Management:
   pkg verify              Verify packages declared in project.json
   Run 'mfb pkg --help' for all package commands.
 
-Repository & Auth:
+Repository, Auth & Publishing:
   repo register <owner>   Register a repository owner
   repo auth <owner>       Authenticate as a repository owner
-  Run 'mfb repo --help' for all repository & auth commands.
+  repo publish <owner>    Sign and publish a package project to a repository
+  Run 'mfb repo --help' for all repository, auth & publishing commands.
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
@@ -104,14 +105,9 @@ Commands:
   validate <pkg>          Check an existing package's signatures and structure
   install [path]          Install dependencies from mfb.lock (by hash)
   update [path]           Resolve dependencies and write mfb.lock
-  publish <owner> <pkg>   Sign and publish a package project to a repository
-  check-abi [path]        Diff this package's ABI against its published version
-  release-state <state> [version]
-                          Set a published version's state (available/deprecated/yanked)
-  transfer <owner>#<pkg> <to-owner>
-                          Offer a package to another owner
-  transfer-accept <owner>#<pkg>@<to-owner>
-                          Accept a pending package transfer
+
+Publishing a package? Those commands live under 'mfb repo' —
+see 'mfb repo --help'.
 
 Options:
   --proof                 (verify) Also print each dependency's inclusion proof
@@ -129,6 +125,17 @@ Repository:
   repo link <owner>       (new machine) enter the pairing code to become an equal
   repo trust <registry-id> <root-fingerprint>
                           Pin and verify a registry's signed-metadata root
+
+Publishing:
+  repo publish <owner> [path]
+                          Sign and publish a package project to a repository
+  repo check-abi [path]   Diff this package's ABI against its published version
+  repo release-state <state> [version]
+                          Set a published version's state (available/deprecated/yanked)
+  repo transfer <owner>#<pkg> <to-owner>
+                          Offer a package to another owner
+  repo transfer-accept <owner>#<pkg>@<to-owner>
+                          Accept a pending package transfer
 
 Machines & Keys:
   machine revoke <owner> <auth-fingerprint>

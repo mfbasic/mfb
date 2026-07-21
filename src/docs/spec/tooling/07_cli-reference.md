@@ -48,19 +48,19 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `pkg info` | `mfb pkg info <package>` | 0 ok; 2 usage; 1 failed |
 | `pkg verify` | `mfb pkg verify [--proof]` | 0 ok; 2 usage; 1 failed |
 | `pkg validate` | `mfb pkg validate <package>` | 0 valid; 2 usage; 1 invalid or failed |
-| `pkg publish` | `mfb pkg publish <owner_name> <package>` | 0 ok; 2 usage; 1 failed |
 | `pkg update` | `mfb pkg update [location]` | 0 ok; 2 usage; 1 conflict or failed |
 | `pkg install` | `mfb pkg install [location]` | 0 ok; 2 usage; 1 stale lock or failed |
-| `pkg check-abi` | `mfb pkg check-abi [location]` | 0 compatible; 2 usage; 1 breaking or failed |
-| `pkg release-state` | `mfb pkg release-state <available\|deprecated\|yanked> [version]` | 0 ok; 2 usage; 1 failed |
 | `pkg doc` | `mfb pkg doc <name-or-path> [--out file]` | 0 ok; 2 usage; 1 failed |
 | `repo register` | `mfb repo register <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `repo auth` | `mfb repo auth <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `repo link` | `mfb repo link [--start] <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `repo trust` | `mfb repo trust <registry-id> <root-fingerprint>` | 0 ok; 2 usage; 1 failed |
+| `repo publish` | `mfb repo publish <owner_name> [path]` | 0 ok; 2 usage; 1 failed |
+| `repo check-abi` | `mfb repo check-abi [location]` | 0 compatible; 2 usage; 1 breaking or failed |
+| `repo release-state` | `mfb repo release-state <available\|deprecated\|yanked> [version]` | 0 ok; 2 usage; 1 failed |
+| `repo transfer` / `repo transfer-accept` | `mfb repo transfer <ident> <to-owner>` | 0 ok; 2 usage; 1 failed |
 | `org grant` / `org remove` | `mfb org grant <org> <member> <role> [--as <grantor>]` | 0 ok; 2 usage; 1 failed |
 | `token issue` / `token revoke` | `mfb token issue <owner> <scope> <ttl-seconds>` | 0 ok; 2 usage; 1 failed |
-| `pkg transfer` / `pkg transfer-accept` | `mfb pkg transfer <ident> <to-owner>` | 0 ok; 2 usage; 1 failed |
 | `machine revoke` | `mfb machine revoke <owner_name> <auth-fingerprint>` | 0 ok; 2 usage; 1 failed |
 | `key rotate` | `mfb key rotate <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |
@@ -211,8 +211,8 @@ output. `-v`/`--verbose` additionally prints a `phase <name> <N>ms` timing line
 `verify`, `codegen+link` — as a lightweight build profiler. The two flags are
 mutually exclusive (`mfb build accepts at most one of -q / -v`). Only the
 `println!`/`eprintln!` progress is level-gated; the timing brackets always run so
-`-v` and the default take an identical path into codegen. `mfb test`, `mfb pkg
-publish`, and `mfb pkg check-abi` run the build quietly (their own report is the
+`-v` and the default take an identical path into codegen. `mfb test`, `mfb repo
+publish`, and `mfb repo check-abi` run the build quietly (their own report is the
 output; the summary would be noise and, via `<target>`, non-portable across
 machines).
 
@@ -302,7 +302,7 @@ transparency-log inclusion proof for its publish entry, verified against the
 signed, rollback-checked checkpoint; success appends
 `(log index <n> ⊂ checkpoint size <s>)` to the line and a missing/unverifiable
 proof appends `(no publish proof)` and fails the command.
-`mfb pkg publish` prints `Publish logged at index <n> (leaf <hex>)` followed by
+`mfb repo publish` prints `Publish logged at index <n> (leaf <hex>)` followed by
 `Inclusion verified against checkpoint (size <s>, root <hex>)`, refusing to
 upload at all if the checkpoint fetch detects a rollback or fork
 (`REGISTRY_LOG_ROLLBACK`).[[src/cli/pkg.rs:publish_package_project]]
@@ -455,4 +455,4 @@ list.[[src/cli/man.rs:is_constant]]
 * ./mfb spec tooling doc-html — the `mfb doc` / `pkg doc` HTML rendering model
 * ./mfb spec package container-format — the `.mfp` header and signature byte encoding read by `pkg info`
 * ./mfb spec diagnostics rule-codes — the diagnostics these commands emit
-* ./mfb spec package-manager — registry protocol, signing, and `pkg publish`/`repo` detail
+* ./mfb spec package-manager — registry protocol, signing, and `repo publish`/`repo` detail

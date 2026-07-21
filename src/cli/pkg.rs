@@ -1632,16 +1632,6 @@ mod tests {
         }
     }
 
-    fn failed(result: Result<(), PkgCommandError>) -> String {
-        match result {
-            Err(PkgCommandError::Failed(message)) => message,
-            Err(PkgCommandError::Usage(message)) => {
-                panic!("expected failure, got usage error: {message}")
-            }
-            Ok(()) => panic!("expected failure, got Ok"),
-        }
-    }
-
     fn index_version(
         version: &str,
         state: &str,
@@ -1847,14 +1837,22 @@ mod tests {
         assert!(usage(run_pkg_command(&s(&["frobnicate"]))).contains("unknown pkg command"));
     }
 
-    /// plan-42 §4.5: the top-level screen advertises only four pkg commands, so
+    /// plan-42 §4.5: the top-level screen advertises only a few pkg commands, so
     /// pkg's own usage errors must interpolate `PKG_HELP` — the complete list —
     /// not the trimmed top-level `USAGE` they used to show.
+    ///
+    /// plan-60-A: the witness commands changed. This test used to probe for
+    /// `check-abi`/`release-state`/`transfer-accept`, chosen because they were
+    /// in `PKG_HELP` but not in `USAGE`. All three moved to `mfb repo`, so they
+    /// are no longer valid witnesses *for pkg* — the assertion's intent
+    /// (pkg errors show the full pkg set) is unchanged, only the commands that
+    /// can witness it. `info` and `validate` are the surviving pkg-only
+    /// commands absent from the top-level screen.
     #[test]
     fn run_pkg_usage_errors_show_the_full_pkg_command_set() {
         let message = usage(run_pkg_command(&s(&["frobnicate"])));
         // Present in PKG_HELP, absent from the trimmed top-level screen.
-        for command in ["check-abi", "release-state", "transfer-accept", "validate"] {
+        for command in ["info", "validate"] {
             assert!(
                 message.contains(command),
                 "pkg error must list `{command}`: {message}"
@@ -1863,6 +1861,39 @@ mod tests {
         assert!(message.contains("Usage: mfb pkg <command>"));
         // ...and must not be the top-level screen.
         assert!(!message.contains("Project Setup:"));
+    }
+
+    /// plan-60-A §1: every command is listed under exactly one parent. `PKG_HELP`
+    /// must not advertise a command that `mfb pkg` no longer dispatches, and
+    /// `REPO_HELP` must advertise every command it now owns. Without this, the
+    /// help text can drift back into naming a command that hard-errors.
+    #[test]
+    fn help_lists_each_moved_command_under_repo_only() {
+        for command in [
+            "publish",
+            "check-abi",
+            "release-state",
+            "transfer",
+            "transfer-accept",
+        ] {
+            assert!(
+                crate::REPO_HELP.contains(&format!("repo {command}")),
+                "REPO_HELP must document `repo {command}`"
+            );
+            assert!(
+                !crate::PKG_HELP.contains(&format!("  {command} ")),
+                "PKG_HELP must not still list `{command}` as a pkg command"
+            );
+        }
+        // The surviving consumer-side commands stay exactly where they were.
+        for command in [
+            "add", "info", "doc", "verify", "validate", "install", "update",
+        ] {
+            assert!(
+                crate::PKG_HELP.contains(command),
+                "PKG_HELP must still document `{command}`"
+            );
+        }
     }
 
     #[test]

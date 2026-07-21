@@ -97,6 +97,23 @@ fn run_mfb_plain(args: &[&str]) -> std::process::Output {
         .expect("run mfb")
 }
 
+/// `run_mfb`, but from a chosen working directory — needed to exercise the
+/// commands whose path argument defaults to `.` (plan-60-A §4.2).
+fn run_mfb_in(
+    repo: &RepoProcess,
+    home: &std::path::Path,
+    cwd: &std::path::Path,
+    args: &[&str],
+) -> std::process::Output {
+    Command::new(mfb_exe())
+        .args(args)
+        .current_dir(cwd)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.join(".mfb"))
+        .output()
+        .expect("run mfb")
+}
+
 #[test]
 fn repo_register_and_authenticate_owner() {
     let repo_dir = tempfile::tempdir().unwrap();
@@ -508,7 +525,7 @@ fn repo_machine_link_makes_an_equal_and_revoke_cuts_it_off() {
     let publish = run_mfb(
         &repo,
         home_b.path(),
-        &["pkg", "publish", "alice", package_dir_arg],
+        &["repo", "publish", "alice", package_dir_arg],
     );
     assert!(
         publish.status.success(),
@@ -877,7 +894,7 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     let output = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", package_dir_arg],
+        &["repo", "publish", "alice", package_dir_arg],
     );
     assert!(
         output.status.success(),
@@ -931,7 +948,7 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     let rollback = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", package_dir2_arg],
+        &["repo", "publish", "alice", package_dir2_arg],
     );
     assert!(!rollback.status.success());
     assert!(
@@ -954,7 +971,7 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     let duplicate = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", package_dir_arg],
+        &["repo", "publish", "alice", package_dir_arg],
     );
     assert!(!duplicate.status.success());
     let duplicate_stdout = String::from_utf8_lossy(&duplicate.stdout);
@@ -963,6 +980,90 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
         duplicate_stdout.contains("already published")
             || duplicate_stderr.contains("already published"),
         "stdout: {duplicate_stdout}\nstderr: {duplicate_stderr}"
+    );
+}
+
+/// plan-60-A: the end-to-end proof of both halves of this letter — that
+/// publishing dispatches from `mfb repo` at all, and that `publish`'s new
+/// optional path really defaults to the current directory.
+///
+/// Publishes with `mfb repo publish alice` (no path argument, run from inside
+/// the package directory) and then installs the result by ident from a separate
+/// consumer project. The install can only succeed if the artifact actually
+/// reached the registry index, so it is the artifact-appears-in-the-index check
+/// rather than a stdout assertion about it.
+#[test]
+fn repo_publish_without_a_path_publishes_the_current_directory() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    let package_dir = work.path().join("cwd_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let manifest_path = package_dir.join("project.json");
+    let manifest = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#cwd_pkg\",\n",
+    );
+    std::fs::write(&manifest_path, manifest).unwrap();
+
+    // The whole point: no path argument, so `.` must be inferred.
+    let output = run_mfb_in(
+        &repo,
+        home.path(),
+        &package_dir,
+        &["repo", "publish", "alice"],
+    );
+    assert!(
+        output.status.success(),
+        "pathless publish failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Published alice#cwd_pkg@0.1.0"), "{stdout}");
+
+    // ...and the artifact is really in the registry index: a fresh consumer
+    // resolves and installs it by ident.
+    let app_dir = work.path().join("cwd_consumer");
+    let app_dir_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_dir_arg]).status.success());
+    let add = run_mfb_in(
+        &repo,
+        home.path(),
+        &app_dir,
+        &["pkg", "add", "alice#cwd_pkg"],
+    );
+    assert!(
+        add.status.success(),
+        "add from index failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&add.stdout),
+        String::from_utf8_lossy(&add.stderr)
+    );
+
+    // The old spelling is gone — same directory, same everything else.
+    let moved = run_mfb_in(
+        &repo,
+        home.path(),
+        &package_dir,
+        &["pkg", "publish", "alice"],
+    );
+    assert_eq!(moved.status.code(), Some(2), "pkg publish must exit 2");
+    let stderr = String::from_utf8_lossy(&moved.stderr);
+    assert!(
+        stderr.contains("mfb pkg publish has moved to mfb repo publish"),
+        "{stderr}"
     );
 }
 
@@ -995,7 +1096,7 @@ fn repo_registry_add_installs_and_verifies_from_index() {
     assert!(run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", package_dir_arg],
+        &["repo", "publish", "alice", package_dir_arg],
     )
     .status
     .success());
@@ -1127,19 +1228,19 @@ fn repo_check_abi_reports_superset_and_breaking_changes() {
     assert!(run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", package_dir_arg],
+        &["repo", "publish", "alice", package_dir_arg],
     )
     .status
     .success());
 
     let run_check = || {
         Command::new(mfb_exe())
-            .args(["pkg", "check-abi"])
+            .args(["repo", "check-abi"])
             .current_dir(&package_dir)
             .env("MFB_REPO_URL", &repo.url)
             .env("MFB_HOME", home.path().join(".mfb"))
             .output()
-            .expect("pkg check-abi")
+            .expect("repo check-abi")
     };
 
     // Unchanged working tree: identical ABI, exit 0. This also proves the
@@ -1204,14 +1305,14 @@ fn repo_resolver_selects_substitute_and_locks_deterministically() {
     );
     std::fs::write(&dep_manifest, &base).unwrap();
     assert!(
-        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", dep_arg])
+        run_mfb(&repo, home.path(), &["repo", "publish", "alice", dep_arg])
             .status
             .success()
     );
     let bumped = base.replace("\"version\": \"0.1.0\"", "\"version\": \"0.1.1\"");
     std::fs::write(&dep_manifest, &bumped).unwrap();
     assert!(
-        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", dep_arg])
+        run_mfb(&repo, home.path(), &["repo", "publish", "alice", dep_arg])
             .status
             .success()
     );
@@ -1361,7 +1462,7 @@ fn repo_signed_metadata_root_verifies_chain_and_gates_add() {
     );
     std::fs::write(&manifest, &base).unwrap();
     assert!(
-        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+        run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg])
             .status
             .success()
     );
@@ -1412,7 +1513,7 @@ fn repo_ownership_transfer_is_two_sided_and_rebinds_the_package() {
     );
     std::fs::write(&manifest, &base).unwrap();
     assert!(
-        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+        run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg])
             .status
             .success()
     );
@@ -1420,7 +1521,7 @@ fn repo_ownership_transfer_is_two_sided_and_rebinds_the_package() {
     let offer = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "transfer", "alice#xfer_pkg", "bob"],
+        &["repo", "transfer", "alice#xfer_pkg", "bob"],
     );
     assert!(
         offer.status.success(),
@@ -1432,7 +1533,7 @@ fn repo_ownership_transfer_is_two_sided_and_rebinds_the_package() {
     let accept = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "transfer-accept", "alice#xfer_pkg@bob"],
+        &["repo", "transfer-accept", "alice#xfer_pkg@bob"],
     );
     assert!(
         accept.status.success(),
@@ -1485,7 +1586,7 @@ fn repo_release_state_yank_excludes_floating_but_allows_pin() {
     );
     std::fs::write(&manifest, &base).unwrap();
     assert!(
-        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+        run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg_arg])
             .status
             .success()
     );
@@ -1519,7 +1620,7 @@ fn repo_release_state_yank_excludes_floating_but_allows_pin() {
     );
 
     // Yank it (ident-signed, logged).
-    let yank = run_pkg(&["pkg", "release-state", "yanked"]);
+    let yank = run_pkg(&["repo", "release-state", "yanked"]);
     assert!(
         yank.status.success(),
         "yank failed: {}\n{}",
@@ -1601,11 +1702,13 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
         "EXPORT FUNC shared() AS Integer\n  RETURN 1\nEND FUNC\n",
     )
     .unwrap();
-    assert!(
-        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", common_arg])
-            .status
-            .success()
-    );
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["repo", "publish", "alice", common_arg]
+    )
+    .status
+    .success());
     // Save common@1.0.0's blob before bumping so `user` can build against it.
     let common_v1 = work.path().join("common-1.0.0.mfp");
     std::fs::copy(common_dir.join("common.mfp"), &common_v1).unwrap();
@@ -1617,11 +1720,13 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
         "EXPORT FUNC shared(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n",
     )
     .unwrap();
-    assert!(
-        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", common_arg])
-            .status
-            .success()
-    );
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["repo", "publish", "alice", common_arg]
+    )
+    .status
+    .success());
 
     // user@1.0.0 imports common (compiled against common@1.0.0's `shared`).
     let user_dir = work.path().join("user");
@@ -1650,7 +1755,7 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
         "IMPORT common\nEXPORT FUNC callShared() AS Integer\n  RETURN common::shared()\nEND FUNC\n",
     )
     .unwrap();
-    let publish_user = run_mfb(&repo, home.path(), &["pkg", "publish", "alice", user_arg]);
+    let publish_user = run_mfb(&repo, home.path(), &["repo", "publish", "alice", user_arg]);
     assert!(
         publish_user.status.success(),
         "publish user failed: {}\n{}",
@@ -1716,7 +1821,7 @@ fn repo_publish_rejects_non_package_and_missing_session() {
     let non_package = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", app_dir_arg],
+        &["repo", "publish", "alice", app_dir_arg],
     );
     assert!(!non_package.status.success());
     assert!(
@@ -1739,7 +1844,7 @@ fn repo_publish_rejects_non_package_and_missing_session() {
     let missing_session = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", package_dir_arg],
+        &["repo", "publish", "alice", package_dir_arg],
     );
     assert!(!missing_session.status.success());
     assert!(
@@ -1752,7 +1857,7 @@ fn repo_publish_rejects_non_package_and_missing_session() {
 /// plan-48 end-to-end: a binding's vendored native libraries travel with the
 /// package.
 ///
-/// `pkg publish` uploads each `vendor` locator's file as its own content-addressed
+/// `repo publish` uploads each `vendor` locator's file as its own content-addressed
 /// blob before the `.mfp`; `pkg add` downloads every blob the section-10 table
 /// names and hash-verifies it into `packages/<name>.vendor/`; and a consumer
 /// `mfb build` then finds the library with no file placed by hand. This is the
@@ -1841,7 +1946,7 @@ END FUNC
     let published = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", package_dir_arg],
+        &["repo", "publish", "alice", package_dir_arg],
     );
     assert!(
         published.status.success(),
@@ -1884,7 +1989,7 @@ END FUNC
     let republished = run_mfb(
         &repo,
         home.path(),
-        &["pkg", "publish", "alice", package_dir_arg],
+        &["repo", "publish", "alice", package_dir_arg],
     );
     assert!(
         republished.status.success(),
@@ -2080,7 +2185,7 @@ END FUNC
     .unwrap();
 
     for pkg in [plain_arg, vendor_arg] {
-        let published = run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg]);
+        let published = run_mfb(&repo, home.path(), &["repo", "publish", "alice", pkg]);
         assert!(
             published.status.success(),
             "publish {pkg} failed: {}\n{}",

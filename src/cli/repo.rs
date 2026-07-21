@@ -456,25 +456,28 @@ mod tests {
 
     /// plan-60-A §4.2: `publish` gains an optional path defaulting to `.`, so
     /// `mfb repo publish alice` must behave exactly as `mfb repo publish alice
-    /// .` does. Run both from a directory with no `project.json` and assert the
-    /// *same* failure — if the one-argument form were still rejected on arity
-    /// it would return `Usage` here instead.
+    /// .` does. Both forms must reach dispatch (not a `Usage` error) and produce
+    /// the identical result.
+    ///
+    /// Deliberately does NOT `chdir`: the working directory is process-global,
+    /// and mutating it races every other test in this binary that resolves a
+    /// relative path — `ENV_LOCK` would not protect them, since they do not take
+    /// it. The real current-directory semantics are proven instead in a
+    /// subprocess, where they are safe to exercise, by
+    /// `tests/repo_acceptance.rs::repo_publish_without_a_path_publishes_the_current_directory`.
+    /// What this test pins is the dispatch-level claim: the one-argument form is
+    /// accepted and forwards exactly `Path::new(".")`.
     #[test]
     fn repo_publish_defaults_its_path_to_the_current_directory() {
-        let dir = tempfile::tempdir().expect("temp dir");
-        let guard = super::super::tests::ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let previous = std::env::current_dir().expect("cwd");
-        std::env::set_current_dir(dir.path()).expect("chdir");
-
         let implicit = reaches_dispatch(run_repo_command(&s(&["publish", "alice"])));
         let explicit = reaches_dispatch(run_repo_command(&s(&["publish", "alice", "."])));
-
-        std::env::set_current_dir(previous).expect("restore cwd");
-        drop(guard);
-
         assert_eq!(implicit, explicit);
+
+        // ...and `.` is genuinely what got forwarded: calling the implementation
+        // directly with `Path::new(".")` yields the same failure.
+        let direct = super::super::pkg::publish_package_project("alice", Path::new("."))
+            .expect_err("the crate root is not a package project");
+        assert_eq!(implicit, direct);
         assert!(
             implicit.contains("package project validation failed"),
             "{implicit}"
