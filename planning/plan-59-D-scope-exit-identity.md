@@ -183,21 +183,35 @@ Commit: —
 
 ### Phase 3 — Collections and unions
 
-- [ ] Extend the skip to a resource reachable from an escaping collection
-      (`OwnedList`) and to `ResourceUnion`.
-- [ ] **Reuse the existing float machinery** (§15.6's ownership-migration rule)
+- [x] Extend the skip to a resource reachable from an escaping collection
+      (`OwnedList`) and to `ResourceUnion`. — `ResourceUnion` done (identity
+      compare added to `emit_resource_union_cleanup_call`, same shape as the
+      plain-resource case). `OwnedList` is **moot as a runtime skip** — see C8:
+      the float machinery already handles it statically, which is exactly what
+      the Open Decision required.
+- [x] **Reuse the existing float machinery** (§15.6's ownership-migration rule)
       rather than walking the escaping list at scope exit — DECIDED, see Open
       Decisions. The float machinery already knows which resources a collection
       owns; walking would be O(n) per scope exit and would duplicate that
       knowledge. If Phase 1 finds it does **not** record collection ownership in
       a form reachable here, stop and report rather than falling back to walking:
       that is a premise failure, and walking is the alternative this decision
-      rejected.
-- [ ] Tests: extend `resource-return-collection-order-rt` and
-      `resource-collection-transfer-runtime`.
+      rejected. — **satisfied, and no new code was needed.** The float machinery
+      already discharges this statically via `deactivate_owned_list`. **No list is
+      walked at scope exit**, which is what the decision demanded. See C8.
+- [x] Tests: extend `resource-return-collection-order-rt` and
+      `resource-collection-transfer-runtime`. — **moot: no extension needed.**
+      Both already pass unchanged and already assert the property this phase is
+      about (each element closed exactly once, in the caller). Since no runtime
+      skip was added for `OwnedList`, there is no new behaviour for an extension
+      to cover; adding assertions that re-state what they already check would be
+      noise. Verified green in the 147-test acceptance run.
 
 Acceptance: a returned `List OF RES File` closes each element exactly once in the
 caller and zero times in the callee; the three existing collection fixtures pass.
+**MET** — the three collection fixtures pass unchanged within the 147-test run,
+and the property holds by the float machinery's static ownership migration rather
+than by a runtime walk. `cargo test` 21 suites, 0 failed.
 Commit: —
 
 ### Phase 4 — Every exit path (largest blast radius, last)
@@ -412,6 +426,58 @@ narrower claim rather than against §3's stronger one.
 **Deliberately not done:** removing the static deactivation in favour of the
 runtime skip. It would trade a compile-time guarantee for a runtime compare and
 churn every resource-returning golden, for no correctness gain.
+
+### C8 — Phase 2's skip was placed on the WRONG return path and was inert; corrected (2026-07-20)
+
+Recorded prominently because it was nearly shipped as working code that could
+never fire, and a green suite would have looked like confirmation.
+
+There are **two** return emitters, not one:
+
+- `emit_current_result_exit` (`:2100`) — where Phase 2 originally set
+  `escaping_value_slot`. This handles auto-propagated results and trap routing.
+  On that path the pending slot holds an **error**, never a record pointer, so
+  the compare could never match. The skip was **dead code**.
+- `emit_return_exit` (`:2266`) — the real `RETURN <value>` path. It calls
+  `store_pending_success_result`, runs the three static deactivations, then
+  `emit_cleanup_sequence`. Phase 2 did not touch it at all.
+
+How it was caught: `makeFile`'s emitted code contained exactly **one**
+`fs_close`, and tracing which exit path it belonged to showed it was the
+error-propagate path — meaning the skip observed in the `.ncode` was sitting on
+the one path it can never fire on.
+
+Fixed by setting `escaping_value_slot` around `emit_return_exit`'s
+`emit_cleanup_sequence()` as well. The skip now backstops the static
+deactivations on the real return path, and remains inert on error exits because
+those still go through the other emitter with an error in the slot.
+
+Verified after the fix with a two-resource probe — a function opening `keep` and
+`drop` and returning `keep`. Result `keep=kK` over 300 iterations: the returned
+handle survived for the caller to write through, and the non-escaping `drop` was
+genuinely closed each time (300 leaked descriptors would have exceeded macOS's
+256 soft limit and failed). So the skip is neither too shy nor too eager.
+
+### C9 — the collection case needed no runtime skip at all (2026-07-20)
+
+§2 lists the collection-float case as UNVERIFIED and Phase 3 was written to
+resolve it, with the Open Decision insisting on reusing the float machinery
+rather than walking the list at scope exit.
+
+**The float machinery already discharges it, statically.** `emit_return_exit`
+calls `deactivate_owned_list(name)` when the returned value's type is a
+`RES`-marked resource collection (`:2357-2361`, comment: "Returning a
+`List OF RES File` transfers its owned-list to the caller: drop this scope's
+drain so the resources are not closed here (§15.6)"). The drain is removed from
+the cleanup list, so nothing is emitted and nothing is walked.
+
+That satisfies the Open Decision exactly as written — no walk, O(1), no
+duplicated knowledge — and it means **no `OwnedList` runtime skip was added**.
+Adding one would have been dead code on the same argument as C8.
+
+`ResourceUnion` did get the runtime compare, for symmetry with the plain
+resource: both are single-pointer cleanups where a backstop is cheap and the
+static deactivation is keyed on a syntactic local.
 
 ### C2 — the `Commit:` lines and populations here are unverified as of 2026-07-20
 

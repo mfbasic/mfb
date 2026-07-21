@@ -1427,6 +1427,19 @@ impl CodeBuilder<'_> {
         // load at `union_ptr+0` would SIGSEGV on null (bug-246).
         self.emit(abi::compare_immediate(&union_ptr, "0"));
         self.emit(abi::branch_eq(&done));
+
+        // plan-59-D Phase 3: the same identity skip as the plain-resource case.
+        // A returned resource union escapes to the caller, so this scope must not
+        // run its tag-dispatched drop. Backstops the static deactivation at
+        // `emit_return_exit` (bug-141's arm) for a returned union that is not
+        // syntactically the local owning the cleanup.
+        if let Some(escaping) = self.escaping_value_slot {
+            let escaping_ptr = self.allocate_register()?;
+            self.emit(abi::load_u64(&escaping_ptr, abi::stack_pointer(), escaping));
+            self.emit(abi::compare_registers(&union_ptr, &escaping_ptr));
+            self.emit(abi::branch_eq(&done));
+        }
+
         let union_slot = self.allocate_stack_object("resource_union_drop_ptr", 8);
         self.emit(abi::store_u64(&union_ptr, abi::stack_pointer(), union_slot));
         let tag_register = self.allocate_register()?;
@@ -2362,7 +2375,21 @@ impl CodeBuilder<'_> {
                 }
             }
         }
-        self.emit_cleanup_sequence()?;
+        // plan-59-D: this is the real `RETURN <value>` path, so the identity skip
+        // belongs here — around the cleanup sequence, with the escaping value in
+        // the slot `store_pending_success_result` wrote above.
+        //
+        // It BACKSTOPS the static deactivations above rather than replacing them.
+        // Those are keyed on the returned value being syntactically the
+        // `NirValue::Local` that owns the cleanup; a returned resource that is not
+        // that local is invisible to them, and the runtime compare catches it.
+        // Where both apply the skip is simply never reached, because the cleanup
+        // has already been removed from the list.
+        let previous_escaping = self.escaping_value_slot;
+        self.escaping_value_slot = self.pending_result_slots.map(|slots| slots.value);
+        let cleanup_result = self.emit_cleanup_sequence();
+        self.escaping_value_slot = previous_escaping;
+        cleanup_result?;
         self.load_pending_result_registers();
         self.emit(abi::return_());
         Ok(())
