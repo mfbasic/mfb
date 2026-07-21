@@ -143,7 +143,7 @@ Acceptance: the spec surface is measured and written into this document with its
 command.
 **MET** — 6 files / 10 mentions, measured with the commands recorded in the
 table, and each classified behavior-vs-rationale in C3.
-Commit: —
+Commit: 903980087
 
 ### Phase 2 — `TYPE_USE_AFTER_MOVE` under aliasing (before any deletion)
 
@@ -179,7 +179,7 @@ both ways**: it catches the aliased use-after-close (C6) and leaves the
 cross-resource-type case alone. `cargo test` 21 suites, 0 failed; acceptance
 **174** tests across `resource*` `native*` `libsnd*` `state*` `use-after-move*`
 `thread*` `control-flow*`. Phase 3 may begin.
-Commit: —
+Commit: a9a1e501d
 
 ### Phase 3 — Remove the two rules
 
@@ -212,7 +212,7 @@ Commit: —
 Acceptance: `closeSound` (the `bindings/libsnd` case at `src/lib.mfb:317`)
 compiles, and a program calling it closes the `SoundFile` exactly once — verified
 by an arena-growth assertion, not exit code.
-Commit: —
+Commit: eb227fd52
 
 ### Phase 4 — Spec rewrite (largest blast radius, last)
 
@@ -238,7 +238,7 @@ end.
 `diagnostics/01_rule-codes.md` about how the `EEEE` ordinal is allocated, which
 names `TYPE_RESOURCE_ELEMENT_NOT_OWNER` as an example of a high code block and
 remains true of a reserved row.
-Commit: —
+Commit: 895aa476e
 
 ## Compatibility / Format Impact
 
