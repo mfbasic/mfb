@@ -146,6 +146,60 @@ pub(crate) fn local_paths_for_repo(
     Ok(mfb_repository::local::LocalPaths::new(base.join(hash)))
 }
 
+/// Does this answer mean yes? **Only** a case-insensitive `y` or `yes`, after
+/// trimming. Everything else — an empty line, `n`, EOF, or arbitrary text — is
+/// no (plan-60-B §4.1).
+///
+/// Split out from `confirm` so the decision itself is unit-testable without a
+/// terminal; `confirm` is then a thin TTY-gated shell around it.
+// DELETE THIS ATTRIBUTE IN plan-60-E. Unused until `update`/`remove` call
+// `confirm` (plan-60-E and -F); plan-60-B builds the primitive before either
+// consumer exists so both can share one implementation. It is exercised by this
+// module's tests today.
+#[allow(dead_code)]
+pub(crate) fn answer_is_yes(answer: &str) -> bool {
+    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
+/// Ask a yes/no question, defaulting to **no** (plan-60-B §4.1).
+///
+/// `assume_yes` short-circuits without printing or reading anything — the caller
+/// has already told the user what will happen.
+///
+/// A non-interactive stdin is an **error**, not a silent no: these prompts guard
+/// destructive changes, and a script that pipes input deserves to be told its
+/// answer was never read rather than having the operation quietly skipped.
+// DELETE THIS ATTRIBUTE IN plan-60-E, which is the first consumer (`update`);
+// plan-60-F (`remove`) is the second. See the note on `answer_is_yes`.
+#[allow(dead_code)]
+pub(crate) fn confirm(question: &str, assume_yes: bool) -> Result<bool, String> {
+    use std::io::{IsTerminal, Write};
+
+    if assume_yes {
+        return Ok(true);
+    }
+    if !std::io::stdin().is_terminal() {
+        return Err(
+            "refusing to prompt for confirmation in a non-interactive session; pass --yes to proceed"
+                .to_string(),
+        );
+    }
+
+    print!("{question} [y/N]: ");
+    // The prompt has no trailing newline, so it sits in the line buffer until
+    // flushed — without this the user is asked nothing and sees a bare cursor.
+    std::io::stdout()
+        .flush()
+        .map_err(|err| format!("failed to write prompt: {err}"))?;
+
+    let mut answer = String::new();
+    // A read error and EOF both mean "no answer given", which defaults to no.
+    match std::io::stdin().read_line(&mut answer) {
+        Ok(0) | Err(_) => Ok(false),
+        Ok(_) => Ok(answer_is_yes(&answer)),
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -186,6 +240,55 @@ pub(crate) mod tests {
                 None => std::env::remove_var(self.name),
             }
         }
+    }
+
+    /// plan-60-B §4.1: the prompt defaults to **no**. These prompts guard
+    /// destructive changes, so anything that is not an explicit yes must not be
+    /// read as consent — including the empty line a user gets by pressing Enter.
+    #[test]
+    fn answer_is_yes_only_for_an_explicit_yes() {
+        for yes in ["y", "Y", "yes", "YES", "Yes", " y ", "yes\n", "  YES\r\n"] {
+            assert!(answer_is_yes(yes), "`{yes:?}` should be yes");
+        }
+        for no in [
+            "",      // bare Enter — the default-no property
+            " ",     //
+            "\n",    //
+            "n",     //
+            "N",     //
+            "no",    //
+            "NO",    //
+            "yep",   // near-miss, not an exact yes
+            "ya",    //
+            "yess",  //
+            "y e s", //
+            "sure",  // affirmative in English, but not the documented answer
+            "1",     //
+            "true",  //
+        ] {
+            assert!(!answer_is_yes(no), "`{no:?}` should be no");
+        }
+    }
+
+    /// plan-60-B §4.1: `assume_yes` must short-circuit before any I/O. Asserted
+    /// by construction rather than by observation — the test suite's stdin is
+    /// not a terminal, so if `confirm` reached the TTY check it would return
+    /// `Err` instead of `Ok(true)`. That makes this a real proof that the
+    /// short-circuit precedes the terminal check.
+    #[test]
+    fn confirm_with_assume_yes_never_reads_stdin() {
+        assert_eq!(confirm("delete everything?", true), Ok(true));
+    }
+
+    /// plan-60-B §4.1: a non-interactive session is an error, not a silent no.
+    /// A script whose piped answer would never be read deserves to be told so.
+    #[test]
+    fn confirm_refuses_to_prompt_without_a_terminal() {
+        // The test harness runs with stdin redirected, so this is the non-TTY path.
+        let err = confirm("proceed?", false).expect_err("must refuse, not guess");
+        assert!(err.contains("non-interactive"), "{err}");
+        // ...and it names the escape hatch, or the user is stuck.
+        assert!(err.contains("--yes"), "{err}");
     }
 
     #[test]

@@ -255,19 +255,40 @@ lands the `remove` command that can reach it.
 
 ### Phase 1 — `confirm`
 
-- [ ] Add `pub(crate) fn confirm(question: &str, assume_yes: bool) -> Result<bool, String>`
+- [x] Add `pub(crate) fn confirm(question: &str, assume_yes: bool) -> Result<bool, String>`
       to `src/cli/mod.rs`, implementing §4.1: `assume_yes` short-circuit, non-TTY
       error, `[y/N]` prompt defaulting to no.
-- [ ] Import `std::io::IsTerminal` (first use in the tree).
-- [ ] Tests in `src/cli/mod.rs`: `assume_yes == true` returns `Ok(true)` without
+- [x] ~~Import `std::io::IsTerminal` (first use in the tree).~~ — imported, but
+      **not** the first use: `src/cli/spec.rs:2` and `src/cli/man.rs:1` already
+      use it (Corrections #2). Imported function-locally, matching neither
+      file's module-level style but keeping the trait out of `mod.rs`'s scope,
+      where it is needed by exactly one function.
+- [x] Tests in `src/cli/mod.rs`: `assume_yes == true` returns `Ok(true)` without
       reading stdin; answer parsing accepts `y`/`Y`/`yes`/`YES` and rejects
       empty, `n`, and arbitrary text. Factor the answer parsing into a separate
       pure function (e.g. `answer_is_yes(&str) -> bool`) so it is unit-testable
       without a TTY — the TTY-gated wrapper is then a two-line shell around it.
+      Done: `answer_is_yes_only_for_an_explicit_yes` covers 8 yes-forms and 14
+      no-forms, including near-misses (`yep`, `yess`, `y e s`) and plausible
+      affirmatives that are not the documented answer (`sure`, `1`, `true`).
+- [x] **Added task:** a third test, `confirm_refuses_to_prompt_without_a_terminal`,
+      pinning that a non-interactive session errors rather than silently
+      answering no, and that the message names `--yes`.
+- [x] **Added task** (Corrections #3): targeted `#[allow(dead_code)]` on both
+      functions, each commented with the letter that must delete it. Needed
+      because B lands its primitives before any consumer exists, and the plan
+      requires a warning-free build.
 
 Acceptance: `cargo test --bin mfb` passes, including a test that
 `answer_is_yes("")` is `false` (the default-no property) and that `confirm` with
-`assume_yes` never touches stdin.
+`assume_yes` never touches stdin. **VERIFIED** — 3146 passed / 0 failed (from
+3143), 0 build warnings.
+
+The `assume_yes` test is **A/B-verified, not assumed**: deleting the
+short-circuit makes it fail. That works because the suite's stdin is not a
+terminal, so without the short-circuit `confirm` returns the non-TTY `Err` — which
+is what makes `Ok(true)` a genuine proof that the short-circuit precedes any I/O,
+rather than a tautology.
 Commit: —
 
 ### Phase 2 — `apply_manifest_change`
@@ -375,6 +396,20 @@ implementations remain), plus a behavioral second row. Both MET.
 "grep for a string" gates. A grep over a whole file cannot distinguish dispatch
 from a test that asserts the dispatch is gone — check the construct, not the
 spelling.
+
+**#2 — `IsTerminal` is not "first use in the tree".** (Found in Phase 1,
+2026-07-21.) Phase 1's task says so, but `src/cli/spec.rs:2` and
+`src/cli/man.rs:1` already import it. Harmless to the design — noted only because
+the claim implied there was no house style to follow, and there is one.
+
+**#3 — B's primitives cannot land warning-free without a dead-code attribute.**
+(Found in Phase 1, 2026-07-21.) Phase 2 anticipates this for
+`apply_manifest_change` but Phase 1 does not for `confirm`, and it applies
+equally: `confirm`/`answer_is_yes` have no consumer until plan-60-E. Both carry a
+targeted `#[allow(dead_code)]` naming the letter that must delete it (E), per the
+plan's own guidance for the Phase 2 case. Note the attribute is longer-lived than
+Phase 2's: C consumes `apply_manifest_change`, but nothing consumes `confirm`
+until E.
 
 ## Summary
 
