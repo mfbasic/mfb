@@ -154,10 +154,14 @@ The dangerous part, done first and provably.
       is keyed by **binding name**, and §14.9 documents the branch/loop merge
       behaviour. Measured what actually fires today rather than inferring it; see
       C4, including one case the plan assumed fires and which does **not**.
-- [ ] Implement the aliasing behavior: mark a binding "possibly closed" once it
+- [x] Implement the aliasing behavior: mark a binding "possibly closed" once it
       has passed through a call returning `RES`. **Emit no diagnostic for that
       state** — DECIDED, see Open Decisions. It exists to stop the rule reporting
-      a false negative elsewhere, not to be reported itself.
+      a false negative elsewhere, not to be reported itself. — implemented as an
+      **alias relation** rather than a one-way "possibly closed" flag; see C5 for
+      why that shape is the one that actually removes the false negative. No
+      diagnostic is emitted at the aliasing point, as decided. Proven to fire, and
+      proven not to over-fire (C6).
 - [x] Tests: fixtures asserting the rule **still fires** for straight-line
       `close; use`, for `close; use` across a branch join, and inside a loop —
       i.e. every case that works today must keep working. — landed as
@@ -169,10 +173,12 @@ The dangerous part, done first and provably.
 
 Acceptance: the three "still fires" fixtures pass *before* either rule is
 removed, proving no protection is lost silently. `cargo test` green.
-**MET for the safety net** — the fixture is green and landed ahead of any
-deletion, which is the point of this phase's ordering. `cargo test` 21 suites, 0
-failed; acceptance 108 tests. The aliasing-bookkeeping task above remains open,
-and Phase 3 must not begin until it is closed.
+**MET.** The safety-net fixture landed ahead of any deletion, which is the point
+of this phase's ordering. The aliasing bookkeeping is implemented and **proven
+both ways**: it catches the aliased use-after-close (C6) and leaves the
+cross-resource-type case alone. `cargo test` 21 suites, 0 failed; acceptance
+**174** tests across `resource*` `native*` `libsnd*` `state*` `use-after-move*`
+`thread*` `control-flow*`. Phase 3 may begin.
 Commit: —
 
 ### Phase 3 — Remove the two rules
@@ -251,6 +257,72 @@ Commit: —
   converted fixture still records what the rule was protecting.
 
 ## Corrections
+
+### C5 — "possibly closed" is the wrong shape; an alias RELATION is the right one (2026-07-20)
+
+Phase 2 specified: "mark a binding *possibly closed* once it has passed through a
+call returning `RES`". Taken literally that is a one-way flag on the *argument*,
+and it does not remove the false negative it was written to remove.
+
+The false negative is:
+
+```basic
+RES h = open(…)
+RES g = passThrough(h)   ' g and h may denote ONE resource
+close(g)                 ' marks only `g` — `moved` is keyed by NAME
+use(h)                   ' silently accepted: a real use-after-close
+```
+
+A flag on `h` saying "possibly closed" is not enough, because at the moment `h`
+is passed nothing has been closed yet; what matters is that a *later* close
+through `g` must reach `h`. So the state has to be a **relation** between the two
+names, consulted at close time — not a mark applied at call time.
+
+Implemented as `aliases: HashMap<String, HashSet<String>>` threaded alongside
+`moved`, with:
+
+- **recording** at a `Bind` whose value is a call returning a resource, relating
+  the new binding to same-typed resource arguments, bidirectionally;
+- **consumption** via `alias_closure`, a transitive walk, so closing any name in
+  a chain marks every name in it;
+- **branch merging** on the same "may on some fall-through path" rule `moved`
+  already uses, since may-alias is still may-alias after a join;
+- **severing** on rebind, because a rebound name no longer denotes what it did.
+
+No diagnostic is emitted at the aliasing point, exactly as the Open Decision
+directs — the relation exists only so a later close is not silently missed.
+
+### C6 — two bugs in my own implementation, both silent, both caught by instrumenting (2026-07-20)
+
+Recorded because each would have shipped as working code with a green suite.
+
+**(1) The alias was deleted by the statement that created it.** The `Bind` arm
+already had a "rebind reopens ownership" block (`if value.is_some() { moved.remove(name) }`),
+and I extended it to also sever the name's aliases. But that block ran *after* my
+recording, and `value.is_some()` is true for **every** initialised bind — so the
+relation was recorded and immediately erased. The map was permanently empty and
+the tracking was inert.
+
+It looked correct from the source and from a green suite. It was found by
+printing the map at both sites and comparing pointers: same map, alias written,
+`{"db": {}}` at the consume. The fix is ordering — sever first, then record — and
+the code now says so, because the failure mode is invisible.
+
+**(2) Cross-type over-approximation would have rejected correct code.** The first
+version related the result to *any* resource-typed argument. That makes
+`RES s = prepare(db, …)` relate `s` to `db`, so `finalize(s)` marks `db` and the
+following `exec(db, …)` becomes a false `TYPE_USE_AFTER_MOVE` — a pattern every
+sqlite binding and several in-tree fixtures use. A `Stmt` cannot *be* a `Db`, so
+the relation is now restricted to arguments of the same resource base type.
+
+**Proven both directions**, since either alone is worthless:
+
+- *Fires*: a `LINK` op taking `RES Db` and returning `RES Db`, closed through the
+  second name, then used through the first → `error[2-203-0055] binding is used
+  after move`. That is the false negative, now caught.
+- *Does not over-fire*: `prepare(db); finalize(s); exec(db); close(db)` still
+  compiles, and the full suite is green — 174 acceptance tests, 21 `cargo test`
+  suites.
 
 ### C4 — "inside a loop" does NOT fire today, and that is specified behaviour (2026-07-20)
 

@@ -364,6 +364,7 @@ fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -
             &mut HashSet::new(),
             &function.resource_owners,
             &non_owning,
+            &mut HashMap::new(),
         );
     }
     // Global initializers are lowered into a synthetic function later; verify
@@ -2486,7 +2487,30 @@ impl TypeEnv {
         moved: &mut HashSet<String>,
         owners: &HashMap<String, crate::escape::ResOwner>,
         non_owning: &HashSet<String>,
+        aliases: &mut HashMap<String, HashSet<String>>,
     ) {
+        /// plan-59-E: every binding that may denote the same resource as `name`,
+        /// transitively. `moved` is keyed by binding NAME, so once two names can
+        /// denote one resource, closing through one must mark the others or the
+        /// rule reports a false negative — it would stay silent on a genuine
+        /// use-after-close.
+        fn alias_closure(
+            name: &str,
+            aliases: &HashMap<String, HashSet<String>>,
+        ) -> HashSet<String> {
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut stack = vec![name.to_string()];
+            while let Some(current) = stack.pop() {
+                if !seen.insert(current.clone()) {
+                    continue;
+                }
+                if let Some(next) = aliases.get(&current) {
+                    stack.extend(next.iter().cloned());
+                }
+            }
+            seen.remove(name);
+            seen
+        }
         // A branch that always leaves the function never reaches the join, so
         // its moves must not leak past it (syntaxcheck merges only fall-through
         // branches). Top-level test is enough: a mid-block Return makes the
@@ -2502,26 +2526,45 @@ impl TypeEnv {
         // Run `body` as a branch: fresh scope, then merge the new moves of a
         // fall-through branch back into the outer set (syntaxcheck's MaybeMoved —
         // moved on *some* path means unusable after the join).
-        let run_branch =
-            |body: &[IrOp], locals: &HashMap<String, String>, moved: &mut HashSet<String>| {
-                let mut branch_moved = moved.clone();
-                self.check_resource_moves(
-                    body,
-                    &mut locals.clone(),
-                    &mut branch_moved,
-                    owners,
-                    non_owning,
-                );
-                if !diverges(body) {
-                    for name in branch_moved {
-                        // Only propagate moves of bindings the outer scope knows;
-                        // branch-local resources die with the branch.
-                        if locals.contains_key(&name) {
-                            moved.insert(name);
+        let run_branch = |body: &[IrOp],
+                          locals: &HashMap<String, String>,
+                          moved: &mut HashSet<String>,
+                          aliases: &mut HashMap<String, HashSet<String>>| {
+            let mut branch_moved = moved.clone();
+            // Aliases discovered inside a branch merge back the same way moves do:
+            // "may alias on *some* fall-through path" is still may-alias after the
+            // join, and treating it otherwise would lose the relation exactly where
+            // it is needed.
+            let mut branch_aliases = aliases.clone();
+            self.check_resource_moves(
+                body,
+                &mut locals.clone(),
+                &mut branch_moved,
+                owners,
+                non_owning,
+                &mut branch_aliases,
+            );
+            if !diverges(body) {
+                for name in branch_moved {
+                    // Only propagate moves of bindings the outer scope knows;
+                    // branch-local resources die with the branch.
+                    if locals.contains_key(&name) {
+                        moved.insert(name);
+                    }
+                }
+                for (name, targets) in branch_aliases {
+                    if locals.contains_key(&name) {
+                        let kept: HashSet<String> = targets
+                            .into_iter()
+                            .filter(|t| locals.contains_key(t))
+                            .collect();
+                        if !kept.is_empty() {
+                            aliases.entry(name).or_default().extend(kept);
                         }
                     }
                 }
-            };
+            }
+        };
         for op in ops {
             self.current_line.set(op.loc().line);
             // A read of an already-moved binding is a use-after-move. The
@@ -2549,6 +2592,16 @@ impl TypeEnv {
                         ),
                     );
                 } else {
+                    // plan-59-E: closing/returning/transferring through ONE name
+                    // consumes the resource, so every name that may denote it is
+                    // consumed too. Without this the rule stays silent on a real
+                    // use-after-close reached through an alias — a false negative,
+                    // which is the invisible failure mode this sub-plan guards
+                    // against.
+
+                    for alias in alias_closure(&consumed, aliases) {
+                        moved.insert(alias);
+                    }
                     moved.insert(consumed);
                 }
             }
@@ -2571,8 +2624,67 @@ impl TypeEnv {
                         }
                     }
                     // A rebind of a resource name reopens ownership.
+                    //
+                    // ORDER MATTERS and getting it wrong is silent: this severs
+                    // whatever the PREVIOUS binding of this name aliased, so it
+                    // must run BEFORE the new alias is recorded below. Recording
+                    // first and severing after deletes the relation on the very
+                    // statement that establishes it -- the map ends up empty and
+                    // the tracking is inert while still looking correct.
                     if value.is_some() {
                         moved.remove(name);
+                        aliases.remove(name);
+                        for targets in aliases.values_mut() {
+                            targets.remove(name);
+                        }
+                    }
+                    // plan-59-E: `RES g = f(h, …)` where `f` returns a resource may
+                    // hand back the very resource `h` denotes — "take a handle,
+                    // give it back" is the shape this whole plan exists to make
+                    // writable, and the signature `AS RES File` does not encode
+                    // identity (`res.md` §3.3). So `g` and `h` MAY alias, and the
+                    // relation is recorded rather than proved.
+                    //
+                    // **No diagnostic is emitted here** (DECIDED, Open Decisions):
+                    // a warning at every call returning `RES` would fire on correct
+                    // code and train people to ignore it. The state exists only so
+                    // a later close through either name marks both.
+                    //
+                    // Restricted to arguments of the SAME resource type as the
+                    // return. A `Stmt` produced from a `Db` cannot BE that `Db`, so
+                    // relating them would reject `prepare(db); finalize(s);
+                    // exec(db)` — correct code every sqlite binding writes, and the
+                    // in-tree fixtures do.
+                    //
+                    // Within one type it still over-approximates (a callee
+                    // returning a *fresh* resource is recorded as a possible alias
+                    // too). That is the safe direction: a missed alias is a silent
+                    // use-after-close, an extra one is a visible false positive.
+                    if owners.contains_key(name) {
+                        if let Some(IrValue::Call { args, type_, .. })
+                        | Some(IrValue::CallResult { args, type_, .. }) = value
+                        {
+                            let returned = resource_base_type(type_);
+                            if self.close_op_for(returned).is_some() {
+                                for arg in args {
+                                    if let IrValue::Local(source) = arg {
+                                        if locals
+                                            .get(source)
+                                            .is_some_and(|t| resource_base_type(t) == returned)
+                                        {
+                                            aliases
+                                                .entry(name.clone())
+                                                .or_default()
+                                                .insert(source.clone());
+                                            aliases
+                                                .entry(source.clone())
+                                                .or_default()
+                                                .insert(name.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     locals.insert(name.clone(), type_.clone());
                 }
@@ -2581,12 +2693,12 @@ impl TypeEnv {
                     else_body,
                     ..
                 } => {
-                    run_branch(then_body, locals, moved);
-                    run_branch(else_body, locals, moved);
+                    run_branch(then_body, locals, moved, aliases);
+                    run_branch(else_body, locals, moved, aliases);
                 }
                 IrOp::Match { cases, .. } => {
                     for case in cases {
-                        run_branch(&case.body, locals, moved);
+                        run_branch(&case.body, locals, moved, aliases);
                     }
                 }
                 IrOp::ForEach {
@@ -2598,12 +2710,14 @@ impl TypeEnv {
                     let mut fe_non_owning = non_owning.clone();
                     fe_non_owning.insert(name.clone());
                     let mut branch_moved = moved.clone();
+                    let mut fe_aliases = aliases.clone();
                     self.check_resource_moves(
                         body,
                         &mut fe_locals,
                         &mut branch_moved,
                         owners,
                         &fe_non_owning,
+                        &mut fe_aliases,
                     );
                     for n in branch_moved {
                         if locals.contains_key(&n) {
@@ -2615,7 +2729,7 @@ impl TypeEnv {
                 | IrOp::For { body, .. }
                 | IrOp::DoUntil { body, .. }
                 | IrOp::Trap { body, .. } => {
-                    run_branch(body, locals, moved);
+                    run_branch(body, locals, moved, aliases);
                 }
                 _ => {}
             }
