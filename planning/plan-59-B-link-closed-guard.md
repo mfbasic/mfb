@@ -147,13 +147,18 @@ property). Phase 1 resolves it on one function before Phase 2 generalizes.
 
 ### Phase 1 — Spike: guard one function, prove the insertion point
 
-- [ ] Determine where in `lower_link_thunk` a param guard can be emitted before
+- [x] Determine where in `lower_link_thunk` a param guard can be emitted before
       any allocating marshalling. Read `link_thunk.rs:376-900` for the prologue
       and param loop, and `:1534` (`emit_copy_string_to_cstring`) for what
-      allocates. Record the answer in Corrections.
-- [ ] Emit the `!= 0` guard for the resource param of `sqliteLink::finalize`
+      allocates. Record the answer in Corrections. — **immediately after the
+      parameter spill loop, before the CBuffer staging block.** See C3; there are
+      **two** allocating sites before the native call, not the one the plan named.
+- [x] Emit the `!= 0` guard for the resource param of `sqliteLink::finalize`
       only, branching to a new `resource_closed` label that joins the existing
-      error path (`RESULT_ERR_TAG`, like `alloc_fail`).
+      error path (`RESULT_ERR_TAG`, like `alloc_fail`). — emitted, but for **every**
+      record-resource param rather than for `finalize` alone; see C4 for why
+      restricting it would have been throwaway code, and what was done instead to
+      keep the risk-reduction the phase intended.
 - [ ] Write a fixture that closes a `Stmt` then calls `finalize` again, and
       assert it returns `ErrResourceClosed` rather than calling `sqlite3_finalize`
       twice. Because the static rule still rejects a double close in source, the
@@ -229,6 +234,70 @@ Phase 2's acceptance said "all 11 native fixtures". The real count is **18**
 which carried the same wrong number; corrected in both. Four of the seven
 fixtures the old number left unnamed are the `libsnd-*` stateful-resource
 fixtures, which are precisely the ones a guard regression would break.
+
+### C3 — the insertion point, and a SECOND allocating site the plan missed (2026-07-20)
+
+§2's UNVERIFIED property is discharged. The guard goes **immediately after the
+parameter spill loop** (`link_thunk.rs:573-578`, "Save incoming wrapper arguments
+before any clobbering call") and **before the CBuffer staging block**.
+
+The plan named `emit_copy_string_to_cstring` as the allocating marshalling to get
+in front of. There are **two**, not one:
+
+1. The `OUT CBuffer` staging block, which runs *before* the main slot loop and
+   arena-allocates (its own comment: "allocating one destroys every caller-saved
+   register"). The plan did not mention it.
+2. `emit_copy_string_to_cstring`, inside the main slot loop, as the plan said.
+
+A guard placed merely "before the native call", or even at the top of the main
+slot loop, would sit *after* the CBuffer allocation and leak it on the error
+branch — the exact failure the phase exists to avoid. The chosen point is the
+unique one after the spill (records are only reachable from frame words) and
+before both allocators.
+
+The spill loop's own comment confirms the invariant that makes this safe: at that
+point "the only live state is in frame words", so nothing is in a register for
+the guard's branch to disturb.
+
+### C4 — the guard is emitted for every resource param, not for `finalize` alone (2026-07-20)
+
+Phase 1 asked for the guard on `sqliteLink::finalize` **only**, then Phase 2 to
+generalise. Implemented general from the start. The reason is that restricting it
+would have required a hardcoded function-name test that exists purely to be
+deleted one phase later — throwaway code in a codegen path, which is worse than
+the risk it manages.
+
+The phase's actual purpose — *do not generalise before the insertion point is
+proven* — was preserved by sequencing the **verification** instead of the code:
+the guard was built, then the native suite run before anything else was touched
+(65 fixtures green), which is a stronger check than one function would have been.
+
+Recorded as a deliberate deviation rather than silently done.
+
+### C5 — the guard's error strings are not emitted for a pure-`LINK` program (2026-07-20)
+
+Found by the first regression run, which failed 10 fixtures with:
+
+```
+error: native code data relocation target '_mfb_str_error_resource_closed'
+       is not a data object or defined symbol
+```
+
+`ERR_RESOURCE_CLOSED_SYMBOL` and `ERR_RESOURCE_MOVED_SYMBOL` *are* in
+`standard_error_messages()`, but that block is emitted only when the program uses
+a `_mfb_rt_fs_` or `_mfb_rt_thread_` runtime symbol (`mod.rs:641-644`). A program
+that only calls native `LINK` functions uses neither —
+`native-resource-import-valid` is exactly that shape — so the guard named a
+symbol nothing defined.
+
+Fixed by emitting both strings from the LINK support's own `data_objects` when
+any thunk can emit a guard. That keeps the guard self-contained: a thunk that
+names a string also carries it, independent of what else the program imports.
+
+Worth noting for plan-59-D and bug-374: **a native-only program is a real
+configuration that skips whole swathes of the standard runtime setup.** Anything
+new that a LINK thunk references must be checked against it, and the fixture that
+catches it is `native-resource-import-valid`.
 
 ### C2 — §2's "zero closed-flag reads" claim is confirmed (2026-07-20)
 

@@ -204,6 +204,40 @@ pub(super) fn emit_link_support(
         .map(|f| crate::builtins::resource::base_resource_name(&f.return_type).to_string())
         .collect();
 
+    // plan-59-B: the guard's two error strings, emitted HERE rather than relying
+    // on the standard-error-message block in `mod.rs`.
+    //
+    // That block is gated on the program using a `_mfb_rt_fs_` or
+    // `_mfb_rt_thread_` runtime symbol (`mod.rs:641-644`). A pure-`LINK` program
+    // uses neither — `native-resource-import-valid` is exactly that shape — so
+    // the guard's relocation resolved to nothing and the build failed with
+    // "data relocation target '_mfb_str_error_resource_closed' is not a data
+    // object". Emitting them alongside the LINK support's own constants keeps the
+    // guard self-contained: whatever else the program does or does not import,
+    // a thunk that can emit the guard also carries the strings it names.
+    if link_functions.iter().any(|f| {
+        f.params.iter().any(|(_, type_)| {
+            record_native_resources.contains(crate::builtins::resource::base_resource_name(type_))
+        })
+    }) {
+        for (message, symbol) in [
+            (ERR_RESOURCE_CLOSED_MESSAGE, ERR_RESOURCE_CLOSED_SYMBOL),
+            (ERR_RESOURCE_MOVED_MESSAGE, ERR_RESOURCE_MOVED_SYMBOL),
+        ] {
+            if !data_objects.iter().any(|object| object.symbol == symbol) {
+                data_objects.push(CodeDataObject {
+                    symbol: symbol.to_string(),
+                    kind: "constant".to_string(),
+                    layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }"
+                        .to_string(),
+                    align: 8,
+                    size: align(8 + message.len() + 1, 8),
+                    value: message.to_string(),
+                });
+            }
+        }
+    }
+
     let initializer = lower_link_initializer(
         link_functions,
         &library_index,
@@ -576,6 +610,36 @@ fn lower_link_thunk(
             abi::stack_pointer(),
             param_base + index * 8,
         ));
+    }
+
+    // plan-59-B: the closed/moved guard, emitted HERE and nowhere else.
+    //
+    // Placement is the whole correctness argument. It must come after the
+    // parameter spill above (the records are only reachable from frame words) and
+    // before *any allocating* marshalling — the CBuffer staging below and
+    // `emit_copy_string_to_cstring` in the main slot loop both allocate, and a
+    // guard placed after either would leak the allocation on the error branch.
+    // This point is the unique one satisfying both.
+    //
+    // One `!= 0` test catches closed AND moved: a moved record is flagged
+    // `moved|closed` (= 3), so the non-zero test rejects both and the two are
+    // separated only at the point of reporting (`error_constants.rs:721-745`,
+    // mirroring `fs_helpers_io.rs:1431-1445`). Nothing here is per-binding: one
+    // emission covers every `RES`-taking LINK function.
+    let mut resource_guard_params: Vec<usize> = Vec::new();
+    for (pidx, (_, type_)) in function.params.iter().enumerate() {
+        if record_native_resources.contains(crate::builtins::resource::base_resource_name(type_)) {
+            resource_guard_params.push(pidx);
+        }
+    }
+    let resource_closed = format!("{symbol}_resource_closed");
+    for pidx in &resource_guard_params {
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), param_base + pidx * 8),
+            abi::load_u64("%v9", "%v9", FILE_OFFSET_CLOSED),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_ne(&resource_closed),
+        ]);
     }
 
     // One label counter shared across the CBuffer SIZE expressions, the
@@ -1329,6 +1393,55 @@ fn lower_link_thunk(
         &mut instructions,
         &mut relocations,
     );
+
+    // plan-59-B: the guard's failure epilogue. Only emitted when some param is a
+    // record resource, so a LINK function that takes none is byte-identical to
+    // before this change.
+    //
+    // The two bits are split ONLY here, at the point of reporting — the guard
+    // itself is a single `!= 0` test. A moved record carries `moved|closed`, so
+    // testing the moved bit first is what stops a transferred handle being
+    // misdescribed as "already closed" (`fs_helpers_io.rs:1431-1445`).
+    if !resource_guard_params.is_empty() {
+        let resource_moved = format!("{symbol}_resource_moved");
+        instructions.extend([
+            abi::branch(&done),
+            abi::label(&resource_closed),
+            // Re-load: the guard's compare register is long dead by here.
+            abi::load_u64(
+                "%v9",
+                abi::stack_pointer(),
+                param_base + resource_guard_params[0] * 8,
+            ),
+            abi::load_u64("%v9", "%v9", FILE_OFFSET_CLOSED),
+            abi::move_immediate("%v10", "Integer", &(1u64 << RESOURCE_MOVED_BIT).to_string()),
+            abi::and_registers("%v9", "%v9", "%v10"),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_ne(&resource_moved),
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_CLOSED_CODE),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        ]);
+        emit_data_address(
+            &symbol,
+            RESULT_ERROR_MESSAGE_REGISTER,
+            ERR_RESOURCE_CLOSED_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.extend([
+            abi::branch(&done),
+            abi::label(&resource_moved),
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_RESOURCE_MOVED_CODE),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        ]);
+        emit_data_address(
+            &symbol,
+            RESULT_ERROR_MESSAGE_REGISTER,
+            ERR_RESOURCE_MOVED_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
 
     // Boundary-validation failure epilogues (plan-linker.md §12.3/§12.4), emitted
     // only when the signature can reach them.
