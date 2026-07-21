@@ -124,10 +124,17 @@ impl CodeBuilder<'_> {
                             self.resource_owners.get(name),
                             Some(crate::escape::ResOwner::Float(_))
                         );
+                        // bug-375: a bind that merely aliases an already-live
+                        // resource registers no cleanup below, so it owns no
+                        // slot to zero here either.
+                        let aliases_live_resource = value
+                            .as_ref()
+                            .is_some_and(Self::value_aliases_live_resource);
                         let owns_resource_slot = !Self::is_thread_type(type_)
                             && !aliases_union_variant
                             && !by_ref_capture_slot
                             && !floats_to_collection
+                            && !aliases_live_resource
                             && (self.resource_cleanup_symbol(type_).is_some()
                                 || self.resource_union_cleanup(type_).is_some());
                         // Zero the slot before a (possibly fallible) initializer
@@ -257,6 +264,17 @@ impl CodeBuilder<'_> {
                             // is now an alias and registers no static cleanup.
                             let collection = collection.clone();
                             self.emit_owned_list_push(&collection, stack_offset)?;
+                        } else if aliases_live_resource
+                            && (self.resource_cleanup_symbol(type_).is_some()
+                                || self.resource_union_cleanup(type_).is_some())
+                        {
+                            // Non-owning — this bind only copies a pointer to a
+                            // resource the owning scope already closes exactly
+                            // once (§15.6). Registering a cleanup here released
+                            // the caller's handle at this scope's exit (bug-375).
+                            // Gated on the resource-typed cleanups alone so a
+                            // plain aliasing bind of a flat value still takes the
+                            // `owns_freeable_value` branch below and is freed.
                         } else if let Some(symbol) = self.resource_cleanup_symbol(type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Resource(ResourceCleanup {

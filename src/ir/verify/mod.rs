@@ -5150,7 +5150,7 @@ fn integer_constant_value(value: &IrValue) -> Option<i128> {
 
 /// Whether an IR value is a `collections.get`/`getOr` call — a *pointer* to a
 /// collection element (mirrors `syntaxcheck::helpers::is_resource_element_pointer`).
-fn is_resource_element_pointer(value: &IrValue) -> bool {
+pub(crate) fn is_resource_element_pointer(value: &IrValue) -> bool {
     matches!(
         value,
         IrValue::Call { target, .. } | IrValue::CallResult { target, .. }

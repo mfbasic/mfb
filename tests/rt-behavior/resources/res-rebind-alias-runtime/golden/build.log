@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/resources/res-rebind-alias-runtime
+Wrote AST to tests/rt-behavior/resources/res-rebind-alias-runtime/res_rebind_alias_runtime.ast
+Wrote IR to tests/rt-behavior/resources/res-rebind-alias-runtime/res_rebind_alias_runtime.ir
+[exit 0]
+$ mfb build tests/rt-behavior/resources/res-rebind-alias-runtime
+Wrote executable to tests/rt-behavior/resources/res-rebind-alias-runtime/build/res_rebind_alias_runtime.out
+[exit 0]
+$ tests/rt-behavior/resources/res-rebind-alias-runtime/build/res_rebind_alias_runtime.out
+alias kept the handle open
+collection alias kept the handle open
+produced resource usable
+trap-bound producers survived 200 iterations
+[exit 0]

@@ -155,7 +155,7 @@ mod package;
 mod tests;
 mod types;
 mod value;
-mod verify;
+pub(crate) mod verify;
 
 pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
 pub(crate) use json::visibility_name;

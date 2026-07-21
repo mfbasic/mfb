@@ -166,6 +166,40 @@ impl CodeBuilder<'_> {
         target.starts_with("thread.") || target.starts_with("thread::")
     }
 
+    /// Whether a `RES` bind's initializer merely names an **already-live**
+    /// resource rather than producing one, making the bind an *alias* that
+    /// registers no close obligation (§15.6: "a `RES` binding, a `RES`
+    /// parameter, and a collection slot all hold a copy of the one handle
+    /// pointer … none of these close the resource; the owning scope closes it
+    /// exactly once on exit"). bug-375: classifying such a bind as an owner
+    /// closed the caller's resource at the callee's exit, and the caller's next
+    /// use failed with `7-703-0004`.
+    ///
+    /// Two shapes alias, and the boundary against *producing* is what keeps
+    /// bug-374's leak fixed:
+    ///
+    /// * `Local` — naming an existing binding, `RES` parameter, or `FOR EACH`
+    ///   loop variable. A producing bind never reaches here as a bare local at
+    ///   the source level; where `TRAP` desugaring routes one through a temp
+    ///   (`RES f = <fallible> TRAP` lowers to `bind f = local $trap_valN`), that
+    ///   temp is itself a resource bind in the *same* scope and carries the
+    ///   close obligation, so the resource is still closed exactly once.
+    /// * `collections.get`/`getOr` — reading a resource element out of a
+    ///   collection. Per §15.6 these "yield a pointer to the one resource",
+    ///   never a transfer: the collection's owning scope closes it. Every other
+    ///   call — `fs::openFile`, a user `FUNC … AS RES File` — *does* transfer
+    ///   ownership to this binding and must keep its cleanup.
+    pub(super) fn value_aliases_live_resource(value: &NirValue) -> bool {
+        match value {
+            NirValue::Local(_) => true,
+            NirValue::Call { target, .. } | NirValue::CallResult { target, .. } => matches!(
+                crate::builtins::collections::native_member_bare(target),
+                Some("get" | "getOr")
+            ),
+            _ => false,
+        }
+    }
+
     /// A NIR value node that yields a pointer to a **pre-existing** arena block
     /// (an alias) rather than a freshly allocated one. Storing such a
     /// value into an owned slot without copying would alias another owner, so

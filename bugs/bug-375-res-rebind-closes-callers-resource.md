@@ -5,8 +5,43 @@ Effort: medium (2h–4h)
 Severity: HIGH
 Class: Correctness (premature release / spec violation)
 
-Status: Open
-Regression Test: (none yet — Phase 1 adds `tests/rt-behavior/native/res-rebind-alias-rt`)
+Status: Fixed (2026-07-21)
+Regression Test: `tests/rt-behavior/resources/res-rebind-alias-runtime` (runtime
+proof) and `tests/res_rebind_alias.rs` (emitted close-site counts)
+
+## Correction (2026-07-21) — the Fix Design below was wrong as written
+
+Three things this document got wrong, found by probing before implementing:
+
+1. **The proposed classifier would have reintroduced bug-374's leak.** Fix
+   Design says to treat a `Bind` as non-owning when "its initializer is a plain
+   reference to an already-live resource (`NirValue::Local`)". But `TRAP`
+   desugaring lowers a *producing* bind through a temp: `RES f AS File =
+   fs::openFile(…) TRAP …` becomes `bind f = local $trap_val1`. At the NIR level
+   a producer is therefore indistinguishable *by shape* from an alias, and the
+   literal rule would have stopped closing every `TRAP`-bound resource. What
+   saves it is that the temp is itself a resource bind in the *same* scope and
+   carries the obligation — verified by counting emitted close sites, not
+   assumed. `tests/res_rebind_alias.rs::trap_bound_producer_still_closes` pins
+   this.
+
+2. **The defect is not limited to `NirValue::Local`.** A resource element read
+   out of a collection (`RES g AS File = collections::get(xs, 0)`) reproduces it
+   identically when the alias is in an inner scope, and its initializer is a
+   `Call`. So the boundary is *not* "local aliases / calls produce": §15.6 makes
+   `get`/`getOr` yield "a pointer to the one resource", never a transfer, while
+   every other call (`fs::openFile`, a user `FUNC … AS RES File`) does transfer.
+   Both shapes had to be classified together.
+
+3. **The record-field Open Decision is moot.** §15's opening states "Resources
+   are atomic — records never hold them" (`TYPE_RESOURCE_FIELD_FORBIDDEN`), so a
+   resource rebound from a record field is not expressible.
+
+One more correction, to the Validation Plan: the fixture must NOT live under
+`tests/rt-behavior/native/`. Those fixtures are executed (the `<pkg>.run` marker
+is what triggers it) but the assertion lands in the `build.log` golden, and the
+native ones additionally need `libsqlite3`; the built-in-`File` reproduction
+belongs under `tests/rt-behavior/resources/` where it runs unconditionally.
 
 Binding a `RES` parameter to a new `RES` name inside a callee —
 
@@ -199,37 +234,45 @@ fixture asserting it compiles. Rejecting it is a language change.
 
 ### Phase 1 — failing test (no behavior change)
 
-- [ ] Add `tests/rt-behavior/native/res-rebind-alias-rt` driving both
-      reproductions; confirm it fails today with `7-703-0004` / exit 255.
-- [ ] Confirm `tests/native_resource_scope_drop.rs` is green before the change,
-      to establish the leak baseline the fix must not disturb.
+- [x] Add the runtime fixture driving every reproduction; confirmed it fails
+      with `7-703-0004` / exit 255 against an unfixed compiler, and passes with
+      the fix. (Landed as `tests/rt-behavior/resources/res-rebind-alias-runtime`
+      — see Correction, item 4.)
+- [x] Confirmed `tests/native_resource_scope_drop.rs` green before the change
+      (6 passed), establishing the leak baseline.
+- [x] Probed the Open Decisions: collection-element rebind reproduces the defect
+      in an inner scope; record-field rebind is not expressible.
 
-Acceptance: the new fixture fails with the documented runtime error; bug-374's
-assertions pass.
-Commit: —
+Acceptance: met — the fixture fails with the documented runtime error before the
+change and bug-374's assertions pass.
 
 ### Phase 2 — the fix
 
-- [ ] Add the aliasing-initializer case to the non-owning branch in
-      `builder_control.rs`, and to `owns_resource_slot`.
-- [ ] Stop declaring the runtime helper for an aliasing bind in `usage.rs`.
-- [ ] Re-check bug-373's route 2 (`RES g AS File = f` with no `fs::` call): it
-      should now compile *and* run, with no `validate.rs` change.
+- [x] Added `value_aliases_live_resource` (`builder_values.rs`) and wired it into
+      both the cleanup branch and `owns_resource_slot` in `builder_control.rs`.
+      Gated on the resource-typed cleanups alone, so a plain aliasing bind of a
+      flat value still takes `owns_freeable_value` and is freed.
+- [x] Stopped declaring the close helper for an aliasing bind in `usage.rs`.
+      This was **required, not optional**: with no close emitted, the helper
+      would be declared-but-unused and trip `validate.rs:107` — so leaving it
+      would have turned working programs into compile errors.
+- [x] Reused the existing `is_resource_element_pointer` (`ir/verify`) for the
+      collection half rather than duplicating a name list; it was dead code, so
+      this also removes a `dead_code` warning.
 
-Acceptance: both reproductions exit 0 and use the resource after the call;
-bug-374's 5 exit-path assertions still pass; the route-2 program builds.
-Commit: —
+Acceptance: met — all reproductions exit 0 and use the resource after the call;
+bug-374's assertions still pass.
 
 ### Phase 3 — leak proof + full validation
 
-- [ ] Drive the alias path in a hot loop and pin peak RSS, in the style of
-      bug-374's `native-resource-scope-drop-rt`, proving no leak was traded for
-      the fix.
-- [ ] Seed goldens; `cargo test`; full `scripts/test-accept.sh` with a hermetic
-      `MFB_HOME`.
-
-Acceptance: full suite green; memory flat across the loop.
-Commit: —
+- [x] Leak proof by **emitted close-site count**, not RSS: the count is the
+      direct observable, whereas an RSS/FD ceiling proved unreliable here (a
+      hand-rolled FD-exhaustion harness reported success even for a deliberately
+      leaking control, because the `ulimit` was not reaching the child). For the
+      `TRAP` producer the count goes 4 → 3: exactly the one duplicate obligation
+      removed, with one close per exit path intact.
+- [x] Goldens seeded and synced; `cargo test` green (3251 passed); full
+      `scripts/test-accept.sh` green (1068 tests).
 
 ## Validation Plan
 

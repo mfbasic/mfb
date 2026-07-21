@@ -132,6 +132,14 @@ pub fn required_helpers(ir: &IrProject) -> Vec<RuntimeHelper> {
     helpers
 }
 
+/// The IR-level twin of `Builder::value_aliases_live_resource` (bug-375): a
+/// `RES` bind whose initializer only names an already-live resource, or reads a
+/// resource element out of a collection, closes nothing. See that function for
+/// why these two shapes alias and every other call still transfers ownership.
+fn value_aliases_live_resource(value: &IrValue) -> bool {
+    matches!(value, IrValue::Local(_)) || crate::ir::verify::is_resource_element_pointer(value)
+}
+
 fn push_op_helpers(
     ops: &[IrOp],
     resource_union_closes: &HashMap<String, Vec<&'static str>>,
@@ -140,15 +148,22 @@ fn push_op_helpers(
     for op in ops {
         match op {
             IrOp::Bind { type_, value, .. } => {
-                if let Some(close) = crate::builtins::resource_close_function(type_) {
-                    if let Some(helper) = helper_for_call(close) {
-                        push_unique(helpers, helper);
-                    }
-                }
-                if let Some(closes) = resource_union_closes.get(type_) {
-                    for close in closes {
+                // bug-375: an aliasing bind emits no close (the owning scope
+                // closes the resource once), so declaring its close helper here
+                // would leave the helper declared-but-unused and trip the
+                // `validate.rs` unused-runtime-helper check. Mirrors
+                // `Builder::value_aliases_live_resource`; keep the two in step.
+                if !value.as_ref().is_some_and(value_aliases_live_resource) {
+                    if let Some(close) = crate::builtins::resource_close_function(type_) {
                         if let Some(helper) = helper_for_call(close) {
                             push_unique(helpers, helper);
+                        }
+                    }
+                    if let Some(closes) = resource_union_closes.get(type_) {
+                        for close in closes {
+                            if let Some(helper) = helper_for_call(close) {
+                                push_unique(helpers, helper);
+                            }
                         }
                     }
                 }

@@ -1,0 +1,84 @@
+' bug-375's runtime proof: rebinding a live resource to a new RES name is an
+' ALIAS, not a second owner.
+'
+' Before the fix, `RES g AS File = f` inside a callee registered a close
+' obligation for `g`, so the caller's still-live handle was closed when the
+' callee returned and the caller's next use died with `7-703-0004` (exit 255).
+' §15.6: "a RES binding, a RES parameter, and a collection slot all hold a copy
+' of the one handle pointer ... none of these close the resource; the owning
+' scope closes it exactly once on exit."
+'
+' The post-call USE is the assertion. A compile-time check cannot show the
+' resource is still open, and with no later use the program exits 0 while having
+' released the handle early -- which is why this went unseen: the shape is
+' declared legal, verbatim, by tests/syntax/resources/state-opaque-narrow-valid,
+' and that fixture is syntax-tier so it never runs the code.
+'
+' This fixture must live OUTSIDE tests/rt-behavior/native: native fixtures are
+' built but not executed (their .run goldens are empty), so the post-call use
+' would assert nothing there. The native `RESOURCE ... CLOSE BY` shape and the
+' close-count guard against bug-374's leak live in tests/res_rebind_alias.rs.
+IMPORT fs
+IMPORT io
+IMPORT collections
+
+' 1. The documented reproduction: an opaque -> opaque pass-through.
+FUNC passThrough(RES f AS File) AS Nothing
+  RES g AS File = f
+END FUNC
+
+' 2. A resource element read out of a collection is likewise a pointer, not a
+'    transfer (§15.6: "get and FOR EACH of a resource element yield a pointer to
+'    the one resource"). Both must be aliased in an INNER scope to be
+'    observable -- at the owner's own scope the premature close lands at that
+'    scope's exit anyway and the bug hides.
+FUNC peekViaGet(xs AS List OF RES File) AS Nothing
+  RES g AS File = collections::get(xs, 0)
+END FUNC
+
+FUNC peekViaForEach(xs AS List OF RES File) AS Nothing
+  FOR EACH item IN xs
+    RES g AS File = item
+  NEXT
+END FUNC
+
+' 3. NON-GOAL guard: a call returning `AS RES File` TRANSFERS ownership, so this
+'    binding owns and must keep closing. Aliasing must not swallow producers.
+FUNC makeFile() AS RES File
+  RES f AS File = fs::openFile("target/res-rebind-alias-produced.txt", "w")
+  RETURN f
+END FUNC
+
+FUNC main AS Integer
+  RES h AS File = fs::openFile("target/res-rebind-alias.txt", "w")
+  fs::writeAll(h, "before")
+
+  passThrough(h)
+  fs::writeAll(h, "after")
+  io::print("alias kept the handle open")
+
+  MUT xs AS List OF RES File = []
+  xs = collections::append(xs, h)
+  peekViaGet(xs)
+  peekViaForEach(xs)
+  fs::writeAll(h, "!")
+  io::print("collection alias kept the handle open")
+
+  RES made AS File = makeFile()
+  fs::writeAll(made, "produced")
+  io::print("produced resource usable")
+
+  ' A TRAP-bound producer lowers to `bind f = local $trap_valN`, the exact shape
+  ' a too-wide alias rule would stop closing. Looping it means a lost close
+  ' accumulates handles rather than staying invisible.
+  FOR i = 1 TO 200
+    RES t AS File = fs::openFile("target/res-rebind-alias-trap.txt", "w") TRAP
+      io::print("trap-bound open failed")
+      RETURN 1
+    END TRAP
+    passThrough(t)
+  NEXT
+  io::print("trap-bound producers survived 200 iterations")
+
+  RETURN 0
+END FUNC
