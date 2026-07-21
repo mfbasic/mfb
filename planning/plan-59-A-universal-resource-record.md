@@ -40,7 +40,7 @@ negotiate. Every other letter points here.
 | The borrow→pointer terminology purge has landed (E rewrites these rules by name) | `grep -c TYPE_RESOURCE_INVALIDATE_NOT_OWNER src/rules/table.rs` → `1` | MET (commit `a6f4bf282`) |
 | Track A (plan-52-A..D) is complete and archived — res.md §9: A does not need B, but B follows A | `ls planning/old-plans/plan-52-* \| wc -l` → `4` | MET |
 | res.md §5 Q4 is decided: losing static use-after-close **through aliasing calls** is accepted | Recorded decision, project owner, 2026-07-20 | MET |
-| Tree is green before starting | `cargo test` → all suites ok | MET (3137 passed, 2026-07-20) |
+| Tree is green before starting | `cargo test` → all suites ok | MET (re-run 2026-07-20 at execution start: 3137 passed, 0 failed; 21 suites ok; exit 0) |
 
 Everything in plan-59 is written against the world where these hold. There are no
 fallbacks for the world where they do not.
@@ -240,9 +240,9 @@ Generalizes the spike across all 14 bare-returning funcs.
       stateless `Db` round-trips open → prepare → finalize → close → scope-drop
       with no leak, mirroring `native-link-free-rt`'s shape.
 
-Acceptance: all 11 fixtures under `tests/rt-behavior/native/` pass, and the new
-fixture shows a stateless native resource surviving a full lifecycle. `cargo test`
-green.
+Acceptance: all 18 fixtures under `tests/rt-behavior/native/` pass (see
+Corrections — the plan said 11), and the new fixture shows a stateless native
+resource surviving a full lifecycle. `cargo test` green.
 Commit: —
 
 ### Phase 3 — Drop and reclamation (largest blast radius, last)
@@ -270,7 +270,7 @@ Commit: —
 
 ## Validation Plan
 
-- Tests: `tests/rt-behavior/native/` (11 fixtures), plus the new
+- Tests: `tests/rt-behavior/native/` (18 fixtures), plus the new
   `native-stateless-record-rt`.
 - Coverage check: the native fixtures are `rt-behavior`, so they *execute* — a
   green run means the record path really ran, not merely compiled. Confirm the
@@ -297,7 +297,50 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+### C1 — the native fixture population is 18, not 11 (2026-07-20)
+
+Phase 2's and Phase 3's acceptance criteria, and the Validation Plan, all said
+"11 fixtures under `tests/rt-behavior/native/`". The real count is **18**:
+
+```
+$ ls -d tests/rt-behavior/native/*/ | wc -l
+18
+```
+
+Corrected in place. This matters because an acceptance criterion naming 11 of 18
+would have passed while 7 fixtures went unrun — and 4 of the 7 unnamed ones
+(`libsnd-load-sound-rt`, `libsnd-open-file-info-rt`, `libsnd-playback-rt`,
+`libsnd-read-samples-rt`) are exactly the stateful-resource fixtures this
+sub-plan's widening puts at risk. plan-59-B inherited the same wrong number from
+here; corrected there too.
+
+### C2 — plan-59-E's `closeSound` citation points into an uncommitted working tree (2026-07-20)
+
+plan-59-E Phase 3's acceptance cites "the `bindings/libsnd` case at
+`src/lib.mfb:317`". At HEAD, `bindings/libsnd/src/lib.mfb` contains no
+`closeSound` at all — it exists only in an uncommitted working-tree change
+present when execution began, which also adds `openSound`, `loadFrames`, and
+`seekFrames`, and rewrites `sndError`'s signature. So E's headline runtime proof
+was written against a dirty tree rather than against HEAD.
+
+Not resolved here (it is E's to resolve), but recorded now because it changes
+what E must do: E cannot assume `closeSound` exists, and must either land that
+binding change as part of its own work or re-pin the citation to a fixture it
+creates. Noted in E's Corrections as well.
+
+### C3 — the param-side unwrap is type-keyed, and already covers bare params (2026-07-20)
+
+§2's UNVERIFIED property asked whether the existing param path at `:843-848`
+covers the close-op unwrap once the set is widened. Reading `link_thunk.rs:841-856`
+in full: the condition is keyed on the resource **type**
+(`stateful_native_resources.contains(base_resource_name(t))`), not on the
+declaration, and its comment states outright that it fires for a bare
+`RES db AS SoundFile` param too. So widening the set should carry the param side
+with it, unmodified.
+
+This is a reading, not a proof, and does **not** discharge Phase 1 — Phase 1's
+disassembly task stands. Recorded here so that if Phase 1 confirms it, Phase 2's
+first task is already known to be a rename rather than new logic.
 
 ## Summary
 

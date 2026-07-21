@@ -231,7 +231,29 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+### C1 — Phase 3's `closeSound` citation points into an uncommitted working tree (2026-07-20)
+
+Phase 3's acceptance cites "the `bindings/libsnd` case at `src/lib.mfb:317`". At
+HEAD there is no `closeSound` in that file:
+
+```
+$ git stash list   # nothing; the change is unstaged in the working tree
+$ git show HEAD:bindings/libsnd/src/lib.mfb | grep -c closeSound
+0
+```
+
+It exists only in an uncommitted working-tree change that was already present
+when plan-59 execution began — the same change also adds `openSound`,
+`loadFrames`, and `seekFrames`, and alters `sndError`'s signature. The plan's
+headline example was therefore written against a dirty tree.
+
+Consequence for this sub-plan: Phase 3 must not assume `closeSound` exists. When
+Phase 3 is reached, either (a) that binding work has landed on its own and the
+citation is re-pinned to its real committed line, or (b) Phase 3 creates its own
+fixture expressing the same `RES` parameter → close shape and cites that. The
+acceptance criterion itself is unchanged and unweakened — a `closeSound`-shaped
+function must compile and close its `SoundFile` exactly once, proven by arena
+growth. Only the citation is in question, not the requirement.
 
 ## Summary
 

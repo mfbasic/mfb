@@ -179,9 +179,9 @@ Commit: —
 - [ ] Tests: extend `tests/rt-behavior/native/` with a closed-op fixture per
       binding shape — one stateless (`Db`), one stateful (`SoundFile`).
 
-Acceptance: all 11 native fixtures pass; a double-close of a native resource is
-refused at runtime; `libsnd` and `sqlite3` both build and run their existing
-fixtures unchanged.
+Acceptance: all 18 native fixtures pass (see Corrections — the plan said 11); a
+double-close of a native resource is refused at runtime; `libsnd` and `sqlite3`
+both build and run their existing fixtures unchanged.
 Commit: —
 
 ### Phase 3 — Error-path integration and TRAP (blast radius last)
@@ -222,7 +222,21 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+### C1 — the native fixture population is 18, not 11 (2026-07-20)
+
+Phase 2's acceptance said "all 11 native fixtures". The real count is **18**
+(`ls -d tests/rt-behavior/native/*/ | wc -l` → 18). Inherited from plan-59-A,
+which carried the same wrong number; corrected in both. Four of the seven
+fixtures the old number left unnamed are the `libsnd-*` stateful-resource
+fixtures, which are precisely the ones a guard regression would break.
+
+### C2 — §2's "zero closed-flag reads" claim is confirmed (2026-07-20)
+
+Verified rather than taken on trust: `grep -c FILE_OFFSET_CLOSED
+src/target/shared/code/link_thunk.rs` → 1, and reading that site at `:1210`
+confirms it is a **store** (`abi::store_u64(abi::ZERO, "%v10",
+FILE_OFFSET_CLOSED)`), inside the record-zeroing block. There are no reads. The
+premise that native `LINK` resources have no runtime protection today stands.
 
 ## Summary
 
