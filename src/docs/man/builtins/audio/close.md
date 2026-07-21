@@ -30,6 +30,12 @@ underlying OS objects, returning `Nothing`. It is defined over both directions;
 `audio::close` stays the single user-facing name and IR lowering routes each
 operand to a distinct per-direction internal body
 (`audio.closeInput` / `audio.closeOutput`). [[src/builtins/audio.rs:implementation_name]][[src/builtins/audio.rs:resource_close_function]]
+Unlike `audio::available`, `audio::poll`, and `audio::xruns` — which share one
+body and read the direction from the handle at runtime — the two `close` forms
+are separate helpers with separate symbols (`_mfb_rt_audio_audio_closeInput`,
+`_mfb_rt_audio_audio_closeOutput`), because their teardown sequences genuinely
+differ.
+[[src/target/shared/runtime/audio_specs.rs:AUDIO_CLOSE_INPUT_SPEC]][[src/target/shared/runtime/audio_specs.rs:AUDIO_CLOSE_OUTPUT_SPEC]]
 
 Unlike every other `audio::` call, `close` **consumes** its stream handle: the
 binding is moved into the call and cannot be used afterward.
@@ -43,6 +49,27 @@ buffer the operating system still owns to finish before tearing the stream down 
 then stops, disposes, and unmaps the stream state. Closing an `AudioInput`
 instead **drops** any buffered capture immediately and tears the stream down
 without waiting. [[src/target/shared/code/audio/macos.rs:lower_close_output]][[src/target/shared/code/audio/macos.rs:lower_close_input]][[src/target/shared/code/audio/alsa.rs:lower_close]]
+
+**Closing an output can therefore block.** On macOS the drain is not a device
+call but a condition-variable wait loop: `close` holds the stream mutex and waits
+on the stream condvar until the free-buffer stack holds all four of the stream's
+`AudioQueue` buffers, which happens only once the callback thread has handed back
+every buffer it was playing. The call returns no sooner than the queued audio
+finishes sounding, so the wait is bounded by however much PCM the program has
+written but not yet heard — up to four times the `bufferFrames` the stream was
+opened with. Closing an input takes no such wait; it stops the queue with the
+immediate flag set, discarding whatever the ring still holds.
+[[src/target/shared/code/audio/macos.rs:lower_close_output]][[src/target/shared/code/audio/mod.rs:NUM_BUFFERS]][[src/target/shared/code/audio/macos.rs:lower_close_input]]
+
+Teardown then runs in a fixed order in both directions: the stream's shared state
+is marked closed (so a callback that fires mid-teardown does nothing), the queue
+is stopped and disposed, the condvar and mutex are destroyed, the handle's closed
+flag is set, and finally the state page itself is `munmap`ped. Because the state
+page is unmapped, nothing survives a close for a later call to read — this is why
+`audio::available`, `audio::poll`, and `audio::xruns` answer from the handle's
+closed flag alone and report `0`/`FALSE` for a closed stream rather than
+consulting state that no longer exists.
+[[src/target/shared/code/audio/macos.rs:lower_close_output]][[src/target/shared/code/audio/alsa.rs:lower_close]]
 
 `close` is idempotent. Each handle carries a closed flag that is checked first;
 closing a stream that is already closed (or a defaulted handle) is a no-op that
@@ -58,6 +85,12 @@ On Linux the drain/drop and teardown go through `snd_pcm_drain` /
 `dlopen`; a binary that imports `audio` still starts on a host without alsa-lib,
 but closing an open (not already-closed) stream there raises
 `ErrAudioUnavailable` when the library or a required symbol cannot be resolved.
+Only that *resolution* failure raises. An error **returned** by `snd_pcm_drain`
+or `snd_pcm_drop` is deliberately not propagated: a device that refuses to drain
+must not be allowed to skip `snd_pcm_close` and leak the PCM, so teardown
+continues regardless and the call still succeeds. The already-closed check runs
+before the `dlopen`, so re-closing a closed handle succeeds even on a host with
+no alsa-lib at all.
 [[src/target/shared/code/audio/alsa.rs:emit_dlopen]][[src/target/shared/code/audio/alsa.rs:lower_close]]
 
 ## Overloads
@@ -65,14 +98,17 @@ but closing an open (not already-closed) stream there raises
 **`audio::close(stream AS AudioInput)`**
 
 Close a capture stream. Any buffered capture is dropped immediately; the stream
-is not drained. Lowers to the internal `audio.closeInput` body.
-[[src/builtins/audio.rs:implementation_name]][[src/target/shared/code/audio/macos.rs:lower_close_input]]
+is not drained, so the call does not block. Lowers to the internal
+`audio.closeInput` body and its own symbol, using `snd_pcm_drop` on Linux.
+[[src/builtins/audio.rs:implementation_name]][[src/target/shared/code/audio/macos.rs:lower_close_input]][[src/target/shared/code/audio/alsa.rs:lower_close]]
 
 **`audio::close(stream AS AudioOutput)`**
 
 Close a playback stream. Queued playback is drained to completion before
-teardown. Lowers to the internal `audio.closeOutput` body.
-[[src/builtins/audio.rs:implementation_name]][[src/target/shared/code/audio/macos.rs:lower_close_output]]
+teardown, so the call blocks until the audio already written has finished
+sounding. Lowers to the internal `audio.closeOutput` body and its own symbol,
+using `snd_pcm_drain` on Linux.
+[[src/builtins/audio.rs:implementation_name]][[src/target/shared/code/audio/macos.rs:lower_close_output]][[src/target/shared/code/audio/alsa.rs:lower_close]]
 
 ## Parameters
 
@@ -84,13 +120,13 @@ teardown. Lowers to the internal `audio.closeOutput` body.
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | Returns once the stream has been closed (or immediately, for an already-closed handle). [[src/builtins/audio.rs:call_return_type_name]] |
+| `Nothing` | Returns once the stream has been closed — for an `AudioOutput`, not before the queued playback has finished sounding; immediately for an already-closed handle. [[src/builtins/audio.rs:call_return_type_name]][[src/target/shared/code/audio/macos.rs:lower_close_output]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050017` | `ErrAudioUnavailable` | Linux only: closing an open stream when `libasound.so.2` (or a required symbol such as `snd_pcm_drain` / `snd_pcm_drop` / `snd_pcm_close`) cannot be resolved at runtime. macOS never raises this, and an already-closed handle never raises it. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]][[src/target/shared/code/audio/alsa.rs:lower_close]] |
+| `77050017` | `ErrAudioUnavailable` | Linux only: closing an open stream when `libasound.so.2` (or a required symbol such as `snd_pcm_drain` / `snd_pcm_drop` / `snd_pcm_close`) cannot be resolved at runtime. Only resolution failure raises — an error returned by `snd_pcm_drain`/`snd_pcm_drop` does not, so that teardown still completes. macOS never raises this, and an already-closed handle never raises it on either platform. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]][[src/target/shared/code/audio/alsa.rs:lower_close]] |
 
 ## Examples
 
