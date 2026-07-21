@@ -14,10 +14,11 @@ Package Management:
   pkg verify              Verify packages declared in project.json
   Run 'mfb pkg --help' for all package commands.
 
-Repository & Auth:
+Repository, Auth & Publishing:
   repo register <owner>   Register a repository owner
   repo auth <owner>       Authenticate as a repository owner
-  Run 'mfb repo --help' for all repository & auth commands.
+  repo publish <owner>    Sign and publish a package project to a repository
+  Run 'mfb repo --help' for all repository, auth & publishing commands.
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
@@ -51,10 +52,11 @@ Package Management:
   pkg verify              Verify packages declared in project.json
   Run 'mfb pkg --help' for all package commands.
 
-Repository & Auth:
+Repository, Auth & Publishing:
   repo register <owner>   Register a repository owner
   repo auth <owner>       Authenticate as a repository owner
-  Run 'mfb repo --help' for all repository & auth commands.
+  repo publish <owner>    Sign and publish a package project to a repository
+  Run 'mfb repo --help' for all repository, auth & publishing commands.
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
