@@ -56,6 +56,14 @@ pub(super) const S_RING_HEAD: usize = 336; // wrapped write index [0, ringCap)
 pub(super) const S_RING_TAIL: usize = 344; // wrapped read index [0, ringCap)
 pub(super) const S_MAP_SIZE: usize = 352; // total mmap length, for munmap
 pub(super) const S_RING_FILL: usize = 360; // bytes currently buffered
+
+// Output only: the buffer `write` is still filling, and how many bytes are in
+// it. An AudioQueue never finishes a buffer holding less than a full period, so
+// a partly-filled buffer must not be enqueued (bug-370) — it is carried here
+// until a later `write` fills it or `close` pads it with silence. Only the
+// writing thread touches these, so they need no mutex.
+pub(super) const S_PENDING_BUF: usize = 368;
+pub(super) const S_PENDING_FILL: usize = 376;
 pub(super) const S_RING: usize = 384; // input ring payload (page-area)
 
 // `AudioState` bookkeeping fits in the first page; output uses no ring so one
@@ -69,6 +77,10 @@ pub(super) const STATE_PAGE: usize = 16384;
 const _: () = assert!(S_COND - S_MUTEX >= 64, "mutex reservation too small");
 const _: () = assert!(S_XRUNS - S_COND >= 48, "cond reservation too small");
 const _: () = assert!(S_RING <= STATE_PAGE, "state bookkeeping exceeds one page");
+const _: () = assert!(
+    S_PENDING_FILL < S_RING,
+    "pending-buffer slots overlap the ring"
+);
 
 // The `AudioDevice` record: six word-slots, `String` fields as pointers.
 pub(super) const DEVICE_FIELD_ID: usize = 0;

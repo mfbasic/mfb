@@ -757,6 +757,9 @@ impl plan::NativePlanPlatform for Platform {
                         }
                     }
                     "audio.closeInput" | "audio.closeOutput" => {
+                        // closeOutput pads and enqueues the buffer the last
+                        // write left part-filled before it drains (bug-370).
+                        imports.push(("AudioToolbox", "_AudioQueueEnqueueBuffer"));
                         imports.push(("AudioToolbox", "_AudioQueueStop"));
                         imports.push(("AudioToolbox", "_AudioQueueFlush"));
                         imports.push(("AudioToolbox", "_AudioQueueDispose"));

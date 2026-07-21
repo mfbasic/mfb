@@ -173,6 +173,7 @@ const CAP_OFF: usize = 80; // buffer capacity bytes
 const OFFSET_OFF: usize = 88; // write byte cursor
 const TOTAL_OFF: usize = 96; // write total bytes
 const DEVID_OFF: usize = 104; // AudioDevice arg (device overloads)
+const FILL_OFF: usize = 112; // bytes already in the buffer being filled
 const ASBD_OFF: usize = 128; // 40-byte AudioStreamBasicDescription -> 128..168
 const UID_CFREF_OFF: usize = 168; // CFStringRef for device selection
 const UID_CSTR_OFF: usize = 176; // 256-byte C string for the device UID -> 176..432
@@ -412,6 +413,9 @@ fn lower_open_output(
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::move_immediate("%v9", "Integer", &NUM_BUFFERS.to_string()),
         abi::store_u64("%v9", "%v10", S_FREE_TOP),
+        // No buffer is part-filled yet.
+        abi::store_u64(abi::ZERO, "%v10", S_PENDING_BUF),
+        abi::store_u64(abi::ZERO, "%v10", S_PENDING_FILL),
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u64("%v9", "%v10", S_STARTED),
         // AudioQueueStart(queue, NULL)
@@ -841,6 +845,7 @@ fn lower_write(
     let write_done = format!("{symbol}_write_done");
     let wait_loop = format!("{symbol}_wait_loop");
     let wait_ready = format!("{symbol}_wait_ready");
+    let have_buf = format!("{symbol}_have_buf");
     let copy_loop = format!("{symbol}_copy_loop");
     let copy_done = format!("{symbol}_copy_done");
     let cap_ok = format!("{symbol}_cap_ok");
@@ -888,11 +893,22 @@ fn lower_write(
         abi::compare_immediate("%v11", "0"),
         abi::branch_ne(&invalid),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), OFFSET_OFF),
+        // Resume the buffer a previous write left part-filled, if any.
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v9", "%v10", S_PENDING_FILL),
+        abi::store_u64("%v9", abi::stack_pointer(), FILL_OFF),
+        abi::load_u64("%v9", "%v10", S_PENDING_BUF),
+        abi::store_u64("%v9", abi::stack_pointer(), BUFPTR_OFF),
         abi::label(&write_loop),
         abi::load_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
         abi::load_u64("%v10", abi::stack_pointer(), TOTAL_OFF),
         abi::compare_registers("%v9", "%v10"),
         abi::branch_ge(&write_done),
+        // A part-filled buffer is already in hand; only take a new one when it
+        // is not.
+        abi::load_u64("%v9", abi::stack_pointer(), FILL_OFF),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&have_buf),
     ]);
     emit_pthread1(
         &mut EmitCtx {
@@ -950,10 +966,14 @@ fn lower_write(
         S_MUTEX,
     )?;
     instructions.extend([
+        // n = min(total - offset, cap - fill)
+        abi::label(&have_buf),
         abi::load_u64("%v9", abi::stack_pointer(), TOTAL_OFF),
         abi::load_u64("%v10", abi::stack_pointer(), OFFSET_OFF),
         abi::subtract_registers("%v9", "%v9", "%v10"),
         abi::load_u64("%v11", abi::stack_pointer(), CAP_OFF),
+        abi::load_u64("%v12", abi::stack_pointer(), FILL_OFF),
+        abi::subtract_registers("%v11", "%v11", "%v12"), // room left in the buffer
         abi::compare_registers("%v9", "%v11"),
         abi::branch_le(&cap_ok),
         abi::move_register("%v9", "%v11"),
@@ -964,6 +984,8 @@ fn lower_write(
         abi::add_registers("%v12", "%v12", "%v13"), // src
         abi::load_u64("%v14", abi::stack_pointer(), BUFPTR_OFF),
         abi::load_u64("%v15", "%v14", 8), // mAudioData
+        abi::load_u64("%v16", abi::stack_pointer(), FILL_OFF),
+        abi::add_registers("%v15", "%v15", "%v16"), // append after what is there
         abi::move_immediate("%v16", "Integer", "0"),
         abi::label(&copy_loop),
         abi::compare_registers("%v16", "%v9"),
@@ -975,9 +997,22 @@ fn lower_write(
         abi::add_immediate("%v16", "%v16", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
+        // fill += n; offset += n
+        abi::load_u64("%v9", abi::stack_pointer(), FILL_OFF),
+        abi::load_u64("%v10", abi::stack_pointer(), I_OFF),
+        abi::add_registers("%v9", "%v9", "%v10"),
+        abi::store_u64("%v9", abi::stack_pointer(), FILL_OFF),
+        abi::load_u64("%v11", abi::stack_pointer(), OFFSET_OFF),
+        abi::add_registers("%v11", "%v11", "%v10"),
+        abi::store_u64("%v11", abi::stack_pointer(), OFFSET_OFF),
+        // Only a full buffer may be enqueued: the queue never finishes a short
+        // one (bug-370). A partial tail stays in hand for the next write, or for
+        // close to pad with silence.
+        abi::load_u64("%v11", abi::stack_pointer(), CAP_OFF),
+        abi::compare_registers("%v9", "%v11"),
+        abi::branch_lt(&write_loop),
         abi::load_u64("%v14", abi::stack_pointer(), BUFPTR_OFF),
-        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
-        abi::store_u32("%v9", "%v14", 16), // mAudioDataByteSize
+        abi::store_u32("%v11", "%v14", 16), // mAudioDataByteSize = cap
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
         abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUFPTR_OFF),
@@ -995,12 +1030,16 @@ fn lower_write(
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&dev_fail),
-        abi::load_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
-        abi::load_u64("%v10", abi::stack_pointer(), I_OFF),
-        abi::add_registers("%v9", "%v9", "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), OFFSET_OFF),
+        // Enqueued, so nothing is in hand any more.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), FILL_OFF),
         abi::branch(&write_loop),
         abi::label(&write_done),
+        // Hand the part-filled buffer (if any) to the next write or to close.
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), FILL_OFF),
+        abi::store_u64("%v9", "%v10", S_PENDING_FILL),
+        abi::load_u64("%v9", abi::stack_pointer(), BUFPTR_OFF),
+        abi::store_u64("%v9", "%v10", S_PENDING_BUF),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1038,6 +1077,10 @@ fn lower_close_output(
     let already = format!("{symbol}_already");
     let drain_loop = format!("{symbol}_drain_loop");
     let drain_done = format!("{symbol}_drain_done");
+    let no_pending = format!("{symbol}_no_pending");
+    let pad_loop = format!("{symbol}_pad_loop");
+    let pad_done = format!("{symbol}_pad_done");
+    let enq_ok = format!("{symbol}_enq_ok");
     let done = format!("{symbol}_done");
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
@@ -1048,6 +1091,67 @@ fn lower_close_output(
         abi::branch_ne(&already),
         abi::load_u64("%v10", abi::return_register(), H_STATE),
         abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        // Set if the padded buffer below is rejected by the device; consumed
+        // under the mutex further down.
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), I_OFF),
+        // cap = bufferFrames * bytesPerFrame
+        abi::load_u64("%v11", abi::return_register(), H_BUFFER_FRAMES),
+        abi::load_u64("%v12", abi::return_register(), H_BYTES_PER_FRAME),
+        abi::multiply_registers("%v13", "%v11", "%v12"),
+        abi::store_u64("%v13", abi::stack_pointer(), CAP_OFF),
+        // A part-filled buffer left over from the last write has to go out
+        // before the drain can succeed, and it has to go out FULL: the queue
+        // never finishes a buffer holding less than a period, so a short one
+        // would never come back and the drain would wait forever (bug-370).
+        // Pad the unused tail with silence. Done before the mutex is taken —
+        // enqueuing can run the callback, which takes that same non-recursive
+        // mutex.
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v9", "%v10", S_PENDING_FILL),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&no_pending),
+        abi::load_u64("%v14", "%v10", S_PENDING_BUF),
+        abi::store_u64("%v14", abi::stack_pointer(), BUFPTR_OFF),
+        abi::load_u64("%v15", "%v14", 8), // mAudioData
+        abi::add_registers("%v15", "%v15", "%v9"),
+        abi::move_immediate("%v17", "Integer", "0"),
+        abi::label(&pad_loop),
+        abi::compare_registers("%v9", "%v13"),
+        abi::branch_ge(&pad_done),
+        abi::store_u8("%v17", "%v15", 0),
+        abi::add_immediate("%v15", "%v15", 1),
+        abi::add_immediate("%v9", "%v9", 1),
+        abi::branch(&pad_loop),
+        abi::label(&pad_done),
+        abi::load_u64("%v14", abi::stack_pointer(), BUFPTR_OFF),
+        abi::load_u64("%v13", abi::stack_pointer(), CAP_OFF),
+        abi::store_u32("%v13", "%v14", 16), // mAudioDataByteSize = cap
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, "%v10", S_PENDING_FILL),
+        abi::store_u64(abi::ZERO, "%v10", S_PENDING_BUF),
+        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUFPTR_OFF),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+    ]);
+    platform.emit_libc_call(
+        "AudioQueueEnqueueBuffer",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&enq_ok),
+        // The device refused it, so the queue will never hand this buffer back.
+        // Note it; the drain below returns it to the free stack under the mutex,
+        // or that drain would be the very hang this padding exists to prevent.
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::label(&enq_ok),
+        abi::label(&no_pending),
     ]);
     emit_pthread1(
         &mut EmitCtx {
@@ -1062,6 +1166,21 @@ fn lower_close_output(
         S_MUTEX,
     )?;
     instructions.extend([
+        // A rejected pad buffer never reached the queue, so put it back on the
+        // free stack here, where the mutex makes that safe against the callback.
+        abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&drain_loop),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v9", "%v10", S_FREE_TOP),
+        abi::add_immediate("%v11", "%v10", S_FREE_BUFS),
+        abi::move_immediate("%v12", "Integer", "8"),
+        abi::multiply_registers("%v13", "%v9", "%v12"),
+        abi::add_registers("%v11", "%v11", "%v13"),
+        abi::load_u64("%v14", abi::stack_pointer(), BUFPTR_OFF),
+        abi::store_u64("%v14", "%v11", 0),
+        abi::add_immediate("%v9", "%v9", 1),
+        abi::store_u64("%v9", "%v10", S_FREE_TOP),
         abi::label(&drain_loop),
         abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
         abi::load_u64("%v9", "%v10", S_FREE_TOP),

@@ -50,11 +50,14 @@ then stops, disposes, and unmaps the stream state. Closing an `AudioInput`
 instead **drops** any buffered capture immediately and tears the stream down
 without waiting. [[src/target/shared/code/audio/macos.rs:lower_close_output]][[src/target/shared/code/audio/macos.rs:lower_close_input]][[src/target/shared/code/audio/alsa.rs:lower_close]]
 
-**Closing an output can therefore block.** On macOS the drain is not a device
-call but a condition-variable wait loop: `close` holds the stream mutex and waits
-on the stream condvar until the free-buffer stack holds all four of the stream's
-`AudioQueue` buffers, which happens only once the callback thread has handed back
-every buffer it was playing. The call returns no sooner than the queued audio
+**Closing an output can therefore block.** On macOS `close` first pads the buffer
+the last `write` left part-filled, if any, with silence up to a whole buffer and
+enqueues it, because an `AudioQueue` never finishes a buffer holding less than a
+full period and the drain below would otherwise wait forever. The drain itself is
+not a device call but a condition-variable wait loop: `close` holds the stream
+mutex and waits on the stream condvar until the free-buffer stack holds all four
+of the stream's `AudioQueue` buffers, which happens only once the callback thread
+has handed back every buffer it was playing. The call returns no sooner than the queued audio
 finishes sounding, so the wait is bounded by however much PCM the program has
 written but not yet heard — up to four times the `bufferFrames` the stream was
 opened with. Closing an input takes no such wait; it stops the queue with the

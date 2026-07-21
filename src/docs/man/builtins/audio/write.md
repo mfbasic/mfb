@@ -41,7 +41,15 @@ is read from the list's capacity-based data region, so an append-built list play
 back correctly. [[src/target/shared/code/audio/macos.rs:lower_write]][[src/target/shared/code/audio/alsa.rs:lower_write]]
 
 Playback is queued frame by frame, in order, until the whole list is enqueued;
-`write` does not resample or reinterpret the bytes. On Linux, if `snd_pcm_writei`
+`write` does not resample or reinterpret the bytes. On macOS the queue only ever
+receives whole buffers: a tail too short to fill one stays in the stream and is
+completed by the next `write`, or padded with silence by `audio::close`. An
+`AudioQueue` never finishes a buffer holding less than a full period, so a short
+one would never be handed back and the drain in `close` would wait forever.
+Successive writes therefore join without a gap, and a program hears at most one
+buffer of trailing silence at the end of the stream.
+[[src/target/shared/code/audio/macos.rs:lower_write]][[src/target/shared/code/audio/mod.rs:S_PENDING_BUF]]
+On Linux, if `snd_pcm_writei`
 reports an underrun `write` bumps the stream's underrun counter (read with
 `audio::xruns`), calls `snd_pcm_recover`, and resumes rather than aborting; only a
 recovery that itself fails raises `ErrAudioDevice`. On macOS the underrun counter
