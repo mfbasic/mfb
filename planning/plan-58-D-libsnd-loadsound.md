@@ -400,7 +400,7 @@ finished playing. Reproduced with no libsnd involved at all, and at the same rat
 on a pre-session compiler, so it is **pre-existing and not a plan-58 regression**.
 It is why the macOS run needed a kill after the tone sounded. Filed; not fixed
 here.
-Commit: —
+Commit: `efc9e93ea`
 
 ## Validation Plan
 
