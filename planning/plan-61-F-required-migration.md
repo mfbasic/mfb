@@ -18,7 +18,10 @@ The single behavioral outcome: `mfb build` on a `kind: "package"` project with n
 builds.
 
 References:
-- `plan-61-repo-web.md` §Measured populations — the 81 manifests and 41 goldens
+- `plan-61-repo-web.md` §Measured populations — the 81 manifests and 41 golden
+  *files* (16 `.mfp` + 2 `.hex` + 23 `.info`/`.audit`), spread across 49 golden-
+  carrying fixture *directories*. Both numbers are correct and describe different
+  things; the umbrella uses 49 at `:270-273` and 41 at `:559`.
 - `plan-61-D-description-field.md` §4 — the warning this converts to an error
 - `AGENTS.md:7-82` — the STOP rule on tests and goldens
 - `AGENTS.md:139-145` — never regenerate goldens while a bug is live
@@ -137,17 +140,40 @@ Commit: —
 
 ### Phase 3 — Regenerate goldens (the churn, isolated)
 
-- [ ] Run `scripts/artifact-gate.sh target/debug/mfb` and record which goldens
-      diff. **Explain every diff before regenerating any of them.** Expected:
-      `.mfp` goldens gain section 18; `.info`/`.audit` goldens may gain a
-      description line; `build.log` goldens lose the missing-description warning.
-      Anything else is unexplained and must be investigated, not accepted.
+> **Use `test-accept.sh` here, not `artifact-gate.sh`.** An earlier draft made
+> the fast gate this phase's instrument and its acceptance criterion. It cannot
+> see this change: `artifact-gate.sh` compares only `.ast`, `.ir`, `.hex`, and
+> the native `nir/nplan/nobj/ncode/mir` set (`NATIVE_EXTS`,
+> `scripts/artifact-gate.sh:19`). It **never** compares `.mfp`, `.info`,
+> `.audit`, or `build.log`. Of the goldens this phase churns, exactly 2 (`.hex`)
+> are in its denominator and 39 are not — so "`artifact-gate.sh` reports 0 diffs"
+> would go green with every `.mfp`, `.info`, and `.audit` golden stale. That is
+> the precise failure the Validation Plan already guards against by mandating the
+> full suite; this phase now matches it.
+
+- [ ] Run `scripts/test-accept.sh target/debug/mfb target/accept-actual` (~15 min)
+      and record which goldens diff. **Explain every diff before regenerating any
+      of them.** Expected: `.mfp` goldens gain section 18; `.info`/`.audit`
+      goldens may gain a description line; `build.log` goldens lose the
+      missing-description warning. Anything else is unexplained and must be
+      investigated, not accepted.
 - [ ] Seed with a filter, never bare: `scripts/sync-goldens.sh target/debug/mfb
       <name-glob>` per affected group. `sync-goldens.sh` **never creates** golden
       files — if a new golden kind is needed, pre-create it empty first.
-- [ ] Re-run `scripts/artifact-gate.sh target/debug/mfb` and confirm zero diffs.
+- [ ] **The 29 `tools/*-package-sources` manifests have no `golden/` of their
+      own** — they are inputs consumed by fixtures elsewhere
+      (`tests/rt-behavior/security/README.md`,
+      `src/docs/spec/threading/12_validation.md`), so their churn surfaces in
+      *other* fixtures' goldens and no `<name-glob>` names them directly. Find
+      the dependent fixtures and seed those.
+- [ ] **Check the crafted-bytes fixtures before assuming a clean regen.**
+      `tools/security-package-sources/mfp_craft.py` builds adversarial `.mfp`
+      byte layouts at hand-computed offsets. Adding a manifest field to those 9
+      packages may shift them. If a crafted fixture breaks, that is the crafting
+      script needing an update — not a golden needing a re-baseline.
+- [ ] Re-run `scripts/test-accept.sh` and confirm zero failures.
 
-Acceptance: `artifact-gate.sh` reports 0 diffs, and every regenerated golden's
+Acceptance: `test-accept.sh` reports 0 failures, and every regenerated golden's
 change is explained by one of the three expected causes above.
 Commit: —
 
@@ -156,13 +182,26 @@ Commit: —
 Last, so no intermediate commit leaves the tree red.
 
 - [ ] In `src/manifest/mod.rs`, promote the missing-`description` warning for
-      `kind: "package"` to a hard error, using the diagnostic code resolved in
-      plan-61-D Phase 1.
+      `kind: "package"` to a hard error. **Reuse D's code (`2-200-0016`) and
+      change its severity — do not allocate a second code.** It is the same
+      condition with the same message; two codes for one condition would leave
+      the warn code permanently unreachable and force every consumer to know
+      both. Concretely: flip `severity` on that `Rule` in `src/rules/table.rs`,
+      and flip the `warn` cell in its `01_rule-codes.md` row. Both, or
+      `every_rule_is_documented_in_the_spec` (`src/rules/mod.rs:231-249`) is red.
+- [ ] Update the `01_rule-codes.md:248-255` prose a second time — the `warn`
+      count drops back by one when `2-200-0016` becomes an error. D's Phase 1
+      raised it; F lowers it. Leaving it stale is how it got stale before.
+- [ ] **Re-seed the `build.log` goldens a second time.** Phase 3 regenerated them
+      to drop the missing-description warning; this flip changes the diagnostic's
+      severity and therefore its rendered text wherever it still fires. Expect a
+      second, smaller round of `build.log` churn and explain it before seeding.
 - [ ] Update the schema table row in
       `src/docs/spec/tooling/01_project-manifest.md`: `required` becomes
       `yes¹` with a footnote reading "required when `kind` is `package`;
       optional and ignored for `executable`" — mirroring the existing `kind`
-      footnote idiom at `:57`.
+      footnote idiom. The `kind` row is at `:33` and its footnote ¹ at `:53-56`
+      (an earlier draft cited `:57`, which is a blank line).
 - [ ] Add a `tests/syntax/` fixture proving the new error: a `kind: "package"`
       project with no description fails to build with the expected diagnostic.
       Pre-create its `golden/build.log` empty, then seed it with a filtered
@@ -186,11 +225,12 @@ Commit: —
   line deleted and observe the error; restore it and observe success.
 - Doc sync: `src/docs/spec/tooling/01_project-manifest.md` (the `required`
   column and its footnote).
-- Acceptance: `scripts/artifact-gate.sh target/debug/mfb` → 0 diffs, then the
-  full `scripts/test-accept.sh target/debug/mfb target/accept-actual` → 0
-  failures. This is the sub-plan where the full ~15-minute suite is
-  non-negotiable; the fast gate is nearly blind to codegen and this change
-  touches the payload of every package.
+- Acceptance: the full `scripts/test-accept.sh target/debug/mfb
+  target/accept-actual` → 0 failures. This is the sub-plan where the ~15-minute
+  suite is non-negotiable and the **only** valid gate: `artifact-gate.sh` does
+  not compare `.mfp`, `.info`, `.audit`, or `build.log` at all (Phase 3), so of
+  the 41 goldens this change churns it can see 2. Running it first as a cheap
+  smoke check is fine; treating a green result as evidence is not.
 
 ## Open Decisions
 

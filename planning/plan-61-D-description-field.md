@@ -8,7 +8,7 @@ Produces:
 - `BinaryReprMetadata.description`
 - `SECTION_PACKAGE_META: u16 = 18` — writer, compiler reader, and repository
   reader
-- `src/docs/spec/package/NN_package-meta-section.md` — the new spec topic
+- `src/docs/spec/package/15_package-meta-section.md` — the new spec topic
 
 Adds a `description` field to `project.json` and carries it inside the signed
 `.mfp` payload as a **new optional MFPC section**. In this sub-plan the field is
@@ -45,6 +45,15 @@ it is independent of A, B, and C.
   (`repository/src/package.rs:109-113`, `src/manifest/package.rs:143-150`), so a
   bump is itself a break. If this sub-plan finds itself wanting one, the design
   is wrong — stop and record it in `plan-61-repo-web.md` §Corrections.
+
+  > **Two different version numbers — do not "fix" the wrong one.** The outer
+  > `.mfp` *container* is **1.0** (the constant above). The inner MFPC payload
+  > carries its own `MFPC_MAJOR_VERSION`, which is **2**
+  > (`src/binary_repr/mod.rs:52`), hard-rejected on mismatch at
+  > `src/binary_repr/reader.rs:314`. Adding section 18 changes **neither**: the
+  > section table is the extension point precisely so that it doesn't. An
+  > implementer who reads "the version stays 1.0" and then finds a `2` in the
+  > payload header has found both correct values, not a bug.
 - **No change to the `.mfp` header.** It is a fixed-order positional record with
   no skip mechanism; appending to it breaks both directions.
 - **No change to MANIFEST section 1.** `read_manifest`
@@ -70,7 +79,7 @@ reading both parsers before writing. The evidence is recorded in
   There is no match on id, no known-set membership test, no unknown-section error.
 - Optional sections are handled by absence-from-map — `reader.rs:407-410` for
   DOC.
-- The intent is documented: `src/binary_repr/mod.rs:35-41` says of DOC, "a
+- The intent is documented: `src/binary_repr/mod.rs:40-43` says of DOC, "a
   consumer that does not understand it skips it entirely".
 - The only two ways a new section breaks an old reader are shipping it **twice**
   (`duplicate MFPC section id <n>` is enforced) or declaring `offset + length`
@@ -127,23 +136,53 @@ already calls `validate_optional_string(manifest, project_path, &contents,
 
 In this sub-plan `description` is validated as an optional string, plus a
 **warning** when it is absent and `kind == "package"`. Warning, not error, so the
-81 existing package manifests keep building — plan-61-E migrates them and flips
-it.
+81 existing package manifests keep building — **plan-61-F** migrates them and
+flips it (F Phase 2 then F Phase 4; plan-61-E only surfaces the value).
 
 `kind: "executable"` neither requires nor rejects `description`. Executables are
 never published, so the field is inert there, but forbidding it would make a
 `kind` flip needlessly lossy.
 
-### Diagnostic codes — UNVERIFIED, resolve in Phase 1
+### Diagnostic codes — RESOLVED
 
+An earlier draft recorded this as UNVERIFIED because
 `grep -oE 'PROJECT_JSON_[A-Z_]+' src/docs/spec/diagnostics/02_error-codes.md`
-returned **empty**, so the registry table does not spell the codes the way
-`validate_kind` does and the numbering scheme is unconfirmed. Per
-`.ai/specifications.md:45-50`, that table is **build input**: `build.rs`
-generates the `errorCode::` constants from it, asserting that hyphen-stripping
-each code equals its integer column, guarded by a `table_matches_registry`
-drift test. **Read the table and the generator before claiming any code is
-free.** Do not invent a code number.
+returned empty, and inferred the codes must be spelled some other way. **The
+grep was against the wrong file.** There are two independent registries:
+
+| Registry | File | Governs | Consumed by |
+|---|---|---|---|
+| Runtime `errorCode::` | `src/docs/spec/diagnostics/02_error-codes.md` | `Error.code` integers visible to MFBASIC programs | `build.rs` generates constants from it |
+| **Compiler rules** | **`src/docs/spec/diagnostics/01_rule-codes.md`** | **`PROJECT_JSON_*` and every other diagnostic** | **`src/rules/table.rs`** |
+
+`02_error-codes.md` says so itself, near its head: the compiler-facing rule set
+"is a separate registry and is not surfaced here." The `.ai/specifications.md:45-50`
+build-input rule is quoted accurately but ends "Edit that table for any **runtime**
+error-code change" — it does not govern this work, and neither `build.rs` nor
+`table_matches_registry` is involved.
+
+The scheme is therefore **confirmed, not unconfirmed**:
+
+- `PROJECT_JSON_*` lives at `src/docs/spec/diagnostics/01_rule-codes.md:260-274`,
+  numbered `2-200-NNNN`, spelled exactly as `validate_kind` uses them.
+- `2-200-0001` … `2-200-0015` are allocated (`0011` is `PROJECT_ENTRY_INVALID`,
+  not a gap). The high block `2-200-0100`/`0101` is build orchestration.
+- **Next free: `2-200-0016`.**
+
+Allocating a code is **two edits, and the pair is enforced**: add a `Rule { code,
+name, severity, message }` entry to `src/rules/table.rs` (the `PROJECT_JSON_*`
+block ends at `:1122`) *and* a row to `01_rule-codes.md`. The drift guard is
+`every_rule_is_documented_in_the_spec` (`src/rules/mod.rs:231-249`), which fails
+if a rule exists in `table.rs` with no matching code and name in the spec. Doing
+only one of the two edits is a red test, not a silent divergence.
+
+> **Also update the prose above the table.** `01_rule-codes.md:248-255` narrates
+> the block as `0001`-`0013` and names "exactly six `warn` rules". Both are
+> already stale before this plan touches anything — the table runs to `0015`, and
+> there are **eight** `warn` rules (the prose omits `2-203-0115
+> NATIVE_LIBRARY_TARGET_UNCOVERED` and `2-203-0117 NATIVE_LIBRARY_UNUSED`). The
+> drift test only checks code and name presence, so it does not catch prose
+> counts. D adds a ninth `warn` rule and must leave that sentence correct.
 
 ## Phases
 
@@ -151,9 +190,15 @@ free.** Do not invent a code number.
 
 ### Phase 1 — Manifest field and diagnostics
 
-- [ ] Read `src/docs/spec/diagnostics/02_error-codes.md` and `build.rs` and
-      determine the actual code naming/numbering. **Record the finding in this
-      file** — it is currently UNVERIFIED and §4 depends on it.
+- [ ] Allocate the new `warn` rule as `2-200-0016` per §4 — re-run
+      `grep -n '2-200-00' src/docs/spec/diagnostics/01_rule-codes.md` first to
+      confirm `0016` is still free, since other plans also allocate here. Add the
+      `Rule {}` entry to `src/rules/table.rs` **and** the table row to
+      `01_rule-codes.md` in the same commit; `every_rule_is_documented_in_the_spec`
+      (`src/rules/mod.rs:231-249`) fails on either alone.
+- [ ] Update the `01_rule-codes.md:248-255` prose: the block range (`0001`-`0016`)
+      and the `warn` count, which is already stale at "six" against eight rules
+      today and becomes nine here. See the §4 note.
 - [ ] Add `description` to `validate_project_manifest` (`src/manifest/mod.rs`)
       via `validate_optional_string`, alongside the `author` call at `:166`.
 - [ ] Add the 4096-byte cap with its own diagnostic.
@@ -204,12 +249,12 @@ Commit: —
 Part of the Hard Completion Gate, not cleanup (`.ai/specifications.md:12-18`).
 
 - [ ] Add `description` to the schema table in
-      `src/docs/spec/tooling/01_project-manifest.md` (table at `:26`), with type,
+      `src/docs/spec/tooling/01_project-manifest.md` (table header at `:27`), with type,
       required-ness (`no` for now — plan-61-E changes this row), meaning, and the
       4096-byte cap.
 - [ ] Add section 18 to the section table in
       `src/docs/spec/package/02_binary-representation.md:53-70`.
-- [ ] Write a new topic `src/docs/spec/package/NN_package-meta-section.md`
+- [ ] Write a new topic `src/docs/spec/package/15_package-meta-section.md`
       (next free `NN`) describing the §3 layout, following the DOC topic
       (`11_doc-section.md`) as the model. **Include the §2 caveat**: the format
       has no critical-section marker, so section 18 must never carry

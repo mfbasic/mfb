@@ -61,10 +61,19 @@ The only fuzzy-match primitive is `store.typosquat_candidates(ident)`, used
 warn-only during publish (`repository/src/server.rs:2104-2115`), which finds
 existing idents within edit distance 1.
 
-Rate limiting already exists as a sliding window per peer IP — the server is
-served with `into_make_service_with_connect_info::<SocketAddr>()`
-(`repository/src/server.rs:713`) precisely so handlers can do this, and
-`BLOB_UPLOAD_PER_OWNER_MAX = 120/min` (`:639`) is the existing precedent.
+Rate limiting already exists as a sliding window, keyed per caller — the server
+is served with `into_make_service_with_connect_info::<SocketAddr>()`
+(`repository/src/server.rs:719`) precisely so handlers can key on the peer IP.
+
+**Use the per-IP precedent, not the per-owner one.** `/search` is anonymous, so
+there is no `claims.sub` to key on. The applicable precedents are
+`REGISTER_PER_IP_MAX = 20`, `LOGIN_PER_IP_MAX = 30`, and
+`AUTH_GLOBAL_CEILING = 2000` (`server.rs:625-627`), which throttle the other
+unauthenticated routes. An earlier draft cited `BLOB_UPLOAD_PER_OWNER_MAX = 120`
+as "the existing precedent"; that limiter is keyed **per owner** — literally
+`&format!("blob:{}", claims.sub)` at `server.rs:1529` — and its key is
+unavailable here. The window shape is shared either way:
+`allow(key, max, window_secs)` (`server.rs:40`) with a 60-second window.
 
 Existing transparency data available with no new capture: the
 `release_state_changes` table, the `ident_chain` table (also surfaced by
@@ -157,8 +166,20 @@ it has no ranking design risk.
 - [ ] Add `GET /packages/:ident` and `GET /packages/:ident/audit` handlers in
       `repository/src/server.rs`, registered in the route table at `:672-704`.
       Both anonymous. Percent-decoded `:ident` must accept the `#` in
-      `<owner>#<package>` — verify how axum's path extractor handles `%23` and
-      test it explicitly.
+      `<owner>#<package>`. `GET /index/:ident` (`server.rs:917-923`) already
+      proves axum's `Path<String>` handles `%23`, so mirror it rather than
+      re-deriving it; still assert it in a test.
+- [ ] **Check the route conflict before anything else in this phase.** The table
+      already holds `POST /packages/transfer/offer` and
+      `/packages/transfer/accept` (`server.rs:698-699`). Adding
+      `GET /packages/:ident` puts a parameter segment as a sibling of the static
+      `transfer` segment. matchit (axum 0.7, `repository/Cargo.toml:23`) is
+      expected to accept this — static wins over param — but a conflict there
+      **panics inside `Router::route` at startup**, not in a handler test, so it
+      would surface as a dead server rather than a red test. Start the server
+      once, immediately, and confirm both transfer routes still resolve. If it
+      does conflict, rename the read routes (`/pkg/:ident`) rather than moving
+      the existing POST routes, which are a published wire contract.
 - [ ] 404 with the standard `{error: "..."}` shape (`server.rs:585`) for an
       unknown ident. Do not leak whether an *owner* exists separately from a
       package.
@@ -182,9 +203,11 @@ Commit: —
 - [ ] Add `GET /search?q=&limit=&offset=`. Cap `limit` server-side; document the
       cap in the spec topic. Empty or whitespace-only `q` returns an empty result
       set, not the whole table.
-- [ ] Apply the existing per-IP sliding-window rate limit to `/search`, following
-      the `BLOB_UPLOAD_PER_OWNER_MAX` precedent (`server.rs:639`). Search is the
-      only route here that does real query work per request.
+- [ ] Apply the existing sliding-window rate limit to `/search`, keyed on the
+      **peer IP** per the `REGISTER_PER_IP_MAX` / `LOGIN_PER_IP_MAX` precedent
+      (`server.rs:625-627`) — not the per-owner `BLOB_UPLOAD_PER_OWNER_MAX`,
+      whose `claims.sub` key does not exist on an anonymous route (§2). Search is
+      the only route here that does real query work per request.
 - [ ] Tests: exact beats prefix beats substring; `limit` above the cap is
       clamped, not honored; empty query returns empty; a query with SQL
       metacharacters (`%`, `_`, `'`) is parameterized and returns no rows rather

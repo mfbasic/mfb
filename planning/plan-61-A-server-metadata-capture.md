@@ -8,9 +8,14 @@ Produces:
 - `package_versions.author`, `package_versions.url`, `package_versions.description` columns
 - `package_version_targets` table `(package_version_id, blob_hash, os, arch, libc, lib_type, logical, source)`
 - `VendorBlobRef { logical, source, hash, os, arch, libc, lib_type }` in `repository/src/abi.rs`
-- `store.package_metadata(ident, version) -> VersionMetadata`
-- `store.package_targets(package_version_id) -> Vec<TargetRow>`
+- a changed `store.publish_package_version` signature (Phase 2)
 - `mfb-repo backfill-metadata` subcommand
+
+A writes; it adds **no read accessors**. Earlier drafts of this list promised
+`store.package_metadata` and `store.package_targets`; no phase delivers them and
+plan-61-B does not consume them (B defines its own `package_detail` and
+`package_audit` queries over these tables). They are removed rather than left as
+dead deliverables.
 
 Gets human-facing and platform metadata into the registry database at publish
 time. **No `.mfp` format change is required by this sub-plan** — every field it
@@ -26,8 +31,12 @@ the artifact's signed MANIFEST section are readable from `package_versions`.
 References:
 - `plan-61-repo-web.md` §2 (Current State), §Prerequisites
 - `repository/src/abi.rs` — section-10 and string-pool parsing
-- `repository/src/store.rs:163-338` — the schema
+- `repository/src/store.rs:163-356` — `migrate()`, the schema. The column-add
+  idiom Phase 1 needs is `add_column_if_missing` (helper at `store.rs:2342`,
+  called at `store.rs:342-354`) — **outside** the schema block itself.
 - `src/docs/spec/tooling/01_project-manifest.md:180-240` — target vocabulary
+- `bindings/libsnd/project.json` — the reference multi-platform fixture: seven
+  `vendor` locators, and a macOS locator with no `arch` key (the any-arch case)
 
 ## Prerequisites
 
@@ -52,7 +61,7 @@ the recorded snapshot.
 ## 2. Current state
 
 `package_versions` (`repository/src/store.rs:263`) is
-`(id, package_id, version, hash, state, abi_index TEXT DEFAULT '{}', created_at)`.
+`(id, package_id, version, hash, state, abi_index TEXT NOT NULL DEFAULT '{}', created_at)`.
 `publish_package_version` (called at `repository/src/server.rs:2079`) persists
 owner_id, ident, version, content hash, blob ref, abi_index JSON, and vendor
 hashes — nothing else.
@@ -106,8 +115,11 @@ u32 entry_count
 `libc` values (`src/binary_repr/mod.rs:353-359`): `0` unspecified, `1` glibc,
 `2` musl. `lib_type`: `0` system, `1` vendor.
 
-Vocabulary (`src/manifest/libraries.rs:96-101`, `src/target.rs:23`): `os` ∈
-{`macos`, `linux`}; `arch` ∈ {`aarch64`, `x86_64`, `riscv64`} or `""`.
+Vocabulary (`src/manifest/libraries.rs:96-101`,
+`src/docs/spec/tooling/01_project-manifest.md:183-185`, and the live registries
+`src/target.rs:registered_target_oses`/`registered_target_arches` at `:211`/`:225`):
+`os` ∈ {`macos`, `linux`}; `arch` ∈ {`aarch64`, `x86_64`, `riscv64`} or `""`.
+(`src/target.rs:23` is just `pub arch: String` — the field, not the vocabulary.)
 
 ## 3. Design — two gotchas that decide the schema
 
@@ -118,13 +130,48 @@ that OS.
 
 **Gotcha 2: do not accumulate targets per distinct blob hash.** `repository/src/server.rs:2288`
 dedupes blob *existence probes* by hash — correctly, since probing the same blob
-twice is waste. But one vendored file is legitimately listed under several
-platform locators, so a platform set accumulated from the deduped hash set will
-**under-report targets**. Accumulate per *locator*, in the loop at
-`repository/src/server.rs:2297-2306`, which already iterates the right way.
+twice is waste. A platform set accumulated from that deduped hash set will
+**under-report targets**. Accumulate per *locator*.
+
+**How this is actually reachable — the obvious example does not exist.** An
+earlier draft justified this with "one vendored file listed under several
+platform locators." That is *not* producible from a valid manifest:
+`PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` (`src/manifest/mod.rs:967-978`) rejects
+any two `vendor` locators sharing a `source`, precisely because `vendor/` is flat
+— one filename means one file
+(`src/docs/spec/tooling/01_project-manifest.md:236-242`). `bindings/libsnd`
+confirms it: all seven vendor locators carry distinct filenames.
+
+The collision is real anyway, by a different route: **two distinct `source`
+filenames whose bytes are identical hash the same.** Two platforms shipping a
+byte-identical build under different names (a common result of copying a build
+across a libc split) is legal, passes `SOURCE_CONFLICT`, and collapses to one
+entry under dedupe-by-hash. That — not one-source-many-locators — is what the
+Phase 2 regression test must construct.
+
+Note the check is scoped to `vendor` locators only; `system` sonames legitimately
+repeat (`linux/x86_64` and `linux/aarch64` both naming `libsqlite3.so.0` is
+normal). See §3.1 for why system locators are out of scope here regardless.
 
 This is the one place in A where a plausible-looking implementation is silently
 wrong, so the phase has a test dedicated to it (Phase 2).
+
+### 3.1 Only `vendor` locators are captured
+
+`parse_vendor_blobs` pushes an entry only when `lib_type == WIRE_LIB_TYPE_VENDOR`
+(`repository/src/abi.rs:114`), so **no `system` locator can ever reach the
+table**. Two consequences the schema must not pretend away:
+
+- `lib_type` is a constant `1` for every row this sub-plan writes. It is kept in
+  the schema because capturing system locators later should not require a
+  migration, but nothing in A, B, or C may branch on it yet.
+- `blob_hash` is nullable in the schema for that same future, but is `NOT NULL`
+  in practice for every row A writes.
+
+Capturing system targets would mean changing `parse_vendor_blobs`'s filter *and*
+its name and contract — a different change with its own reachability questions.
+It is explicitly out of scope. If B or C needs system targets, that is a plan
+defect; record it in §Corrections rather than widening the parser here.
 
 `package_version_targets` is a separate table rather than a JSON column on
 `package_versions` because B needs to query it ("which packages ship linux/musl
@@ -153,18 +200,23 @@ either copy.
 
 Adds the columns and table. Safe alone: nothing writes to them yet.
 
-- [ ] Add to `repository/src/store.rs` schema (`:163-338`): `ALTER`-equivalent
+- [ ] Add to `repository/src/store.rs` `migrate()` (`:163-356`): `ALTER`-equivalent
       columns on `package_versions` — `author TEXT`, `url TEXT`,
       `description TEXT`, all NULL-able.
 - [ ] Add table `package_version_targets (package_version_id INTEGER NOT NULL
       REFERENCES package_versions(id), blob_hash TEXT, os TEXT NOT NULL,
-      arch TEXT, libc TEXT, lib_type INTEGER NOT NULL, logical TEXT NOT NULL,
+      arch TEXT, libc TEXT, lib_type TEXT NOT NULL, logical TEXT NOT NULL,
       source TEXT NOT NULL)` with an index on `package_version_id`. `arch` NULL
-      = any-arch wildcard.
-- [ ] Follow the existing migration idiom in `store.rs` — read how the current
-      schema handles version upgrades on an existing database file before
-      inventing one. An existing deployed database (`repository/DEPLOY.md`: Fly.io
-      volume) must open cleanly after this change.
+      = any-arch wildcard. `libc` and `lib_type` are both **token strings**
+      (`'glibc'`/`'musl'`/NULL and `'vendor'`/`'system'`), decoded from the wire
+      integers in §2 — see Open Decisions; the readability argument that settles
+      `libc` settles `lib_type` identically. Per §3.1, every row A writes has
+      `lib_type = 'vendor'`.
+- [ ] Follow the existing migration idiom rather than inventing one: new tables
+      go in the `CREATE TABLE IF NOT EXISTS` batch; new columns on an existing
+      table go through `add_column_if_missing` (helper at `store.rs:2342`, used
+      at `store.rs:342-354`). Together these open a pre-existing deployed
+      database (`repository/DEPLOY.md`: Fly.io volume) cleanly.
 - [ ] Tests: a `store.rs` unit test that opens a database created *before* this
       change and confirms the new columns exist and are NULL.
 
@@ -183,21 +235,45 @@ The one place a plausible implementation is silently wrong.
       with `table_string(strings, read_u32(bytes, offset)?)?` for `os` and
       `arch`, and decode the `libc` u8 per the mapping in §2. Map `""` arch to
       `None`.
-- [ ] In `repository/src/server.rs:2297-2306`, write one
-      `package_version_targets` row **per locator** (not per distinct hash) as
-      part of the existing publish transaction.
+- [ ] **Widen the publish path to carry locators, not bare hashes.** At
+      `repository/src/server.rs:2046-2051` the publish handler re-parses the
+      artifact and immediately throws the metadata away:
+      `.map(|refs| refs.into_iter().map(|vref| vref.hash).collect())`. That
+      `Vec<String>` is the discard site. Keep the full `Vec<VendorBlobRef>`.
+- [ ] Change `store.publish_package_version` (`repository/src/store.rs:1163-1230`)
+      from `vendor_hashes: &[String]` to `vendor_blobs: &[VendorBlobRef]`, and
+      write one `package_version_targets` row **per locator** (not per distinct
+      hash) inside the transaction that function already owns — it is the only
+      place with the `package_version_id` these rows reference. Update the call
+      site at `server.rs:2079`.
+
+> **Do not implement this in `validate_package_request`.** An earlier draft
+> pointed Phase 2 at `server.rs:2297-2306`. That range is inside
+> `validate_package_request` (fn at `server.rs:2131`), the **`/validate` dry-run**
+> helper shared with `/publish`. It holds no store transaction and no
+> `package_version_id` — the version row does not exist yet — and writing there
+> would make `POST /validate` mutate the database, inverting its documented
+> contract (`server.rs:2270-2277`: "a dry run reports missing blobs before the
+> publisher uploads anything"). It is the right place to *read* locators, and the
+> wrong place to persist them.
+
 - [ ] Tests: a unit test in `repository/src/abi.rs` asserting os/arch/libc are
       resolved for a fixture with two platforms. **Plus the regression test for
-      gotcha 2**: a package where one blob hash appears under two distinct
-      platform locators must produce **two** target rows. This test is the point
-      of the phase — write it first and watch it fail against a
+      gotcha 2**: a package whose section 10 lists two locators with distinct
+      `source` filenames but byte-identical blobs — hence one shared hash — must
+      produce **two** target rows. Per §3, this is the only shape that reaches
+      the bug from a valid manifest. Write it first and watch it fail against a
       dedupe-by-hash implementation.
 - [ ] Tests: a locator with `arch = ""` produces a row with `arch IS NULL`, and
-      is distinguishable from a locator with a concrete arch.
+      is distinguishable from a locator with a concrete arch. `bindings/libsnd`'s
+      macOS locator (no `arch` key) is the natural fixture.
+- [ ] Tests: `POST /validate` writes **no** `package_version_targets` rows —
+      guarding the inversion the note above describes.
 
-Acceptance: publishing a fixture package whose section 10 lists the same vendor
-blob under `linux/x86_64/glibc` and `linux/x86_64/musl` yields exactly two rows in
-`package_version_targets`, with distinct `libc` values, and the same `blob_hash`.
+Acceptance: publishing a fixture package whose section 10 lists two vendor
+locators with distinct `source` names and identical bytes yields exactly two rows
+in `package_version_targets` sharing one `blob_hash`; and a `/validate` call on
+the same artifact leaves the table empty.
 Commit: —
 
 ### Phase 3 — Capture author and url
@@ -232,9 +308,19 @@ Last, because it reads every package blob on the server.
 - [ ] It must **not** fail the whole run on one unparseable blob — log the ident
       and version, skip, continue, and report a count at the end. An old blob
       that no longer parses is exactly the kind of thing this surfaces.
+- [ ] **Decide what backfill does with a header/MANIFEST mismatch.** Phase 3
+      rejects one at publish, but backfill walks blobs published *before* that
+      check existed, so mismatches are parseable-and-invalid — a case the
+      skip-unparseable rule above does not cover. Treat it as a skip with a
+      distinct log line and its own counter, never as a silent pick of either
+      copy: an already-stored artifact whose two author copies disagree is a
+      transparency finding an operator must see, and backfill is the only thing
+      that will ever look. Do not delete or rewrite the version row.
 - [ ] Tests: a store test that publishes two versions with the columns stubbed
       NULL, runs the backfill, and asserts both are populated; and that a second
       run changes nothing (row counts identical).
+- [ ] Tests: a stored blob with a header/MANIFEST mismatch is skipped, counted
+      separately from unparseable blobs, and leaves its `author`/`url` NULL.
 
 Acceptance: `mfb-repo backfill-metadata --dbpath <db> --datapath <dir>` populates
 author/url/targets for pre-existing versions, is idempotent across two runs, and
@@ -250,10 +336,17 @@ Commit: —
   is the first sub-plan to add code under the newly-in-workspace `repository/`
   crate — confirm the new files appear in the report, not just that the gate is
   green.
-- Runtime proof: publish `bindings/sqlite3` (a real package with native
-  libraries) against a local `mfb-repo`, then
+- Runtime proof: publish **`bindings/libsnd`** against a local `mfb-repo`, then
   `sqlite3 <db> "select os, arch, libc, logical from package_version_targets"`
-  and confirm the rows match its `project.json` `libraries` block.
+  and confirm seven rows matching its `project.json` `libraries` block, with the
+  macOS row's `arch` NULL.
+
+  > Use `libsnd`, **not** `bindings/sqlite3`. An earlier draft named sqlite3 "a
+  > real package with native libraries" — but all of its locators are
+  > `type: "system"` (`bindings/sqlite3/project.json:6-11`), and
+  > `parse_vendor_blobs` emits only `vendor` entries (`repository/src/abi.rs:114`,
+  > and §3.1). The table would be empty and the proof would pass vacuously.
+  > `libsnd` has seven vendor locators across three arches and both libc values.
 - Doc sync: `src/docs/spec/package-manager/01_repository-protocol.md` — the
   operational section, for the new `backfill-metadata` subcommand. No wire-format
   topic changes, because no wire format changes.
@@ -262,10 +355,13 @@ Commit: —
 
 ## Open Decisions
 
-- **Store `libc` as an integer or a token string?** *Recommended:* the token
-  string (`"glibc"` / `"musl"` / NULL), so B's JSON and C's HTML need no mapping
-  table and the database is readable by an operator with `sqlite3`. The integer
-  is one byte smaller and nothing else.
+- **Store `libc` and `lib_type` as integers or token strings?** *Recommended:*
+  token strings (`"glibc"`/`"musl"`/NULL and `"vendor"`/`"system"`), so B's JSON
+  and C's HTML need no mapping table and the database is readable by an operator
+  with `sqlite3`. The integers are one byte smaller and nothing else. **Both
+  fields, or neither** — an earlier draft recommended the token string for `libc`
+  while Phase 1's schema kept `lib_type INTEGER`, which is the same argument
+  answered two ways. Phase 1 now specifies TEXT for both.
 
 ## Corrections
 

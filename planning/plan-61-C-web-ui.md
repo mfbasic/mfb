@@ -157,11 +157,36 @@ fingerprint is TOFU-pinned (`src/docs/spec/package-manager/01_repository-protoco
 and **an attacker serving you a forged page serves you their fingerprint too**.
 The page therefore authenticates nothing about itself.
 
-Render it as a value to compare against an out-of-band source — e.g. "Compare
-this against the fingerprint you received out-of-band before trusting this
-registry; run `mfb repo trust <registry-id> <fingerprint>` to pin it" — never as
-"this registry is verified". Getting this wrong turns a useful convenience into
+Render it as a value to compare against an out-of-band source — never as "this
+registry is verified". Getting this wrong turns a useful convenience into
 security theater that actively misleads.
+
+**Two different fingerprints — do not conflate them.** `mfb repo trust` takes the
+**root** fingerprint, not the server fingerprint this page displays:
+
+```
+mfb repo trust <registry-id> <root-fingerprint>
+```
+
+`src/cli/repo.rs:81-95` binds its second argument as `root_fingerprint`, and
+`client::trust_registry` (`repository/src/client.rs:865-882`) verifies `root.json`
+against it — then *separately* checks the pinned `/ident` server key against the
+root-delegated one. Two values, two keys
+(`src/docs/spec/package-manager/01_repository-protocol.md:900-907`). Pasting the
+`/ident` fingerprint into that command simply fails.
+
+So the landing page must do one of:
+
+- **(recommended)** surface the **root** fingerprint from `/root.json` as the
+  value to compare and paste, since that is the one the pinning command consumes;
+  or
+- keep showing the `/ident` server fingerprint, but present it purely as a value
+  to *compare* and do not print a `mfb repo trust` command next to it.
+
+Showing the server fingerprint above a command that takes the root fingerprint is
+the worst option: it reads as a verified copy-paste and then errors out. Phase 2
+must resolve this explicitly. **`planning/plan-61/index.html:67` currently has the
+wrong form** — fix the mockup in the same change.
 
 ## Phases
 

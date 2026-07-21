@@ -37,19 +37,25 @@
       </section>
 
       <!-- ============================================================ -->
-      <!-- SERVER FINGERPRINT — this is the most load-bearing copy on   -->
+      <!-- ROOT FINGERPRINT — this is the most load-bearing copy on     -->
       <!-- the site. It must read as an instruction to the reader, not  -->
       <!-- as a trust claim by the server. No check / shield / lock /   -->
       <!-- green. The accent color is deliberately not green.           -->
+      <!--                                                              -->
+      <!-- This is the ROOT fingerprint (from /root.json), NOT the       -->
+      <!-- server fingerprint from /ident. They are different values     -->
+      <!-- from different keys, and `mfb repo trust` consumes the root   -->
+      <!-- one. See plan-61-C §4.                                        -->
       <!-- ============================================================ -->
       <section class="fingerprint" aria-labelledby="fp-title">
         <div class="fingerprint__head">
           <p class="eyebrow">Compare this &mdash; do not trust it on sight</p>
-          <h2 id="fp-title">Server fingerprint</h2>
+          <h2 id="fp-title">Root fingerprint</h2>
         </div>
         <div class="fingerprint__body">
           <p>
-            The value below is the key <strong>this server is presenting to you right now</strong>.
+            The value below is the root of the signed-metadata chain
+            <strong>this server is presenting to you right now</strong>.
             This page cannot prove that it is the real mfb-repo. An impostor serving a
             forged copy of this site would show you a fingerprint too &mdash; its own &mdash;
             and this same reassuring paragraph. So do not act on it here.

@@ -52,12 +52,18 @@ Stated once here; every sub-plan points back to this section.
 
 | Must be true | Command | Status |
 |---|---|---|
-| **bug-347 is fixed — `repository/` is in the Cargo workspace and its tests run** | `cargo test --workspace --no-run 2>&1 \| grep mfb_repository` → must list a `mfb_repository` unittests binary | **NOT MET** (2026-07-21) |
+| **bug-347 is fixed — `repository/` is in the Cargo workspace and its tests run** | `cargo test --workspace --no-run 2>&1 \| grep mfb_repository` → must list a `mfb_repository` unittests binary | **NOT MET, but in flight** (2026-07-21, re-checked): the command returns empty and `bugs/bug-347-…md` still reads `Status: Open` — **however** `Cargo.toml` now carries `[workspace] members = [".", "repository"]` as an *uncommitted* working-tree edit, with `repository/Cargo.lock` staged for deletion. Another agent is mid-fix. Do not start on top of a half-landed workspace merge; wait for it to commit, then re-run the command. |
 | The repository crate's existing tests pass | `cargo test -p mfb_repository` → 0 failures | UNVERIFIED until the row above is MET |
-| Working tree is clean of unrelated repo-server edits | `git status --porcelain repository/` → empty | MET (2026-07-21: other edits are in the tree, but none under `repository/`) |
-| **plan-60 is complete** — it is in flight and edits the same spec topic and CLI surface | `ls planning/plan-60-*` → no matches (archived to `planning/old-plans/`) | **NOT MET** (2026-07-21: A is 14/25 tasks; B–F are 0/82) |
+| Working tree is clean of unrelated repo-server edits | `git status --porcelain repository/` → empty | **NOT MET** (2026-07-21, re-checked): `repository/Cargo.lock` is staged deleted by the in-flight bug-347 fix. Was MET when this plan was written. |
+| **plan-60 is complete** — it edits the same spec topic and CLI surface | `ls planning/plan-60-*` → no matches (archived to `planning/old-plans/`) | **MET** (2026-07-21, re-checked): no matches; all six docs are in `planning/old-plans/`. Was NOT MET at authoring time. |
 
 ### Why plan-60 is a gate
+
+> **RESOLVED 2026-07-21.** plan-60 completed and all six documents are archived
+> to `planning/old-plans/`. The reasoning below is kept because the *shape* of
+> the hazard recurs — and it has: bug-347 is now the in-flight change occupying
+> the same tree. Re-read this section as a live warning about that, not as
+> history.
 
 This was discovered while writing plan-61, not predicted — another agent is
 working plan-60 in this shared tree concurrently (`src/cli/repo.rs` was modified
@@ -350,17 +356,18 @@ reading the code named.
   `PUT /blob/:hash` at `repository/src/server.rs:1521-1524`, which uses a bearer
   header. No handler reads a cookie. Confirmed by reading the route table at
   `server.rs:672-704` and the auth helper each handler calls.
-- **UNVERIFIED — that a `PROJECT_JSON_*` diagnostic code is free for D's new
-  required-field error.** `validate_kind` (`src/manifest/mod.rs:385-410`) emits
-  `PROJECT_JSON_REQUIRED_FIELD` and `PROJECT_JSON_FIELD_TYPE`, and the spec
-  footnote names `PROJECT_JSON_UNKNOWN_KIND` — but
-  `grep -oE 'PROJECT_JSON_[A-Z_]+' src/docs/spec/diagnostics/02_error-codes.md`
-  returned **empty**, so the registry table does not spell them that way and the
-  numbering scheme is unconfirmed. D Phase 1 must read
-  `src/docs/spec/diagnostics/02_error-codes.md` and the `build.rs` generator
-  before claiming any code. Note `.ai/specifications.md:45-50`: that table is
-  **build input** — `build.rs` generates the `errorCode::` constants from it and
-  a `table_matches_registry` test guards drift.
+- **VERIFIED — `2-200-0016` is the next free `PROJECT_JSON_*` code.** An earlier
+  draft recorded this as UNVERIFIED on the strength of an empty
+  `grep -oE 'PROJECT_JSON_[A-Z_]+' src/docs/spec/diagnostics/02_error-codes.md`.
+  That grep hit the wrong registry. `02_error-codes.md` is the **runtime**
+  `errorCode::` table (the one `build.rs` generates from, and the one
+  `.ai/specifications.md:45-50` governs); it says in its own head that the
+  compiler-facing rule set is separate. `PROJECT_JSON_*` lives in
+  `src/docs/spec/diagnostics/01_rule-codes.md:260-274` as `2-200-NNNN`, spelled
+  exactly as `validate_kind` uses them, with `0001`–`0015` allocated. The backing
+  array is `src/rules/table.rs` and the drift guard is
+  `every_rule_is_documented_in_the_spec` (`src/rules/mod.rs:231-249`) — `build.rs`
+  is not involved. See D §4 for the allocation procedure.
 - **UNVERIFIED — whether `mfb pkg publish` or the resolver rejects a package
   whose manifest lacks `description` once D lands.** D Phase 4 must check the
   resolver and lockfile paths, not just the builder.
@@ -547,7 +554,76 @@ Per-letter detail lives in each sub-plan; the shared obligations are:
      the claim, what was actually true, and the evidence. A corrected number
      also needs a check of whether another letter's scope derived from it. -->
 
-- *(none yet)*
+Found by a pre-execution review on 2026-07-21, before any code was written. Each
+was verified against the tree, not reasoned about.
+
+- **A Phase 2 named the wrong function.** It said to write
+  `package_version_targets` rows at `repository/src/server.rs:2297-2306`. That
+  range is inside `validate_package_request` (fn at `:2131`) — the `/validate`
+  **dry-run**, which holds no transaction and no `package_version_id`, and whose
+  contract is explicitly non-mutating (`:2270-2277`). The real discard site is
+  `server.rs:2046-2051`; the write belongs in `store.publish_package_version`
+  (`store.rs:1163-1230`), whose `vendor_hashes: &[String]` parameter must widen
+  to `&[VendorBlobRef]`. A's Phase 2 is rewritten and the wrong site is called
+  out inline so it is not re-derived.
+- **A's Gotcha 2 rested on an impossible manifest.** "One vendored file listed
+  under several platform locators" is rejected by
+  `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` (`src/manifest/mod.rs:967-978`), so the
+  stated acceptance criterion was unbuildable from a valid `project.json`. The
+  underlying dedupe bug is real but reachable only via two *distinct* `source`
+  filenames with byte-identical contents. Test shape corrected in A §3.
+- **A's runtime proof would have passed vacuously.** It named `bindings/sqlite3`
+  as "a real package with native libraries", but all its locators are
+  `type: "system"` and `parse_vendor_blobs` emits only `vendor` entries
+  (`repository/src/abi.rs:114`) — the table would be empty. Switched to
+  `bindings/libsnd` (7 vendor locators, 3 arches, both libc values, and a macOS
+  locator with no `arch` for the NULL case). A gained §3.1 stating that system
+  locators are out of scope at all.
+- **A promised two accessors no phase delivered.** `store.package_metadata` and
+  `store.package_targets` were in `Produces:` and in no checkbox; B does not
+  consume them. Removed.
+- **B cited a per-owner rate limit for an anonymous route.**
+  `BLOB_UPLOAD_PER_OWNER_MAX` is keyed `blob:{claims.sub}` (`server.rs:1529`),
+  a key `/search` does not have. The applicable precedent is the per-IP block at
+  `server.rs:625-627`. Also `server.rs:713` → `:719` for
+  `into_make_service_with_connect_info`.
+- **C's fingerprint section printed a command that cannot work.** It told users
+  to paste the `/ident` server fingerprint into
+  `mfb repo trust <registry-id> <fingerprint>`, but that argument is the **root**
+  fingerprint — a different value from a different key (`src/cli/repo.rs:81-95`,
+  `repository/src/client.rs:865-882`). In the one section whose entire purpose is
+  not misleading the reader. C §4 now distinguishes the two; `plan-61/index.html`
+  was corrected to show the root fingerprint.
+- **D §4 sent Phase 1 to the wrong registry, and would have wasted it.** It
+  grepped `02_error-codes.md` (the *runtime* `errorCode::` table) for
+  `PROJECT_JSON_*`, got nothing, and concluded the scheme was unconfirmed. The
+  compiler rule registry is `01_rule-codes.md`; codes are `2-200-NNNN`; next free
+  is `2-200-0016`. The plan also never mentioned `src/rules/table.rs`, which must
+  be edited for any new diagnostic. `build.rs` and `table_matches_registry` are
+  not involved. See D §4.
+- **F Phase 3's gate could not see the change it was gating.**
+  `artifact-gate.sh` compares only `.ast`/`.ir`/`.hex`/native artifacts
+  (`scripts/artifact-gate.sh:19`) — never `.mfp`, `.info`, `.audit`, or
+  `build.log`. Its acceptance criterion "0 diffs" would have gone green with 39
+  of the 41 churned goldens stale. Phase 3 now uses `test-accept.sh`.
+- **F Phase 4 never said how a `warn` rule becomes an `error`.** D allocates
+  `2-200-0016` as a warning; F flips it. Resolved as: mutate the severity of the
+  same code in both `table.rs` and `01_rule-codes.md`, never allocate a second
+  code, and expect a second round of `build.log` churn.
+- **Pre-existing, found in passing:** `01_rule-codes.md:248-255` narrates the
+  `2-200` block as `0001`-`0013` with "exactly six `warn` rules". The table runs
+  to `0015` and there are **eight** warn rules — the prose omits `2-203-0115`
+  and `2-203-0117`. The drift test only checks code and name presence, so it
+  never caught this. D Phase 1 and F Phase 4 both now update it.
+- **Measurements re-run and confirmed exact:** 81 `kind: "package"` manifests, 49
+  golden-carrying fixture dirs, 16 `.mfp`, 2 `.hex`, 23 `.info`/`.audit`, highest
+  MFPC section id 17. D's central premise — that a new section 18 is silently
+  skipped — was re-verified against both section-table walkers in the tree
+  (`src/binary_repr/reader.rs`, `repository/src/abi.rs`); there is no third
+  reader, and neither validates ids nor asserts full consumption.
+- **Prerequisite states moved** since authoring: plan-60 is now complete
+  (MET); bug-347 is being fixed in the tree *right now* as an uncommitted edit,
+  so `repository/` is no longer clean. See §Prerequisites.
 
 ## Summary
 
