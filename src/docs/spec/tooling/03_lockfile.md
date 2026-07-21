@@ -101,6 +101,29 @@ An empty or absent `packages[]` hashes the empty input — a fixed digest, the
 SHA-256 of zero bytes. Comparison is exact string equality against the stored
 `projectHash`; there is no normalization of the stored value. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
+## Projects with no registry dependencies
+
+A project that declares no registry dependencies — after `mfb pkg remove` takes
+the last one, or in a freshly `mfb init`-ed project, or one whose only packages
+are local `file://` copies — has nothing to lock. The commands that write the
+lock therefore **delete** `mfb.lock` rather than leaving it describing a
+dependency set that no longer exists, and skip resolution and installation
+entirely.
+
+An absent lock is a valid, correctly configured state, not a missing file:
+
+| Command | Behavior |
+|---|---|
+| `mfb pkg install` | prints `nothing to install`, exits `0` |
+| `mfb pkg update` | reports there is nothing to resolve, removes a stale `mfb.lock`, exits `0` |
+| `mfb pkg add` / `mfb pkg remove` | writes `project.json`; writes or deletes the lock as the resulting dependency set requires |
+
+A local `file://` package is **not** a registry dependency — it has no registry
+version stream to resolve against — so a project whose only packages are local
+copies falls into this case. Such a package still contributes to `projectHash`,
+so adding or removing one still rewrites the lock when other registry
+dependencies remain.
+
 ## `mfb pkg install` drift classification
 
 A `projectHash` mismatch means the manifest's request set changed since the lock

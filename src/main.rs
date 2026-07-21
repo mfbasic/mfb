@@ -105,6 +105,7 @@ Commands:
   verify [--proof]        Verify packages declared in project.json
   validate <pkg>          Check an existing package's signatures and structure
   install [path]          Install dependencies from mfb.lock (by hash)
+  remove <owner>#<pkg>    Remove a package and everything that imports it
   update                  Re-resolve all dependencies and write mfb.lock
   update <owner>#<pkg>[@ver] [--pin|--no-pin] [--yes]
                           Update one declared dependency
@@ -117,7 +118,7 @@ Options:
   --out <file>            (doc) Path to the generated HTML file (default: index.html)
   --pin                   (add, update) Record the exact version; never float
   --no-pin                (add, update) Float above this version, which becomes the ABI floor
-  --yes                   (update) Skip the confirmation prompt when moving a pin";
+  --yes                   (update, remove) Skip the confirmation prompt";
 
 pub(crate) const REPO_HELP: &str = "\
 Usage: mfb repo <command> [arguments]

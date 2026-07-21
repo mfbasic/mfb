@@ -298,12 +298,12 @@ trust chain; every other command's exit codes.
 The cascade's correctness is the whole value of this letter, and it is fully
 testable without a registry or a filesystem.
 
-- [ ] Add a pure
+- [x] Add a pure
       `removal_closure(target: &str, imports: &BTreeMap<String, Vec<String>>) -> Vec<(String, Option<String>)>`
       to `src/cli/pkg.rs`, returning each removed ident paired with the direct
       importer that pulled it in (`None` for the named target). Worklist +
       visited set per §4.2 step 4.
-- [ ] Tests in `src/cli/pkg.rs`: target with no importers → closure of one;
+- [x] Tests in `src/cli/pkg.rs`: target with no importers → closure of one;
       one-level cascade; three-level chain (asserting the reported importer for
       each); a **cycle** between two packages (must terminate); a diamond, where
       two packages import the target and both import a third (each ident appears
@@ -311,92 +311,98 @@ testable without a registry or a filesystem.
 
 Acceptance: `cargo test --bin mfb` passes, including the cycle case — which must
 terminate rather than overflow the stack. Assert on the returned pairs, not just
-the ident set, so the "imports X" attribution is covered.
-Commit: —
+the ident set, so the "imports X" attribution is covered. **VERIFIED** — the
+cycle test terminates and asserts the exact ident order; every case asserts the
+`(ident, importer)` pairs. 3182 unit passed / 0 failed.
+Commit: 7f76a3c3a
 
 ### Phase 2 — Dispatch, import reading, and the not-installed gate
 
-- [ ] Add a `[command, rest @ ..] if command == "remove"` arm to
+- [x] Add a `[command, rest @ ..] if command == "remove"` arm to
       `run_pkg_command` (`src/cli/pkg.rs:24`), parsing one positional plus
       `--yes` with plan-60-C's flag-parsing struct.
-- [ ] Implement §4.1's not-declared check against the parsed manifest.
-- [ ] Build the imports map per §4.2 steps 1–3, using `read_package_info`
+- [x] Implement §4.1's not-declared check against the parsed manifest.
+- [x] Build the imports map per §4.2 steps 1–3, using `read_package_info`
       (`src/binary_repr/mod.rs:451`) against `packages/<name>.mfp`, filtering
       imported idents to those containing `#`.
-- [ ] Implement §4.4's not-installed error, naming the missing package and its
+- [x] Implement §4.4's not-installed error, naming the missing package and its
       expected path. Confirm `--yes` does **not** bypass it.
-- [ ] Tests in `src/cli/pkg.rs`: undeclared target errors; a declared-but-missing
+- [x] Tests in `src/cli/pkg.rs`: undeclared target errors; a declared-but-missing
       `.mfp` produces the §4.4 error and does not fall through, including with
       `--yes` set.
 
 Acceptance: `cargo test --bin mfb` passes; the `--yes` + missing-`.mfp` test
 asserts the command **fails**, which is the case a careless implementation gets
-wrong.
-Commit: —
+wrong. **VERIFIED** — `remove_refuses_when_a_declared_package_is_not_installed`
+loops over `assume_yes` in `[false, true]` and asserts refusal for both.
+Commit: 7f76a3c3a
 
 ### Phase 3 — Confirmation, manifest edit, re-resolution
 
-- [ ] Implement §4.3: print the closure with attributions when it exceeds the
+- [x] Implement §4.3: print the closure with attributions when it exceeds the
       target, then `confirm`. No prompt for a single-package removal.
-- [ ] Add `project_json_without_packages(contents, names) -> Result<String, String>`
+- [x] Add `project_json_without_packages(contents, names) -> Result<String, String>`
       to `src/manifest/package.rs`, removing one or more dependency entries by
       surgical string edit — the same approach as
       `project_json_with_package` (`:547`) and
       `project_json_with_updated_ident_key` (`:644`), so formatting survives.
       It must handle removing the only entry (leaving `"packages": []`) and
       removing a trailing entry without leaving a dangling comma.
-- [ ] Call `apply_manifest_change` with the resulting text.
-- [ ] Print a result line naming every removed package.
-- [ ] Tests in `src/manifest/package.rs`: remove the first, middle, last, and
+- [x] Call `apply_manifest_change` with the resulting text.
+- [x] Print a result line naming every removed package.
+- [x] Tests in `src/manifest/package.rs`: remove the first, middle, last, and
       only entry; the result must re-parse as valid JSON in every case (mirror
       the existing `out.parse::<JsonValue>().expect("valid json")` assertions at
       `:1312`, `:1330`, `:1340`).
 
 Acceptance: `cargo test --bin mfb` passes; every
 `project_json_without_packages` case asserts the output re-parses as valid JSON.
-Commit: —
+**VERIFIED** — first/middle/last/only/multiple/empty all `.parse::<JsonValue>()`.
+Commit: 7f76a3c3a
 
 ### Phase 4 — File cleanup and the zero-dependency message (largest blast radius)
 
 The only irreversible operation in plan-60. Last, behind every test above.
 
-- [ ] Implement §4.5: after `apply_manifest_change` succeeds, delete
+- [x] Implement §4.5: after `apply_manifest_change` succeeds, delete
       `packages/<name>.mfp` and `imported_vendor_dir(project_dir, name)` for each
       removed name. Missing is not an error; a deletion failure is a warning
       naming the path.
-- [ ] Implement §4.6's `install` message improvement at `src/cli/resolve.rs:92`:
+- [x] Implement §4.6's `install` message improvement at `src/cli/resolve.rs:92`:
       distinguish "no lock and no declared registry dependencies" (nothing to
       install, exit 0) from "no lock but dependencies are declared" (the existing
       error).
-- [ ] Tests in `tests/repo_acceptance.rs`: publish `alice#dep` and `alice#user`
+- [x] Tests in `tests/repo_acceptance.rs`: publish `alice#dep` and `alice#user`
       where `user` imports `dep`; add both to a consumer; `mfb pkg remove
       alice#dep --yes` removes **both** from `project.json`, rewrites
       `mfb.lock`, and deletes `packages/dep.mfp` and `packages/user.mfp`.
-- [ ] Tests in `tests/repo_acceptance.rs`: removing the only dependency deletes
+- [x] Tests in `tests/repo_acceptance.rs`: removing the only dependency deletes
       `mfb.lock` entirely and leaves `mfb pkg install` exiting 0 with
       `"nothing to install"`.
-- [ ] Tests in `tests/repo_acceptance.rs`: a vendoring package's
+- [x] Tests in `tests/repo_acceptance.rs`: a vendoring package's
       `packages/<name>.vendor/` directory is gone after removal. Reuse the
       vendor-blob fixture at `tests/repo_acceptance.rs:1755`.
 
 Acceptance: `cargo test --test repo_acceptance` passes. The cascade test must
 assert `alice#user` is absent from `project.json` — asserting only that the
 command succeeded would pass even if the cascade silently removed nothing but the
-named target.
+named target. **VERIFIED, and A/B-checked**: replacing the closure with just the
+named target makes the test fail ("Removed 1 package(s)" instead of 2). 25
+acceptance passed / 0 failed.
 Commit: —
 
 ### Phase 5 — Docs
 
-- [ ] `src/main.rs:96` `PKG_HELP`: add `remove <target>` and `--yes` to Options.
-- [ ] `src/main.rs:45` `USAGE`: add `pkg remove` to the pkg block if it fits the
+- [x] `src/main.rs:96` `PKG_HELP`: add `remove <target>` and `--yes` to Options.
+- [x] `src/main.rs:45` `USAGE`: add `pkg remove` to the pkg block if it fits the
       block's existing selectivity; otherwise leave the `mfb pkg --help` pointer.
-- [ ] `src/docs/spec/tooling/07_cli-reference.md`: add a `pkg remove` row —
+- [x] `src/docs/spec/tooling/07_cli-reference.md`: add a `pkg remove` row —
       `mfb pkg remove <owner>#<pkg> [--yes]`, `0 ok; 2 usage; 1 failed`.
-- [ ] Document the cascade in the tooling spec: why it exists (the dropped-edge
+- [x] Document the cascade in the tooling spec: why it exists (the dropped-edge
       behavior at `src/cli/resolve.rs:253` means a dangling import resolves
       cleanly), the offline computation, and the not-installed gate. Cite
       `[[src/cli/resolve.rs:resolve]]` and `[[src/manifest/libraries.rs:imported_vendor_dir]]`.
-- [ ] Document the zero-dependency lockfile policy (plan-60-B §4.3) — this is the
+- [x] Document the zero-dependency lockfile policy (plan-60-B §4.3) — this is the
       first letter where it becomes user-visible, so it becomes documentable here.
 
 Acceptance: `cargo build && cargo test --bin mfb spec` pass; `mfb spec tooling
@@ -443,7 +449,36 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in DURING execution. -->
+**#1 — `project_json_without_packages` rebuilds the array instead of splicing.**
+(Phase 3, 2026-07-21.) Phase 3 specifies "removing one or more dependency entries
+by surgical string edit — the same approach as `project_json_with_package`",
+which splices. Splicing a *removal* is a different problem from splicing an
+*insertion*: it has to decide which comma belongs to which neighbour, and the
+first, middle, last and only-entry cases each fail differently — a dangling comma
+or a leading one, both producing invalid JSON.
+
+Implemented by collecting the entries that survive and re-emitting the array from
+them. Surviving entries keep their **original text byte for byte**, so the
+property the plan actually wanted — per-entry formatting and comments survive —
+is preserved; only the separators between entries are regenerated. Every
+position is tested and every case asserts the result re-parses as valid JSON.
+
+**#2 — matched on `ident`, like plan-60-E's editor.** (Phase 3, 2026-07-21.) The
+signature in Phase 3 is `project_json_without_packages(contents, names)`, but the
+closure produces **idents** and `name` ≠ `ident` in general. Same reasoning as
+plan-60-E Corrections #2: keying on `name` would have required the caller to
+translate and would silently miss entries whose name and ident differ. Falls back
+to `name` when `ident` is absent, so a bare-name entry is still reachable.
+
+**#3 — `install_without_a_lock_errors_before_network` was landing in the new
+success case.** (Phase 4, 2026-07-21.) §4.6 makes "no lock, nothing declared" a
+success, and that test's fixture declared **no** packages — so it began passing
+where it should have errored. Its intent ("dependencies declared but no lock →
+early error, no network") was never about the empty case; the fixture simply
+predated the distinction. Given a declared dependency, it exercises the behavior
+it was written for (`b20ab6b56`, plan-12 coverage wave), and the new
+zero-dependency case gets its own test covering both an empty `packages` array
+and a `file://`-only project.
 
 ## Summary
 

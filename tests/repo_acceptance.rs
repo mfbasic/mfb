@@ -983,6 +983,144 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     );
 }
 
+/// plan-60-F: `mfb pkg remove` cascades to reverse dependencies.
+///
+/// Publishes `alice#dep` and `alice#user` (which imports `dep`), adds both to a
+/// consumer, then removes `dep`. **`user` must go too** — otherwise its import
+/// edge would name an undeclared ident, which `resolve()` silently drops,
+/// leaving a project that resolves clean and fails at build time.
+///
+/// Asserting only that the command succeeded would pass even if the cascade
+/// removed nothing but the named target, so this asserts `alice#user` is gone
+/// from `project.json` and that both `.mfp` files are deleted.
+#[test]
+fn remove_cascades_to_packages_that_import_the_target() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // alice#dep — a leaf package.
+    let dep_dir = work.path().join("dep");
+    let dep_arg = dep_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", dep_arg]).status.success());
+    let dep_manifest = dep_dir.join("project.json");
+    std::fs::write(
+        &dep_manifest,
+        std::fs::read_to_string(&dep_manifest).unwrap().replace(
+            "  \"version\": \"0.1.0\",\n",
+            "  \"version\": \"1.0.0\",\n  \"ident\": \"alice#dep\",\n",
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dep_dir.join("src/lib.mfb"),
+        "EXPORT FUNC shared() AS Integer\n  RETURN 1\nEND FUNC\n",
+    )
+    .unwrap();
+    assert!(
+        run_mfb(&repo, home.path(), &["repo", "publish", "alice", dep_arg])
+            .status
+            .success()
+    );
+    let dep_mfp = dep_dir.join("dep.mfp");
+
+    // alice#user — imports dep.
+    let user_dir = work.path().join("user");
+    let user_arg = user_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", user_arg]).status.success());
+    let user_manifest = user_dir.join("project.json");
+    std::fs::write(
+        &user_manifest,
+        std::fs::read_to_string(&user_manifest).unwrap().replace(
+            "  \"version\": \"0.1.0\",\n",
+            "  \"version\": \"1.0.0\",\n  \"ident\": \"alice#user\",\n",
+        ),
+    )
+    .unwrap();
+    assert!(run_mfb_in(
+        &repo,
+        home.path(),
+        &user_dir,
+        &["pkg", "add", &format!("file://{}", dep_mfp.display())]
+    )
+    .status
+    .success());
+    std::fs::write(
+        user_dir.join("src/lib.mfb"),
+        "IMPORT dep\nEXPORT FUNC callShared() AS Integer\n  RETURN dep::shared()\nEND FUNC\n",
+    )
+    .unwrap();
+    let publish_user = run_mfb(&repo, home.path(), &["repo", "publish", "alice", user_arg]);
+    assert!(
+        publish_user.status.success(),
+        "publish user failed: {}",
+        String::from_utf8_lossy(&publish_user.stderr)
+    );
+
+    // Consumer declares both.
+    let app = work.path().join("cascade_consumer");
+    let app_arg = app.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_arg]).status.success());
+    let run_in = |args: &[&str]| run_mfb_in(&repo, home.path(), &app, args);
+    assert!(run_in(&["pkg", "add", "alice#dep"]).status.success());
+    assert!(run_in(&["pkg", "add", "alice#user"]).status.success());
+    assert!(app.join("packages/dep.mfp").is_file());
+    assert!(app.join("packages/user.mfp").is_file());
+
+    // Remove the leaf: `user` must cascade.
+    let removed = run_in(&["pkg", "remove", "alice#dep", "--yes"]);
+    assert!(
+        removed.status.success(),
+        "remove failed: {}",
+        String::from_utf8_lossy(&removed.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&removed.stdout);
+    assert!(
+        stdout.contains("imports alice#dep"),
+        "the cascade must explain WHY user is going: {stdout}"
+    );
+
+    let manifest = std::fs::read_to_string(app.join("project.json")).unwrap();
+    assert!(!manifest.contains("alice#dep"), "{manifest}");
+    assert!(
+        !manifest.contains("alice#user"),
+        "the cascade must remove the importer too, not just the named target: {manifest}"
+    );
+    assert!(
+        !app.join("packages/dep.mfp").exists(),
+        "dep.mfp must be deleted"
+    );
+    assert!(
+        !app.join("packages/user.mfp").exists(),
+        "user.mfp must be deleted"
+    );
+
+    // That was the last dependency: mfb.lock goes, and install is a clean no-op.
+    assert!(
+        !app.join("mfb.lock").exists(),
+        "removing the last dependency must delete mfb.lock"
+    );
+    let install = run_in(&["pkg", "install"]);
+    assert!(
+        install.status.success(),
+        "install must be a no-op with nothing declared: {}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&install.stdout).contains("nothing to install"),
+        "{}",
+        String::from_utf8_lossy(&install.stdout)
+    );
+}
+
 /// plan-60-E §4.2/§4.3/§4.1: the targeted `mfb pkg update` form.
 ///
 /// Publishes 1.0.0 (exports `answer` + `extra`), 1.1.0 (a compatible superset)
@@ -2634,6 +2772,28 @@ END FUNC
         !app_dir.join("vendor").exists(),
         "an imported binding must never write into the consumer's own vendor/"
     );
+
+    // plan-60-F §4.5: `remove` deletes the package's vendor directory too, via
+    // `imported_vendor_dir` — not just the `.mfp`. Leaving it behind would
+    // accumulate hash-verified native libraries for packages the project no
+    // longer declares.
+    let removed = run_mfb_in(
+        &repo,
+        home.path(),
+        &app_dir,
+        &["pkg", "remove", "alice#vendorbind", "--yes"],
+    );
+    assert!(
+        removed.status.success(),
+        "remove failed: {}",
+        String::from_utf8_lossy(&removed.stderr)
+    );
+    assert!(
+        !installed_vendor.exists(),
+        "packages/<name>.vendor/ must be deleted with the package: {}",
+        installed_vendor.display()
+    );
+    assert!(!app_dir.join("packages/vendorbind.mfp").exists());
 
     // The build finds the library with no file placed by hand, verifies its hash,
     // and copies it into the output beside the executable.

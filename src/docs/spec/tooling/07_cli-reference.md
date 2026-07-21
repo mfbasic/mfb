@@ -49,6 +49,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `pkg verify` | `mfb pkg verify [--proof]` | 0 ok; 2 usage; 1 failed |
 | `pkg validate` | `mfb pkg validate <package>` | 0 valid; 2 usage; 1 invalid or failed |
 | `pkg update` | `mfb pkg update [<owner>#<pkg>[@version]] [--pin\|--no-pin] [--yes]` | 0 ok; 2 usage; 1 conflict or failed |
+| `pkg remove` | `mfb pkg remove <owner>#<pkg> [--yes]` | 0 ok; 2 usage; 1 failed |
 | `pkg install` | `mfb pkg install [location]` | 0 ok (incl. a warned ABI-floor drift); 2 usage; 1 unrecoverable lock drift or failed |
 | `pkg doc` | `mfb pkg doc <name-or-path> [--out file]` | 0 ok; 2 usage; 1 failed |
 | `repo register` | `mfb repo register <owner_name>` | 0 ok; 2 usage; 1 failed |
@@ -383,6 +384,76 @@ exports (foo, bar); selecting 1.6.0 instead. Use `@2.0.0` to take it anyway.
 An explicit `@version` is always honored and skips the advisory entirely — the
 user has named the version themselves, which is the escape hatch the message
 points at.
+
+## `pkg remove` and the Reverse-Dependency Cascade
+
+```text
+mfb pkg remove <owner>#<pkg> [--yes]
+```
+
+Removes the named package **and every package that transitively imports it**.
+
+### Why the cascade exists
+
+The resolver seeds nodes only from dependencies declared in `project.json`, and
+an import edge naming an ident that is not declared is **silently dropped**
+rather than reported.[[src/cli/resolve.rs:resolve]] So removing only the named
+package would leave any importer of it with a dangling import that *resolves
+cleanly* and fails later, at build time, with an error pointing at the importer
+rather than at the removal that caused it. Cascading is what keeps
+`project.json` internally consistent.
+
+### How the closure is computed
+
+Entirely **offline**, from packages already on disk:
+
+1. Collect every declared registry dependency.
+2. Read each one's import table from `packages/<name>.mfp`, keeping imported
+   idents that contain `#`.
+3. Reverse those edges into `ident → {idents that import it}`.
+4. Walk transitively from the target with a worklist and a visited set, so an
+   import **cycle** terminates and a diamond yields each ident exactly once.
+
+When the closure is larger than the named target, the full set is printed with
+the *direct* importer that pulled each entry in — so a multi-level cascade reads
+as a chain — and confirmation is required. `--yes` bypasses the prompt; a
+non-interactive session without it is an error. Declining exits `0` having
+changed nothing. Removing a package that nothing imports is not prompted.
+
+### The not-installed gate
+
+If a declared dependency's `packages/<name>.mfp` is missing, its imports cannot
+be read, so the closure may omit a package that imports the target. This is an
+**error**, and **`--yes` does not bypass it** — it is a correctness gate, not a
+confirmation:
+
+```text
+error: cannot determine what depends on alice#shape — alice#widget is declared
+       in project.json but not installed (packages/widget.mfp is missing).
+       Run `mfb pkg install` first.
+```
+
+Proceeding would print a confident list, remove less than it should, and leave
+exactly the dangling-import state the cascade exists to prevent.
+
+### File cleanup
+
+After resolution succeeds, each removed package's `packages/<name>.mfp` and its
+`packages/<name>.vendor/` directory are deleted.[[src/manifest/libraries.rs:imported_vendor_dir]]
+A missing file is not an error — the goal state is "absent". A deletion *failure*
+is a warning naming the path, not a command failure: `project.json` and
+`mfb.lock` are already consistent by then, so failing would misreport a completed
+removal. Cleanup never runs before resolution succeeds, so a failed removal
+leaves the working tree untouched.
+
+### Removing the last dependency
+
+A project with no declared registry dependencies has nothing to lock. `mfb.lock`
+is deleted rather than left describing a dependency set that no longer exists,
+and resolution and installation are skipped — an absent lock is the same state a
+freshly `mfb init`-ed project is in. `mfb pkg install` then reports `nothing to
+install` and exits `0`, rather than directing the user to run `mfb pkg update`,
+which would have nothing to do.
 
 ## `pkg verify` Output
 
