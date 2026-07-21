@@ -163,8 +163,14 @@ Commit: —
 
 - [ ] Extend the skip to a resource reachable from an escaping collection
       (`OwnedList`) and to `ResourceUnion`.
-- [ ] Decide and record whether this walks the escaping list at scope exit or
-      reuses the existing float machinery (§15.6's ownership-migration rule).
+- [ ] **Reuse the existing float machinery** (§15.6's ownership-migration rule)
+      rather than walking the escaping list at scope exit — DECIDED, see Open
+      Decisions. The float machinery already knows which resources a collection
+      owns; walking would be O(n) per scope exit and would duplicate that
+      knowledge. If Phase 1 finds it does **not** record collection ownership in
+      a form reachable here, stop and report rather than falling back to walking:
+      that is a premise failure, and walking is the alternative this decision
+      rejected.
 - [ ] Tests: extend `resource-return-collection-order-rt` and
       `resource-collection-transfer-runtime`.
 
@@ -203,10 +209,13 @@ Commit: —
 
 ## Open Decisions
 
-- **Walk the escaping collection at scope exit, or reuse the float machinery?**
-  Recommend reusing the float machinery if it already records which resources a
-  collection owns — walking is O(n) per scope exit and duplicates knowledge the
-  compiler has. Decide in Phase 3 from what Phase 1 finds. (§3)
+- ~~**Walk the escaping collection at scope exit, or reuse the float machinery?**~~
+  **DECIDED (owner, 2026-07-20): reuse the float machinery.** Walking is O(n) per
+  scope exit and duplicates knowledge the compiler already has. This makes
+  Phase 1's variant enumeration load-bearing: it must establish that the float
+  machinery's record of collection ownership is reachable at cleanup-emission
+  time. If it is not, that is a premise failure to report — not a licence to
+  walk.
 
 ## Corrections
 

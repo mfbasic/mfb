@@ -285,9 +285,15 @@ Commit: —
 
 ## Open Decisions
 
-- **Does a native record need `has_io_buffers` explicitly false, or is it false
-  by construction?** Recommend proving it with a test rather than relying on the
-  positional fact that only `fs::` open helpers set it. (§3, Phase 3)
+- ~~**Does a native record need `has_io_buffers` explicitly false, or is it false
+  by construction?**~~ **DECIDED (owner, 2026-07-20): believed false by
+  construction — but explicitly *not* with certainty.** So Phase 3 must **prove**
+  it with a test rather than assert it; do not downgrade that task to a code
+  comment on the strength of this decision. Only `fs::` open helpers set
+  `has_io_buffers`, which makes it a *positional* fact rather than an enforced
+  one, and a positional fact is exactly the kind that drifts. If the test shows a
+  native record can reach the buffer-free path, that is a Correction and a real
+  defect — a native handle's words 24..72 would be handed to `arena_free`.
 
 ## Corrections
 

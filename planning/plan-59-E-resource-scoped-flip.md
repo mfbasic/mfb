@@ -142,8 +142,10 @@ The dangerous part, done first and provably.
 
 - [ ] Read `check_resource_moves` (`ir/verify/mod.rs:2490-2560`) and determine
       what its `moved` set does when two bindings denote one resource.
-- [ ] Decide and implement the aliasing behavior: mark a binding "possibly
-      closed" once it has passed through a call returning `RES`, per §3.
+- [ ] Implement the aliasing behavior: mark a binding "possibly closed" once it
+      has passed through a call returning `RES`. **Emit no diagnostic for that
+      state** — DECIDED, see Open Decisions. It exists to stop the rule reporting
+      a false negative elsewhere, not to be reported itself.
 - [ ] Tests: fixtures asserting the rule **still fires** for straight-line
       `close; use`, for `close; use` across a branch join, and inside a loop —
       i.e. every case that works today must keep working.
@@ -214,15 +216,18 @@ Commit: —
 
 ## Open Decisions
 
-- **Warn at the point of aliasing uncertainty?** When a binding passes through a
-  call returning `RES`, the compiler knows it can no longer prove liveness.
-  Recommend: track it as "possibly closed" and keep hard-erroring elsewhere, but
-  **do not** warn initially — a warning on every pass-through would be noise.
-  Revisit with real code. (§3, Phase 2)
-- **Do the 5 negative fixtures become positive fixtures or move to
-  `rt-behavior`?** Recommend converting in place to positive `syntax` fixtures
-  plus one `rt-behavior` fixture proving the runtime behavior, so the original
-  intent stays traceable to the same directory.
+- ~~**Warn at the point of aliasing uncertainty?**~~ **DECIDED (owner,
+  2026-07-20): no warning.** Track the binding as "possibly closed" internally so
+  the rule does not report a false negative, and keep hard-erroring everywhere
+  liveness is still provable — but emit nothing at the pass-through itself. A
+  warning on every call returning `RES` would fire on correct code and train
+  people to ignore it. Revisit only if real code shows the silence hiding bugs.
+- ~~**Do the 5 negative fixtures become positive fixtures or move to
+  `rt-behavior`?**~~ **DECIDED (owner, 2026-07-20): convert in place.** Each stays
+  in `tests/syntax/resources/` and becomes a positive fixture asserting the new
+  behavior, plus one `rt-behavior` fixture for the runtime proof. None is
+  deleted — the original intent stays traceable to the same directory, and a
+  converted fixture still records what the rule was protecting.
 
 ## Corrections
 

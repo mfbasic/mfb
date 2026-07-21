@@ -200,13 +200,16 @@ Commit: —
 
 ## Open Decisions
 
-- **Should the narrowing be rejected, or permitted with a runtime check?**
-  Recommend rejecting (§3). A runtime check would reintroduce the type tag this
-  sub-plan exists to avoid.
-- **Does `res.md` §4's "Unresolved" get rewritten or annotated?** Recommend
-  annotating with a pointer here rather than rewriting — §4 is a record of the
-  reasoning at the time. (Consistent with leaving `res.md`'s analysis prose
-  intact during the terminology purge.)
+- ~~**Should the narrowing be rejected, or permitted with a runtime check?**~~
+  **DECIDED (owner, 2026-07-20): reject.** `STATE` stays entirely compile-time
+  checked; no runtime `STATE` machinery is added anywhere in plan-59.
+- ~~**Does `res.md` §4's "Unresolved" get rewritten or annotated?**~~
+  **DECIDED (owner, 2026-07-20): annotate.** Add a pointer to this sub-plan
+  beside §4's "Unresolved" note; do **not** rewrite the surrounding analysis. §4
+  is a record of the reasoning as it stood, and the same rule applied when
+  `res.md`'s prose was deliberately left alone during the borrow→pointer purge
+  (commit `a6f4bf282`): that document argues *about* the model, so editing its
+  argument destroys the record. Phase 2's doc-sync task is an annotation only.
 
 ## Corrections
 
