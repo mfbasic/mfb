@@ -1,0 +1,58 @@
+IMPORT fs
+
+' plan-59-E Phase 2 — the SAFETY NET, landed before either ownership rule is
+' removed.
+'
+' plan-59-E deletes TYPE_RESOURCE_INVALIDATE_NOT_OWNER and
+' TYPE_RESOURCE_ELEMENT_NOT_OWNER. `res.md` §8 says that change "loses static
+' use-after-close"; the sub-plan's Non-goals narrow that — straight-line
+' `close(a); use(a)` must STILL be a compile error, because it is caught by a
+' DIFFERENT rule (TYPE_USE_AFTER_MOVE, 2-203-0055).
+'
+' The danger this fixture exists to catch is that a rule which stops firing makes
+' negative tests pass VACUOUSLY. A silent loss of protection looks exactly like
+' success in a green run. So each function below is a case that fires today and
+' must keep firing; the golden records one error per case, and losing any line is
+' the regression.
+'
+' The three cases are the ones §14.9's algorithm actually promises. See this
+' sub-plan's Correction C4 for the fourth case that does NOT fire (a close in a
+' loop body observed across the back edge) — that is specified behaviour, not a
+' gap this fixture should assert.
+
+' 1. Straight-line: the simplest and most important case.
+FUNC straightLine(p AS String) AS Nothing
+  RES f AS File = fs::openFile(p)
+  fs::close(f)
+  LET s AS String = fs::readAll(f)
+  RETURN NOTHING
+END FUNC
+
+' 2. Across a branch join: closed on only ONE arm. §14.9 unions "moved on some
+'    fall-through path" into the outer set, so the use after the join is rejected
+'    exactly as a definite move would be.
+FUNC branchJoin(p AS String, cond AS Boolean) AS Nothing
+  RES f AS File = fs::openFile(p)
+  IF cond THEN
+    fs::close(f)
+  END IF
+  LET s AS String = fs::readAll(f)
+  RETURN NOTHING
+END FUNC
+
+' 3. After a loop whose body closed it: the body's moves union back into the
+'    outer set on fall-through, so the use after WEND is rejected.
+FUNC afterLoop(p AS String) AS Nothing
+  RES f AS File = fs::openFile(p)
+  MUT n AS Integer = 0
+  WHILE n < 2
+    fs::close(f)
+    n = n + 1
+  WEND
+  LET s AS String = fs::readAll(f)
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

@@ -149,18 +149,30 @@ Commit: —
 
 The dangerous part, done first and provably.
 
-- [ ] Read `check_resource_moves` (`ir/verify/mod.rs:2490-2560`) and determine
-      what its `moved` set does when two bindings denote one resource.
+- [x] Read `check_resource_moves` (`ir/verify/mod.rs:2490-2560`) and determine
+      what its `moved` set does when two bindings denote one resource. — the set
+      is keyed by **binding name**, and §14.9 documents the branch/loop merge
+      behaviour. Measured what actually fires today rather than inferring it; see
+      C4, including one case the plan assumed fires and which does **not**.
 - [ ] Implement the aliasing behavior: mark a binding "possibly closed" once it
       has passed through a call returning `RES`. **Emit no diagnostic for that
       state** — DECIDED, see Open Decisions. It exists to stop the rule reporting
       a false negative elsewhere, not to be reported itself.
-- [ ] Tests: fixtures asserting the rule **still fires** for straight-line
+- [x] Tests: fixtures asserting the rule **still fires** for straight-line
       `close; use`, for `close; use` across a branch join, and inside a loop —
-      i.e. every case that works today must keep working.
+      i.e. every case that works today must keep working. — landed as
+      `tests/syntax/resources/use-after-move-still-fires-invalid`, **before** any
+      rule removal. Three cases in one fixture so a single golden carries all
+      three assertions and losing any one is a visible diff (the golden holds
+      exactly 3 × `2-203-0055`). The third case is "after a loop", not "inside a
+      loop" — see C4.
 
 Acceptance: the three "still fires" fixtures pass *before* either rule is
 removed, proving no protection is lost silently. `cargo test` green.
+**MET for the safety net** — the fixture is green and landed ahead of any
+deletion, which is the point of this phase's ordering. `cargo test` 21 suites, 0
+failed; acceptance 108 tests. The aliasing-bookkeeping task above remains open,
+and Phase 3 must not begin until it is closed.
 Commit: —
 
 ### Phase 3 — Remove the two rules
@@ -239,6 +251,42 @@ Commit: —
   converted fixture still records what the rule was protecting.
 
 ## Corrections
+
+### C4 — "inside a loop" does NOT fire today, and that is specified behaviour (2026-07-20)
+
+Phase 2 asked for three "still fires" fixtures covering straight-line, branch
+join, and "inside a loop" — framed as "every case that works today must keep
+working". Measured, by compiling each shape rather than assuming:
+
+| Shape | Fires today? |
+|---|---|
+| straight-line `close(f); use(f)` | **yes** — `2-203-0055` |
+| `close(f)` in one `IF` arm, use after the join | **yes** — `2-203-0055` |
+| `close(f)` in a loop body, use **after** the loop | **yes** — `2-203-0055` |
+| `use(f); close(f)` in a loop body, i.e. observed across the **back edge** | **NO — compiles clean** |
+
+So the plan's third case is only true in the "after the loop" reading. Across the
+back edge the rule is silent, and the fixture asserts the reading that is
+actually true.
+
+**This is not a bug, and was checked before being called one.** §14.9 specifies
+the algorithm: a loop body "runs against a *clone* of the entering set, and the
+new moves it accumulates are unioned back into the outer set only if the arm
+falls through". A close in iteration 1 is therefore deliberately not visible at
+the top of iteration 2; the union is what makes the after-the-loop case fire.
+Documented behaviour, not an oversight — so no bug was filed.
+
+**The runtime backstop already covers it**, verified by running the back-edge
+program: `Error: 7-703-0004  Resource handle is already closed.` That is
+`ErrResourceClosed`, i.e. exactly the degradation `res.md` §3.2 accepts — and it
+is already in force **today**, before plan-59-E removes anything.
+
+**Why this matters to the flip.** §8's "loses static use-after-close" reads as
+though E introduces the static/runtime trade-off. It does not: the trade-off
+already exists for loop back edges, with the runtime guard catching it. E widens
+the set of cases that fall through to the runtime backstop; it does not create
+the backstop or the reliance on it. That is a materially weaker change than the
+plan's framing implies, and it strengthens the case that the flip is safe.
 
 ### C3 — the spec surface, classified (2026-07-20)
 
