@@ -35,8 +35,9 @@ pub(crate) enum PkgCommandError {
 
 pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
     match args {
-        [command, url] if command == "add" => {
-            add_package(Path::new("."), url).map_err(PkgCommandError::Failed)
+        [command, rest @ ..] if command == "add" => {
+            let options = parse_add_options(rest)?;
+            add_package(Path::new("."), &options).map_err(PkgCommandError::Failed)
         }
         [command, package] if command == "info" => {
             print_package_info(Path::new(package)).map_err(PkgCommandError::Failed)
@@ -517,11 +518,95 @@ fn print_publish_verify_report(report: &mfb_repository::server::ValidatePackageR
 /// `<owner>#<package>[@version]` ident installs from the configured registry
 /// (plan-10-A) — pinning the registry-vouched identKey, downloading the blob,
 /// and verifying the full plan-23 §3.5 chain before it is installed.
-fn add_package(project_dir: &Path, target: &str) -> Result<(), String> {
+/// The parsed form of `mfb pkg add <target> [--pin|--no-pin]` (plan-60-C §4.3).
+struct AddOptions {
+    target: String,
+    pin: Option<bool>,
+}
+
+/// Parse `add`'s arguments, following `run_pkg_doc`'s shape (`:1177`): one
+/// positional, explicit flags, unknown-flag rejection, second-positional
+/// rejection.
+///
+/// `--pin` and `--no-pin` together are a **usage error**, not last-flag-wins:
+/// the two orderings would otherwise mean different things with no way to tell
+/// from the command line which was intended (§4.1).
+fn parse_add_options(args: &[String]) -> Result<AddOptions, PkgCommandError> {
+    let mut target: Option<String> = None;
+    let mut pin = false;
+    let mut no_pin = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--pin" => pin = true,
+            "--no-pin" => no_pin = true,
+            flag if flag.starts_with("--") => {
+                return Err(PkgCommandError::Usage(format!("unknown flag `{flag}`")));
+            }
+            value => {
+                if target.is_some() {
+                    return Err(PkgCommandError::Usage(
+                        "mfb pkg add accepts exactly one <target>".to_string(),
+                    ));
+                }
+                target = Some(value.to_string());
+            }
+        }
+    }
+
+    if pin && no_pin {
+        return Err(PkgCommandError::Usage(
+            "mfb pkg add cannot take both --pin and --no-pin".to_string(),
+        ));
+    }
+    let target = target.ok_or_else(|| {
+        PkgCommandError::Usage(format!(
+            "mfb pkg add requires exactly one <url>\n\n{PKG_HELP}"
+        ))
+    })?;
+
+    Ok(AddOptions {
+        target,
+        pin: if pin {
+            Some(true)
+        } else if no_pin {
+            Some(false)
+        } else {
+            None
+        },
+    })
+}
+
+/// §4.1's inference matrix, as a pure function.
+///
+/// The rule: **an explicit `@version` implies `--pin`; an explicit flag always
+/// wins.** Under `pin: false` the `version` field is not the version you get —
+/// it is the ABI *floor* the resolver anchors on, which is why
+/// `@version --no-pin` is a meaningful combination rather than a contradiction.
+fn infer_pin(has_explicit_version: bool, pin_flag: Option<bool>) -> bool {
+    match pin_flag {
+        Some(explicit) => explicit,
+        None => has_explicit_version,
+    }
+}
+
+fn add_package(project_dir: &Path, options: &AddOptions) -> Result<(), String> {
+    let target = options.target.as_str();
     if target.starts_with("file://") {
+        // §4.2: pin inference does not apply to a local copy — there is no
+        // registry version stream to float along. `--no-pin` is therefore a
+        // contradiction rather than a preference, and saying so is better than
+        // silently writing `pin: true` and leaving the user to discover it.
+        if options.pin == Some(false) {
+            return Err(
+                "mfb pkg add --no-pin cannot apply to a file:// package: there is no registry \
+                 version stream to float along"
+                    .to_string(),
+            );
+        }
         add_package_from_file(project_dir, target)
     } else if target.contains('#') {
-        add_package_from_registry(project_dir, target)
+        add_package_from_registry(project_dir, target, options.pin)
     } else {
         Err(format!(
             "mfb pkg add expects a file:// URL or an <owner>#<package>[@version] ident, got `{target}`"
@@ -602,7 +687,11 @@ fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
 // coverage:off — the ident-validation guards are unit-tested; everything past
 // fetch_index reaches a live registry and is covered by the tests/ package-add
 // integration harness.
-fn add_package_from_registry(project_dir: &Path, target: &str) -> Result<(), String> {
+fn add_package_from_registry(
+    project_dir: &Path,
+    target: &str,
+    pin_flag: Option<bool>,
+) -> Result<(), String> {
     let (ident, requested_version) = match target.split_once('@') {
         Some((ident, version)) if !version.is_empty() => (ident, Some(version)),
         Some((_, _)) => return Err("version after `@` must not be empty".to_string()),
@@ -656,11 +745,15 @@ fn add_package_from_registry(project_dir: &Path, target: &str) -> Result<(), Str
     // and place it under `packages/<name>.vendor/` where the build finds it.
     install_vendor_blobs(&repo_url, project_dir, &header.name)?;
 
+    // plan-60-C §4.1: an explicit `@version` implies a pin; an explicit flag
+    // always wins. Under `pin: false` the `version` written here is the ABI
+    // FLOOR the resolver anchors on, not the version you are stuck with.
+    let pin = infer_pin(requested_version.is_some(), pin_flag);
     let dependency = ProjectPackageDependency {
         name: header.name.clone(),
         ident: full_ident.clone(),
         version: header.version.clone(),
-        pin: true,
+        pin,
         source: full_ident,
         ident_key: index.ident_key.clone(),
     };
@@ -1946,28 +2039,125 @@ mod tests {
         }
     }
 
+    /// Parse `add` arguments, panicking with the usage text on failure.
+    /// `PkgCommandError` has no `Debug`, so this unwraps explicitly rather than
+    /// deriving `Debug` on a production type for test ergonomics.
+    fn parsed(args: &[&str]) -> AddOptions {
+        match parse_add_options(&s(args)) {
+            Ok(options) => options,
+            Err(PkgCommandError::Usage(message) | PkgCommandError::Failed(message)) => {
+                panic!("expected `{args:?}` to parse, got: {message}")
+            }
+        }
+    }
+
+    /// A bare `add` invocation with no flags — the common shape in these tests.
+    fn add_opts(target: &str) -> AddOptions {
+        AddOptions {
+            target: target.to_string(),
+            pin: None,
+        }
+    }
+
+    /// plan-60-C §4.1, one case per row of the inference matrix.
+    ///
+    /// | Invocation | `pin` |
+    /// |---|---|
+    /// | `add alice#shape` | `false` |
+    /// | `add alice#shape@1.4.0` | `true` |
+    /// | `add alice#shape --pin` | `true` |
+    /// | `add alice#shape@1.4.0 --no-pin` | `false` |
+    #[test]
+    fn infer_pin_follows_the_matrix() {
+        // No flag: the presence of an explicit @version decides.
+        assert!(!infer_pin(false, None), "bare add floats");
+        assert!(infer_pin(true, None), "an explicit @version implies a pin");
+        // An explicit flag always wins, in both directions.
+        assert!(infer_pin(false, Some(true)), "--pin on a bare add");
+        assert!(
+            !infer_pin(true, Some(false)),
+            "--no-pin overrides the @version implication; the version becomes the ABI floor"
+        );
+        // ...and is honoured even when it merely restates the default.
+        assert!(infer_pin(true, Some(true)));
+        assert!(!infer_pin(false, Some(false)));
+    }
+
+    #[test]
+    fn parse_add_options_reads_the_target_and_flags() {
+        let parse = parsed;
+
+        let bare = parse(&["ada#shape"]);
+        assert_eq!(bare.target, "ada#shape");
+        assert_eq!(bare.pin, None, "no flag means infer, not a default");
+
+        assert_eq!(parse(&["ada#shape", "--pin"]).pin, Some(true));
+        assert_eq!(parse(&["ada#shape", "--no-pin"]).pin, Some(false));
+        // Flags may precede the positional.
+        let leading = parse(&["--no-pin", "ada#shape"]);
+        assert_eq!(leading.target, "ada#shape");
+        assert_eq!(leading.pin, Some(false));
+    }
+
+    /// `--pin --no-pin` is a usage error rather than last-flag-wins: the two
+    /// orderings would otherwise mean different things with no way to tell from
+    /// the command line which was intended (§4.1).
+    #[test]
+    fn parse_add_options_rejects_bad_argument_shapes() {
+        let err = |args: &[&str]| usage(parse_add_options(&s(args)).map(|_| ()));
+
+        assert!(err(&["ada#shape", "--pin", "--no-pin"]).contains("cannot take both"));
+        // ...in either order — neither wins.
+        assert!(err(&["ada#shape", "--no-pin", "--pin"]).contains("cannot take both"));
+        assert!(err(&["--bogus", "ada#shape"]).contains("unknown flag"));
+        assert!(err(&["a", "b"]).contains("accepts exactly one"));
+        assert!(err(&[]).contains("mfb pkg add requires"));
+        assert!(err(&["--pin"]).contains("mfb pkg add requires"));
+    }
+
+    /// §4.2: `--no-pin` on a `file://` target is a usage error naming the
+    /// reason. `--pin` is accepted as a redundant statement of the truth.
+    #[test]
+    fn add_rejects_no_pin_on_a_file_url() {
+        let options = parsed(&["file:///tmp/x.mfp", "--no-pin"]);
+        let err = add_package(Path::new("."), &options).expect_err("must refuse");
+        assert!(err.contains("no registry"), "{err}");
+        assert!(err.contains("--no-pin"), "{err}");
+
+        // `--pin` on a file:// target is a no-op, not an error: it gets past the
+        // §4.2 guard and fails later, on the missing file.
+        let pinned = parsed(&["file:///tmp/does-not-exist.mfp", "--pin"]);
+        let err = add_package(Path::new("."), &pinned).expect_err("missing file");
+        assert!(
+            !err.contains("no registry"),
+            "--pin must not be refused: {err}"
+        );
+    }
+
     #[test]
     fn add_package_rejects_bad_target() {
         // Neither a file:// URL nor an <owner>#<package> ident.
-        let err = add_package(Path::new("."), "just-a-name").unwrap_err();
+        let err = add_package(Path::new("."), &add_opts("just-a-name")).unwrap_err();
         assert!(err.contains("expects a file:// URL or an <owner>#<package>"));
     }
 
     #[test]
     fn add_package_from_registry_rejects_malformed_ident() {
-        assert!(add_package_from_registry(Path::new("."), "no-hash")
+        assert!(add_package_from_registry(Path::new("."), "no-hash", None)
             .unwrap_err()
             .contains("must use <owner>#<package>"));
-        assert!(add_package_from_registry(Path::new("."), "#pkg")
+        assert!(add_package_from_registry(Path::new("."), "#pkg", None)
             .unwrap_err()
             .contains("must use <owner>#<package>"));
-        assert!(add_package_from_registry(Path::new("."), "owner#")
+        assert!(add_package_from_registry(Path::new("."), "owner#", None)
             .unwrap_err()
             .contains("must use <owner>#<package>"));
         // Empty version after `@`.
-        assert!(add_package_from_registry(Path::new("."), "ada#shape@")
-            .unwrap_err()
-            .contains("must not be empty"));
+        assert!(
+            add_package_from_registry(Path::new("."), "ada#shape@", None)
+                .unwrap_err()
+                .contains("must not be empty")
+        );
     }
 
     #[test]
@@ -2165,7 +2355,7 @@ mod tests {
     fn add_package_from_file_reports_missing_source() {
         // A file:// URL to a non-existent .mfp surfaces a read error before any
         // manifest work.
-        let err = add_package(Path::new("."), "file:///no/such/pkg.mfp").unwrap_err();
+        let err = add_package(Path::new("."), &add_opts("file:///no/such/pkg.mfp")).unwrap_err();
         assert!(!err.is_empty());
     }
 }

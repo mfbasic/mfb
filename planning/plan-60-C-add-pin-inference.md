@@ -331,20 +331,32 @@ Commit: e627ce953
 
 Pure logic, no registry, fully unit-testable.
 
-- [ ] Add an `AddOptions` (or equivalent) parser in `src/cli/pkg.rs` following
+- [x] Add an `AddOptions` (or equivalent) parser in `src/cli/pkg.rs` following
       `run_pkg_doc`'s shape (`:1177-1200`): one positional target, `--pin`,
       `--no-pin`, unknown-flag rejection, second-positional rejection.
-- [ ] Add a pure function implementing §4.1's matrix — input: `(has_explicit_version,
-      pin_flag, no_pin_flag)`; output: the resolved `pin` boolean or a usage
-      error. Keep it separate from any I/O so it is directly testable.
-- [ ] Change the `add` dispatch arm (`src/cli/pkg.rs:26`) from
+- [x] Add a pure function implementing §4.1's matrix. **Signature simplified**
+      (Corrections #4): `infer_pin(has_explicit_version: bool, pin_flag:
+      Option<bool>) -> bool`, not the plan's `(has_explicit_version, pin_flag,
+      no_pin_flag)`. Collapsing the two flags to `Option<bool>` at the parse
+      boundary makes the mutually-exclusive `--pin --no-pin` state
+      *unrepresentable* downstream, so the matrix function cannot be handed a
+      contradiction and has no error case to return.
+- [x] Change the `add` dispatch arm (`src/cli/pkg.rs:26`) from
       `[command, url]` to `[command, rest @ ..]`, matching `doc`'s arm at `:32`.
-- [ ] Tests in `src/cli/pkg.rs`: one case per row of §4.1's matrix, including
-      the `--pin --no-pin` usage error; `--no-pin` on a `file://` target is a
-      usage error (§4.2); unknown flag rejected; two positionals rejected.
+- [x] Tests in `src/cli/pkg.rs`: one case per row of §4.1's matrix, including
+      the `--pin --no-pin` usage error **in both orders** (neither wins);
+      `--no-pin` on a `file://` target is a usage error (§4.2) while `--pin` on
+      one is accepted as a no-op; unknown flag rejected; two positionals
+      rejected; flags accepted before the positional.
+- [x] **Added task:** thread the inferred pin through
+      `add_package_from_registry`, replacing the hardcoded `pin: true` at what
+      was `:672`. (The plan lists this under Phase 3, but the signature change
+      belongs with the parser that produces the value.)
 
 Acceptance: `cargo test --bin mfb` passes with a test per matrix row. The
-`--pin --no-pin` case asserts exit-2 usage, not a silent winner.
+`--pin --no-pin` case asserts exit-2 usage, not a silent winner. **VERIFIED** —
+3154 passed / 0 failed (from 3150); `parse_add_options_rejects_bad_argument_shapes`
+asserts the `Usage` variant (exit 2) for both flag orderings.
 Commit: —
 
 ### Phase 3 — Rewire both add paths onto `apply_manifest_change` (largest blast radius)
@@ -482,6 +494,18 @@ consumer's `packages/` directory immediately after `add` — i.e. it asserts the
 real invariant, "`update` does not change what `add` installed". Worth recording
 because the first version failed *both* before and after the fix, which is the
 signature of a test measuring the wrong thing rather than a bug.
+
+**#4 — the matrix function needs two inputs, not three.** (Phase 2, 2026-07-21.)
+Phase 2 specifies `(has_explicit_version, pin_flag, no_pin_flag)` returning "the
+resolved `pin` boolean **or a usage error**". Implemented instead as
+`infer_pin(has_explicit_version: bool, pin_flag: Option<bool>) -> bool`. Two
+separate booleans can encode `(true, true)` — the `--pin --no-pin` contradiction
+— so the three-input version must carry an error case, and every caller must
+handle an error that is really a parsing concern. Collapsing to `Option<bool>` at
+the parse boundary (where the contradiction is actually detected and rejected)
+makes the invalid state unrepresentable downstream: the matrix function becomes
+total, and there is exactly one place that can produce the usage error. The
+matrix's behavior is unchanged; all five rows are still tested.
 
 **#3 — a consequence of the fix, deliberately left to plan-60-E.** With the
 filter corrected, `mfb pkg update` on a project whose *only* dependency is a
