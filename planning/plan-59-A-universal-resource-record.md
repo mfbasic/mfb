@@ -318,7 +318,7 @@ outside the native area changed.
 
 This phase is therefore complete for everything plan-59-A itself changes, and
 carries one task (`- [~]`) explicitly handed to bug-374 rather than closed.
-Commit: —
+Commit: 66b7c267b
 
 ## Validation Plan
 
@@ -332,6 +332,11 @@ Commit: —
   finalize/close against a temp DB.
 - Doc sync: `./mfb spec language native-libraries` §17 describes the native
   resource representation — update if it states the stateful-only record.
+  **DONE** — it did state it, twice and explicitly ("not the bare `CPtr` a
+  stateless native resource is"; "A stateless native resource is unchanged —
+  still a bare handle"). Both rewritten at
+  `src/docs/spec/language/17_native-libraries.md:144`. Spec tests green (48).
+  See C11.
 - Acceptance: `cargo test` and `scripts/test-accept.sh target/debug/mfb <tmp>
   'native*' 'resource*'` with `MFB_HOME=$(mktemp -d)`.
 
@@ -599,6 +604,32 @@ resource producer. The record wrap is real and is visible in a freshly emitted
 guard this change — which is an argument for the `rt-behavior` fixture added in
 Phase 2, and a standing gap worth knowing about: the codegen change at the heart
 of plan-59-A is invisible to the artifact gate.
+
+### C11 — §17 asserted the stateless-handle representation twice, as normative text (2026-07-20)
+
+The Validation Plan hedged this as "update **if** it states the stateful-only
+record". It did, and not in passing — two normative sentences at
+`src/docs/spec/language/17_native-libraries.md:144`:
+
+> … a real 80-byte resource **record** …, **not the bare `CPtr` a stateless
+> native resource is** …
+>
+> **A stateless native resource is unchanged — still a bare handle.**
+
+Both are false as of Phase 1. Rewritten to state that *every* native resource is
+an 80-byte record regardless of `STATE`, that a stateless one has a null STATE
+pointer rather than being a bare `CPtr`, and that the native symbol still
+receives the raw handle (loaded from the record by the thunk) — so the §17
+statement of the calling convention stays true.
+
+Also added the *reason*, which is the part a future reader needs: the uniform
+representation exists so a stateless resource has somewhere to keep a closed
+flag. Without that sentence the change reads as gratuitous, and the next person
+optimising a stateless resource back to a bare handle would silently delete
+plan-59-B's guard slot.
+
+Grepped the rest of the spec for sibling claims; none found. `cargo test --bin
+mfb spec` → 48 passed.
 
 ### C3 — the param-side unwrap is type-keyed, and already covers bare params (2026-07-20)
 
