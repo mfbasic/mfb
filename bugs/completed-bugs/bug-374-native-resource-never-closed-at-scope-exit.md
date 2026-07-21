@@ -1,12 +1,14 @@
 # bug-374: a user-declared `RESOURCE … CLOSE BY` native resource is never closed at scope exit
 
-Last updated: 2026-07-20
+Last updated: 2026-07-21
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness
 
-Status: Open
-Regression Test: (none yet — Phase 1 adds `tests/rt-behavior/native/native-resource-scope-drop-rt`)
+Status: Fixed
+Regression Test: `tests/native_resource_scope_drop.rs` (5 codegen assertions, one
+per §15 exit path, all failing before the fix) and
+`tests/rt-behavior/native/native-resource-scope-drop-rt` (runtime, 2.34 GB → 8.5 MB)
 
 A resource declared with `RESOURCE T CLOSE BY nativeOp` — the form every native
 binding uses — is **never closed and never reclaimed when its binding leaves
@@ -231,41 +233,115 @@ per-program would turn a constant into mutable compiler state.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/rt-behavior/native/native-resource-scope-drop-rt`: a loop that
+- [x] Add `tests/rt-behavior/native/native-resource-scope-drop-rt`: a loop that
       drops a native resource without closing it, asserting bounded retention.
       Confirm it fails today (RSS grows ~146 KB/iteration).
-- [ ] Confirm via `--ncode` that the dropping function emits no close/reclaim,
+- [x] Confirm via `--ncode` that the dropping function emits no close/reclaim,
       and that the built-in contrast case does. Record both.
-- [ ] Audit every in-tree user-declared resource for whether it would become a
+- [x] Audit every in-tree user-declared resource for whether it would become a
       double close once scope exit also closes; record a verdict per site.
 
-Acceptance: the new fixture fails on retention for the documented reason; the
-audit lists a verdict per declaring site.
-Commit: —
+Acceptance: met. The fixture peaks at **2.34 GB** before the fix and **8.5 MB**
+after (273×). Pre-fix `--ncode` for the dropping function contains
+`_mfb_linker_sql_open` and no close/reclaim; post-fix it contains
+`_mfb_linker_sql_close`, `resource_cleanup_reclaim`, and `resource_reclaim_skip`,
+matching the built-in `File` contrast case. Audit verdict: **every** in-tree site
+becomes a double close, and every one is safe — see "Close-exactly-once" below.
 
 ### Phase 2 — the fix
 
-- [ ] Thread the user resource-closer table into the code builder.
-- [ ] Extend `resource_cleanup_symbol` to fall back to it.
-- [ ] Confirm `state_type` and `has_io_buffers` are still computed correctly for
+- [x] Thread the user resource-closer table into the code builder.
+- [x] Extend `resource_cleanup_symbol` to fall back to it.
+- [x] Confirm `state_type` and `has_io_buffers` are still computed correctly for
       a user resource (`has_io_buffers` must be false — pinned by
       `only_the_builtin_file_resource_uses_io_buffers`).
 
-Acceptance: Phase 1's fixture shows flat retention; all 18 native fixtures still
+Carried on `TypeModel` (`resource_closers`) rather than as a fourth `CodeBuilder`
+parameter: `TypeModel` already crosses this exact boundary for the same reason
+(`resource_names`, added by bug-372), and it is the only layer that sees both the
+`RESOURCE` declarations and `link_functions`.
+
+Acceptance: met. Both fixtures flat; 110 native/libsnd/resource acceptance tests
 pass with no double close.
-Commit: —
 
 ### Phase 3 — every exit path + full validation
 
-- [ ] Verify the close fires on RETURN, EXIT/CONTINUE, FAIL, PROPAGATE,
+- [x] Verify the close fires on RETURN, EXIT/CONTINUE, FAIL, PROPAGATE,
       auto-propagated failure, TRAP routing, and EXIT PROGRAM, per §15's list.
-- [ ] `cargo test`; `scripts/test-accept.sh target/debug/mfb <tmp> 'native*'
+- [x] `cargo test`; `scripts/test-accept.sh target/debug/mfb <tmp> 'native*'
       'libsnd*' 'resource*'` with a hermetic `MFB_HOME`.
-- [ ] Re-run the 20 000-iteration reproduction and record the new peak RSS.
+- [x] Re-run the 20 000-iteration reproduction and record the new peak RSS.
 
-Acceptance: full suite green; retention flat on every exit path; the
-reproduction's RSS matches the explicit-close variant within noise.
-Commit: —
+Acceptance: met. A program driving normal exit, RETURN, EXIT, CONTINUE, and
+FAIL/TRAP together over 5 000 iterations peaks at **5.84 GB** before the fix and
+**18.9 MB** after (308×). The reproduction itself: **2.92 GB → 11.4 MB**, within
+noise of the explicit-close variant's 10.2 MB.
+
+Measured retention, 20 000 iterations each, macOS aarch64 debug:
+
+| Variant | before | after |
+| --- | --- | --- |
+| module-declared `RESOURCE Db CLOSE BY sql::close` | 2.92 GB | 11.4 MB |
+| imported binding (`IMPORT sqlite3`, re-exported closer) | 2.92 GB | 11.0 MB |
+| stateful `AS RES Db STATE DbInfo` (String-inlining payload) | 2.93 GB | 15.9 MB |
+| all §15 exit paths together (5 000 iters × 5 paths) | 5.84 GB | 18.9 MB |
+| return-then-use, return-then-drop (40 000 iters) | — | 22.9 MB |
+
+The stateful row confirms the report's "independent of `STATE`" claim from the
+other direction: `state_type_name` splits the `STATE` clause off the type string
+and is not builtin-gated, and the cleanup lookup keys off `base_resource_name`,
+so the STATE payload is reclaimed with the record.
+
+## What the fix turned up that the design did not anticipate
+
+**1. The imported-binding path needs a different name, and nearly shipped broken.**
+The design says "thread the user resource-closer table into the code builder",
+which covers a project declaring its own `RESOURCE`. It does not cover a program
+that *imports* a binding: a decoded package carries no `native_resources` at all
+(`ir/binary.rs` drops them by contract), so the close op has to come from the
+package's `RESOURCE_TABLE` instead. Worse, the name there is package-internal.
+`bindings/sqlite3` re-exports its closer (`EXPORT FUNC close AS sqliteLink::close`),
+so `Db`'s serialized `close_function` is the bare alias `close`, while the
+importing module routes it as `sqlite3.close`.
+
+A first cut resolved close ops by matching the dotted `alias.func` against
+`link_functions`. That fixed the module-declared case and left every *imported*
+resource still leaking — `IMPORT sqlite3` + drop still peaked at 2.92 GB. The
+landed fix stores the declared name and resolves it through `function_symbols`,
+the same table an explicit `sql::close(db)` call goes through, with the package
+branch qualifying by package name exactly as `ir/package.rs` qualifies the
+routing alias.
+
+**2. Close-exactly-once resolves the opposite way from the design's expectation,
+and the "redundant" close must NOT be removed.** The same builtin-only
+`resource_close_function` lookup that caused this bug appears at two more sites,
+both of which were inert only because no cleanup existed to retire:
+
+- `deactivate_moved_resource_arguments` (`builder_codegen_primitives.rs:1512`) —
+  an explicit close does not retire the binding's cleanup for a user resource.
+- the `RETURN` ownership transfer (`builder_codegen_primitives.rs:2364`).
+
+Both are now live, and the tempting follow-up is to extend the lookup there too
+so a native resource closes exactly once, as a built-in `File` does. **That would
+introduce a leak.** A `LINK` close thunk only sets `RESOURCE_CLOSED_BIT`; unlike
+the `fs.close` runtime helper it never frees the 80-byte record (verified in the
+emitted thunk: no `arena_free`, no reclaim). The scope-exit cleanup's
+`emit_resource_block_reclaim` is therefore the *only* thing that reclaims the
+record — on the explicit-close path too. Retiring the cleanup would drop the
+reclaim with it.
+
+So the second close is load-bearing, not waste, and this is also why a native
+function emits one more close site than the built-in equivalent. The second call
+is harmless because plan-59-B's `closed` flag makes it a defined
+`ERR_RESOURCE_CLOSED` no-op that `emit_resource_cleanup_call` already treats as
+benign on the drop path. Pinned by
+`explicitly_closed_native_resource_is_still_reclaimed`.
+
+The `RETURN` site needs no change either: plan-59-D's `escaping_value_slot`
+identity skip already branches past both close and reclaim when the resource
+being dropped is the one escaping. Verified — a function returning a `RES Db`
+that the caller then uses and closes runs clean over 40 000 iterations at 22.9 MB
+flat, with no double free and no use-after-close.
 
 ## Validation Plan
 
@@ -286,6 +362,12 @@ Commit: —
   no-op. Landing this first would require auditing every native program for
   close-then-drop by hand, and would leave the guarantee resting on the static
   rules that plan-59-E deletes.
+
+  **Resolved:** landed after plan-59-B, as recommended. The `closed` flag was
+  already in place (the thunk sets `RESOURCE_CLOSED_BIT` and carries the
+  closed/moved guard), so the fix was safe by construction and the 110
+  native/libsnd/resource fixtures — every one of which closes explicitly — passed
+  unchanged.
 
 ## Summary
 
