@@ -2,20 +2,17 @@
 '
 ' This declaration satisfies every `check_buffer_slots` rule — OUT direction,
 ' exactly one BUFFER clause, named by RETURN, `List OF Byte` return, a SIZE
-' expression over real slots. It therefore passes BOTH ctype gates cleanly (see
-' the `-ast -ir` run below) and reaches the backend, where lowering the thunk
-' fails with an explicit refusal naming CBuffer.
+' expression over a wrapper parameter. It passes both ctype gates and lowers.
 '
-' That refusal is deliberate and load-bearing. plan-58-A ships vocabulary and
-' rejection only; the marshaling is plan-58-B. Without the two guards in
-' link_thunk.rs (§2.4), this file would lower CLEANLY: the staging loop would
-' take the generic scalar-OUT arm, and the result marshal's `_` default would
-' load a raw zeroed 8-byte stack word into RESULT_VALUE_REGISTER, which the
-' caller then dereferences as a collection block. Garbage, no diagnostic — the
-' exact failure mode this sub-plan exists to prevent.
+' plan-58-A shipped this fixture asserting the opposite: back then the thunk
+' REFUSED to lower a CBuffer, because A landed vocabulary and rejection only and
+' the marshaling was B's. The golden recorded that refusal, and it flipped to a
+' clean build the moment B landed the staging pass — which was the point of
+' writing it that way.
 '
-' When plan-58-B lands, this fixture's golden changes from a lowering error to a
-' successful build and run. That churn is the signal, not noise.
+' Front-end acceptance is all this fixture proves now. The runtime proof that the
+' bytes are actually right lives in
+' `tests/rt-behavior/native/native-cbuffer-read-rt`, against a real libc.
 IMPORT io
 
 LINK "demo" AS demo

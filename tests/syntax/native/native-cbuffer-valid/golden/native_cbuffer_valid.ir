@@ -12,15 +12,15 @@
   "functions": [
   {
     "name": "main",
-    "line": 30,
+    "line": 27,
     "visibility": "public",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Byte", "target": "demo.readBytes", "args": [{ "kind": "const", "type": "Integer", "value": "16" }] }] }] }] } },
-    { "op": "return", "line": 33, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Byte", "target": "demo.readBytes", "args": [{ "kind": "const", "type": "Integer", "value": "16" }] }] }] }] } },
+    { "op": "return", "line": 30, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

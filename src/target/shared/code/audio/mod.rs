@@ -118,4 +118,3 @@ pub(in crate::target::shared::code) fn lower_audio_helper(
 pub(in crate::target::shared::code) fn alsa_data_objects() -> Vec<CodeDataObject> {
     alsa::data_objects()
 }
-

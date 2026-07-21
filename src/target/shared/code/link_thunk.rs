@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use super::builder_collection_layout::emit_alloc_byte_list;
 use super::link_locator::LinkLibraries;
 use super::*;
 use crate::ir::{IrLinkExpr, IrLinkFunction};
@@ -412,7 +413,20 @@ fn lower_link_thunk(
     // pointer, across the `arena_alloc` that clobbers all caller-saved registers.
     let rec_handle_off = total_off + 8;
     let rec_ptr_off = rec_handle_off + 8;
-    let frame = align(rec_ptr_off + 8 + 24, 16);
+    // plan-58-B: one scratch word per `OUT CBuffer` slot holding its byte
+    // capacity `N`. It must be a FRAME word, not a register: the byte-list
+    // allocation between computing `N` and using it destroys every caller-saved
+    // register, and `emit_alloc_byte_list` reads the count from a frame offset
+    // anyway. The block POINTER lives in the slot's ordinary `out_base` word.
+    let cbuffer_slots: Vec<usize> = function
+        .abi_slots
+        .iter()
+        .enumerate()
+        .filter(|(_, slot)| slot.ctype == "CBuffer")
+        .map(|(idx, _)| idx)
+        .collect();
+    let cbuffer_size_base = rec_ptr_off + 8;
+    let frame = align(cbuffer_size_base + cbuffer_slots.len() * 8 + 24, 16);
 
     // plan-50-H: the wrapper's result is whatever `RETURN <expr>` names. A bare
     // `RETURN <slot>` (an `IrLinkExpr::Var`) selects that slot's value; anything
@@ -504,6 +518,130 @@ fn lower_link_thunk(
         ));
     }
 
+    // One label counter shared across the CBuffer SIZE expressions, the
+    // SUCCESS_ON gate and the RESULT expression: a per-block counter restarted at
+    // 0 in each produced two identically named labels (`{symbol}_cmp0_end`) when
+    // two of them emitted a comparison/NOT — a duplicate the encoder rejects
+    // outright (bug-79). Declared here, above the first emitter, rather than at
+    // the SUCCESS_ON gate where it used to live.
+    let mut counter = 0usize;
+
+    // plan-58-B: stage every `OUT CBuffer` BEFORE the main slot loop.
+    //
+    // Every other slot kind stages into FRAME storage sized at compile time. A
+    // CBuffer cannot: its size is a runtime value, and its storage must outlive
+    // the call because it becomes the returned MFBASIC value. So it is an arena
+    // block, and allocating one destroys every caller-saved register
+    // (`_mfb_arena_alloc` has no survivor set — `.ai/compiler.md`).
+    //
+    // Doing it in a separate pass is what makes that safe: at this point the only
+    // live state is in frame words (the wrapper's parameters, spilled on entry),
+    // so there is nothing in a register for the allocation to destroy. Running it
+    // inside the main loop would clobber slots already staged into registers by
+    // earlier iterations. `tests/rt-behavior/native/cbuffer_read` pins this with
+    // scalar slots staged on BOTH sides of the buffer.
+    //
+    // The offsets used here must agree with the main loop's `out_seq` sequence and
+    // with `expr_offsets`, or every expression variable after the buffer resolves
+    // to the wrong slot. All three walk `writes_back() && !is_struct_ctype`.
+    let cbuffer_out_off = |target_idx: usize| -> usize {
+        let mut seq = 0usize;
+        for (idx, slot) in function.abi_slots.iter().enumerate() {
+            if is_struct_ctype(&slot.ctype) {
+                continue;
+            }
+            if !slot.direction.writes_back() {
+                continue;
+            }
+            if idx == target_idx {
+                return out_base + seq * 8;
+            }
+            seq += 1;
+        }
+        unreachable!("a CBuffer slot is always an OUT non-struct slot")
+    };
+    for (buf_seq, &slot_idx) in cbuffer_slots.iter().enumerate() {
+        let slot = &function.abi_slots[slot_idx];
+        let size_off = cbuffer_size_base + buf_seq * 8;
+        let out_off = cbuffer_out_off(slot_idx);
+        let cslot_off = cslot_base + slot_idx * 8;
+
+        // `check_buffer_slots` guarantees exactly one clause per CBuffer slot, so
+        // this cannot be absent in a well-formed function. A decoded `.mfp` does
+        // not carry BUFFER clauses yet (plan-58-C), and `ir::verify` rejects such
+        // a package through rule 2 — but that runs on the project, not here, so
+        // fail loudly rather than allocating a zero-length buffer.
+        let Some(buffer) = function.buffers.iter().find(|b| b.slot == slot.name) else {
+            return Err(format!(
+                "LINK function '{}.{}' CBuffer slot '{}' has no BUFFER SIZE clause",
+                function.alias, function.name, slot.name
+            ));
+        };
+
+        // A SIZE expression may read only wrapper parameters and CONST pins
+        // (plan-58-A rule 9, tightened): those are the only values that exist
+        // before the call. Parameters are already spilled to `param_base`; pin
+        // immediates are materialized into their cslot words here, which the main
+        // loop then writes again — harmless, and it keeps the pin's value in the
+        // one place an expression can read it from.
+        let mut size_offsets: HashMap<&str, usize> = HashMap::new();
+        for (name, &pidx) in &param_index {
+            size_offsets.insert(name, param_base + pidx * 8);
+        }
+        for (pin_name, value) in &const_for {
+            let Some(pin_idx) = function
+                .abi_slots
+                .iter()
+                .position(|s| &s.name.as_str() == pin_name)
+            else {
+                continue;
+            };
+            let pin_off = cslot_base + pin_idx * 8;
+            instructions.extend([
+                abi::move_immediate("%v9", "Integer", &(*value as u64).to_string()),
+                abi::store_u64("%v9", abi::stack_pointer(), pin_off),
+            ]);
+            size_offsets.entry(pin_name).or_insert(pin_off);
+        }
+
+        let mut vreg = LINK_EXPR_VREG_BASE;
+        let size_reg = emit_link_expr(
+            &buffer.size,
+            &size_offsets,
+            &mut vreg,
+            &symbol,
+            &mut counter,
+            &mut instructions,
+        );
+        instructions.push(abi::store_u64(&size_reg, abi::stack_pointer(), size_off));
+
+        // Allocate the block and spill its pointer to the OUT word. The helper
+        // writes the header (count/capacity/dataLength/dataCapacity all `N`) and
+        // branches to `alloc_fail` on failure, so a wrapper with no LENGTH clause
+        // needs no post-call work and the list is well-formed even if the callee
+        // writes nothing.
+        emit_alloc_byte_list(
+            &symbol,
+            &format!("cbuf{buf_seq}"),
+            size_off,
+            out_off,
+            &alloc_fail,
+            &mut instructions,
+            &mut relocations,
+        );
+
+        // The C function gets `dataBase`, NOT the block pointer. Two different
+        // pointers 40 bytes apart: hand over the block and the callee overwrites
+        // the header, which a short write corrupts only partially and therefore
+        // plausibly. Reload the block from its frame word first — the allocation
+        // destroyed every register.
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), out_off),
+            abi::add_immediate("%v9", "%v9", COLLECTION_HEADER_SIZE),
+            abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+        ]);
+    }
+
     // Compute each C argument into its scratch slot. OUT buffers are addressed,
     // const pins are pinned, and ordinary params are marshaled per ABI type.
     let mut out_seq = 0usize;
@@ -513,19 +651,23 @@ fn lower_link_thunk(
     let mut result_out_ctype: Option<String> = None;
     for (slot_idx, slot) in function.abi_slots.iter().enumerate() {
         let cslot_off = cslot_base + slot_idx * 8;
-        // plan-58-A: `CBuffer` is a known ctype with no marshaling arm yet. Refuse
-        // it HERE rather than letting it fall through — the generic scalar-OUT arm
-        // below would happily stage an 8-byte stack word as the "buffer", pass its
-        // address to a C function expecting N writable bytes, and surface the word
-        // as a collection pointer. That is the exact garbage-codegen failure mode
-        // the ctype exists to prevent. plan-58-B replaces this with the real
-        // allocation; until then a well-formed declaration must fail loudly.
+        // plan-58-B: a CBuffer was fully staged by the pass above — block
+        // allocated, pointer in its OUT word, `dataBase` in its cslot. Skip it
+        // here, but ONLY after advancing `out_seq`: the sequence must match
+        // `expr_offsets` and the staging pass, or every expression variable after
+        // the buffer resolves to the wrong slot.
+        //
+        // Falling through instead would be silently destructive — the generic
+        // scalar-OUT arm below overwrites the cslot with `&out_word` and ZEROES
+        // the out word that now holds the block pointer, so the two stagings
+        // clobber each other and the callee receives a pointer to frame memory.
         if slot.ctype == "CBuffer" {
-            return Err(format!(
-                "LINK function '{}.{}' ABI slot '{}' uses CBuffer, which is not yet marshaled \
-                 (plan-58-B)",
-                function.alias, function.name, slot.name
-            ));
+            if result_var == Some(slot.name.as_str()) {
+                result_out_off = Some(out_base + out_seq * 8);
+                result_out_ctype = Some(slot.ctype.clone());
+            }
+            out_seq += 1;
+            continue;
         }
         // plan-50-E: a struct slot passes the ADDRESS of a zeroed buffer, exactly
         // as an OUT scalar does — only sized.
@@ -760,13 +902,6 @@ fn lower_link_thunk(
         }
     }
 
-    // One label counter shared across the SUCCESS_ON gate and the RESULT
-    // expression: a per-block counter restarted at 0 in each, so a thunk whose
-    // SUCCESS_ON and RESULT both emit a comparison/NOT produced two identically
-    // named labels (`{symbol}_cmp0_end`) — a duplicate the encoder now rejects
-    // outright (bug-79).
-    let mut counter = 0usize;
-
     // SUCCESS_ON gate: a failing status produces an Error result.
     if let Some(success) = &function.success_on {
         let mut vreg = LINK_EXPR_VREG_BASE;
@@ -863,17 +998,21 @@ fn lower_link_thunk(
                     abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
                 ]);
             }
-            // plan-58-A: a second refusal, deliberately redundant with the staging
-            // guard above. The `_` default here is a bare 8-byte load — a silent
-            // raw read for ANY ctype without an arm (this is the bug-238
-            // mechanism, where a `CInt32` OUT surfaced -1 as 4294967295). Relying
-            // on one guard to protect the other means a future refactor that moves
-            // staging leaves this arm reachable with no diagnostic.
+            // plan-58-B: the OUT word holds the byte-list BLOCK pointer, which is
+            // exactly the wrapper's `List OF Byte` result — so this is a plain
+            // load, and the `_` default below would coincidentally do the same
+            // thing.
+            //
+            // The arm is written out anyway. Relying on a silent default is how
+            // bug-238 happened: that same `_` is why a `CInt32` OUT surfaced `-1`
+            // as `4294967295`. An arm that agrees with the default today still
+            // states the intent, and stops a future edit to the default from
+            // silently changing what a CBuffer returns.
             "CBuffer" => {
-                return Err(format!(
-                    "LINK function '{}.{}' returns a CBuffer OUT slot, which is not yet marshaled \
-                     (plan-58-B)",
-                    function.alias, function.name
+                instructions.push(abi::load_u64(
+                    RESULT_VALUE_REGISTER,
+                    abi::stack_pointer(),
+                    out_off,
                 ));
             }
             _ => {
@@ -2039,19 +2178,23 @@ mod tests {
             "CUInt16", "CUInt32", "CUInt64", "CBool", "CByte", "CFloat", "CDouble", "CVoid",
         ];
 
-        // plan-58-A: `CBuffer` is the one accepted ctype that must NOT lower yet,
-        // so it is excluded from both loops below and asserted separately. Naming
-        // it here rather than letting a filter drop it silently is the point: when
-        // plan-58-B lands the marshaler, THIS assertion fails, which is what forces
-        // `CBuffer` back into the loops instead of staying quietly uncovered.
-        const NOT_YET_LOWERED: &[&str] = &["CBuffer"];
+        // `CBuffer` is covered by neither loop below, because it fits neither
+        // shape: it is invalid as the ABI return (loop 1) and invalid as an IN
+        // slot (loop 2). Its only legal position is an OUT slot with a `BUFFER …
+        // SIZE` clause, so it gets its own case at the end of this test.
+        //
+        // plan-58-A shipped that case as an assertion that CBuffer must FAIL to
+        // lower, deliberately rigged to break the moment plan-58-B landed the
+        // marshaler — which is exactly what happened, rather than the ctype
+        // quietly staying uncovered behind a silent filter.
+        const OWN_SHAPE_ONLY: &[&str] = &["CBuffer"];
 
         // Every ctype valid as an ABI *return* must reach a return arm. This is the
         // arm that can `Err`, and it is how the guard caught `CString` having no
         // return meaning at all (a `char *` return is `CPtr` + a `String` wrapper).
         for ctype in CTYPES
             .iter()
-            .filter(|c| abi_ctype_valid_as_return(c) && !NOT_YET_LOWERED.contains(c))
+            .filter(|c| abi_ctype_valid_as_return(c) && !OWN_SHAPE_ONLY.contains(c))
         {
             let returns_value = *ctype != "CVoid";
             let function = IrLinkFunction {
@@ -2123,12 +2266,11 @@ mod tests {
             );
         }
 
-        // plan-58-A pins the A/B boundary: a well-formed `OUT CBuffer` declaration
-        // — one that passes every `check_buffer_slots` rule — must still fail to
-        // LOWER, loudly. Without this, the two refusal guards could be deleted and
-        // the only symptom would be a raw stack word surfacing as a collection
-        // pointer at runtime in some future binding.
-        for ctype in NOT_YET_LOWERED {
+        // plan-58-B: a well-formed `OUT CBuffer` — one that passes every
+        // `check_buffer_slots` rule — must LOWER. The runtime proof that the bytes
+        // are right lives in `tests/rt-behavior/native/native-cbuffer-read-rt`;
+        // this is the drift guard that keeps the ctype covered at all.
+        for ctype in OWN_SHAPE_ONLY {
             let function = IrLinkFunction {
                 alias: "lib".to_string(),
                 name: format!("out_{ctype}"),
@@ -2159,12 +2301,10 @@ mod tests {
             };
             let lowered =
                 lower_link_thunk(&function, &[], &HashMap::new(), 0, 0, None, &HashSet::new());
-            let err = lowered
-                .err()
-                .unwrap_or_else(|| panic!("{ctype} lowered, but it has no marshaling arm yet"));
             assert!(
-                err.contains(ctype),
-                "{ctype} refusal must name the ctype so the diagnostic is actionable, got: {err}"
+                lowered.is_ok(),
+                "accepted OUT-slot ctype {ctype} does not lower: {:?}",
+                lowered.err()
             );
         }
     }

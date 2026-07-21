@@ -4,14 +4,14 @@
   {
     "path": "src/lib.mfb",
     "imports": [
-    { "module": "io", "line": 19 }
+    { "module": "io", "line": 16 }
     ],
     "items": [
     {
       "kind": "link",
       "library": "demo",
       "alias": "demo",
-      "line": 21,
+      "line": 18,
       "cstructs": [
       ],
       "functions": [
@@ -22,14 +22,14 @@
         "returnResource": false,
         "returnType": "List OF Byte",
         "returnState": null,
-        "line": 22,
+        "line": 19,
         "params": [
-        { "name": "n", "type": "Integer", "default": null, "line": 22 }
+        { "name": "n", "type": "Integer", "default": null, "line": 19 }
         ],
         "abi": {
           "slots": [
-          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 24 },
-          { "name": "n", "ctype": "CInt64", "out": false, "line": 24 }
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 21 },
+          { "name": "n", "ctype": "CInt64", "out": false, "line": 21 }
           ],
           "returnName": "status",
           "returnCType": "CInt32"
@@ -50,13 +50,13 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 30,
+      "line": 27,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "demo.readBytes", "arguments": [{ "kind": "number", "value": "16" }] }] }] }] }, "line": 32 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "demo.readBytes", "arguments": [{ "kind": "number", "value": "16" }] }] }] }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 30 }
       ]
     }
     ]

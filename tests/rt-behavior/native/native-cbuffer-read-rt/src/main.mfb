@@ -1,0 +1,73 @@
+' plan-58-B Phase 1 — the spike that falsifies the sub-plan's one unproven
+' premise: that an arena allocation can happen DURING slot staging without
+' destroying another slot's staged value.
+'
+' Every other ABI slot kind stages into frame storage sized at compile time. A
+' CBuffer cannot — its size is a runtime value and its storage must outlive the
+' call — so it is an arena block, and `_mfb_arena_alloc` destroys every
+' caller-saved register with no survivor set.
+'
+' `pread(2)` is chosen deliberately over `read(2)`: it has FOUR arguments, so the
+' buffer has a scalar slot staged before it (fd) and TWO after it (nbyte,
+' offset). If the allocation clobbered its neighbours, the wrong length or the
+' wrong offset would reach the callee and the bytes would come back wrong — an
+' observable failure rather than a latent one.
+'
+'   ssize_t pread(int fd, void *buf, size_t nbyte, off_t offset);
+IMPORT io
+IMPORT fs
+IMPORT encoding
+
+LINK "c" AS libc
+  FUNC openRead(path AS String) AS Integer
+    SYMBOL "open"
+    ABI (path CString, flags CInt32) AS fd CInt32
+    CONST flags = 0
+    RETURN fd
+  END FUNC
+
+  ' The buffer sits BETWEEN fd and (nbyte, offset) in native argument order.
+  FUNC preadBytes(fd AS Integer, nbyte AS Integer, offset AS Integer) AS List OF Byte
+    SYMBOL "pread"
+    ABI (fd CInt32, buf OUT CBuffer, nbyte CInt64, offset CInt64) AS got CInt64
+    BUFFER buf SIZE nbyte
+    RETURN buf
+  END FUNC
+
+  FUNC closeFd(fd AS Integer) AS Integer
+    SYMBOL "close"
+    ABI (fd CInt32) AS status CInt32
+    RETURN status
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  LET path AS String = "target/native_cbuffer_read_rt.bin"
+  fs::writeText(path, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+  LET fd AS Integer = libc::openRead(path)
+  io::print("fd_ok " & toString(fd > 0))
+
+  ' Full-capacity read from offset 0: every byte the callee writes is observable,
+  ' which is what catches a dataBase/block pointer swap. Handing over the BLOCK
+  ' instead of dataBase would let the callee overwrite the 40-byte header, so a
+  ' full write corrupts count/capacity and the list stops reading back cleanly.
+  LET head AS List OF Byte = libc::preadBytes(fd, 8, 0)
+  io::print("head_len " & toString(len(head)))
+  ' base64 rather than a text decode: it renders every byte exactly, so a
+  ' single wrong or uninitialized byte shows up in the golden.
+  io::print("head " & encoding::base64Encode(head))
+
+  ' A non-zero offset proves the LAST staged slot survived the allocation: if
+  ' `offset` were clobbered to 0 this would return "ABCDEFGH" again.
+  LET mid AS List OF Byte = libc::preadBytes(fd, 6, 10)
+  io::print("mid " & encoding::base64Encode(mid))
+
+  ' And a different nbyte proves the middle one survived.
+  LET tail AS List OF Byte = libc::preadBytes(fd, 4, 22)
+  io::print("tail " & encoding::base64Encode(tail))
+
+  LET closed AS Integer = libc::closeFd(fd)
+  io::print("closed " & toString(closed))
+  RETURN 0
+END FUNC

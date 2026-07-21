@@ -2,6 +2,3 @@ $ mfb build -ast -ir tests/syntax/native/native-cbuffer-valid
 Wrote AST to tests/syntax/native/native-cbuffer-valid/native_cbuffer_valid.ast
 Wrote IR to tests/syntax/native/native-cbuffer-valid/native_cbuffer_valid.ir
 [exit 0]
-$ mfb build tests/syntax/native/native-cbuffer-valid
-error: LINK function 'demo.readBytes' ABI slot 'buf' uses CBuffer, which is not yet marshaled (plan-58-B)
-[exit 1]

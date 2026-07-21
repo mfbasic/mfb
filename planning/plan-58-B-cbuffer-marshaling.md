@@ -373,19 +373,51 @@ Ordered uncertainty-first: Phase 1 exists to falsify the one unproven premise
 The smallest thing that proves an arena allocation can happen mid-staging without
 destroying another slot's staged value. **Do not build the rest until this passes.**
 
-- [ ] A LINK wrapper with a fixed-size `OUT CBuffer` (`SIZE 64`, no `LENGTH`) and
-      **at least two other scalar slots staged around it**, so a register-lifetime
-      violation is observable rather than latent.
-- [ ] Implement the separate staging pass in `link_thunk.rs`: allocate, spill the
+- [x] A LINK wrapper with a `OUT CBuffer` and **at least two other scalar slots
+      staged around it**, so a register-lifetime violation is observable rather
+      than latent.
+      Used **`pread(2)` rather than `read(2)`** — four arguments, so one scalar
+      stages BEFORE the buffer (`fd`) and two AFTER (`nbyte`, `offset`). `read(2)`
+      would have put nothing after it. `SIZE` is the `nbyte` parameter rather than
+      a literal 64, which also exercises expression evaluation during staging.
+- [x] Implement the separate staging pass in `link_thunk.rs`: allocate, spill the
       block to `out_base`, take `dataBase` from the helper, store to the cslot.
-- [ ] Bind libc `read(2)` through it; read a file written by the test.
-- [ ] Assert the *other two slots'* values are intact after the call — that is
+- [x] Bind libc `read(2)` through it; read a file written by the test.
+- [x] Assert the *other two slots'* values are intact after the call — that is
       what this phase is actually testing.
+      Asserted by *varying* them: three calls with different `(nbyte, offset)`
+      pairs. A clobbered `offset` would return the same bytes every time; a
+      clobbered `nbyte` would return the wrong length.
+- [x] Convert the main-loop `Err` guard to a `continue` — **and advance `out_seq`
+      before it**, or `expr_offsets` desynchronizes and every expression variable
+      after the buffer resolves to the wrong slot. Not in the draft's task list.
+- [x] Hoist the shared label counter above the staging pass. A `SIZE` expression
+      can emit labels, and the counter used to be declared at the `SUCCESS_ON`
+      gate — below the new first emitter. Leaving it there would have reintroduced
+      bug-79's duplicate-label collision.
+- [x] Add the `"CBuffer"` result-marshal arm (§4.3). Needed in Phase 1, not
+      Phase 3: without it the wrapper returns nothing usable and the spike cannot
+      be observed at all.
 
-Acceptance: the wrapper returns the file's first 64 bytes byte-for-byte **and**
-both neighbouring scalar slots carry their correct values, on aarch64 and x86-64.
-If the neighbouring slots are corrupted, the separate-pass mitigation is wrong and
-§3 must be redesigned before proceeding.
+**Acceptance: MET on aarch64 (2026-07-20).** `tests/rt-behavior/native/native-cbuffer-read-rt`
+reads a 26-byte file three ways through `pread`, rendering each result as base64
+so every byte is compared exactly:
+
+| call | expected | got |
+|---|---|---|
+| `preadBytes(fd, 8, 0)` | `QUJDREVGR0g=` (`ABCDEFGH`) | ✅ |
+| `preadBytes(fd, 6, 10)` | `S0xNTk9Q` (`KLMNOP`) | ✅ |
+| `preadBytes(fd, 4, 22)` | `V1hZWg==` (`WXYZ`) | ✅ |
+
+Differing offsets and lengths across the three calls prove the neighbouring
+scalar slots survive the allocation, so **the separate-pass mitigation holds and
+§3 needs no redesign.** Byte-exact results also clear the `dataBase`-vs-block
+hazard: handing over the block pointer would have let the callee overwrite the
+40-byte header.
+
+**x86-64: cross-compiles and encodes cleanly (linux-x86_64 glibc + musl,
+linux-aarch64 glibc + musl), but is NOT yet runtime-verified** — this host is
+macOS aarch64. Recorded as outstanding rather than claimed; see Corrections.
 Commit: —
 
 ### Phase 2 — `IrLinkExpr` arithmetic
