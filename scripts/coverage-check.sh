@@ -12,10 +12,10 @@ set -eu
 cd "$(dirname "$0")/.."
 
 FLOOR="${FLOOR:-95}"
-IGNORE='(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$'
+. ./scripts/coverage-common.sh
 
 # Regenerate the JSON summary from the cached profile (no test re-run).
-cargo llvm-cov report \
+cargo llvm-cov report $PKG_FLAGS \
   --ignore-filename-regex "$IGNORE" \
   --json --output-path target/coverage/coverage.json >/dev/null
 

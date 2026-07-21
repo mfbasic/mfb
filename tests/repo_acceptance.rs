@@ -23,21 +23,43 @@ fn mfb_exe() -> String {
     std::env::var("CARGO_BIN_EXE_mfb").unwrap_or_else(|_| "target/debug/mfb".to_string())
 }
 
+// bug-347: `repository` is a workspace member, so `cargo test` builds `mfb-repo`
+// into the *shared* target dir alongside this test's own binaries and we just
+// use it. `CARGO_BIN_EXE_mfb-repo` is not usable here: Cargo defines that only
+// for integration tests of the package that declares the bin, and this test
+// belongs to `mfb`. Deriving the directory from `mfb`'s own bin path instead
+// stays correct under `--release` and a custom `CARGO_TARGET_DIR`.
+//
+// The fallback covers `cargo test --test repo_acceptance`, which selects only
+// `mfb` and so does not build another member's bin. Unlike the pre-bug-347
+// version, this build shares the workspace target dir and profile, so it cannot
+// disagree with the binary the rest of the suite uses.
 fn repo_exe() -> String {
+    let mfb = std::path::PathBuf::from(mfb_exe());
+    let bin_dir = mfb
+        .parent()
+        .expect("mfb binary has a parent directory")
+        .to_path_buf();
+    let exe = bin_dir.join("mfb-repo");
+
     BUILD_REPO.call_once(|| {
-        let status = Command::new("cargo")
-            .args([
-                "build",
-                "--manifest-path",
-                "repository/Cargo.toml",
-                "--bin",
-                "mfb-repo",
-            ])
-            .status()
-            .expect("build mfb-repo");
+        if exe.exists() {
+            return;
+        }
+        let target_dir = bin_dir.parent().expect("target dir above the profile dir");
+        let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+        cmd.args(["build", "-p", "mfb_repository", "--bin", "mfb-repo"])
+            .arg("--target-dir")
+            .arg(target_dir);
+        if bin_dir.file_name().is_some_and(|n| n == "release") {
+            cmd.arg("--release");
+        }
+        let status = cmd.status().expect("build mfb-repo");
         assert!(status.success(), "mfb-repo build failed");
     });
-    "repository/target/debug/mfb-repo".to_string()
+
+    assert!(exe.exists(), "mfb-repo missing at {}", exe.display());
+    exe.to_string_lossy().into_owned()
 }
 
 fn start_repo(repo_dir: &std::path::Path) -> RepoProcess {

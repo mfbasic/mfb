@@ -6,17 +6,16 @@
 # data in place so scripts/coverage-check.sh can generate the per-file JSON gate
 # report without re-running the suite (report reuses the cached profdata).
 #
-# The --ignore-filename-regex excludes, from the coverage denominator:
-#   - target/ and tests/          : build artifacts + the integration harness
-#   - repository/target/          : generated bindgen/serde in the sub-crate
-#   - *_runtime_tables.rs         : generated Unicode data tables (accessors are
-#                                   covered by unicode_backend.rs tests)
-#   - code/private/unicode.rs     : generated Unicode lookup arrays
+# IGNORE (denominator exclusions) and PKG_FLAGS (packages each report pass
+# covers) live in scripts/coverage-common.sh — see that file for both. Per
+# bug-347, `repository/` is now a workspace member, so repository/src/** is
+# exercised by the run below AND measured by the report passes; $PKG_FLAGS is
+# what makes the latter true.
 set -eu
 
 cd "$(dirname "$0")/.."
 
-IGNORE='(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$'
+. ./scripts/coverage-common.sh
 
 # Instrument + run the suite, holding the profile for later report passes.
 # --no-fail-fast: keep running (and collecting coverage from) every test binary
@@ -37,13 +36,13 @@ cargo llvm-cov --workspace --all-targets --no-fail-fast \
 # Human-readable + tooling reports from the held profile. If the run produced no
 # profile at all (e.g. a compile failure), these error out and `set -e` fails the
 # script here — which is still a loud, non-zero exit, so nothing is masked.
-cargo llvm-cov report \
+cargo llvm-cov report $PKG_FLAGS \
   --ignore-filename-regex "$IGNORE" \
   --html --output-dir target/coverage
-cargo llvm-cov report \
+cargo llvm-cov report $PKG_FLAGS \
   --ignore-filename-regex "$IGNORE" \
   --lcov --output-path target/coverage/lcov.info
-cargo llvm-cov report \
+cargo llvm-cov report $PKG_FLAGS \
   --ignore-filename-regex "$IGNORE" \
   --cobertura --output-path target/coverage/cobertura.xml
 

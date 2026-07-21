@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: MEDIUM
 Class: Test infrastructure (silently-dead gate)
 
-Status: Open
+Status: In progress — infrastructure landed; per-file coverage burn-down remains
 Regression Test: `cargo test --workspace --no-run` must list a `mfb_repository` unittests binary
 
 The root `Cargo.toml` declares no `[workspace]` section, so the workspace
@@ -220,49 +220,141 @@ densely). The per-file gate will produce a new set of below-floor files under
 `repository/src/**`. That delta is the point of the change and must be reported,
 not suppressed.
 
+## Corrections (found while fixing — the doc above was wrong in three places)
+
+**1. There is a *second*, deeper bug: joining the workspace is not sufficient.**
+`cargo llvm-cov report` rejects `--workspace` ("specific to [test, nextest,
+…]") and, given no package selection at all, silently reports **only the root
+package's** object files. `scripts/coverage.sh` splits the run
+(`--workspace … --no-report`) from the report passes, so even after
+`repository/` became a member, the run instrumented it correctly and its
+profile data was collected correctly — and every report pass then dropped its
+object file. Measured: `repository/src/**` appeared in **0** of 148 reported
+files, while `llvm-cov export` fed the same profdata plus the
+`mfb_repository` object by hand reported all 12 files fine. So the coverage half
+of this bug would have silently survived the documented fix. The report passes
+now take explicit `-p` flags (`$PKG_FLAGS` in `scripts/coverage-common.sh`),
+derived from `cargo metadata` so a future member cannot reintroduce it.
+
+**2. The prescribed `env!("CARGO_BIN_EXE_mfb-repo")` fix is impossible.** Cargo
+defines `CARGO_BIN_EXE_<name>` only for integration tests of the package that
+*declares* the bin; `tests/repo_acceptance.rs` belongs to `mfb`, not
+`mfb_repository`. Verified by compiling a probe:
+`error: environment variable 'CARGO_BIN_EXE_mfb-repo' not defined at compile time`.
+The test now derives the path from `mfb`'s own bin directory (correct under
+`--release` and a custom `CARGO_TARGET_DIR`), with a `cargo build -p
+mfb_repository` fallback that only fires for `cargo test --test
+repo_acceptance`, which selects `mfb` alone and so builds no other member's bin.
+Unlike the pre-fix workaround, that fallback shares the workspace target dir and
+profile, so it cannot disagree with the binary the rest of the suite uses.
+
+**3. `[workspace] members` alone does not make bare `cargo test` run them.**
+With a package at the workspace root, `cargo test` selects only that root
+package. `default-members = [".", "repository"]` is what satisfies the stated
+goal.
+
+Also: the test count is **164** (153 lib + 11 bin), not the 123 that
+`grep -c '#\[test\]'` reported. All 164 passed on first run — no rot.
+
+**4. The root `Cargo.lock` delta is real, and it is additive-only.** An early
+check showed it byte-identical and that reading was wrong — it was taken before
+the member graph had been re-resolved. Unification adds **~95 entries**
+(+1,286 lines): the `s3` feature's `aws-config` / `aws-sdk-s3` and their
+transitive tree, plus second versions of `h2`, `hashbrown`, `hmac`, `sha1`, and
+`sha2`. What matters is the shape of the delta:
+
+- **Nothing was removed and no existing crate changed version.** The set of
+  `-name =` lines in the diff is empty, so no previously-resolved dependency
+  moved. This was the specific risk the Blast Radius flagged, and it did not
+  materialize.
+- **The AWS crates are *recorded*, not *compiled*.** `Cargo.lock` is a
+  resolution graph and always records optional dependencies regardless of
+  feature state; the separate lockfile was merely hiding them. Verified four
+  ways — `cargo tree -e normal --workspace`, `cargo tree -p mfb_repository`, and
+  a `cargo build --workspace --all-targets` unit graph all yield **0** AWS
+  crates, while `cargo tree -p mfb_repository --features s3` yields **122**. The
+  non-goal ("the AWS SDK must not be compiled into every `mfb` build") holds.
+
+The practical cost is that `cargo fetch` / vendoring now downloads the AWS tree
+even though nothing links it.
+
 ## Phases
 
 ### Phase 1 — reproduce + quantify (no behavior change)
 
-- [ ] Record `cargo metadata --no-deps` output and the `cargo test --workspace
+- [x] Record `cargo metadata --no-deps` output and the `cargo test --workspace
       --no-run` binary list (done — see Failing Reproduction).
-- [ ] Record the 123-test / 13,214-line census (done — see Quantification).
-- [ ] Run `cargo test -p mfb_repository` and record how many of the 123 tests
+- [x] Record the 123-test / 13,214-line census (done — see Quantification).
+- [x] Run `cargo test -p mfb_repository` and record how many of the 123 tests
       actually **pass** today. This is the unknown that sizes Phase 2: tests that
       have not run in months may have rotted.
 
 Acceptance: the pass/fail split of the 123 tests is known and written into this
-file.
+file. **Result: 164 tests (153 lib + 11 bin), 164 passed, 0 failed, 0 ignored.
+Nothing had rotted, so Phase 2 carried no repair work.**
 Commit: —
 
 ### Phase 2 — join the workspace
 
-- [ ] Add `[workspace] members = [".", "repository"]` to the root `Cargo.toml`.
-- [ ] `git rm repository/Cargo.lock`; review the root `Cargo.lock` diff and
-      confirm no unintended version movement.
-- [ ] Confirm `cargo build` does **not** pull the AWS SDK (the `s3` feature stays
-      off under unification).
-- [ ] Fix any of the 123 tests found broken in Phase 1.
+- [x] Add `[workspace] members = [".", "repository"]` to the root `Cargo.toml`
+      (plus `default-members` — see Correction 3).
+- [x] `git rm repository/Cargo.lock`; review the root `Cargo.lock` diff and
+      confirm no unintended version movement (byte-identical — see Corrections).
+- [x] Confirm `cargo build` does **not** pull the AWS SDK (the `s3` feature stays
+      off under unification). `cargo tree -e normal | grep -ci aws` → 0.
+- [x] Fix any of the 123 tests found broken in Phase 1 (none were broken).
 
 Acceptance: `cargo test --workspace --no-run` lists the `mfb_repository`
 binaries; `cargo test` is green; no new transitive dependencies in the default
-build.
+build. **Met: bare `cargo test` exits 0 with 27 test binaries green, and its
+output includes `unittests src/lib.rs (…/mfb_repository-…)` and `unittests
+src/main.rs (…/mfb_repo-…)`.**
 Commit: —
 
 ### Phase 3 — drop the workaround + resolve the coverage policy
 
-- [ ] Replace `tests/repo_acceptance.rs:28-32` with
-      `env!("CARGO_BIN_EXE_mfb-repo")`.
-- [ ] Run `sh scripts/coverage.sh` and record the new global figure and the
-      per-file report for `repository/src/**`.
-- [ ] Apply the Open Decision below (gate now, or exempt with dated entries in
-      `scripts/coverage-exceptions.txt`).
-- [ ] Reconcile all three copies of the `IGNORE` regex
-      (`scripts/coverage.sh:17`, `scripts/coverage-check.sh:15`,
-      `.github/workflows/coverage.yml:21`).
+- [x] Replace `tests/repo_acceptance.rs:28-32` — **not** with
+      `env!("CARGO_BIN_EXE_mfb-repo")`, which is unavailable cross-package; see
+      Correction 2 for what landed.
+- [x] Make the report passes actually cover the new member (Correction 1) —
+      without this the rest of the phase measures nothing.
+- [x] Run `sh scripts/coverage.sh` and record the new global figure and the
+      per-file report for `repository/src/**` (below).
+- [x] Reconcile all three copies of the `IGNORE` regex into
+      `scripts/coverage-common.sh`, sourced by `scripts/coverage.sh`,
+      `scripts/coverage-check.sh`, and `.github/workflows/coverage.yml`.
+- [ ] Apply the Open Decision (resolved: gate with **no** exceptions) by raising
+      the 7 sub-floor `repository/src` files to ≥95%.
+
+**Measured (macOS aarch64, 2026-07-21).** `repository/src/**`: **89.57%**
+(10,017/11,183) across 12 files. Global: **94.91%** (mfb-only, the old report
+scope) → **94.22%** with `repository/src` in the denominator, a −0.69pp shift.
+Local macOS figures are *not* CI-comparable — `src/os/linux/**` is uncovered
+here and `src/os/macos/**` is uncovered on CI's ubuntu runner — so the true
+post-change global is whatever CI reports, not this number.
+
+Files below the 95% per-file floor:
+
+| File | lines | coverage |
+| --- | --- | --- |
+| `repository/src/server.rs` | 2,928 | 80.98% |
+| `repository/src/local.rs` | 426 | 89.20% |
+| `repository/src/client.rs` | 1,675 | 89.61% |
+| `repository/src/main.rs` | 598 | 89.80% |
+| `repository/src/blobstore.rs` | 287 | 91.64% |
+| `repository/src/gc.rs` | 410 | 91.71% |
+| `repository/src/store.rs` | 3,084 | 92.15% |
+
+Two `mfb` tests fail *under llvm-cov instrumentation only* and both pass
+un-instrumented: `float_pow_operator_large_exponent_terminates` (a 15s timeout
+that instrumentation overruns) and the `native_io_runtime` PTY echo tests (the
+known coverage-timing race). Neither touches `repository/`; both are
+pre-existing and out of scope here.
 
 Acceptance: `sh scripts/coverage.sh && sh scripts/coverage-check.sh` pass
 locally; the CI global floor passes; `repository/src/**` appears in the report.
+**Partially met — `repository/src/**` now appears in the report (12 files); the
+per-file gate fails until the burn-down below lands.**
 Commit: —
 
 ## Validation Plan
@@ -278,9 +370,33 @@ Commit: —
 - Full suite: `cargo test`, `sh scripts/coverage.sh`, `sh scripts/coverage-check.sh`,
   and `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
 
+### Phase 4 — burn down `repository/src` to the 95% per-file floor
+
+Per the resolved Open Decision: gate `repository/src/**` at 95% with **no**
+entries in `scripts/coverage-exceptions.txt`. ~1,166 uncovered lines across the
+7 files tabled above.
+
+- [ ] `repository/src/store.rs` (92.15%, 3,084 lines)
+- [ ] `repository/src/gc.rs` (91.71%)
+- [ ] `repository/src/blobstore.rs` (91.64%)
+- [ ] `repository/src/main.rs` (89.80%)
+- [ ] `repository/src/client.rs` (89.61%)
+- [ ] `repository/src/local.rs` (89.20%)
+- [ ] `repository/src/server.rs` (80.98%, 2,928 lines — the largest gap)
+
+Acceptance: `sh scripts/coverage-check.sh` reports no `repository/src` file
+below 95%, with no new exception entries.
+Commit: —
+
 ## Open Decisions
 
-- **Does the per-file 95% gate apply to `repository/src/**`?** This is the
+- ~~**Does the per-file 95% gate apply to `repository/src/**`?**~~ **Resolved
+  2026-07-21: yes, and with no exception entries — the shortfall is closed by
+  writing tests, not by exempting files.** The global floor is handled by
+  landing the fix and letting CI compute the real post-change number rather than
+  extrapolating from a non-comparable macOS run.
+
+  Original framing: This is the
   decision the fix forces, and it should be made deliberately rather than
   inherited from whatever the first coverage run reports.
   - *Recommended:* yes, apply it — with `repository/src/server.rs` (4,060 lines,

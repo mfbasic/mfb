@@ -1,3 +1,14 @@
+# bug-347: `repository/` was a separate workspace, so `cargo test`/`--workspace`
+# and `cargo llvm-cov --workspace` never built its test targets — 164 tests and
+# ~13k lines of network-facing Rust sat outside every gate. Naming it a member
+# puts it back in the test and coverage denominators.
+[workspace]
+members = [".", "repository"]
+# With a package at the workspace root, a bare `cargo test` would select only
+# that root package. Naming both keeps `cargo test` (no flags) equivalent to
+# `cargo test --workspace`, which is what bug-347 requires.
+default-members = [".", "repository"]
+
 [package]
 name = "mfb"
 version = "0.1.0"
