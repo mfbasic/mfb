@@ -535,7 +535,7 @@ yet marshaled (plan-58-B)`. Full unit suite 3124 passed / 0 failed.
 `scripts/artifact-gate.sh target/release/mfb` → **1034 tests, 1267 goldens, 0
 diffs** — every existing thunk byte-identical. Clippy warning count unchanged
 from baseline (34, measured by stashing and re-running).
-Commit: —
+Commit: `0677ce819`
 
 ## Validation Plan
 
