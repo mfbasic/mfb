@@ -41,9 +41,19 @@ See plan-60-A for the plan-wide prerequisite gate. In addition:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-60-A complete (publisher commands moved, `run_pkg_command` trimmed) | `grep -c '"publish"' src/cli/pkg.rs` → 0 dispatch arms remain | NOT MET at authoring |
+| plan-60-A complete (publisher commands moved, `run_pkg_command` trimmed) | `sed -n '/pub(crate) fn run_pkg_command/,/^}/p' src/cli/pkg.rs \| grep -c 'publish_package_project\|transfer_offer\|transfer_accept\|set_release_state\|check_abi'` → 0 | **MET** (2026-07-21, → 0). plan-60-A archived to `planning/old-plans/`. |
+| plan-60-A's move is behaviorally live (the stronger check) | `mfb pkg publish alice .` → exit 2 naming `mfb repo publish`; `mfb repo publish --help` surface present in `REPO_HELP` | **MET** (2026-07-21) — asserted by `cli::pkg::tests::run_pkg_rejects_the_moved_publisher_commands` and `help_lists_each_moved_command_under_repo_only` |
 
 If plan-60-A is not complete, this plan cannot start, full stop.
+
+> **Corrected 2026-07-21 (see Corrections).** The original check was
+> `grep -c '"publish"' src/cli/pkg.rs` → 0. That command does not measure the
+> stated condition: after plan-60-A it returns **3**, all legitimate — one is the
+> moved-command guard plan-60-A deliberately added at `src/cli/pkg.rs:95`, two are
+> test assertion lists naming the moved commands. Taken at face value it would
+> have blocked this letter on a gate that plan-60-A *passing* is what trips. The
+> replacement greps only inside `run_pkg_command`'s body for calls to the five
+> implementations, which is the condition the row actually claims.
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue, and again
@@ -343,7 +353,28 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in DURING execution. -->
+**#1 — The Prerequisites check measured the wrong thing and would have
+false-blocked this letter.** (Found at the gate, 2026-07-21.) The row asserted
+"plan-60-A complete (`run_pkg_command` trimmed)" but checked it with
+`grep -c '"publish"' src/cli/pkg.rs` → 0. After plan-60-A that command returns
+**3**, and all three are correct:
+
+- `src/cli/pkg.rs:95` — the moved-command guard plan-60-A's Open Decision
+  resolved to add, which emits `mfb pkg publish has moved to mfb repo publish`.
+  This exists *because* A succeeded.
+- `src/cli/pkg.rs:1873`, `:1921` — assertion lists in the two tests that pin the
+  moved commands' rejection and the exactly-one-parent help rule.
+
+So the check is inverted with respect to its own claim: plan-60-A passing is
+exactly what makes it fail. A gate row is a stop condition, so taken literally it
+would have halted plan-60 at the letter after the one that satisfied it.
+Replaced with a check scoped to `run_pkg_command`'s body (0 calls to the five
+implementations remain), plus a behavioral second row. Both MET.
+
+**Worth noting for the remaining letters:** C/D/E/F may carry similarly-shaped
+"grep for a string" gates. A grep over a whole file cannot distinguish dispatch
+from a test that asserts the dispatch is gone — check the construct, not the
+spelling.
 
 ## Summary
 
