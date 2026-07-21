@@ -499,7 +499,7 @@ Commit: `ce09612c9`
 | **read past EOF** (callee returns 0) | `past_len 0` |
 
 `every_known_ctype_lowers` covers `CBuffer` in its own OUT-slot shape.
-Commit: —
+Commit: `e116ee46a`
 
 ## Validation Plan
 
