@@ -63,8 +63,13 @@ because it filled before the program read from it.
 **`audio::xruns(stream AS AudioOutput)`**
 
 Playback underruns: the number of times the output starved because the program
-did not supply data fast enough. Both overloads read the same counter and return
-an `Integer`. [[src/builtins/audio.rs:resolve_call]]
+did not supply data fast enough — counted only once the stream has actually
+started, so a stream opened but never written to reports `0` rather than one
+underrun per idle buffer. Both overloads return an `Integer` and share one
+internal body and one runtime symbol (`_mfb_rt_audio_audio_xruns`); the direction
+is read from the handle at runtime. Each stream still has its own counter, in its
+own state block.
+[[src/builtins/audio.rs:resolve_call]][[src/target/shared/runtime/audio_specs.rs:AUDIO_XRUNS_SPEC]][[src/target/shared/code/audio/macos.rs:lower_audio_output_callback]]
 
 ## Parameters
 
