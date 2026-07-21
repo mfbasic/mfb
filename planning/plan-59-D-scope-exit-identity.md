@@ -218,17 +218,36 @@ Commit: —
 
 The skip must not apply on a path where the resource did not actually escape.
 
-- [ ] Verify the skip is inert on `FAIL`, `PROPAGATE`, auto-propagated failure,
+- [x] Verify the skip is inert on `FAIL`, `PROPAGATE`, auto-propagated failure,
       `TRAP` routing, `EXIT`/`CONTINUE`, and `EXIT PROGRAM` — on each, the
-      resource has not escaped and must still be closed.
-- [ ] Pay specific attention to the §15.6 rule: "On an error exit *before* the
-      return, the resources are still closed by the function's scope."
-- [ ] Tests: an error-exit fixture per path asserting the resource *is* closed
-      when the return never happened. Model on `trap-cleanup` fixtures.
+      resource has not escaped and must still be closed. — verified for all but
+      `EXIT PROGRAM`; see C10 for the structural argument and C11 for what
+      `EXIT PROGRAM` does and does not have.
+- [x] Pay specific attention to the §15.6 rule: "On an error exit *before* the
+      return, the resources are still closed by the function's scope." — this is
+      the auto-propagate and TRAP-routing case, and both are now covered by a
+      fixture that fails loudly on a leak rather than passing quietly.
+- [x] Tests: an error-exit fixture per path asserting the resource *is* closed
+      when the return never happened. Model on `trap-cleanup` fixtures. — four
+      paths had **no** resource fixture and now do
+      (`resource-exit-path-cleanup-rt`: `EXIT`, `CONTINUE`, auto-propagated
+      failure, `TRAP` routing). The other four were already covered by the
+      `control-flow-resource-*` siblings; see C10.
 
 Acceptance: a fixture per exit path shows the resource closed exactly once when
 the escape does not occur; no leak under a 1000-iteration error-exit loop
 (arena-growth assertion, as in plan-52-B).
+**MET, with the leak assertion strengthened rather than weakened.** Every §15
+exit path except `EXIT PROGRAM` has a fixture (C10). The new fixture runs **2000**
+iterations over four paths, each opening 1–4 handles.
+
+The assertion is **descriptor exhaustion, not arena growth** — a deliberate
+change from the plan's wording and a stronger check for this property. Arena
+growth would measure the 80-byte record; descriptor exhaustion measures the thing
+that actually matters here, the OS handle, and it fails *hard and early* (macOS's
+soft limit is 256, so a leak on any single path dies within the first handful of
+iterations) instead of requiring a threshold judgement. `cargo test` 21 suites, 0
+failed; acceptance 173 tests.
 Commit: —
 
 ## Validation Plan
@@ -478,6 +497,62 @@ Adding one would have been dead code on the same argument as C8.
 `ResourceUnion` did get the runtime compare, for symmetry with the plain
 resource: both are single-pointer cleanups where a backstop is cheap and the
 static deactivation is keyed on a syntactic local.
+
+### C10 — exit-path coverage, measured (2026-07-20)
+
+Phase 4 asked for "a fixture per exit path". Measuring what existed first showed
+half of §15's list was already covered and half was not:
+
+| §15 exit path | Fixture | Status |
+|---|---|---|
+| normal scope exit | `control-flow-resource-normal-runtime` | pre-existing ✓ |
+| `RETURN` | `control-flow-resource-return-runtime` | pre-existing ✓ |
+| `FAIL` | `control-flow-resource-fail-runtime` | pre-existing ✓ |
+| `PROPAGATE` | `control-flow-resource-propagate-runtime` | pre-existing ✓ |
+| `EXIT` / `CONTINUE` | `resource-exit-path-cleanup-rt` | **added** ✓ |
+| auto-propagated failure | `resource-exit-path-cleanup-rt` | **added** ✓ |
+| `TRAP` routing | `resource-exit-path-cleanup-rt` | **added** ✓ |
+| `EXIT PROGRAM` | — | **not covered**; see C11 |
+
+The four pre-existing ones already use the descriptor-exhaustion technique (a
+4000-iteration loop), which is why the new fixture copies it rather than
+inventing an arena-growth assertion.
+
+**The structural argument, independent of the fixtures.** The skip is gated on
+`escaping_value_slot`, which is `Some` only around the two return emitters'
+cleanup sequences:
+
+- `EXIT`/`CONTINUE` go through `emit_cleanup_branch_to_depth`, a dispatcher that
+  never sets the slot, so the compare is not even emitted.
+- Error exits go through `emit_error_value_exit` / `emit_current_result_exit`,
+  which store an **error** into the pending slot; a record pointer is never
+  there, so a compare cannot match.
+
+The fixtures exist because "cannot match" is a property worth testing rather than
+trusting — a leak here is invisible to exit status.
+
+### C11 — `EXIT PROGRAM` is NOT covered, and why that is recorded rather than ticked (2026-07-20)
+
+§15 says `EXIT PROGRAM` "performs the same cleanup across every live caller frame
+before terminating". Phase 4 listed it among the paths to verify. It is **not**
+covered by a fixture, and the box above is ticked only for the other paths.
+
+Two honest reasons, neither of which is "it works":
+
+1. **It cannot use this fixture's technique.** The assertion here is descriptor
+   exhaustion across many iterations; `EXIT PROGRAM` terminates the process, so
+   there is exactly one iteration and nothing accumulates. Proving it would need
+   an out-of-process observation (a wrapper checking the OS released the handles,
+   or a harness mode that runs a program per iteration) — machinery this fixture
+   suite does not have.
+2. **The skip is inert there by the same argument as the others** — `EXIT
+   PROGRAM` does not carry a returned value, so `escaping_value_slot` is never
+   set on that path and the compare is not emitted. The risk plan-59-D introduces
+   is therefore not present on this path.
+
+So the gap is in *pre-existing* `EXIT PROGRAM` cleanup coverage, not in anything
+this sub-plan changed. Recorded as a known gap rather than silently ticked, and
+worth a fixture if the harness ever gains per-iteration process runs.
 
 ### C2 — the `Commit:` lines and populations here are unverified as of 2026-07-20
 

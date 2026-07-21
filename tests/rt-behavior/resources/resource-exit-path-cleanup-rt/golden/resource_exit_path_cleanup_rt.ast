@@ -1,0 +1,142 @@
+{
+  "project": "resource_exit_path_cleanup_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 18 },
+    { "module": "io", "line": 19 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "leaveByExit",
+      "line": 22,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 22 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 23 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "4" } },
+        "line": 24,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 25 },
+        { "kind": "exit", "target": "while", "code": null, "line": 26 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 28 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "leaveByContinue",
+      "line": 33,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 33 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 34 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "4" } },
+        "line": 35,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 36 },
+        { "kind": "assignment", "name": "n", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, "line": 37 },
+        { "kind": "continue", "loop": "while", "line": 38 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 40 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "leaveByAutoPropagate",
+      "line": 47,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 47 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "bad", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "/nonexistent-p59d/missing.txt" }] }, "line": 49 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 50 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "leaveByTrapRoute",
+      "line": 55,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 55 }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 56 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "bad", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "/nonexistent-p59d/missing.txt" }] }, "line": 57 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 58 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 59,
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 60 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 64,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "string", "value": "tests/rt-behavior/resources/resource-exit-path-cleanup-rt/src/main.mfb" }, "line": 65 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 66 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "2000" } },
+        "line": 67,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "leaveByExit", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 68 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "leaveByContinue", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 69 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "leaveByTrapRoute", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 70 },
+        { "kind": "expression", "expression": {
+          "kind": "trapped",
+          "binding": "e",
+          "line": 71,
+          "expression": { "kind": "call", "callee": "leaveByAutoPropagate", "arguments": [{ "kind": "identifier", "value": "path" }] },
+          "handler": [
+          { "kind": "recover", "value": null, "line": 72 }
+          ]
+        }, "line": 71 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 74 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exit-paths=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 77 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 78 }
+      ]
+    }
+    ]
+  }
+  ]
+}

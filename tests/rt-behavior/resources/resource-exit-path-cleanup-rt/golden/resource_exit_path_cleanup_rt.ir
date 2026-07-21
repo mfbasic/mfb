@@ -1,0 +1,140 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "resource_exit_path_cleanup_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "leaveByExit",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 22, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 23, "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 24,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
+      "body": [
+      { "op": "bind", "line": 25, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "exitLoop", "line": 26, "loop": "while" }
+      ]
+    },
+    { "op": "return", "line": 28, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "leaveByContinue",
+    "line": 33,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 33, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 34, "mutable": true, "name": "n", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 35,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
+      "body": [
+      { "op": "bind", "line": 36, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "assign", "line": 37, "name": "n", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "continueLoop", "line": 38, "loop": "while" }
+      ]
+    },
+    { "op": "return", "line": 40, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "leaveByAutoPropagate",
+    "line": 47,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 47, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 48, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "bad", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/nonexistent-p59d/missing.txt" }] } },
+    { "op": "return", "line": 50, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "leaveByTrapRoute",
+    "line": 55,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 55, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 56, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "bad", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "/nonexistent-p59d/missing.txt" }] } },
+    { "op": "return", "line": 58, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    {
+      "op": "trap",
+      "line": 59,
+      "name": "e",
+      "body": [
+      { "op": "return", "line": 60, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 64,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 65, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "tests/rt-behavior/resources/resource-exit-path-cleanup-rt/src/main.mfb" } },
+    { "op": "bind", "line": 66, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 67,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2000" } },
+      "body": [
+      { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "leaveByExit", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "eval", "line": 69, "value": { "kind": "call", "type": "Nothing", "target": "leaveByContinue", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "eval", "line": 70, "value": { "kind": "call", "type": "Nothing", "target": "leaveByTrapRoute", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "bind", "line": 71, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "leaveByAutoPropagate", "args": [{ "kind": "local", "name": "path" }] } },
+      {
+        "op": "if",
+        "line": 71,
+        "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+        "then": [
+        ],
+        "else": [
+        { "op": "bind", "line": 71, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } }
+        ]
+      },
+      { "op": "assign", "line": 74, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "exit-paths=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
+    { "op": "eval", "line": 77, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "return", "line": 78, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

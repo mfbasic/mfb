@@ -1,0 +1,79 @@
+' plan-59-D Phase 4: a resource is closed on EVERY exit path where it did NOT
+' escape. plan-59-D adds a scope-exit skip for an *escaping* resource; this
+' fixture pins that the skip is inert everywhere else — which is the failure mode
+' that leaks silently rather than the one that crashes.
+'
+' §15 lists the exit paths. Four had no resource fixture before this one: EXIT
+' (loop), CONTINUE, an auto-propagated failure, and TRAP routing. The others are
+' covered by the sibling control-flow-resource-* fixtures (normal, RETURN, FAIL,
+' PROPAGATE).
+'
+' The assertion is FILE DESCRIPTOR EXHAUSTION, not exit code. Each helper opens a
+' file and leaves by one path without returning it, 2000 times over. If the
+' scope-exit cleanup were skipped on any of these paths the descriptors would
+' accumulate and the run would fail long before the end — macOS's default soft
+' limit is 256, so a leak on any single path is caught within the first handful of
+' iterations. A leak is invisible to exit status, which is exactly why it has to
+' be provoked like this rather than asserted directly.
+IMPORT fs
+IMPORT io
+
+' EXIT: the resource is live in the loop body when EXIT leaves the loop.
+FUNC leaveByExit(path AS String) AS Nothing
+  MUT n AS Integer = 0
+  WHILE n < 4
+    RES f AS File = fs::openFile(path)
+    EXIT WHILE
+  WEND
+  RETURN NOTHING
+END FUNC
+
+' CONTINUE: the resource is live where CONTINUE jumps to the next iteration, so
+' every one of the 4 iterations must close its own handle.
+FUNC leaveByContinue(path AS String) AS Nothing
+  MUT n AS Integer = 0
+  WHILE n < 4
+    RES f AS File = fs::openFile(path)
+    n = n + 1
+    CONTINUE WHILE
+  WEND
+  RETURN NOTHING
+END FUNC
+
+' Auto-propagated failure: opening a nonexistent path fails and the failure
+' leaves this function with no explicit FAIL. The resource opened before it has
+' NOT escaped and must still be closed (§15.6: "On an error exit before the
+' return, the resources are still closed by the function's scope").
+FUNC leaveByAutoPropagate(path AS String) AS Nothing
+  RES f AS File = fs::openFile(path)
+  RES bad AS File = fs::openFile("/nonexistent-p59d/missing.txt")
+  RETURN NOTHING
+END FUNC
+
+' TRAP routing: the same failure, routed to this function's own handler, which
+' then returns normally. The resource is live when the route happens.
+FUNC leaveByTrapRoute(path AS String) AS Nothing
+  RES f AS File = fs::openFile(path)
+  RES bad AS File = fs::openFile("/nonexistent-p59d/missing.txt")
+  RETURN NOTHING
+  TRAP(e)
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET path AS String = "tests/rt-behavior/resources/resource-exit-path-cleanup-rt/src/main.mfb"
+  MUT i AS Integer = 0
+  WHILE i < 2000
+    leaveByExit(path)
+    leaveByContinue(path)
+    leaveByTrapRoute(path)
+    leaveByAutoPropagate(path) TRAP(e)
+      RECOVER
+    END TRAP
+    i = i + 1
+  WEND
+  io::print("exit-paths=" & toString(i))
+  io::print("done")
+  RETURN 0
+END FUNC
