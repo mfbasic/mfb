@@ -105,6 +105,13 @@ fallible-call ABI registers. [[src/target/shared/code/builder_codegen_primitives
 thread-transfer reuse the generic flat-record machinery — copying an `Error` is
 one `memcpy`.
 
+The generic **size** walk honors the same sentinel: it reads each inlined field's
+own offset word and skips the field when that word is 0, rather than assuming
+every inlined sub-block is present at the running offset. An origin-less `Error`
+is `{code, message}` with nothing written past the message, so the running-offset
+assumption sized a phantom `ErrorLoc` out of whatever followed the block — and
+freeing that error handed `arena_free` a garbage size (bug-371). [[src/target/shared/code/builder_collection_layout.rs:emit_record_block_size_to_slot]]
+
 ## `Result`
 
 `Result OF T` is a flat `{tag, size, payload}` value — a two-variant data union

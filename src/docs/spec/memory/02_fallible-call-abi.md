@@ -23,7 +23,11 @@ On success only `x0`/`x1` are meaningful. On error all of `x1` (code), `x2`
 helper error is stamped at its call site; a propagated error forwards `x3`
 unchanged so the origin is preserved. A null `source` (`x3 == 0`) is a valid,
 origin-less error (an OOM-degraded error built when no `ErrorLoc` could be
-allocated).
+allocated, or a native `LINK` thunk's gate/marshaling failure — a thunk has no
+MFBASIC expression to stamp, so it sets `x3 = 0` on **every** exit rather than
+leaving the argument register it shares as-is). Setting `x3` is not optional: a
+caller that materializes the loose error reads it, so a stale argument value
+there is a garbage `ErrorLoc` pointer, not a missing origin (bug-371). [[src/target/shared/code/link_thunk.rs:lower_link_thunk]]
 
 In the **registers**, `x2` and `x3` are **absolute pointers**. In the in-arena
 `Error`/`ErrorLoc` records, however, `message` and `source` are stored as

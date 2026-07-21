@@ -1027,6 +1027,15 @@ fn lower_statement(
                     .clone()
                     .or_else(|| expression_type(expression, locals, context))
                     .unwrap_or_else(|| "Unknown".to_string());
+                // A `RES` binding's `STATE T` rides in the lowered type string
+                // exactly as on the non-trap path below. `expression_type`
+                // already carries it, so only an explicit `AS T` needs it
+                // reattached — without this, writing the annotation *caused* the
+                // TYPE_STATE_MISMATCH that omitting it avoided (bug-372).
+                let success_type = match (type_name, state_type) {
+                    (Some(type_name), Some(state)) => format!("{type_name} STATE {state}"),
+                    _ => success_type,
+                };
                 return lower_inline_trap(
                     expression,
                     binding,

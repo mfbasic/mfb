@@ -354,7 +354,14 @@ fn lower_link_initializer(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([abi::label(&done), abi::return_()]);
+    // Same no-origin sentinel as the per-function thunks (bug-371): the loader
+    // has no MFBASIC source location, and x3 is otherwise whatever `dlopen`/
+    // `dlsym` left behind.
+    instructions.extend([
+        abi::label(&done),
+        abi::move_immediate(RESULT_ERROR_SOURCE_REGISTER, "Integer", "0"),
+        abi::return_(),
+    ]);
 
     Ok(finalize_vreg_helper(
         "linker.init",
@@ -1366,7 +1373,20 @@ fn lower_link_thunk(
         );
     }
 
-    instructions.extend([abi::label(&done), abi::return_()]);
+    // bug-371: every path out of the thunk must leave the error-origin register
+    // (`RESULT_ERROR_SOURCE_REGISTER`) holding the no-origin sentinel. A thunk
+    // has no MFBASIC source location to report, and none of the epilogues above
+    // write x3 — but the register is also an argument register, so on every
+    // failure it still holds whatever the marshaling staged for the native call.
+    // A caller that consumes the loose error (an inline `TRAP`, which reads x3
+    // and builds an `ErrorLoc` from it) then read a garbage pointer as a record
+    // block: `ErrOutOfMemory` from a nonsense block size, or SIGSEGV. Zeroed at
+    // `done` so the OK path is covered too, and so a new epilogue cannot forget.
+    instructions.extend([
+        abi::label(&done),
+        abi::move_immediate(RESULT_ERROR_SOURCE_REGISTER, "Integer", "0"),
+        abi::return_(),
+    ]);
 
     let (frame_obj, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], frame);
     Ok(CodeFunction {

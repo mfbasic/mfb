@@ -249,6 +249,7 @@ impl TypeModel {
             union_variant_unions: HashMap::new(),
             union_variant_tags: HashMap::new(),
             union_variant_fields: HashMap::new(),
+            resource_names: HashSet::new(),
         }
     }
 
@@ -266,6 +267,7 @@ impl TypeModel {
         // tag space is fine.
         let union_variant_tags = HashMap::new();
         let mut union_variant_fields = HashMap::new();
+        let mut resource_names = HashSet::new();
         for type_ in &module.types {
             match type_.kind.as_str() {
                 "type" | "record" => {
@@ -303,12 +305,25 @@ impl TypeModel {
                         );
                     }
                 }
-                "resource" => {}
+                "resource" => {
+                    resource_names.insert(type_.name.clone());
+                }
                 other => {
                     return Err(format!(
                         "native code plan does not know type kind '{other}'"
                     ));
                 }
+            }
+        }
+        // A project that declares its own `RESOURCE R CLOSE BY …` alongside a
+        // `LINK` block carries the resource only on the link functions that
+        // produce it — `module.types` has no entry for it — so the names are
+        // derived from there as well as from the `"resource"` kind above.
+        for function in &module.link_functions {
+            if function.return_resource {
+                resource_names.insert(
+                    builtins::resource::base_resource_name(&function.return_type).to_string(),
+                );
             }
         }
         for type_name in ["Address", "Datagram", "DatagramText"] {
@@ -369,6 +384,7 @@ impl TypeModel {
             union_variant_unions,
             union_variant_tags,
             union_variant_fields,
+            resource_names,
         };
         // Assign canonical variant tags over this module's unions (bug-80). When
         // packages are also present, from_module_and_packages re-derives them over
@@ -394,6 +410,13 @@ impl TypeModel {
                 .filter(|resource| resource.native)
                 .map(|resource| resource.type_name)
                 .collect();
+            // An imported binding's resource is still a resource here (bug-372):
+            // it is skipped as a *record* above, but codegen must recognize the
+            // name to give it a closed-resource default on an inline `TRAP`'s
+            // error path.
+            model
+                .resource_names
+                .extend(native_resources.iter().cloned());
             for type_export in binary_repr::read_package_type_exports(package)? {
                 if native_resources.contains(&type_export.name) {
                     continue;

@@ -984,7 +984,14 @@ impl TypeEnv {
                             if let (Some(expected), Some(actual)) =
                                 (locals.get(name), self.infer_type(value, locals))
                             {
+                                // Both sides are stripped of any ` STATE T`
+                                // suffix, or neither: the slot's declared type
+                                // and the value's inferred type carry the state
+                                // in the same shape, so stripping only one made
+                                // a stateful native resource compare unequal to
+                                // itself (bug-372).
                                 let expected = resource_base_type(expected);
+                                let actual = resource_base_type(&actual).to_string();
                                 if !expected.is_empty()
                                     && expected != "Unknown"
                                     && expected != "Nothing"

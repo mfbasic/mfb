@@ -1,0 +1,202 @@
+{
+  "project": "native_res_state_inline_trap_valid",
+  "files": [
+  {
+    "path": "src/lib.mfb",
+    "imports": [
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "export", "name": "SoundFile", "closeFn": "snd.closeFile", "threadSendable": false, "line": 15 },
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "FileInfo",
+      "line": 17,
+      "fields": [
+      { "visibility": null, "name": "frames", "type": "Integer", "line": 18 },
+      { "visibility": null, "name": "samplerate", "type": "Integer", "line": 19 },
+      { "visibility": null, "name": "channels", "type": "Integer", "line": 20 },
+      { "visibility": null, "name": "format", "type": "Integer", "line": 21 },
+      { "visibility": null, "name": "sections", "type": "Integer", "line": 22 },
+      { "visibility": null, "name": "seekable", "type": "Integer", "line": 23 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "libsnd",
+      "alias": "snd",
+      "line": 26,
+      "cstructs": [
+      {
+        "kind": "cstruct",
+        "name": "SfFileInfo",
+        "mapsTo": "FileInfo",
+        "line": 27,
+        "fields": [
+        {
+          "name": "frames",
+          "ctype": "CInt64",
+          "line": 28
+        },
+        {
+          "name": "samplerate",
+          "ctype": "CInt32",
+          "line": 29
+        },
+        {
+          "name": "channels",
+          "ctype": "CInt32",
+          "line": 30
+        },
+        {
+          "name": "format",
+          "ctype": "CInt32",
+          "line": 31
+        },
+        {
+          "name": "sections",
+          "ctype": "CInt32",
+          "line": 32
+        },
+        {
+          "name": "seekable",
+          "ctype": "CInt32",
+          "line": 33
+        }
+        ]
+      }
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "openFile",
+        "symbol": "sf_open",
+        "returnResource": true,
+        "returnType": "SoundFile",
+        "returnState": "FileInfo",
+        "line": 36,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 36 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 38 },
+          { "name": "mode", "ctype": "CInt32", "out": false, "line": 38 },
+          { "name": "info", "ctype": "SfFileInfo", "out": true, "line": 38 }
+          ],
+          "returnName": "file",
+          "returnCType": "CPtr"
+        },
+        "consts": [
+        { "slot": "mode", "value": { "kind": "number", "value": "16" }, "line": 39 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": {
+          "kind": "bindState",
+          "resourceSlot": "file",
+          "structSlot": "info"
+        },
+        "successOn": { "kind": "unary", "operator": "NOT", "operand": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "file" }, "right": { "kind": "identifier", "value": "NOTHING" } } },
+        "result": { "kind": "identifier", "value": "file" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "closeFile",
+        "symbol": "sf_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 45,
+        "params": [
+        { "name": "sndfile", "type": "SoundFile", "resource": true, "state": "FileInfo", "default": null, "line": 45 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "sndfile", "ctype": "CPtr", "out": false, "line": 47 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": null,
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "framesPlain",
+      "line": 52,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 52 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "handle", "type": "SoundFile", "value": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 53 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "handle" }, "member": "state" }, "member": "frames" }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "handle" }] }, "line": 55 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 56 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "framesAnnotatedTrap",
+      "line": 60,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 60 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "FileInfo", "name": "handle", "type": "SoundFile", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 61,
+        "expression": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "handler": [
+        { "kind": "fail", "error": { "kind": "identifier", "value": "e" }, "line": 62 }
+        ]
+      }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "handle" }, "member": "state" }, "member": "frames" }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "handle" }] }, "line": 65 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 66 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "isolated": false,
+      "name": "openBareTrap",
+      "line": 72,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 72 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "handle", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 73,
+        "expression": { "kind": "call", "callee": "snd.openFile", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "handler": [
+        { "kind": "fail", "error": { "kind": "identifier", "value": "e" }, "line": 74 }
+        ]
+      }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "snd.closeFile", "arguments": [{ "kind": "identifier", "value": "handle" }] }, "line": 76 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 77 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -439,6 +439,12 @@ struct TypeModel {
     union_variant_unions: HashMap<String, HashSet<String>>,
     union_variant_tags: HashMap<String, usize>,
     union_variant_fields: HashMap<String, Vec<(String, String)>>,
+    /// Names of the module's user-declared `RESOURCE` types. Built-in resources
+    /// are recognized by `builtins::is_resource_type`; a `RESOURCE Db CLOSE BY …`
+    /// is not, so without this set codegen could not tell `Db` from an unknown
+    /// type — and `RES x AS Db = <fallible> TRAP` failed to build for want of a
+    /// default value on the error path (bug-372).
+    resource_names: HashSet<String>,
 }
 
 /// Adapt a not-yet-vreg shaped helper body (3-tuple, e.g. an app-mode platform

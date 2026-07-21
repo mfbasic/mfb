@@ -799,12 +799,22 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 external_package_function_types_from_files(packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-            ir_cache = Some(ir::lower_project_with_external_functions(
+            let mut lowered = ir::lower_project_with_external_functions(
                 &concrete_ast,
                 entry.clone(),
                 &external_functions,
                 &external_params,
-            ));
+            );
+            // The debug emitters below run the same NIR/plan/code pipeline as a
+            // real executable build, so they need the same `LINK` locator table
+            // the real path assembles above — without it every `--nir`/`--nplan`/
+            // `--nobj`/`--ncode` dump of a project declaring its own LINK block
+            // failed with NATIVE_LIBRARY_NO_MATCH, which is exactly the case
+            // where the dump is wanted.
+            if !assemble_native_libraries_for_ir(&mut lowered, &manifest, &options.location) {
+                return Err(());
+            }
+            ir_cache = Some(lowered);
         }
         let ir = ir_cache.as_ref().expect("cached IR");
 

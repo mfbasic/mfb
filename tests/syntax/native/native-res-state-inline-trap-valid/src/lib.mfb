@@ -1,0 +1,78 @@
+' bug-372: a `RES` binding of a stateful native resource whose initializer
+' carries an inline `TRAP`. All three shapes below must COMPILE.
+'
+' The annotated form used to be the one that failed: `lower_statement`'s
+' inline-TRAP branch dropped `state_type` on the floor, so the binding lowered
+' as bare `SoundFile` while its `$trap_val` slot inferred `SoundFile STATE
+' FileInfo` — and TYPE_STATE_MISMATCH told the author to declare the `STATE`
+' clause they had already written. Reattaching the suffix then exposed
+' TYPE_RECOVER_TYPE_MISMATCH, which compared a STATE-stripped expected type
+' against an unstripped actual.
+'
+' The runtime half — that the trapped error is the `SUCCESS_ON`/`ERROR_ON` gate
+' error and not an uncatchable `ErrOutOfMemory` — is bug-371, proven in
+' tests/rt-behavior/native/native-link-inline-trap-rt.
+EXPORT RESOURCE SoundFile CLOSE BY snd::closeFile
+
+EXPORT TYPE FileInfo
+  frames     AS Integer
+  samplerate AS Integer
+  channels   AS Integer
+  format     AS Integer
+  sections   AS Integer
+  seekable   AS Integer
+END TYPE
+
+LINK "libsnd" AS snd
+  CSTRUCT SfFileInfo AS FileInfo
+    frames     CInt64
+    samplerate CInt32
+    channels   CInt32
+    format     CInt32
+    sections   CInt32
+    seekable   CInt32
+  END CSTRUCT
+
+  FUNC openFile(path AS String) AS RES SoundFile STATE FileInfo
+    SYMBOL "sf_open"
+    ABI (path CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
+    CONST mode = 16
+    BIND STATE file = info
+    ERROR_ON file = NOTHING
+    RETURN file
+  END FUNC
+
+  FUNC closeFile(RES sndfile AS SoundFile STATE FileInfo) AS Nothing
+    SYMBOL "sf_close"
+    ABI (sndfile CPtr) AS status CInt32
+  END FUNC
+END LINK
+
+' The reference shape: annotated, no inline TRAP. Always compiled.
+EXPORT FUNC framesPlain(path AS String) AS Integer
+  RES handle AS SoundFile STATE FileInfo = snd::openFile(path)
+  LET n AS Integer = handle.state.frames
+  snd::closeFile(handle)
+  RETURN n
+END FUNC
+
+' The shape bug-372 rejected: writing the annotation the diagnostic asked for.
+EXPORT FUNC framesAnnotatedTrap(path AS String) AS Integer
+  RES handle AS SoundFile STATE FileInfo = snd::openFile(path) TRAP(e)
+    FAIL e
+  END TRAP
+  LET n AS Integer = handle.state.frames
+  snd::closeFile(handle)
+  RETURN n
+END FUNC
+
+' The bare form, which bug-372 reported as already accepted. A bare binding
+' asserts the resource has no state (§15.5), so it may not read `.state` — it is
+' here to pin that the two forms still differ only in that.
+EXPORT FUNC openBareTrap(path AS String) AS Integer
+  RES handle = snd::openFile(path) TRAP(e)
+    FAIL e
+  END TRAP
+  snd::closeFile(handle)
+  RETURN 0
+END FUNC

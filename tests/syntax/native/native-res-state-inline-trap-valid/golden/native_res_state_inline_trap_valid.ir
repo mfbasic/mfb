@@ -1,0 +1,99 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_res_state_inline_trap_valid",
+  "entry": null,
+  "types": [
+  {
+    "kind": "type",
+    "line": 17,
+    "visibility": "export",
+    "name": "FileInfo",
+    "fields": [
+    { "visibility": null, "line": 18, "name": "frames", "type": "Integer" },
+    { "visibility": null, "line": 19, "name": "samplerate", "type": "Integer" },
+    { "visibility": null, "line": 20, "name": "channels", "type": "Integer" },
+    { "visibility": null, "line": 21, "name": "format", "type": "Integer" },
+    { "visibility": null, "line": 22, "name": "sections", "type": "Integer" },
+    { "visibility": null, "line": 23, "name": "seekable", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "framesPlain",
+    "line": 52,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 52, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 53, "mutable": false, "name": "handle", "type": "SoundFile STATE FileInfo", "value": { "kind": "call", "type": "SoundFile STATE FileInfo", "target": "snd.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 54, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "handle" }, "member": "state" }, "member": "frames" } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "snd.closeFile", "args": [{ "kind": "local", "name": "handle" }] } },
+    { "op": "return", "line": 56, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "framesAnnotatedTrap",
+    "line": 60,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 60, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 61, "mutable": false, "name": "$trap_res0", "type": "Result OF SoundFile STATE FileInfo", "value": { "kind": "callResult", "type": "SoundFile STATE FileInfo", "target": "snd.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 61, "mutable": true, "name": "$trap_val1", "type": "SoundFile STATE FileInfo", "value": null },
+    {
+      "op": "if",
+      "line": 61,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "line": 61, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "SoundFile STATE FileInfo", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 61, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "fail", "line": 62, "error": { "kind": "local", "name": "e" } }
+      ]
+    },
+    { "op": "bind", "line": 61, "mutable": false, "name": "handle", "type": "SoundFile STATE FileInfo", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "bind", "line": 64, "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "FileInfo", "target": { "kind": "local", "name": "handle" }, "member": "state" }, "member": "frames" } },
+    { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "snd.closeFile", "args": [{ "kind": "local", "name": "handle" }] } },
+    { "op": "return", "line": 66, "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "openBareTrap",
+    "line": 72,
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "path", "line": 72, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 73, "mutable": false, "name": "$trap_res2", "type": "Result OF SoundFile STATE FileInfo", "value": { "kind": "callResult", "type": "SoundFile STATE FileInfo", "target": "snd.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "line": 73, "mutable": true, "name": "$trap_val3", "type": "SoundFile STATE FileInfo", "value": null },
+    {
+      "op": "if",
+      "line": 73,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      { "op": "assign", "line": 73, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "SoundFile STATE FileInfo", "value": { "kind": "local", "name": "$trap_res2" } } }
+      ],
+      "else": [
+      { "op": "bind", "line": 73, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "fail", "line": 74, "error": { "kind": "local", "name": "e" } }
+      ]
+    },
+    { "op": "bind", "line": 73, "mutable": false, "name": "handle", "type": "SoundFile STATE FileInfo", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "snd.closeFile", "args": [{ "kind": "local", "name": "handle" }] } },
+    { "op": "return", "line": 77, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

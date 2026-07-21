@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/native/native-res-state-inline-trap-valid
+Wrote AST to tests/syntax/native/native-res-state-inline-trap-valid/native_res_state_inline_trap_valid.ast
+Wrote IR to tests/syntax/native/native-res-state-inline-trap-valid/native_res_state_inline_trap_valid.ir
+[exit 0]

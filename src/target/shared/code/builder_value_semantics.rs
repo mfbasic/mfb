@@ -80,7 +80,12 @@ impl CodeBuilder<'_> {
                     text: format!("default {type_}"),
                 })
             }
-            _ if crate::builtins::is_resource_type(type_) => {
+            _ if crate::builtins::is_resource_type(type_)
+                || self
+                    .type_model
+                    .resource_names
+                    .contains(crate::builtins::resource::base_resource_name(type_)) =>
+            {
                 // A resource wraps an OS handle we cannot re-open, so it has no
                 // reconstructible default. The site that needs one is the
                 // error-path binding of `RES x = <fallible> TRAP`. Return a CLOSED
@@ -119,6 +124,20 @@ impl CodeBuilder<'_> {
                 // built-in resource record (enforced by the compile-time asserts
                 // beside each per-resource closed-offset constant).
                 self.emit(abi::store_u64(&one, &record, RESOURCE_OFFSET_CLOSED)); // closed flag
+
+                // A stateful resource's `STATE` payload is null in the zeroed
+                // record, so give it the same default record a real `RES … STATE`
+                // binding gets — otherwise a `RECOVER`ed closed resource's
+                // `.state` would dereference null. The pointer is spilled across
+                // the state allocation, which clobbers every caller-saved
+                // register.
+                if let Some(state) = crate::builtins::resource::state_type_name(type_) {
+                    let state = state.to_string();
+                    let slot = self.allocate_stack_object("default_resource_record", 8);
+                    self.emit(abi::store_u64(&record, abi::stack_pointer(), slot));
+                    self.emit_resource_state_init(slot, &state)?;
+                    self.emit(abi::load_u64(&record, abi::stack_pointer(), slot));
+                }
                 Ok(ValueResult {
                     type_: type_.to_string(),
                     location: record,

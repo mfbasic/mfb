@@ -1,0 +1,219 @@
+{
+  "project": "native_link_inline_trap_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 18 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "Db", "closeFn": "sql.close", "threadSendable": false, "line": 20 },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "DbInfo",
+      "line": 22,
+      "fields": [
+      { "visibility": null, "name": "opens", "type": "Integer", "line": 23 },
+      { "visibility": null, "name": "label", "type": "String", "line": 24 }
+      ]
+    },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 27,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "sqlite3_open_v2",
+        "returnResource": true,
+        "returnType": "Db",
+        "returnState": "DbInfo",
+        "line": 30,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 30 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 32 },
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 32 },
+          { "name": "flags", "ctype": "CInt32", "out": false, "line": 32 },
+          { "name": "vfs", "ctype": "CPtr", "out": false, "line": 32 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        { "slot": "flags", "value": { "kind": "number", "value": "1" }, "line": 33 },
+        { "slot": "vfs", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 34 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "db" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "config",
+        "symbol": "sqlite3_config",
+        "returnResource": false,
+        "returnType": "Integer",
+        "returnState": null,
+        "line": 38,
+        "params": [
+        { "name": "op", "type": "Integer", "default": null, "line": 38 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "op", "ctype": "CInt32", "out": false, "line": 40 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "status" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 44,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": "DbInfo", "default": null, "line": 44 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 46 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "opens",
+      "line": 53,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 53 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": "DbInfo", "name": "h", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 54 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "h" }, "member": "state" }, "member": "opens" }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "h" }] }, "line": 56 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 57 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 60,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "missing", "type": "String", "value": { "kind": "string", "value": "target/native-link-inline-trap-rt-missing.db" }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "ok", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e1",
+        "line": 64,
+        "expression": { "kind": "call", "callee": "sql.config", "arguments": [{ "kind": "number", "value": "2" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "unexpected trap on success: " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e1" }, "member": "code" }] } }] }, "line": 65 },
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 66 }
+        ]
+      }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "success ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ok" }] } }] }, "line": 68 },
+      { "kind": "binding", "mutable": false, "name": "direct", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e2",
+        "line": 71,
+        "expression": { "kind": "call", "callee": "sql.config", "arguments": [{ "kind": "number", "value": "9999" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "direct=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e2" }, "member": "code" }] } }] }, "line": 72 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 73 }
+        ]
+      }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "direct recovered=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "direct" }] } }] }, "line": 75 },
+      { "kind": "binding", "mutable": false, "name": "nested", "type": null, "value": {
+        "kind": "trapped",
+        "binding": "e3",
+        "line": 78,
+        "expression": { "kind": "call", "callee": "opens", "arguments": [{ "kind": "identifier", "value": "missing" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nested=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e3" }, "member": "code" }] } }] }, "line": 79 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 80 }
+        ]
+      }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nested recovered=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "nested" }] } }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "fn-level=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "opensTrapped", "arguments": [{ "kind": "identifier", "value": "missing" }] }] } }] }, "line": 86 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": "DbInfo", "name": "bad", "type": "Db", "value": {
+        "kind": "trapped",
+        "binding": "e4",
+        "line": 90,
+        "expression": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "identifier", "value": "missing" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "annotated=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e4" }, "member": "code" }] } }] }, "line": 91 },
+        { "kind": "recover", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 92 }
+        ]
+      }, "line": 90 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "annotated state opens=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "bad" }, "member": "state" }, "member": "opens" }] } }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "bad" }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 97 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 98 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "opensTrapped",
+      "line": 101,
+      "params": [
+      { "name": "path", "type": "String", "default": null, "line": 101 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "opens", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 102 }
+      ],
+      "trap": {
+      "name": "e",
+      "line": 103,
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 104 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

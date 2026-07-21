@@ -1,0 +1,106 @@
+' bug-371/bug-372: an inline `TRAP` on a native `LINK` call.
+'
+' A `LINK` thunk reports a failed `SUCCESS_ON`/`ERROR_ON` gate as a LOOSE error
+' — tag in x0, code in x1, a STATIC message in x2 — and, unlike a user `FUNC`,
+' has no MFBASIC source location to put in x3. Two things were wrong with that:
+'
+'   1. The thunk left x3 holding whatever the argument staging had put there, so
+'      a caller that CONSUMES the loose error (an inline `TRAP`, which builds an
+'      `ErrorLoc` from x3) sized a record out of a garbage pointer. `7-703-0008`
+'      surfaced as an uncatchable `7-701-0001 Allocation failed`, or SIGSEGV.
+'   2. Zeroing x3 then exposed the other half: `Error.source` absent is encoded
+'      as offset 0, but the record size walker added a phantom `ErrorLoc` at the
+'      running offset anyway — so FREEING such an error handed `arena_free` a
+'      garbage size and corrupted the arena on the way out of the handler.
+'
+' Every assertion below is on the trapped error CODE, which is the whole point:
+' the gate error must reach the handler that was written to catch it.
+IMPORT io
+
+RESOURCE Db CLOSE BY sql::close
+
+TYPE DbInfo
+  opens AS Integer
+  label AS String
+END TYPE
+
+LINK "sqlite3" AS sql
+  ' SQLITE_OPEN_READONLY (1) with no SQLITE_OPEN_CREATE: a missing path fails
+  ' the gate rather than creating the file.
+  FUNC open(path AS String) AS RES Db STATE DbInfo
+    SYMBOL "sqlite3_open_v2"
+    ABI (path CString, db OUT CPtr, flags CInt32, vfs CPtr) AS status CInt32
+    CONST flags = 1
+    CONST vfs = NOTHING
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC config(op AS Integer) AS Integer
+    SYMBOL "sqlite3_config"
+    ABI (op CInt32) AS status CInt32
+    RETURN status
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db STATE DbInfo) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' A LINK failure raised one ordinary call frame down, so the error crosses a
+' user function before it reaches the inline TRAP.
+FUNC opens(path AS String) AS Integer
+  RES h AS Db STATE DbInfo = sql::open(path)
+  LET n AS Integer = h.state.opens
+  sql::close(h)
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  LET missing AS String = "target/native-link-inline-trap-rt-missing.db"
+
+  ' A LINK call that SUCCEEDS through an inline TRAP still delivers its value.
+  LET ok = sql::config(2) TRAP(e1)
+    io::print("unexpected trap on success: " & toString(e1.code))
+    RETURN 1
+  END TRAP
+  io::print("success ok=" & toString(ok))
+
+  ' Direct: the gate error reaches the handler, with the gate's own code.
+  LET direct = sql::config(9999) TRAP(e2)
+    io::print("direct=" & toString(e2.code))
+    RECOVER -1
+  END TRAP
+  io::print("direct recovered=" & toString(direct))
+
+  ' Through a user function: the same code survives the extra frame.
+  LET nested = opens(missing) TRAP(e3)
+    io::print("nested=" & toString(e3.code))
+    RECOVER -2
+  END TRAP
+  io::print("nested recovered=" & toString(nested))
+
+  ' A function-level TRAP catching the same error, then returning normally —
+  ' the path whose cleanup used to corrupt the arena and crash after printing.
+  io::print("fn-level=" & toString(opensTrapped(missing)))
+
+  ' bug-372: an explicitly annotated `RES … STATE …` binding whose initializer
+  ' carries an inline TRAP compiles, and both of its paths work.
+  RES bad AS Db STATE DbInfo = sql::open(missing) TRAP(e4)
+    io::print("annotated=" & toString(e4.code))
+    RECOVER sql::open(":memory:")
+  END TRAP
+  io::print("annotated state opens=" & toString(bad.state.opens))
+  sql::close(bad)
+
+  io::print("done")
+  RETURN 0
+END FUNC
+
+FUNC opensTrapped(path AS String) AS Integer
+  RETURN opens(path)
+  TRAP(e)
+    RETURN e.code
+  END TRAP
+END FUNC

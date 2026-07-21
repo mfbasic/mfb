@@ -808,15 +808,30 @@ impl CodeBuilder<'_> {
             &fixed.to_string(),
         ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_slot));
-        for (_, field_type) in &fields {
+        for (index, (_, field_type)) in fields.iter().enumerate() {
             if !self.record_field_is_inlined(record_type, field_type) {
                 continue;
             }
-            self.emit_align_offset_slot(out_slot, 8);
-            // inner_base = base + current offset (where this sub-block begins).
+            // The field's own offset word at `8*index` is authoritative — and `0`
+            // is the "sub-block absent" sentinel, since a real inlined block can
+            // never start before the fixed slot region. `Error.source` is the live
+            // case: an error with no origin (`ErrorLoc*` null, as every `LINK`
+            // thunk returns) is built as `{code, message}` with source-offset 0
+            // and nothing written past the message. Walking the running offset
+            // unconditionally then sized a phantom `ErrorLoc` out of whatever
+            // followed the block, so freeing that error handed `arena_free` a
+            // garbage size and corrupted the free list (bug-371).
+            let absent = self.label("record_size_field_absent");
+            let off_slot = self.allocate_stack_object("record_size_field_off", 8);
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit(abi::load_u64(&scratch9, &scratch8, 8 * index));
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), off_slot));
+            self.emit(abi::compare_immediate(&scratch9, "0"));
+            self.emit(abi::branch_eq(&absent));
+            // inner_base = base + offset (where this sub-block begins).
             let inner_base_slot = self.allocate_stack_object("record_size_inner_base", 8);
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), out_slot));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), off_slot));
             self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
             self.emit(abi::store_u64(
                 &scratch8,
@@ -829,7 +844,9 @@ impl CodeBuilder<'_> {
                 inner_base_slot,
                 inner_size_slot,
             )?;
-            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), out_slot));
+            // out = offset + sub-block size — the sub-block's end, which is the
+            // block's end for the last present field.
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), off_slot));
             self.emit(abi::load_u64(
                 &scratch8,
                 abi::stack_pointer(),
@@ -837,6 +854,7 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::add_registers(&scratch9, &scratch9, &scratch8));
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
+            self.emit(abi::label(&absent));
         }
         Ok(())
     }
