@@ -1,0 +1,192 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_resource_scope_drop_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "dropNormal",
+    "line": 48,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 49, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } }
+    ]
+  },
+  {
+    "name": "dropReturn",
+    "line": 54,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 54, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 55, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    {
+      "op": "if",
+      "line": 56,
+      "condition": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "return", "line": 57, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "line": 59, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "dropExit",
+    "line": 64,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 65, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 66,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+      "body": [
+      { "op": "bind", "line": 67, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+      {
+        "op": "if",
+        "line": 68,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } },
+        "then": [
+        { "op": "exitLoop", "line": 69, "loop": "while" }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "line": 71, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "dropContinue",
+    "line": 77,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 78, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 79,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } },
+      "body": [
+      { "op": "bind", "line": 80, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+      { "op": "assign", "line": 81, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "continueLoop", "line": 82, "loop": "while" }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "dropFail",
+    "line": 89,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 90, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "fail", "line": 91, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "intentional failure to reach the drop path" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "91" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "driveFail",
+    "line": 94,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "line": 95, "value": { "kind": "call", "type": "Nothing", "target": "dropFail", "args": [] } },
+    { "op": "return", "line": 96, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    {
+      "op": "trap",
+      "line": 97,
+      "name": "err",
+      "body": [
+      {
+        "op": "if",
+        "line": 98,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+        "then": [
+        { "op": "fail", "line": 98, "error": { "kind": "local", "name": "err" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "return", "line": 99, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "closeExplicitly",
+    "line": 108,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 109, "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "type": "Db", "target": "sql.open", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "line": 110, "value": { "kind": "call", "type": "Nothing", "target": "sql.close", "args": [{ "kind": "local", "name": "db" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 113,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 114, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "line": 115,
+      "loop": "while",
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2000" } },
+      "body": [
+      { "op": "eval", "line": 116, "value": { "kind": "call", "type": "Nothing", "target": "dropNormal", "args": [] } },
+      { "op": "bind", "line": 117, "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "dropReturn", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } },
+      { "op": "eval", "line": 118, "value": { "kind": "call", "type": "Nothing", "target": "dropExit", "args": [] } },
+      { "op": "eval", "line": 119, "value": { "kind": "call", "type": "Nothing", "target": "dropContinue", "args": [] } },
+      { "op": "eval", "line": 120, "value": { "kind": "call", "type": "Nothing", "target": "driveFail", "args": [] } },
+      { "op": "eval", "line": 121, "value": { "kind": "call", "type": "Nothing", "target": "closeExplicitly", "args": [] } },
+      { "op": "assign", "line": 122, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "eval", "line": 124, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "drops=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
+    { "op": "eval", "line": 125, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
+    { "op": "return", "line": 126, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

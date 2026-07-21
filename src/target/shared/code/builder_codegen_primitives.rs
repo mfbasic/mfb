@@ -1360,7 +1360,19 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn resource_cleanup_symbol(&self, type_: &str) -> Option<String> {
-        let close = crate::builtins::resource_close_function(type_)?;
+        let Some(close) = crate::builtins::resource_close_function(type_) else {
+            // bug-374: not one of the language's own resources, so fall back to
+            // the user-declared `RESOURCE T CLOSE BY op` table. The close op is
+            // an ordinary `LINK` call target, so it resolves through
+            // `function_symbols` exactly as an explicit `sql::close(db)` does —
+            // NIR registers one import per link function (and a second for each
+            // re-export alias), both keyed to the same thunk symbol.
+            let close = self
+                .type_model
+                .resource_closers
+                .get(crate::builtins::resource::base_resource_name(type_))?;
+            return self.function_symbols.get(close.as_str()).cloned();
+        };
         let symbol = self
             .function_symbols
             .get(close)

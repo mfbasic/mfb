@@ -250,6 +250,7 @@ impl TypeModel {
             union_variant_tags: HashMap::new(),
             union_variant_fields: HashMap::new(),
             resource_names: HashSet::new(),
+            resource_closers: HashMap::new(),
         }
     }
 
@@ -376,6 +377,20 @@ impl TypeModel {
                 ("char".to_string(), "Integer".to_string()),
             ],
         );
+        // bug-374: record each user-declared resource's `CLOSE BY` op so
+        // scope-drop can call it. Stored as the declared *name*, not a resolved
+        // symbol: `resource_cleanup_symbol` resolves it through
+        // `function_symbols`, the same table an explicit `sql::close(db)` call
+        // goes through, so both spellings the name can take resolve alike — the
+        // dotted `alias.func`, and the bare alias a re-exported close op is
+        // serialized as (`EXPORT FUNC close AS sqliteLink::close`, which is what
+        // `bindings/sqlite3` does). Matching `link_functions` on the dotted form
+        // alone would silently miss every re-exported closer.
+        let resource_closers = module
+            .native_resources
+            .iter()
+            .map(|resource| (resource.name.clone(), resource.close_function.clone()))
+            .collect();
         let mut model = Self {
             enum_members,
             record_fields,
@@ -385,6 +400,7 @@ impl TypeModel {
             union_variant_tags,
             union_variant_fields,
             resource_names,
+            resource_closers,
         };
         // Assign canonical variant tags over this module's unions (bug-80). When
         // packages are also present, from_module_and_packages re-derives them over
@@ -405,10 +421,13 @@ impl TypeModel {
             // value on bind/return (an empty copy that loses the handle), so skip
             // native resource type exports and let them default to 8-byte scalars
             // (plan-linker.md §12, plan-link-update.md §10).
-            let native_resources: HashSet<String> = binary_repr::read_package_resources(package)?
+            let exported_resources: Vec<_> = binary_repr::read_package_resources(package)?
                 .into_iter()
                 .filter(|resource| resource.native)
-                .map(|resource| resource.type_name)
+                .collect();
+            let native_resources: HashSet<String> = exported_resources
+                .iter()
+                .map(|resource| resource.type_name.clone())
                 .collect();
             // An imported binding's resource is still a resource here (bug-372):
             // it is skipped as a *record* above, but codegen must recognize the
@@ -417,6 +436,27 @@ impl TypeModel {
             model
                 .resource_names
                 .extend(native_resources.iter().cloned());
+            // bug-374: an imported binding's resource drops at scope exit in the
+            // importing program too, but a decoded package carries no
+            // `native_resources` (`ir/binary.rs` drops them by contract), so the
+            // close op comes from the package's RESOURCE_TABLE instead.
+            //
+            // The name there is package-internal (the bare re-export alias
+            // `close`), while the importing module routes it as
+            // `<package>.close` — so qualify it exactly as `ir::package`'s merge
+            // qualifies the routing alias it has to match. Only a re-exported
+            // close op is reachable from an importer at all, which is the form
+            // this resolves.
+            let package_name = binary_repr::read_package_info(package)?.manifest_name;
+            for resource in exported_resources {
+                let Some(close_function) = resource.close_function else {
+                    continue;
+                };
+                model.resource_closers.insert(
+                    resource.type_name,
+                    format!("{package_name}.{close_function}"),
+                );
+            }
             for type_export in binary_repr::read_package_type_exports(package)? {
                 if native_resources.contains(&type_export.name) {
                     continue;

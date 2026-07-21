@@ -455,6 +455,28 @@ struct TypeModel {
     /// type — and `RES x AS Db = <fallible> TRAP` failed to build for want of a
     /// default value on the error path (bug-372).
     resource_names: HashSet<String>,
+    /// User-declared resource name -> the call target of its registered
+    /// `CLOSE BY` op, for scope-drop cleanup.
+    ///
+    /// The value is the op's *name* as the importing module routes it, not a
+    /// resolved symbol: `resource_cleanup_symbol` looks it up in
+    /// `function_symbols`, the same table an explicit `sql::close(db)` call goes
+    /// through. That is what lets both spellings the name can take — the dotted
+    /// `alias.func` and the bare re-export alias — resolve to the one thunk.
+    ///
+    /// bug-374: `resource_cleanup_symbol` resolved the close op only through
+    /// `builtins::resource_close_function`, an 8-entry table of the language's
+    /// own resources. A `RESOURCE Db CLOSE BY sql::close` missed it, so
+    /// `builder_control`'s `else if let Some(symbol)` fell through, no
+    /// `ActiveCleanup::Resource` was pushed, and scope exit emitted neither the
+    /// close nor the record reclaim — a silent leak of the native handle on
+    /// every drop, against the §15 guarantee that the spec's own worked example
+    /// (a native resource) relies on.
+    ///
+    /// Collected here, at model construction, because this is the only layer
+    /// that sees both the `RESOURCE` declarations — the module's own and every
+    /// imported package's — and the code builder that needs them.
+    resource_closers: HashMap<String, String>,
 }
 
 /// Adapt a not-yet-vreg shaped helper body (3-tuple, e.g. an app-mode platform

@@ -1,0 +1,127 @@
+' Runtime test for bug-374: a user-declared `RESOURCE T CLOSE BY nativeOp` is
+' closed by lexical drop when its binding leaves scope, on EVERY exit path.
+'
+' Before the fix, `resource_cleanup_symbol` resolved a close op only through
+' `builtins::resource_close_function` — an 8-entry table of the language's own
+' resources (File/Socket/Listener/...). A `RESOURCE Db CLOSE BY sql::close` was
+' not in it, so the bind site's `else if let Some(symbol)` fell through, no
+' `ActiveCleanup::Resource` was registered, and scope exit emitted NEITHER the
+' close NOR the record reclaim. No diagnostic, exit 0, correct output — and a
+' leaked sqlite3 handle plus its 80-byte record on every drop.
+'
+' The spec (`./mfb spec language resource-management` §15) states the guarantee
+' this pins, and uses a *native* resource as its own worked example:
+'
+'   Resources are closed automatically by lexical drop (§14.7) when their owning
+'   binding leaves scope, on every exit path: normal scope exit, RETURN,
+'   EXIT/CONTINUE, FAIL, PROPAGATE, an auto-propagated failure, and TRAP routing.
+'
+' WHY THIS FIXTURE IS SHAPED AS A HOT LOOP. A leak is invisible to exit status —
+' that is precisely why the bug survived 18 native fixtures, every one of which
+' closes explicitly and so never exercised drop at all. Retention is the signal,
+' so each path runs enough iterations that a per-iteration leak is unmistakable:
+' measured on macOS aarch64, this program peaked at 5.84 GB before the fix and
+' 18 MB after (308x). A golden `.run` cannot assert RSS, so the loop count is
+' what converts the leak into an observable — a crash or an OOM rather than a
+' quietly-passing exit 0. Do NOT "tidy" this by lowering the iteration counts or
+' by adding explicit closes: an explicit close is exactly what hid the bug.
+IMPORT io
+
+RESOURCE Db CLOSE BY sql::close
+
+LINK "sqlite3" AS sql
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, db OUT CPtr) AS status CInt32
+    RETURN db
+    SUCCESS_ON status = 0
+  END FUNC
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+' §15's "normal scope exit": the reproduction from the bug report, verbatim in
+' shape — open, then fall off the end of the function without closing.
+FUNC dropNormal() AS Nothing
+  RES db AS Db = sql::open(":memory:")
+END FUNC
+
+' §15's "RETURN": an early RETURN past the end of the function must run the same
+' cleanup the fall-through path does. Two exit paths, two close sites.
+FUNC dropReturn(n AS Integer) AS Integer
+  RES db AS Db = sql::open(":memory:")
+  IF n > 0 THEN
+    RETURN 1
+  END IF
+  RETURN 0
+END FUNC
+
+' §15's "EXIT": the binding is inside the loop BODY, so it is a fresh resource
+' per iteration and the `EXIT WHILE` leaves the scope holding a live one.
+FUNC dropExit() AS Nothing
+  MUT i AS Integer = 0
+  WHILE i < 3
+    RES db AS Db = sql::open(":memory:")
+    IF i = 1 THEN
+      EXIT WHILE
+    END IF
+    i = i + 1
+  WEND
+END FUNC
+
+' §15's "CONTINUE": the same per-iteration binding, left via the back edge
+' rather than the loop's normal end.
+FUNC dropContinue() AS Nothing
+  MUT i AS Integer = 0
+  WHILE i < 3
+    RES db AS Db = sql::open(":memory:")
+    i = i + 1
+    CONTINUE WHILE
+  WEND
+END FUNC
+
+' §15's "FAIL" + "TRAP routing": the failure unwinds out of a scope holding a
+' live resource, and the close must happen on the way out — not be skipped
+' because the scope is leaving abnormally.
+FUNC dropFail() AS Nothing
+  RES db AS Db = sql::open(":memory:")
+  FAIL error(77050002, "intentional failure to reach the drop path")
+END FUNC
+
+FUNC driveFail() AS Nothing
+  dropFail()
+  RETURN NOTHING
+  TRAP(err)
+    IF err.code <> 77050002 THEN FAIL err
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+' A resource that IS closed explicitly must not then be closed a second time by
+' scope exit. Since plan-59-B the `closed` flag makes the second close a defined
+' no-op (`ERR_RESOURCE_CLOSED`, benign on the drop path), which is what makes
+' this fix safe for the 18 existing fixtures that all close explicitly. This
+' drives that close-exactly-once path in the same binary as the drop paths.
+FUNC closeExplicitly() AS Nothing
+  RES db AS Db = sql::open(":memory:")
+  sql::close(db)
+END FUNC
+
+FUNC main() AS Integer
+  MUT i AS Integer = 0
+  WHILE i < 2000
+    dropNormal()
+    LET r = dropReturn(1)
+    dropExit()
+    dropContinue()
+    driveFail()
+    closeExplicitly()
+    i = i + 1
+  WEND
+  io::print("drops=" & toString(i))
+  io::print("done")
+  RETURN 0
+END FUNC

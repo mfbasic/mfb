@@ -1,0 +1,264 @@
+{
+  "project": "native_resource_scope_drop_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 28 }
+    ],
+    "items": [
+    { "kind": "resource", "visibility": "public", "name": "Db", "closeFn": "sql.close", "threadSendable": false, "line": 30 },
+    {
+      "kind": "link",
+      "library": "sqlite3",
+      "alias": "sql",
+      "line": 32,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "open",
+        "symbol": "sqlite3_open",
+        "returnResource": true,
+        "returnType": "Db",
+        "returnState": null,
+        "line": 33,
+        "params": [
+        { "name": "path", "type": "String", "default": null, "line": 33 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "path", "ctype": "CString", "out": false, "line": 35 },
+          { "name": "db", "ctype": "CPtr", "out": true, "line": 35 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": { "kind": "identifier", "value": "db" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "close",
+        "symbol": "sqlite3_close",
+        "returnResource": false,
+        "returnType": "Nothing",
+        "returnState": null,
+        "line": 39,
+        "params": [
+        { "name": "db", "type": "Db", "resource": true, "state": null, "default": null, "line": 39 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "db", "ctype": "CPtr", "out": false, "line": 41 }
+          ],
+          "returnName": "status",
+          "returnCType": "CInt32"
+        },
+        "consts": [
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "status" }, "right": { "kind": "number", "value": "0" } },
+        "result": null,
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dropNormal",
+      "line": 48,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 49 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dropReturn",
+      "line": 54,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 54 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 55 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 56,
+        "then": [
+        { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 57 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 59 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dropExit",
+      "line": 64,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 65 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } },
+        "line": 66,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 67 },
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } },
+          "line": 68,
+          "then": [
+          { "kind": "exit", "target": "while", "code": null, "line": 69 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 71 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dropContinue",
+      "line": 77,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 78 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "3" } },
+        "line": 79,
+        "body": [
+        { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 80 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 81 },
+        { "kind": "continue", "loop": "while", "line": 82 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dropFail",
+      "line": 89,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 90 },
+      { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "77050002" }, { "kind": "string", "value": "intentional failure to reach the drop path" }] }, "line": 91 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "driveFail",
+      "line": 94,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dropFail", "arguments": [] }, "line": 95 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 96 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 97,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77050002" } },
+        "line": 98,
+        "then": [
+        { "kind": "fail", "error": { "kind": "identifier", "value": "err" }, "line": 98 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 99 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "closeExplicitly",
+      "line": 108,
+      "params": [
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "db", "type": "Db", "value": { "kind": "call", "callee": "sql.open", "arguments": [{ "kind": "string", "value": ":memory:" }] }, "line": 109 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "sql.close", "arguments": [{ "kind": "identifier", "value": "db" }] }, "line": 110 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 113,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 114 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "2000" } },
+        "line": 115,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "dropNormal", "arguments": [] }, "line": 116 },
+        { "kind": "binding", "mutable": false, "name": "r", "type": null, "value": { "kind": "call", "callee": "dropReturn", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 117 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "dropExit", "arguments": [] }, "line": 118 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "dropContinue", "arguments": [] }, "line": 119 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "driveFail", "arguments": [] }, "line": 120 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "closeExplicitly", "arguments": [] }, "line": 121 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 122 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "drops=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }] }, "line": 124 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 125 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 126 }
+      ]
+    }
+    ]
+  }
+  ]
+}
