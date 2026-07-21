@@ -148,7 +148,7 @@ at each of the 10 sites, and the variant list is measured.
 **MET** — C3 answers reachability with citations and explains why the answer is
 the same at all sites (they share two entry points, not ten); C4 measures the
 variant list.
-Commit: —
+Commit: 3d80f5689
 
 ### Phase 2 — Single-resource identity skip
 
