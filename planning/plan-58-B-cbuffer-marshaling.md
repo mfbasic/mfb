@@ -56,10 +56,16 @@ is no separate blocker in this sub-plan.
 
 What that precondition guarantees, and what everything below is written against:
 
-- `emit_alloc_list` and `emit_collection_data_pointer_into` exist and are
-  `pub(crate)`, so `link_thunk.rs` can call them. This sub-plan **consumes** them;
-  it does not build, promote, or port them. If they are absent, the precondition
-  was not met — go finish plan-57, do not do its work here.
+- ~~`emit_alloc_list` and `emit_collection_data_pointer_into` exist and are
+  `pub(crate)`~~ **Corrected 2026-07-20:** those two NAMES never existed — plan-57
+  declined to mint them because they would have had no callers. The *capability*
+  is present under different names, and at sufficient visibility:
+  `crypto_ec::emit_build_byte_list` / `audio::emit_alloc_byte_list` construct a
+  byte list, and `push_collection_data_pointer_into` /
+  `emit_collection_data_pointer_for` give a data pointer. All are `pub(super)`
+  within `target::shared::code`, which is where `link_thunk.rs` lives, so **no
+  visibility widening is needed**. This sub-plan consumes them; it does not build,
+  promote, or port them.
 - `kind = 2` is the live, ungated representation: a byte-list block is `40 + N`,
   `dataBase = block + 40` is a constant offset, and there is no entry table.
 - There is therefore exactly **one** representation to target. No `MFB_KIND2`
@@ -159,10 +165,10 @@ Do not reintroduce a capacity-scaled data-base computation "just in case" — if
 
 | Claim | Verdict | How checked |
 |---|---|---|
-| `emit_alloc_list` exists | **FALSE** | §0 — no matches in `src/` |
-| `emit_collection_data_pointer_into` exists | **FALSE** | §0 — no matches in `src/` |
-| A byte-list constructor is callable from `link_thunk.rs` | **FALSE** | both existing ones are private / `pub(super)` |
-| `kind = 2` is live | **PRECONDITION** | Guaranteed by §0. As of 2026-07-20 it is *not* met (gate at `builder_collection_layout.rs:2191`), which is why plan-58 is not startable yet — see plan-58-A §Prerequisite |
+| `emit_alloc_list` exists | **FALSE** (name) — capability CONFIRMED | 0 hits. plan-57 declined the name (no callers, AGENTS.md bans dead code). `crypto_ec.rs:215 emit_build_byte_list` and `audio/mod.rs:135 emit_alloc_byte_list` are the real constructors |
+| `emit_collection_data_pointer_into` exists | **FALSE** (name) — capability CONFIRMED | 0 hits. `builder_collection_layout.rs:2179 push_collection_data_pointer_into` and `:1935 emit_collection_data_pointer_for` |
+| A byte-list constructor is callable from `link_thunk.rs` | ~~**FALSE**~~ **CONFIRMED 2026-07-20** | The draft assumed `pub(super)` was too narrow. It is not: `pub(super)` in `target/shared/code/*` means visible throughout `target::shared::code`, and `link_thunk.rs` **is** `target::shared::code::link_thunk`. **No visibility widening is required** — plan-58-A §Prerequisite flagged this as the thing to confirm in B, and it confirms clean |
+| `kind = 2` is live | ~~**PRECONDITION**, not met~~ **CONFIRMED 2026-07-20** | plan-57 landed the flip. `kind2_enabled()` (`builder_collection_layout.rs:2275`) is a plain `true`; no env read anywhere in the file |
 | `_mfb_arena_alloc` destroys all caller-saved registers | **CONFIRMED** | `.ai/compiler.md`; spill pattern read at `link_thunk.rs:1311`, `:1317`, `:1800`, `:1823`, `:1897` |
 | `alloc_fail` label is always emitted | **CONFIRMED** | `link_thunk.rs:1020` |
 | `emit_flat_block_size` sizes from capacity/dataCapacity | **CONFIRMED** | `builder_collection_layout.rs:241` — so leaving slack is what makes `arena_free` correct |
@@ -177,8 +183,9 @@ is a spike rather than a refactor.
 
 Four pieces, layered:
 
-1. **A callable constructor** — resolve §0 first. Everything else assumes one
-   exists with `pub(crate)` visibility and a data-base helper alongside it.
+1. **A callable constructor** — ~~resolve §0 first~~ **already resolved**: the
+   constructors and the data-pointer helpers exist and are reachable from
+   `link_thunk.rs` without a visibility change (§2.4). Nothing to do here.
 2. **Frame layout.** `CBuffer` consumes one `out_base` word — the *pointer* to
    the allocated block, not the data. It counts in `n_out` (`:348-352`) and in
    `expr_offsets` (`:728-747`); these two must agree or every `SUCCESS_ON`
