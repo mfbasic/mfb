@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_link_worker_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 18,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 19, "mutable": false, "name": "onMain", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread_link_workers.version", "args": [] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "t", "type": "Thread OF Nothing TO String", "value": { "kind": "call", "type": "Thread OF Nothing TO String", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_link_workers.workerVersion", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "onWorker", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "resolved=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "onWorker" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "same=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "onMain" }, "right": { "kind": "local", "name": "onWorker" } }] } }] } },
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -185,8 +185,9 @@ pub(crate) trait LinuxArch {
         platform: &dyn code::CodegenPlatform,
         platform_imports: &HashMap<String, String>,
         uses_stdin: bool,
+        arena_init: code::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
-        code::lower_thread_trampoline(platform_imports, platform, uses_stdin)
+        code::lower_thread_trampoline(platform_imports, platform, uses_stdin, arena_init)
     }
 }
 
@@ -432,9 +433,10 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         &self,
         platform_imports: &HashMap<String, String>,
         uses_stdin: bool,
+        arena_init: code::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
         self.arch
-            .emit_thread_trampoline(self, platform_imports, uses_stdin)
+            .emit_thread_trampoline(self, platform_imports, uses_stdin, arena_init)
     }
 
     // --- GTK4 app mode (plan-05-linux-app.md) -------------------------------

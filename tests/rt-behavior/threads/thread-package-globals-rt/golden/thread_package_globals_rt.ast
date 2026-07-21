@@ -1,0 +1,37 @@
+{
+  "project": "thread_package_globals_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "thread_global_workers", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "onMain", "type": "String", "value": { "kind": "call", "callee": "thread_global_workers.render", "arguments": [] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF Nothing TO String", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_global_workers.readGlobals" }, { "kind": "string", "value": "seed" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "onWorker", "type": "String", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "main  =" }, "right": { "kind": "identifier", "value": "onMain" } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "worker=" }, "right": { "kind": "identifier", "value": "onWorker" } }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "same=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "onMain" }, "right": { "kind": "identifier", "value": "onWorker" } }] } }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_global_workers.mutateCounter" }, { "kind": "string", "value": "seed" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "worker_mutated=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "m" }] }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "main_unchanged=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "thread_global_workers.counter", "arguments": [] }] } }] }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+      ]
+    }
+    ]
+  }
+  ]
+}

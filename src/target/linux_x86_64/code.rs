@@ -198,11 +198,13 @@ impl LinuxArch for X86_64 {
         platform: &dyn code::CodegenPlatform,
         platform_imports: &HashMap<String, String>,
         uses_stdin: bool,
+        arena_init: code::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
         // Same shared trampoline as AArch64: pthread hands the control block in
         // the first argument register; the body is alias-free machine-floor
         // code (x13/x14/x20 scratch) that selects cleanly through the x86 remap.
-        let mut function = code::lower_thread_trampoline(platform_imports, platform, uses_stdin)?;
+        let mut function =
+            code::lower_thread_trampoline(platform_imports, platform, uses_stdin, arena_init)?;
         // No worker r14-zeroing: `store xzr` now encodes an immediate zero on x86,
         // so a worker no longer depends on r14 holding 0 (plan-34-C freed r14).
         let at = usize::from(

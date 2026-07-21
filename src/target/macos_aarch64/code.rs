@@ -118,8 +118,9 @@ impl code::CodegenPlatform for Platform {
         &self,
         platform_imports: &HashMap<String, String>,
         uses_stdin: bool,
+        arena_init: code::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
-        code::lower_thread_trampoline(platform_imports, self, uses_stdin)
+        code::lower_thread_trampoline(platform_imports, self, uses_stdin, arena_init)
     }
 
     fn emit_tls_block_trampolines(&self, server: bool) -> Vec<CodeFunction> {

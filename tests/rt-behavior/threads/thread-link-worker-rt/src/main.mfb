@@ -1,0 +1,25 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_link_workers
+
+REM bug-369, second half: a native `LINK` call from inside an ISOLATED worker.
+REM
+REM Each LINK function's dlsym-resolved pointer lives in the per-arena writable
+REM globals region, and a worker runs on its own arena. Before the fix, only the
+REM program entry resolved those slots and the worker's arena did not even
+REM reserve them, so a LINK call from a worker jumped through memory past the end
+REM of the arena-state block: a reliable SIGSEGV (exit 139), with the main thread
+REM in the same program calling the same binding successfully.
+REM
+REM The library version string differs per host, so the assertion is the property
+REM rather than the value: the worker resolved the symbol (`resolved=TRUE`) and
+REM got the same answer the main thread did (`same=TRUE`).
+
+FUNC main AS Integer
+  LET onMain AS String = thread_link_workers::version()
+  LET t AS Thread OF Nothing TO String = thread::start(thread_link_workers::workerVersion, "seed")
+  LET onWorker AS String = thread::waitFor(t)
+  io::print("resolved=" & toString(len(onWorker) > 0))
+  io::print("same=" & toString(onMain = onWorker))
+  RETURN 0
+END FUNC

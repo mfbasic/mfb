@@ -26,8 +26,10 @@ arena-state base to base + `ARENA_STATE_SIZE`, not a chosen list of header words
 Every program global slot is zeroed after it.
 
 The totality is load-bearing, not defensive: this initializer must stay in
-lockstep with the thread-spawn child-state zeroing, and both zero exactly
-`ARENA_STATE_SIZE`. Growing the arena state — adding quick bins, say — can then
+lockstep with the thread-spawn child-state zeroing. This path zeroes
+`ARENA_STATE_SIZE` and then every global slot; the thread-spawn path zeroes its
+whole worker-arena block in one loop, which covers exactly the same words.
+Growing the arena state — adding quick bins, say — or the globals region can then
 never leave a new field as garbage in one path but initialized in the other. A
 spec that named individual offsets here would invite exactly that divergence.
 The full arena-state byte layout is owned by `./mfb spec memory arenas`.

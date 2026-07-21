@@ -2,34 +2,23 @@ IMPORT io
 IMPORT thread
 IMPORT regex_thread_workers
 
-REM Intended to prove the regex package works inside an isolated worker thread
-REM (own arena). It currently proves the OPPOSITE, and the golden records that.
+REM Proves the regex package works inside an isolated worker thread (own arena).
+REM This is also the fixture that proves an ISOLATED worker can import the regex
+REM package at all, so it asserts both the build and the run.
 REM
-REM bug-369: package-level globals are never initialized in a worker's arena, so
-REM regex's `LET __REGEX_DEPTH_LIMIT AS Integer = 600` reads 0 there. The guard
-REM `IF depth > __REGEX_DEPTH_LIMIT` is then true at the first node, so EVERY
-REM regex call inside a worker fails with "nesting limit exceeded".
+REM It is what exposed bug-369. A worker's arena block was sized to the arena
+REM state alone, with no globals region, so regex's
+REM `LET __REGEX_DEPTH_LIMIT AS Integer = 600` read whatever lay past the end of
+REM that block. That was usually 0, which makes the guard
+REM `IF depth > __REGEX_DEPTH_LIMIT` true at the first node and fails EVERY regex
+REM call in a worker with "nesting limit exceeded" — but it was arbitrary memory,
+REM not zeros, so occasionally the slot held a large value and the run passed.
+REM Measured 7 of 8 runs failing, which is why the `.run` golden was withdrawn
+REM (a ~12%-flaky fixture is worse than none) until the bug was fixed.
 REM
-REM This is pre-existing, not a plan-58 regression: a compiler built from before
-REM that work fails identically. The test had been passing only because its
-REM committed `regex_thread_workers.mfp` was stale (last rebuilt at plan-50-H);
-REM plan-58-C's BINARY_REPR_VERSION 5->6 bump forced a rebuild and removed the
-REM staleness that was hiding it.
-REM
-REM The failure is NONDETERMINISTIC, which is why this fixture no longer runs its
-REM program: bug-369 reads whatever the worker arena's globals slot happens to
-REM contain, so `__REGEX_DEPTH_LIMIT` is usually 0 but occasionally a large value.
-REM Measured 8 consecutive runs: 7 failed, 1 passed. A golden cannot be stable
-REM against that, and a ~12%-flaky test in the acceptance suite is worse than no
-REM test — it fails random unrelated runs and trains people to re-run.
-REM
-REM So the `.run` golden is removed and only the BUILD is asserted here. That
-REM keeps the compile path covered (this fixture is also what proves an ISOLATED
-REM worker can import the regex package at all) while the runtime assertion waits
-REM on bug-369.
-REM
-REM When bug-369 is fixed: restore the `.run` golden and re-sync, and the run
-REM should report `digits=4` / `normalized=hello_world_foo`.
+REM Restored here: `thread::start` now sizes the worker arena to include the
+REM globals region, and the trampoline runs the module's global initializer on it
+REM before the worker body.
 
 FUNC main AS Integer
   LET t1 AS Thread OF Nothing TO Integer = thread::start(regex_thread_workers::countDigits, "a1b2c3d4")

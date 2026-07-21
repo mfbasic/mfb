@@ -90,7 +90,7 @@ impl CodegenPlatform for TestPlatform {
     }
     fn emit_app_program_entry(&self, _spec: &AppEntrySpec, _pi: &HashMap<String, String>) -> Option<Result<Vec<CodeFunction>, String>> { None }
     fn emit_program_entry(&self, _spec: &ProgramEntrySpec<'_>, _pi: &HashMap<String, String>) -> Result<CodeFunction, String> { unimplemented!("TestPlatform::emit_program_entry") }
-    fn emit_thread_trampoline(&self, _pi: &HashMap<String, String>, _uses_stdin: bool) -> Result<CodeFunction, String> { unimplemented!("TestPlatform::emit_thread_trampoline") }
+    fn emit_thread_trampoline(&self, _pi: &HashMap<String, String>, _uses_stdin: bool, _arena_init: super::ArenaInitSymbols) -> Result<CodeFunction, String> { unimplemented!("TestPlatform::emit_thread_trampoline") }
 }
 
 /// Whether a label with `name` appears in the instruction stream.

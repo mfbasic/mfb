@@ -1,0 +1,46 @@
+REM bug-369 regression: package-level globals inside an ISOLATED worker.
+REM
+REM The globals region is per-arena. A worker runs on its own arena, so it needs
+REM its own copy of every global, initialized to the same declared values the
+REM main thread sees. Before the fix the worker's arena had no globals region at
+REM all, so these reads ran past the end of the arena-state block: LIMIT read 0
+REM and COUNTER read arbitrary neighbouring memory.
+REM
+REM Deliberately one global per representation class: a fixed-width scalar, a
+REM mutable scalar, an inline-payload String, a heap List, a Float, and a
+REM Boolean. The reference-typed ones (NAME, WORDS) are the ones that SIGSEGV'd
+REM rather than merely reading wrong, because the worker dereferenced a garbage
+REM pointer.
+
+IMPORT collections
+IMPORT strings
+
+LET LIMIT AS Integer = 600
+MUT COUNTER AS Integer = 7
+LET NAME AS String = "hello" & "-" & "world"
+LET WORDS AS List OF String = strings::split("a,b,c", ",")
+LET RATIO AS Float = 1.5
+LET FLAG AS Boolean = TRUE
+
+REM The one shared rendering, called on both threads. Both sides must agree.
+EXPORT FUNC render() AS String
+  MUT out AS String = toString(LIMIT) & "|" & toString(COUNTER) & "|" & NAME
+  out = out & "|" & collections::get(WORDS, 0) & "+" & collections::get(WORDS, 2)
+  RETURN out & "|" & toString(RATIO) & "|" & toString(FLAG)
+END FUNC
+
+EXPORT ISOLATED FUNC readGlobals(t AS ThreadWorker OF Nothing TO String, seed AS String) AS String
+  RETURN render()
+END FUNC
+
+REM A worker's write to a MUT global stays in that worker's arena: ISOLATED means
+REM the worker shares nothing with its parent. This asserts both halves — the
+REM worker sees its own updated value, and the parent's copy is untouched.
+EXPORT ISOLATED FUNC mutateCounter(t AS ThreadWorker OF Nothing TO Integer, seed AS String) AS Integer
+  COUNTER = COUNTER + 100
+  RETURN COUNTER
+END FUNC
+
+EXPORT FUNC counter() AS Integer
+  RETURN COUNTER
+END FUNC

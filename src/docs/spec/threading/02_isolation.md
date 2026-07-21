@@ -18,6 +18,16 @@ An isolated worker may still call:
 - Public exports from packages it imports.
 - Other code that is reachable through package metadata and native linking.
 
+Package-level and module-level globals are **per-thread**, not shared. A worker
+runs on its own arena, and the writable globals region lives in that arena, so
+each worker gets its own copy initialized from the same declarations the main
+thread runs — a global reads its declared value in a worker exactly as it does
+outside one. A worker's write to a `MUT` global is therefore visible only within
+that worker; the parent's copy is untouched, and values cross the boundary only
+through the queues. The same applies to a native `LINK` binding's resolved
+function pointers, which occupy slots in that region and are resolved per worker.
+`./mfb spec threading thread-runtime-helpers` owns the mechanism.
+
 The worker must not depend on the parent stack frame. Values passed to a thread
 or through thread queues are transferred by the runtime representation rules for
 their type. Immutable owned values may be shared or copied only when that is

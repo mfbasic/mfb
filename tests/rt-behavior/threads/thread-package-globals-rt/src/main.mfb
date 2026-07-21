@@ -1,0 +1,34 @@
+IMPORT io
+IMPORT thread
+IMPORT thread_global_workers
+
+REM bug-369: a package-level global read from an ISOLATED worker must equal the
+REM same global read on the main thread.
+REM
+REM The globals region is per-arena, and a worker gets a fresh arena. Before the
+REM fix that arena was sized to the arena state alone, with no globals region, so
+REM a worker's global reads ran off the end of the block: `LIMIT` came back 0,
+REM `COUNTER` came back arbitrary neighbouring memory (288 in the original
+REM report), and the reference-typed globals SIGSEGV'd on a garbage pointer. No
+REM diagnostic — and because the memory was arbitrary rather than zeroed, the
+REM failure was intermittent.
+REM
+REM The assertion is `same=TRUE`: both threads render the same six globals
+REM through the same package function. Both sides are printed so the golden stays
+REM diagnostic when it does fail.
+
+FUNC main AS Integer
+  LET onMain AS String = thread_global_workers::render()
+  LET t AS Thread OF Nothing TO String = thread::start(thread_global_workers::readGlobals, "seed")
+  LET onWorker AS String = thread::waitFor(t)
+  io::print("main  =" & onMain)
+  io::print("worker=" & onWorker)
+  io::print("same=" & toString(onMain = onWorker))
+
+  REM ISOLATED: the worker's `COUNTER = COUNTER + 100` lands in the worker's own
+  REM arena, so the worker sees 107 and the parent still sees 7.
+  LET m AS Thread OF Nothing TO Integer = thread::start(thread_global_workers::mutateCounter, "seed")
+  io::print("worker_mutated=" & toString(thread::waitFor(m)))
+  io::print("main_unchanged=" & toString(thread_global_workers::counter()))
+  RETURN 0
+END FUNC

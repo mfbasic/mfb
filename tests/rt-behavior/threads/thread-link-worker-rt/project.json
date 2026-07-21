@@ -1,0 +1,26 @@
+{
+  "name": "thread_link_worker_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "name": "thread_link_workers",
+      "version": "=0.1.0",
+      "source": "file:packages/thread_link_workers.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": [
+    "native"
+  ]
+}

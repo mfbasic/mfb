@@ -1,0 +1,27 @@
+REM bug-369, second half: a native `LINK` call from inside an ISOLATED worker.
+REM
+REM The dlopen/dlsym-resolved function pointers live in the SAME per-arena
+REM writable region as the program's globals, one slot per LINK function. A
+REM worker gets a fresh arena, so those slots have to be resolved on the worker
+REM too — otherwise the thunk jumps through whatever the slot happens to hold.
+REM Before the fix that was memory past the end of the arena-state block, and a
+REM LINK call in a worker was a reliable SIGSEGV.
+REM
+REM `sqlite3_libversion` is chosen because it takes no arguments, allocates
+REM nothing, and returns a stable value both threads can compare.
+
+LINK "sqlite3" AS sql
+  FUNC version() AS String
+    SYMBOL "sqlite3_libversion"
+    ABI () AS out CPtr
+    RETURN out
+  END FUNC
+END LINK
+
+EXPORT FUNC version() AS String
+  RETURN sql::version()
+END FUNC
+
+EXPORT ISOLATED FUNC workerVersion(t AS ThreadWorker OF Nothing TO String, seed AS String) AS String
+  RETURN sql::version()
+END FUNC

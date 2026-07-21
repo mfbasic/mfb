@@ -1,0 +1,35 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_package_globals_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 20,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 21, "mutable": false, "name": "onMain", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread_global_workers.render", "args": [] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "t", "type": "Thread OF Nothing TO String", "value": { "kind": "call", "type": "Thread OF Nothing TO String", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_global_workers.readGlobals", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "onWorker", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "main  =" }, "right": { "kind": "local", "name": "onMain" } }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "worker=" }, "right": { "kind": "local", "name": "onWorker" } }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "same=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "onMain" }, "right": { "kind": "local", "name": "onWorker" } }] } }] } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "m", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "type": "Thread OF Nothing TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_global_workers.mutateCounter", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "worker_mutated=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "m" }] }] } }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "main_unchanged=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "thread_global_workers.counter", "args": [] }] } }] } },
+    { "op": "return", "line": 33, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

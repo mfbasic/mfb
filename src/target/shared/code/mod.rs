@@ -773,6 +773,14 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let term_state_slots = if uses_term { TERM_STATE_SLOTS } else { 0 };
+    // Every writable slot addressed off the pinned arena-state register: the
+    // program's own globals, the `LINK`/`FREE` pointer slots, and the `term::`
+    // state. The region is PER-ARENA, so a worker thread needs exactly as many
+    // slots as the entry frame reserves — the worker's arena block is sized from
+    // this same number in `lower_thread_start_helper` (bug-369). Before that, a
+    // worker's arena block was only `ARENA_STATE_SIZE` bytes, so every global read
+    // in a worker ran off the end of the block into neighbouring arena memory.
+    let arena_global_slots = globals_base + link_slot_count + term_state_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -830,11 +838,9 @@ pub(crate) fn lower_module_for_platform(
         } else {
             0
         };
-        let entry_stack_size = align(
-            ENTRY_STACK_SIZE + (globals_base + link_slot_count + term_state_slots) * 8,
-            16,
-        ) + entry_args_region;
-        let entry_global_slots = globals_base + link_slot_count + term_state_slots;
+        let entry_stack_size =
+            align(ENTRY_STACK_SIZE + arena_global_slots * 8, 16) + entry_args_region;
+        let entry_global_slots = arena_global_slots;
         if module.build_mode.is_app() {
             // App mode (plan-04-macos-app.md §6.6, plan-05-linux-app.md §6.1): the
             // standard program entry runs on a worker thread under the app program
@@ -1164,7 +1170,10 @@ pub(crate) fn lower_module_for_platform(
             symbol,
             module.build_mode,
             &module.project,
-            term_state_offset,
+            ArenaLayout {
+                term_state_offset,
+                global_slots: arena_global_slots,
+            },
             uses_rng,
             &platform_imports,
             platform,
@@ -1261,7 +1270,14 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| symbol == "_mfb_rt_thread_thread_start")
     {
-        code_functions.push(platform.emit_thread_trampoline(&platform_imports, uses_stdin)?);
+        code_functions.push(platform.emit_thread_trampoline(
+            &platform_imports,
+            uses_stdin,
+            ArenaInitSymbols {
+                link_init: link_init_symbol,
+                global_init: global_initializer_symbol.as_deref(),
+            },
+        )?);
     }
 
     // Native `LINK` marshaling thunks + load-time initializer (plan-linker.md §12).
@@ -1395,11 +1411,12 @@ fn lower_runtime_helper(
     symbol: &str,
     build_mode: crate::target::NativeBuildMode,
     module_name: &str,
-    term_state_offset: Option<usize>,
+    arena_layout: ArenaLayout,
     uses_rng: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
+    let term_state_offset = arena_layout.term_state_offset;
     let Some(spec) = runtime::spec_for_symbol(symbol) else {
         return Err(format!(
             "native code plan does not emit runtime helper '{symbol}'"
@@ -2438,8 +2455,14 @@ fn lower_runtime_helper(
         | "thread.isCancelled"
         | "thread.openStdIn"
         | "thread.closeStdIn" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_thread_helper(symbol, spec.call, uses_rng, platform_imports, platform)?;
+            let (frame, instructions, relocations, stack_slots) = lower_thread_helper(
+                symbol,
+                spec.call,
+                uses_rng,
+                arena_layout.global_slots,
+                platform_imports,
+                platform,
+            )?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),

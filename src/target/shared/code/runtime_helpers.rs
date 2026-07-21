@@ -246,11 +246,18 @@ pub(super) fn lower_thread_helper(
     symbol: &str,
     call: &str,
     uses_rng: bool,
+    arena_global_slots: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     match call {
-        "thread.start" => lower_thread_start_helper(symbol, uses_rng, platform_imports, platform),
+        "thread.start" => lower_thread_start_helper(
+            symbol,
+            uses_rng,
+            arena_global_slots,
+            platform_imports,
+            platform,
+        ),
         "thread.isRunning" => simple_thread_handle_helper(
             symbol,
             ThreadSimpleOp::IsRunning,
@@ -383,6 +390,7 @@ fn lower_thread_stdin_subscription_helper(symbol: &str, subscribe: bool) -> Help
 fn lower_thread_start_helper(
     symbol: &str,
     uses_rng: bool,
+    arena_global_slots: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
@@ -400,6 +408,18 @@ fn lower_thread_start_helper(
     const ATTR_OFFSET: usize = 56;
     // Largest queue limit whose `capacity * 8` byte size still fits in 64 bits.
     const MAX_QUEUE_LIMIT: u64 = u64::MAX / 8;
+
+    // bug-369: the writable globals region (program globals + `LINK`/`FREE`
+    // pointer slots + `term::` state) is addressed off the pinned arena-state
+    // register at `ENTRY_GLOBALS_OFFSET + slot * 8`. The main thread carves it out
+    // of the entry frame; a worker's arena state is arena-allocated HERE, so this
+    // block must reserve the same slots or every global access in a worker lands
+    // past the end of the block — a silent out-of-bounds read for a load and heap
+    // corruption for a store. Sized to `ENTRY_GLOBALS_OFFSET` (not
+    // `ARENA_STATE_SIZE`) so the entry's one seed-scratch word between the state
+    // and the globals is present too, keeping the slot offsets identical on both
+    // paths.
+    let worker_arena_size = ENTRY_GLOBALS_OFFSET + arena_global_slots * 8;
 
     let invalid_limit = format!("{symbol}_invalid_limit");
     let alloc_block_ok = format!("{symbol}_alloc_block_ok");
@@ -471,7 +491,7 @@ fn lower_thread_start_helper(
             "%v9",
             THREAD_OFFSET_PARENT_ARENA_STATE,
         ),
-        abi::move_immediate(abi::ARG[0], "Integer", &ARENA_STATE_SIZE.to_string()),
+        abi::move_immediate(abi::ARG[0], "Integer", &worker_arena_size.to_string()),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -488,18 +508,19 @@ fn lower_thread_start_helper(
         &mut instructions,
         &mut relocations,
     );
-    // Zero the child arena state with a loop over ARENA_STATE_SIZE
-    // (allocator-04): the block is arena-allocated (poisoned, not zero), and
-    // this initializer must stay in lockstep with the program-entry zeroing
-    // (`entry_and_arena.rs` `lower_program_entry`) — both zero exactly
-    // `ARENA_STATE_SIZE`, so growing the state (e.g. quick bins) can never
+    // Zero the whole child arena block (allocator-04): it is arena-allocated
+    // (poisoned, not zero), and this initializer must stay in lockstep with the
+    // program-entry zeroing (`entry_and_arena.rs` `lower_program_entry`) — that
+    // path zeroes `ARENA_STATE_SIZE` and then every global slot, so zeroing the
+    // whole `worker_arena_size` here covers exactly the same words. Growing the
+    // arena state (e.g. quick bins) or the globals region can therefore never
     // leave a field as garbage in one path but not the other.
     let child_zero_loop = format!("{symbol}_child_arena_zero");
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_worker_arena_ok),
         abi::move_register("%v11", abi::RET[1]),
-        abi::add_immediate("%v12", abi::RET[1], ARENA_STATE_SIZE),
+        abi::add_immediate("%v12", abi::RET[1], worker_arena_size),
         abi::label(&child_zero_loop),
         abi::store_u64(abi::ZERO, "%v11", 0),
         abi::add_immediate("%v11", "%v11", 8),
@@ -724,6 +745,7 @@ pub(crate) fn lower_thread_trampoline(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     uses_stdin: bool,
+    arena_init: ArenaInitSymbols,
 ) -> Result<CodeFunction, String> {
     // Machine-floor code: hand-managed frame + pinned registers across the worker
     // call and the `pthread_*` calls, so the allocator cannot run here. Scratch is
@@ -745,6 +767,7 @@ pub(crate) fn lower_thread_trampoline(
     const ERROR_OFFSET: usize = 56;
     const SOURCE_OFFSET: usize = 64;
     let result_closed = format!("{THREAD_TRAMPOLINE_SYMBOL}_result_closed");
+    let worker_result = format!("{THREAD_TRAMPOLINE_SYMBOL}_worker_result");
 
     let mut instructions = vec![
         abi::label("entry"),
@@ -760,12 +783,58 @@ pub(crate) fn lower_thread_trampoline(
             abi::CURRENT_THREAD,
             THREAD_OFFSET_ARENA_STATE,
         ),
+    ];
+    let mut relocations = Vec::new();
+    // bug-369: everything in the writable globals region is PER-ARENA, and this
+    // worker's arena was allocated fresh and zeroed by `thread::start`. Re-run the
+    // same initializers the program entry runs, in the same order, so a worker
+    // sees the region the main thread sees instead of a region of zeros:
+    //
+    //   - `_mfb_linker_init` resolves each `LINK`/`FREE` symbol into its pointer
+    //     slot. Without it a `LINK` call from a worker jumps through a null slot
+    //     (SIGSEGV). Re-running it per worker is idempotent in effect: `dlopen` is
+    //     refcounted and never closed here, and `dlsym` returns the same address.
+    //   - the module's global initializer writes each declared global. It runs
+    //     after the linker init because a global's initializer may call a `LINK`
+    //     function.
+    //
+    // The static closure descriptors are deliberately NOT re-run: they live in
+    // process-global BSS, not the arena, so the entry's one-time pass covers every
+    // thread.
+    //
+    // This is safe despite the machine-floor comment above: the allocator
+    // restriction covers the pinned-register region AROUND the worker call, and
+    // this sits at exactly the same point in the frame as that call — the arena
+    // register is installed, the control block is parked on the stack, and no
+    // scratch register is live yet (SCRATCH[4]/CLOSURE_ENV are loaded below,
+    // after these return). Each initializer is an ordinary lowered function, so it
+    // preserves the callee-saved arena and current-thread registers.
+    //
+    // A failing initializer must not run the worker body: its result registers
+    // become the thread's result, exactly as if the body itself had failed, so
+    // `thread::waitFor` reports the initializer's error to the parent.
+    for (index, symbol) in arena_init.in_run_order().enumerate() {
+        let ready = format!("{THREAD_TRAMPOLINE_SYMBOL}_arena_init_{index}_ok");
+        instructions.push(abi::branch_link(symbol));
+        relocations.push(internal_branch(THREAD_TRAMPOLINE_SYMBOL, symbol));
+        instructions.extend([
+            abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG),
+            abi::branch_eq(&ready),
+            abi::branch(&worker_result),
+            abi::label(&ready),
+            // Each `bl` clobbers the caller-saved registers, so re-derive the
+            // control block from its parked stack slot before the next one.
+            abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), CB_OFFSET),
+        ]);
+    }
+    instructions.extend([
         abi::load_u64(abi::SCRATCH[4], abi::CURRENT_THREAD, THREAD_OFFSET_ENTRY),
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::SCRATCH[4], CLOSURE_OFFSET_ENV),
         abi::load_u64(abi::SCRATCH[4], abi::SCRATCH[4], CLOSURE_OFFSET_CODE),
         abi::load_u64(abi::ARG[1], abi::CURRENT_THREAD, THREAD_OFFSET_DATA),
         abi::move_register(abi::ARG[0], abi::CURRENT_THREAD),
         abi::branch_link_register(abi::SCRATCH[4]),
+        abi::label(&worker_result),
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
         abi::store_u64(
@@ -778,8 +847,7 @@ pub(crate) fn lower_thread_trampoline(
             abi::stack_pointer(),
             SOURCE_OFFSET,
         ),
-    ];
-    let mut relocations = Vec::new();
+    ]);
     // plan-15 §4.5: auto-unsubscribe the worker from the stdin broadcast log at
     // teardown so an early-exiting worker never permanently pins the log's
     // reclamation point (which would eventually block other readers at the cap).

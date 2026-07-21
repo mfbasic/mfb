@@ -33,6 +33,14 @@ Required coverage includes:
   (`thread-transfer-state-rt`).
 - Calling an imported package from inside a worker
   (`thread-import-pkg-receive-rt`).
+- Reading package-level globals inside a worker: every global must hold the same
+  declared value it holds on the main thread, and a worker's write to a `MUT`
+  global must stay in that worker's arena (`thread-package-globals-rt`). This is
+  the bug-369 regression — the globals region is per-arena, so a worker that does
+  not reserve and initialize its own reads past the end of its arena-state block.
+- Calling a native `LINK` binding from inside a worker
+  (`thread-link-worker-rt`): the dlsym-resolved pointer slots live in that same
+  per-arena region, so they must be resolved on the worker too.
 - Preserving worker error source locations across the boundary
   (`thread-error-source-rt`).
 - Compiler-generated `Thread`-handle drop on every exit path: scope exit, early

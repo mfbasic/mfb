@@ -537,6 +537,11 @@ pub(crate) trait CodegenPlatform {
         // worker from the broadcast log at teardown so an early-exiting worker never
         // pins the log's reclamation point.
         uses_stdin: bool,
+        // bug-369: the per-arena initializers, re-run on the worker's own
+        // (freshly zeroed) globals region before the worker body, so a `LINK` call
+        // and a package or module global behave in a worker exactly as they do on
+        // the main thread.
+        arena_init: ArenaInitSymbols,
     ) -> Result<CodeFunction, String>;
 
     /// The platform's TLS callback trampolines — fixed-ABI block/`invoke`
@@ -633,6 +638,43 @@ pub(crate) trait CodegenPlatform {
 /// (plan-04-macos-app.md §6.6). The worker thread runs the standard program
 /// entry generated separately under [`MACAPP_PROGRAM_SYMBOL`]; the bootstrap
 /// itself only needs to know whether to forward `argc`/`argv` to that entry.
+/// The two initializers that populate a thread's writable globals region, in the
+/// order they must run (bug-369).
+///
+/// A struct rather than two adjacent `Option<&str>` parameters: both are the same
+/// type, so a transposition would compile silently and run the module's global
+/// initializer BEFORE the `LINK` symbols it may call are resolved. That is the
+/// same hazard `LinkCodegenOptions` was introduced for.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct ArenaInitSymbols<'a> {
+    /// `_mfb_linker_init` — resolves each `LINK`/`FREE` symbol into its pointer
+    /// slot. `None` when the module declares no `LINK` block.
+    pub(crate) link_init: Option<&'a str>,
+    /// The module's global initializer. `None` when the module declares no
+    /// globals.
+    pub(crate) global_init: Option<&'a str>,
+}
+
+impl<'a> ArenaInitSymbols<'a> {
+    /// The initializers to call, in run order: `LINK` symbols first, because a
+    /// global's initializer may call a `LINK` function.
+    pub(crate) fn in_run_order(&self) -> impl Iterator<Item = &'a str> {
+        self.link_init.into_iter().chain(self.global_init)
+    }
+}
+
+/// The per-arena writable-region layout a runtime helper needs to address slots
+/// off the pinned arena-state register.
+#[derive(Clone, Copy)]
+pub(crate) struct ArenaLayout {
+    /// Byte offset of the `term::` TUI state, when the program uses `term::`.
+    pub(crate) term_state_offset: Option<usize>,
+    /// Total slots in the region: program globals + `LINK`/`FREE` pointer slots +
+    /// `term::` state. `thread::start` sizes a worker's arena block from this so
+    /// the worker's region matches the entry frame's (bug-369).
+    pub(crate) global_slots: usize,
+}
+
 pub(crate) struct AppEntrySpec {
     pub(crate) language_entry_accepts_args: bool,
     /// Whether the program uses `term::` (so the app-mode finish path should

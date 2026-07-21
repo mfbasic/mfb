@@ -58,7 +58,11 @@ storing:
 - The worker function pointer (a closure: code + env).
 - The input value, copied into the worker arena as a thread-boundary value.
 - A freshly allocated worker runtime arena state (zero-initialized, with RNG seed
-  drawn from the parent stream).
+  drawn from the parent stream). The block is sized `ENTRY_GLOBALS_OFFSET +
+  (globals + LINK + term:: state slots) * 8` — the same slot count the entry frame
+  reserves — because the writable globals region is addressed off the arena-state
+  register and is therefore **per-arena**. Sizing it to `ARENA_STATE_SIZE` alone
+  put every global access in a worker past the end of the block (bug-369).
 - The parent's arena state (so worker→parent transfers can materialize into it).
 - Four bounded queues: data inbound/outbound and resource inbound/outbound. The
   inbound queues take the `inboundLimit`; the outbound queues take the
@@ -77,6 +81,15 @@ pointer in `x0`. It:
 - Restores the runtime register state generated code expects: the arena-state
   register is loaded from the worker arena state, and the closure environment
   register is loaded from the worker function's closure.
+- Initializes the worker's own globals region, running the same two initializers
+  the program entry runs and in the same order: `_mfb_linker_init` (resolving each
+  `LINK`/`FREE` symbol into its pointer slot) and then the module's global
+  initializer. Each is skipped when the module has no `LINK` block / no globals.
+  A non-`Ok` result from either one skips the worker body and becomes the thread's
+  result, so `thread::waitFor` reports it to the parent exactly as it would report
+  a failure of the body itself. The static closure descriptors are deliberately
+  NOT re-run: they live in process-global BSS rather than the arena, so the
+  entry's one-time pass covers every thread.
 - Calls the worker export with:
 
 ```text

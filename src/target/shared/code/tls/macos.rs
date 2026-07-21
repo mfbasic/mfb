@@ -4049,6 +4049,7 @@ mod encoding_error_release_tests {
         &self,
         _platform_imports: &HashMap<String, String>,
         _uses_stdin: bool,
+        _arena_init: crate::target::shared::code::ArenaInitSymbols,
     ) -> Result<crate::target::shared::code::CodeFunction, String> { unimplemented!("TlsReadTestPlatform::emit_thread_trampoline") }
     }
 
