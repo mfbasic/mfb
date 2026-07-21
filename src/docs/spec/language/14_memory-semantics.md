@@ -91,7 +91,6 @@ The compiler must diagnose:
 - Capturing resource handles in ordinary closures.
 - Capturing other non-copyable values in ordinary closures.
 - Storing thread handles in ordinary collections, or using a resource handle as a `Map` key.
-- Binding a non-owning collection element of resource type with `RES` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`), or otherwise treating such a pointer as an owner.
 - Any control-flow path that could drop the same resource or owned value more than once.
 
 `.mfp` packages must preserve enough ownership metadata for import-time checking and Binary Representation semantic verification (see `./mfb spec package verifier-rules`).
@@ -125,10 +124,17 @@ bindings the outer scope knows propagate; branch-local resources die with the
 branch. Because "moved on *some* fall-through path" unions into the set, a
 subsequent use is rejected exactly as a definite move would be. [[src/ir/verify/mod.rs:check_resource_moves]]
 
-A *non-owning pointer* — a resource parameter, a `FOR EACH` element binding, or a
-`RES` binding whose ownership floated up to a collection's scope — never carries the
-close obligation, so closing/returning/transferring one is rejected as
-`TYPE_RESOURCE_INVALIDATE_NOT_OWNER` rather than tracked as a move. [[src/ir/verify/mod.rs:check_resource_moves]]
+A resource is owned by the **outermost scope that touches it**, and a `RES` is a
+pointer to that one resource. Any holder — a resource parameter, a `FOR EACH`
+element binding, a `RES` binding whose ownership floated to a collection's scope —
+may close, `RETURN`, or transfer it, and doing so is **tracked as a move** like any
+other consume. The owning scope closes it once if nobody already did.
+
+Because two names can now denote one resource, a consume through either marks
+both: a binding produced by a call returning that same resource type is recorded
+as a possible alias of the resource-typed arguments, and closing one name marks
+the whole alias set. Nothing is reported at the aliasing point itself — only a
+later *use* of a consumed name is. [[src/ir/verify/mod.rs:check_resource_moves]]
 
 ## See Also
 

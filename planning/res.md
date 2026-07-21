@@ -397,9 +397,38 @@ cost was everything the type string touched once a *return* could carry a STATE 
 `.mfp` ABI export encoding, syntaxcheck's `Type`, the native storage class, and the
 poison in a non-`File` record's buffer words. See the archived sub-plans' Status headers.
 
-**Track B — resource-scoped ownership (§1, §3).** A language-design change. Cheaper
-than it looked (§3.1), costs static use-after-close (§3.2), needs runtime pointer
-identity (§3.3). Would require re-deriving §4.
+**Track B — resource-scoped ownership (§1, §3). DONE (plan-59-A..E, 2026-07-20).**
+`TYPE_RESOURCE_INVALIDATE_NOT_OWNER` (2-203-0086) and
+`TYPE_RESOURCE_ELEMENT_NOT_OWNER` (2-203-0100) are retired as reserved codes, and
+`closeSound(RES sound AS SoundFile)` — "take a handle, give it back" — compiles
+and runs.
+
+Three of this section's predictions were wrong, and the corrections are worth
+keeping since they were the reasons to hesitate:
+
+- **"Costs static use-after-close" (§3.2) overstated it.** The static/runtime
+  trade-off already existed: a close observed across a *loop back edge* compiles
+  clean today and always did (§14.9 specifies the loop body runs against a clone
+  of the entering set), falling through to a runtime `ErrResourceClosed`. Track B
+  widened the set of cases reaching that backstop; it did not create the reliance
+  on it. What it *added* was alias tracking, so closing through one name marks
+  every name that may denote the same resource — a case the old model could not
+  produce and therefore never had to catch.
+- **"Needs runtime pointer identity" (§3.3) overstated it too.** Ownership
+  hand-off at a `RETURN` was already discharged *statically*
+  (`deactivate_resource_cleanup` / `deactivate_owned_list`), for plain resources,
+  resource unions, and `List OF RES` alike. Runtime identity was implemented
+  (plan-59-D) as a backstop for returns that machinery cannot see syntactically,
+  not as the mechanism that makes the flip possible.
+- **"Would require re-deriving §4" — it did not.** See the annotation at §4:
+  `STATE` agreement never rested on the escape rule. One narrow case broke, the
+  bare parameter, closed by one new rule (`TYPE_STATE_OPAQUE_NARROWING`,
+  2-203-0133).
+
+What actually carried the change was the *layering*: a closed/moved flag on every
+resource record (plan-59-A/B) so a second close is a defined no-op, then identity
+and alias tracking on top. The flag had to land first — before the flip there was
+no source path that could even reach it.
 
 **A does not need B.** Doing A first is the low-risk path, and B remains open
 afterward. The reason to consider B at all is that the current model cannot express

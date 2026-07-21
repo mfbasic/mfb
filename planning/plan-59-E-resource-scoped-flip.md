@@ -183,18 +183,31 @@ Commit: —
 
 ### Phase 3 — Remove the two rules
 
-- [ ] Delete the emit site at `ir/verify/mod.rs:2497` and the three at `:930`,
+- [x] Delete the emit site at `ir/verify/mod.rs:2497` and the three at `:930`,
       `:1163`, `:1660`; remove both names from the registration list at
-      `:146-147`.
-- [ ] Retire codes 2-203-0086 and 2-203-0100 in `src/rules/table.rs` as reserved
+      `:146-147`. — done; 1 + 3 emit sites, exactly the counts §2 measured.
+- [x] Retire codes 2-203-0086 and 2-203-0100 in `src/rules/table.rs` as reserved
       rows, following `PROJECT_JSON_VALID` (`table.rs:58-68`) — never recycle.
-- [ ] Convert the 5 negative syntax fixtures: each asserted a rejection that is
+      — both rows kept with a `reserved: retired by plan-59-E` message and a
+      comment recording what replaced them.
+- [x] Convert the 5 negative syntax fixtures: each asserted a rejection that is
       now legal. Do **not** delete them — turn each into a positive fixture
       asserting the new behavior compiles and runs correctly, preserving what the
-      original was protecting.
-- [ ] Delete or convert the 5 `ir/verify/tests.rs` assertions
-      (`:2681`, `:5009`, `:3661`, `:4582`, `:4595`).
-- [ ] Re-found `escape.rs`'s module doc (`:21-22`) on plan-59-D's identity check.
+      original was protecting. — all 5 `git mv`'d `*-invalid` → `*-valid`, each
+      with a header stating what it used to assert and why the verdict changed.
+      A 6th golden also moved and was expected: `state-opaque-narrow-return-invalid`
+      lost its 2-203-0086 line, exactly as plan-59-C's C6 predicted, while
+      **keeping** its own 2-203-0133 assertion (C6's stated regression check).
+- [x] Delete or convert the 5 `ir/verify/tests.rs` assertions
+      (`:2681`, `:5009`, `:3661`, `:4582`, `:4595`). — converted, not deleted:
+      renamed to `accepts_*` / `close_in_foreach_body_is_accepted` and switched to
+      the existing `accept()` helper. See C7 for a pre-existing defect this
+      surfaced.
+- [x] Re-found `escape.rs`'s module doc (`:21-22`) on plan-59-D's identity check.
+      — re-founded on **three** layers, not identity alone (plan-59-D's C7 showed
+      identity is a backstop, not the mechanism): static hand-off where
+      syntactically visible, runtime identity for what that cannot see, and
+      plan-59-B's flag making a second close a defined no-op.
 
 Acceptance: `closeSound` (the `bindings/libsnd` case at `src/lib.mfb:317`)
 compiles, and a program calling it closes the `SoundFile` exactly once — verified
@@ -203,18 +216,28 @@ Commit: —
 
 ### Phase 4 — Spec rewrite (largest blast radius, last)
 
-- [ ] Rewrite §15's four-event model, §15.6's collection carve-out, and §23's
+- [x] Rewrite §15's four-event model, §15.6's collection carve-out, and §23's
       soundness argument for scope ownership. §15.6's `TYPE_RESOURCE_ELEMENT_NOT_OWNER`
-      machinery collapses — `res.md` §8's "one rule instead of two".
-- [ ] Update `diagnostics/01_rule-codes.md` for the two retired codes.
-- [ ] Update `planning/res.md` §9 to record Track B as done and archive per the
-      project's convention.
-- [ ] Tests: `cargo test --bin mfb spec` — `every_rule_is_documented_in_the_spec`,
-      `spec_links_resolve`, `spec_citations_resolve`.
+      machinery collapses — `res.md` §8's "one rule instead of two". — done across
+      all 6 files; §23's soundness argument re-founded on three layers (C8).
+- [x] Update `diagnostics/01_rule-codes.md` for the two retired codes. — both rows
+      now read "**reserved — retired by resource-scoped ownership; never emitted,
+      never recycled**".
+- [x] Update `planning/res.md` §9 to record Track B as done and archive per the
+      project's convention. — recorded, **with three of §9's own predictions
+      corrected** (C9): the static-use-after-close cost, the need for runtime
+      identity, and the claim that §4 would need re-deriving were each overstated.
+- [x] Tests: `cargo test --bin mfb spec` — `every_rule_is_documented_in_the_spec`,
+      `spec_links_resolve`, `spec_citations_resolve`. — 48 passed.
 
 Acceptance: spec tests green; no spec section still describes a resource as owned
 by a binding; `./mfb spec language resource-management` reads coherently end to
 end.
+**MET** — spec tests 48 passed. `grep -rc` for either retired rule name across
+`src/docs/spec/` is **0** everywhere except one factual aside in
+`diagnostics/01_rule-codes.md` about how the `EEEE` ordinal is allocated, which
+names `TYPE_RESOURCE_ELEMENT_NOT_OWNER` as an example of a high code block and
+remains true of a reserved row.
 Commit: —
 
 ## Compatibility / Format Impact
@@ -257,6 +280,59 @@ Commit: —
   converted fixture still records what the rule was protecting.
 
 ## Corrections
+
+### C7 — asserting cleanliness surfaced a pre-existing malformed test (2026-07-20)
+
+Converting the 5 unit tests from `expect_rule(...)` to `accept(...)` turned one
+red for an unrelated reason: `TYPE_CALL_ARGUMENT_MISMATCH`. Its hand-built IR
+called `fs.open` with a single `String` argument, but `fs.open` takes
+`(path, mode)`.
+
+The old assertion only checked that a *specific* rule appeared, so a second,
+unrelated diagnostic sat there unnoticed. Demanding cleanliness exposed it.
+
+Fixed by correcting the call to `fs.openFile` (which does take one argument),
+**not** by weakening the assertion back to a rule-specific check — the stricter
+assertion is the more useful one and the malformed IR was a real (if harmless)
+defect in the test.
+
+### C8 — §23's soundness argument needed three layers, not one (2026-07-20)
+
+C3 flagged `architecture/23_escape-analysis.md:46` as the load-bearing rationale
+site: "Soundness rests on the ownership rule … so a resource reached only through
+a pointer cannot escape a callee."
+
+The plan's §3 says to re-found it "on plan-59-D's runtime identity check". That
+would have been **wrong on its own**, because plan-59-D's Correction C7
+established that identity is a *backstop*, not the mechanism — ownership hand-off
+at a `RETURN` is still discharged statically. Re-founding solely on identity would
+have replaced one inaccurate justification with another.
+
+Re-founded instead on the three layers that actually carry it, in both `escape.rs`
+and §23: (1) static hand-off where syntactically visible, (2) runtime identity for
+what that cannot see, (3) the closed/moved flag making a second close a defined
+no-op. The pass no longer needs to prove a resource *cannot* escape; it computes
+where ownership floats, and (2)+(3) ensure anything escaping by an unmodelled
+route is still closed exactly once.
+
+### C9 — three of `res.md` §9's predictions were wrong (2026-07-20)
+
+§9 is the "where this is headed" section that framed Track B's cost. Recording the
+corrections in `res.md` itself, since they were the stated reasons to hesitate:
+
+- **"Costs static use-after-close"** — overstated. The static/runtime trade-off
+  already existed for loop back edges (C4), with the runtime guard catching it.
+  Track B widened the set of cases reaching the backstop; it did not create the
+  reliance. It also *added* protection the old model never needed: alias tracking.
+- **"Needs runtime pointer identity"** — overstated. Hand-off at a `RETURN` was
+  already static, for plain resources, unions, and `List OF RES` alike.
+- **"Would require re-deriving §4"** — it did not. `STATE` never rested on the
+  escape rule; one narrow case broke and one rule closed it.
+
+What actually carried the change was the **layering**: the flag first
+(plan-59-A/B), then identity and alias tracking on top. The flag had to land
+first — before the flip there was no source path that could even reach it, which
+is why plan-59-B's runtime proof had to be inherited by this sub-plan (C2).
 
 ### C5 — "possibly closed" is the wrong shape; an alias RELATION is the right one (2026-07-20)
 

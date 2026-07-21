@@ -43,11 +43,26 @@ There is a single implementation of the analyzer; it is invoked,
 not copy-pasted. The typed-IR verifier is the sole consumer of this ownership
 logic. [[src/ir/lower.rs:lower_function]] [[src/escape.rs:analyze_function]]
 
-Soundness rests on the ownership rule (`TYPE_RESOURCE_INVALIDATE_NOT_OWNER`,
-§15.6): only the owning scope may close, return, or transfer a resource, so a
-resource reached only through a pointer cannot escape a callee. A resource enters a
-collection only inside the function that owns it, by direct insertion of a
-`RES`-binding identifier — which is exactly what the syntactic scan detects.
+Soundness no longer rests on a rule forbidding escape. A resource is owned by the
+outermost scope that touches it, and any holder of the pointer may close, return,
+or transfer it (§15.6), so the syntactic scan is not a complete account of where a
+resource can go. It does not need to be. The guarantee — a resource is closed
+exactly once — is carried by three layers:
+
+1. **Static hand-off where it is syntactically visible.** Returning a `RES`
+   binding, a resource union, or a `List OF RES` deactivates that scope's cleanup,
+   so the escaping scope emits no close at all.
+2. **Runtime pointer identity for what the scan cannot see.** At scope exit a
+   cleanup whose record pointer equals the value escaping the scope skips both the
+   close and the reclaim.
+3. **A closed/moved flag making a second close a defined no-op.** Every resource
+   record carries it at offset 8, and both the built-in helpers and every native
+   `LINK` thunk test it before acting, reporting `ErrResourceClosed` rather than
+   acting on a dead handle.
+
+So this pass computes where ownership *floats*; layers 2 and 3 ensure a resource
+that escapes by a route the scan does not model is still closed exactly once
+rather than twice or never.
 
 ## Walk: building the routing facts
 
