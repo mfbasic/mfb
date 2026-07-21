@@ -278,27 +278,43 @@ Commit: —
 
 ### Phase 2 — Wire it into `install`
 
-- [ ] Replace `src/cli/resolve.rs:96-102` with: hash comparison as the trigger,
+- [x] Replace `src/cli/resolve.rs:96-102` with: hash comparison as the trigger,
       then `classify_drift`, then §4.1's outcome rule.
-- [ ] Emit §4.3's messages — warnings to stderr via `eprintln!`, errors as the
+- [x] Emit §4.3's messages — warnings to stderr via `eprintln!`, errors as the
       returned `Err` string.
-- [ ] Keep the ordering at §4.4: the drift check stays ahead of
+- [x] Keep the ordering at §4.4: the drift check stays ahead of
       `verify_pinned_metadata` (`:110`) and the `repoFingerprint` check (`:113`).
-- [ ] Grep for tests asserting the old string:
+- [x] Grep for tests asserting the old string:
       `grep -rn 'mfb.lock is stale' src/ tests/` — update each to the new
       class-specific message. If a test's intent was "any drift is refused",
       re-point it at a class that still errors (e.g. `PinMoved`) rather than
       weakening it.
-- [ ] Tests: extend `tests/repo_acceptance.rs` with two cases — a `pin: false`
+- [x] Tests: extend `tests/repo_acceptance.rs` with two cases — a `pin: false`
       dependency whose manifest version is bumped past the lock (assert exit 0,
       assert the warning appears on stderr, assert `packages/<name>.mfp` still
       holds the **locked** version's bytes), and a `pin: true` dependency in the
       same situation (assert exit 1, assert `packages/` is unchanged).
 
+- [x] **Added task:** a `report_drift` helper owning §4.1's outcome rule and
+      §4.2's empty-diff decision, keeping `classify_drift` pure (Corrections #1).
+- [x] **Added task:** two unit tests for the wired path —
+      `install_with_a_moved_pin_errors_before_network` (a concrete fatal class,
+      per the plan's guidance about re-pointing rather than weakening) and
+      `install_with_a_moved_floor_passes_the_drift_gate` (the same drift must get
+      *past* the gate).
+
 Acceptance: `cargo test --bin mfb && cargo test --test repo_acceptance` pass. The
 `pin: false` acceptance case must assert the installed bytes match the *locked*
 selection — asserting only the exit code would pass even if the warning path
-wrongly installed the manifest's version.
+wrongly installed the manifest's version. **VERIFIED** — 3158 unit (from 3156) /
+22 acceptance (from 21), 0 failed, 0 warnings.
+
+The byte assertion is **two-way mutation-verified**, because an exit-code-only
+test would have passed either mutation:
+
+- *too lax* — ignoring `report_drift`'s error → test FAILS.
+- *too strict* — returning `Err` for `FloorMoved` instead of warning → test
+  FAILS with "a moved ABI floor must warn and continue".
 Commit: —
 
 ### Phase 3 — Docs

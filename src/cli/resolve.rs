@@ -151,8 +151,6 @@ pub(crate) fn apply_manifest_change(project_dir: &Path, new_contents: &str) -> R
 /// the lock may still satisfy the new floor, and even when it does not, the
 /// honest outcome is to install what was locked and say so. Every other class
 /// means the lock no longer describes the project.
-// DELETE THIS ATTRIBUTE IN plan-60-D Phase 2, which wires this into `install`.
-#[allow(dead_code)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum DriftClass {
     /// Declared in `project.json`, absent from the lock.
@@ -179,8 +177,6 @@ pub(crate) enum DriftClass {
 /// registry. An empty result when the caller has already observed a
 /// `projectHash` mismatch is the `Unattributable` case (§4.2) — see
 /// `install`, which owns that decision because only it knows a mismatch occurred.
-// DELETE THIS ATTRIBUTE IN plan-60-D Phase 2, which wires this into `install`.
-#[allow(dead_code)]
 pub(crate) fn classify_drift(
     manifest: &std::collections::HashMap<String, JsonValue>,
     lock_packages: &[LockedPackage],
@@ -239,6 +235,76 @@ pub(crate) fn classify_drift(
     drift
 }
 
+/// Apply plan-60-D §4.1's outcome rule to a `projectHash` mismatch.
+///
+/// Called ONLY when the hash has already been observed to differ — that fact is
+/// what makes an empty classification meaningful (§4.2).
+///
+/// Warnings go to stderr and return `Ok`; anything else returns `Err` naming
+/// every offending dependency, so a project with three problems reports three
+/// rather than one per re-run.
+fn report_drift(
+    manifest: &std::collections::HashMap<String, JsonValue>,
+    lock: &Lock,
+) -> Result<(), String> {
+    let drift = classify_drift(manifest, &lock.packages);
+
+    // §4.2: the hash differs but nothing the lock records does. `pin` and
+    // `source` are covered by `projectHash` yet absent from the lock, so a flip
+    // of either lands here. Refusing is the conservative direction: proceeding
+    // would install the old locked blob after a `source` change pointed the
+    // dependency somewhere else entirely.
+    if drift.is_empty() {
+        return Err(
+            "mfb.lock does not match project.json, but the difference is not in a field the \
+             lock records (most likely `pin` or `source` changed); run `mfb pkg update`"
+                .to_string(),
+        );
+    }
+
+    let mut fatal = Vec::new();
+    let mut warnings = Vec::new();
+    for (ident, class) in &drift {
+        match class {
+            DriftClass::FloorMoved {
+                declared,
+                locked,
+                selected,
+            } => warnings.push(format!(
+                "warning: {ident} is floating and project.json now declares {declared} as its ABI \
+                 floor, but mfb.lock was resolved against {locked} and selects {selected}. \
+                 Installing the locked selection. Run `mfb pkg update` to re-resolve."
+            )),
+            DriftClass::PinMoved { declared, locked } => fatal.push(format!(
+                "{ident} is pinned to {declared} in project.json but mfb.lock records {locked}. \
+                 Run `mfb pkg update` to re-resolve, or restore the pinned version."
+            )),
+            DriftClass::Added => fatal.push(format!(
+                "{ident} is declared in project.json but absent from mfb.lock. \
+                 Run `mfb pkg update`."
+            )),
+            DriftClass::Removed => fatal.push(format!(
+                "{ident} is recorded in mfb.lock but no longer declared in project.json. \
+                 Run `mfb pkg update`."
+            )),
+            DriftClass::Renamed { declared, locked } => fatal.push(format!(
+                "{ident} is named {declared} in project.json but {locked} in mfb.lock. \
+                 Run `mfb pkg update`."
+            )),
+        }
+    }
+
+    // Report every fatal class, not just the first — re-running to discover one
+    // more problem each time is the behavior this letter replaces.
+    if !fatal.is_empty() {
+        return Err(fatal.join("\n"));
+    }
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+    Ok(())
+}
+
 /// Is this dependency a **registry** resolution node?
 ///
 /// Two conditions, and both matter:
@@ -288,13 +354,13 @@ pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
     let Some(lock) = read_lock(project_dir)? else {
         return Err("no mfb.lock; run `mfb pkg update` to resolve dependencies first".to_string());
     };
-    // A drifted request set means the lock no longer describes the project.
+    // A drifted request set means the lock may no longer describe the project.
+    // Rather than refusing on the opaque hash alone, diff the fields the lock
+    // records and decide per class (plan-60-D §4.1): a moved ABI floor on a
+    // floating dependency is a warning, everything else is fatal.
     let current_hash = crate::audit::project_hash(&manifest);
     if lock.project_hash != current_hash {
-        return Err(
-            "mfb.lock is stale (project.json changed since it was written); run `mfb pkg update`"
-                .to_string(),
-        );
+        report_drift(&manifest, &lock)?;
     }
 
     let repo_url = client::repo_url_from_env();
@@ -1057,13 +1123,88 @@ mod tests {
             "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{\"root\":\"src\"}]}",
         )
         .expect("manifest");
-        // A lock whose projectHash does not match the current project is stale.
+        // A lock whose projectHash does not match the current project.
         std::fs::write(
             dir.path().join("mfb.lock"),
             "{\"lockfileVersion\":1,\"projectHash\":\"stale\",\"repoFingerprint\":\"r\",\"checkpoint\":{\"size\":0,\"rootHash\":\"\"},\"packages\":[]}\n",
         )
         .expect("lock");
-        assert!(install(dir.path()).unwrap_err().contains("stale"));
+
+        // plan-60-D replaced the opaque "mfb.lock is stale" verdict with a field
+        // diff. This fixture — no declared dependencies, no locked packages, but
+        // a mismatched hash — is exactly §4.2's Unattributable case: the hash
+        // differs and nothing the lock RECORDS does, because `pin` and `source`
+        // are hashed but not stored in the lock.
+        //
+        // The test's original intent is unchanged and still asserted: install
+        // refuses, and does so before any network call. Only the message moved,
+        // deliberately, and the new one is more specific than the old.
+        let err = install(dir.path()).unwrap_err();
+        assert!(
+            err.contains("not in a field the lock records"),
+            "expected the unattributable-drift message, got: {err}"
+        );
+        assert!(err.contains("mfb pkg update"), "{err}");
+    }
+
+    /// plan-60-D §4.1: a moved pin is fatal, and — like the unattributable case
+    /// above — is decided before any network call. Complements that test by
+    /// covering a concrete drift class rather than the empty-diff fallback.
+    #[test]
+    fn install_with_a_moved_pin_errors_before_network() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            dir.path().join("project.json"),
+            manifest_with_packages(
+                "{\"name\":\"shape\",\"ident\":\"ada#shape\",\"version\":\"1.4.0\",\"pin\":true}",
+            ),
+        )
+        .expect("manifest");
+        std::fs::write(
+            dir.path().join("mfb.lock"),
+            "{\"lockfileVersion\":1,\"projectHash\":\"stale\",\"repoFingerprint\":\"r\",             \"checkpoint\":{\"size\":0,\"rootHash\":\"\"},\"packages\":[{\"name\":\"shape\",             \"ident\":\"ada#shape\",\"requested\":\"1.3.0\",\"selected\":\"1.3.0\",\"hash\":\"h\",             \"identKey\":\"\",\"identFingerprint\":\"\",\"state\":\"available\"}]}\n",
+        )
+        .expect("lock");
+
+        let err = install(dir.path()).unwrap_err();
+        assert!(err.contains("pinned to 1.4.0"), "{err}");
+        assert!(err.contains("mfb.lock records 1.3.0"), "{err}");
+    }
+
+    /// plan-60-D §4.1: the same drift on a FLOATING dependency warns and
+    /// proceeds. It cannot reach `Ok` here — installing needs a registry — but
+    /// it must get PAST the drift gate, which the pin case does not. Asserted by
+    /// the error being about the key store rather than about drift.
+    #[test]
+    fn install_with_a_moved_floor_passes_the_drift_gate() {
+        let _lock = super::super::tests::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().expect("home");
+        let _mfb = super::super::tests::EnvVarGuard::set(
+            "MFB_HOME",
+            home.path().to_str().expect("utf-8 home"),
+        );
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            dir.path().join("project.json"),
+            manifest_with_packages(
+                "{\"name\":\"shape\",\"ident\":\"ada#shape\",\"version\":\"1.4.0\",\"pin\":false}",
+            ),
+        )
+        .expect("manifest");
+        std::fs::write(
+            dir.path().join("mfb.lock"),
+            "{\"lockfileVersion\":1,\"projectHash\":\"stale\",\"repoFingerprint\":\"r\",             \"checkpoint\":{\"size\":0,\"rootHash\":\"\"},\"packages\":[{\"name\":\"shape\",             \"ident\":\"ada#shape\",\"requested\":\"1.3.0\",\"selected\":\"1.3.2\",\"hash\":\"h\",             \"identKey\":\"\",\"identFingerprint\":\"\",\"state\":\"available\"}]}\n",
+        )
+        .expect("lock");
+
+        let err = install(dir.path()).unwrap_err();
+        assert!(
+            !err.contains("floating") && !err.contains("not in a field"),
+            "a moved ABI floor must NOT be refused as drift, got: {err}"
+        );
     }
 
     #[test]

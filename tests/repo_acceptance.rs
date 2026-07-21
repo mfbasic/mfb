@@ -983,6 +983,132 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     );
 }
 
+/// plan-60-D §4.1: `install` diffs the manifest against the lock instead of
+/// refusing on the opaque `projectHash` alone.
+///
+/// A moved ABI **floor** on a `pin: false` dependency warns and installs the
+/// LOCKED selection; the same drift on a `pin: true` dependency is fatal.
+///
+/// Asserting exit codes alone would not distinguish "warned and installed the
+/// locked version" from "warned and installed the manifest's version", so this
+/// compares the installed bytes against each published version.
+#[test]
+fn install_warns_on_floor_drift_and_errors_on_pin_drift() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Publish 0.1.0 and 0.2.0 of the same package.
+    let package_dir = work.path().join("drift_pkg");
+    let package_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_arg]).status.success());
+    let manifest_path = package_dir.join("project.json");
+    let seed = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#drift_pkg\",\n",
+    );
+    std::fs::write(&manifest_path, &seed).unwrap();
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["repo", "publish", "alice", package_arg]
+    )
+    .status
+    .success());
+    let v1_bytes = std::fs::read(package_dir.join("drift_pkg.mfp")).unwrap();
+
+    std::fs::write(
+        &manifest_path,
+        seed.replace("\"version\": \"0.1.0\"", "\"version\": \"0.2.0\""),
+    )
+    .unwrap();
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["repo", "publish", "alice", package_arg]
+    )
+    .status
+    .success());
+    let v2_bytes = std::fs::read(package_dir.join("drift_pkg.mfp")).unwrap();
+    assert_ne!(v1_bytes, v2_bytes, "the two versions must differ on disk");
+
+    // Consumer pins 0.1.0, so the lock records exactly that.
+    let app = work.path().join("drift_consumer");
+    let app_arg = app.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_arg]).status.success());
+    let run_in = |args: &[&str]| run_mfb_in(&repo, home.path(), &app, args);
+    assert!(run_in(&["pkg", "add", "alice#drift_pkg@0.1.0"])
+        .status
+        .success());
+    let installed = app.join("packages/drift_pkg.mfp");
+    assert_eq!(std::fs::read(&installed).unwrap(), v1_bytes);
+
+    let app_manifest = app.join("project.json");
+    let pinned_text = std::fs::read_to_string(&app_manifest).unwrap();
+    assert!(pinned_text.contains("\"pin\": true"), "{pinned_text}");
+
+    // --- pin: true, version bumped past the lock -> ERROR, packages/ untouched.
+    std::fs::write(
+        &app_manifest,
+        pinned_text.replace("\"version\": \"0.1.0\"", "\"version\": \"0.2.0\""),
+    )
+    .unwrap();
+    let pinned_install = run_in(&["pkg", "install"]);
+    assert!(
+        !pinned_install.status.success(),
+        "a moved pin must be fatal: {}",
+        String::from_utf8_lossy(&pinned_install.stdout)
+    );
+    let pin_err = String::from_utf8_lossy(&pinned_install.stderr);
+    assert!(pin_err.contains("pinned to 0.2.0"), "{pin_err}");
+    assert!(pin_err.contains("mfb.lock records 0.1.0"), "{pin_err}");
+    assert_eq!(
+        std::fs::read(&installed).unwrap(),
+        v1_bytes,
+        "a refused install must not touch packages/"
+    );
+
+    // --- pin: false, same drift -> WARN, and the LOCKED version installs.
+    std::fs::write(
+        &app_manifest,
+        pinned_text
+            .replace("\"version\": \"0.1.0\"", "\"version\": \"0.2.0\"")
+            .replace("\"pin\": true", "\"pin\": false"),
+    )
+    .unwrap();
+    let floating_install = run_in(&["pkg", "install"]);
+    assert!(
+        floating_install.status.success(),
+        "a moved ABI floor must warn and continue: {}",
+        String::from_utf8_lossy(&floating_install.stderr)
+    );
+    let warn = String::from_utf8_lossy(&floating_install.stderr);
+    assert!(warn.contains("warning:"), "{warn}");
+    assert!(warn.contains("floating"), "{warn}");
+    assert!(warn.contains("0.2.0"), "must name the new floor: {warn}");
+    assert!(
+        warn.contains("0.1.0"),
+        "must name the locked version: {warn}"
+    );
+
+    // The load-bearing assertion: the LOCKED selection landed, not the
+    // manifest's newer floor. Exit code alone cannot tell these apart.
+    assert_eq!(
+        std::fs::read(&installed).unwrap(),
+        v1_bytes,
+        "the warn path must install the LOCKED version, not the manifest's"
+    );
+    assert_ne!(std::fs::read(&installed).unwrap(), v2_bytes);
+}
+
 /// plan-60-C Phase 1 (spike): does a `file://`-added package whose header
 /// carries an `owner#pkg` ident get resolved against the **registry** by
 /// `mfb pkg update`?
