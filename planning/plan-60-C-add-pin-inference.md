@@ -413,22 +413,31 @@ Commit: ddb4c8898
 
 ### Phase 4 — Docs
 
-- [ ] `src/main.rs:96` `PKG_HELP`: update the `add` line to
+- [x] `src/main.rs:96` `PKG_HELP`: update the `add` line to
       `add <target> [--pin|--no-pin]` and add an Options entry for both flags
       alongside the existing `--proof` / `--out` entries (`:116-118`).
-- [ ] `src/main.rs:45` `USAGE:53` — the short `pkg add <target>` line; add the
-      flags or leave the pointer to `mfb pkg --help`, whichever keeps the block
-      readable.
-- [ ] `src/docs/spec/tooling/07_cli-reference.md:51` — update the `pkg add` row's
+- [x] ~~`src/main.rs:45` `USAGE:53` — the short `pkg add <target>` line~~ —
+      **left as-is, deliberately.** The task offers the choice; the top-level
+      screen is a representative subset that already ends in
+      `Run 'mfb pkg --help' for all package commands`, and two flags on a
+      one-line summary would cost more readability than they buy. The flags are
+      documented in `PKG_HELP`, which that pointer leads to.
+- [x] `src/docs/spec/tooling/07_cli-reference.md:51` — update the `pkg add` row's
       argument column with the flags.
-- [ ] Document the pin-inference matrix and the "under `pin: false`, `version` is
-      an ABI floor" semantics in the tooling spec. This is a new observable
-      contract and `.ai/specifications.md` makes it a same-change obligation.
-      Cite `[[src/cli/resolve.rs:select_node]]` for the pin-vs-float branch.
+- [x] Document the pin-inference matrix and the "under `pin: false`, `version` is
+      an ABI floor" semantics in the tooling spec. Added as a new
+      `## \`pkg add\` Pin Inference` section carrying the full five-row matrix,
+      the both-flags usage error, the ABI-floor explanation, and the `file://`
+      rule — citing `[[src/cli/pkg.rs:infer_pin]]` and
+      `[[src/cli/resolve.rs:select_node]]`.
+- [x] **Added task** (Corrections #7): document resolve-first in the `pkg`
+      subcommands prose, and correct two stale claims found there — one of them a
+      **plan-60-A leftover** that no rename census could have caught.
 
 Acceptance: `cargo build && cargo test --bin mfb spec` passes;
 `mfb spec tooling --all` renders with no leaked `[[` markers; `mfb pkg --help`
-shows both flags.
+shows both flags. **VERIFIED** — build exit 0; `cargo test --bin mfb spec` 48
+passed; 0 leaked `[[` markers; `mfb pkg --help` shows `--pin` and `--no-pin`.
 Commit: —
 
 ## Validation Plan
@@ -551,6 +560,30 @@ dependency directly in `project.json`, keeping the `update` assertions verbatim,
 and *added* coverage for the new, better behavior — the conflict now surfaces at
 `add` time rather than being written to disk and discovered later. Net: strictly
 more coverage, same protected property.
+
+**#7 — a plan-60-A leftover that no rename census could have found.** (Phase 4,
+2026-07-21.) The `## pkg and repo Subcommands` prose in
+`src/docs/spec/tooling/07_cli-reference.md` described the publisher command as
+**`publish <owner> <package>`** — inside the paragraph documenting
+`run_pkg_command`, and therefore attributing it to `mfb pkg`. plan-60-A's census
+searched for `pkg publish`, and this text never contains that string: the
+subcommand names in that paragraph are written bare, with the parent implied by
+the surrounding sentence. A grep for the *renamed* string cannot find a reference
+that never spelled the parent out.
+
+Two stale claims fixed together:
+
+- `publish <owner> <package>` → moved into the `repo` paragraph as
+  `repo publish <owner> [path]` (also picking up plan-60-A's optional-path
+  change, which the old text predated).
+- "records a **pinned** dependency" → now correct only for `file://` adds; a
+  registry add defaults to floating as of this letter.
+
+**Generalizable lesson, and the second time this bit plan-60** (see plan-60-A
+Corrections #5, the line-broken `mfb pkg\\npublish`): a rename census that greps
+for the old *full* command string will miss every reference that abbreviates or
+wraps it. For the remaining letters, prefer reading the affected spec sections
+end to end over trusting a grep count.
 
 **#3 — a consequence of the fix, deliberately left to plan-60-E.** With the
 filter corrected, `mfb pkg update` on a project whose *only* dependency is a

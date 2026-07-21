@@ -44,7 +44,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `test` | `mfb test [--coverage] [--target os-arch] [--regalloc name] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
 | `fmt` | `mfb fmt [--check] [--indent N] [location]` | 0 ok; 2 bad flags; 1 not-formatted (`--check`) or error |
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
-| `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]>` | 0 ok; 2 usage; 1 failed |
+| `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]> [--pin\|--no-pin]` | 0 ok; 2 usage; 1 failed |
 | `pkg info` | `mfb pkg info <package>` | 0 ok; 2 usage; 1 failed |
 | `pkg verify` | `mfb pkg verify [--proof]` | 0 ok; 2 usage; 1 failed |
 | `pkg validate` | `mfb pkg validate <package>` | 0 valid; 2 usage; 1 invalid or failed |
@@ -241,20 +241,27 @@ Format/finding catalogue: `./mfb spec tooling audit-format`.
 ## `pkg` and `repo` Subcommands
 
 `run_pkg_command` matches the subcommand by name.[[src/cli/pkg.rs:run_pkg_command]]
-`add <url>` resolves a `file://` `.mfp` URL (only scheme supported; must be
-absolute and end `.mfp`), copies it into `packages/`, and records a pinned
-dependency in `project.json` — for a **signed** package the dependency entry
-also pins the header `identKey` on this first add (trust-on-first-use); the
+`add <target> [--pin|--no-pin]` takes either a `file://` `.mfp` URL (only scheme
+supported; must be absolute and end `.mfp`) or an `<owner>#<package>[@version]`
+registry ident. A `file://` add copies the file into `packages/` and records a
+**pinned** dependency in `project.json` — for a **signed** package the dependency
+entry also pins the header `identKey` on this first add (trust-on-first-use); the
 pin, never the file-embedded key, is the trust anchor every later build
 verifies against.[[src/cli/pkg.rs:add_package]] A `file://` add of a package that
 **vendors native libraries** is refused: there is no registry to fetch the
-library bytes from, so it would install in a silently unusable state. `info
-<package>`
+library bytes from, so it would install in a silently unusable state.
+
+`add` **resolves before it mutates**: the proposed `project.json` is resolved
+first, and only a successful resolution writes `project.json`, `mfb.lock` and
+`packages/`. A resolution failure — an unpublished anchor version, a diamond
+conflict — leaves all three byte-identical.[[src/cli/resolve.rs:apply_manifest_change]]
+Because `add` writes the lock, `mfb pkg install` runs immediately afterwards
+with no intervening `mfb pkg update`.
+
+`info <package>`
 prints the package report (below). `verify` checks each `project.json`
 dependency. `validate <package>` checks an **existing** `.mfp` — "is this
-package correct?" (below). `publish <owner> <package>` rebuilds and signs the
-package, uploads any vendored native-library blobs the registry does not already
-have, then uploads the package itself. `doc <name-or-path> [--out file]` renders a compiled
+package correct?" (below). `doc <name-or-path> [--out file]` renders a compiled
 package's doc section (`run_pkg_doc`, default out
 `doc.html`).[[src/cli/pkg.rs:run_pkg_doc]] Each subcommand's arity error and the
 fallthrough `unknown pkg command` exit `2`; runtime failures exit `1`.
@@ -269,11 +276,46 @@ key, and installs the decrypted ident keypair — the machine is then a full
 equal. `mfb machine revoke <owner> <auth-fingerprint>` revokes a lost
 machine's auth key with an ident-signed request (no session needed; requires
 the ident key on this machine).[[src/cli/repo.rs:run_machine_command]]
+`repo publish <owner> [path]` rebuilds and signs the package, uploads any
+vendored native-library blobs the registry does not already have, then uploads
+the package itself; `[path]` defaults to the current directory.
 `mfb key rotate <owner>` rotates the account ident: the new key is chained to
 the old by an old-ident signature, consumers follow the chain via
 `pkg verify`, and other linked machines must re-link.[[src/cli/repo.rs:run_key_command]]
 The registry protocol, signing, and publish detail are
 `./mfb spec package-manager repository-protocol`.
+
+## `pkg add` Pin Inference
+
+Whether a dependency is **pinned** (locked to one version) or **floating**
+(free to resolve upward) is inferred from the invocation, and either flag
+overrides the inference. The rule: *an explicit `@version` implies a pin; an
+explicit flag always wins.*[[src/cli/pkg.rs:infer_pin]]
+
+| Invocation | `version` written | `pin` written | Printed suffix |
+|---|---|---|---|
+| `mfb pkg add alice#shape` | newest floating-eligible | `false` | `(floating)` |
+| `mfb pkg add alice#shape@1.4.0` | `1.4.0` | `true` | `(pinned)` |
+| `mfb pkg add alice#shape --pin` | newest floating-eligible | `true` | `(pinned)` |
+| `mfb pkg add alice#shape@1.4.0 --no-pin` | `1.4.0` | `false` | `(floating, floor 1.4.0)` |
+| `mfb pkg add alice#shape --pin --no-pin` | — | — | usage error, exit `2` |
+
+`--pin` and `--no-pin` together are a **usage error** rather than
+last-flag-wins: the two orderings would otherwise mean different things with no
+way to tell from the command line which was intended.
+
+**Under `pin: false`, `version` is an ABI floor, not the version you get.** The
+resolver looks the recorded version up as the *anchor*, takes that release's ABI
+map as the project's requirement set, and then selects the highest eligible
+version whose exported ABI is a superset of it. A `pin: true` dependency bypasses
+the search entirely and takes its exact version.[[src/cli/resolve.rs:select_node]]
+`--no-pin` on an `@version` add is therefore meaningful rather than
+contradictory: it is the one way to set the floor deliberately instead of
+accepting "whatever was newest the day `add` ran".
+
+A `file://` add is always `pin: true` and `--no-pin` on one is a usage error:
+a local file has no registry version stream to float along. `--pin` on a
+`file://` target is accepted as a redundant statement of the existing behavior.
 
 ## `pkg verify` Output
 

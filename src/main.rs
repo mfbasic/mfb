@@ -98,7 +98,8 @@ pub(crate) const PKG_HELP: &str = "\
 Usage: mfb pkg <command> [arguments]
 
 Commands:
-  add <target>            Add a package: file:// URL or <owner>#<pkg>[@ver] ident
+  add <target> [--pin|--no-pin]
+                          Add a package: file:// URL or <owner>#<pkg>[@ver] ident
   info <pkg>              Show metadata and dependencies of a compiled package
   doc <pkg> [--out <f>]   Render HTML documentation from a compiled package
   verify [--proof]        Verify packages declared in project.json
@@ -111,7 +112,9 @@ see 'mfb repo --help'.
 
 Options:
   --proof                 (verify) Also print each dependency's inclusion proof
-  --out <file>            (doc) Path to the generated HTML file (default: index.html)";
+  --out <file>            (doc) Path to the generated HTML file (default: index.html)
+  --pin                   (add) Record the exact version; never float
+  --no-pin                (add) Float above this version, which becomes the ABI floor";
 
 pub(crate) const REPO_HELP: &str = "\
 Usage: mfb repo <command> [arguments]
