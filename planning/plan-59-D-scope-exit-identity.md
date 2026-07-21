@@ -179,7 +179,7 @@ across `resource*` `native*` `libsnd*` `trap*`; `cargo test` 21 suites, 0 failed
 with an existing static deactivation for the `RETURN <local>` case, so this
 fixture passes with or without it. That is recorded rather than presented as
 proof the new code is load-bearing.
-Commit: —
+Commit: 62e051c50
 
 ### Phase 3 — Collections and unions
 
@@ -212,7 +212,7 @@ caller and zero times in the callee; the three existing collection fixtures pass
 **MET** — the three collection fixtures pass unchanged within the 147-test run,
 and the property holds by the float machinery's static ownership migration rather
 than by a runtime walk. `cargo test` 21 suites, 0 failed.
-Commit: —
+Commit: 5b23eb1ef
 
 ### Phase 4 — Every exit path (largest blast radius, last)
 
@@ -248,7 +248,7 @@ that actually matters here, the OS handle, and it fails *hard and early* (macOS'
 soft limit is 256, so a leak on any single path dies within the first handful of
 iterations) instead of requiring a threshold judgement. `cargo test` 21 suites, 0
 failed; acceptance 173 tests.
-Commit: —
+Commit: dca2e6894
 
 ## Validation Plan
 
@@ -259,6 +259,14 @@ Commit: —
 - Runtime proof: a 1000-iteration loop returning a resource through two frames,
   showing bounded arena use (mirroring plan-52-B's 961 MB → 31 MB method).
 - Doc sync: §15.6's ownership-float description, and §15's exit-path list.
+  **NONE NEEDED — and that is a finding, not an omission.** Both sections already
+  describe the behavior correctly, because this sub-plan changed **no observable
+  behavior**: the ownership float is still discharged by the same static
+  machinery §15.6 describes (C9), and §15's exit-path list is unchanged and now
+  better covered by fixtures. The runtime skip is a backstop beneath an existing
+  guarantee, not a new rule, so there is nothing for a user-facing spec to say
+  about it. Editing §15/§15.6 to advertise it would describe the implementation
+  rather than the contract.
 - Acceptance: `cargo test`; `scripts/test-accept.sh target/debug/mfb <tmp>
   'resource*' 'trap*'` with a hermetic `MFB_HOME`.
 
