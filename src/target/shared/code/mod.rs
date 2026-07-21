@@ -1270,11 +1270,13 @@ pub(crate) fn lower_module_for_platform(
             &module.link_functions,
             &module.link_cstructs,
             &type_model.record_fields,
-            globals_base,
+            link_thunk::LinkCodegenOptions {
+                globals_base,
+                max_buffer_bytes: module.max_buffer_bytes,
+            },
             &platform_imports,
             platform,
             &link_libraries,
-            module.max_buffer_bytes,
         )?;
         code_functions.extend(support.functions);
         data_objects.extend(support.data_objects);

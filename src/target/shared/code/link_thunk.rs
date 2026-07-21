@@ -100,16 +100,53 @@ fn emit_data_address(
 
 /// Build the full `LINK` support: the load-time initializer, one thunk per
 /// function, and the backing data objects.
+/// The build-level scalars every LINK thunk in a module shares.
+///
+/// Two numbers of the same shape passed adjacently is the setup for a silent
+/// transposition, and `max_buffer_bytes` (plan-58-C) is what made it two.
+#[derive(Clone, Copy)]
+pub(super) struct LinkCodegenOptions {
+    pub(super) globals_base: usize,
+    /// project.json `maxBuffer` in bytes — the `OUT CBuffer` allocation ceiling.
+    /// The CONSUMING project's setting: thunks are emitted when an executable
+    /// links, so a binding cannot raise an application's ceiling on its behalf.
+    pub(super) max_buffer_bytes: u64,
+}
+
+/// The per-thunk scalars `lower_link_thunk` needs that are not the function
+/// itself: where it sits in the link table, where the globals region starts, its
+/// `FREE` slot, and the project's buffer ceiling.
+///
+/// Bundled rather than passed positionally because they are four unrelated
+/// numbers of the same shape — `lower_link_thunk(f, cs, rf, 0, 0, None, ...)` is
+/// exactly the call that transposes two arguments silently. Adding
+/// `max_buffer_bytes` (plan-58-C) is what pushed the arity past the point where
+/// that stopped being hypothetical.
+#[derive(Clone, Copy)]
+struct ThunkContext {
+    /// Index in the link table, used for the per-function symbol slot.
+    index: usize,
+    globals_base: usize,
+    /// The globals slot holding the `FREE` deallocator's resolved address.
+    free_slot: Option<usize>,
+    /// project.json `maxBuffer` in bytes — the `OUT CBuffer` allocation ceiling.
+    /// The CONSUMING project's setting; see `emit_link_support`.
+    max_buffer_bytes: u64,
+}
+
 pub(super) fn emit_link_support(
     link_functions: &[IrLinkFunction],
     link_cstructs: &[crate::ir::IrCStruct],
     record_fields: &HashMap<String, Vec<(String, String)>>,
-    globals_base: usize,
+    options: LinkCodegenOptions,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     libraries: &LinkLibraries,
-    max_buffer_bytes: u64,
 ) -> Result<LinkSupport, String> {
+    let LinkCodegenOptions {
+        globals_base,
+        max_buffer_bytes,
+    } = options;
     let mut data_objects = Vec::new();
 
     // Distinct libraries in declaration order, each mapped to a constant symbol.
@@ -178,11 +215,13 @@ pub(super) fn emit_link_support(
             function,
             link_cstructs,
             record_fields,
-            index,
-            globals_base,
-            free_slot,
+            ThunkContext {
+                index,
+                globals_base,
+                free_slot,
+                max_buffer_bytes,
+            },
             &stateful_native_resources,
-            max_buffer_bytes,
         )?);
     }
 
@@ -331,20 +370,15 @@ fn lower_link_thunk(
     function: &IrLinkFunction,
     link_cstructs: &[crate::ir::IrCStruct],
     record_fields: &HashMap<String, Vec<(String, String)>>,
-    index: usize,
-    globals_base: usize,
-    free_slot: Option<usize>,
+    ctx: ThunkContext,
     stateful_native_resources: &HashSet<String>,
-    // `max_buffer_bytes`: the largest `BUFFER … SIZE` an `OUT CBuffer` may
-    // request, from project.json `maxBuffer` (MiB), default 64 (plan-58-C). The
-    // buffer is an arena block sized by a runtime expression over the wrapper's
-    // parameters, so without a ceiling it is an unbounded allocation request
-    // driven by the caller. A request above it, or a negative one, raises
-    // `ErrInvalidArgument` BEFORE allocating. This is the CONSUMING project's
-    // setting: thunks are emitted when an executable links, so a binding cannot
-    // raise an app's memory ceiling on its behalf.
-    max_buffer_bytes: u64,
 ) -> Result<CodeFunction, String> {
+    let ThunkContext {
+        index,
+        globals_base,
+        free_slot,
+        max_buffer_bytes,
+    } = ctx;
     let symbol = link_thunk_symbol(&function.alias, &function.name);
     let n_params = function.params.len();
     let m_slots = function.abi_slots.len();
@@ -2230,11 +2264,8 @@ mod tests {
                 &seven_int_slots(count),
                 &[],
                 &HashMap::new(),
-                0,
-                0,
-                None,
+                TEST_THUNK_CONTEXT,
                 &HashSet::new(),
-                TEST_MAX_BUFFER_BYTES,
             )
         };
 
@@ -2266,7 +2297,14 @@ mod tests {
     /// The `maxBuffer` ceiling these tests lower against: the project.json
     /// default of 64 MiB. Named rather than inlined so a test asserting the gate
     /// reads against the same number the default produces.
-    const TEST_MAX_BUFFER_BYTES: u64 = 64 * 1024 * 1024;
+    const TEST_THUNK_CONTEXT: ThunkContext = ThunkContext {
+        index: 0,
+        globals_base: 0,
+        free_slot: None,
+        // The project.json `maxBuffer` default, so a test asserting the size gate
+        // reads against the same number a project with no `maxBuffer` gets.
+        max_buffer_bytes: 64 * 1024 * 1024,
+    };
 
     /// Every ctype the allow-list accepts must reach a real marshaling arm.
     ///
@@ -2337,11 +2375,8 @@ mod tests {
                 &function,
                 &[],
                 &HashMap::new(),
-                0,
-                0,
-                None,
+                TEST_THUNK_CONTEXT,
                 &HashSet::new(),
-                TEST_MAX_BUFFER_BYTES,
             );
             assert!(
                 lowered.is_ok(),
@@ -2383,11 +2418,8 @@ mod tests {
                 &function,
                 &[],
                 &HashMap::new(),
-                0,
-                0,
-                None,
+                TEST_THUNK_CONTEXT,
                 &HashSet::new(),
-                TEST_MAX_BUFFER_BYTES,
             );
             assert!(
                 lowered.is_ok(),
@@ -2434,11 +2466,8 @@ mod tests {
                 &function,
                 &[],
                 &HashMap::new(),
-                0,
-                0,
-                None,
+                TEST_THUNK_CONTEXT,
                 &HashSet::new(),
-                TEST_MAX_BUFFER_BYTES,
             );
             assert!(
                 lowered.is_ok(),
