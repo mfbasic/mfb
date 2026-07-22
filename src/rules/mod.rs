@@ -199,6 +199,10 @@ mod tests {
         show_diagnostic("IMPORT_PACKAGE_INVALID", "clamped", &file, 99, 0, 0);
     }
 
+    // The guard is a `debug_assert!`, so the panic this asserts exists only when
+    // debug assertions are compiled in — under `cargo test --release` the call
+    // degrades to the UNKNOWN_RULE sentinel and the test can never pass.
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic(expected = "not defined in RULES")]
     fn unknown_rule_name_trips_the_debug_assert() {
