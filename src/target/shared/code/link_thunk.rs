@@ -142,7 +142,7 @@ pub(super) fn emit_link_support(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     libraries: &LinkLibraries,
-    native_resources: &[crate::ir::IrNativeResource],
+    resource_closers: &HashMap<String, String>,
 ) -> Result<LinkSupport, String> {
     let LinkCodegenOptions {
         globals_base,
@@ -242,10 +242,19 @@ pub(super) fn emit_link_support(
     // plan-59-B: the `LINK` functions that are some resource's registered
     // `CLOSE BY` op, by dotted `alias.func` — the set that must set
     // `RESOURCE_CLOSED_BIT` on the record it was handed.
-    let close_ops: HashSet<String> = native_resources
-        .iter()
-        .map(|r| r.close_function.clone())
-        .collect();
+    //
+    // bug-377: read from the type model's closer table, NOT `native_resources`.
+    // The latter holds the current project's `RESOURCE T CLOSE BY` declarations
+    // only — a decoded package contributes none (`ir/binary.rs` drops them by
+    // contract) — so an imported package's close thunk was left out of this set
+    // and never set the closed bit. An explicit `sqlite3::close(db)` therefore
+    // closed the handle while leaving the record looking open, and the scope-exit
+    // drop closed it a second time for real: a double free into the native
+    // library (`EXC_BAD_ACCESS` inside `libsqlite3`). The closer table carries
+    // both spellings already — the bare `alias.func` for this project and the
+    // identity-prefixed `<id>.<package>.<alias>.<func>` for an imported one,
+    // which is exactly how `function.alias` reads post-merge.
+    let close_ops: HashSet<String> = resource_closers.values().cloned().collect();
 
     let initializer = lower_link_initializer(
         link_functions,
