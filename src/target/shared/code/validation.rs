@@ -447,14 +447,25 @@ impl TypeModel {
             // qualifies the routing alias it has to match. Only a re-exported
             // close op is reachable from an importer at all, which is the form
             // this resolves.
+            //
+            // bug-377: `<package>.close` alone is NOT how the merged module
+            // spells it. `merge_packages` runs `prefix_package_symbols` over
+            // every imported package, so the definition `resource_cleanup_symbol`
+            // has to find in `function_symbols` is the content-addressed
+            // `<id>.<package>.close`. Registering the unprefixed name made that
+            // lookup miss for *every* imported resource, so no
+            // `ActiveCleanup::Resource` was pushed and the handle leaked
+            // silently — bug-374's fix reached same-project `RESOURCE`
+            // declarations only, which is all its regression test covers.
             let package_name = binary_repr::read_package_info(package)?.manifest_name;
+            let identity = binary_repr::read_package_identity_id(package)?;
             for resource in exported_resources {
                 let Some(close_function) = resource.close_function else {
                     continue;
                 };
                 model.resource_closers.insert(
                     resource.type_name,
-                    format!("{package_name}.{close_function}"),
+                    format!("{identity}.{package_name}.{close_function}"),
                 );
             }
             for type_export in binary_repr::read_package_type_exports(package)? {

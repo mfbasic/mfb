@@ -517,6 +517,21 @@ pub fn read_package_resources(path: &Path) -> Result<Vec<BinaryReprResourceExpor
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
+/// The content-addressed identity prefix `merge_packages` qualifies this
+/// package's merged symbols with (`<id>.<package>.<symbol>`).
+///
+/// bug-377: a consumer that resolves a package symbol by name *after* the merge
+/// — the resource close op in `code::validation` — has to spell it the same way
+/// [`crate::ir::prefix_package_symbols`] did, or the lookup silently misses and
+/// the resource is never closed.
+pub fn read_package_identity_id(path: &Path) -> Result<String, String> {
+    let bytes =
+        fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    let container = mfp_binary_repr_payload(&bytes)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    Ok(package_identity_id(&container.identity, container.binary_repr))
+}
+
 /// Decode a package's structured Binary Representation payload back into an `IrProject`.
 ///
 /// This is the consumer entry point for the single `IR -> NIR -> native` path:
