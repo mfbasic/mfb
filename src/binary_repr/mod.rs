@@ -143,6 +143,11 @@ pub struct BinaryReprMetadata {
     pub signing_fingerprint: String,
     pub author: String,
     pub url: String,
+    /// The `project.json` `description` (plan-61-D). Empty when the manifest
+    /// declares none, in which case **section 18 is not emitted at all** — an
+    /// empty section would change the bytes of every package that has no
+    /// description, which is precisely what this design avoids.
+    pub description: String,
     pub dependencies: Vec<BinaryReprDependency>,
     /// Native `LINK` library locators (plan-46-B). Empty for every non-binding
     /// package, in which case section 10 is not emitted and container flag bit 0
@@ -161,6 +166,7 @@ impl BinaryReprMetadata {
             signing_fingerprint: String::new(),
             author: String::new(),
             url: String::new(),
+            description: String::new(),
             dependencies: Vec::new(),
             native_libraries: NativeLibraryTable::default(),
         }

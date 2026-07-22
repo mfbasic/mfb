@@ -175,6 +175,10 @@ pub(crate) fn validate_project_manifest(
         valid = false;
     }
 
+    if !validate_description(manifest, project_path, &contents) {
+        valid = false;
+    }
+
     if !validate_kind(manifest, project_path, &contents) {
         valid = false;
     }
@@ -269,6 +273,82 @@ fn validate_optional_string(
         column + field.len() + 2,
     );
     false
+}
+
+/// The largest `description` a `project.json` may declare, in bytes.
+///
+/// 4096 — twice the `url` header cap of 2048, and comfortably more than a
+/// one-paragraph summary needs. Anything longer belongs in the DOC section,
+/// which already exists for prose. Enforced here at manifest-parse time and
+/// again when section 18 is read, so a hand-built payload cannot smuggle a
+/// larger one past the compiler.
+pub const MAX_DESCRIPTION_BYTES: usize = 4096;
+
+/// Validate `description`: an optional string, capped, and **warned about**
+/// (not rejected) when a `kind: "package"` project omits it.
+///
+/// Warning rather than error is deliberate and temporary: 81 package manifests
+/// in this tree have no description yet, and making it an error here would turn
+/// every one of them red in the same commit. plan-61-F migrates them and then
+/// flips this rule's severity. `kind: "executable"` neither requires nor
+/// rejects the field — executables are never published, so it is inert there,
+/// but forbidding it would make a `kind` flip needlessly lossy.
+fn validate_description(
+    manifest: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+) -> bool {
+    let is_package = manifest
+        .get("kind")
+        .and_then(|value| value.get::<String>())
+        .map(|kind| kind == "package")
+        .unwrap_or(false);
+
+    let Some(value) = manifest.get("description") else {
+        if is_package {
+            let (line, column) = fallback_field_position(contents);
+            rules::show_diagnostic(
+                "PROJECT_JSON_DESCRIPTION_MISSING",
+                "A package should declare a `description`; it is shown on the registry.",
+                project_path,
+                line,
+                column,
+                column + 1,
+            );
+        }
+        // A warning never fails the build.
+        return true;
+    };
+
+    let (line, column) = field_position(contents, "description");
+    let Some(description) = value.get::<String>() else {
+        rules::show_diagnostic(
+            "PROJECT_JSON_FIELD_TYPE",
+            "Field `description` must be a string when present.",
+            project_path,
+            line,
+            column,
+            column + "\"description\"".len(),
+        );
+        return false;
+    };
+
+    if description.len() > MAX_DESCRIPTION_BYTES {
+        rules::show_diagnostic(
+            "PROJECT_JSON_FIELD_TYPE",
+            &format!(
+                "Field `description` exceeds the {MAX_DESCRIPTION_BYTES} byte limit ({} bytes).",
+                description.len()
+            ),
+            project_path,
+            line,
+            column,
+            column + "\"description\"".len(),
+        );
+        return false;
+    }
+
+    true
 }
 
 fn validate_sources(
@@ -1175,6 +1255,68 @@ mod tests {
     }
 
     const VALID: &str = "{\n  \"name\": \"demo\",\n  \"version\": \"1.0.0\",\n  \"mfb\": \"1.0\",\n  \"kind\": \"executable\",\n  \"entry\": \"main\",\n  \"author\": \"me\",\n  \"url\": \"https://x\",\n  \"sources\": [ { \"root\": \"src\", \"include\": [\"*.mfb\"], \"exclude\": [\"skip.mfb\"] } ]\n}\n";
+
+    /// plan-61-D Phase 1: `description` is an optional string with a 4096-byte
+    /// cap, and its absence is a **warning** on a package — never an error, or
+    /// the tree's 81 existing package manifests would all go red in one commit.
+    #[test]
+    fn description_is_optional_capped_and_only_warned_about() {
+        // Present and well-formed: accepted, and carried into the metadata.
+        let with_description = VALID.replace(
+            "\"author\": \"me\"",
+            "\"description\": \"A demo package.\", \"author\": \"me\"",
+        );
+        let (_dir, path) = write_manifest(&with_description);
+        let manifest = validate_project_manifest(&path).expect("a description is valid");
+        assert_eq!(
+            manifest.get("description").and_then(|v| v.get::<String>()),
+            Some(&"A demo package.".to_string()),
+        );
+
+        // Absent on an *executable*: silent. Executables are never published,
+        // so the field is inert there.
+        let (_dir, path) = write_manifest(VALID);
+        assert!(validate_project_manifest(&path).is_ok());
+
+        // Absent on a *package*: still Ok — the rule is a warning, and a
+        // warning must never fail the build.
+        let package = VALID.replace("\"kind\": \"executable\"", "\"kind\": \"package\"");
+        let (_dir, path) = write_manifest(&package);
+        assert!(
+            validate_project_manifest(&path).is_ok(),
+            "a missing description warns; it does not fail the build",
+        );
+
+        // Wrong type: a real error.
+        let wrong_type = VALID.replace(
+            "\"author\": \"me\"",
+            "\"description\": 42, \"author\": \"me\"",
+        );
+        let (_dir, path) = write_manifest(&wrong_type);
+        assert!(validate_project_manifest(&path).is_err());
+
+        // Over the cap: a real error. One byte over, so the boundary itself is
+        // what is tested rather than something comfortably past it.
+        let over = "x".repeat(MAX_DESCRIPTION_BYTES + 1);
+        let too_long = VALID.replace(
+            "\"author\": \"me\"",
+            &format!("\"description\": \"{over}\", \"author\": \"me\""),
+        );
+        let (_dir, path) = write_manifest(&too_long);
+        assert!(validate_project_manifest(&path).is_err());
+
+        // Exactly at the cap: accepted.
+        let at_cap = "x".repeat(MAX_DESCRIPTION_BYTES);
+        let exact = VALID.replace(
+            "\"author\": \"me\"",
+            &format!("\"description\": \"{at_cap}\", \"author\": \"me\""),
+        );
+        let (_dir, path) = write_manifest(&exact);
+        assert!(
+            validate_project_manifest(&path).is_ok(),
+            "the cap is inclusive",
+        );
+    }
 
     #[test]
     fn valid_manifest_parses() {

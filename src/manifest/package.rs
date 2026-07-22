@@ -450,6 +450,11 @@ pub(crate) fn package_metadata(
         .and_then(|value| value.get::<String>())
         .cloned()
         .unwrap_or_default();
+    metadata.description = manifest
+        .get("description")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
     metadata.dependencies = package_dependencies(manifest);
     metadata
 }

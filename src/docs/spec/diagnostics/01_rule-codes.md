@@ -245,10 +245,11 @@ severity is `error`.
 
 ### `2-200` — `project.json` validation & build orchestration
 
-The low block (`0001`-`0015`) validates `project.json`; the high block
+The low block (`0001`-`0016`) validates `project.json`; the high block
 (`0100`/`0101`) reports orchestration failures. Note `2-200-0010` is the
-registry's only `info`, and `2-200-0009` one of exactly eight `warn` rules
+registry's only `info`, and `2-200-0009` one of exactly nine `warn` rules
 (with `2-200-0012 PROJECT_JSON_UNKNOWN_MODE`,
+`2-200-0016 PROJECT_JSON_DESCRIPTION_MISSING`,
 `2-201-0017 PRIVATE_SHADOWS_PUBLIC`,
 `2-203-0104 TYPE_INLINE_TRAP_DEAD_HANDLER`,
 `2-203-0108 TYPE_MONEY_LITERAL_PRECISION`,
@@ -274,6 +275,7 @@ registry's only `info`, and `2-200-0009` one of exactly eight `warn` rules
 | `2-200-0013` | `PROJECT_JSON_ICON_MISSING` | error | project.json icon path does not resolve to a readable file |
 | `2-200-0014` | `PROJECT_JSON_LIBRARY_INVALID` | error | a project.json `libraries` locator is malformed, carries an unknown os/arch/libc/type token, or names a `source` that is not a bare filename |
 | `2-200-0015` | `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` | error | two project.json `libraries` vendor locators declare the same `source` filename |
+| `2-200-0016` | `PROJECT_JSON_DESCRIPTION_MISSING` | warn | a project.json with `kind: "package"` should declare a `description` |
 | `2-200-0100` | `BUILD_FAILED` | error | build failed for an unclassified orchestration reason |
 | `2-200-0101` | `FMT_CHECK_FAILED` | error | one or more source files are not formatted (mfb fmt --check) |
 

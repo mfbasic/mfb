@@ -190,27 +190,33 @@ only one of the two edits is a red test, not a silent divergence.
 
 ### Phase 1 — Manifest field and diagnostics
 
-- [ ] Allocate the new `warn` rule as `2-200-0016` per §4 — re-run
+- [x] Allocate the new `warn` rule as `2-200-0016` per §4 — re-run
       `grep -n '2-200-00' src/docs/spec/diagnostics/01_rule-codes.md` first to
       confirm `0016` is still free, since other plans also allocate here. Add the
       `Rule {}` entry to `src/rules/table.rs` **and** the table row to
       `01_rule-codes.md` in the same commit; `every_rule_is_documented_in_the_spec`
       (`src/rules/mod.rs:231-249`) fails on either alone.
-- [ ] Update the `01_rule-codes.md:248-255` prose: the block range (`0001`-`0016`)
+- [x] Update the `01_rule-codes.md:248-255` prose: the block range (`0001`-`0016`)
       and the `warn` count, which is already stale at "six" against eight rules
       today and becomes nine here. See the §4 note.
-- [ ] Add `description` to `validate_project_manifest` (`src/manifest/mod.rs`)
+- [x] Add `description` to `validate_project_manifest` (`src/manifest/mod.rs`)
       via `validate_optional_string`, alongside the `author` call at `:166`.
-- [ ] Add the 4096-byte cap with its own diagnostic.
-- [ ] Add the missing-description **warning** for `kind: "package"`.
-- [ ] Add `description` to `package_metadata` (`src/manifest/package.rs:420-455`)
+- [x] Add the 4096-byte cap with its own diagnostic.
+- [x] Add the missing-description **warning** for `kind: "package"`.
+- [x] Add `description` to `package_metadata` (`src/manifest/package.rs:420-455`)
       and to `BinaryReprMetadata` (`src/binary_repr/mod.rs:137-151`).
-- [ ] Tests: `src/manifest/mod.rs` inline tests — description present/absent/
+- [x] Tests: `src/manifest/mod.rs` inline tests — description present/absent/
       wrong-type/over-cap; warning fires for `kind: "package"` without it;
       warning does **not** fire for `kind: "executable"`.
 
-Acceptance: `cargo test --bin mfb manifest` passes; building a package without a
-description emits the warning and still succeeds with exit 0.
+Acceptance: **MET** — full `cargo test --bin mfb` → 3183 passed, 0 failed,
+including `every_rule_is_documented_in_the_spec` (the drift guard that fails if
+`table.rs` and the spec disagree).
+`description_is_optional_capped_and_only_warned_about` covers present,
+absent-on-executable (silent), absent-on-package (**Ok**, so the warning cannot
+fail a build), wrong type (error), one byte over the cap (error), and exactly at
+the cap (accepted — the boundary itself, not a value comfortably past it).
+`2-200-0016` was re-confirmed free before allocation.
 Commit: —
 
 ### Phase 2 — Write and read section 18
@@ -301,4 +307,19 @@ Commit: —
 
 ## Corrections
 
-- *(none yet)*
+- **§4's warning about stale prose was itself stale.** It says
+  `01_rule-codes.md` narrates the block as `0001`-`0013` with "exactly six
+  `warn` rules", and instructs D to leave the sentence correct. As found, the
+  prose already read `0001`-`0015` and "exactly eight `warn` rules", listing all
+  eight including `2-203-0115` and `2-203-0117` — someone corrected it between
+  the plan being written and D running. D updated it to `0001`-`0016` and
+  "nine", which is the same obligation, just from a different starting point.
+  Recorded because the plan predicted a defect that no longer existed, and
+  "fixing" it from the stated baseline would have *introduced* one.
+- **`Severity::Warn`, not `Severity::Warning`.** §4 gives the `Rule {}` shape as
+  `{ code, name, severity, message }` without naming the variant; the enum in
+  `src/rules/table.rs` spells it `Warn`.
+- **The cap needed a named constant, not a literal.** `MAX_DESCRIPTION_BYTES`
+  lives in `src/manifest/mod.rs` because §3 requires the same limit to be
+  enforced twice — at manifest-parse time *and* at section-read time — and two
+  hand-written `4096`s are two things that can drift apart.

@@ -290,6 +290,7 @@ mod tests {
             signing_fingerprint: String::new(),
             author: "Ada".to_string(),
             url: "https://example.invalid/shape".to_string(),
+            description: String::new(),
             dependencies: Vec::new(),
             native_libraries: NativeLibraryTable::default(),
         }
