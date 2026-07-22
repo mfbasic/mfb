@@ -1126,8 +1126,8 @@ pub(super) const RULES: &[Rule] = &[
     Rule {
         code: "2-200-0016",
         name: "PROJECT_JSON_DESCRIPTION_MISSING",
-        severity: Severity::Warn,
-        message: "a project.json with `kind: \"package\"` should declare a `description`",
+        severity: Severity::Error,
+        message: "a project.json with `kind: \"package\"` must declare a `description`",
     },
     Rule {
         code: "2-200-0100",

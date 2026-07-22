@@ -2674,6 +2674,11 @@ mod tests {
                 "  \"version\": \"0.1.0\",\n",
                 "  \"mfb\": \"1.0\",\n",
                 "  \"kind\": \"package\",\n",
+                // Required for `kind: "package"` since plan-61-F. Without it
+                // this helper's manifest fails validation — which would also
+                // make `build_project_rejects_native_output_for_a_package`
+                // pass for the wrong reason, since it only asserts `is_err()`.
+                "  \"description\": \"Test fixture package for the build CLI.\",\n",
                 "  \"sources\": [{ \"root\": \"src\", \"role\": \"package\", \"include\": [\"**/*.mfb\"] }]\n",
                 "}\n"
             ),

@@ -1,0 +1,25 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "project_description_optional_executable",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 4,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    ]
+  }
+  ]
+}

@@ -284,15 +284,18 @@ fn validate_optional_string(
 /// larger one past the compiler.
 pub const MAX_DESCRIPTION_BYTES: usize = 4096;
 
-/// Validate `description`: an optional string, capped, and **warned about**
-/// (not rejected) when a `kind: "package"` project omits it.
+/// Validate `description`: a capped string, **required** for `kind: "package"`
+/// and optional for everything else.
 ///
-/// Warning rather than error is deliberate and temporary: 81 package manifests
-/// in this tree have no description yet, and making it an error here would turn
-/// every one of them red in the same commit. plan-61-F migrates them and then
-/// flips this rule's severity. `kind: "executable"` neither requires nor
-/// rejects the field — executables are never published, so it is inert there,
-/// but forbidding it would make a `kind` flip needlessly lossy.
+/// plan-61-D landed this as a warning so the tree's 91 existing package
+/// manifests kept building; plan-61-F migrated all of them and flipped it here.
+/// The same rule code (`2-200-0016`) carries the new severity rather than a
+/// second code being allocated — it is the same condition, and two codes for
+/// one condition would leave the warn code permanently unreachable.
+///
+/// `kind: "executable"` neither requires nor rejects the field — executables
+/// are never published, so it is inert there, but forbidding it would make a
+/// `kind` flip needlessly lossy.
 fn validate_description(
     manifest: &HashMap<String, JsonValue>,
     project_path: &Path,
@@ -309,14 +312,15 @@ fn validate_description(
             let (line, column) = fallback_field_position(contents);
             rules::show_diagnostic(
                 "PROJECT_JSON_DESCRIPTION_MISSING",
-                "A package should declare a `description`; it is shown on the registry.",
+                "A package must declare a `description`; it is shown on the registry.",
                 project_path,
                 line,
                 column,
                 column + 1,
             );
+            return false;
         }
-        // A warning never fails the build.
+        // Absent on an executable: inert, and not a diagnostic at all.
         return true;
     };
 
@@ -1256,11 +1260,11 @@ mod tests {
 
     const VALID: &str = "{\n  \"name\": \"demo\",\n  \"version\": \"1.0.0\",\n  \"mfb\": \"1.0\",\n  \"kind\": \"executable\",\n  \"entry\": \"main\",\n  \"author\": \"me\",\n  \"url\": \"https://x\",\n  \"sources\": [ { \"root\": \"src\", \"include\": [\"*.mfb\"], \"exclude\": [\"skip.mfb\"] } ]\n}\n";
 
-    /// plan-61-D Phase 1: `description` is an optional string with a 4096-byte
-    /// cap, and its absence is a **warning** on a package — never an error, or
-    /// the tree's 81 existing package manifests would all go red in one commit.
+    /// `description` is a capped string, **required** on a `kind: "package"`
+    /// project and optional on an executable (plan-61-D added it as a warning;
+    /// plan-61-F flipped it once all 91 manifests carried one).
     #[test]
-    fn description_is_optional_capped_and_only_warned_about() {
+    fn description_is_capped_and_required_only_for_packages() {
         // Present and well-formed: accepted, and carried into the metadata.
         let with_description = VALID.replace(
             "\"author\": \"me\"",
@@ -1278,13 +1282,15 @@ mod tests {
         let (_dir, path) = write_manifest(VALID);
         assert!(validate_project_manifest(&path).is_ok());
 
-        // Absent on a *package*: still Ok — the rule is a warning, and a
-        // warning must never fail the build.
+        // Absent on a *package*: a hard error since plan-61-F. This assertion
+        // was inverted when the rule was a warning; the flip is the point of
+        // that sub-plan, so the test asserts the new contract rather than
+        // being deleted.
         let package = VALID.replace("\"kind\": \"executable\"", "\"kind\": \"package\"");
         let (_dir, path) = write_manifest(&package);
         assert!(
-            validate_project_manifest(&path).is_ok(),
-            "a missing description warns; it does not fail the build",
+            validate_project_manifest(&path).is_err(),
+            "a package without a description must fail to build",
         );
 
         // Wrong type: a real error.

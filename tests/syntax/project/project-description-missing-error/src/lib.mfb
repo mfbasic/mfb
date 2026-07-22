@@ -1,0 +1,7 @@
+' A `kind: "package"` project with no `description` in project.json.
+' plan-61-F made the field required for packages: it is shown on the registry,
+' so a package published without one says nothing about what it does. An
+' executable is unaffected -- see `project-description-optional-executable`.
+EXPORT FUNC answer() AS Integer
+  RETURN 42
+END FUNC

@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/project/project-description-missing-error
+  10 |     }
+  11 |   ]
+  12 | }
+     | ^
+tests/syntax/project/project-description-missing-error/project.json:12 error[2-200-0016 PROJECT_JSON_DESCRIPTION_MISSING]: a project.json with `kind: "package"` must declare a `description`
+               A package must declare a `description`; it is shown on the registry.
+[exit 1]

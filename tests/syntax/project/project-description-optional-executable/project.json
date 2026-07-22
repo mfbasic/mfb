@@ -1,0 +1,13 @@
+{
+  "name": "project_description_optional_executable",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "entry": "main",
+  "sources": [
+    {
+      "root": "src",
+      "include": ["**/*.mfb"]
+    }
+  ]
+}

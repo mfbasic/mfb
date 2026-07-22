@@ -1,0 +1,5 @@
+' The contrast to `project-description-missing-error`: `description` is
+' required only for `kind: "package"`. An executable is never published, so the
+' field is inert there and its absence is not a diagnostic at all.
+SUB main
+END SUB

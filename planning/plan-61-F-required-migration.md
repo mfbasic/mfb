@@ -235,7 +235,7 @@ Commit: —
 
 Last, so no intermediate commit leaves the tree red.
 
-- [ ] In `src/manifest/mod.rs`, promote the missing-`description` warning for
+- [x] In `src/manifest/mod.rs`, promote the missing-`description` warning for
       `kind: "package"` to a hard error. **Reuse D's code (`2-200-0016`) and
       change its severity — do not allocate a second code.** It is the same
       condition with the same message; two codes for one condition would leave
@@ -243,30 +243,45 @@ Last, so no intermediate commit leaves the tree red.
       both. Concretely: flip `severity` on that `Rule` in `src/rules/table.rs`,
       and flip the `warn` cell in its `01_rule-codes.md` row. Both, or
       `every_rule_is_documented_in_the_spec` (`src/rules/mod.rs:231-249`) is red.
-- [ ] Update the `01_rule-codes.md:248-255` prose a second time — the `warn`
+- [x] Update the `01_rule-codes.md:248-255` prose a second time — the `warn`
       count drops back by one when `2-200-0016` becomes an error. D's Phase 1
       raised it; F lowers it. Leaving it stale is how it got stale before.
-- [ ] **Re-seed the `build.log` goldens a second time.** Phase 3 regenerated them
+- [x] **Re-seed the `build.log` goldens a second time.** Phase 3 regenerated them
       to drop the missing-description warning; this flip changes the diagnostic's
       severity and therefore its rendered text wherever it still fires. Expect a
       second, smaller round of `build.log` churn and explain it before seeding.
-- [ ] Update the schema table row in
+- [x] Update the schema table row in
       `src/docs/spec/tooling/01_project-manifest.md`: `required` becomes
       `yes¹` with a footnote reading "required when `kind` is `package`;
       optional and ignored for `executable`" — mirroring the existing `kind`
       footnote idiom. The `kind` row is at `:33` and its footnote ¹ at `:53-56`
       (an earlier draft cited `:57`, which is a blank line).
-- [ ] Add a `tests/syntax/` fixture proving the new error: a `kind: "package"`
+- [x] Add a `tests/syntax/` fixture proving the new error: a `kind: "package"`
       project with no description fails to build with the expected diagnostic.
       Pre-create its `golden/build.log` empty, then seed it with a filtered
       `sync-goldens.sh`.
-- [ ] Add a fixture proving `kind: "executable"` without a description still
+- [x] Add a fixture proving `kind: "executable"` without a description still
       builds cleanly.
-- [ ] Verify: `cargo build && cargo test --bin mfb spec`.
+- [x] Verify: `cargo build && cargo test --bin mfb spec`.
 
-Acceptance: the new negative fixture fails the build with the expected
-diagnostic and its `build.log` golden matches; an executable without a
-description still builds; and the full acceptance suite is green.
+Acceptance: **MET.**
+`tests/syntax/project/project-description-missing-error` fails with
+`error[2-200-0016 PROJECT_JSON_DESCRIPTION_MISSING]` and `[exit 1]`;
+`project-description-optional-executable` builds clean at `[exit 0]` with **no
+diagnostic at all**, which is the contrast that matters — the field is inert on
+an executable, not merely tolerated.
+
+The severity flip reuses `2-200-0016` rather than allocating a second code, in
+both `table.rs` and the spec row, and the prose `warn` count went nine → eight.
+Runtime proof on a real package: deleting the `description` line from
+`bindings/sqlite3/project.json` makes `mfb build` **exit 1** with that
+diagnostic; restoring it returns **exit 0**.
+
+**Phase 4's expected "second round of `build.log` churn" did not happen, and
+should not have.** That task anticipated the diagnostic's rendered text changing
+"wherever it still fires" — but after Phase 2 it fires nowhere, because every
+package manifest now has a description. The only new `build.log` is the negative
+fixture's own. Recorded rather than silently skipped.
 Commit: —
 
 ## Validation Plan

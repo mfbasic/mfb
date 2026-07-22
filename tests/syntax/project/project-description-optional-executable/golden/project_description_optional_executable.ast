@@ -1,0 +1,24 @@
+{
+  "project": "project_description_optional_executable",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      ]
+    }
+    ]
+  }
+  ]
+}

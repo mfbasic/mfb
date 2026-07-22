@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/project/project-description-optional-executable
+Wrote AST to tests/syntax/project/project-description-optional-executable/project_description_optional_executable.ast
+Wrote IR to tests/syntax/project/project-description-optional-executable/project_description_optional_executable.ir
+[exit 0]
