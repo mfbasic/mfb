@@ -19,15 +19,11 @@ DOC
   DESC
   DESC Importers `IMPORT libsnd` and call its wrapper functions; they never
   DESC repeat the underlying `LINK` block.
-  INFO The bundled libsndfile is loaded at startup, and it does NOT bundle its
-  INFO own dependencies. The target must provide libFLAC, libogg, libvorbis,
-  INFO libvorbisenc and libopus, or loading fails with
-  INFO `ErrNativeBindingUnavailable` (77030007) before `main` runs.
-  INFO
-  INFO The required FLAC soname varies by distribution — Alpine ships
-  INFO `libFLAC.so.12` where Kali and Ubuntu ship `libFLAC.so.14` — so a target
-  INFO that has FLAC installed can still fail to load if the major version
-  INFO differs from the one this build was linked against.
+  INFO The bundled libsndfile is loaded at startup and is self-contained: the
+  INFO ogg, vorbis, flac and opus codecs are compiled in statically, so the
+  INFO target needs only its system C library — no codec packages. If the
+  INFO library still cannot be loaded, the failure is
+  INFO `ErrNativeBindingUnavailable` (77030007), raised before `main` runs.
   INFO
   INFO Every supported target is covered: macOS/aarch64, and linux aarch64,
   INFO x86_64 and riscv64 in both glibc and musl. A Linux console build emits
@@ -47,10 +43,11 @@ END DOC
 
 DOC
   TYPE AudioFormat
-  DESC One entry of libsndfile's simple-format table: a major container/encoding
-  DESC combination the library can read and write.
-  PROP format The libsndfile format code: the `SF_FORMAT_*` major and minor bits OR-ed together (for example WAV + 16-bit PCM). Pass it back to libsndfile to select this format.
-  PROP name A human-readable description, such as `WAV (Microsoft 16 bit PCM)`.
+  DESC One container/encoding combination the bundled libsndfile accepts:
+  DESC a major container paired with a 16-bit encoding, as listed by
+  DESC `getFormats`.
+  PROP format The libsndfile format code: the `SF_FORMAT_*` major and minor bits combined (for example WAV + 16-bit PCM). Pass it back to libsndfile to select this format.
+  PROP name A human-readable description, such as `WAV (Microsoft), Signed 16 bit PCM`.
   PROP extension The customary file extension, such as `wav`. NOT unique — several formats share one container, so `wav` appears more than once across the table.
 END DOC
 EXPORT TYPE AudioFormat
@@ -76,7 +73,7 @@ END TYPE
 DOC
   RESOURCE SoundFile
   DESC An open libsndfile handle, carrying the file's geometry as its `STATE`.
-  DESC `openSound` returns one; read `.state` for the `FileInfo`, pull PCM from
+  DESC `openSound` returns one; read `.state` for the `SoundInfo`, pull PCM from
   DESC it with `loadFrames`, and position it with `seekFrame`.
   INFO Bind it with `RES`, never `LET` or `MUT`. It closes automatically when its
   INFO binding leaves scope, on every exit path — including a failure propagating
@@ -87,7 +84,7 @@ END DOC
 EXPORT RESOURCE SoundFile CLOSE BY sndLink::closeFile
 
 DOC
-  TYPE FileInfo
+  TYPE SoundInfo
   DESC The geometry libsndfile reports for an open `SoundFile`, reached through
   DESC its `.state`.
   PROP frames Total frames in the file. One frame is one sample in every channel, so a stereo file holds `frames * 2` samples.
@@ -97,7 +94,7 @@ DOC
   PROP sections Logical sections in the file; 1 for the ordinary single-section case.
   PROP seekable Nonzero when libsndfile can seek this file, so `seekFrame` will work; 0 for a stream-only format.
 END DOC
-EXPORT TYPE FileInfo
+EXPORT TYPE SoundInfo
   frames     AS Integer
   samplerate AS Integer
   channels   AS Integer
@@ -117,7 +114,7 @@ LINK "libsnd" AS sndLink
   ' sections@20, seekable@24. The leading `sf_count_t frames` is load-bearing —
   ' without it every field reads 8 bytes early and sf_open writes 12 bytes past
   ' the thunk's struct buffer (bug-364).
-  CSTRUCT SfFileInfo AS FileInfo
+  CSTRUCT SfFileInfo AS SoundInfo
     frames     CInt64
     samplerate CInt32
     channels   CInt32
@@ -126,21 +123,21 @@ LINK "libsnd" AS sndLink
     seekable   CInt32
   END CSTRUCT
 
-  FUNC getFormatCount() AS Integer
+  FUNC getMajorCount() AS Integer
     SYMBOL "sf_command"
     ABI (sndfile CPtr, command CInt32, count OUT CInt32, datasize CInt32) AS status CInt32
     CONST sndfile = NOTHING     ' NULL: a table query needs no open file
-    CONST command = 4128        ' SFC_GET_SIMPLE_FORMAT_COUNT (0x1020)
+    CONST command = 4144        ' SFC_GET_FORMAT_MAJOR_COUNT (0x1030)
     CONST datasize = 4          ' sizeof(int)
     RETURN count
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC getFormat(index AS Integer) AS AudioFormat
+  FUNC getMajor(index AS Integer) AS AudioFormat
     SYMBOL "sf_command"
     ABI (sndfile CPtr, command CInt32, info INOUT SfFormatInfo, datasize CInt32) AS status CInt32
     CONST sndfile = NOTHING
-    CONST command = 4129 ' SFC_GET_SIMPLE_FORMAT (0x1021)
+    CONST command = 4145 ' SFC_GET_FORMAT_MAJOR (0x1031)
     CONST datasize = SIZEOF SfFormatInfo
     BIND IN info
       format = index
@@ -149,7 +146,45 @@ LINK "libsnd" AS sndLink
     SUCCESS_ON status = 0
   END FUNC
 
-  FUNC openFile(sndfile AS String) AS RES SoundFile STATE FileInfo
+  FUNC getSubtypeCount() AS Integer
+    SYMBOL "sf_command"
+    ABI (sndfile CPtr, command CInt32, count OUT CInt32, datasize CInt32) AS status CInt32
+    CONST sndfile = NOTHING
+    CONST command = 4146        ' SFC_GET_FORMAT_SUBTYPE_COUNT (0x1032)
+    CONST datasize = 4
+    RETURN count
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC getSubtype(index AS Integer) AS AudioFormat
+    SYMBOL "sf_command"
+    ABI (sndfile CPtr, command CInt32, info INOUT SfFormatInfo, datasize CInt32) AS status CInt32
+    CONST sndfile = NOTHING
+    CONST command = 4147 ' SFC_GET_FORMAT_SUBTYPE (0x1033)
+    CONST datasize = SIZEOF SfFormatInfo
+    BIND IN info
+      format = index
+    END BIND
+    RETURN info
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' sf_format_check takes a filled SF_INFO and answers whether the library
+  ' accepts that format/channels/samplerate combination. TRUE/FALSE, never an
+  ' error state, so there is no SUCCESS_ON. The unset SfFileInfo fields
+  ' (frames, sections, seekable) are zero, which is what it expects.
+  FUNC checkFormat(fmt AS Integer, chans AS Integer, rate AS Integer) AS Integer
+    SYMBOL "sf_format_check"
+    ABI (info INOUT SfFileInfo) AS ok CInt32
+    BIND IN info
+      format = fmt
+      channels = chans
+      samplerate = rate
+    END BIND
+    RETURN ok
+  END FUNC
+
+  FUNC openFile(sndfile AS String) AS RES SoundFile STATE SoundInfo
     SYMBOL "sf_open"
     ABI (sndfile CString, mode CInt32, info OUT SfFileInfo) AS file CPtr
     CONST mode = 16 ' SFM_READ (0x0010)
@@ -254,13 +289,21 @@ END FUNC
 DOC
   FUNC getFormats
   GROUP Formats
-  DESC Read libsndfile's simple-format table: every major container/encoding
-  DESC combination the bundled library can read and write.
-  INFO The table is a property of how libsndfile was BUILT, not of this package.
-  INFO Optional codecs (MP3, Opus, Vorbis, FLAC) appear only when the bundled
-  INFO build enabled them, so the length and contents differ per platform. Treat
-  INFO it as a runtime query, never a fixed list.
-  RET Every supported format, in libsndfile's own order; extensions are not unique.
+  DESC Enumerate every container/encoding combination the bundled libsndfile
+  DESC accepts that stores 16-bit samples: each major container crossed with
+  DESC each 16-bit encoding, kept only where the library validates the pair.
+  DESC 16-bit is the package's native currency — `loadSound` and `loadFrames`
+  DESC decode to it, and `audio::write` plays it.
+  INFO The table is a property of how libsndfile was BUILT, not of this package,
+  INFO so the length and contents differ per platform. Treat it as a runtime
+  INFO query, never a fixed list.
+  INFO This list is NOT the limit of what `openSound` can read. Files in other
+  INFO encodings — 24-bit, float, Vorbis, Opus and the rest — still open and
+  INFO decode fine; everything comes back as 16-bit PCM. The list names the
+  INFO combinations whose stored samples are 16-bit to begin with.
+  INFO A combination is included when libsndfile accepts it for mono or stereo,
+  INFO the channel shapes `audio::openOutput` plays.
+  RET Every accepted 16-bit combination, majors in libsndfile's own order; extensions are not unique.
   ERROR 77030007 libsndfile or one of its dependencies could not be loaded; raised at startup, before `main` runs.
   EXAMPLE
     IMPORT io
@@ -276,10 +319,27 @@ DOC
 END DOC
 EXPORT FUNC getFormats() AS List OF AudioFormat
   MUT formats AS List OF AudioFormat
-  LET count = sndLink::getFormatCount()
-  FOR index = 0 TO count - 1
-    LET info = sndLink::getFormat(index)
-    formats = collections::append(formats, info)
+  LET majors AS Integer = sndLink::getMajorCount()
+  LET subtypes AS Integer = sndLink::getSubtypeCount()
+  FOR m = 0 TO majors - 1
+    LET major = sndLink::getMajor(m)
+    FOR s = 0 TO subtypes - 1
+      LET enc = sndLink::getSubtype(s)
+      ' The 16-bit encodings: PCM_16 (2), DWVW_16 (65), DPCM_16 (81),
+      ' ALAC_16 (112). Everything else stores samples at some other width.
+      IF enc.format = 2 OR enc.format = 65 OR enc.format = 81 OR enc.format = 112 THEN
+        ' Major and subtype codes occupy disjoint bit ranges, so addition
+        ' composes them without needing bitwise OR.
+        LET combined AS Integer = major.format + enc.format
+        ' Ask libsndfile rather than assume: most pairs are invalid (WAV has
+        ' no ALAC, CAF has no DPCM). Mono-only containers pass the 1-channel
+        ' probe; everything else the stereo one. 44100 is just a sane rate —
+        ' validity does not depend on it.
+        IF sndLink::checkFormat(combined, 2, 44100) <> 0 OR sndLink::checkFormat(combined, 1, 44100) <> 0 THEN
+          formats = collections::append(formats, AudioFormat[format := combined, name := major.name & ", " & enc.name, extension := major.extension])
+        END IF
+      END IF
+    NEXT
   NEXT
   RETURN formats
 END FUNC
@@ -301,7 +361,7 @@ DOC
   DESC handle's `.state`, pull PCM from it a chunk at a time with `loadFrames`,
   DESC and position it with `seekFrame`.
   ARG path Path to the audio file to open.
-  RET An open handle whose `.state` is the file's `FileInfo` geometry.
+  RET An open handle whose `.state` is the file's `SoundInfo` geometry.
   INFO Reach for `loadSound` instead when the whole file fits in memory and the
   INFO program just wants its PCM — it opens, decodes and closes in one call.
   INFO Use this form for audio too long for the 64 MiB whole-file cap, or when
@@ -319,8 +379,8 @@ DOC
     IMPORT libsnd
 
     SUB main()
-      RES sound AS SoundFile STATE FileInfo = libsnd::openSound("long.flac")
-      LET info AS FileInfo = sound.state
+      RES sound AS SoundFile STATE SoundInfo = libsnd::openSound("long.flac")
+      LET info AS SoundInfo = sound.state
       RES out AS AudioOutput = audio::openOutput(info.samplerate, info.channels, 512)
       FOR i = 0 TO info.frames STEP 4096
         audio::write(out, libsnd::loadFrames(sound, 4096).pcm)
@@ -331,7 +391,7 @@ END DOC
 ' `sf_open` signals every failure the same way — a NULL handle — so the LINK gate
 ' alone reports `ErrNativeBindingCallFailed` and nothing more. Ask libsndfile why
 ' and report that instead.
-EXPORT FUNC openSound(path AS String) AS RES SoundFile STATE FileInfo
+EXPORT FUNC openSound(path AS String) AS RES SoundFile STATE SoundInfo
   ' A missing path is the common mistake and deserves to say so plainly:
   ' libsndfile reports it only as a generic `SF_ERR_SYSTEM`, naming neither the
   ' file nor the fact that it simply is not there.
@@ -346,7 +406,7 @@ EXPORT FUNC openSound(path AS String) AS RES SoundFile STATE FileInfo
   ' "libsnd: No Error" — instead of the path-not-found error naming the file.
   ' Scoping the trap to the call it is meant to guard is what keeps that FAIL
   ' intact.
-  RES handle AS SoundFile STATE FileInfo = sndLink::openFile(path) TRAP(e)
+  RES handle AS SoundFile STATE SoundInfo = sndLink::openFile(path) TRAP(e)
     FAIL sndError(sndLink::lastGlobalErrNum())
   END TRAP
   RETURN handle
@@ -363,7 +423,7 @@ DOC
   INFO release the file earlier than the end of the enclosing block.
   ERROR 77030008 libsndfile reported a failure closing the file.
 END DOC
-EXPORT FUNC closeSound(RES sound AS SoundFile STATE FileInfo) AS Nothing
+EXPORT FUNC closeSound(RES sound AS SoundFile STATE SoundInfo) AS Nothing
   sndLink::closeFile(sound)
 END FUNC
 
@@ -403,8 +463,8 @@ DOC
   END EXAMPLE
 END DOC
 EXPORT FUNC loadSound(path AS String) AS Sound
-  RES handle AS SoundFile STATE FileInfo = openSound(path)
-  LET info AS FileInfo = handle.state
+  RES handle AS SoundFile STATE SoundInfo = openSound(path)
+  LET info AS SoundInfo = handle.state
 
   ' Items, not frames: one item is one sample in one channel, so a stereo frame
   ' is two items. This product is always a whole multiple of `channels`, which is
@@ -542,15 +602,15 @@ DOC
 
     SUB main()
       ' The output is fixed at 48 kHz; the file may be anything.
-      RES sound AS SoundFile STATE FileInfo = libsnd::openSound("chime.flac")
+      RES sound AS SoundFile STATE SoundInfo = libsnd::openSound("chime.flac")
       LET s AS Sound = libsnd::loadSound(sound, 48000)
       RES out AS AudioOutput = audio::openOutput(48000, s.channels, 512)
       audio::write(out, s.pcm)
     END SUB
   END EXAMPLE
 END DOC
-EXPORT FUNC loadSound(RES sound AS SoundFile STATE FileInfo, sampleRate AS Integer) AS Sound
-  LET info AS FileInfo = sound.state
+EXPORT FUNC loadSound(RES sound AS SoundFile STATE SoundInfo, sampleRate AS Integer) AS Sound
+  LET info AS SoundInfo = sound.state
 
   ' Items, not frames: one item is one sample in ONE channel. `info.frames` is
   ' the whole file, so a handle that has already been read from or seeked simply
@@ -585,8 +645,8 @@ DOC
     IMPORT libsnd
 
     SUB main()
-      RES sound AS SoundFile STATE FileInfo = libsnd::openSound("long.flac")
-      LET info AS FileInfo = sound.state
+      RES sound AS SoundFile STATE SoundInfo = libsnd::openSound("long.flac")
+      LET info AS SoundInfo = sound.state
       RES out AS AudioOutput = audio::openOutput(info.samplerate, info.channels, 512)
       FOR i = 0 TO info.frames STEP 4096
         audio::write(out, libsnd::loadFrames(sound, 4096).pcm)
@@ -594,8 +654,8 @@ DOC
     END SUB
   END EXAMPLE
 END DOC
-EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, frames AS Integer) AS Sound
-  LET info AS FileInfo = sound.state
+EXPORT FUNC loadFrames(RES sound AS SoundFile STATE SoundInfo, frames AS Integer) AS Sound
+  LET info AS SoundInfo = sound.state
 
   ' Items, not frames: one item is one sample in ONE channel, so a stereo frame
   ' is two items. `sf_read_short` reads only whole frames, so an item count that
@@ -644,8 +704,8 @@ DOC
 
     SUB main()
       ' The output is fixed at 48 kHz; the file may be any rate.
-      RES sound AS SoundFile STATE FileInfo = libsnd::openSound("long.flac")
-      LET info AS FileInfo = sound.state
+      RES sound AS SoundFile STATE SoundInfo = libsnd::openSound("long.flac")
+      LET info AS SoundInfo = sound.state
       RES out AS AudioOutput = audio::openOutput(48000, info.channels, 512)
       FOR i = 0 TO info.frames STEP 4096
         audio::write(out, libsnd::loadFrames(sound, 48000, 4096).pcm)
@@ -653,8 +713,8 @@ DOC
     END SUB
   END EXAMPLE
 END DOC
-EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, sampleRate AS Integer, frames AS Integer) AS Sound
-  LET info AS FileInfo = sound.state
+EXPORT FUNC loadFrames(RES sound AS SoundFile STATE SoundInfo, sampleRate AS Integer, frames AS Integer) AS Sound
+  LET info AS SoundInfo = sound.state
 
   ' Items, not frames: one item is one sample in ONE channel. `sf_read_short`
   ' reads only whole frames, so an item count that straddles a frame boundary
@@ -689,8 +749,8 @@ DOC
   WARN format libsndfile refuses the seek and this fails.
   ERROR 77030008 libsndfile could not seek this file — typically because the format is not seekable (`.state.seekable` is 0).
 END DOC
-EXPORT FUNC seekFrame(RES sound AS SoundFile STATE FileInfo, frame AS Integer) AS Integer
-  LET info AS FileInfo = sound.state
+EXPORT FUNC seekFrame(RES sound AS SoundFile STATE SoundInfo, frame AS Integer) AS Integer
+  LET info AS SoundInfo = sound.state
   IF frame <= info.frames AND frame >= 0 THEN
      RETURN sndLink::seekFrames(sound, frame, 0)
   ELSE

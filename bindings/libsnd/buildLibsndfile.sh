@@ -11,6 +11,12 @@ mkdir -p "$BUILD_DIR" "$PREFIX_DIR" "$OUTPUT_DIR"
 
 export CFLAGS="-fPIC -O2"
 export CXXFLAGS="-fPIC -O2"
+
+# Prefer clang: some boxes pair a new gcc with an old binutils, and gcc then
+# emits .base64 pseudo-ops the system assembler rejects; clang's integrated
+# assembler avoids the mismatch. CC/CXX in the environment still win.
+export CC="${CC:-$(command -v clang || command -v cc)}"
+export CXX="${CXX:-$(command -v clang++ || command -v c++)}"
 export PKG_CONFIG_PATH="$PREFIX_DIR/lib/pkgconfig"
 
 # Keep system/homebrew copies of the codecs out of every find_* lookup so we
@@ -32,7 +38,7 @@ cmake --build build --target install
 # 3. Build FLAC
 cd "$BUILD_DIR"
 [ -d flac ] || git clone --depth 1 --branch 1.5.0 https://github.com/xiph/flac.git
-cd flac && cmake -B build -DBUILD_SHARED_LIBS=OFF -DBUILD_CXX=OFF -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF -DCMAKE_INSTALL_PREFIX="$PREFIX_DIR" -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOGG_ROOT="$PREFIX_DIR" -DCMAKE_IGNORE_PREFIX_PATH="$IGNORE_PREFIXES" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+cd flac && cmake -B build -DBUILD_SHARED_LIBS=OFF -DBUILD_CXX=OFF -DBUILD_PROGRAMS=OFF -DBUILD_EXAMPLES=OFF -DINSTALL_MANPAGES=OFF -DCMAKE_INSTALL_PREFIX="$PREFIX_DIR" -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DOGG_ROOT="$PREFIX_DIR" -DCMAKE_IGNORE_PREFIX_PATH="$IGNORE_PREFIXES" -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 cmake --build build --target install
 
 # 4. Build Opus

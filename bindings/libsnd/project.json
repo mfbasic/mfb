@@ -1,13 +1,14 @@
 {
     "name": "libsnd",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "mfb": "1.0",
     "kind": "package",
-    "description": "libsndfile binding package: LINK declarations and MFBASIC wrappers for reading and writing audio files.",
+    "description": "A reusable native binding package for libsndfile, the standard C library for reading and writing sampled audio files (WAV, AIFF, FLAC, Ogg/Vorbis, Opus, and many more). The package owns the LINK block and exports ordinary MFBASIC wrappers around it — importers just IMPORT libsnd and call functions like loadSound to decode a whole file into PCM, openSound/loadFrames/seekFrame to stream a file incrementally as a resource with SoundInfo state, and getFormats to enumerate every container/encoding combination the library supports, including optional resampling to a caller-chosen rate.\n\nEvery supported target ships its own vendored libsndfile build: macOS aarch64 plus Linux aarch64, x86_64, and riscv64 in both glibc and musl flavors, so a Linux console build has a bundled library for each libc it emits. The vendor libraries are produced by buildLibsndfile.sh, which builds libsndfile 1.2.2 with the ogg, vorbis, flac, and opus codecs compiled in statically — the bundled library depends only on the system C library, and targets need no codec packages installed for it to load.",
     "libraries": {
         "libsnd": [
             {
                 "os": "macos",
+                "arch": "aarch64",
                 "type": "vendor",
                 "source": "libsndfile.1.0.37.dylib"
             },
