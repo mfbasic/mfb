@@ -9,6 +9,7 @@
 use std::collections::BTreeMap;
 
 const MFPC_MAGIC: &[u8; 4] = b"MFPC";
+const SECTION_MANIFEST: u16 = 1;
 const SECTION_STRING_POOL: u16 = 2;
 const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
 const SECTION_ABI_INDEX: u16 = 15;
@@ -181,6 +182,50 @@ fn read_native_vendor_locators(
         }
     }
     Ok(refs)
+}
+
+/// The human-facing metadata carried in MANIFEST section 1, resolved through
+/// the string pool (plan-61-A §4).
+///
+/// This is the copy the registry renders. The `.mfp` header carries the same
+/// two strings in plaintext as a fast-scan convenience, but *this* copy lives
+/// inside `packageBinaryRepr`, which `packageBinaryHash` covers and the package
+/// signature covers transitively. A registry whose pitch is transparency must
+/// render what the publisher signed, not what a plaintext prefix claims.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestMetadata {
+    pub author: String,
+    pub url: String,
+}
+
+/// Byte offsets of `author` and `url` within MANIFEST section 1. The section is
+/// a fixed positional record: six u32 identity fields precede `author`
+/// (`src/binary_repr/writer.rs:993-1000`, read back at
+/// `src/binary_repr/reader.rs:975-982`).
+const MANIFEST_AUTHOR_OFFSET: usize = 24;
+const MANIFEST_URL_OFFSET: usize = 28;
+
+/// Read `author` and `url` from a payload's MANIFEST section.
+///
+/// `Ok(None)` when the payload carries no section 1 at all — the same
+/// best-effort posture `parse_vendor_blobs` takes toward a missing section 10,
+/// and for the same reason: the payload is welded to the signature, so a
+/// genuinely broken one fails `verify_payload_hash` elsewhere. A section that
+/// is *present but malformed* is an error.
+pub fn parse_manifest_metadata(payload: &[u8]) -> Result<Option<ManifestMetadata>, String> {
+    let Ok(sections) = read_section_table(payload) else {
+        return Ok(None);
+    };
+    let Some(manifest_bytes) = sections.get(&SECTION_MANIFEST) else {
+        return Ok(None);
+    };
+    let string_bytes = sections
+        .get(&SECTION_STRING_POOL)
+        .ok_or_else(|| "package is missing the string pool section".to_string())?;
+    let strings = read_string_pool(string_bytes)?;
+    let author = table_string(&strings, read_u32(manifest_bytes, MANIFEST_AUTHOR_OFFSET)?)?;
+    let url = table_string(&strings, read_u32(manifest_bytes, MANIFEST_URL_OFFSET)?)?;
+    Ok(Some(ManifestMetadata { author, url }))
 }
 
 fn table_string(strings: &[String], id: u32) -> Result<String, String> {
@@ -568,6 +613,68 @@ mod tests {
         assert_eq!(refs[0].hash, refs[1].hash);
         assert_eq!(refs[0].libc.as_deref(), Some("glibc"));
         assert_eq!(refs[1].libc.as_deref(), Some("musl"));
+    }
+
+    /// plan-61-A §4: `author`/`url` come out of MANIFEST section 1, resolved
+    /// through the string pool — the copy the signature covers.
+    #[test]
+    fn reads_author_and_url_from_the_manifest_section() {
+        let mut manifest = Vec::new();
+        for _ in 0..6 {
+            put_u32(&mut manifest, 0);
+        }
+        put_u32(&mut manifest, 1); // author -> "alice"
+        put_u32(&mut manifest, 2); // url    -> "https://example.invalid"
+        for _ in 0..6 {
+            put_u16(&mut manifest, 0);
+        }
+        for _ in 0..5 {
+            put_u32(&mut manifest, 0);
+        }
+        let payload = container(&[
+            (SECTION_MANIFEST, manifest),
+            (
+                SECTION_STRING_POOL,
+                string_pool(&["", "alice", "https://example.invalid"]),
+            ),
+        ]);
+        let meta = parse_manifest_metadata(&payload).unwrap().unwrap();
+        assert_eq!(meta.author, "alice");
+        assert_eq!(meta.url, "https://example.invalid");
+    }
+
+    /// A payload with no section 1 carries no metadata — best-effort `None`,
+    /// matching how a missing section 10 means "vendors nothing". A section
+    /// that is present but unreadable is an error, not silent emptiness.
+    #[test]
+    fn manifest_metadata_is_absent_or_malformed_but_never_silently_wrong() {
+        let payload = container(&[(SECTION_STRING_POOL, string_pool(&["x"]))]);
+        assert_eq!(parse_manifest_metadata(&payload).unwrap(), None);
+        assert_eq!(parse_manifest_metadata(b"not a container").unwrap(), None);
+
+        // Section 1 present but too short to hold the url id.
+        let payload = container(&[
+            (SECTION_MANIFEST, vec![0u8; 26]),
+            (SECTION_STRING_POOL, string_pool(&["x"])),
+        ]);
+        assert!(parse_manifest_metadata(&payload).is_err());
+
+        // Section 1 present, string pool missing.
+        let payload = container(&[(SECTION_MANIFEST, vec![0u8; 64])]);
+        assert!(parse_manifest_metadata(&payload)
+            .unwrap_err()
+            .contains("missing the string pool"));
+
+        // An author id past the end of the pool is an error, not an empty name.
+        let mut manifest = vec![0u8; 24];
+        put_u32(&mut manifest, 99); // author -> out of range
+        put_u32(&mut manifest, 0);
+        manifest.resize(64, 0);
+        let payload = container(&[
+            (SECTION_MANIFEST, manifest),
+            (SECTION_STRING_POOL, string_pool(&["x"])),
+        ]);
+        assert!(parse_manifest_metadata(&payload).is_err());
     }
 
     #[test]

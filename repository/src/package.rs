@@ -372,6 +372,7 @@ pub(crate) mod test_support {
         pub ident: String,
         pub version: String,
         pub author: String,
+        pub url: String,
         pub payload: Vec<u8>,
         pub ident_key: String,
         pub signing_key: String,
@@ -398,7 +399,7 @@ pub(crate) mod test_support {
         put_bytes(&mut bytes, package.ident.as_bytes());
         put_bytes(&mut bytes, package.version.as_bytes());
         put_bytes(&mut bytes, package.author.as_bytes());
-        put_bytes(&mut bytes, b""); // url
+        put_bytes(&mut bytes, package.url.as_bytes());
         put_bytes(&mut bytes, package.ident_key.as_bytes());
         put_bytes(&mut bytes, package.signing_key.as_bytes());
         put_bytes(&mut bytes, package.proof.as_bytes());
@@ -485,6 +486,7 @@ mod tests {
                 ident: "alice#toolbox".to_string(),
                 version: version.to_string(),
                 author: "alice".to_string(),
+                url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),

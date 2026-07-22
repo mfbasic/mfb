@@ -292,24 +292,35 @@ Also added at the parser layer: `resolves_the_platform_triple_for_each_locator`,
 `two_locators_sharing_one_hash_stay_two_locators`, and
 `an_unknown_libc_discriminant_is_rejected` (an unlisted task — see §Corrections).
 Full crate: 291 passed, 0 failed; clippy warning count unchanged from baseline.
-Commit: —
+Commit: `fa5e8f69d`
 
 ### Phase 3 — Capture author and url
 
-- [ ] Parse MANIFEST section 1 server-side to obtain the interned `author` and
+- [x] Parse MANIFEST section 1 server-side to obtain the interned `author` and
       `url`. Reuse the existing section splitter
       (`repository/src/abi.rs:168-195`) and `read_string_pool`.
-- [ ] Assert the section-1 values equal the header values from `MfpPackage`
+- [x] Assert the section-1 values equal the header values from `MfpPackage`
       (`repository/src/package.rs:22-27`). On mismatch, reject the publish with a
       distinct error message naming both values. Do **not** prefer one silently.
-- [ ] Persist the section-1 values into `package_versions.author` / `.url` in the
+- [x] Persist the section-1 values into `package_versions.author` / `.url` in the
       publish transaction.
-- [ ] Tests: publish with author+url set → both persisted; publish with both
-      empty → NULL, not `""`; a hand-built artifact whose header and MANIFEST
-      disagree → publish rejected with the mismatch error.
+- [~] Tests: publish with author+url set → both persisted; ~~publish with both
+      empty → NULL, not `""`~~ — **partially moot**: an empty *url* is covered,
+      but an empty *author* is unreachable through publish (see §Corrections);
+      a hand-built artifact whose header and MANIFEST disagree → publish
+      rejected with the mismatch error.
+      `author_and_url_round_trip_from_the_signed_manifest` and
+      `a_header_manifest_metadata_mismatch_is_refused` (`server.rs`), plus
+      `reads_author_and_url_from_the_manifest_section` and
+      `manifest_metadata_is_absent_or_malformed_but_never_silently_wrong`
+      (`abi.rs`). Remaining: nothing — the empty-author half is unbuildable, not
+      unfinished.
 
-Acceptance: a published package's `author`/`url` round-trip from the signed
-MANIFEST into `package_versions`, and a header/MANIFEST mismatch is rejected.
+Acceptance: **MET** — a published package's `author`/`url` round-trip from the
+signed MANIFEST into `package_versions` (asserted against the stored row, not
+the response), and a header/MANIFEST mismatch is refused with a 400 naming both
+values while persisting no version row. Full crate: 295 passed, 0 failed;
+workspace builds; clippy warning count unchanged from baseline.
 Commit: —
 
 ### Phase 4 — Backfill (largest blast radius: touches every stored blob)
@@ -419,6 +430,28 @@ Commit: —
   version→blob edge, so `abi::vendor_ref_for_hash` (test-only) fills the
   platform axis with a placeholder rather than each site restating a triple it
   does not assert on.
+- **Phase 3 asked for a test case that cannot be built: "publish with both
+  empty → NULL".** An empty *url* is reachable and is covered. An empty
+  *author* is not: `validate_package_request` already refuses a package whose
+  header `author` differs from the owner's display name
+  (`repository/src/server.rs:2243`, "package author does not match owner
+  name"), and no owner is named `""`. Found by writing the test and watching it
+  fail with that pre-existing 400 — not reasoned around. The NULL-vs-`""`
+  normalization itself is unconditional in the handler, so `author` gets the
+  same treatment the moment anything can produce an empty one. The task is
+  marked `[~]` with this as the reason rather than `[x]`.
+- **`publish_package_version` was already at the argument-count lint's ceiling,
+  so `author`/`url` went in as a struct.** Adding them positionally made it a
+  9-argument function (10 once plan-61-E adds `description`) and pushed an
+  existing `too_many_arguments` warning further. `PublishMetadata { author, url }`
+  keeps the arity at its previous count and gives E a declared home. 33 test
+  call sites were updated mechanically to `&PublishMetadata::default()`.
+- **`package::test_support::TestPackage` hard-coded an empty header `url`.**
+  It had a settable `author` but wrote `put_bytes(&mut bytes, b"")` for `url`,
+  so no test could construct a package carrying one — and the mismatch check
+  needs the two copies to differ on either field. Added a `url` field and a
+  `signed_request_with_header_metadata` helper; `signed_request` delegates to it
+  with the previous values, so every existing test is unchanged.
 - **A `#[cfg(test)]` read accessor was needed after all — without weakening the
   "A adds no read accessors" rule.** The `/validate` guard test lives in
   `server.rs` and cannot reach `Store`'s private connection.

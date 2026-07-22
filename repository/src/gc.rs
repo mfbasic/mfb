@@ -457,6 +457,7 @@ mod tests {
                 &format!("data/{hash}.mfp"),
                 "{}",
                 &vendor,
+                &crate::store::PublishMetadata::default(),
             )
             .unwrap();
     }

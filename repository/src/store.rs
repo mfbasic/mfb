@@ -14,6 +14,19 @@ pub struct Store {
     conn: Arc<Mutex<Connection>>,
 }
 
+/// The human-facing metadata a publish records alongside the version row
+/// (plan-61-A §4). Grouped rather than passed as loose parameters because
+/// `publish_package_version` was already at the argument-count lint's limit,
+/// and because plan-61-E adds `description` to exactly this set.
+///
+/// `None` means the publisher provided nothing. An empty string is normalized
+/// to `None` by the caller, so "absent" and "present but empty" stay one fact.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PublishMetadata {
+    pub author: Option<String>,
+    pub url: Option<String>,
+}
+
 /// One `package_version_targets` row as `Store::target_rows_for_test` yields it:
 /// `(os, arch, libc, lib_type, source)`. Test-only; see that method.
 #[cfg(test)]
@@ -164,6 +177,26 @@ impl Store {
         self.conn
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The stored `(author, url)` for one published version. Test-only, for the
+    /// same reason as `target_rows_for_test`: the publish-path tests live in
+    /// `server.rs` and plan-61-A ships no real read accessors.
+    #[cfg(test)]
+    pub(crate) fn version_metadata_for_test(
+        &self,
+        ident: &str,
+        version: &str,
+    ) -> (Option<String>, Option<String>) {
+        self.conn()
+            .query_row(
+                "SELECT pv.author, pv.url FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1 AND pv.version = ?2",
+                params![ident, version],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
     }
 
     /// Every `package_version_targets` row as
@@ -1245,6 +1278,7 @@ impl Store {
         blob_path: &str,
         abi_index: &str,
         vendor_blobs: &[VendorBlobRef],
+        metadata: &PublishMetadata,
     ) -> Result<PublishedVersion, String> {
         // REPO-17: validate the ident's package component and the version against
         // an explicit safe charset/length before either reaches the log payload,
@@ -1280,9 +1314,18 @@ impl Store {
         )
         .map_err(|err| format!("failed to store package blob metadata: {err}"))?;
         tx.execute(
-            "INSERT INTO package_versions (package_id, version, hash, state, abi_index, created_at)
-             VALUES (?1, ?2, ?3, 'available', ?4, ?5)",
-            params![package_id, version, hash, abi_index, now],
+            "INSERT INTO package_versions
+                 (package_id, version, hash, state, abi_index, author, url, created_at)
+             VALUES (?1, ?2, ?3, 'available', ?4, ?5, ?6, ?7)",
+            params![
+                package_id,
+                version,
+                hash,
+                abi_index,
+                metadata.author,
+                metadata.url,
+                now
+            ],
         )
         .map_err(|err| {
             if is_unique_violation(&err) {
@@ -2616,7 +2659,16 @@ pub(crate) mod tests {
         register_keys(&store, "axb");
         let axb_id = store.owner_with_ident_key("axb").unwrap().unwrap().0.id;
         store
-            .publish_package_version(axb_id, "axb#pkg", "1.0.0", "hash", "path", "{}", &[])
+            .publish_package_version(
+                axb_id,
+                "axb#pkg",
+                "1.0.0",
+                "hash",
+                "path",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap();
 
         // The real entry resolves.
@@ -2655,7 +2707,16 @@ pub(crate) mod tests {
         ] {
             assert!(
                 store
-                    .publish_package_version(id, ident, "1.0.0", "h", "p", "{}", &[])
+                    .publish_package_version(
+                        id,
+                        ident,
+                        "1.0.0",
+                        "h",
+                        "p",
+                        "{}",
+                        &[],
+                        &PublishMetadata::default()
+                    )
                     .is_err(),
                 "{ident} should be rejected"
             );
@@ -2663,14 +2724,32 @@ pub(crate) mod tests {
         for version in ["1.0 0", "1.0\"0", "1.0%0", "1/0", "1.0\n0", ""] {
             assert!(
                 store
-                    .publish_package_version(id, "alice#pkg", version, "h", "p", "{}", &[])
+                    .publish_package_version(
+                        id,
+                        "alice#pkg",
+                        version,
+                        "h",
+                        "p",
+                        "{}",
+                        &[],
+                        &PublishMetadata::default()
+                    )
                     .is_err(),
                 "{version} should be rejected"
             );
         }
         // A clean publish still works.
         assert!(store
-            .publish_package_version(id, "alice#pkg", "1.0.0", "h", "p", "{}", &[])
+            .publish_package_version(
+                id,
+                "alice#pkg",
+                "1.0.0",
+                "h",
+                "p",
+                "{}",
+                &[],
+                &PublishMetadata::default()
+            )
             .is_ok());
     }
 
@@ -2979,6 +3058,7 @@ pub(crate) mod tests {
                 "path",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
         assert_eq!(store.log_size().unwrap(), 3);
@@ -3055,6 +3135,7 @@ pub(crate) mod tests {
                 "path",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3323,6 +3404,7 @@ pub(crate) mod tests {
                 "path",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3381,6 +3463,7 @@ pub(crate) mod tests {
                 "data/mfphash.mfp",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3423,6 +3506,7 @@ pub(crate) mod tests {
                 "data/mfphash.mfp",
                 "{}",
                 &[crate::abi::vendor_ref_for_hash("vendorhash")],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3491,6 +3575,7 @@ pub(crate) mod tests {
                 "data/mfphash.mfp",
                 "{}",
                 &[glibc, musl],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3569,6 +3654,7 @@ pub(crate) mod tests {
                 "data/mfphash.mfp",
                 "{}",
                 &[any_arch, concrete],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3623,6 +3709,7 @@ pub(crate) mod tests {
                 "data/mfphash.mfp",
                 "{}",
                 &[crate::abi::vendor_ref_for_hash("vendorhash")],
+                &PublishMetadata::default(),
             )
             .unwrap();
         store
@@ -3658,6 +3745,7 @@ pub(crate) mod tests {
                     "data/mfp.mfp",
                     "{}",
                     &[crate::abi::vendor_ref_for_hash("sharedvendor")],
+                    &PublishMetadata::default(),
                 )
                 .unwrap();
         }
@@ -3721,6 +3809,7 @@ pub(crate) mod tests {
                 "data/mfphash.mfp",
                 "{}",
                 &[crate::abi::vendor_ref_for_hash("vendorhash")],
+                &PublishMetadata::default(),
             )
             .unwrap();
         store
@@ -3766,6 +3855,7 @@ pub(crate) mod tests {
                 "data/mfphash.mfp",
                 "{}",
                 &[crate::abi::vendor_ref_for_hash("vendorhash")],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3828,6 +3918,7 @@ pub(crate) mod tests {
                 "path",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3901,6 +3992,7 @@ pub(crate) mod tests {
                 "path",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
 
@@ -3974,6 +4066,7 @@ pub(crate) mod tests {
                 "path",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
         store
@@ -3999,6 +4092,7 @@ pub(crate) mod tests {
                 "path",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
         let with_pkg = store.index_canonical_hash().unwrap();
@@ -4081,6 +4175,7 @@ pub(crate) mod tests {
                 "path",
                 "{}",
                 &[],
+                &PublishMetadata::default(),
             )
             .unwrap();
         assert!(store
@@ -4095,7 +4190,8 @@ pub(crate) mod tests {
                 "hash",
                 "path",
                 "{}",
-                &[]
+                &[],
+                &PublishMetadata::default()
             )
             .unwrap_err()
             .contains("already published"));
@@ -4121,16 +4217,52 @@ pub(crate) mod tests {
         let bob = store.owner_with_ident_key("bob").unwrap().unwrap().0.id;
         assert_eq!(store.owner_version_count(alice).unwrap(), 0);
         store
-            .publish_package_version(alice, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .publish_package_version(
+                alice,
+                "alice#toolbox",
+                "1.0.0",
+                "h1",
+                "p1",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap();
         store
-            .publish_package_version(alice, "alice#toolbox", "1.1.0", "h2", "p2", "{}", &[])
+            .publish_package_version(
+                alice,
+                "alice#toolbox",
+                "1.1.0",
+                "h2",
+                "p2",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap();
         store
-            .publish_package_version(alice, "alice#widgets", "0.1.0", "h3", "p3", "{}", &[])
+            .publish_package_version(
+                alice,
+                "alice#widgets",
+                "0.1.0",
+                "h3",
+                "p3",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap();
         store
-            .publish_package_version(bob, "bob#thing", "1.0.0", "h4", "p4", "{}", &[])
+            .publish_package_version(
+                bob,
+                "bob#thing",
+                "1.0.0",
+                "h4",
+                "p4",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap();
         // Three versions across two of alice's packages; bob's row is not counted.
         assert_eq!(store.owner_version_count(alice).unwrap(), 3);
@@ -4239,11 +4371,29 @@ pub(crate) mod tests {
         let alice = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         let bob = store.owner_with_ident_key("bob").unwrap().unwrap().0.id;
         store
-            .publish_package_version(alice, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .publish_package_version(
+                alice,
+                "alice#toolbox",
+                "1.0.0",
+                "h1",
+                "p1",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap();
 
         let err = store
-            .publish_package_version(bob, "alice#toolbox", "2.0.0", "evil", "p2", "{}", &[])
+            .publish_package_version(
+                bob,
+                "alice#toolbox",
+                "2.0.0",
+                "evil",
+                "p2",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap_err();
         assert!(
             err.contains("owned by another owner"),
@@ -4450,7 +4600,16 @@ pub(crate) mod tests {
         register_keys(&store, "alice");
         let owner = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         store
-            .publish_package_version(owner, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .publish_package_version(
+                owner,
+                "alice#toolbox",
+                "1.0.0",
+                "h1",
+                "p1",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap();
         // Sound to begin with.
         assert_eq!(store.log_leaf_hashes(None).unwrap().len(), 2);
@@ -4721,7 +4880,16 @@ pub(crate) mod tests {
         // A publish that cannot record its version row reports the generic
         // failure, not the "already published" duplicate message.
         let err = store
-            .publish_package_version(owner, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .publish_package_version(
+                owner,
+                "alice#toolbox",
+                "1.0.0",
+                "h1",
+                "p1",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap_err();
         assert!(err.contains("failed to publish package version"), "{err}");
         assert!(!err.contains("already published"), "{err}");
@@ -4742,7 +4910,16 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("failed to prepare typosquat query"));
         assert!(store
-            .publish_package_version(owner, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .publish_package_version(
+                owner,
+                "alice#toolbox",
+                "1.0.0",
+                "h1",
+                "p1",
+                "{}",
+                &[],
+                &PublishMetadata::default()
+            )
             .unwrap_err()
             .contains("failed to create package identity"));
     }
@@ -4782,7 +4959,16 @@ pub(crate) mod tests {
             .unwrap_err()
             .contains("failed to size the log"));
         assert!(store
-            .publish_package_version(owner, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .publish_package_version(
+                owner,
+                "alice#toolbox",
+                "1.0.0",
+                "h1",
+                "p1",
+                "{}",
+                &[],
+                &PublishMetadata::default()
+            )
             .unwrap_err()
             .contains("failed to size the log"));
         assert_eq!(store.count_owners().unwrap(), 1);
@@ -4884,7 +5070,16 @@ pub(crate) mod tests {
         register_keys(&store, "bob");
         let alice = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
         store
-            .publish_package_version(alice, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .publish_package_version(
+                alice,
+                "alice#toolbox",
+                "1.0.0",
+                "h1",
+                "p1",
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
             .unwrap();
         drop_tables(&store, &["org_members", "transfer_offers"]);
 

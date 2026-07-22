@@ -2048,9 +2048,43 @@ async fn publish_package(
     // Keep the whole `VendorBlobRef`, not just `.hash`: the platform axis is
     // the metadata the target matrix is made of, and collapsing to hashes here
     // is what used to throw it away.
-    let vendor_blobs: Vec<crate::abi::VendorBlobRef> = match package::parse_mfp_package(&artifact) {
-        Ok(package) => crate::abi::parse_vendor_blobs(&package.payload).unwrap_or_default(),
-        Err(_) => Vec::new(),
+    let parsed = package::parse_mfp_package(&artifact).ok();
+    let vendor_blobs: Vec<crate::abi::VendorBlobRef> = parsed
+        .as_ref()
+        .and_then(|package| crate::abi::parse_vendor_blobs(&package.payload).ok())
+        .unwrap_or_default();
+    // plan-61-A §4: render what the publisher *signed*. `author`/`url` exist
+    // twice — in the plaintext header, and interned in MANIFEST section 1 inside
+    // the signed payload — and only the second is covered by the signature. Take
+    // the signed copy, and refuse a package whose two copies disagree rather
+    // than silently preferring either: a mismatch is a malformed or tampered
+    // artifact, and quietly picking one is how a registry ends up displaying
+    // something nobody signed.
+    let manifest_metadata = match parsed.as_ref() {
+        Some(package) => {
+            let signed = crate::abi::parse_manifest_metadata(&package.payload)
+                .map_err(|err| bad_request(format!("failed to read package manifest: {err}")))?;
+            if let Some(signed) = signed.as_ref() {
+                if signed.author != package.author || signed.url != package.url {
+                    return Err(bad_request(format!(
+                        "package header and signed manifest disagree: header author {:?} url {:?}, \
+                         manifest author {:?} url {:?}",
+                        package.author, package.url, signed.author, signed.url,
+                    )));
+                }
+            }
+            signed
+        }
+        None => None,
+    };
+    // An empty string means the publisher set nothing; store NULL rather than
+    // '' so "not provided" and "provided as empty" stay one fact, not two.
+    let publish_metadata = match manifest_metadata {
+        Some(meta) => crate::store::PublishMetadata {
+            author: Some(meta.author).filter(|value| !value.is_empty()),
+            url: Some(meta.url).filter(|value| !value.is_empty()),
+        },
+        None => crate::store::PublishMetadata::default(),
     };
     let already_present = state
         .blob_store
@@ -2087,6 +2121,7 @@ async fn publish_package(
         &state.blob_store.blob_ref(&hash, BlobKind::Package),
         &abi_index,
         &vendor_blobs,
+        &publish_metadata,
     ) {
         Ok(published) => published,
         Err(err) => {
@@ -2675,6 +2710,7 @@ mod tests {
                 ident: "alice#toolbox".to_string(),
                 version: args.version.to_string(),
                 author: "alice".to_string(),
+                url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(args.ident_key_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
@@ -2767,6 +2803,7 @@ mod tests {
                 ident: "alice#toolbox".to_string(),
                 version: "1.0.0".to_string(),
                 author: "alice".to_string(),
+                url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
@@ -2954,6 +2991,7 @@ mod tests {
                 ident: "alice#toolbox".to_string(),
                 version: version.to_string(),
                 author: "alice".to_string(),
+                url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
@@ -3743,6 +3781,7 @@ mod tests {
                 ident: "alice#toolbox".to_string(),
                 version: "1.0.0".to_string(),
                 author: "alice".to_string(),
+                url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
@@ -3832,6 +3871,7 @@ mod tests {
                 ident: "alice#toolbox".to_string(),
                 version: "1.0.0".to_string(),
                 author: "alice".to_string(),
+                url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&new_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public2)),
@@ -5751,6 +5791,25 @@ mod tests {
         bytes
     }
 
+    /// A MANIFEST section 1 record naming `author` and `url` by string-pool id.
+    /// The section is a fixed positional record; only those two ids matter to
+    /// the registry, so the identity fields are interned id 0.
+    fn mfpc_manifest_section(author_id: u32, url_id: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for _ in 0..6 {
+            put_u32(&mut bytes, 0); // name, ident, version, identKey, and both fingerprints
+        }
+        put_u32(&mut bytes, author_id);
+        put_u32(&mut bytes, url_id);
+        for _ in 0..6 {
+            put_u16(&mut bytes, 0); // binaryRepr / language / minimumRuntime versions
+        }
+        for _ in 0..5 {
+            put_u32(&mut bytes, 0); // dependency, nativeLink, export counts; entry fn and flags
+        }
+        bytes
+    }
+
     fn mfpc_abi_section(exports: &[(u32, [u8; 32])]) -> Vec<u8> {
         let mut bytes = Vec::new();
         put_u16(&mut bytes, 1); // format version
@@ -5811,6 +5870,22 @@ mod tests {
         version: &str,
         payload: Vec<u8>,
     ) -> (Vec<u8>, PackageArtifactRequest) {
+        signed_request_with_header_metadata(state, keys, token, version, payload, "alice", "").await
+    }
+
+    /// `signed_request`, but with the **header** `author`/`url` under test
+    /// control. plan-61-A §4 reads those two fields from the signed MANIFEST
+    /// and refuses a package whose header disagrees, so proving that check
+    /// works at all requires being able to make the two copies differ.
+    async fn signed_request_with_header_metadata(
+        state: &AppState,
+        keys: &TestOwnerKeys,
+        token: &str,
+        version: &str,
+        payload: Vec<u8>,
+        header_author: &str,
+        header_url: &str,
+    ) -> (Vec<u8>, PackageArtifactRequest) {
         let (signing_public, signing_private) = crypto::generate_keypair();
         let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
         let signing_fingerprint = crypto::fingerprint(&signing_public);
@@ -5829,7 +5904,8 @@ mod tests {
                 name: "toolbox".to_string(),
                 ident: "alice#toolbox".to_string(),
                 version: version.to_string(),
-                author: "alice".to_string(),
+                author: header_author.to_string(),
+                url: header_url.to_string(),
                 payload,
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
@@ -5943,6 +6019,7 @@ mod tests {
                 ident: "mallory#toolbox".to_string(),
                 version: "1.0.0".to_string(),
                 author: "mallory".to_string(),
+                url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&unregistered_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&sign_public)),
@@ -6044,6 +6121,7 @@ mod tests {
                 ident: "alice#toolbox".to_string(),
                 version: "1.0.0".to_string(),
                 author: "someone-else".to_string(),
+                url: String::new(),
                 payload: b"MFPCtestpayload".to_vec(),
                 ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
                 signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
@@ -6258,6 +6336,97 @@ mod tests {
             "{:?}",
             report.diagnostics,
         );
+    }
+
+    /// plan-61-A Phase 3: `author`/`url` round-trip from the **signed** MANIFEST
+    /// into `package_versions`, and an empty value is stored as NULL rather than
+    /// `''` — "the publisher set nothing" is one fact, not two.
+    #[tokio::test]
+    async fn author_and_url_round_trip_from_the_signed_manifest() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        // strings: 0="", 1="alice", 2="https://example.invalid/toolbox"
+        let strings = mfpc_string_pool(&["", "alice", "https://example.invalid/toolbox"]);
+        let payload = mfpc_container(&[(1, mfpc_manifest_section(1, 2)), (2, strings)]);
+        let (_artifact, request) = signed_request_with_header_metadata(
+            &h.state,
+            &keys,
+            &token,
+            "1.0.0",
+            payload,
+            "alice",
+            "https://example.invalid/toolbox",
+        )
+        .await;
+        publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("publish succeeds");
+
+        let (author, url) = h.store.version_metadata_for_test("alice#toolbox", "1.0.0");
+        assert_eq!(author.as_deref(), Some("alice"));
+        assert_eq!(url.as_deref(), Some("https://example.invalid/toolbox"));
+
+        // An unset `url` stores NULL, not "".
+        //
+        // Only `url` is exercised here: an empty *author* cannot reach this
+        // code at all, because `validate_package_request` already rejects a
+        // package whose header author differs from the owner name
+        // (`server.rs:2243`), and no owner is named "". The plan asked for
+        // "publish with both empty"; that half is unbuildable. See §Corrections.
+        let strings = mfpc_string_pool(&["", "alice"]);
+        let payload = mfpc_container(&[(1, mfpc_manifest_section(1, 0)), (2, strings)]);
+        let (_artifact, request) = signed_request_with_header_metadata(
+            &h.state, &keys, &token, "2.0.0", payload, "alice", "",
+        )
+        .await;
+        publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("publish succeeds with no url");
+
+        let (author, url) = h.store.version_metadata_for_test("alice#toolbox", "2.0.0");
+        assert_eq!(author.as_deref(), Some("alice"));
+        assert_eq!(url, None, "an empty url is NULL, not the empty string");
+    }
+
+    /// plan-61-A §4: the header copy of `author`/`url` is a plaintext fast-scan
+    /// convenience; only the MANIFEST copy is covered by the signature. When
+    /// the two disagree the artifact is malformed or tampered, and the publish
+    /// is refused naming both values — never silently resolved in favour of
+    /// either, which is how a transparency registry ends up rendering a string
+    /// nobody signed.
+    #[tokio::test]
+    async fn a_header_manifest_metadata_mismatch_is_refused() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        // The signed manifest says "mallory"; the plaintext header says "alice".
+        let strings = mfpc_string_pool(&["", "mallory"]);
+        let payload = mfpc_container(&[(1, mfpc_manifest_section(1, 0)), (2, strings)]);
+        let (_artifact, request) = signed_request_with_header_metadata(
+            &h.state, &keys, &token, "1.0.0", payload, "alice", "",
+        )
+        .await;
+
+        let (status, body) = publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect_err("a metadata mismatch must not publish");
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body.error.contains("header and signed manifest disagree")
+                && body.error.contains("alice")
+                && body.error.contains("mallory"),
+            "the error must name both values: {}",
+            body.error,
+        );
+        // Nothing was persisted: the refusal happens before the version row.
+        assert!(h
+            .store
+            .list_package_versions("alice#toolbox")
+            .unwrap()
+            .is_empty());
     }
 
     /// plan-61-A Phase 2: `POST /validate` is a **dry run**. It reads section-10
