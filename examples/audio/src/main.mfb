@@ -91,15 +91,15 @@ SUB main()
         LET tracks AS List OF String = [voice1, voice2, voice3]
         audio::play(out, tracks)
       CASE 3
-        RES music AS SoundFile STATE FileInfo = libsnd::openSound(os::resourcePath("music/Mozart1.ogg"))
-        LET info AS FileInfo = music.state
+        RES music AS SoundFile STATE SoundInfo = libsnd::openSound(os::resourcePath("music/Mozart1.ogg"))
+        LET info AS SoundInfo = music.state
         FOR i = 0 TO info.frames STEP 500
           LET sound = libsnd::loadFrames(music, 500)
           audio::write(out, sound.pcm)
         NEXT
       CASE 4
-        RES music AS SoundFile STATE FileInfo = libsnd::openSound(os::resourcePath("music/Mozart2.ogg"))
-        LET info AS FileInfo = music.state
+        RES music AS SoundFile STATE SoundInfo = libsnd::openSound(os::resourcePath("music/Mozart2.ogg"))
+        LET info AS SoundInfo = music.state
         FOR i = 0 TO info.frames STEP 500
           LET sound = libsnd::loadFrames(music, 500)
           audio::write(out, sound.pcm)

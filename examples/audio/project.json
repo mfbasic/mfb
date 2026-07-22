@@ -19,7 +19,7 @@
     {
       "name": "libsnd",
       "ident": "jzaun#libsnd",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "pin": true,
       "source": "jzaun#libsnd",
       "identKey": "ed25519:v5dpUNnc4g4TBinvHzGfZh06JXdREdn0Ct1W75qZFBc"
