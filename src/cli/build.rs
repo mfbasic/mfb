@@ -392,24 +392,68 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     //     for every rule ported off `syntaxcheck` — the same implementation that
     //     guards decoded package IR, so source and package are checked once.
     // Lowering is total (plan-20-D), so it is safe to run even when syntaxcheck
-    // found errors. External package signatures are resolved on the package
-    // path, so an empty external map suffices for the source functions here.
+    // found errors.
+    //
+    // Empty external maps for everything EXCEPT imported resource producers
+    // (bug-377). An inferred binding takes its type from the initializer, so
+    // `LET music = libsnd::openSound(...)` lowers to a bind of unknown type when
+    // the imported signature is missing, and the `RES` ownership axis — which
+    // keys on the bound type — can never fire.
+    //
+    // Handing over *every* imported signature is the wrong cure: it tells verify
+    // an imported name's type without also giving it that type's definition, and
+    // a half-informed checker is worse than an uninformed one. `LET result =
+    // thread::waitFor(t)` then resolves to the imported union `ReturnChoice`
+    // whose variants are still absent, so `check_match_exhaustive` reads it as an
+    // *open* type and demands a `CASE ELSE` from an exhaustive match
+    // (`rt-behavior/threads/thread-return-union`). Same trap bug-258 documents a
+    // few hundred lines into `verify`: only a POSITIVELY known type may reject.
+    //
+    // So restrict the map to functions returning an imported RESOURCE type —
+    // exactly the names `imported_resource_closers` also gives verify the
+    // registry rows to interpret. Signature and definition arrive together, and
+    // no other inference shifts.
+    //
     // Both checkers collect (rather than print) so their diagnostics can be
     // merged and rendered in a single line-ordered pass; otherwise every
     // relocated `ir::verify` rule would print after all of syntaxcheck's,
     // scrambling the source-order sequence the goldens record (plan-20-Z).
     let syntaxcheck_diagnostics =
         syntaxcheck::check_project_collect(&options.location, &concrete_ast);
-    let source_ir = ir::lower_project_with_external_functions(
-        &concrete_ast,
-        entry.clone(),
-        &HashMap::new(),
-        &HashMap::new(),
-    );
     // bug-377: the source IR names an imported resource's type but carries no
     // record that it *is* a resource, so verify's resource rules need the
     // imported packages' `RESOURCE_TABLE` rows handed to them explicitly.
     let imported_resources = imported_resource_closers(&options.location, &manifest);
+    let imported_resource_types: std::collections::HashSet<&str> = imported_resources
+        .iter()
+        .map(|(type_name, _)| type_name.as_str())
+        .collect();
+    let (all_external_types, all_external_params) =
+        external_package_function_types(&options.location, &manifest);
+    // The map's value is a whole signature (`FUNC(String) AS SoundFile STATE
+    // FileInfo`), so the return type is the tail after the last ` AS `.
+    let returns_imported_resource = |signature: &String| {
+        let returns = signature
+            .rsplit_once(" AS ")
+            .map(|(_, returns)| returns)
+            .unwrap_or(signature.as_str());
+        imported_resource_types.contains(crate::builtins::resource::base_resource_name(returns))
+    };
+    let source_external_types: HashMap<String, String> = all_external_types
+        .into_iter()
+        .filter(|(_, signature)| returns_imported_resource(signature))
+        .collect();
+    let source_external_params: HashMap<String, Vec<ir::ExternalFunctionParam>> =
+        all_external_params
+            .into_iter()
+            .filter(|(name, _)| source_external_types.contains_key(name))
+            .collect();
+    let source_ir = ir::lower_project_with_external_functions(
+        &concrete_ast,
+        entry.clone(),
+        &source_external_types,
+        &source_external_params,
+    );
     let verify_diagnostics =
         ir::verify_source_diagnostics(&source_ir, &options.location, &imported_resources);
     let Ok(mut diagnostics) = syntaxcheck_diagnostics else {
