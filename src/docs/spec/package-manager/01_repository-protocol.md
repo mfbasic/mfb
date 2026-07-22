@@ -75,6 +75,9 @@ response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]]
 | `/log/consistency` | GET | none | `?from=M&to=N` | `ConsistencyProofResponse` | append-only audit |
 | `/log/publish` | GET | none | `?ident=&version=` | `LogEntry` | `pkg verify --proof` |
 | `/index/<owner>#<package>` | GET | none | — | `IndexResponse` | `pkg add` (registry) |
+| `/search` | GET | **none, ever** | `?q=&limit=&offset=` | `SearchResponse` | `pkg add` (search), web UI |
+| `/packages/<owner>#<package>` | GET | **none, ever** | — | `PackageDetailResponse` | web UI (package page) |
+| `/packages/<owner>#<package>/audit` | GET | **none, ever** | — | `PackageAuditResponse` | web UI (transparency tab) |
 | `/blob/<hash>` | GET | none | — | raw blob bytes (or `302` to a presigned URL in S3 mode) | `pkg add` (registry) |
 | `/blob/<hash>` | HEAD | none | — | `200` if present, `404` otherwise (no body) | `repo publish` (dedup probe) |
 | `/blob/<hash>` | PUT | `Authorization: Bearer` session token | raw bytes (`application/octet-stream`) | `201` stored, `200` already present | `repo publish` (vendor blobs) |
@@ -96,6 +99,43 @@ response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]]
 | `/publish` | POST | session token | `PackageArtifactRequest` | `PublishPackageResponse` | `repo publish` (step 2) |
 
 [[repository/src/server.rs:serve]]
+
+### The anonymous read surface
+
+`/search`, `/packages/<ident>` and `/packages/<ident>/audit` (plan-61-B) are
+**anonymous and read-only in perpetuity**. They read no credential of any kind —
+no `sessionToken` body field, no `Authorization` header, and no cookie — and a
+request that carries one is answered *identically* to one that does not. This is
+a deliberate, load-bearing property, not an accident of the current handlers:
+every authenticated route on this server takes its session token from the JSON
+body (the sole exception, `PUT /blob/<hash>`, uses a bearer header), so the
+server has **zero CSRF surface**. Introducing cookie authentication anywhere
+would silently make every existing mutating POST CSRF-vulnerable, so these
+routes must never grow one.[[repository/src/server.rs:package_detail]]
+
+**These routes list every release state, deliberately.**
+`PackageDetailResponse.versions` includes `yanked`, `deprecated`, and superseded
+versions; `state` is a field for the client to render and never a filter the
+server applies. Omitting non-current versions would reproduce exactly the
+truncation an equivocating registry performs: the `/index` version array is not
+integrity-protected in the default path (bug-189, SUP-03), so a hostile or
+MITM'd registry can withhold newer versions to force a downgrade, and a client
+talking only to that registry cannot tell. A publicly browsable history does not
+close that hole — it makes the divergence *detectable by third parties*, which is
+why `/packages/<ident>/audit` returns an **inclusion proof** per publish rather
+than a bare log index. A rendered index nobody can verify proves
+nothing.[[repository/src/server.rs:package_audit]]
+
+`/search` is the only route here that does real query work per request, so it
+carries a per-**IP** sliding-window cap (the `REGISTER_PER_IP_MAX` /
+`LOGIN_PER_IP_MAX` precedent; an anonymous route has no owner to key on).
+`?limit` is **clamped server-side to 50** — an over-cap value is silently
+reduced, never honoured and never rejected — because an uncapped limit on an
+anonymous enumerate route is a trivial resource-exhaustion lever. An empty or
+whitespace-only `?q` returns an empty result set rather than the whole table, and
+the query is matched with `LIKE ... ESCAPE`, so `%` and `_` are literal text
+rather than wildcards that would hand a caller the entire
+registry.[[repository/src/server.rs:search]]
 
 JSON field names use camelCase on the wire (set by `#[serde(rename)]`), even
 though the Rust fields are snake_case. The tables below give the wire names.

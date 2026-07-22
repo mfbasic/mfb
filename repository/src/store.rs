@@ -1466,6 +1466,150 @@ impl Store {
         }))
     }
 
+    /// Ranked package search for `GET /search` (plan-61-B §3).
+    ///
+    /// Ranking is exact ident, then ident prefix, then ident substring, then
+    /// owner-name match, then an edit-distance-1 fuzzy tail. Ties break on
+    /// ident so results are stable between requests.
+    ///
+    /// **The fuzzy tail runs only when the first four find nothing.** Phase 2's
+    /// measurement task: `typosquat_candidates` is `SELECT ident FROM packages`
+    /// — an unindexed full table scan with per-row Levenshtein in Rust
+    /// (`store.rs:2438-2454`). It was written for one call per publish, not for
+    /// a per-keystroke anonymous search route, so it is gated rather than
+    /// wired into the common path.
+    ///
+    /// `query` is matched with `LIKE ... ESCAPE '\'` and the user's `%`, `_`
+    /// and `\` are escaped, so a query of `%` matches a literal percent sign
+    /// rather than every package.
+    pub fn search_packages(
+        &self,
+        query: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<SearchResultRow>, String> {
+        let query = query.trim();
+        // An empty query returns nothing rather than the whole table: this is
+        // an anonymous route, and "no filter" must not mean "enumerate
+        // everything".
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let folded = query.to_lowercase();
+        let pattern = escape_like(&folded);
+        let conn = self.conn();
+
+        // Rank against the **package component** as well as the whole ident.
+        // A user searching `sql` means the package named `sql`, not the literal
+        // string `alice#sql` — ranking only on the full ident put every result
+        // in the substring bucket and reduced the order to alphabetical.
+        // `substr(ident, instr(ident, '#') + 1)` is the package half.
+        let mut statement = conn
+            .prepare(
+                "SELECT p.ident, o.owner_display,
+                        CASE
+                            WHEN lower(p.ident) = ?1
+                              OR lower(substr(p.ident, instr(p.ident, '#') + 1)) = ?1 THEN 0
+                            WHEN lower(p.ident) LIKE ?2 ESCAPE '\\'
+                              OR lower(substr(p.ident, instr(p.ident, '#') + 1))
+                                 LIKE ?2 ESCAPE '\\' THEN 1
+                            WHEN lower(p.ident) LIKE ?3 ESCAPE '\\' THEN 2
+                            ELSE 3
+                        END AS rank
+                 FROM packages p
+                 JOIN owners o ON o.id = p.owner_id
+                 WHERE lower(p.ident) = ?1
+                    OR lower(p.ident) LIKE ?3 ESCAPE '\\'
+                    OR lower(o.owner_display) LIKE ?3 ESCAPE '\\'
+                 ORDER BY rank ASC, p.ident ASC
+                 LIMIT ?4 OFFSET ?5",
+            )
+            .map_err(|err| format!("failed to prepare search query: {err}"))?;
+        let rows = statement
+            .query_map(
+                params![
+                    folded,
+                    format!("{pattern}%"),
+                    format!("%{pattern}%"),
+                    limit,
+                    offset
+                ],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .map_err(|err| format!("failed to search packages: {err}"))?;
+        let mut idents = Vec::new();
+        for row in rows {
+            idents.push(row.map_err(|err| format!("failed to read search result: {err}"))?);
+        }
+        drop(statement);
+
+        // Fuzzy tail: only reached when nothing above matched, and only on the
+        // first page — an offset past the end of an empty result set is still
+        // empty.
+        if idents.is_empty() && offset == 0 {
+            let mut statement = conn
+                .prepare(
+                    "SELECT p.ident, o.owner_display FROM packages p
+                     JOIN owners o ON o.id = p.owner_id",
+                )
+                .map_err(|err| format!("failed to prepare fuzzy query: {err}"))?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|err| format!("failed to scan packages: {err}"))?;
+            let mut fuzzy = Vec::new();
+            for row in rows {
+                let (ident, owner) = row.map_err(|err| format!("failed to read package: {err}"))?;
+                if within_edit_distance_one(&ident.to_lowercase(), &folded) {
+                    fuzzy.push((ident, owner));
+                }
+            }
+            fuzzy.sort();
+            fuzzy.truncate(limit.max(0) as usize);
+            idents = fuzzy;
+        }
+
+        // Attach each package's newest version. Done per package rather than in
+        // the ranking query so the rank expression stays readable; the page is
+        // already capped by `limit`.
+        let mut latest_statement = conn
+            .prepare(
+                "SELECT pv.version, pv.created_at, pv.description
+                 FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1
+                 ORDER BY pv.created_at DESC, pv.id DESC
+                 LIMIT 1",
+            )
+            .map_err(|err| format!("failed to prepare latest-version query: {err}"))?;
+        let mut results = Vec::new();
+        for (ident, owner) in idents {
+            let latest = latest_statement
+                .query_row(params![ident], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                })
+                .optional()
+                .map_err(|err| format!("failed to read latest version: {err}"))?;
+            let (latest_version, published_at, description) = match latest {
+                Some((version, at, description)) => (Some(version), Some(at), description),
+                None => (None, None, None),
+            };
+            results.push(SearchResultRow {
+                ident,
+                owner,
+                latest_version,
+                published_at,
+                description,
+            });
+        }
+        Ok(results)
+    }
+
     pub fn package_version_exists(&self, ident: &str, version: &str) -> Result<bool, String> {
         let conn = self.conn();
         let exists: Option<i64> = conn
@@ -2633,6 +2777,32 @@ pub struct RegistryConfig {
     pub snapshot_private: Vec<u8>,
     pub timestamp_public: Vec<u8>,
     pub timestamp_private: Vec<u8>,
+}
+
+/// One `GET /search` hit (plan-61-B §3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchResultRow {
+    pub ident: String,
+    pub owner: String,
+    /// `None` for a package identity with no published version yet.
+    pub latest_version: Option<String>,
+    pub published_at: Option<i64>,
+    /// NULL until plan-61-E.
+    pub description: Option<String>,
+}
+
+/// Escape a user string for use inside a `LIKE` pattern with `ESCAPE '\'`.
+///
+/// Without this, a query of `%` matches every package and `_` matches any
+/// single character — a caller could enumerate the whole registry through a
+/// route whose entire point is that an empty query returns nothing. The
+/// backslash must be escaped first, or it would double-escape the escapes this
+/// function itself inserts.
+fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 /// One package as `GET /packages/:ident` sees it (plan-61-B).

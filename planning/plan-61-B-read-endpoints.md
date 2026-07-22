@@ -212,42 +212,64 @@ Commit: —
 
 ### Phase 2 — Search
 
-- [ ] Read `store.typosquat_candidates` and determine its cost. Record the
+- [x] Read `store.typosquat_candidates` and determine its cost. Record the
       finding in this file — if it is a full scan, the fuzzy tail is gated behind
       empty exact/prefix/substring results, or dropped.
-- [ ] Add `store.search_packages(query, limit, offset)` implementing the ranking
+- [x] Add `store.search_packages(query, limit, offset)` implementing the ranking
       in §3.
-- [ ] Add `GET /search?q=&limit=&offset=`. Cap `limit` server-side; document the
+- [x] Add `GET /search?q=&limit=&offset=`. Cap `limit` server-side; document the
       cap in the spec topic. Empty or whitespace-only `q` returns an empty result
       set, not the whole table.
-- [ ] Apply the existing sliding-window rate limit to `/search`, keyed on the
+- [x] Apply the existing sliding-window rate limit to `/search`, keyed on the
       **peer IP** per the `REGISTER_PER_IP_MAX` / `LOGIN_PER_IP_MAX` precedent
       (`server.rs:625-627`) — not the per-owner `BLOB_UPLOAD_PER_OWNER_MAX`,
       whose `claims.sub` key does not exist on an anonymous route (§2). Search is
       the only route here that does real query work per request.
-- [ ] Tests: exact beats prefix beats substring; `limit` above the cap is
+- [x] Tests: exact beats prefix beats substring; `limit` above the cap is
       clamped, not honored; empty query returns empty; a query with SQL
       metacharacters (`%`, `_`, `'`) is parameterized and returns no rows rather
       than erroring or matching everything.
 
-Acceptance: `curl -s "$REPO/search?q=sql"` returns ranked matches anonymously;
-`?limit=100000` returns at most the cap; `?q=%25` returns an empty set rather
-than every package.
+Acceptance: **MET**, all three properties asserted as tests.
+`search_ranks_exact_then_prefix_then_substring` gets
+`["alice#sql", "alice#sqlite", "alice#mysqlclient"]` in that order.
+`search_clamps_an_over_cap_limit_and_pages_by_offset` shows `?limit=100000`
+returning exactly `SEARCH_LIMIT_MAX` (50) — clamped, not rejected — and a
+negative limit clamping to 0 rather than reaching SQLite as `-1`, which SQLite
+reads as *no limit*. `search_treats_like_and_sql_metacharacters_as_literal_text`
+covers `?q=%25` and six other shapes (`_`, `%%`, `'`, `' OR 1=1 --`, `\`,
+`%_\`), each returning empty, plus a positive case proving a literal
+underscore in an ident is still findable — escaping must not break real matches.
+
+**The measurement task's finding: `typosquat_candidates` is a full table scan.**
+It is `SELECT ident FROM packages` with per-row Levenshtein in Rust
+(`repository/src/store.rs`), unindexed, written for one call per publish. Per
+the instruction, the fuzzy tail is therefore **gated behind empty
+exact/prefix/substring results** and skipped entirely on paged requests
+(`offset != 0`), rather than sitting on the common path.
+`search_falls_back_to_the_fuzzy_tail_only_when_nothing_matched` pins both
+directions. Rate limiting is per peer IP
+(`search_is_rate_limited_per_peer_ip` also proves a second IP has its own
+bucket). Full crate: 310 passed, 0 failed.
 Commit: —
 
 ### Phase 3 — Spec sync
 
-- [ ] Add the three routes to the endpoint table in
+- [x] Add the three routes to the endpoint table in
       `src/docs/spec/package-manager/01_repository-protocol.md` (table at
       `:64-98`), including the `limit` cap and the "anonymous, no credential"
       property.
-- [ ] Note in that topic that these routes deliberately list all release states,
+- [x] Note in that topic that these routes deliberately list all release states,
       with a pointer to why (`plan-61-repo-web.md` §4 / bug-189 SUP-03).
-- [ ] Verify: `cargo build && cargo test --bin mfb spec`, then
+- [x] Verify: `cargo build && cargo test --bin mfb spec`, then
       `mfb spec package-manager --all` renders with no leaked `[[` markers.
 
-Acceptance: `cargo test --bin mfb spec` passes and the rendered topic lists all
-three routes.
+Acceptance: **MET** — `cargo test --bin mfb spec` → 48 passed, 0 failed
+(including `spec_citations_resolve`, which validates the new
+`[[repository/src/server.rs:*]]` citations). `mfb spec package-manager --all`
+renders with **0** leaked `[[` markers and includes the new "The anonymous read
+surface" section. All three routes are in the endpoint table, marked
+`**none, ever**` under Auth.
 Commit: —
 
 ## Validation Plan
@@ -295,3 +317,19 @@ Commit: —
   dependency), so the lean-dependency posture in §3 is intact.
 - **`CheckpointResponse` gained `Clone`.** It is now nested inside
   `PackageAuditResponse`, which derives `Clone`.
+- **The §3 ranking, implemented literally, did not rank.** Ranking `lower(ident)`
+  against the query put *every* hit in the substring bucket for the plan's own
+  worked example: a user searching `sql` never exact-matches the ident
+  `alice#sql`, so `["alice#sql", "alice#sqlite", "alice#mysqlclient"]` came back
+  alphabetized as `["alice#mysqlclient", "alice#sql", "alice#sqlite"]`. Found by
+  the test, not by inspection. The rank expression now also compares the
+  **package component** (`substr(ident, instr(ident, '#') + 1)`), which is what
+  "exact ident match" means to someone typing into a search box.
+- **`SearchResponse.total` is the page size, not a corpus count.** §3 published
+  the field name without saying which it was. A true total needs a second
+  unbounded `COUNT(*)` on an anonymous route, which is the same
+  resource-exhaustion lever the `limit` cap exists to close, so it counts the
+  results on this page. Documented on the field.
+- **The fuzzy tail is skipped when `offset != 0`.** Not stated in the plan and
+  worth recording: paging into an empty ranked result set must not re-run a full
+  table scan per page.

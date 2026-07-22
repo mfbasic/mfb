@@ -728,6 +728,19 @@ const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 const REGISTER_PER_IP_MAX: usize = 20;
 const LOGIN_PER_IP_MAX: usize = 30;
 const AUTH_GLOBAL_CEILING: usize = 2000;
+/// Per-IP sliding-window cap on `GET /search` (plan-61-B Phase 2).
+///
+/// Keyed on the **peer IP**, following `REGISTER_PER_IP_MAX` /
+/// `LOGIN_PER_IP_MAX`, because `/search` is anonymous and has no `claims.sub`
+/// to key on the way `BLOB_UPLOAD_PER_OWNER_MAX` does. Higher than the auth
+/// caps because a search box legitimately issues many requests, and search is
+/// the only route in this sub-plan that does real query work per call.
+const SEARCH_PER_IP_MAX: usize = 120;
+/// Server-side ceiling on `?limit`. An uncapped limit on an anonymous
+/// enumerate route is a trivial resource-exhaustion lever, so an over-cap
+/// request is **clamped**, never honoured and never rejected.
+const SEARCH_LIMIT_MAX: i64 = 50;
+const SEARCH_LIMIT_DEFAULT: i64 = 20;
 /// Per-owner sliding-window caps on the authenticated package endpoints, whose
 /// only prior protection was the shared 64 MiB body cap — a registered (near
 /// anonymous) client could hammer `/validate` (5 Ed25519 verifies/call) for CPU
@@ -820,6 +833,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/machines/link/fetch", post(link_fetch))
         .route("/machines/revoke/challenge", post(revoke_challenge))
         .route("/machines/revoke", post(revoke_machine))
+        .route("/search", get(search))
         .route("/index/:ident", get(package_index))
         // plan-61-B: anonymous read surface. These read no credential of any
         // kind — no session token, no bearer header, no cookie — and are `GET`
@@ -976,6 +990,82 @@ async fn log_inclusion_proof(
         size,
         leaf_hash: hex::encode(leaves[index as usize]),
         path,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchQuery {
+    q: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchResponse {
+    pub query: String,
+    /// The number of results **on this page**, not a whole-corpus count. Named
+    /// `total` to match the shape plan-61-B §3 published; a true corpus count
+    /// would need a second unbounded query on an anonymous route.
+    pub total: usize,
+    pub results: Vec<SearchResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SearchResult {
+    pub ident: String,
+    pub owner: String,
+    #[serde(rename = "latestVersion")]
+    pub latest_version: Option<String>,
+    /// `null` until plan-61-E.
+    pub description: Option<String>,
+    #[serde(rename = "publishedAt")]
+    pub published_at: Option<i64>,
+}
+
+/// `GET /search?q=&limit=&offset=` — anonymous, read-only (plan-61-B Phase 2).
+///
+/// Reads no credential. `limit` is clamped to `SEARCH_LIMIT_MAX` server-side,
+/// and an empty or whitespace-only `q` returns an empty result set rather than
+/// the whole table.
+async fn search(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    axum::extract::Query(query): axum::extract::Query<SearchQuery>,
+) -> Result<Json<SearchResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state
+        .rate_limiter
+        .allow(&format!("search:{}", peer.ip()), SEARCH_PER_IP_MAX, 60)
+    {
+        return Err(too_many_requests());
+    }
+    let text = query.q.unwrap_or_default();
+    // Clamp rather than reject: an over-cap `limit` is a client that wants more
+    // than it may have, not an error, and rejecting it would make paging
+    // brittle for no security gain.
+    let limit = query
+        .limit
+        .unwrap_or(SEARCH_LIMIT_DEFAULT)
+        .clamp(0, SEARCH_LIMIT_MAX);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let results: Vec<SearchResult> = state
+        .store
+        .search_packages(&text, limit, offset)
+        .map_err(internal)?
+        .into_iter()
+        .map(|row| SearchResult {
+            ident: row.ident,
+            owner: row.owner,
+            latest_version: row.latest_version,
+            description: row.description,
+            published_at: row.published_at,
+        })
+        .collect();
+
+    Ok(Json(SearchResponse {
+        query: text,
+        total: results.len(),
+        results,
     }))
 }
 
@@ -4833,6 +4923,196 @@ mod tests {
             "a credential must not change the body — the route is anonymous in \
              both directions, not merely credential-optional",
         );
+    }
+
+    /// Seed a handful of packages for the search tests.
+    fn seed_packages(h: &Harness, idents: &[&str]) {
+        for ident in idents {
+            let owner = ident.split('#').next().unwrap();
+            if h.store.owner_with_ident_key(owner).unwrap().is_none() {
+                register_owner_with_all_keys(&h.store, owner);
+            }
+            let owner_id = h.store.owner_with_ident_key(owner).unwrap().unwrap().0.id;
+            h.store
+                .publish_package_version(
+                    owner_id,
+                    ident,
+                    "1.0.0",
+                    &format!("hash-{ident}"),
+                    &format!("data/{ident}.mfp"),
+                    "{}",
+                    &[],
+                    &crate::store::PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+    }
+
+    async fn search_for(h: &Harness, uri: &str) -> SearchResponse {
+        let query = axum::extract::Query::try_from_uri(&uri.parse().unwrap()).unwrap();
+        search(State(h.state.clone()), peer("203.0.113.9"), query)
+            .await
+            .expect("search served")
+            .0
+    }
+
+    /// plan-61-B §3: exact beats prefix beats substring, and the owner match is
+    /// the tail of the ranked set.
+    #[tokio::test]
+    async fn search_ranks_exact_then_prefix_then_substring() {
+        let h = harness();
+        seed_packages(
+            &h,
+            &["alice#sql", "alice#sqlite", "alice#mysqlclient", "bob#tool"],
+        );
+
+        let response = search_for(&h, "http://x/search?q=sql").await;
+        let idents: Vec<&str> = response
+            .results
+            .iter()
+            .map(|result| result.ident.as_str())
+            .collect();
+        assert_eq!(
+            idents,
+            vec!["alice#sql", "alice#sqlite", "alice#mysqlclient"],
+            "exact, then prefix, then substring",
+        );
+        assert_eq!(response.query, "sql");
+        assert_eq!(response.total, 3);
+        assert_eq!(response.results[0].latest_version.as_deref(), Some("1.0.0"));
+        // `description` is in the shape from day one and null until plan-61-E.
+        assert_eq!(response.results[0].description, None);
+
+        // An owner-name query finds that owner's packages.
+        let response = search_for(&h, "http://x/search?q=bob").await;
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].ident, "bob#tool");
+    }
+
+    /// An empty or whitespace-only query returns nothing — never the whole
+    /// table. This is an anonymous route; "no filter" must not mean "enumerate
+    /// the registry".
+    #[tokio::test]
+    async fn search_with_an_empty_query_returns_nothing() {
+        let h = harness();
+        seed_packages(&h, &["alice#sql", "alice#tool"]);
+
+        for uri in [
+            "http://x/search",
+            "http://x/search?q=",
+            "http://x/search?q=%20%20",
+        ] {
+            let response = search_for(&h, uri).await;
+            assert!(
+                response.results.is_empty(),
+                "{uri} must not enumerate the registry: {:?}",
+                response.results,
+            );
+        }
+    }
+
+    /// plan-61-B Phase 2 acceptance: `?limit` above the cap is **clamped**, not
+    /// honoured — an uncapped limit on an anonymous enumerate route is a
+    /// resource-exhaustion lever.
+    #[tokio::test]
+    async fn search_clamps_an_over_cap_limit_and_pages_by_offset() {
+        let h = harness();
+        let idents: Vec<String> = (0..(SEARCH_LIMIT_MAX + 5))
+            .map(|n| format!("alice#pkg{n:03}"))
+            .collect();
+        seed_packages(&h, &idents.iter().map(String::as_str).collect::<Vec<_>>());
+
+        let response = search_for(&h, "http://x/search?q=pkg&limit=100000").await;
+        assert_eq!(
+            response.results.len() as i64,
+            SEARCH_LIMIT_MAX,
+            "an over-cap limit is clamped to the cap, not honoured",
+        );
+
+        // A negative limit clamps to zero rather than reaching SQLite as -1,
+        // which SQLite reads as "no limit".
+        let response = search_for(&h, "http://x/search?q=pkg&limit=-1").await;
+        assert!(response.results.is_empty());
+
+        // Offset pages within the capped window.
+        let first = search_for(&h, "http://x/search?q=pkg&limit=2").await;
+        let second = search_for(&h, "http://x/search?q=pkg&limit=2&offset=2").await;
+        assert_eq!(first.results.len(), 2);
+        assert_eq!(second.results.len(), 2);
+        assert_ne!(first.results[0].ident, second.results[0].ident);
+    }
+
+    /// A query full of SQL/LIKE metacharacters must be treated as literal text.
+    ///
+    /// `%` and `_` are LIKE wildcards: unescaped, `?q=%` would match every
+    /// package and hand an anonymous caller the whole registry through a route
+    /// whose empty-query case deliberately returns nothing. `'` and the escape
+    /// character itself are the injection shapes.
+    #[tokio::test]
+    async fn search_treats_like_and_sql_metacharacters_as_literal_text() {
+        let h = harness();
+        seed_packages(&h, &["alice#sql", "alice#tool", "bob#thing"]);
+
+        for query in ["%", "_", "%%", "'", "' OR 1=1 --", "\\", "%_\\"] {
+            let encoded: String = query.bytes().map(|byte| format!("%{byte:02X}")).collect();
+            let response = search_for(&h, &format!("http://x/search?q={encoded}")).await;
+            assert!(
+                response.results.is_empty(),
+                "query {query:?} must match literally and return nothing, not \
+                 wildcard-match the whole registry: {:?}",
+                response.results,
+            );
+        }
+
+        // A package whose ident genuinely contains an underscore is still
+        // findable — escaping must not break literal matching.
+        seed_packages(&h, &["alice#with_underscore"]);
+        let response = search_for(&h, "http://x/search?q=with_under").await;
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].ident, "alice#with_underscore");
+    }
+
+    /// The edit-distance-1 fuzzy tail runs only when the ranked query finds
+    /// nothing — it is an unindexed full table scan (`store.rs`
+    /// `typosquat_candidates` shape), so it must not sit on the common path.
+    #[tokio::test]
+    async fn search_falls_back_to_the_fuzzy_tail_only_when_nothing_matched() {
+        let h = harness();
+        seed_packages(&h, &["alice#sqlite"]);
+
+        // A typo one edit away from the full ident finds it.
+        let response = search_for(&h, "http://x/search?q=alice%23sqlit").await;
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].ident, "alice#sqlite");
+
+        // Something far away still finds nothing.
+        let response = search_for(&h, "http://x/search?q=zzzzzzzz").await;
+        assert!(response.results.is_empty());
+    }
+
+    /// `/search` is anonymous but rate-limited per peer IP, following the
+    /// `REGISTER_PER_IP_MAX` precedent — there is no `claims.sub` to key on.
+    #[tokio::test]
+    async fn search_is_rate_limited_per_peer_ip() {
+        let h = harness();
+        seed_packages(&h, &["alice#sql"]);
+        let query = || {
+            axum::extract::Query::try_from_uri(&"http://x/search?q=sql".parse().unwrap()).unwrap()
+        };
+
+        for _ in 0..SEARCH_PER_IP_MAX {
+            search(State(h.state.clone()), peer("198.51.100.7"), query())
+                .await
+                .expect("within the per-IP window");
+        }
+        let (status, _message) =
+            err_of(search(State(h.state.clone()), peer("198.51.100.7"), query()).await);
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+
+        // A different client is unaffected: the bucket is per IP, not global.
+        search(State(h.state.clone()), peer("198.51.100.8"), query())
+            .await
+            .expect("a different peer has its own bucket");
     }
 
     fn peer(ip: &str) -> ConnectInfo<SocketAddr> {
