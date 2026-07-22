@@ -1,12 +1,15 @@
 # bug-377: an imported package's resource types are invisible to `ir::verify` — every resource rule silently skips them in the consuming project
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness (resource leak / double-close, silently unchecked)
 
-Status: Open
-Regression Test: none yet (needs an installed-package fixture; see Phases)
+Status: Fixed (2026-07-22)
+Regression Test: `tests/imported_resource_scope_drop.rs` (4 tests) — the
+imported-package sibling of `tests/native_resource_scope_drop.rs`. It consumes
+the committed `sqlite3.mfp` the runtime fixture already ships, so it needs no
+package build, install, or signature.
 
 A package's exported `RESOURCE` type is **not** carried into the consuming
 project's IR. `ir::verify` builds its resource registry from
@@ -154,32 +157,85 @@ is a genuine double-free.
   inside individual rules.
 - bug-376's `explicit_type` ungating — already landed and independent.
 
-## Phases
+## Outcome (2026-07-22)
 
-### Phase 1 — settle severity and scope (no behavior change)
+**Severity was understated: it was a leak AND a double free, and the write-up
+found only one of the four defects.** `ir::verify`'s starved registry was real,
+but three independent failures rode on the same "a decoded package carries no
+`native_resources`" gap, each in a different layer. Fixing only the one named
+here would have left the handle leaking.
 
-- [ ] Determine whether codegen emits scope-drop closes for imported
-      resources. This decides leak-vs-double-free and sets the real severity.
-- [ ] Enumerate every rule keyed on `is_resource_or_resource_union` /
-      `close_op_for` and confirm per rule whether it is inert for imported
-      resources.
-- [ ] Build an acceptance fixture that consumes a package exporting a
-      resource. Check whether the harness can install/vendor a package
-      hermetically (see memory `acceptance-golden-harness-mechanics` on
-      registry fixtures needing a hermetic `MFB_HOME`); if not, that
-      machinery is a prerequisite, not an afterthought.
+**Phase 1 answer (leak vs double free): BOTH.** Codegen emitted *no* scope-drop
+close for an imported resource — `RES music AS SoundFile = libsnd::openSound(…)`
+produced zero `resource_cleanup` blocks, against a full close-and-reclaim
+sequence for the built-in equivalent. So every imported handle leaked; and
+because nothing was closed by the drop path, an explicit double close was a
+genuine double free rather than a benign second call.
 
-### Phase 2 — carry package resources into the consuming IR
+The four defects, in the order they had to be fixed:
 
-- [ ] Populate the consuming project's resource registry from the resolved
-      package interfaces (name + close function).
-- [ ] Version-guard any IR binary-format change and prove no `.ncode`
-      golden shifts.
+1. **`code::validation` registered the close op unprefixed** (`<package>.<close>`)
+   while `merge_packages` identity-prefixes every imported symbol, so
+   `resource_cleanup_symbol`'s lookup missed and no cleanup was ever registered.
+   This is the leak. `0aeffaf0d`
+2. **`ir::verify`'s registry was starved** — the defect this document describes.
+   Seeded from each imported package's `RESOURCE_TABLE`, spelled the way the
+   *source* IR calls it (unprefixed), since verify runs before the merge.
+   `d233d209a`
+3. **The close thunk never set `RESOURCE_CLOSED_BIT`**, because the thunk's
+   close-op set *also* came from the empty `native_resources`. Latent until (1)
+   made the drop path fire; with it, `native-link-import-sqlite-rt` died in
+   `libsqlite3` on a freed handle (`EXC_BAD_ACCESS` at `0x1`). `df583aca3`
+4. **A re-exported close op did not resolve at all.** A package's `CLOSE BY` op
+   reaches the importer under two spellings: the internal dotted target, which
+   the merge identity-prefixes, and a re-exported `EXPORT FUNC close AS link::op`,
+   which `merge_package` qualifies as `<package>.close` with *no* prefix. Only
+   the first resolved, so sqlite3's `Db` — the shape plan-link-update.md §5a
+   documents — still leaked after (1). `d360200a6`
 
-### Phase 3 — validation
+(4) also settled a design point: the drop call site and the thunk's own "am I a
+close op?" test must agree about which function is the closer, or the drop path
+closes a handle whose thunk never set the flag. They now both resolve through
+one `resolve_closer_symbol` and match on the resolved **symbol**, not a name.
 
-- [ ] New fixtures green; `cargo test` + full acceptance green.
-- [ ] Re-run both reproductions above.
+The `explicit_type` half of the goal needed one more thing: `build` handed verify
+empty external-signature maps, so an *inferred* `LET music = libsnd::openSound(…)`
+lowered to a bind of unknown type and the RES axis could never fire. Handing over
+*every* imported signature was tried first and is wrong — it tells verify a name's
+type without that type's definition, and `LET result = thread::waitFor(t)` then
+resolved to the imported union `ReturnChoice` whose variants are still absent, so
+`check_match_exhaustive` read it as an *open* type and demanded a `CASE ELSE` from
+an exhaustive match. The map is restricted to functions returning an imported
+RESOURCE type, so signature and definition arrive together. `07219a948`
+
+### Verified
+
+- `LET music = libsnd::openSound(…)` (inferred) and
+  `LET db = sqlite3::create(…)` → rejected with 2-203-0082.
+- A double close of an imported resource → rejected with 2-203-0055
+  `TYPE_USE_AFTER_MOVE` (see the limitation below).
+- `RES db AS Db = sqlite3::create(…)` with no explicit close → one close and
+  record reclaim at scope exit, where there were none.
+- `examples/audio` builds and now emits 15 close call sites.
+- `cargo test` green (3188 + all integration targets); full acceptance
+  **1073 tests, zero mismatches**, twice.
+
+### Known limitation — a wrapper-FUNC closer
+
+Compile-time double-close detection keys on the call target being the
+*registered* close op. That holds for the §5a re-export shape (sqlite3's
+`EXPORT FUNC close AS sqliteLink::close`), which is why `sqlite3::close(db)`
+twice is rejected. It does **not** hold when a package wraps its closer in an
+ordinary exported function — libsnd's `closeSound`, which takes the `RES` and
+calls `sndLink::closeFile` internally. From the importer's side that is an
+ordinary call, and ordinary calls do not move ownership, so
+`libsnd::closeSound(music)` twice still compiles.
+
+It is no longer a double free: with (3), the second call reaches a thunk that
+sees `RESOURCE_CLOSED_BIT` set and fails with a defined `ERR_RESOURCE_CLOSED`.
+Making it a compile-time rejection would mean teaching the importer that a
+wrapper *is* a close op, which needs a package-level declaration that does not
+exist today. Worth a separate bug if the wrapper shape spreads.
 
 ## Summary
 
@@ -188,3 +244,11 @@ every resource rule silently skips it in the consuming project — including
 double-close detection. The rules are fine; the registry is starved. This is
 upstream of bug-376 and unfixable by it: the annotated form, which bug-376
 never gated, fails identically.
+
+**Resolved 2026-07-22 — but the starved registry was one of four.** The same
+"a decoded package carries no `native_resources`" gap starved three other
+layers, and the one this document names was not the one causing the worst
+symptom. Codegen emitted no scope-drop close at all, so every imported handle
+leaked; and the close thunk never set `RESOURCE_CLOSED_BIT`, so the moment the
+drop path started firing it became a double free into the C library. See
+Outcome.
