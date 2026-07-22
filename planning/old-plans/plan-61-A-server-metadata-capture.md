@@ -381,7 +381,7 @@ supports. Unit coverage of the same paths is permanent
 Idempotence is asserted directly (`target_rows_for_test()` equal across two
 runs). The CLI was smoke-run on an empty registry: it printed the summary line
 and exited 0. Full crate: 299 passed, 0 failed.
-Commit: —
+Commit: `0e0e01e82`
 
 ## Validation Plan
 

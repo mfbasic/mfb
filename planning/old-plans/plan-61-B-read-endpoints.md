@@ -208,7 +208,7 @@ route is not an owner-enumeration oracle; malformed idents are 400) and
 `package_audit_returns_a_checkpoint_with_verifiable_inclusion_proofs` (every
 proof is *verified* against the checkpoint served with it via
 `log::verify_inclusion`, not merely present). Full crate: 304 passed, 0 failed.
-Commit: —
+Commit: `a6c2f8e7c`
 
 ### Phase 2 — Search
 
@@ -251,7 +251,7 @@ exact/prefix/substring results** and skipped entirely on paged requests
 directions. Rate limiting is per peer IP
 (`search_is_rate_limited_per_peer_ip` also proves a second IP has its own
 bucket). Full crate: 310 passed, 0 failed.
-Commit: —
+Commit: `1a1bdb72e`
 
 ### Phase 3 — Spec sync
 
@@ -270,7 +270,7 @@ Acceptance: **MET** — `cargo test --bin mfb spec` → 48 passed, 0 failed
 renders with **0** leaked `[[` markers and includes the new "The anonymous read
 surface" section. All three routes are in the endpoint table, marked
 `**none, ever**` under Auth.
-Commit: —
+Commit: `1a1bdb72e` (landed with Phase 2 — the spec change is the same observable-contract change, which `.ai/specifications.md` requires in the same commit as the code)
 
 ## Validation Plan
 
