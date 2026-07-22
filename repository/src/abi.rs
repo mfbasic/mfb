@@ -21,6 +21,31 @@ const ABI_HASH_LEN: usize = 32;
 const WIRE_LIB_TYPE_VENDOR: u8 = 1;
 const NATIVE_LIBRARY_HASH_LEN: usize = 32;
 
+/// Wire encoding of the `libc` axis (plan-46-B §4.1), mirrored from
+/// `src/binary_repr/mod.rs:353-359`. This crate is a dependency *of* the
+/// compiler crate, not the other way round, so the constants are restated here
+/// rather than imported — as `MFPC_MAGIC` and the section ids above already are.
+const WIRE_LIBC_UNSPECIFIED: u8 = 0;
+const WIRE_LIBC_GLIBC: u8 = 1;
+const WIRE_LIBC_MUSL: u8 = 2;
+
+/// Decode the `libc` wire byte into the token stored in
+/// `package_version_targets.libc`. An unrecognized value is an error, not a
+/// silent `None`: section 10 rides inside the signed payload, so a byte outside
+/// the vocabulary means a broken or tampered package, and reporting it as
+/// "no libc constraint" would let a tampered locator widen its own platform
+/// match.
+fn decode_libc(raw: u8) -> Result<Option<String>, String> {
+    match raw {
+        WIRE_LIBC_UNSPECIFIED => Ok(None),
+        WIRE_LIBC_GLIBC => Ok(Some("glibc".to_string())),
+        WIRE_LIBC_MUSL => Ok(Some("musl".to_string())),
+        other => Err(format!(
+            "native library locator declares unknown libc discriminant {other}"
+        )),
+    }
+}
+
 /// Ceilings on what section 10 may declare (bug-275).
 ///
 /// `entry_count` and `locator_count` are raw `u32`s read straight off an
@@ -38,13 +63,32 @@ const MAX_VENDOR_ENTRIES: usize = 1024;
 const MAX_VENDOR_LOCATORS: usize = 4096;
 
 /// One `vendor` locator drawn from a package's section-10 `NATIVE_LIBRARY_TABLE`
-/// — the logical library it belongs to, its bare source filename, and the hex
-/// SHA-256 that is the vendored file's blob key (plan-48-A §4.4).
+/// — the logical library it belongs to, its bare source filename, the hex
+/// SHA-256 that is the vendored file's blob key (plan-48-A §4.4), and the
+/// platform triple it applies to (plan-61-A §3).
+///
+/// One `VendorBlobRef` is one *locator*, not one distinct blob. Two locators
+/// may legitimately share a `hash` — two platforms shipping a byte-identical
+/// build under different `source` filenames — so callers must never dedupe by
+/// hash when accumulating platform support, or they under-report targets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VendorBlobRef {
     pub logical: String,
     pub source: String,
     pub hash: String,
+    pub os: String,
+    /// `None` is the any-arch wildcard (an empty `arch` string on the wire),
+    /// meaning the locator matches every architecture on its OS. It is not
+    /// missing data.
+    pub arch: Option<String>,
+    /// `None` when the locator specifies no libc; otherwise `"glibc"` or
+    /// `"musl"`. A token rather than the wire integer so the value needs no
+    /// mapping table downstream (plan-61-A §Open Decisions).
+    pub libc: Option<String>,
+    /// `"vendor"` or `"system"`. Constant `"vendor"` for every ref this parser
+    /// produces (§3.1) — carried so capturing `system` locators later is not a
+    /// schema change.
+    pub lib_type: String,
 }
 
 /// Parse every `vendor` locator's blob hash from a package's `packageBinaryRepr`
@@ -102,10 +146,15 @@ fn read_native_vendor_locators(
             ));
         }
         for _ in 0..locator_count {
-            // os, arch: interned string ids (skipped — not needed here).
-            offset += 4; // os
-            offset += 4; // arch
-            let _libc = read_u8(bytes, offset)?;
+            // os, arch: interned string ids. An empty `arch` is the any-arch
+            // wildcard and becomes `None` — distinct from a concrete arch, and
+            // never conflated with an absent locator (plan-61-A §3, gotcha 1).
+            let os = table_string(strings, read_u32(bytes, offset)?)?;
+            offset += 4;
+            let arch = table_string(strings, read_u32(bytes, offset)?)?;
+            offset += 4;
+            let arch = if arch.is_empty() { None } else { Some(arch) };
+            let libc = decode_libc(read_u8(bytes, offset)?)?;
             offset += 1;
             let lib_type = read_u8(bytes, offset)?;
             offset += 1;
@@ -122,6 +171,10 @@ fn read_native_vendor_locators(
                     logical: logical.clone(),
                     source,
                     hash: hex::encode(raw),
+                    os,
+                    arch,
+                    libc,
+                    lib_type: "vendor".to_string(),
                 });
                 offset = end;
             }
@@ -250,6 +303,24 @@ fn read_abi_exports(bytes: &[u8], strings: &[String]) -> Result<BTreeMap<String,
         map.insert(name.clone(), hash);
     }
     Ok(map)
+}
+
+/// A minimal `vendor` locator for tests that care only about the blob hash —
+/// the version→blob edges in `store.rs` and the reachability walk in `gc.rs`,
+/// which predate the platform axis plan-61-A added. Shared here so those tests
+/// keep asserting what they always asserted without each restating a full
+/// platform triple they do not use.
+#[cfg(test)]
+pub(crate) fn vendor_ref_for_hash(hash: &str) -> VendorBlobRef {
+    VendorBlobRef {
+        logical: "libtest".to_string(),
+        source: format!("{hash}.a"),
+        hash: hash.to_string(),
+        os: "linux".to_string(),
+        arch: Some("x86_64".to_string()),
+        libc: None,
+        lib_type: "vendor".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -384,6 +455,119 @@ mod tests {
         assert_eq!(refs[0].logical, "sqlite3");
         assert_eq!(refs[0].source, "libsqlite3.so");
         assert_eq!(refs[0].hash, hex::encode([0x11; 32]));
+    }
+
+    /// plan-61-A Phase 2: the platform axis the parser used to `offset += 4`
+    /// straight past is resolved through the same string pool that already
+    /// resolved `logical` and `source`.
+    #[test]
+    fn resolves_the_platform_triple_for_each_locator() {
+        // strings: 0=snd, 1=linux, 2=x86_64, 3=aarch64, 4=a.a, 5=b.a, 6=macos, 7=""
+        let strings = string_pool(&[
+            "snd", "linux", "x86_64", "aarch64", "a.a", "b.a", "macos", "",
+        ]);
+        let table = native_library_table(&[(
+            0,
+            &[
+                // linux/x86_64, glibc
+                (1, 2, WIRE_LIBC_GLIBC, 1, 4, Some([0x11; 32])),
+                // linux/aarch64, musl
+                (1, 3, WIRE_LIBC_MUSL, 1, 5, Some([0x22; 32])),
+            ],
+        )]);
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        let refs = parse_vendor_blobs(&payload).unwrap();
+        assert_eq!(refs.len(), 2);
+
+        assert_eq!(refs[0].os, "linux");
+        assert_eq!(refs[0].arch.as_deref(), Some("x86_64"));
+        assert_eq!(refs[0].libc.as_deref(), Some("glibc"));
+        assert_eq!(refs[0].lib_type, "vendor");
+        assert_eq!(refs[0].source, "a.a");
+
+        assert_eq!(refs[1].os, "linux");
+        assert_eq!(refs[1].arch.as_deref(), Some("aarch64"));
+        assert_eq!(refs[1].libc.as_deref(), Some("musl"));
+    }
+
+    /// An empty `arch` is the any-arch wildcard — the locator matches every
+    /// architecture on its OS — and must stay distinguishable from a concrete
+    /// arch. `bindings/libsnd`'s macOS locator (no `arch` key) is the shape.
+    #[test]
+    fn an_empty_arch_is_the_any_arch_wildcard_not_a_concrete_arch() {
+        // strings: 0=snd, 1=macos, 2="", 3=libsnd.dylib, 4=x86_64, 5=libsnd.a
+        let strings = string_pool(&["snd", "macos", "", "libsnd.dylib", "x86_64", "libsnd.a"]);
+        let table = native_library_table(&[(
+            0,
+            &[
+                (1, 2, WIRE_LIBC_UNSPECIFIED, 1, 3, Some([0x33; 32])),
+                (1, 4, WIRE_LIBC_UNSPECIFIED, 1, 5, Some([0x44; 32])),
+            ],
+        )]);
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        let refs = parse_vendor_blobs(&payload).unwrap();
+        assert_eq!(refs[0].arch, None, "an empty arch is the wildcard");
+        assert_eq!(refs[1].arch.as_deref(), Some("x86_64"));
+        assert_ne!(
+            refs[0].arch, refs[1].arch,
+            "the wildcard must not collapse into a concrete arch"
+        );
+        // No libc constraint is `None`, never the string "unspecified".
+        assert_eq!(refs[0].libc, None);
+    }
+
+    /// Section 10 rides inside the signed payload, so a libc byte outside the
+    /// vocabulary means a broken or tampered package. Reporting it as "no libc
+    /// constraint" would let a tampered locator silently widen its own match.
+    #[test]
+    fn an_unknown_libc_discriminant_is_rejected() {
+        let strings = string_pool(&["snd", "linux", "x86_64", "libsnd.a"]);
+        let table = native_library_table(&[(0, &[(1, 2, 99, 1, 3, Some([0x55; 32]))])]);
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        assert!(parse_vendor_blobs(&payload)
+            .unwrap_err()
+            .contains("unknown libc discriminant 99"));
+    }
+
+    /// Gotcha 2 (plan-61-A §3), at the parser layer: two locators with distinct
+    /// `source` filenames but byte-identical contents share one hash. That is
+    /// legal — `PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` only forbids two vendor
+    /// locators sharing a *source* — and it is the only shape reachable from a
+    /// valid manifest that makes dedupe-by-hash lose a platform.
+    #[test]
+    fn two_locators_sharing_one_hash_stay_two_locators() {
+        // strings: 0=snd, 1=linux, 2=x86_64, 3=snd-glibc.a, 4=snd-musl.a
+        let strings = string_pool(&["snd", "linux", "x86_64", "snd-glibc.a", "snd-musl.a"]);
+        let shared = [0x77; 32];
+        let table = native_library_table(&[(
+            0,
+            &[
+                (1, 2, WIRE_LIBC_GLIBC, 1, 3, Some(shared)),
+                (1, 2, WIRE_LIBC_MUSL, 1, 4, Some(shared)),
+            ],
+        )]);
+        let payload = container(&[
+            (SECTION_STRING_POOL, strings),
+            (SECTION_NATIVE_LIBRARY_TABLE, table),
+        ]);
+        let refs = parse_vendor_blobs(&payload).unwrap();
+        assert_eq!(
+            refs.len(),
+            2,
+            "one blob shipped under two names is still two supported platforms"
+        );
+        assert_eq!(refs[0].hash, refs[1].hash);
+        assert_eq!(refs[0].libc.as_deref(), Some("glibc"));
+        assert_eq!(refs[1].libc.as_deref(), Some("musl"));
     }
 
     #[test]

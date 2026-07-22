@@ -2039,14 +2039,17 @@ async fn publish_package(
     }
     let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
     let hash = report.content_hash;
-    // The vendor blob hashes section 10 names — recorded as version→blob edges
-    // so a future GC (plan-49) can compute reachability (plan-48-A §4.5). Their
-    // existence was already enforced by the validation above; re-parse the
-    // already-verified payload rather than threading the list through `report`.
-    let vendor_hashes: Vec<String> = match package::parse_mfp_package(&artifact) {
-        Ok(package) => crate::abi::parse_vendor_blobs(&package.payload)
-            .map(|refs| refs.into_iter().map(|vref| vref.hash).collect())
-            .unwrap_or_default(),
+    // The vendor locators section 10 names — recorded as version→blob edges so
+    // a future GC (plan-49) can compute reachability (plan-48-A §4.5), and as
+    // the native target matrix (plan-61-A §3). Their existence was already
+    // enforced by the validation above; re-parse the already-verified payload
+    // rather than threading the list through `report`.
+    //
+    // Keep the whole `VendorBlobRef`, not just `.hash`: the platform axis is
+    // the metadata the target matrix is made of, and collapsing to hashes here
+    // is what used to throw it away.
+    let vendor_blobs: Vec<crate::abi::VendorBlobRef> = match package::parse_mfp_package(&artifact) {
+        Ok(package) => crate::abi::parse_vendor_blobs(&package.payload).unwrap_or_default(),
         Err(_) => Vec::new(),
     };
     let already_present = state
@@ -2083,7 +2086,7 @@ async fn publish_package(
         &hash,
         &state.blob_store.blob_ref(&hash, BlobKind::Package),
         &abi_index,
-        &vendor_hashes,
+        &vendor_blobs,
     ) {
         Ok(published) => published,
         Err(err) => {
@@ -6255,6 +6258,69 @@ mod tests {
             "{:?}",
             report.diagnostics,
         );
+    }
+
+    /// plan-61-A Phase 2: `POST /validate` is a **dry run**. It reads section-10
+    /// locators — that is how it reports missing vendor blobs before the
+    /// publisher uploads anything — but it holds no transaction and no
+    /// `package_version_id`, and it must never write a target row. Persisting
+    /// there would invert its documented non-mutating contract, so the guard is
+    /// a test rather than a comment.
+    #[tokio::test]
+    async fn validate_writes_no_target_rows_but_publish_does() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        let vendor_bytes = b"\x7fELF vendored archive".to_vec();
+        let vendor_hash = crypto::sha256(&vendor_bytes);
+        let vendor_hex = hex::encode(vendor_hash);
+        let strings = mfpc_string_pool(&["snd", "libsnd.a", "linux", "aarch64"]);
+        let payload = mfpc_container(&[
+            (2, strings),
+            (10, mfpc_vendor_table(1, &vendor_hash)),
+            (15, mfpc_abi_section(&[(0, [0xab; 32])])),
+        ]);
+
+        // Upload the blob first, so validation passes and the only reason the
+        // table could stay empty is that `/validate` does not write to it.
+        put_blob(
+            State(h.state.clone()),
+            axum::extract::Path(vendor_hex),
+            bearer_headers(&token),
+            axum::body::Bytes::from(vendor_bytes),
+        )
+        .await
+        .expect("vendor blob uploaded");
+
+        let (_artifact, request) =
+            signed_request(&h.state, &keys, &token, "1.0.0", payload.clone()).await;
+        let report = validate_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("validation ran")
+            .0;
+        assert!(report.valid, "{:?}", report.diagnostics);
+
+        assert!(
+            h.store.target_rows_for_test().is_empty(),
+            "a dry run must not persist targets",
+        );
+
+        // The same artifact through `/publish` does write them — otherwise the
+        // assertion above would pass for the wrong reason.
+        let (_artifact, request) = signed_request(&h.state, &keys, &token, "1.0.0", payload).await;
+        publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("publish succeeds");
+
+        let rows = h.store.target_rows_for_test();
+        assert_eq!(rows.len(), 1);
+        let (os, arch, libc, lib_type, source) = &rows[0];
+        assert_eq!(os, "linux");
+        assert_eq!(arch.as_deref(), Some("aarch64"));
+        assert_eq!(*libc, None, "the fixture locator declares no libc");
+        assert_eq!(lib_type, "vendor");
+        assert_eq!(source, "libsnd.a");
     }
 
     #[tokio::test]

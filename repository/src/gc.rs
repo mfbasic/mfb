@@ -442,6 +442,12 @@ mod tests {
     }
 
     fn publish(store: &Store, owner: i64, version: &str, hash: &str, vendor: &[String]) {
+        // These tests care only about the version→blob edges reachability is
+        // computed from, so the platform axis is filled in with a placeholder.
+        let vendor: Vec<_> = vendor
+            .iter()
+            .map(|hash| crate::abi::vendor_ref_for_hash(hash))
+            .collect();
         store
             .publish_package_version(
                 owner,
@@ -450,7 +456,7 @@ mod tests {
                 hash,
                 &format!("data/{hash}.mfp"),
                 "{}",
-                vendor,
+                &vendor,
             )
             .unwrap();
     }

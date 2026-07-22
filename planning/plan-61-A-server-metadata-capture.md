@@ -227,25 +227,28 @@ Acceptance: **MET** — `cargo test -p mfb_repository --lib store` → 81 passed
 failed; the new test opens a `package_versions` table created without the three
 columns and reads all three back as NULL, with `package_version_targets` and its
 index present.
-Commit: —
+Commit: `adf1c2b54`
 
 ### Phase 2 — Capture native targets
 
 The one place a plausible implementation is silently wrong.
 
-- [ ] In `repository/src/abi.rs:44-48`, extend `VendorBlobRef` with `os: String`,
-      `arch: Option<String>` (None ⇔ `""` wildcard), `libc: Option<Libc>`,
-      `lib_type: u8`.
-- [ ] In `repository/src/abi.rs:104-112`, replace the two `offset += 4` skips
+- [x] In `repository/src/abi.rs:44-48`, extend `VendorBlobRef` with `os: String`,
+      `arch: Option<String>` (None ⇔ `""` wildcard), ~~`libc: Option<Libc>`,
+      `lib_type: u8`~~ — **corrected:** `libc: Option<String>` and
+      `lib_type: String`, both token strings. See §Corrections: `Libc` is not
+      reachable from this crate, and `lib_type: u8` reintroduced the exact
+      "same argument answered two ways" that §Open Decisions settled.
+- [x] In `repository/src/abi.rs:104-112`, replace the two `offset += 4` skips
       with `table_string(strings, read_u32(bytes, offset)?)?` for `os` and
       `arch`, and decode the `libc` u8 per the mapping in §2. Map `""` arch to
       `None`.
-- [ ] **Widen the publish path to carry locators, not bare hashes.** At
+- [x] **Widen the publish path to carry locators, not bare hashes.** At
       `repository/src/server.rs:2046-2051` the publish handler re-parses the
       artifact and immediately throws the metadata away:
       `.map(|refs| refs.into_iter().map(|vref| vref.hash).collect())`. That
       `Vec<String>` is the discard site. Keep the full `Vec<VendorBlobRef>`.
-- [ ] Change `store.publish_package_version` (`repository/src/store.rs:1163-1230`)
+- [x] Change `store.publish_package_version` (`repository/src/store.rs:1163-1230`)
       from `vendor_hashes: &[String]` to `vendor_blobs: &[VendorBlobRef]`, and
       write one `package_version_targets` row **per locator** (not per distinct
       hash) inside the transaction that function already owns — it is the only
@@ -262,23 +265,33 @@ The one place a plausible implementation is silently wrong.
 > publisher uploads anything"). It is the right place to *read* locators, and the
 > wrong place to persist them.
 
-- [ ] Tests: a unit test in `repository/src/abi.rs` asserting os/arch/libc are
+- [x] Tests: a unit test in `repository/src/abi.rs` asserting os/arch/libc are
       resolved for a fixture with two platforms. **Plus the regression test for
       gotcha 2**: a package whose section 10 lists two locators with distinct
       `source` filenames but byte-identical blobs — hence one shared hash — must
       produce **two** target rows. Per §3, this is the only shape that reaches
       the bug from a valid manifest. Write it first and watch it fail against a
       dedupe-by-hash implementation.
-- [ ] Tests: a locator with `arch = ""` produces a row with `arch IS NULL`, and
+- [x] Tests: a locator with `arch = ""` produces a row with `arch IS NULL`, and
       is distinguishable from a locator with a concrete arch. `bindings/libsnd`'s
       macOS locator (no `arch` key) is the natural fixture.
-- [ ] Tests: `POST /validate` writes **no** `package_version_targets` rows —
+- [x] Tests: `POST /validate` writes **no** `package_version_targets` rows —
       guarding the inversion the note above describes.
 
-Acceptance: publishing a fixture package whose section 10 lists two vendor
-locators with distinct `source` names and identical bytes yields exactly two rows
-in `package_version_targets` sharing one `blob_hash`; and a `/validate` call on
-the same artifact leaves the table empty.
+Acceptance: **MET** — `two_locators_sharing_one_blob_hash_write_two_target_rows`
+(`store.rs`) publishes exactly that shape and asserts two rows sharing one
+`blob_hash`, while the neighbouring `package_version_blobs` edge correctly
+collapses to one. `validate_writes_no_target_rows_but_publish_does`
+(`server.rs`) asserts the table is empty after `/validate` and has the row after
+`/publish` on the same artifact, so it cannot pass vacuously.
+
+The gotcha-2 test was verified to *discriminate*, not merely pass: temporarily
+deduping `insert_version_targets` by hash fails it with `left: 1, right: 2`.
+Also added at the parser layer: `resolves_the_platform_triple_for_each_locator`,
+`an_empty_arch_is_the_any_arch_wildcard_not_a_concrete_arch`,
+`two_locators_sharing_one_hash_stay_two_locators`, and
+`an_unknown_libc_discriminant_is_rejected` (an unlisted task — see §Corrections).
+Full crate: 291 passed, 0 failed; clippy warning count unchanged from baseline.
 Commit: —
 
 ### Phase 3 — Capture author and url
@@ -370,4 +383,44 @@ Commit: —
 
 ## Corrections
 
-- *(none yet)*
+- **Phase 2 specified `libc: Option<Libc>`, a type this crate cannot reach.**
+  `Libc` is `src/manifest/libraries.rs`, in the **compiler** crate — and the
+  dependency runs the other way: `mfb` depends on `mfb_repository`
+  (`repository/Cargo.toml` names no `mfb` dependency; the root manifest names
+  this one). Importing it would be a dependency cycle. Implemented as
+  `libc: Option<String>` holding the same token the schema stores
+  (`"glibc"`/`"musl"`/`None`), decoded by a new `decode_libc` next to the
+  restated `WIRE_LIBC_*` constants — which is how `MFPC_MAGIC` and the section
+  ids in `abi.rs` are already handled.
+- **Phase 2 also specified `lib_type: u8` while Phase 1's schema stores TEXT.**
+  That is precisely the "same argument answered two ways" §Open Decisions called
+  out and settled for `libc`; it survived on the neighbouring field. Implemented
+  as `lib_type: String` carrying the `"vendor"`/`"system"` token, so nothing
+  between the parser and the HTML needs a mapping table.
+- **An unlisted task: `decode_libc` had to decide what an unknown wire byte
+  means.** Not deciding would have defaulted it to `None` — "no libc
+  constraint" — which lets a tampered locator silently *widen* its own platform
+  match. Section 10 rides inside the signed payload, so an out-of-vocabulary
+  byte is a broken or tampered package: it is now an error, matching how the
+  same parser already treats a malformed section 10. Covered by
+  `an_unknown_libc_discriminant_is_rejected`.
+- **Widening the signature broke a pre-existing GC test, for a real reason
+  worth recording.** `a_shared_blob_survives_removing_one_of_its_versions`
+  (from `31935c914`, plan-49) simulates a version deletion by deleting rows
+  directly — its own comment notes there is no deletion API today. The new
+  `package_version_targets` FK made that simulated parent-delete fail. Verified
+  first that **no production code deletes a `package_versions` row**
+  (`grep -rn "DELETE FROM package_version" repository/src` → only that test), so
+  this is not a latent FK bug in the server. The test's assertion is unchanged;
+  only its simulated deletion now clears the new child table, which is what a
+  real deletion feature would have to do.
+- **`VendorBlobRef` gained enough fields to need a test constructor.** The
+  `store.rs` and `gc.rs` tests that pass bare vendor hashes care only about the
+  version→blob edge, so `abi::vendor_ref_for_hash` (test-only) fills the
+  platform axis with a placeholder rather than each site restating a triple it
+  does not assert on.
+- **A `#[cfg(test)]` read accessor was needed after all — without weakening the
+  "A adds no read accessors" rule.** The `/validate` guard test lives in
+  `server.rs` and cannot reach `Store`'s private connection.
+  `Store::target_rows_for_test` is `#[cfg(test)]`-gated and compiles out of the
+  shipped binary, so plan-61-B still defines its own real queries.

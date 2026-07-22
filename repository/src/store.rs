@@ -1,3 +1,4 @@
+use crate::abi::VendorBlobRef;
 use crate::crypto;
 use crate::validation::{fold_owner, validate_ident, validate_owner_name, validate_version};
 use rand::RngCore;
@@ -12,6 +13,11 @@ use uuid::Uuid;
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
 }
+
+/// One `package_version_targets` row as `Store::target_rows_for_test` yields it:
+/// `(os, arch, libc, lib_type, source)`. Test-only; see that method.
+#[cfg(test)]
+pub(crate) type TargetRowForTest = (String, Option<String>, Option<String>, String, String);
 
 #[derive(Debug, Clone)]
 pub struct OwnerRecord {
@@ -158,6 +164,38 @@ impl Store {
         self.conn
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Every `package_version_targets` row as
+    /// `(os, arch, libc, lib_type, source)`, ordered by insertion.
+    ///
+    /// Test-only. plan-61-A deliberately ships **no** read accessors — plan-61-B
+    /// defines its own `package_detail`/`package_audit` queries over these
+    /// tables — but the publish-path tests in `server.rs` live outside this
+    /// module and cannot reach the private connection.
+    #[cfg(test)]
+    pub(crate) fn target_rows_for_test(&self) -> Vec<TargetRowForTest> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT os, arch, libc, lib_type, source
+                 FROM package_version_targets ORDER BY rowid",
+            )
+            .unwrap();
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect();
+        rows
     }
 
     pub fn migrate(&self) -> Result<(), String> {
@@ -1206,7 +1244,7 @@ impl Store {
         hash: &str,
         blob_path: &str,
         abi_index: &str,
-        vendor_hashes: &[String],
+        vendor_blobs: &[VendorBlobRef],
     ) -> Result<PublishedVersion, String> {
         // REPO-17: validate the ident's package component and the version against
         // an explicit safe charset/length before either reaches the log payload,
@@ -1258,14 +1296,22 @@ impl Store {
         // uploaded via PUT /blob and their `package_blobs` rows exist; nothing
         // reads these edges in this plan.
         let package_version_id = tx.last_insert_rowid();
-        for vendor_hash in vendor_hashes {
+        for vendor in vendor_blobs {
             tx.execute(
                 "INSERT OR IGNORE INTO package_version_blobs (package_version_id, hash)
                  VALUES (?1, ?2)",
-                params![package_version_id, vendor_hash],
+                params![package_version_id, vendor.hash],
             )
             .map_err(|err| format!("failed to record version blob edge: {err}"))?;
         }
+        // plan-61-A §3: the native target matrix, written **per locator**. The
+        // `package_version_blobs` loop above collapses duplicate hashes on
+        // purpose — a blob edge is about reachability, and probing one blob
+        // twice is waste. Targets are the opposite: two locators sharing a hash
+        // (two platforms shipping byte-identical builds under different
+        // `source` names) are two supported platforms, and deduping them here
+        // would silently under-report what the package runs on.
+        insert_version_targets(&tx, package_version_id, vendor_blobs)?;
         let log_entry = append_log_tx(
             &tx,
             "publish",
@@ -2374,6 +2420,39 @@ pub fn now_unix() -> i64 {
     }
 }
 
+/// Write the `package_version_targets` rows for one version, one row per
+/// section-10 locator (plan-61-A §3).
+///
+/// Takes a `&Connection` so it serves both the publish transaction and the
+/// backfill's per-version transaction. It only inserts — the backfill clears
+/// the version's existing rows first, which is what makes a re-run idempotent
+/// rather than duplicating every target.
+fn insert_version_targets(
+    conn: &Connection,
+    package_version_id: i64,
+    vendor_blobs: &[VendorBlobRef],
+) -> Result<(), String> {
+    for vendor in vendor_blobs {
+        conn.execute(
+            "INSERT INTO package_version_targets
+                 (package_version_id, blob_hash, os, arch, libc, lib_type, logical, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                package_version_id,
+                vendor.hash,
+                vendor.os,
+                vendor.arch,
+                vendor.libc,
+                vendor.lib_type,
+                vendor.logical,
+                vendor.source,
+            ],
+        )
+        .map_err(|err| format!("failed to record version target: {err}"))?;
+    }
+    Ok(())
+}
+
 /// Add a column to a table if it is not already present (idempotent
 /// migration). SQLite has no `ADD COLUMN IF NOT EXISTS`, so a "duplicate
 /// column name" error is treated as success.
@@ -3343,7 +3422,7 @@ pub(crate) mod tests {
                 "mfphash",
                 "data/mfphash.mfp",
                 "{}",
-                &["vendorhash".to_string()],
+                &[crate::abi::vendor_ref_for_hash("vendorhash")],
             )
             .unwrap();
 
@@ -3367,6 +3446,162 @@ pub(crate) mod tests {
         assert_eq!(reachable, vec!["mfphash", "vendorhash"]);
     }
 
+    /// plan-61-A Phase 2, gotcha 2 — the regression test the whole schema
+    /// decision exists for.
+    ///
+    /// Two platforms shipping a byte-identical build under different `source`
+    /// filenames is legal (`PROJECT_JSON_LIBRARY_SOURCE_CONFLICT` forbids two
+    /// vendor locators sharing a *source*, not a *hash*) and collapses to one
+    /// entry under any dedupe-by-hash accumulation. A target row is a
+    /// *platform*, not a blob: dropping one here silently tells every reader
+    /// the package does not run on musl.
+    ///
+    /// The neighbouring `package_version_blobs` edge is the opposite case and
+    /// this test pins both: reachability legitimately dedupes to one row.
+    #[test]
+    fn two_locators_sharing_one_blob_hash_write_two_target_rows() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        let shared_hash = "sharedbytes";
+        store
+            .record_native_blob(shared_hash, "data/sharedbytes.bin")
+            .unwrap();
+        let glibc = VendorBlobRef {
+            logical: "snd".to_string(),
+            source: "snd-glibc.a".to_string(),
+            hash: shared_hash.to_string(),
+            os: "linux".to_string(),
+            arch: Some("x86_64".to_string()),
+            libc: Some("glibc".to_string()),
+            lib_type: "vendor".to_string(),
+        };
+        let musl = VendorBlobRef {
+            source: "snd-musl.a".to_string(),
+            libc: Some("musl".to_string()),
+            ..glibc.clone()
+        };
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "mfphash",
+                "data/mfphash.mfp",
+                "{}",
+                &[glibc, musl],
+            )
+            .unwrap();
+
+        let conn = store.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT source, libc, blob_hash FROM package_version_targets
+                 ORDER BY source",
+            )
+            .unwrap();
+        let rows: Vec<(String, Option<String>, Option<String>)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .map(|row| row.unwrap())
+            .collect();
+
+        assert_eq!(
+            rows.len(),
+            2,
+            "one blob under two names is two supported platforms, not one"
+        );
+        assert_eq!(rows[0].0, "snd-glibc.a");
+        assert_eq!(rows[0].1.as_deref(), Some("glibc"));
+        assert_eq!(rows[1].0, "snd-musl.a");
+        assert_eq!(rows[1].1.as_deref(), Some("musl"));
+        // Both rows point at the one blob that actually backs them.
+        assert_eq!(rows[0].2.as_deref(), Some(shared_hash));
+        assert_eq!(rows[1].2.as_deref(), Some(shared_hash));
+
+        // The blob edge, by contrast, is about reachability and correctly
+        // collapses: one blob is one thing to keep alive.
+        let edges: i64 = conn
+            .query_row("SELECT count(*) FROM package_version_blobs", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(edges, 1, "reachability dedupes by hash on purpose");
+    }
+
+    /// The any-arch wildcard survives the round trip to SQL as NULL, and stays
+    /// distinguishable from a concrete arch (plan-61-A §3, gotcha 1).
+    #[test]
+    fn a_wildcard_arch_is_stored_as_null_and_stays_distinct() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        store
+            .record_native_blob("machash", "data/machash.bin")
+            .unwrap();
+        store
+            .record_native_blob("linuxhash", "data/linuxhash.bin")
+            .unwrap();
+        let any_arch = VendorBlobRef {
+            logical: "snd".to_string(),
+            source: "libsnd.dylib".to_string(),
+            hash: "machash".to_string(),
+            os: "macos".to_string(),
+            arch: None,
+            libc: None,
+            lib_type: "vendor".to_string(),
+        };
+        let concrete = VendorBlobRef {
+            source: "libsnd.a".to_string(),
+            hash: "linuxhash".to_string(),
+            os: "linux".to_string(),
+            arch: Some("aarch64".to_string()),
+            ..any_arch.clone()
+        };
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "mfphash",
+                "data/mfphash.mfp",
+                "{}",
+                &[any_arch, concrete],
+            )
+            .unwrap();
+
+        let conn = store.conn();
+        // A NULL arch is queryable as "any", which is the whole point of
+        // storing it as NULL rather than ''.
+        let wildcard: String = conn
+            .query_row(
+                "SELECT os FROM package_version_targets WHERE arch IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the wildcard locator must land as arch IS NULL");
+        assert_eq!(wildcard, "macos");
+        let concrete_count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM package_version_targets WHERE arch IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(concrete_count, 1);
+        // NULL libc is "no constraint", never the empty string.
+        let empty_string_libc: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM package_version_targets WHERE libc = ''",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(empty_string_libc, 0);
+    }
+
     /// A **yanked** version keeps its blobs (plan-49 §3.2). Yanking is a "do not
     /// resolve this by default" signal, not a deletion: lockfiles pinning the
     /// hash must keep installing. Only a version row that no longer exists
@@ -3387,7 +3622,7 @@ pub(crate) mod tests {
                 "mfphash",
                 "data/mfphash.mfp",
                 "{}",
-                &["vendorhash".to_string()],
+                &[crate::abi::vendor_ref_for_hash("vendorhash")],
             )
             .unwrap();
         store
@@ -3422,7 +3657,7 @@ pub(crate) mod tests {
                     &format!("mfp-{version}"),
                     "data/mfp.mfp",
                     "{}",
-                    &["sharedvendor".to_string()],
+                    &[crate::abi::vendor_ref_for_hash("sharedvendor")],
                 )
                 .unwrap();
         }
@@ -3436,6 +3671,16 @@ pub(crate) mod tests {
         let conn = store.conn();
         conn.execute(
             "DELETE FROM package_version_blobs WHERE package_version_id IN
+               (SELECT id FROM package_versions WHERE version = '1.0.0')",
+            [],
+        )
+        .unwrap();
+        // plan-61-A added `package_version_targets`, a second child table
+        // referencing `package_versions`. A real deletion feature must clear it
+        // too, so the simulation does — the FK would otherwise reject the
+        // parent delete. The reachability assertion below is unchanged.
+        conn.execute(
+            "DELETE FROM package_version_targets WHERE package_version_id IN
                (SELECT id FROM package_versions WHERE version = '1.0.0')",
             [],
         )
@@ -3475,7 +3720,7 @@ pub(crate) mod tests {
                 "mfphash",
                 "data/mfphash.mfp",
                 "{}",
-                &["vendorhash".to_string()],
+                &[crate::abi::vendor_ref_for_hash("vendorhash")],
             )
             .unwrap();
         store
@@ -3520,7 +3765,7 @@ pub(crate) mod tests {
                 "mfphash",
                 "data/mfphash.mfp",
                 "{}",
-                &["vendorhash".to_string()],
+                &[crate::abi::vendor_ref_for_hash("vendorhash")],
             )
             .unwrap();
 
