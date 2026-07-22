@@ -1,11 +1,13 @@
 # bug-355: `collections::getOr` on a map is O(n) where `collections::get` is O(1) — `lower_map_get_or` never got the hash probe
 
-Last updated: 2026-07-18
+Last updated: 2026-07-22
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Performance (silent asymptotic degradation)
 
-Status: Open
+Status: Fixed (2026-07-22). Probe adopted in `lower_map_get_or`; `getOr` measured
+flat (1,383–1,687 µs across M=64…4096, within noise of `get`, was 4,850 →
+77,758 µs); full acceptance green (1077 tests); man page updated.
 Regression Test: tests/rt-behavior/collections/func_map_getor_hash_probe (new) — asserts the `[hash]` lowering is selected for a probe-eligible map `getOr`
 
 `lower_map_get` (`src/target/shared/code/builder_collection_query.rs:337`) opens
@@ -325,25 +327,43 @@ regenerated deliberately — this cannot land inside bug-333's byte-identical ph
 Acceptance: divergence recorded; the behavior fixture is green pre-fix. ✓
 (`scripts/test-accept.sh target/debug/mfb target/accept-actual
 func_map_getor_hash_probe` passes.)
-Commit: `—`
+Commit: `ffd1325c3`
 
 ### Phase 2 — the fix
 
-- [ ] Add the probe block to `lower_map_get_or`
-      (`builder_collection_query.rs:563`), branching to the existing
+- [x] Add the probe block to `lower_map_get_or`
+      (`builder_collection_query.rs:531` post-fix), branching to the existing
       `use_default` label on a miss and writing the shared `result` register.
+      Implementation note: rather than threading the probe into the linear
+      scan's labels, the probe path is a self-contained block mirroring
+      `lower_map_get`'s (probe → load value offset/length →
+      `emit_load_map_payload` → done), with its own `use_default` block that is
+      a verbatim copy of the fallback's — including the `String` owned-copy —
+      converging on the one `result` register `emit_load_map_payload`
+      allocated. The linear scan below is byte-untouched for non-eligible keys.
+      Tagged `text: "getOr(…) [hash]"`.
 
-Acceptance: the reproduction shows `getOr` flat across M = 64…4096; the Phase 1
-behavior fixture still green; the non-eligible key path unchanged.
+Acceptance: the reproduction shows `getOr` flat across M = 64…4096 — measured
+1,383–1,687 µs, within noise of `get` (was 4,850 → 77,758 µs); the Integer-key
+variant equally flat (298 → 769 µs, tracking `get` exactly); the Phase 1
+behavior fixture still green with identical stdout, including the
+String-default owned-copy line; the non-eligible Money-key path unchanged. ✓
 Commit: `—`
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate goldens; confirm the delta is confined to map-`getOr` lowerings
-      and that the `[hash]` tag now appears for probe-eligible `getOr`.
-- [ ] `scripts/test-accept.sh` green on macOS. (Not concurrently with a
-      `cargo build` — it SIGKILLs the swapped binary on macOS.)
-- [ ] Re-run the reproduction on both `String` and `Integer` key types.
+- [x] Regenerate goldens; confirm the delta is confined to map-`getOr` lowerings.
+      `scripts/artifact-gate.sh` post-fix: 1061 tests, 1314 goldens, **exactly
+      1 diff** — the Phase 1 fixture's `.macos-aarch64.ncode`, which now
+      carries 160 `map_probe_*` label references (zero pre-fix). No `.ast`,
+      `.ir`, `.log`, or other `.ncode` golden moved. Synced.
+- [x] `scripts/test-accept.sh` green on macOS: **acceptance tests passed
+      (1077 test(s) ran)** — 1076 pre-existing plus the Phase 1 fixture.
+- [x] Re-run the reproduction on both `String` and `Integer` key types — both
+      flat (see Phase 2 acceptance numbers).
+- [x] Open Decision resolved: documented the eligible-key-type hash probe in
+      `src/docs/man/builtins/collections/getOr.md`, mirroring the paragraph
+      `get.md` already carries.
 
 Acceptance: full suite green; golden delta exactly the map-`getOr` lowering.
 Commit: `—`

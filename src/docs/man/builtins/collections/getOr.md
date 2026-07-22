@@ -57,6 +57,14 @@ and then bytes. A `Float` key is matched bit-for-bit, so `NaN` never matches and
 `-0.0` does not match a stored `0.0`; such a lookup simply yields `default`.
 [[src/target/shared/code/builder_collection_compare.rs:emit_collection_payload_match_branch]]
 
+Map lookup for the common key types `String`, `Integer`, `Float`, `Fixed`,
+`Byte`, and `Boolean` goes through the map's hash bucket index — the same probe
+`collections::get` uses — with `default` substituted on the probe's not-found
+branch; other key types fall back to a linear scan of the entry table. This is
+a performance difference only — both paths select the same entry and yield the
+same `default` when the key is absent.
+[[src/target/shared/code/builder_collection_query.rs:map_key_probe_eligible]]
+
 ## Overloads
 
 **`collections::getOr OF T(value AS List OF T, index AS Integer, default AS T) AS T`**

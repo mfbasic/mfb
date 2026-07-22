@@ -528,6 +528,59 @@ impl CodeBuilder<'_> {
         key_type: &str,
         value_type: &str,
     ) -> Result<ValueResult, String> {
+        if Self::map_key_probe_eligible(key_type) {
+            let use_default = self.label("map_get_or_default");
+            let done = self.label("map_get_or_done");
+            let entry_slot =
+                self.emit_map_probe(collection_slot, key_slot, key_type, &use_default)?;
+            self.reset_temporary_registers();
+            let collection = self.allocate_register()?;
+            let entry = self.allocate_register()?;
+            let value_offset = self.allocate_register()?;
+            let value_length = self.allocate_register()?;
+            self.emit(abi::load_u64(
+                &collection,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
+            self.emit(abi::load_u64(&entry, abi::stack_pointer(), entry_slot));
+            self.emit(abi::load_u64(
+                &value_offset,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &value_length,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            let result =
+                self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&use_default));
+            if value_type == "String" {
+                // Copy the aliased default into a fresh owned string so both paths
+                // return an owned `String` (found path materializes fresh); returning
+                // the alias double-frees it and corrupts the arena. See
+                // `emit_copy_owned_string`.
+                let default_ptr = self.allocate_register()?;
+                self.emit(abi::load_u64(
+                    &default_ptr,
+                    abi::stack_pointer(),
+                    default_slot,
+                ));
+                let copied = self.emit_copy_owned_string(&default_ptr)?;
+                self.emit(abi::move_register(&result, &copied));
+            } else {
+                self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+            }
+            self.emit(abi::label(&done));
+            return Ok(ValueResult {
+                type_: value_type.to_string(),
+                location: result,
+                text: format!("getOr({collection_type}, {key_type}, {value_type}) [hash]"),
+            });
+        }
         self.reset_temporary_registers();
         let collection = self.allocate_register()?;
         let key = self.allocate_register()?;
