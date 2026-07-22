@@ -802,6 +802,45 @@ right default for an existing deployment. To a client, a collected blob is
 visible only as a `GET /blob/<hash>` `404`, and only for a hash no live version
 references.
 
+### Metadata backfill — `mfb-repo backfill-metadata` (operator action)
+
+```
+mfb-repo backfill-metadata --dbpath <db> --datapath <data> [--s3-endpoint <url>]
+```
+
+Populates the recorded `author`, `url`, and native-target rows for versions
+published **before the server captured them**. Every value it writes is already
+present in bytes the registry already stores — `author` and `url` interned in
+the payload's MANIFEST section, and the platform triple of each `vendor` locator
+in the native library table — so the sweep re-parses each stored package blob
+rather than asking anyone to republish. No publisher action is required and no
+artifact is rewritten.[[repository/src/backfill.rs:run]][[repository/src/main.rs:parse_backfill_args]]
+
+It is **idempotent**: a version's target rows are deleted and reinserted inside
+one transaction per version, so a second run reproduces the same state instead
+of doubling every row. Running it on an already-current registry is a no-op.
+
+One bad blob does not abandon the run. A version whose blob is missing or no
+longer parses is counted, logged, and skipped — a sweep that aborted on the
+first bad blob would leave every later version unmeasured, and an old blob that
+no longer parses is exactly the kind of thing this surfaces. The command exits
+nonzero if anything was skipped, so a scripted run cannot read a partial sweep
+as a clean one.
+
+A version whose **header and signed MANIFEST disagree** on `author` or `url` is
+skipped under its own count, distinct from an unparseable blob. Publish refuses
+such a package outright, but this sweep walks artifacts stored before that check
+existed, so they are parseable-and-invalid. The two copies disagreeing is a
+transparency finding an operator must see — and this is the only thing that will
+ever look — so the version row is left exactly as found: not rewritten, not
+deleted, and never silently resolved in favour of either copy.
+
+The registry renders the **MANIFEST** copy, not the header copy. The header
+carries the same two strings in plaintext as a fast-scan convenience, but only
+the MANIFEST copy lives inside `packageBinaryRepr`, which `packageBinaryHash`
+covers and the package signature covers transitively. A registry whose purpose
+is transparency must display what the publisher signed.
+
 ## Release States — `POST /release-state`
 
 A maintainer moves a published version between release states.

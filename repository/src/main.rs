@@ -1,3 +1,4 @@
+use mfb_repository::backfill;
 use mfb_repository::blobstore::BlobBackend;
 use mfb_repository::gc;
 use mfb_repository::gc::GcOptions;
@@ -13,6 +14,7 @@ Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>]
        mfb-repo reanchor --dbpath <db_path> --datapath <data_path> --owner <owner> --ident-key <base64url>
        mfb-repo init-root --dbpath <db_path> --datapath <data_path> --registry-id <id> [--expires-days <n>]
        mfb-repo gc --dbpath <db_path> --datapath <data_path> [--s3-endpoint <url>] [--grace-hours <n>] [--delete] [--json]
+       mfb-repo backfill-metadata --dbpath <db_path> --datapath <data_path> [--s3-endpoint <url>]
 
 <data_path> is either a local directory or an `s3://<bucket>/<prefix>` URL for
 S3 (or S3-compatible) blob storage. In S3 mode blob downloads are served as a
@@ -30,7 +32,15 @@ hard with a re-anchor warning instead of silently following.
 orphans a `PUT /blob` leaves when a publish is abandoned between the upload and
 the commit. It is a DRY RUN unless `--delete` is given, and it never touches a
 blob younger than the grace period (default 24h, `--grace-hours`) or one any
-live version references, including a yanked one.";
+live version references, including a yanked one.
+
+`backfill-metadata` populates the author, url and native-target columns for
+versions published before the server recorded them, by re-parsing each stored
+package blob. No republish and no publisher action is needed. It is idempotent,
+skips (rather than aborts on) a blob it cannot parse, and reports a version
+whose header and signed manifest disagree under its own count — that is a
+transparency finding, not a parse failure, and it is left untouched. It exits
+non-zero if anything was skipped.";
 
 // coverage:off — the async entrypoint binds a listener / spawns the server and
 // calls process::exit on every error branch; it cannot run under a unit test.
@@ -199,6 +209,50 @@ async fn main() {
         return;
     }
 
+    // Operator subcommand: populate the plan-61-A metadata for versions
+    // published before the server captured it.
+    if args.first().map(String::as_str) == Some("backfill-metadata") {
+        args.remove(0);
+        let (dbpath, datapath, blob_backend) = match parse_backfill_args(args) {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                eprintln!("error: {err}\n\n{USAGE}");
+                process::exit(2);
+            }
+        };
+        // Same shape as `gc`: the raw datapath goes to the store (which only
+        // uses it to place the packages dir) and the parsed backend does the
+        // blob I/O, so an `s3://` path needs no special case here.
+        let opened = match Store::open_repository(&dbpath, &PathBuf::from(&datapath)) {
+            Ok(opened) => opened,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        let blob_store = match blob_backend.into_store().await {
+            Ok(blob_store) => blob_store,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        let report = match backfill::run(&opened.store, &blob_store).await {
+            Ok(report) => report,
+            Err(err) => {
+                eprintln!("error: {err}");
+                process::exit(1);
+            }
+        };
+        print!("{}", backfill::render_text(&report));
+        // Per-version skips do not abandon the sweep, but they must not read as
+        // a clean run to a script either — same contract as `gc`.
+        if report.skipped() {
+            process::exit(1);
+        }
+        return;
+    }
+
     let options = match parse_args(args) {
         Ok(options) => options,
         Err(err) => {
@@ -331,6 +385,47 @@ fn parse_gc_args(args: Vec<String>) -> Result<GcInvocation, String> {
         blob_backend,
         options,
     })
+}
+
+/// Parse `mfb-repo backfill-metadata`. It takes only the two paths every
+/// operator ceremony takes, plus the S3 endpoint override — the sweep has no
+/// dry-run mode because it is idempotent and rewrites only columns that were
+/// previously unpopulated or already derived from the same bytes.
+fn parse_backfill_args(args: Vec<String>) -> Result<(PathBuf, String, BlobBackend), String> {
+    let mut dbpath = None;
+    let mut datapath: Option<String> = None;
+    let mut s3_endpoint: Option<String> = None;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--dbpath" => {
+                dbpath = Some(PathBuf::from(
+                    iter.next().ok_or("--dbpath requires <db_path>")?,
+                ))
+            }
+            "--datapath" => datapath = Some(iter.next().ok_or("--datapath requires <data_path>")?),
+            "--s3-endpoint" => {
+                s3_endpoint = Some(iter.next().ok_or("--s3-endpoint requires <url>")?)
+            }
+            _ if arg.starts_with("--dbpath=") => {
+                dbpath = Some(PathBuf::from(arg.trim_start_matches("--dbpath=")));
+            }
+            _ if arg.starts_with("--datapath=") => {
+                datapath = Some(arg.trim_start_matches("--datapath=").to_string());
+            }
+            _ if arg.starts_with("--s3-endpoint=") => {
+                s3_endpoint = Some(arg.trim_start_matches("--s3-endpoint=").to_string());
+            }
+            _ => return Err(format!("unknown option '{arg}'")),
+        }
+    }
+    let datapath = datapath.ok_or("--datapath is required")?;
+    let blob_backend = BlobBackend::parse(&datapath, s3_endpoint)?;
+    Ok((
+        dbpath.ok_or("--dbpath is required")?,
+        datapath,
+        blob_backend,
+    ))
 }
 
 fn parse_init_root_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, i64), String> {
@@ -665,6 +760,55 @@ mod tests {
         assert!(parse_init_root_args(args(&["--nope", "x"]))
             .unwrap_err()
             .contains("unknown option"));
+    }
+
+    #[test]
+    fn parse_backfill_args_reads_both_forms_and_requires_both_paths() {
+        let (dbpath, datapath, backend) =
+            parse_backfill_args(args(&["--dbpath", "/db", "--datapath", "/data"])).unwrap();
+        assert_eq!(dbpath, PathBuf::from("/db"));
+        assert_eq!(datapath, "/data");
+        assert_eq!(backend, BlobBackend::Local(PathBuf::from("/data")));
+
+        // The `--flag=value` form parses identically.
+        let (dbpath, datapath, _backend) =
+            parse_backfill_args(args(&["--dbpath=/db2", "--datapath=/data2"])).unwrap();
+        assert_eq!(dbpath, PathBuf::from("/db2"));
+        assert_eq!(datapath, "/data2");
+
+        // Both paths are required, and an unknown option is refused rather
+        // than ignored — an operator ceremony must not silently do something
+        // other than what was typed.
+        assert!(parse_backfill_args(args(&["--datapath", "/data"]))
+            .unwrap_err()
+            .contains("--dbpath is required"));
+        assert!(parse_backfill_args(args(&["--dbpath", "/db"]))
+            .unwrap_err()
+            .contains("--datapath is required"));
+        assert!(
+            parse_backfill_args(args(&["--dbpath", "/db", "--datapath", "/d", "--delete"]))
+                .unwrap_err()
+                .contains("unknown option")
+        );
+        assert!(parse_backfill_args(args(&["--dbpath"]))
+            .unwrap_err()
+            .contains("--dbpath requires"));
+        assert!(parse_backfill_args(args(&["--datapath"]))
+            .unwrap_err()
+            .contains("--datapath requires"));
+        assert!(parse_backfill_args(args(&["--s3-endpoint"]))
+            .unwrap_err()
+            .contains("--s3-endpoint requires"));
+        // An S3 endpoint against a local data path is refused by the shared
+        // backend parser, the same way `gc` refuses it.
+        assert!(parse_backfill_args(args(&[
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--s3-endpoint=https://example.invalid"
+        ]))
+        .is_err());
     }
 
     #[test]

@@ -179,6 +179,66 @@ impl Store {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Every published version as `(package_version_id, ident, version, hash)`,
+    /// for the `backfill-metadata` sweep (plan-61-A Phase 4).
+    ///
+    /// This is the one read accessor A ships. It is not the sub-plan's "no read
+    /// accessors" rule leaking: that rule is about the `package_metadata` /
+    /// `package_targets` shapes plan-61-B was expected to consume and does not.
+    /// Backfill is a *write* ceremony that has to know what to rewrite.
+    pub fn all_package_versions(&self) -> Result<Vec<(i64, String, String, String)>, String> {
+        let conn = self.conn();
+        let mut stmt = conn
+            .prepare(
+                "SELECT pv.id, p.ident, pv.version, pv.hash
+                 FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 ORDER BY pv.id",
+            )
+            .map_err(|err| format!("failed to enumerate package versions: {err}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .map_err(|err| format!("failed to enumerate package versions: {err}"))?;
+        let mut versions = Vec::new();
+        for row in rows {
+            versions.push(row.map_err(|err| format!("failed to read package version: {err}"))?);
+        }
+        Ok(versions)
+    }
+
+    /// Rewrite one version's captured metadata: replace its target rows and set
+    /// its `author`/`url`, in a single transaction (plan-61-A Phase 4).
+    ///
+    /// Delete-then-insert is what makes the backfill idempotent — a second run
+    /// must not double every target row. Scoped to one version so a failure
+    /// mid-sweep leaves earlier versions committed and the rest untouched.
+    pub fn replace_version_metadata(
+        &self,
+        package_version_id: i64,
+        metadata: &PublishMetadata,
+        vendor_blobs: &[VendorBlobRef],
+    ) -> Result<(), String> {
+        let mut conn = self.conn();
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start backfill transaction: {err}"))?;
+        tx.execute(
+            "UPDATE package_versions SET author = ?2, url = ?3 WHERE id = ?1",
+            params![package_version_id, metadata.author, metadata.url],
+        )
+        .map_err(|err| format!("failed to update version metadata: {err}"))?;
+        tx.execute(
+            "DELETE FROM package_version_targets WHERE package_version_id = ?1",
+            params![package_version_id],
+        )
+        .map_err(|err| format!("failed to clear version targets: {err}"))?;
+        insert_version_targets(&tx, package_version_id, vendor_blobs)?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit backfill: {err}"))
+    }
+
     /// The stored `(author, url)` for one published version. Test-only, for the
     /// same reason as `target_rows_for_test`: the publish-path tests live in
     /// `server.rs` and plan-61-A ships no real read accessors.

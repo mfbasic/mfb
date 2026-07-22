@@ -321,23 +321,23 @@ signed MANIFEST into `package_versions` (asserted against the stored row, not
 the response), and a header/MANIFEST mismatch is refused with a 400 naming both
 values while persisting no version row. Full crate: 295 passed, 0 failed;
 workspace builds; clippy warning count unchanged from baseline.
-Commit: —
+Commit: `4e210db4c`
 
 ### Phase 4 — Backfill (largest blast radius: touches every stored blob)
 
 Last, because it reads every package blob on the server.
 
-- [ ] Add a `backfill-metadata` subcommand to `repository/src/main.rs`, alongside
+- [x] Add a `backfill-metadata` subcommand to `repository/src/main.rs`, alongside
       the existing `reanchor` / `init-root` / `gc` operator ceremonies (usage
       block at `main.rs:11-33`). It re-parses every stored package blob and
       populates the columns and target rows added above.
-- [ ] Make it idempotent and resumable: re-running it must not duplicate
+- [x] Make it idempotent and resumable: re-running it must not duplicate
       `package_version_targets` rows. Delete-then-insert per version, inside a
       transaction per version.
-- [ ] It must **not** fail the whole run on one unparseable blob — log the ident
+- [x] It must **not** fail the whole run on one unparseable blob — log the ident
       and version, skip, continue, and report a count at the end. An old blob
       that no longer parses is exactly the kind of thing this surfaces.
-- [ ] **Decide what backfill does with a header/MANIFEST mismatch.** Phase 3
+- [x] **Decide what backfill does with a header/MANIFEST mismatch.** Phase 3
       rejects one at publish, but backfill walks blobs published *before* that
       check existed, so mismatches are parseable-and-invalid — a case the
       skip-unparseable rule above does not cover. Treat it as a skip with a
@@ -345,15 +345,42 @@ Last, because it reads every package blob on the server.
       copy: an already-stored artifact whose two author copies disagree is a
       transparency finding an operator must see, and backfill is the only thing
       that will ever look. Do not delete or rewrite the version row.
-- [ ] Tests: a store test that publishes two versions with the columns stubbed
+- [x] Tests: a store test that publishes two versions with the columns stubbed
       NULL, runs the backfill, and asserts both are populated; and that a second
       run changes nothing (row counts identical).
-- [ ] Tests: a stored blob with a header/MANIFEST mismatch is skipped, counted
+- [x] Tests: a stored blob with a header/MANIFEST mismatch is skipped, counted
       separately from unparseable blobs, and leaves its `author`/`url` NULL.
 
-Acceptance: `mfb-repo backfill-metadata --dbpath <db> --datapath <dir>` populates
-author/url/targets for pre-existing versions, is idempotent across two runs, and
-reports a skip count rather than aborting on a bad blob.
+Acceptance: **MET**, and verified against the real `bindings/libsnd` artifact
+rather than only a synthetic fixture. Driving the committed `libsnd.mfp`
+(`git show HEAD:bindings/libsnd/libsnd.mfp`, since the working-tree copy is
+mid-edit by another agent) through publish-with-stubbed-columns → `backfill::run`
+→ `sqlite3` produced exactly the seven rows its `project.json` `libraries` block
+declares, with the macOS row's `arch` NULL:
+
+```
+backfilled 1 version(s); skipped 0 missing, 0 unparseable, 0 mismatched
+macos|NULL|NULL|libsndfile.1.0.37.dylib
+linux|aarch64|glibc|libsndfile.so.1.0.37-aarch64-glibc
+linux|aarch64|musl|libsndfile.so.1.0.37-aarch64-musl
+linux|x86_64|glibc|libsndfile.so.1.0.37-x86_64-glibc
+linux|x86_64|musl|libsndfile.so.1.0.37-x86_64-musl
+linux|riscv64|glibc|libsndfile.so.1.0.37-riscv64-glibc
+linux|riscv64|musl|libsndfile.so.1.0.37-riscv64-musl
+```
+
+Three arches and both libc values, as §Validation Plan predicted. The proof ran
+as a scratch integration test that was **deleted after the run** — it depended
+on an absolute path outside the crate, which is not a fixture shape this tree
+supports. Unit coverage of the same paths is permanent
+(`backfill_populates_metadata_and_is_idempotent`,
+`a_metadata_mismatch_is_skipped_counted_and_left_untouched`,
+`a_missing_blob_is_counted_and_the_sweep_continues`,
+`parse_backfill_args_reads_both_forms_and_requires_both_paths`).
+
+Idempotence is asserted directly (`target_rows_for_test()` equal across two
+runs). The CLI was smoke-run on an empty registry: it printed the summary line
+and exited 0. Full crate: 299 passed, 0 failed.
 Commit: —
 
 ## Validation Plan
