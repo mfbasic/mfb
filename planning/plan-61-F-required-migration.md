@@ -130,7 +130,7 @@ Two deviations, both recorded in §Corrections: the third package is
 `benchmark/mfb/workers`, not `benchmark/mfb` (which is an *executable*); and the
 build was unsigned, since signing needs a live registry session and section 18's
 presence does not depend on it.
-Commit: —
+Commit: `2b981a96a`
 
 ### Phase 2 — Migrate the fixture packages
 
@@ -162,7 +162,7 @@ Descriptions are meaningful, not placeholders: 65 were derived from each
 fixture's own leading comment block (first complete sentence), and the remaining
 13 — where the source opens with `IMPORT` lines rather than prose — were written
 by hand from the fixture's exports and purpose.
-Commit: —
+Commit: `ff3126440`
 
 ### Phase 3 — Regenerate goldens (the churn, isolated)
 
@@ -229,7 +229,7 @@ checked mechanically rather than asserted:
    9 source manifests changed and the committed bytes are meant to be
    reproducible from them; pkg-01's deterministic pinned `identKey` is unchanged,
    so no consumer manifest needed editing.
-Commit: —
+Commit: `5f42e02ae`
 
 ### Phase 4 — Flip to required (the behavioral change)
 
@@ -282,7 +282,7 @@ should not have.** That task anticipated the diagnostic's rendered text changing
 "wherever it still fires" — but after Phase 2 it fires nowhere, because every
 package manifest now has a description. The only new `build.log` is the negative
 fixture's own. Recorded rather than silently skipped.
-Commit: —
+Commit: `2d308674b`
 
 ## Validation Plan
 
@@ -313,6 +313,9 @@ Commit: —
 
 ## Corrections
 
+- **Phase 2's census correction also grew F's own commit count.** Recorded here
+  because the migration landed in two commits (`ff3126440` for the 78 the census
+  saw, `cd600a0cc` for the 10 it hid) rather than the one Phase 2 implies.
 - **The population is 91, not 81 — the plan's own measurement command hides 10
   manifests.** Every count in §2 (and in `plan-61-repo-web.md` §Measured
   populations) is produced by a `find` carrying `-not -path '*/packages/*'`.
@@ -350,6 +353,21 @@ Commit: —
   description line was staged against the *committed* base and their bump was
   restored to the working tree afterwards, so the commit contains one added line
   and their edit is untouched and still uncommitted.
+- **An inline test helper was a 92nd package manifest.**
+  `write_package_project` (`src/cli/build.rs`) constructs a `kind: "package"`
+  manifest at test time, so it is invisible to every file-based census. Phase 4's
+  flip turned `build_project_builds_a_package` red. The assertion was right and
+  the *fixture* was stale, so the helper was migrated like the other 91 — not
+  weakened. Fixing it also rescued
+  `build_project_rejects_native_output_for_a_package`, which only asserts
+  `is_err()` and would otherwise have started passing for the wrong reason: a
+  test that no longer tests what it claims.
+- **The new executable fixture needed `.ast`/`.ir` goldens pre-created, not just
+  `build.log`.** The harness runs `mfb build -ast -ir`, so a *successful* build
+  emits three artifacts; only `build.log` was pre-created, and the run reported
+  two "unexpected actual" files. `sync-goldens.sh` never creates goldens, so the
+  empty files have to exist first — exactly as Phase 3 warns, applied to a
+  fixture Phase 4 adds.
 - **`bindings/sqlite3/sqlite3.mfp` is a tracked artifact and changed.** Adding a
   description to its manifest puts section 18 in the built package, so the
   checked-in `.mfp` legitimately churns. That is expected migration churn, not a
