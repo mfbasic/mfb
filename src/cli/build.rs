@@ -13,7 +13,7 @@ use crate::manifest::entry::validate_entry_point;
 use crate::manifest::libraries::Libc;
 use crate::manifest::package::{
     external_package_function_types, external_package_function_types_from_files,
-    installed_package_files, package_metadata,
+    imported_resource_closers, installed_package_files, package_metadata,
 };
 use crate::manifest::project_kind;
 use crate::manifest::validate_project_manifest;
@@ -406,7 +406,12 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         &HashMap::new(),
         &HashMap::new(),
     );
-    let verify_diagnostics = ir::verify_source_diagnostics(&source_ir, &options.location);
+    // bug-377: the source IR names an imported resource's type but carries no
+    // record that it *is* a resource, so verify's resource rules need the
+    // imported packages' `RESOURCE_TABLE` rows handed to them explicitly.
+    let imported_resources = imported_resource_closers(&options.location, &manifest);
+    let verify_diagnostics =
+        ir::verify_source_diagnostics(&source_ir, &options.location, &imported_resources);
     let Ok(mut diagnostics) = syntaxcheck_diagnostics else {
         return Err(());
     };

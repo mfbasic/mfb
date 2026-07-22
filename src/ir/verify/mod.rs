@@ -173,7 +173,9 @@ const PRIMITIVE_TYPES: &[&str] = &[
 /// checker never short-circuits, so a program with several violations yields
 /// them all.
 pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
-    collect_diagnostics_with(project, false)
+    // The package path runs on merged IR, whose resource types are already in
+    // `native_resources` or are the package's own, so it registers no extra rows.
+    collect_diagnostics_with(project, false, &[])
 }
 
 /// `collect_diagnostics`, with `imported_types_unknown` telling the checker which
@@ -185,9 +187,21 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
 /// is decoded from an id that must exist in it. Same checker, different completeness
 /// of information — so a miss means "imported, cannot say" on one and "genuinely
 /// absent" on the other (bug-258).
-fn collect_diagnostics_with(project: &IrProject, imported_types_unknown: bool) -> Vec<Diagnostic> {
+fn collect_diagnostics_with(
+    project: &IrProject,
+    imported_types_unknown: bool,
+    imported_resources: &[(String, String)],
+) -> Vec<Diagnostic> {
     let mut env = TypeEnv::build(project);
     env.imported_types_unknown = imported_types_unknown;
+    // bug-377: seed the imported packages' `RESOURCE_TABLE` rows. The project's
+    // own `native_resources` win — an importer never overrides a declaration it
+    // can see the source of.
+    for (type_name, close_function) in imported_resources {
+        env.resource_closers
+            .entry(type_name.clone())
+            .or_insert_with(|| close_function.clone());
+    }
     let env = env;
     for function in &project.functions {
         env.current_file.replace(function.file.clone());
@@ -435,11 +449,17 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 /// `build` can merge them with `syntaxcheck`'s stream and render both in one
 /// line-ordered pass (plan-20-Z). Only rules in `RELOCATED_TO_IR_VERIFY` are
 /// ir::verify's to emit on the source path; the rest are still syntaxcheck's.
+///
+/// `imported_resources` carries the `(type, close op)` rows of every imported
+/// package's `RESOURCE_TABLE` (bug-377). A decoded package contributes no
+/// `native_resources`, so without them every resource rule is inert for an
+/// imported type — a double close of a package handle passed clean.
 pub fn collect_source_diagnostics(
     project: &IrProject,
     project_dir: &Path,
+    imported_resources: &[(String, String)],
 ) -> Vec<crate::rules::PendingDiagnostic> {
-    collect_diagnostics_with(project, true)
+    collect_diagnostics_with(project, true, imported_resources)
         .into_iter()
         .filter(|d| RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()))
         .map(|d| crate::rules::PendingDiagnostic {

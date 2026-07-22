@@ -327,6 +327,71 @@ pub(crate) fn installed_package_files(
         .collect()
 }
 
+/// The `(resource type, close op)` pairs an importer must register so
+/// `ir::verify`'s resource rules recognize an imported package's resources
+/// (bug-377).
+///
+/// A decoded package carries no `native_resources` (`ir/binary.rs` drops them by
+/// contract), so `IrProject::native_resources` holds the *current* project's
+/// declarations only. Without this, `close_op_for` returns `None` for an
+/// imported type, `is_resource_or_resource_union` is false, and every resource
+/// rule — the `RES` ownership axis, double-close, use-after-close — silently
+/// skips it.
+///
+/// The close op is spelled the way the **source** IR calls it, `<binding>.<alias>`
+/// with no identity prefix, because verify runs before `merge_packages` applies
+/// the content-addressed prefix. `code::validation` registers the *prefixed*
+/// spelling of the same op for exactly the opposite reason — it runs after.
+///
+/// Lossy like [`external_package_function_types`]: a package that cannot be read
+/// contributes nothing rather than failing the build, because the package-level
+/// errors are reported by `verify_and_report_packages` well before this point.
+pub(crate) fn imported_resource_closers(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> Vec<(String, String)> {
+    let Ok(packages) = installed_package_files(project_dir, manifest) else {
+        return Vec::new();
+    };
+    let mut closers = Vec::new();
+    for package in &packages {
+        let Ok(header) = read_mfp_header(package) else {
+            continue;
+        };
+        let Ok(resources) = binary_repr::read_package_resources(package) else {
+            continue;
+        };
+        for resource in resources {
+            // A built-in is authoritative and already seeded; a package's table
+            // merely references it (`syntaxcheck::collect_package_resources`).
+            if crate::builtins::is_resource_type(&resource.type_name) {
+                continue;
+            }
+            let Some(close_function) = resource.close_function else {
+                // Unclosable as far as the importer can tell — registering it
+                // would claim a close op that does not resolve.
+                continue;
+            };
+            // A native resource serializes its close op as the bare exported
+            // alias (plan-link-update.md §5a); the importer calls it
+            // `<binding>.<alias>`. Built-in close names are already dotted.
+            let close_function = if resource.native && !close_function.contains('.') {
+                format!("{}.{close_function}", header.name)
+            } else {
+                close_function
+            };
+            // Source names the type bare or as `<binding>.<Type>`; register both,
+            // as `syntaxcheck`'s registry does.
+            closers.push((
+                format!("{}.{}", header.name, resource.type_name),
+                close_function.clone(),
+            ));
+            closers.push((resource.type_name, close_function));
+        }
+    }
+    closers
+}
+
 pub(crate) fn external_package_function_types(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
