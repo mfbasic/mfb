@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-let-binding-wrapper-invalid
+  22 | FUNC main AS Integer
+  23 |   LET h = openThing("x")
+  24 |   LET info = h.state
+     | ^
+tests/syntax/resources/resource-let-binding-wrapper-invalid/src/main.mfb:24 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `info` does not have a known type.
+[exit 1]

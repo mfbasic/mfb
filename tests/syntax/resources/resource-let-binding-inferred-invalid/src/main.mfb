@@ -1,0 +1,12 @@
+' bug-376: the un-annotated sibling of `resource-let-binding-invalid`. The
+' resource type is INFERRED from the initializer rather than written as `AS
+' File`, but the binding still holds a real resource, so it must still be
+' rejected with TYPE_RESOURCE_REQUIRES_RES. Dropping the annotation used to
+' silence the rule entirely, taking the close obligation with it.
+IMPORT fs
+
+FUNC main AS Integer
+  LET f = fs::open("x", "r")
+  fs::close(f)
+  RETURN 0
+END FUNC

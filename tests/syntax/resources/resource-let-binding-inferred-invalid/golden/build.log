@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/resources/resource-let-binding-inferred-invalid
+Wrote AST to tests/syntax/resources/resource-let-binding-inferred-invalid/resource_let_binding_inferred_invalid.ast
+Wrote IR to tests/syntax/resources/resource-let-binding-inferred-invalid/resource_let_binding_inferred_invalid.ir
+[exit 0]

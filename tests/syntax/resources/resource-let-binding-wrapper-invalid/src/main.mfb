@@ -1,0 +1,27 @@
+' bug-376: the resource comes from a USER-DEFINED wrapper producer (`AS RES T
+' STATE S`), not a `pkg::producer()` call — the shape a grep census over
+' `(fs|tls|net)::(open|connect|...)` cannot see. This is the libsnd shape that
+' originally surfaced the bug.
+'
+' The point of this fixture is WHERE the error lands. Before the fix the `LET h`
+' was accepted, the STATE association was silently lost, and the failure was
+' displaced one line down onto the `.state` read as a TYPE_UNKNOWN_VALUE naming
+' `info` — an unrelated message on the wrong binding. The diagnostic must name
+' `h` at the LET.
+IMPORT fs
+
+TYPE FileInfo
+  frames AS Integer
+END TYPE
+
+FUNC openThing(path AS String) AS RES File STATE FileInfo
+  RES f AS File STATE FileInfo = fs::open(path, "r")
+  RETURN f
+END FUNC
+
+FUNC main AS Integer
+  LET h = openThing("x")
+  LET info = h.state
+  fs::close(h)
+  RETURN 0
+END FUNC
