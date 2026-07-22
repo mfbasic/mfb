@@ -1,4 +1,5 @@
 IMPORT collections
+IMPORT fs
 
 ' ---------------------------------------------------------------------------
 ' libsnd — a reusable native binding package for libsndfile.
@@ -72,9 +73,23 @@ EXPORT TYPE Sound
   pcm        AS List OF Byte
 END TYPE
 
-RESOURCE SoundFile CLOSE BY sndLink::closeFile
+' An open libsndfile handle, carrying the file's geometry as its STATE.
+' `openSound` returns one; read `.state` for the `FileInfo`, stream it with
+' `loadFrames`, and close it with `closeSound` or by lexical drop.
+EXPORT RESOURCE SoundFile CLOSE BY sndLink::closeFile
 
-TYPE FileInfo
+DOC
+  TYPE FileInfo
+  DESC The geometry libsndfile reports for an open `SoundFile`, reached through
+  DESC its `.state`.
+  PROP frames Total frames in the file. One frame is one sample in every channel, so a stereo file holds `frames * 2` samples.
+  PROP samplerate Frames per second, as recorded in the file — 44100, 48000 and so on. Nothing here resamples.
+  PROP channels Channels per frame: 1 for mono, 2 for stereo.
+  PROP format The libsndfile format code: the `SF_FORMAT_*` major and minor bits OR-ed together.
+  PROP sections Logical sections in the file; 1 for the ordinary single-section case.
+  PROP seekable Nonzero when libsndfile can seek this file, so `seekFrame` will work; 0 for a stream-only format.
+END DOC
+EXPORT TYPE FileInfo
   frames     AS Integer
   samplerate AS Integer
   channels   AS Integer
@@ -141,7 +156,7 @@ LINK "libsnd" AS sndLink
     SUCCESS_ON status = 0
   END FUNC
 
-  ' plan-58-D: the streaming read primitive `loadSound` is built on.
+  ' The streaming read primitive `loadSound` is built on.
   '
   '   sf_count_t sf_read_short(SNDFILE *sndfile, short *ptr, sf_count_t items);
   '
@@ -173,27 +188,52 @@ LINK "libsnd" AS sndLink
     RETURN buf LENGTH got * 2
   END FUNC
 
-  FUNC errNum(RES sndfile AS SoundFile) AS Integer
+  ' Position the read pointer, in FRAMES (not items). `whence` takes stdio's
+  ' values: 0 = SF_SEEK_SET, 1 = SF_SEEK_CUR, 2 = SF_SEEK_END. Returns the
+  ' resulting position in frames from the start of the file, so a seek of 0 from
+  ' SF_SEEK_CUR is a pure position query. Only -1 means failure, hence `>= 0`.
+  FUNC seekFrames(RES sndfile AS SoundFile, frames AS Integer, whence AS Integer) AS Integer
+    SYMBOL "sf_seek"
+    ABI (sndfile CPtr, frames CInt64, whence CInt32) AS position CInt64
+    SUCCESS_ON position >= 0
+    RETURN position
+  END FUNC
+
+  FUNC lastSoundErrNum(RES sndfile AS SoundFile) AS Integer
     SYMBOL "sf_error"
     ABI (sndfile CPtr) AS status CInt32
     RETURN status
   END FUNC
 
-  ' `sf_error_number`, NOT `sf_error`: the latter takes a SNDFILE* and returns an
-  ' int. Binding it here passed an integer where a pointer was expected and then
-  ' marshaled the returned int as a CPtr — two wild dereferences per call
-  ' (bug-364). The returned pointer is library-owned static storage, so
-  ' copy-and-leave is correct and no FREE block is wanted.
   FUNC errMessage(errNum AS Integer) AS String
     SYMBOL "sf_error_number"
     ABI (errNum CInt32) AS message CPtr
     RETURN message
   END FUNC
+
+  FUNC lastGlobalErrNum() AS Integer
+    SYMBOL "sf_error"
+    ABI (sndfile CPtr) AS status CInt32
+    CONST sndfile = NOTHING
+    RETURN status
+  END FUNC
 END LINK
 
-FUNC sndError(RES sndfile AS SoundFile) AS Error
-  LET err AS Integer = sndLink::errNum(sndfile)
-  RETURN error(err, "libsnd: " & sndLink::errMessage(err))
+' Every libsndfile failure becomes an `Error` through here.
+'
+' libsndfile's `SF_ERR_*` numbers are a small private enum (0..4) and are NOT
+' MFBASIC error codes, so they are offset into the standard-package range rather
+' than used raw — `error(1, ...)` names nothing. The message is libsndfile's own
+' text for that number, so the reason travels with the code.
+FUNC sndError(errNum AS Integer) AS Error
+  RETURN error(77050000 + errNum, "libsnd: " & sndLink::errMessage(errNum))
+END FUNC
+
+' The handle-bearing form: ask the file itself what went wrong, then build the
+' error through `sndError` like everything else. Not an overload of `sndError` —
+' resolution does not accept a `RES` parameter as an overload discriminator.
+FUNC sndFileError(RES sndfile AS SoundFile) AS Error
+  RETURN sndError(sndLink::lastSoundErrNum(sndfile))
 END FUNC
 
 DOC
@@ -253,6 +293,11 @@ DOC
   WARN 5 minutes 49 seconds of stereo 48 kHz audio — are refused rather than
   WARN allocated. Stream longer audio with `readSamples` instead.
   ERROR 77030007 libsndfile or one of its dependencies could not be loaded; raised at startup, before `main` runs.
+  ERROR 77030001 No readable file at `path` — it is missing, or it is a directory or other non-regular entry. The message names the path.
+  ERROR 77050001 The file exists but libsndfile does not recognise its format (`SF_ERR_UNRECOGNISED_FORMAT`).
+  ERROR 77050002 libsndfile hit a system-level failure opening the file, such as a permission denial (`SF_ERR_SYSTEM`).
+  ERROR 77050003 The file is malformed (`SF_ERR_MALFORMED_FILE`), or its decoded size exceeds the 64 MiB limit — the cap message names both the file's size and the cap.
+  ERROR 77050004 The file's encoding is not supported by this libsndfile build (`SF_ERR_UNSUPPORTED_ENCODING`).
   ERROR 77050002 The file's decoded size exceeds the 64 MiB limit. The message names both the file's size and the cap.
   EXAMPLE
     IMPORT audio
@@ -266,8 +311,29 @@ DOC
     END FUNC
   END EXAMPLE
 END DOC
+' `sf_open` signals every failure the same way — a NULL handle — so the LINK gate
+' alone reports `ErrNativeBindingCallFailed` and nothing more. Ask libsndfile why
+' and report that instead.
+EXPORT FUNC openSound(path AS String) AS RES SoundFile STATE FileInfo
+  ' A missing path is the common mistake and deserves to say so plainly:
+  ' libsndfile reports it only as a generic `SF_ERR_SYSTEM`, naming neither the
+  ' file nor the fact that it simply is not there.
+  IF NOT fs::fileExists(path) THEN
+    FAIL error(77030001, "libsnd: no audio file at " & path)
+  END IF
+  
+  RETURN sndLink::openFile(path)
+  TRAP(e)
+    FAIL sndError(sndLink::lastGlobalErrNum())
+  END TRAP
+END FUNC
+
+EXPORT FUNC closeSound(RES sound AS SoundFile STATE FileInfo) AS Nothing
+  sndLink::closeFile(sound)
+END FUNC
+
 EXPORT FUNC loadSound(path AS String) AS Sound
-  RES handle AS SoundFile STATE FileInfo = sndLink::openFile(path)
+  RES handle AS SoundFile STATE FileInfo = openSound(path)
   LET info AS FileInfo = handle.state
 
   ' Items, not frames: one item is one sample in one channel, so a stereo frame
@@ -277,11 +343,186 @@ EXPORT FUNC loadSound(path AS String) AS Sound
   LET items AS Integer = info.frames * info.channels
   LET bytes AS Integer = items * 2
   IF bytes > MAX_LOAD_BYTES THEN
-    FAIL error(77050002, "libsnd: " & path & " decodes to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; stream it with readSamples instead")
+    FAIL error(77050002, "libsnd: " & path & " decodes to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; stream it with loadFrames instead")
   END IF
 
   ' A truncated or malformed file simply yields fewer bytes than `frames`
   ' promised — the LENGTH clamp handles it — and that is not an error here.
   LET pcm AS List OF Byte = sndLink::readSamples(handle, items)
   RETURN Sound[samplerate := info.samplerate, channels := info.channels, pcm := pcm]
+END FUNC
+
+' Read one signed 16-bit little-endian sample from `pcm` at byte offset `at`.
+'
+' The list is UNSIGNED bytes, so the 16-bit value has to be sign-extended by
+' hand: anything at or above 32768 is the two's-complement encoding of a
+' negative sample. Skipping this step is silently wrong rather than loud — the
+' audio still plays, with every negative sample folded to a large positive one.
+FUNC sampleAt(pcm AS List OF Byte, at AS Integer) AS Integer
+  LET lo AS Integer = toInt(collections::get(pcm, at))
+  LET hi AS Integer = toInt(collections::get(pcm, at + 1))
+  LET raw AS Integer = hi * 256 + lo
+  IF raw >= 32768 THEN
+    RETURN raw - 65536
+  END IF
+  RETURN raw
+END FUNC
+
+' Convert interleaved s16le PCM from `fromRate` to `toRate` by linear
+' interpolation, preserving the channel count and the interleaving.
+'
+' Each output frame lands at source position `o * fromRate / toRate`. That
+' position is carried as the exact integer pair (whole frame, remainder over
+' `toRate`) rather than as a Float, so the mapping is deterministic across
+' targets and accumulates no drift over a long file — `o * fromRate` stays well
+' inside Integer range even for the 64 MiB cap.
+'
+' Linear interpolation, not a windowed-sinc filter: it is cheap and needs no
+' history, but it does not band-limit, so downsampling aliases frequencies above
+' the new Nyquist limit rather than filtering them out. For playback of speech
+' and music at the usual 44100 <-> 48000 ratios that is inaudible; a program
+' doing analysis on the result should resample with a real filter instead.
+FUNC resample(pcm AS List OF Byte, channels AS Integer, fromRate AS Integer, toRate AS Integer) AS List OF Byte
+  IF toRate <= 0 THEN
+    FAIL error(77050002, "libsnd: requested sample rate " & toString(toRate) & " is not positive")
+  END IF
+
+  LET frameBytes AS Integer = channels * 2
+  LET inFrames AS Integer = len(pcm) / frameBytes
+
+  ' Nothing to do: the rates already agree, or there is not even one whole frame
+  ' to interpolate between.
+  IF fromRate = toRate OR inFrames = 0 THEN
+    RETURN pcm
+  END IF
+
+  LET outFrames AS Integer = inFrames * toRate / fromRate
+  LET outBytes AS Integer = outFrames * frameBytes
+  IF outBytes > MAX_LOAD_BYTES THEN
+    FAIL error(77050002, "libsnd: resampling to " & toString(toRate) & " Hz yields " & toString(outBytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
+  END IF
+
+  MUT out AS List OF Byte
+  FOR o = 0 TO outFrames - 1
+    ' Exact source position for this output frame, split into a whole source
+    ' frame and a remainder that is the interpolation weight over `toRate`.
+    LET pos AS Integer = o * fromRate
+    LET frame AS Integer = pos / toRate
+    LET weight AS Integer = pos MOD toRate
+
+    ' The last output frame can map onto the last source frame, which has no
+    ' successor to interpolate towards; hold it instead of reading past the end.
+    MUT nextFrame AS Integer = frame + 1
+    IF nextFrame > inFrames - 1 THEN
+      nextFrame = inFrames - 1
+    END IF
+
+    FOR c = 0 TO channels - 1
+      LET a AS Integer = sampleAt(pcm, frame * frameBytes + c * 2)
+      LET b AS Integer = sampleAt(pcm, nextFrame * frameBytes + c * 2)
+      MUT value AS Integer = a + (b - a) * weight / toRate
+
+      ' Interpolating between two in-range samples cannot leave the range, but
+      ' clamp anyway so a future change to the kernel cannot wrap a sample into
+      ' full-scale noise.
+      IF value > 32767 THEN
+        value = 32767
+      END IF
+      IF value < -32768 THEN
+        value = -32768
+      END IF
+      IF value < 0 THEN
+        value = value + 65536
+      END IF
+
+      out = collections::append(out, toByte(value MOD 256))
+      out = collections::append(out, toByte(value / 256))
+    NEXT
+  NEXT
+  RETURN out
+END FUNC
+
+' Decode the rest of the file and deliver it at `sampleRate` instead of the
+' file's own rate — the form to reach for when an `AudioOutput` is already open
+' at a fixed rate and the file does not match it.
+'
+' Only the rate is converted. The channel count is still the file's own, so a
+' stereo file remains stereo and an output opened for one channel will not take
+' it.
+EXPORT FUNC loadSound(RES sound AS SoundFile STATE FileInfo, sampleRate AS Integer) AS Sound
+  LET info AS FileInfo = sound.state
+
+  ' Items, not frames: one item is one sample in ONE channel. `info.frames` is
+  ' the whole file, so a handle that has already been read from or seeked simply
+  ' returns fewer bytes — the LENGTH clamp in `readSamples` handles it.
+  LET items AS Integer = info.frames * info.channels
+  LET bytes AS Integer = items * 2
+  IF bytes > MAX_LOAD_BYTES THEN
+    FAIL error(77050002, "libsnd: the file decodes to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; stream it with loadFrames instead")
+  END IF
+
+  LET pcm AS List OF Byte = sndLink::readSamples(sound, items)
+  LET converted AS List OF Byte = resample(pcm, info.channels, info.samplerate, sampleRate)
+  RETURN Sound[samplerate := sampleRate, channels := info.channels, pcm := converted]
+END FUNC
+
+EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, frames AS Integer) AS Sound
+  LET info AS FileInfo = sound.state
+
+  ' Items, not frames: one item is one sample in ONE channel, so a stereo frame
+  ' is two items. `sf_read_short` reads only whole frames, so an item count that
+  ' straddles a frame boundary reads nothing at all.
+  LET items AS Integer = frames * info.channels
+  LET bytes AS Integer = items * 2
+  IF bytes > MAX_LOAD_BYTES THEN
+    FAIL error(77050002, "libsnd: " & toString(frames) & " frames decode to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
+  END IF
+
+  ' A truncated or malformed file simply yields fewer bytes than `frames`
+  ' promised — the LENGTH clamp handles it — and that is not an error here.
+  LET pcm AS List OF Byte = sndLink::readSamples(sound, items)
+  RETURN Sound[samplerate := info.samplerate, channels := info.channels, pcm := pcm]
+END FUNC
+
+' Read `frames` frames and deliver them at `sampleRate` instead of the file's
+' own rate: the streaming twin of the two-argument `loadSound`.
+'
+' `frames` counts SOURCE frames, exactly as it does in the two-argument
+' `loadFrames`, so a read loop bounded by `.state.frames` stays correct whatever
+' rate is asked for. The returned PCM therefore holds roughly
+' `frames * sampleRate / info.samplerate` frames, and its length varies by a
+' frame from chunk to chunk as the rounding falls.
+'
+' Each chunk is resampled on its own, with no history carried across calls, so
+' the interpolation restarts at every chunk boundary. On a small chunk that is
+' an audible click; the artifact shrinks as the chunk grows, so stream in
+' chunks of a few thousand frames rather than a few hundred. A file short
+' enough to hold in memory is better read with the two-argument `loadSound`,
+' which resamples it in one piece and has no boundaries at all.
+EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, sampleRate AS Integer, frames AS Integer) AS Sound
+  LET info AS FileInfo = sound.state
+
+  ' Items, not frames: one item is one sample in ONE channel. `sf_read_short`
+  ' reads only whole frames, so an item count that straddles a frame boundary
+  ' reads nothing at all.
+  LET items AS Integer = frames * info.channels
+  LET bytes AS Integer = items * 2
+  IF bytes > MAX_LOAD_BYTES THEN
+    FAIL error(77050002, "libsnd: " & toString(frames) & " frames decode to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
+  END IF
+
+  ' A short read at the end of the file simply yields fewer bytes than `frames`
+  ' promised — the LENGTH clamp handles it — and that is not an error here.
+  LET pcm AS List OF Byte = sndLink::readSamples(sound, items)
+  LET converted AS List OF Byte = resample(pcm, info.channels, info.samplerate, sampleRate)
+  RETURN Sound[samplerate := sampleRate, channels := info.channels, pcm := converted]
+END FUNC
+
+EXPORT FUNC seekFrame(RES sound AS SoundFile STATE FileInfo, frame AS Integer) AS Integer
+  LET info AS FileInfo = sound.state
+  IF frame <= info.frames AND frame >= 0 THEN
+     RETURN sndLink::seekFrames(sound, frame, 0)
+  ELSE
+     RETURN sndLink::seekFrames(sound, 0, 0)
+  END IF
 END FUNC
