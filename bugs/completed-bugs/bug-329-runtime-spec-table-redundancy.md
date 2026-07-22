@@ -1,13 +1,28 @@
 # bug-329: the runtime helper spec catalog is largely redundant — 189 dead lines, a mechanically derivable `symbol` field, a constant `clobbers` field, 133 inert `RuntimeAbiParam` records, and front-end/back-end type tables that already disagree
 
-Last updated: 2026-07-18
+Last updated: 2026-07-22
 Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup) / Dead-code
 
-Status: Open
-Regression Test: new `src/target/shared/runtime/catalog.rs` table-driven parity
-test covering all catalogued specs and all 10 families (Phase 1).
+Status: Fixed (2026-07-22)
+Regression Test: `src/target/shared/runtime/catalog.rs::tests::catalog_is_consistent`
+— table-driven over the catalog itself: family routing (including the
+code-layer-only seam), call/symbol round-trips over the *derived* symbol,
+symbol uniqueness, non-empty `returns`, 10-family completeness. Plus
+`validate.rs::tests::{rejects_helper_family_with_no_catalogued_spec,
+accepts_helper_family_with_catalogued_spec}` for the is-implemented gate.
+
+Fix commits: 9d8a907aa (phases 1–2), e151c17f2 (phase 3), f42396ab8 (phase 4),
+0b27d16cc (phase 5), a3ad00910 (phase 6 doc sync).
+
+Validation outcome (2026-07-22): full bin suite 3188 passed / 0 failed;
+`scripts/artifact-gate.sh` 1314 goldens checked / 0 diffs;
+`scripts/test-accept.sh` full run green (1077 tests). The only golden churn in
+the entire change is the 25 `runtime.*` `"params"` lines leaving the
+`.ncode`/`.mir` dumps (+ the 18 `.ncodesum` covering the same content) — the
+zero-delta premise was wrong, see Corrections; machine code was proven
+unchanged by A/B against a detached HEAD worktree.
 
 `src/target/shared/runtime/` maintains a hand-written catalog of 156 runtime
 helper specs across 10 package families. Measured against the working tree, most
