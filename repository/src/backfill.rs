@@ -123,12 +123,24 @@ pub async fn run(store: &Store, blob_store: &BlobStore) -> Result<BackfillReport
             }
         };
 
+        // plan-61-E: a blob with no section 18 was built before plan-61-D. That
+        // is the expected state for every package already on a live registry,
+        // so it leaves `description` NULL and is deliberately **not** counted
+        // as a skip — logging it would bury the real findings under noise.
+        let description = abi::parse_package_description(&parsed.payload)
+            .ok()
+            .flatten()
+            .filter(|value| !value.is_empty());
         let metadata = match signed {
             Some(signed) => PublishMetadata {
                 author: Some(signed.author).filter(|value| !value.is_empty()),
                 url: Some(signed.url).filter(|value| !value.is_empty()),
+                description,
             },
-            None => PublishMetadata::default(),
+            None => PublishMetadata {
+                description,
+                ..Default::default()
+            },
         };
         store.replace_version_metadata(version_id, &metadata, &vendor_blobs)?;
         report.updated += 1;
@@ -263,6 +275,64 @@ mod tests {
         assert!(render_text(&report).contains("1 mismatched"));
     }
 
+    /// plan-61-E: backfill fills `description` from section 18, and a blob
+    /// **without** section 18 — every package built before plan-61-D — leaves it
+    /// NULL without being counted or logged. That absence is the expected state
+    /// of an existing registry, not a finding; counting it would bury the real
+    /// findings under noise.
+    #[tokio::test]
+    async fn backfill_fills_descriptions_and_stays_quiet_about_packages_that_have_none() {
+        let (_temp, store, blob_store, dir) = harness().await;
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        // One artifact with a section 18, one without.
+        let described = serialize(
+            "alice",
+            "",
+            payload_with_description("alice", "", "A described package."),
+        );
+        let plain = package_bytes("alice", "");
+        for artifact in [&described, &plain] {
+            let hash = hex::encode(crate::crypto::sha256(artifact));
+            std::fs::write(dir.join(format!("{hash}.mfp")), artifact).unwrap();
+        }
+        for (version, artifact) in [("1.0.0", &described), ("2.0.0", &plain)] {
+            let hash = hex::encode(crate::crypto::sha256(artifact));
+            store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &hash,
+                    &format!("data/{hash}.mfp"),
+                    "{}",
+                    &[],
+                    &PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+
+        let report = run(&store, &blob_store).await.unwrap();
+        assert_eq!(report.updated, 2);
+        assert!(
+            !report.skipped(),
+            "a package with no section 18 is not a skip: {:?}",
+            report.skips,
+        );
+        assert!(report.skips.is_empty(), "{:?}", report.skips);
+
+        assert_eq!(
+            store.version_description_for_test("alice#toolbox", "1.0.0"),
+            Some("A described package.".to_string()),
+        );
+        assert_eq!(
+            store.version_description_for_test("alice#toolbox", "2.0.0"),
+            None,
+            "a pre-plan-61-D package stays NULL",
+        );
+    }
+
     /// A version whose blob is gone is counted as missing rather than aborting
     /// the sweep, so one hole does not hide every other version's metadata.
     #[tokio::test]
@@ -386,6 +456,24 @@ mod tests {
             bytes.extend_from_slice(data);
         }
         bytes
+    }
+
+    /// A payload that additionally carries MFPC section 18.
+    fn payload_with_description(author: &str, url: &str, description: &str) -> Vec<u8> {
+        let strings = string_pool(&["", author, url, "snd", "linux", "x86_64", "libsnd.a"]);
+        let author_id = if author.is_empty() { 0 } else { 1 };
+        let url_id = if url.is_empty() { 0 } else { 2 };
+        let mut meta = Vec::new();
+        put_u32(&mut meta, 1);
+        put_u16(&mut meta, 1); // fieldId = description
+        put_u32(&mut meta, description.len() as u32);
+        meta.extend_from_slice(description.as_bytes());
+        container(&[
+            (1, manifest_section(author_id, url_id)),
+            (2, strings),
+            (10, vendor_table(&[0x11; 32])),
+            (18, meta),
+        ])
     }
 
     fn payload_for(author: &str, url: &str) -> Vec<u8> {

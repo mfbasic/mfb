@@ -742,6 +742,30 @@ const SEARCH_PER_IP_MAX: usize = 120;
 /// request is **clamped**, never honoured and never rejected.
 const SEARCH_LIMIT_MAX: i64 = 50;
 const SEARCH_LIMIT_DEFAULT: i64 = 20;
+/// How much of a description a search result carries (plan-61-E §Open
+/// Decisions).
+///
+/// Clamped on a **character** boundary, not a byte one: descriptions are UTF-8
+/// and a byte clamp can split a multi-byte character. Without a clamp, a page
+/// of 50 results could carry 50 × 4096 bytes of description on an anonymous
+/// route — the same resource lever the `limit` cap exists to close.
+const SEARCH_DESCRIPTION_PREVIEW_CHARS: usize = 200;
+
+/// Clamp a description to the search-result preview length, appending an
+/// ellipsis when it was actually shortened.
+fn description_preview(description: Option<String>) -> Option<String> {
+    description.map(|text| {
+        if text.chars().count() <= SEARCH_DESCRIPTION_PREVIEW_CHARS {
+            return text;
+        }
+        let mut preview: String = text
+            .chars()
+            .take(SEARCH_DESCRIPTION_PREVIEW_CHARS)
+            .collect();
+        preview.push('…');
+        preview
+    })
+}
 /// Per-owner sliding-window caps on the authenticated package endpoints, whose
 /// only prior protection was the shared 64 MiB body cap — a registered (near
 /// anonymous) client could hammer `/validate` (5 Ed25519 verifies/call) for CPU
@@ -1065,7 +1089,7 @@ async fn search(
             ident: row.ident,
             owner: row.owner,
             latest_version: row.latest_version,
-            description: row.description,
+            description: description_preview(row.description),
             published_at: row.published_at,
         })
         .collect();
@@ -1168,7 +1192,7 @@ async fn search_html(
             ident: row.ident,
             owner: row.owner,
             latest_version: row.latest_version,
-            description: row.description,
+            description: description_preview(row.description),
             published_at: row.published_at,
         })
         .collect();
@@ -2707,12 +2731,24 @@ async fn publish_package(
     };
     // An empty string means the publisher set nothing; store NULL rather than
     // '' so "not provided" and "provided as empty" stay one fact, not two.
+    // plan-61-E: the description rides in MFPC section 18, added by plan-61-D.
+    // A package built before that carries no section 18 at all, which is a
+    // normal outcome and stays NULL — not an error and not a warning.
+    let description = parsed
+        .as_ref()
+        .and_then(|package| crate::abi::parse_package_description(&package.payload).ok())
+        .flatten()
+        .filter(|value| !value.is_empty());
     let publish_metadata = match manifest_metadata {
         Some(meta) => crate::store::PublishMetadata {
             author: Some(meta.author).filter(|value| !value.is_empty()),
             url: Some(meta.url).filter(|value| !value.is_empty()),
+            description,
         },
-        None => crate::store::PublishMetadata::default(),
+        None => crate::store::PublishMetadata {
+            description,
+            ..Default::default()
+        },
     };
     let already_present = state
         .blob_store
@@ -4902,6 +4938,7 @@ mod tests {
                     &crate::store::PublishMetadata {
                         author: Some("alice".to_string()),
                         url: Some("https://example.invalid".to_string()),
+                        description: None,
                     },
                 )
                 .unwrap();
@@ -5602,6 +5639,8 @@ mod tests {
                 &crate::store::PublishMetadata {
                     author: Some("<script>alert(1)</script>".to_string()),
                     url: Some("javascript:alert(1)".to_string()),
+                    // plan-61-E extends this fixture to the description too.
+                    description: Some("<img src=x onerror=alert('desc')>".to_string()),
                 },
             )
             .unwrap();
@@ -5645,7 +5684,15 @@ mod tests {
             "the hostile url must never reach any attribute: {body}",
         );
 
-        // 4. The CSP is present, so even a total escaping failure could not
+        // 4. plan-61-E: the description is publisher-controlled too, and gets
+        //    the same treatment — visible, escaped, and never a live attribute.
+        assert!(
+            body.contains("&lt;img src=x onerror=alert(&#39;desc&#39;)&gt;")
+                || body.contains("&lt;img src=x onerror=alert('desc')&gt;"),
+            "the hostile description must render as visible escaped text: {body}",
+        );
+
+        // 5. The CSP is present, so even a total escaping failure could not
         //    execute.
         assert_eq!(
             headers
@@ -5799,6 +5846,142 @@ mod tests {
                 "{uri}",
             );
         }
+    }
+
+    /// Seed a package whose newest version carries `description`.
+    fn seed_with_description(h: &Harness, ident: &str, description: &str) {
+        let owner = ident.split('#').next().unwrap();
+        if h.store.owner_with_ident_key(owner).unwrap().is_none() {
+            register_owner_with_all_keys(&h.store, owner);
+        }
+        let owner_id = h.store.owner_with_ident_key(owner).unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                owner_id,
+                ident,
+                "1.0.0",
+                &format!("hash-{ident}"),
+                &format!("data/{ident}.mfp"),
+                "{}",
+                &[],
+                &crate::store::PublishMetadata {
+                    description: Some(description.to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    /// plan-61-E Phase 1/3: a description flows database → JSON → HTML, and a
+    /// package without one stays `null` and renders no stray "None".
+    #[tokio::test]
+    async fn a_description_reaches_the_json_and_the_page() {
+        let h = harness();
+        seed_with_description(&h, "alice#toolbox", "Dense matrix primitives.");
+        seed_packages(&h, &["bob#plain"]);
+
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+        assert_eq!(
+            detail.description.as_deref(),
+            Some("Dense matrix primitives.")
+        );
+
+        let (_status, _headers, body) = get_page(&h.state, "/p/alice%23toolbox").await;
+        assert!(body.contains("Dense matrix primitives."), "{body}");
+
+        // A package with no description: null in JSON, and the page shows the
+        // placeholder rather than an empty element or a stray "None".
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("bob#plain".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+        assert_eq!(detail.description, None);
+        let (_status, _headers, body) = get_page(&h.state, "/p/bob%23plain").await;
+        assert!(body.contains("No description provided."), "{body}");
+        assert!(
+            !body.contains("None"),
+            "no stray Rust Option rendering: {body}"
+        );
+    }
+
+    /// plan-61-E Phase 2: a package findable **only** by a word in its
+    /// description is returned, and an ident match still outranks a description
+    /// match for the same query.
+    #[tokio::test]
+    async fn search_matches_descriptions_but_ranks_them_below_idents() {
+        let h = harness();
+        seed_with_description(&h, "alice#toolbox", "A library for zygomorphic layouts.");
+        seed_packages(&h, &["bob#zygomorphic"]);
+
+        // Findable only by a description word.
+        let response = search_for(&h, "http://x/search?q=layouts").await;
+        assert_eq!(response.results.len(), 1, "{:?}", response.results);
+        assert_eq!(response.results[0].ident, "alice#toolbox");
+
+        // For a term appearing in one package's *ident* and another's
+        // *description*, the ident wins.
+        let response = search_for(&h, "http://x/search?q=zygomorphic").await;
+        let idents: Vec<&str> = response
+            .results
+            .iter()
+            .map(|result| result.ident.as_str())
+            .collect();
+        assert_eq!(
+            idents,
+            vec!["bob#zygomorphic", "alice#toolbox"],
+            "an ident match must outrank a description match",
+        );
+    }
+
+    /// A search result carries a **clamped** description; the package page
+    /// carries the full text. Without the clamp, one page of 50 results could
+    /// ship 50 × 4096 bytes on an anonymous route.
+    #[tokio::test]
+    async fn search_results_clamp_long_descriptions_on_a_character_boundary() {
+        let h = harness();
+        // Multi-byte characters, so a byte clamp would split one and produce
+        // invalid UTF-8 or a broken glyph.
+        let long: String = "é".repeat(SEARCH_DESCRIPTION_PREVIEW_CHARS + 50);
+        seed_with_description(&h, "alice#toolbox", &long);
+
+        let response = search_for(&h, "http://x/search?q=toolbox").await;
+        let preview = response.results[0].description.as_ref().unwrap();
+        assert_eq!(
+            preview.chars().count(),
+            SEARCH_DESCRIPTION_PREVIEW_CHARS + 1,
+            "clamped to the preview length plus the ellipsis",
+        );
+        assert!(preview.ends_with('…'));
+        assert!(preview.starts_with('é'), "no split character: {preview}");
+
+        // The package page still shows the whole thing.
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+        assert_eq!(detail.description.as_deref(), Some(long.as_str()));
+
+        // A description at or under the limit is returned untouched, with no
+        // gratuitous ellipsis.
+        let exact: String = "x".repeat(SEARCH_DESCRIPTION_PREVIEW_CHARS);
+        seed_with_description(&h, "alice#exact", &exact);
+        let response = search_for(&h, "http://x/search?q=exact").await;
+        assert_eq!(
+            response.results[0].description.as_deref(),
+            Some(exact.as_str())
+        );
     }
 
     fn peer(ip: &str) -> ConnectInfo<SocketAddr> {

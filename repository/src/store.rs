@@ -25,6 +25,10 @@ pub struct Store {
 pub struct PublishMetadata {
     pub author: Option<String>,
     pub url: Option<String>,
+    /// The `description` from MFPC section 18 (plan-61-E). `None` for a package
+    /// published before plan-61-D, which simply carries no section 18 — that is
+    /// a normal outcome, not a failure.
+    pub description: Option<String>,
 }
 
 /// One `package_version_targets` row as `Store::target_rows_for_test` yields it:
@@ -225,8 +229,14 @@ impl Store {
             .transaction()
             .map_err(|err| format!("failed to start backfill transaction: {err}"))?;
         tx.execute(
-            "UPDATE package_versions SET author = ?2, url = ?3 WHERE id = ?1",
-            params![package_version_id, metadata.author, metadata.url],
+            "UPDATE package_versions SET author = ?2, url = ?3, description = ?4 \
+             WHERE id = ?1",
+            params![
+                package_version_id,
+                metadata.author,
+                metadata.url,
+                metadata.description
+            ],
         )
         .map_err(|err| format!("failed to update version metadata: {err}"))?;
         tx.execute(
@@ -255,6 +265,24 @@ impl Store {
                  WHERE p.ident = ?1 AND pv.version = ?2",
                 params![ident, version],
                 |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
+    }
+
+    /// The stored `description` for one published version. Test-only.
+    #[cfg(test)]
+    pub(crate) fn version_description_for_test(
+        &self,
+        ident: &str,
+        version: &str,
+    ) -> Option<String> {
+        self.conn()
+            .query_row(
+                "SELECT pv.description FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1 AND pv.version = ?2",
+                params![ident, version],
+                |row| row.get(0),
             )
             .unwrap()
     }
@@ -1514,13 +1542,28 @@ impl Store {
                               OR lower(substr(p.ident, instr(p.ident, '#') + 1))
                                  LIKE ?2 ESCAPE '\\' THEN 1
                             WHEN lower(p.ident) LIKE ?3 ESCAPE '\\' THEN 2
-                            ELSE 3
+                            WHEN lower(o.owner_display) LIKE ?3 ESCAPE '\\' THEN 3
+                            ELSE 4
                         END AS rank
                  FROM packages p
                  JOIN owners o ON o.id = p.owner_id
                  WHERE lower(p.ident) = ?1
                     OR lower(p.ident) LIKE ?3 ESCAPE '\\'
                     OR lower(o.owner_display) LIKE ?3 ESCAPE '\\'
+                    -- plan-61-E: description text, ranked *below* ident and
+                    -- owner. Scoped to the newest version so an old version's
+                    -- description cannot keep a package findable by a word its
+                    -- current release no longer contains.
+                    OR EXISTS (
+                        SELECT 1 FROM package_versions pv
+                        WHERE pv.package_id = p.id
+                          AND pv.id = (
+                              SELECT id FROM package_versions
+                              WHERE package_id = p.id
+                              ORDER BY created_at DESC, id DESC LIMIT 1
+                          )
+                          AND lower(pv.description) LIKE ?3 ESCAPE '\\'
+                    )
                  ORDER BY rank ASC, p.ident ASC
                  LIMIT ?4 OFFSET ?5",
             )
@@ -1686,8 +1729,9 @@ impl Store {
         .map_err(|err| format!("failed to store package blob metadata: {err}"))?;
         tx.execute(
             "INSERT INTO package_versions
-                 (package_id, version, hash, state, abi_index, author, url, created_at)
-             VALUES (?1, ?2, ?3, 'available', ?4, ?5, ?6, ?7)",
+                 (package_id, version, hash, state, abi_index, author, url, description,
+                  created_at)
+             VALUES (?1, ?2, ?3, 'available', ?4, ?5, ?6, ?7, ?8)",
             params![
                 package_id,
                 version,
@@ -1695,6 +1739,7 @@ impl Store {
                 abi_index,
                 metadata.author,
                 metadata.url,
+                metadata.description,
                 now
             ],
         )

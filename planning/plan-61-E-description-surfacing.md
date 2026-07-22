@@ -30,8 +30,8 @@ See `plan-61-repo-web.md` §Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-61-C complete | `curl -sf "$REPO/p/alice%23pkg" \| grep -q '<html'` → succeeds | NOT MET |
-| plan-61-D complete | `grep -q SECTION_PACKAGE_META src/binary_repr/mod.rs` → found | NOT MET |
+| plan-61-C complete | `curl -sf "$REPO/p/alice%23pkg" \| grep -q '<html'` → succeeds | **MET** (2026-07-21): C is archived to `planning/old-plans/`; its own runtime proof ran exactly this request against a live `mfb-repo` and got a full HTML page. |
+| plan-61-D complete | `grep -q SECTION_PACKAGE_META src/binary_repr/mod.rs` → found | **MET** (2026-07-21, re-run): found. D is archived; `49a710136`. |
 
 ## 1. Goal
 
@@ -80,60 +80,80 @@ failure, and the backfill must not log it as an error.
 
 ### Phase 1 — Ingest and expose
 
-- [ ] In the publish path (`repository/src/server.rs`, near the author/url write
+- [x] In the publish path (`repository/src/server.rs`, near the author/url write
       from plan-61-A Phase 3), parse section 18 and persist
       `package_versions.description`.
-- [ ] Populate `description` in `PackageDetailResponse` (latest version's value)
+- [x] Populate `description` in `PackageDetailResponse` (latest version's value)
       and in `SearchResponse` results, clamped to a preview length. Define the
       clamp as a named constant next to the existing caps.
-- [ ] Extend `mfb-repo backfill-metadata` to fill `description` from stored
+- [x] Extend `mfb-repo backfill-metadata` to fill `description` from stored
       blobs; absence of section 18 is a normal outcome, not a skip-with-warning.
-- [ ] Tests: publish with a description → persisted and returned; publish without
+- [x] Tests: publish with a description → persisted and returned; publish without
       one → `null`, and the response still validates; backfill populates
       descriptions for pre-existing versions and leaves pre-plan-61-D packages
       NULL without logging an error.
 
-Acceptance: `curl -s "$REPO/packages/alice%23pkg" | grep description` shows the
-published text, and a package published before plan-61-D returns `null`.
+Acceptance: **MET**, and verified over real HTTP. Against a live `mfb-repo`
+holding a `.mfp` built by a real `mfb build`:
+`curl /packages/alice%23toolbox` returns
+`"description":"Zygomorphic layout primitives with native BLAS kernels."`.
+`a_description_reaches_the_json_and_the_page` covers the null case: a package
+with no description reports `null` and its page renders the
+"No description provided." placeholder — asserted with
+`!body.contains("None")`, so a stray `Option` rendering would fail it.
+`backfill_fills_descriptions_and_stays_quiet_about_packages_that_have_none`
+pins the §3 rule: a blob with no section 18 leaves NULL and is **not** counted
+or logged as a skip.
 Commit: —
 
 ### Phase 2 — Search on description
 
-- [ ] Add description matching to `store.search_packages`, ranked **below** ident
+- [x] Add description matching to `store.search_packages`, ranked **below** ident
       and owner matches per `plan-61-B-read-endpoints.md` §3.
-- [ ] Tests: a package findable only by a word in its description is returned; an
+- [x] Tests: a package findable only by a word in its description is returned; an
       ident match still outranks a description match for the same query.
 
-Acceptance: searching a distinctive word that appears only in a package's
-description returns that package, ranked below any ident match for the same
-query.
+Acceptance: **MET.** Live: `curl "/search?q=zygomorphic"` — a word appearing
+only in the description — returns `alice#toolbox`.
+`search_matches_descriptions_but_ranks_them_below_idents` also pins the ranking
+with a term that is one package's *ident* and another's *description*, and
+asserts the ident-matching package comes first.
 Commit: —
 
 ### Phase 3 — Render
 
-- [ ] Render the description on the package page and the clamped preview in
+- [x] Render the description on the package page and the clamped preview in
       search results, through the auto-escaping template path from
       plan-61-C Phase 1.
-- [ ] Tests: **extend plan-61-C's XSS regression test** to cover description —
+- [x] Tests: **extend plan-61-C's XSS regression test** to cover description —
       publish a fixture whose description is `<img src=x onerror=alert(1)>` and
       assert the page renders it as visible inert text with no `onerror`
       attribute in the output.
-- [ ] Tests: a package with no description renders the page without an empty
+- [x] Tests: a package with no description renders the page without an empty
       section or a stray "None".
 
-Acceptance: the extended XSS regression test passes, and a real package's
-description is visible on its page in a browser with JavaScript disabled.
+Acceptance: **MET.** The plan-61-C XSS fixture now carries
+`description: <img src=x onerror=alert('desc')>` alongside the hostile author
+and url, and `a_hostile_author_and_url_render_inert` asserts it renders as
+visible escaped text with no `<img` in the output. Live, the real description
+renders in both places — `pkg-desc">Zygomorphic layout primitives…` on the
+package page and `result__desc">…` in search results — on pages that contain no
+script at all, so JavaScript being disabled changes nothing.
 Commit: —
 
 ### Phase 4 — Spec sync
 
-- [ ] Update the response shapes in
+- [x] Update the response shapes in
       `src/docs/spec/package-manager/01_repository-protocol.md` to show
       `description` as populated, and document the search-preview clamp.
-- [ ] Verify: `cargo test --bin mfb spec`; `mfb spec package-manager --all`
+- [x] Verify: `cargo test --bin mfb spec`; `mfb spec package-manager --all`
       renders with no leaked `[[` markers.
 
-Acceptance: `cargo test --bin mfb spec` passes.
+Acceptance: **MET** — `cargo test --bin mfb spec` → 48 passed, 0 failed;
+`mfb spec package-manager --all` renders with 0 leaked `[[` markers. The topic
+now records that `description` comes from the signed artifact rather than the
+publish request, the below-ident search ranking, the newest-version scoping, and
+the 200-character preview clamp.
 Commit: —
 
 ## Validation Plan
@@ -156,4 +176,17 @@ Commit: —
 
 ## Corrections
 
-- *(none yet)*
+- **Description search is scoped to the newest version.** §2 says the *displayed*
+  description is the latest version's but does not say which versions `/search`
+  matches against. Matching any version would keep a package findable by a word
+  its current release no longer contains — a stale-index behaviour a user would
+  read as a bug. The `EXISTS` subquery selects the newest version explicitly.
+- **The runtime proof used a purpose-built package, not `bindings/sqlite3`.**
+  Same reason as plan-61-D's: `bindings/sqlite3` and `bindings/libsnd` are
+  modified in the working tree by another agent, and editing a file someone else
+  is mid-edit on is how work gets lost. The proof is unweakened — it ran a real
+  `mfb build`, a real `mfb-repo backfill-metadata`, and real `curl`s against a
+  live server.
+- **`PublishMetadata` gained the field rather than the signature growing.** The
+  struct introduced in plan-61-A Phase 3 was created for exactly this: E adds
+  `description` to it and no call site's arity changes.

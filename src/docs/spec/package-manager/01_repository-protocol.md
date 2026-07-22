@@ -131,6 +131,20 @@ why `/packages/<ident>/audit` returns an **inclusion proof** per publish rather
 than a bare log index. A rendered index nobody can verify proves
 nothing.[[repository/src/server.rs:package_audit]]
 
+**`description` is populated from the artifact, never from the request.** It is
+read out of MFPC section 18 inside the signed payload (see the `package-meta-section`
+topic), so the registry renders a string the publisher actually signed. A package
+published before that section existed simply carries none and reports `null`,
+which is a normal state rather than a failure — `mfb-repo backfill-metadata`
+leaves such a version NULL without counting it as a skip. `/search` matches
+description text as well, ranked **below** ident and owner matches, and scoped to
+the newest version so an old release's wording cannot keep a package findable by
+a word its current release no longer contains. A search result carries the
+description clamped to **200 characters** (on a character boundary — the text is
+UTF-8) with an ellipsis; the package detail route returns it in full. Without
+that clamp a single 50-result page could carry 50 × 4096 bytes on an anonymous
+route.[[repository/src/server.rs:description_preview]]
+
 `/search` is the only route here that does real query work per request, so it
 carries a per-**IP** sliding-window cap (the `REGISTER_PER_IP_MAX` /
 `LOGIN_PER_IP_MAX` precedent; an anonymous route has no owner to key on).
