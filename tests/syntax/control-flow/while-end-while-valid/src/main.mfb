@@ -1,0 +1,33 @@
+IMPORT io
+
+SUB main()
+  MUT x AS Integer = 0
+  WHILE x < 3
+    x = x + 1
+  END WHILE
+  io::print("multi=" & toString(x))
+
+  MUT y AS Integer = 0
+  WHILE y < 2 : y = y + 1 : END WHILE
+  io::print("single=" & toString(y))
+
+  MUT outer AS Integer = 0
+  MUT total AS Integer = 0
+  WHILE outer < 2
+    MUT inner AS Integer = 0
+    WHILE inner < 3
+      inner = inner + 1
+      IF inner = 2 THEN CONTINUE WHILE
+      total = total + 1
+    END WHILE
+    outer = outer + 1
+  END WHILE
+  io::print("nested=" & toString(total))
+
+  MUT z AS Integer = 0
+  WHILE TRUE
+    z = z + 1
+    IF z >= 4 THEN EXIT WHILE
+  END WHILE
+  io::print("exit=" & toString(z))
+END SUB

@@ -674,11 +674,16 @@ impl<'a> FileParser<'a> {
         let condition = self.parse_expression()?;
         self.consume_statement_end("Expected end of statement after WHILE header.");
         self.skip_separators();
-        let body = self.parse_statement_block(&[BlockTerminator::Wend]);
-        if !self.consume_keyword(Keyword::Wend, "WHILE block must end with WEND.") {
+        let body =
+            self.parse_statement_block(&[BlockTerminator::EndWhile, BlockTerminator::Wend]);
+        // Transitional (bug-357): `WEND` is still accepted while the tree
+        // migrates to `END WHILE`; it is removed in the final phase.
+        if self.check_keyword(Keyword::Wend) {
+            self.advance();
+            self.consume_statement_end("Expected end of statement after WEND.");
+        } else if !self.consume_end_block(Keyword::While, "WHILE block must end with END WHILE.") {
             return None;
         }
-        self.consume_statement_end("Expected end of statement after WEND.");
         Some(Statement::While {
             kind: LoopKind::While,
             condition,
@@ -790,6 +795,7 @@ impl<'a> FileParser<'a> {
             BlockTerminator::ElseIf => self.check_keyword(Keyword::ElseIf),
             BlockTerminator::EndIf => self.is_end_block(Keyword::If),
             BlockTerminator::EndMatch => self.is_end_block(Keyword::Match),
+            BlockTerminator::EndWhile => self.is_end_block(Keyword::While),
             BlockTerminator::Loop => self.check_keyword(Keyword::Loop),
             BlockTerminator::Next => self.check_keyword(Keyword::Next),
             BlockTerminator::Wend => self.check_keyword(Keyword::Wend),

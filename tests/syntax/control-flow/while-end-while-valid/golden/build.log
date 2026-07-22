@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/syntax/control-flow/while-end-while-valid
+Wrote AST to tests/syntax/control-flow/while-end-while-valid/while_end_while_valid.ast
+Wrote IR to tests/syntax/control-flow/while-end-while-valid/while_end_while_valid.ir
+[exit 0]
+$ mfb build tests/syntax/control-flow/while-end-while-valid
+Wrote executable to tests/syntax/control-flow/while-end-while-valid/build/while_end_while_valid.out
+[exit 0]
+$ tests/syntax/control-flow/while-end-while-valid/build/while_end_while_valid.out
+multi=3
+single=2
+nested=4
+exit=4
+[exit 0]

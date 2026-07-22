@@ -896,6 +896,20 @@ mod tests {
         assert_eq!(fmt(input), expected);
     }
 
+    /// bug-357: the `WHILE` in `END WHILE` names the block being closed, not a
+    /// new opener — otherwise the closer line nets to open and every line after
+    /// it indents one level too deep.
+    #[test]
+    fn end_while_closes_the_block_without_reopening() {
+        let input = "SUB s()\nWHILE go\nwork()\nEND WHILE\nlet after = 1\nEND SUB\n";
+        let expected = "SUB s()\n  WHILE go\n    work()\n  END WHILE\n  LET after = 1\nEND SUB\n";
+        assert_eq!(fmt(input), expected);
+        assert_eq!(fmt(expected), expected);
+        // The single-line form round-trips on one line, netting to zero.
+        let single = "WHILE FALSE : work() : END WHILE\nLET after = 1\n";
+        assert_eq!(fmt(single), single);
+    }
+
     /// bug-348: `TESTING`, `TGROUP` and `TCASE` open real, nestable blocks, but
     /// `classify` had no arm for `TESTING` and the other two are contextual
     /// identifiers that never scan as keywords -- so nothing was pushed while the

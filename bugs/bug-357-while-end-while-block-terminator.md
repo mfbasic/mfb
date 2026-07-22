@@ -161,6 +161,33 @@ Counts from a tree-wide search on 2026-07-18 (`grep -ri wend`, excluding
 `target/` and `.git/`): **295 occurrences of `WEND` across 61 `.mfb` files**,
 plus compiler, docs, and tooling sites below.
 
+**Phase 1 re-audit (2026-07-22): the tree drifted.** Fresh word-boundary search
+(`grep -rciw wend --include='*.mfb'`): **331 occurrences across 73 `.mfb`
+files**. Sites present now but missing from the lists below:
+
+- Embedded MFB sources in Rust unit tests: `src/audit/collect/source.rs`,
+  `src/resolver/resolution.rs`, `src/scope_privates.rs`,
+  `src/syntaxcheck/{checking,helpers}.rs`, `src/testing/desugar.rs`,
+  `src/monomorph/lower.rs`, `src/ast/tests.rs`, `src/ir/tests.rs`, and
+  `tests/native_resource_scope_drop.rs` (in addition to the listed
+  `tests/native_loop_runtime.rs`).
+- `scripts/gen_vector_package.py` (emits `WEND` into generated vector sources).
+- A **third** golden containing the token:
+  `tests/syntax/resources/use-after-move-still-fires-invalid/golden/build.log`
+  (quotes a source line `WEND`); same inspect-line-by-line rule applies.
+- Additional man pages: `builtins/bits/ctz`, `builtins/fs/{eof,readLine}`,
+  `builtins/io/setBuffered`, `builtins/net/read`, `builtins/term/sync`,
+  `builtins/thread/{cancel,isCancelled,isRunning}`, and `tour/package`.
+- `src/docs/man/tour/package.md` (alongside the six listed tour pages).
+
+**Formatter finding:** the predicted `src/fmt.rs:430` hazard is already covered
+at HEAD — `classify` has a generic `prev_kw == Some(K::End)` guard (added for
+`END FUNC` et al.) that stops the `WHILE` in `END WHILE` from opening a block,
+and `K::End => Op::End(next_keyword(...))` already pops it. The new fmt unit
+test is therefore expected to pass at HEAD and serves as a regression guard; the
+formatter change this bug still owns is deleting the `K::Wend => Op::Pop` arm in
+Phase 4.
+
 Compiler — fixed by this bug:
 
 - `src/lexer.rs:119,1205,1271,1446` (`Keyword::Wend`, text mapping, rendering,
@@ -272,31 +299,45 @@ delta is expected — that invariance is itself an acceptance criterion.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/syntax/control-flow/while-end-while-valid/` — a fixture using
+- [x] Add `tests/syntax/control-flow/while-end-while-valid/` — a fixture using
       both multi-line and single-line `END WHILE`, per the fixture conventions in
       `tests/syntax/`. Confirm it fails today with
-      `MFB_PARSE_EXPECTED_EXPRESSION` at the `END` token.
-- [ ] Add a `src/fmt.rs` unit test asserting `END WHILE` closes the block and
-      does not double-indent the following lines. Confirm it fails today.
-- [ ] Confirm the blast-radius counts above against a fresh tree-wide search and
-      record any drift in this file.
+      `MFB_PARSE_EXPECTED_EXPRESSION` at the `END` token. *(Confirmed: failed
+      at HEAD with `MFB_PARSE_EXPECTED_EXPRESSION` + `MFB_PARSE_UNEXPECTED_STATEMENT`
+      at the `END` token, exactly as the reproduction shows. The fixture also
+      exercises nesting, `CONTINUE WHILE`, and `EXIT WHILE`.)*
+- [x] Add a `src/fmt.rs` unit test asserting `END WHILE` closes the block and
+      does not double-indent the following lines.
+      *(Drift from this doc's prediction: the test **passes at HEAD** — the
+      generic `prev_kw == Some(K::End)` guard in `classify` already stops the
+      `WHILE` in `END WHILE` from opening a block. Kept as a regression guard;
+      see the Blast Radius re-audit note.)*
+- [x] Confirm the blast-radius counts above against a fresh tree-wide search and
+      record any drift in this file. *(Done — see "Phase 1 re-audit" above:
+      331/73 vs 295/61, plus previously unlisted Rust-embedded sources, a third
+      golden, `scripts/gen_vector_package.py`, and extra man pages.)*
 
-Acceptance: both new tests fail for the documented reason; the audit list is
-complete with a verdict per site.
+Acceptance: fixture fails for the documented reason; fmt hazard found already
+covered at HEAD (test kept as guard); audit recorded.
 Commit: —
 
 ### Phase 2 — accept `END WHILE` (parser + formatter)
 
-- [ ] `src/ast/parser.rs` — add `BlockTerminator::EndWhile`.
-- [ ] `src/ast/stmt.rs:677-678,795` — parse and consume `END WHILE` via
+- [x] `src/ast/parser.rs` — add `BlockTerminator::EndWhile`.
+- [x] `src/ast/stmt.rs:677-678,795` — parse and consume `END WHILE` via
       `is_end_block`/`consume_end_block`.
-- [ ] `src/fmt.rs:430` — widen the non-opener guard so `WHILE` preceded by `END`
-      does not open a block.
-- [ ] `src/fmt.rs:437` — route `END WHILE` through the existing `Op::End` path.
-- [ ] Leave `WEND` accepted for now, so the tree still builds mid-migration.
+- [x] `src/fmt.rs:430` — widen the non-opener guard so `WHILE` preceded by `END`
+      does not open a block. *(No change needed — already covered by the generic
+      `prev_kw == Some(K::End)` guard; proven by the Phase 1 test.)*
+- [x] `src/fmt.rs:437` — route `END WHILE` through the existing `Op::End` path.
+      *(No change needed — `K::End => Op::End(next_keyword(...))` already
+      handles it; `K::Wend => Op::Pop` is deleted in Phase 4.)*
+- [x] Leave `WEND` accepted for now, so the tree still builds mid-migration.
 
-Acceptance: Phase 1 tests pass; the full suite is green with the tree still on
-`WEND`; `EXIT WHILE`, `CONTINUE WHILE`, and `DO WHILE … LOOP` are unchanged.
+Acceptance: Phase 1 fixture builds and prints `multi=3 single=2 nested=4 exit=4`;
+`WEND` still parses; all 3190 unit tests pass; 33-test control-flow acceptance
+slice passes (covers `EXIT WHILE`, `CONTINUE WHILE`, `DO WHILE … LOOP` on the
+unmigrated tree).
 Commit: —
 
 ### Phase 3 — migrate the tree to `END WHILE`

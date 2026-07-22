@@ -51,6 +51,7 @@ pub(super) enum BlockTerminator {
     ElseIf,
     EndIf,
     EndMatch,
+    EndWhile,
     Loop,
     Next,
     Wend,
