@@ -4081,4 +4081,2692 @@ mod tests {
             .unwrap_err()
             .contains("expired or malformed"));
     }
+
+    // -----------------------------------------------------------------------
+    // bug-347: coverage for the handler surface the tests above leave untouched
+    // — the anonymous endpoints (health/ident/register/challenge/login), the
+    // machine-link and revocation flows, the signed-metadata chain, and every
+    // rejection branch of the authenticated routes.
+    // -----------------------------------------------------------------------
+
+    /// One temp-dir-backed registry: the store, a local blob backend, and the
+    /// `AppState` the handlers take.
+    struct Harness {
+        _temp: tempfile::TempDir,
+        store: Store,
+        state: AppState,
+        packages_dir: std::path::PathBuf,
+    }
+
+    fn harness() -> Harness {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store.clone();
+        let state = AppState {
+            store: opened.store,
+            blob_store: BlobStore::local(opened.packages_dir.clone()),
+            rate_limiter: RateLimiter::new(),
+        };
+        Harness {
+            _temp: temp,
+            store,
+            state,
+            packages_dir: opened.packages_dir,
+        }
+    }
+
+    fn peer(ip: &str) -> ConnectInfo<SocketAddr> {
+        ConnectInfo(format!("{ip}:40000").parse().unwrap())
+    }
+
+    /// The (status, message) of an expected error response.
+    fn err_of<T>(result: Result<T, (StatusCode, Json<ErrorResponse>)>) -> (StatusCode, String) {
+        let (status, body) = result
+            .map(|_| ())
+            .err()
+            .expect("expected an error response");
+        (status, body.0.error)
+    }
+
+    fn bearer_headers(token: &str) -> axum::http::HeaderMap {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        headers
+    }
+
+    /// A base64url string that is not valid base64url, for the decode branches.
+    const NOT_BASE64: &str = "not base64!";
+
+    #[tokio::test]
+    async fn health_and_ident_endpoints_report_the_registry_key() {
+        let h = harness();
+        assert!(health().await.0.ok);
+
+        let ident = server_ident(State(h.state)).await.expect("ident served").0;
+        let expected = h.store.server_public_key().unwrap();
+        assert_eq!(
+            crypto::decode_bytes(&ident.server_key, "serverKey").unwrap(),
+            expected,
+        );
+        assert_eq!(ident.server_fingerprint, crypto::fingerprint(&expected));
+        // The published key is the one attestations are signed with, so a
+        // client that pins it can verify /signing output.
+        let (keypair_public, _private) = h.store.server_keypair().unwrap();
+        assert_eq!(keypair_public, expected);
+    }
+
+    fn registration_payload(owner: &str) -> (RegisterRequest, Vec<u8>, Vec<u8>) {
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let auth_proof = crypto::sign(
+            &auth_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public),
+        )
+        .unwrap();
+        let ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, owner, &ident_public),
+        )
+        .unwrap();
+        (
+            RegisterRequest {
+                owner: owner.to_string(),
+                auth_key: crypto::encode_bytes(&auth_public),
+                ident_key: crypto::encode_bytes(&ident_public),
+                proofs: RegisterProofs {
+                    auth: crypto::encode_bytes(&auth_proof),
+                    ident: crypto::encode_bytes(&ident_proof),
+                },
+            },
+            auth_public,
+            ident_public,
+        )
+    }
+
+    #[tokio::test]
+    async fn register_handler_creates_the_account_and_rejects_bad_keys() {
+        let h = harness();
+        let (request, auth_public, ident_public) = registration_payload("alice");
+        let response = register(State(h.state.clone()), peer("127.0.0.1"), Json(request))
+            .await
+            .expect("registration accepted")
+            .0;
+        assert_eq!(response.owner, "alice");
+        assert_eq!(response.auth_fingerprint, crypto::fingerprint(&auth_public));
+        assert_eq!(
+            response.ident_fingerprint,
+            crypto::fingerprint(&ident_public)
+        );
+        // The account really landed, bound to the ident key it named.
+        let (owner, ident_key) = h.store.owner_with_ident_key("alice").unwrap().unwrap();
+        assert_eq!(owner.owner_display, "alice");
+        assert_eq!(ident_key.public_key, ident_public);
+
+        // Re-registering a taken name is a 409, not a 400 and not a silent
+        // takeover of the existing account's keys.
+        let (again, _, _) = registration_payload("alice");
+        let (status, message) =
+            err_of(register(State(h.state.clone()), peer("127.0.0.2"), Json(again)).await);
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(message.contains("already in use"), "{message}");
+        assert_eq!(
+            h.store
+                .owner_with_ident_key("alice")
+                .unwrap()
+                .unwrap()
+                .1
+                .public_key,
+            ident_public,
+        );
+
+        // Every base64 field is decoded, and the diagnostic names which one.
+        for (field, index) in [
+            ("authKey", 0usize),
+            ("identKey", 1),
+            ("auth proof", 2),
+            ("ident proof", 3),
+        ] {
+            let (mut request, _, _) = registration_payload("carol");
+            match index {
+                0 => request.auth_key = NOT_BASE64.to_string(),
+                1 => request.ident_key = NOT_BASE64.to_string(),
+                2 => request.proofs.auth = NOT_BASE64.to_string(),
+                _ => request.proofs.ident = NOT_BASE64.to_string(),
+            }
+            let (status, message) =
+                err_of(register(State(h.state.clone()), peer("127.0.0.3"), Json(request)).await);
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(message, format!("malformed {field}"));
+        }
+
+        // Role separation: a proof made for the ident role cannot stand in as
+        // the auth proof (and vice versa), so one leaked proof is not two.
+        let (mut swapped, _, _) = registration_payload("dave");
+        std::mem::swap(&mut swapped.proofs.auth, &mut swapped.proofs.ident);
+        let (status, message) =
+            err_of(register(State(h.state.clone()), peer("127.0.0.4"), Json(swapped)).await);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(message.contains("proof-of-possession"), "{message}");
+        assert!(h.store.owner_with_ident_key("dave").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn challenge_handler_issues_a_nonce_and_refuses_unknown_owners() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let auth_public = crypto::public_from_private(&keys.auth_private).unwrap();
+
+        let (status, message) = err_of(
+            challenge(
+                State(h.state.clone()),
+                Json(ChallengeRequest {
+                    owner: "nobody".to_string(),
+                    auth_fingerprint: String::new(),
+                }),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(message, "unknown owner");
+
+        let issued = challenge(
+            State(h.state.clone()),
+            Json(ChallengeRequest {
+                owner: "alice".to_string(),
+                auth_fingerprint: crypto::fingerprint(&auth_public),
+            }),
+        )
+        .await
+        .expect("challenge issued")
+        .0;
+        assert!(!issued.challenge_id.is_empty());
+        assert_eq!(
+            crypto::decode_bytes(&issued.nonce, "nonce").unwrap().len(),
+            32,
+        );
+        assert!(issued.expires_at > now_unix());
+
+        // A challenge is bound to one specific machine key: an unknown
+        // fingerprint gets no nonce to sign.
+        let (status, _) = err_of(
+            challenge(
+                State(h.state),
+                Json(ChallengeRequest {
+                    owner: "alice".to_string(),
+                    auth_fingerprint: crypto::fingerprint(&crypto::generate_keypair().0),
+                }),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn login_handler_mints_a_verifiable_session_and_refuses_replay() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let auth_public = crypto::public_from_private(&keys.auth_private).unwrap();
+        let fingerprint = crypto::fingerprint(&auth_public);
+
+        let issued = challenge(
+            State(h.state.clone()),
+            Json(ChallengeRequest {
+                owner: "alice".to_string(),
+                auth_fingerprint: fingerprint.clone(),
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        let nonce = crypto::decode_bytes(&issued.nonce, "nonce").unwrap();
+        let signature = crypto::sign(
+            &keys.auth_private,
+            &crypto::challenge_message(&issued.challenge_id, &nonce),
+        )
+        .unwrap();
+
+        // A malformed signature is a 400 and never reaches the store.
+        let (status, message) = err_of(
+            login(
+                State(h.state.clone()),
+                peer("10.0.0.1"),
+                Json(LoginRequest {
+                    challenge_id: issued.challenge_id.clone(),
+                    signature: NOT_BASE64.to_string(),
+                }),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(message, "malformed signature");
+
+        // A signature by the wrong key does not open a session.
+        let (other_public, other_private) = crypto::generate_keypair();
+        let _ = other_public;
+        let wrong = crypto::sign(
+            &other_private,
+            &crypto::challenge_message(&issued.challenge_id, &nonce),
+        )
+        .unwrap();
+        let (status, _) = err_of(
+            login(
+                State(h.state.clone()),
+                peer("10.0.0.1"),
+                Json(LoginRequest {
+                    challenge_id: issued.challenge_id.clone(),
+                    signature: crypto::encode_bytes(&wrong),
+                }),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let before = now_unix();
+        let session = login(
+            State(h.state.clone()),
+            peer("10.0.0.1"),
+            Json(LoginRequest {
+                challenge_id: issued.challenge_id.clone(),
+                signature: crypto::encode_bytes(&signature),
+            }),
+        )
+        .await
+        .expect("login succeeds")
+        .0;
+        assert_eq!(session.owner, "alice");
+        assert!(session.expires_at >= before + 3600);
+        let claims = verify_session_token(&h.store, &session.session_token)
+            .expect("the minted token is a live session");
+        assert_eq!(claims.sub, "alice");
+        assert_eq!(claims.auth_fingerprint, fingerprint);
+        assert_eq!(claims.iss, SESSION_TOKEN_ISSUER);
+        assert_eq!(claims.aud, SESSION_TOKEN_AUDIENCE);
+        assert_eq!(claims.exp, session.expires_at);
+
+        // A challenge is single-use: replaying the same signed nonce is a 409,
+        // so a captured login cannot be replayed for a second session.
+        let (status, message) = err_of(
+            login(
+                State(h.state),
+                peer("10.0.0.1"),
+                Json(LoginRequest {
+                    challenge_id: issued.challenge_id,
+                    signature: crypto::encode_bytes(&signature),
+                }),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert!(message.contains("reused challenge"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn login_is_throttled_per_client_ip() {
+        let h = harness();
+        // The gate runs before signature decoding, so malformed attempts still
+        // spend the abuser's own bucket — and only their own.
+        let attempt = |ip: &'static str| {
+            login(
+                State(h.state.clone()),
+                peer(ip),
+                Json(LoginRequest {
+                    challenge_id: "no-such-challenge".to_string(),
+                    signature: NOT_BASE64.to_string(),
+                }),
+            )
+        };
+        let mut last = StatusCode::OK;
+        for _ in 0..(LOGIN_PER_IP_MAX + 1) {
+            last = err_of(attempt("10.1.1.1").await).0;
+        }
+        assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(err_of(attempt("10.1.1.2").await).0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn machine_link_relays_an_opaque_blob_exactly_once() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        register_owner_with_all_keys(&h.store, "bob");
+
+        let code = crypto::generate_pairing_code();
+        let lookup = crypto::pairing_lookup(&code);
+        // The relayed ciphertext is opaque to the server: assert it comes back
+        // byte-identical rather than re-deriving it here.
+        let blob = vec![7u8; 128];
+        let salt = vec![9u8; 16];
+        let good_blob = crypto::encode_bytes(&blob);
+        let good_salt = crypto::encode_bytes(&salt);
+        let start =
+            |owner: &str, session: &str, lookup: &str, blob: &str, salt: &str| LinkStartRequest {
+                owner: owner.to_string(),
+                lookup: lookup.to_string(),
+                blob: blob.to_string(),
+                salt: salt.to_string(),
+                session_token: session.to_string(),
+            };
+
+        // An anonymous caller cannot park a blob on an account.
+        assert_eq!(
+            err_of(
+                link_start(
+                    State(h.state.clone()),
+                    Json(start("alice", "bad.token", &lookup, &good_blob, &good_salt)),
+                )
+                .await
+            )
+            .1,
+            "expired or malformed session token",
+        );
+        // Nor can alice's session park one on bob.
+        assert_eq!(
+            err_of(
+                link_start(
+                    State(h.state.clone()),
+                    Json(start("bob", &token, &lookup, &good_blob, &good_salt)),
+                )
+                .await
+            )
+            .1,
+            "session owner does not match requested owner",
+        );
+        for bad_lookup in ["short", &"A".repeat(64)] {
+            assert_eq!(
+                err_of(
+                    link_start(
+                        State(h.state.clone()),
+                        Json(start("alice", &token, bad_lookup, &good_blob, &good_salt)),
+                    )
+                    .await
+                )
+                .1,
+                "malformed pairing lookup",
+                "{bad_lookup}",
+            );
+        }
+        assert_eq!(
+            err_of(
+                link_start(
+                    State(h.state.clone()),
+                    Json(start("alice", &token, &lookup, NOT_BASE64, &good_salt)),
+                )
+                .await
+            )
+            .1,
+            "malformed blob",
+        );
+        assert_eq!(
+            err_of(
+                link_start(
+                    State(h.state.clone()),
+                    Json(start("alice", &token, &lookup, &good_blob, NOT_BASE64)),
+                )
+                .await
+            )
+            .1,
+            "malformed salt",
+        );
+        // Size bounds: an empty blob and an oversized one are both refused, so
+        // the relay cannot be used as free storage.
+        for bad in [Vec::new(), vec![0u8; 4097]] {
+            assert_eq!(
+                err_of(
+                    link_start(
+                        State(h.state.clone()),
+                        Json(start(
+                            "alice",
+                            &token,
+                            &lookup,
+                            &crypto::encode_bytes(&bad),
+                            &good_salt,
+                        )),
+                    )
+                    .await
+                )
+                .1,
+                "malformed pairing blob",
+            );
+        }
+
+        let started = link_start(
+            State(h.state.clone()),
+            Json(start("alice", &token, &lookup, &good_blob, &good_salt)),
+        )
+        .await
+        .expect("pairing blob stored")
+        .0;
+        assert_eq!(started.owner, "alice");
+        assert!(started.expires_at > now_unix());
+
+        let (new_public, new_private) = crypto::generate_keypair();
+        let proof = crypto::encode_bytes(
+            &crypto::sign(
+                &new_private,
+                &crypto::registration_message(crypto::ROLE_AUTH, "alice", &new_public),
+            )
+            .unwrap(),
+        );
+        let key = crypto::encode_bytes(&new_public);
+        let fetch = |owner: &str, lookup: &str, auth_key: &str, proof: &str| LinkFetchRequest {
+            owner: owner.to_string(),
+            lookup: lookup.to_string(),
+            auth_key: auth_key.to_string(),
+            proof: proof.to_string(),
+        };
+
+        assert_eq!(
+            err_of(
+                link_fetch(
+                    State(h.state.clone()),
+                    Json(fetch("alice", &lookup, NOT_BASE64, &proof)),
+                )
+                .await
+            )
+            .1,
+            "malformed authKey",
+        );
+        assert_eq!(
+            err_of(
+                link_fetch(
+                    State(h.state.clone()),
+                    Json(fetch("alice", &lookup, &key, NOT_BASE64)),
+                )
+                .await
+            )
+            .1,
+            "malformed proof",
+        );
+        assert_eq!(
+            err_of(
+                link_fetch(
+                    State(h.state.clone()),
+                    Json(fetch("nobody", &lookup, &key, &proof)),
+                )
+                .await
+            )
+            .1,
+            "unknown owner",
+        );
+        // A proof-of-possession bound to a different account name does not
+        // unlock this one (the message is owner-scoped).
+        let bob_proof = crypto::encode_bytes(
+            &crypto::sign(
+                &new_private,
+                &crypto::registration_message(crypto::ROLE_AUTH, "bob", &new_public),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            err_of(
+                link_fetch(
+                    State(h.state.clone()),
+                    Json(fetch("alice", &lookup, &key, &bob_proof)),
+                )
+                .await
+            )
+            .1,
+            "invalid auth proof-of-possession signature",
+        );
+        // A wrong code finds nothing — and crucially does not burn the pending
+        // pairing, which the successful fetch below proves.
+        assert_eq!(
+            err_of(
+                link_fetch(
+                    State(h.state.clone()),
+                    Json(fetch("alice", &"b".repeat(64), &key, &proof)),
+                )
+                .await
+            )
+            .1,
+            "unknown, used, or expired pairing code",
+        );
+
+        let fetched = link_fetch(
+            State(h.state.clone()),
+            Json(fetch("alice", &lookup, &key, &proof)),
+        )
+        .await
+        .expect("pairing relayed")
+        .0;
+        assert_eq!(fetched.owner, "alice");
+        assert_eq!(crypto::decode_bytes(&fetched.blob, "blob").unwrap(), blob);
+        assert_eq!(crypto::decode_bytes(&fetched.salt, "salt").unwrap(), salt);
+        assert_eq!(fetched.auth_fingerprint, crypto::fingerprint(&new_public));
+
+        // The new machine's key is now a first-class credential on the account.
+        let new_session =
+            open_session_for_key(&h.store, "alice", &new_private, &fetched.auth_fingerprint);
+        assert_eq!(
+            verify_session_token(&h.store, &new_session).unwrap().sub,
+            "alice",
+        );
+        // And the blob is single-use — a second fetch gets nothing.
+        assert_eq!(
+            err_of(link_fetch(State(h.state), Json(fetch("alice", &lookup, &key, &proof)),).await)
+                .1,
+            "unknown, used, or expired pairing code",
+        );
+    }
+
+    #[tokio::test]
+    async fn machine_revocation_is_ident_authorized_and_kills_the_session() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let auth_public = crypto::public_from_private(&keys.auth_private).unwrap();
+        let fingerprint = crypto::fingerprint(&auth_public);
+
+        assert_eq!(
+            err_of(
+                revoke_challenge(
+                    State(h.state.clone()),
+                    Json(RevokeChallengeRequest {
+                        owner: "nobody".to_string(),
+                    }),
+                )
+                .await
+            )
+            .1,
+            "unknown owner",
+        );
+
+        // A fresh ident challenge per attempt: a failed attempt must not be
+        // able to reuse a nonce.
+        let new_challenge = |state: AppState| async move {
+            revoke_challenge(
+                State(state),
+                Json(RevokeChallengeRequest {
+                    owner: "alice".to_string(),
+                }),
+            )
+            .await
+            .expect("ident challenge issued")
+            .0
+        };
+
+        let issued = new_challenge(h.state.clone()).await;
+        assert!(issued.expires_at > now_unix());
+        assert_eq!(
+            err_of(
+                revoke_machine(
+                    State(h.state.clone()),
+                    Json(RevokeRequest {
+                        challenge_id: issued.challenge_id.clone(),
+                        auth_fingerprint: fingerprint.clone(),
+                        ident_signature: NOT_BASE64.to_string(),
+                    }),
+                )
+                .await
+            )
+            .1,
+            "malformed identSignature",
+        );
+
+        // The AUTH key is a live credential but NOT the revocation authority:
+        // signing the revocation with it is refused (plan-23 §3.6).
+        let issued = new_challenge(h.state.clone()).await;
+        let nonce = crypto::decode_bytes(&issued.nonce, "nonce").unwrap();
+        let by_auth = crypto::sign(
+            &keys.auth_private,
+            &crypto::revocation_message(&issued.challenge_id, &nonce, &fingerprint),
+        )
+        .unwrap();
+        let (status, _) = err_of(
+            revoke_machine(
+                State(h.state.clone()),
+                Json(RevokeRequest {
+                    challenge_id: issued.challenge_id,
+                    auth_fingerprint: fingerprint.clone(),
+                    ident_signature: crypto::encode_bytes(&by_auth),
+                }),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            verify_session_token(&h.store, &token).is_ok(),
+            "a refused revocation must leave the session alone",
+        );
+
+        // An ident-signed revocation of a fingerprint that is not a current
+        // auth key is reported rather than silently accepted.
+        let issued = new_challenge(h.state.clone()).await;
+        let nonce = crypto::decode_bytes(&issued.nonce, "nonce").unwrap();
+        let stranger = crypto::fingerprint(&crypto::generate_keypair().0);
+        let signature = crypto::sign(
+            &keys.ident_private,
+            &crypto::revocation_message(&issued.challenge_id, &nonce, &stranger),
+        )
+        .unwrap();
+        assert_eq!(
+            err_of(
+                revoke_machine(
+                    State(h.state.clone()),
+                    Json(RevokeRequest {
+                        challenge_id: issued.challenge_id,
+                        auth_fingerprint: stranger,
+                        ident_signature: crypto::encode_bytes(&signature),
+                    }),
+                )
+                .await
+            )
+            .1,
+            "no current auth key with that fingerprint",
+        );
+
+        // The happy path: the ident key revokes the machine, and the machine's
+        // live session dies with it.
+        let issued = new_challenge(h.state.clone()).await;
+        let nonce = crypto::decode_bytes(&issued.nonce, "nonce").unwrap();
+        let signature = crypto::sign(
+            &keys.ident_private,
+            &crypto::revocation_message(&issued.challenge_id, &nonce, &fingerprint),
+        )
+        .unwrap();
+        let response = revoke_machine(
+            State(h.state),
+            Json(RevokeRequest {
+                challenge_id: issued.challenge_id,
+                auth_fingerprint: fingerprint.clone(),
+                ident_signature: crypto::encode_bytes(&signature),
+            }),
+        )
+        .await
+        .expect("ident-authorized revocation accepted")
+        .0;
+        assert_eq!(response.owner, "alice");
+        assert_eq!(response.auth_fingerprint, fingerprint);
+        assert!(response.revoked);
+        assert!(h
+            .store
+            .owner_auth_key_by_fingerprint("alice", &fingerprint)
+            .unwrap()
+            .is_none());
+        assert!(
+            verify_session_token(&h.store, &token).is_err(),
+            "revoking the key must invalidate its outstanding session",
+        );
+    }
+
+    #[tokio::test]
+    async fn signed_metadata_is_absent_until_the_root_ceremony_then_verifies() {
+        let h = harness();
+        // Before the ceremony every signed-metadata endpoint 404s rather than
+        // serving an unsigned or empty document.
+        assert_eq!(
+            err_of(root_metadata(State(h.state.clone())).await).0,
+            StatusCode::NOT_FOUND,
+        );
+        assert_eq!(
+            err_of(snapshot_metadata(State(h.state.clone())).await).0,
+            StatusCode::NOT_FOUND,
+        );
+        let (status, message) = err_of(timestamp_metadata(State(h.state.clone())).await);
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(
+            message.contains("root of trust is not initialized"),
+            "{message}",
+        );
+
+        let expires = now_unix() + 86_400;
+        h.store
+            .init_registry_root("test-registry", expires)
+            .unwrap();
+        let config = h.store.registry_config().unwrap().unwrap();
+
+        let root = root_metadata(State(h.state.clone()))
+            .await
+            .expect("root served")
+            .0;
+        assert_eq!(
+            root.root_fingerprint,
+            crypto::fingerprint(&config.root_public)
+        );
+        crypto::verify(
+            &crypto::decode_bytes(&root.root_key, "rootKey").unwrap(),
+            &crypto::root_signing_input(root.signed.as_bytes()),
+            &crypto::decode_bytes(&root.signature, "signature").unwrap(),
+        )
+        .expect("root.json verifies under the published root key");
+        let root_doc: serde_json::Value = serde_json::from_str(&root.signed).unwrap();
+        assert_eq!(root_doc["type"], "root");
+        assert_eq!(root_doc["registryId"], "test-registry");
+        assert_eq!(root_doc["expires"], expires);
+
+        let snapshot = snapshot_metadata(State(h.state.clone()))
+            .await
+            .expect("snapshot served")
+            .0;
+        crypto::verify(
+            &config.snapshot_public,
+            &crypto::snapshot_signing_input(snapshot.signed.as_bytes()),
+            &crypto::decode_bytes(&snapshot.signature, "signature").unwrap(),
+        )
+        .expect("snapshot verifies under the root-delegated snapshot key");
+        let snapshot_doc: serde_json::Value = serde_json::from_str(&snapshot.signed).unwrap();
+        assert_eq!(snapshot_doc["type"], "snapshot");
+        assert_eq!(snapshot_doc["registryId"], "test-registry");
+        assert_eq!(
+            snapshot_doc["indexHash"],
+            h.store.index_canonical_hash().unwrap(),
+        );
+        assert_eq!(snapshot_doc["version"], h.store.log_size().unwrap());
+        assert_eq!(
+            snapshot_doc["checkpoint"]["size"],
+            h.store.log_leaf_hashes(None).unwrap().len() as i64,
+        );
+        assert!(snapshot_doc["expires"].as_i64().unwrap() > now_unix());
+
+        let timestamp = timestamp_metadata(State(h.state))
+            .await
+            .expect("timestamp served")
+            .0;
+        crypto::verify(
+            &config.timestamp_public,
+            &crypto::timestamp_signing_input(timestamp.signed.as_bytes()),
+            &crypto::decode_bytes(&timestamp.signature, "signature").unwrap(),
+        )
+        .expect("timestamp verifies under the root-delegated timestamp key");
+        let timestamp_doc: serde_json::Value = serde_json::from_str(&timestamp.signed).unwrap();
+        assert_eq!(timestamp_doc["type"], "timestamp");
+        // The timestamp points at the snapshot the registry is serving now.
+        assert_eq!(timestamp_doc["snapshotVersion"], snapshot_doc["version"]);
+        assert_eq!(timestamp_doc["indexHash"], snapshot_doc["indexHash"]);
+        // ...and it is the short-lived half of the pair.
+        assert!(
+            timestamp_doc["expires"].as_i64().unwrap() < snapshot_doc["expires"].as_i64().unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn log_publish_entry_and_proof_bounds_are_enforced() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        assert_eq!(
+            err_of(
+                log_publish_entry(
+                    State(h.state.clone()),
+                    axum::extract::Query(PublishEntryQuery {
+                        ident: "alice#toolbox".to_string(),
+                        version: "1.0.0".to_string(),
+                    }),
+                )
+                .await
+            )
+            .1,
+            "no publish log entry for that package",
+        );
+
+        publish_valid_package(&h.state, &keys, &token, "1.0.0").await;
+        let entry = log_publish_entry(
+            State(h.state.clone()),
+            axum::extract::Query(PublishEntryQuery {
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+            }),
+        )
+        .await
+        .expect("publish entry served")
+        .0;
+        let stored = h
+            .store
+            .publish_log_entry("alice#toolbox", "1.0.0")
+            .unwrap()
+            .unwrap();
+        assert_eq!(entry.index, stored.index);
+        assert_eq!(entry.leaf_hash, hex::encode(stored.leaf_hash));
+        let leaves = h.store.log_leaf_hashes(None).unwrap();
+        assert_eq!(hex::encode(leaves[entry.index as usize]), entry.leaf_hash);
+
+        // An index outside the tree is a 400, never a panic on the slice.
+        let size = leaves.len() as i64;
+        for index in [-1, size] {
+            let (status, message) = err_of(
+                log_inclusion_proof(
+                    State(h.state.clone()),
+                    axum::extract::Path(index),
+                    axum::extract::Query(ProofQuery { size: None }),
+                )
+                .await,
+            );
+            assert_eq!(status, StatusCode::BAD_REQUEST, "index {index}");
+            assert_eq!(message, "log entry index is outside the tree");
+        }
+
+        // `?size=` serves a proof against a historic head, and the bound moves
+        // with it: index 1 is outside a one-leaf tree.
+        let historic = log_inclusion_proof(
+            State(h.state.clone()),
+            axum::extract::Path(0),
+            axum::extract::Query(ProofQuery { size: Some(1) }),
+        )
+        .await
+        .expect("historic proof served")
+        .0;
+        assert_eq!(historic.size, 1);
+        assert!(historic.path.is_empty());
+        assert_eq!(historic.leaf_hash, hex::encode(leaves[0]));
+        assert_eq!(
+            err_of(
+                log_inclusion_proof(
+                    State(h.state.clone()),
+                    axum::extract::Path(1),
+                    axum::extract::Query(ProofQuery { size: Some(1) }),
+                )
+                .await
+            )
+            .1,
+            "log entry index is outside the tree",
+        );
+
+        for from in [-1, size + 1] {
+            let (status, message) = err_of(
+                log_consistency_proof(
+                    State(h.state.clone()),
+                    axum::extract::Query(ConsistencyQuery { from, to: None }),
+                )
+                .await,
+            );
+            assert_eq!(status, StatusCode::BAD_REQUEST, "from {from}");
+            assert_eq!(message, "consistency proof sizes are invalid");
+        }
+    }
+
+    #[tokio::test]
+    async fn package_index_and_ident_chain_reject_malformed_lookups() {
+        let h = harness();
+        for ident in ["noseparator", "#toolbox", "alice#"] {
+            let (status, message) = err_of(
+                package_index(
+                    State(h.state.clone()),
+                    axum::extract::Path(ident.to_string()),
+                )
+                .await,
+            );
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{ident}");
+            assert_eq!(message, "ident must use <owner>#<package>");
+        }
+        assert_eq!(
+            err_of(ident_chain(State(h.state), axum::extract::Path("nobody".to_string())).await).1,
+            "unknown owner",
+        );
+    }
+
+    /// Mint a session token carrying `claims` and back it with a live session
+    /// row owned by `row_owner_id`/`key_id`. Lets a test present a *validly
+    /// signed* token whose claims disagree with the database, which is exactly
+    /// what the handlers' cross-checks exist to catch.
+    fn session_with_claims(
+        store: &Store,
+        row_owner_id: i64,
+        key_id: i64,
+        claims: SessionClaims,
+    ) -> String {
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(&store.server_secret().unwrap()),
+        )
+        .unwrap();
+        store
+            .insert_session(&NewSession {
+                owner_id: row_owner_id,
+                key_id,
+                jwt_id: claims.jti.clone(),
+                issued_at: claims.iat,
+                expires_at: claims.exp,
+            })
+            .unwrap();
+        token
+    }
+
+    #[tokio::test]
+    async fn session_preamble_cross_checks_jwt_claims_against_the_database() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        register_owner_with_all_keys(&h.store, "bob");
+        let (owner, key) = h.store.owner_with_auth_key("alice").unwrap().unwrap();
+        let good = open_session(&h.store, "alice", &keys.auth_private);
+        let now = now_unix();
+        let claims = |auth_fingerprint: String, owner_id: i64| SessionClaims {
+            sub: "alice".to_string(),
+            owner_id,
+            auth_fingerprint,
+            iat: now,
+            exp: now + 3600,
+            jti: Uuid::new_v4().to_string(),
+            iss: SESSION_TOKEN_ISSUER.to_string(),
+            aud: SESSION_TOKEN_AUDIENCE.to_string(),
+        };
+        let stale_key = session_with_claims(
+            &h.store,
+            owner.id,
+            key.id,
+            claims(crypto::fingerprint(&crypto::generate_keypair().0), owner.id),
+        );
+        let wrong_owner_id = session_with_claims(
+            &h.store,
+            owner.id,
+            key.id,
+            claims(key.fingerprint.clone(), owner.id + 10_000),
+        );
+
+        // `/tokens/revoke` funnels through `session_and_ident`, so it is the
+        // cheapest probe of that shared preamble.
+        let request = |session: &str, owner: &str| TokenRevokeRequest {
+            owner: owner.to_string(),
+            token_fingerprint: "0".repeat(64),
+            session_token: session.to_string(),
+            ident_signature: crypto::encode_bytes(&[0u8; 64]),
+        };
+        assert_eq!(
+            err_of(revoke_token(State(h.state.clone()), Json(request("bad.token", "alice"))).await)
+                .1,
+            "expired or malformed session token",
+        );
+        assert_eq!(
+            err_of(revoke_token(State(h.state.clone()), Json(request(&good, "bob"))).await).1,
+            "session owner does not match requested owner",
+        );
+        assert_eq!(
+            err_of(revoke_token(State(h.state.clone()), Json(request(&stale_key, "alice"))).await)
+                .1,
+            "session key is not a current auth key",
+        );
+        assert_eq!(
+            err_of(
+                revoke_token(
+                    State(h.state.clone()),
+                    Json(request(&wrong_owner_id, "alice")),
+                )
+                .await
+            )
+            .1,
+            "session owner does not match requested owner",
+        );
+
+        // A well-formed session still needs a real ident signature.
+        assert_eq!(
+            err_of(revoke_token(State(h.state.clone()), Json(request(&good, "alice"))).await).1,
+            "invalid token revocation ident signature",
+        );
+        let mut malformed = request(&good, "alice");
+        malformed.ident_signature = NOT_BASE64.to_string();
+        assert_eq!(
+            err_of(revoke_token(State(h.state.clone()), Json(malformed)).await).1,
+            "malformed identSignature",
+        );
+        // ...and revoking a fingerprint that names no live token is reported.
+        let mut unknown = request(&good, "alice");
+        unknown.ident_signature = crypto::encode_bytes(
+            &crypto::sign(
+                &keys.ident_private,
+                &crypto::token_revoke_message("alice", &"0".repeat(64)),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            err_of(revoke_token(State(h.state), Json(unknown)).await).1,
+            "no active token with that fingerprint",
+        );
+    }
+
+    #[tokio::test]
+    async fn issue_token_enforces_scope_ownership_and_signature() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let (token_public, token_private) = crypto::generate_keypair();
+        let token_fingerprint = crypto::fingerprint(&token_public);
+        let proof = crypto::encode_bytes(
+            &crypto::sign(
+                &token_private,
+                &crypto::registration_message(crypto::ROLE_AUTH, "alice", &token_public),
+            )
+            .unwrap(),
+        );
+        let request = |scope: &str| TokenIssueRequest {
+            owner: "alice".to_string(),
+            token_key: crypto::encode_bytes(&token_public),
+            proof: proof.clone(),
+            scope: scope.to_string(),
+            ttl_seconds: 3600,
+            session_token: token.clone(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(
+                    &keys.ident_private,
+                    &crypto::token_issue_message("alice", &token_fingerprint, scope),
+                )
+                .unwrap(),
+            ),
+        };
+
+        let mut bad_key = request("alice#*");
+        bad_key.token_key = NOT_BASE64.to_string();
+        assert_eq!(
+            err_of(issue_token(State(h.state.clone()), Json(bad_key)).await).1,
+            "malformed tokenKey",
+        );
+        let mut bad_proof = request("alice#*");
+        bad_proof.proof = NOT_BASE64.to_string();
+        assert_eq!(
+            err_of(issue_token(State(h.state.clone()), Json(bad_proof)).await).1,
+            "malformed proof",
+        );
+        let mut bad_signature = request("alice#*");
+        bad_signature.ident_signature = NOT_BASE64.to_string();
+        assert_eq!(
+            err_of(issue_token(State(h.state.clone()), Json(bad_signature)).await).1,
+            "malformed identSignature",
+        );
+        // A signature over a *different* scope cannot authorize this one.
+        let mut swapped_scope = request("alice#toolbox");
+        swapped_scope.scope = "alice#*".to_string();
+        assert_eq!(
+            err_of(issue_token(State(h.state.clone()), Json(swapped_scope)).await).1,
+            "invalid token issuance ident signature",
+        );
+        // Scope must live under the issuing owner — including a scope with no
+        // owner separator at all.
+        for scope in ["bob#*", "noseparator"] {
+            assert_eq!(
+                err_of(issue_token(State(h.state.clone()), Json(request(scope))).await).1,
+                "token scope must be within the issuing owner",
+                "{scope}",
+            );
+        }
+        // Store-level validation still applies (a zero TTL is refused).
+        let mut zero_ttl = request("alice#*");
+        zero_ttl.ttl_seconds = 0;
+        let (status, message) = err_of(issue_token(State(h.state.clone()), Json(zero_ttl)).await);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(message.contains("ttl"), "{message}");
+
+        let issued = issue_token(State(h.state.clone()), Json(request("alice#*")))
+            .await
+            .expect("wildcard token issued")
+            .0;
+        assert_eq!(issued.owner, "alice");
+        assert_eq!(issued.token_fingerprint, token_fingerprint);
+        assert_eq!(issued.scope, "alice#*");
+        assert!(issued.expires_at > now_unix());
+
+        // A wildcard token may attest any package of its owner...
+        let session = open_session_for_key(&h.store, "alice", &token_private, &token_fingerprint);
+        for ident in ["alice#toolbox", "alice#widgets"] {
+            let (signing_public, _private) = crypto::generate_keypair();
+            let _ = signing(
+                State(h.state.clone()),
+                Json(SigningRequest {
+                    owner: "alice".to_string(),
+                    ident: ident.to_string(),
+                    version: "1.0.0".to_string(),
+                    signing_fingerprint: crypto::fingerprint(&signing_public),
+                    session_token: session.clone(),
+                }),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("wildcard scope permits {ident}"));
+        }
+        // ...but never another owner's, even though the ident owner check
+        // would otherwise be satisfied by the session owner alone.
+        let (signing_public, _private) = crypto::generate_keypair();
+        assert_eq!(
+            err_of(
+                signing(
+                    State(h.state),
+                    Json(SigningRequest {
+                        owner: "alice".to_string(),
+                        ident: "bob#toolbox".to_string(),
+                        version: "1.0.0".to_string(),
+                        signing_fingerprint: crypto::fingerprint(&signing_public),
+                        session_token: session,
+                    }),
+                )
+                .await
+            )
+            .1,
+            "publish token scope does not permit this package",
+        );
+    }
+
+    #[tokio::test]
+    async fn an_expired_publish_token_cannot_attest() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let (token_public, token_private) = crypto::generate_keypair();
+        let token_fingerprint = crypto::fingerprint(&token_public);
+        let proof = crypto::sign(
+            &token_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &token_public),
+        )
+        .unwrap();
+        let _ = issue_token(
+            State(h.state.clone()),
+            Json(TokenIssueRequest {
+                owner: "alice".to_string(),
+                token_key: crypto::encode_bytes(&token_public),
+                proof: crypto::encode_bytes(&proof),
+                scope: "alice#*".to_string(),
+                ttl_seconds: 1,
+                session_token: token,
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &keys.ident_private,
+                        &crypto::token_issue_message("alice", &token_fingerprint, "alice#*"),
+                    )
+                    .unwrap(),
+                ),
+            }),
+        )
+        .await
+        .expect("one-second token issued");
+        let session = open_session_for_key(&h.store, "alice", &token_private, &token_fingerprint);
+
+        // The token's own session JWT is still live (an hour), so only the
+        // token expiry can refuse this — which is the point of the check.
+        tokio::time::sleep(std::time::Duration::from_millis(2100)).await;
+        assert!(verify_session_token(&h.store, &session).is_ok());
+        let (signing_public, _private) = crypto::generate_keypair();
+        assert_eq!(
+            err_of(
+                signing(
+                    State(h.state),
+                    Json(SigningRequest {
+                        owner: "alice".to_string(),
+                        ident: "alice#toolbox".to_string(),
+                        version: "1.0.0".to_string(),
+                        signing_fingerprint: crypto::fingerprint(&signing_public),
+                        session_token: session,
+                    }),
+                )
+                .await
+            )
+            .1,
+            "publish token has expired",
+        );
+    }
+
+    #[tokio::test]
+    async fn transfer_and_org_endpoints_reject_malformed_and_wrong_signatures() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+
+        let mut offer = TransferOfferRequest {
+            ident: "alice#toolbox".to_string(),
+            from_owner: "alice".to_string(),
+            to_owner: "bob".to_string(),
+            session_token: alice_token.clone(),
+            ident_signature: NOT_BASE64.to_string(),
+        };
+        assert_eq!(
+            err_of(transfer_offer(State(h.state.clone()), Json(offer)).await).1,
+            "malformed identSignature",
+        );
+        // A signature over a different recipient does not authorize this one.
+        offer = TransferOfferRequest {
+            ident: "alice#toolbox".to_string(),
+            from_owner: "alice".to_string(),
+            to_owner: "bob".to_string(),
+            session_token: alice_token,
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(
+                    &alice.ident_private,
+                    &crypto::transfer_offer_message("alice#toolbox", "alice", "carol"),
+                )
+                .unwrap(),
+            ),
+        };
+        assert_eq!(
+            err_of(transfer_offer(State(h.state.clone()), Json(offer)).await).1,
+            "invalid transfer offer ident signature",
+        );
+
+        let mut accept = TransferAcceptRequest {
+            ident: "alice#toolbox".to_string(),
+            to_owner: "bob".to_string(),
+            session_token: bob_token.clone(),
+            ident_signature: NOT_BASE64.to_string(),
+        };
+        assert_eq!(
+            err_of(transfer_accept(State(h.state.clone()), Json(accept)).await).1,
+            "malformed identSignature",
+        );
+        // Alice cannot sign bob's acceptance for him.
+        accept = TransferAcceptRequest {
+            ident: "alice#toolbox".to_string(),
+            to_owner: "bob".to_string(),
+            session_token: bob_token.clone(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(
+                    &alice.ident_private,
+                    &crypto::transfer_accept_message("alice#toolbox", "bob"),
+                )
+                .unwrap(),
+            ),
+        };
+        assert_eq!(
+            err_of(transfer_accept(State(h.state.clone()), Json(accept)).await).1,
+            "invalid transfer accept ident signature",
+        );
+        // A correctly signed acceptance with no pending offer is still refused.
+        let unoffered = TransferAcceptRequest {
+            ident: "alice#toolbox".to_string(),
+            to_owner: "bob".to_string(),
+            session_token: bob_token.clone(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(
+                    &bob.ident_private,
+                    &crypto::transfer_accept_message("alice#toolbox", "bob"),
+                )
+                .unwrap(),
+            ),
+        };
+        assert_eq!(
+            err_of(transfer_accept(State(h.state.clone()), Json(unoffered)).await).0,
+            StatusCode::BAD_REQUEST,
+        );
+
+        // The org endpoint decodes and verifies its ident signature the same way.
+        let mut member = OrgMemberRequest {
+            org: "bob".to_string(),
+            grantor: "bob".to_string(),
+            member: "alice".to_string(),
+            role: "admin".to_string(),
+            action: "grant".to_string(),
+            session_token: bob_token.clone(),
+            ident_signature: NOT_BASE64.to_string(),
+        };
+        assert_eq!(
+            err_of(org_members(State(h.state.clone()), Json(member)).await).1,
+            "malformed identSignature",
+        );
+        member = OrgMemberRequest {
+            org: "bob".to_string(),
+            grantor: "bob".to_string(),
+            member: "alice".to_string(),
+            role: "admin".to_string(),
+            action: "grant".to_string(),
+            session_token: bob_token,
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(
+                    &bob.ident_private,
+                    // signed for the `owner` role, presented as `admin`
+                    &crypto::org_role_message("bob", "alice", "owner"),
+                )
+                .unwrap(),
+            ),
+        };
+        assert_eq!(
+            err_of(org_members(State(h.state.clone()), Json(member)).await).1,
+            "invalid org role ident signature",
+        );
+        assert!(h.store.org_member_role("bob", "alice").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn release_state_rejects_every_malformed_request_shape() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        register_owner_with_all_keys(&h.store, "bob");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let request = |owner: &str, ident: &str, state: &str, session: &str| ReleaseStateRequest {
+            owner: owner.to_string(),
+            ident: ident.to_string(),
+            version: "1.0.0".to_string(),
+            state: state.to_string(),
+            session_token: session.to_string(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(
+                    &keys.ident_private,
+                    &crypto::release_state_message(ident, "1.0.0", state),
+                )
+                .unwrap(),
+            ),
+        };
+
+        assert_eq!(
+            err_of(
+                release_state(
+                    State(h.state.clone()),
+                    Json(request("alice", "alice#toolbox", "yanked", "bad.token")),
+                )
+                .await
+            )
+            .1,
+            "expired or malformed session token",
+        );
+        assert_eq!(
+            err_of(
+                release_state(
+                    State(h.state.clone()),
+                    Json(request("bob", "bob#toolbox", "yanked", &token)),
+                )
+                .await
+            )
+            .1,
+            "session owner does not match requested owner",
+        );
+        assert_eq!(
+            err_of(
+                release_state(
+                    State(h.state.clone()),
+                    Json(request("alice", "alice#toolbox", "bogus", &token)),
+                )
+                .await
+            )
+            .1,
+            "state must be one of available, deprecated, or yanked",
+        );
+        assert_eq!(
+            err_of(
+                release_state(
+                    State(h.state.clone()),
+                    Json(request("alice", "noseparator", "yanked", &token)),
+                )
+                .await
+            )
+            .1,
+            "ident must use <owner>#<package>",
+        );
+        // An empty package half, and another owner's package, are both refused
+        // even though the session itself is valid.
+        for ident in ["alice#", "bob#toolbox"] {
+            assert_eq!(
+                err_of(
+                    release_state(
+                        State(h.state.clone()),
+                        Json(request("alice", ident, "yanked", &token)),
+                    )
+                    .await
+                )
+                .1,
+                "ident owner does not match session owner",
+                "{ident}",
+            );
+        }
+        let mut malformed = request("alice", "alice#toolbox", "yanked", &token);
+        malformed.ident_signature = NOT_BASE64.to_string();
+        assert_eq!(
+            err_of(release_state(State(h.state.clone()), Json(malformed)).await).1,
+            "malformed identSignature",
+        );
+        // A correctly signed change for a version that was never published is
+        // refused by the store, and nothing is logged.
+        let before = h.store.log_size().unwrap();
+        assert_eq!(
+            err_of(
+                release_state(
+                    State(h.state.clone()),
+                    Json(request("alice", "alice#toolbox", "yanked", &token)),
+                )
+                .await
+            )
+            .0,
+            StatusCode::BAD_REQUEST,
+        );
+        assert_eq!(h.store.log_size().unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn rotate_ident_rejects_bad_sessions_and_malformed_material() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        register_owner_with_all_keys(&h.store, "bob");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let (new_public, new_private) = crypto::generate_keypair();
+        let chain = crypto::encode_bytes(
+            &crypto::sign(
+                &keys.ident_private,
+                &crypto::ident_rotation_message("alice", &ident_fingerprint, &new_public),
+            )
+            .unwrap(),
+        );
+        let possession = crypto::encode_bytes(
+            &crypto::sign(
+                &new_private,
+                &crypto::registration_message(crypto::ROLE_IDENT, "alice", &new_public),
+            )
+            .unwrap(),
+        );
+        let request = |owner: &str, session: &str| RotateRequest {
+            owner: owner.to_string(),
+            new_ident_key: crypto::encode_bytes(&new_public),
+            chain_signature: chain.clone(),
+            possession_proof: possession.clone(),
+            session_token: session.to_string(),
+        };
+
+        assert_eq!(
+            err_of(rotate_ident(State(h.state.clone()), Json(request("alice", "bad.token"))).await)
+                .1,
+            "expired or malformed session token",
+        );
+        assert_eq!(
+            err_of(rotate_ident(State(h.state.clone()), Json(request("bob", &token))).await).1,
+            "session owner does not match requested owner",
+        );
+        for field in ["newIdentKey", "chainSignature", "possessionProof"] {
+            let mut bad = request("alice", &token);
+            match field {
+                "newIdentKey" => bad.new_ident_key = NOT_BASE64.to_string(),
+                "chainSignature" => bad.chain_signature = NOT_BASE64.to_string(),
+                _ => bad.possession_proof = NOT_BASE64.to_string(),
+            }
+            assert_eq!(
+                err_of(rotate_ident(State(h.state.clone()), Json(bad)).await).1,
+                format!("malformed {field}"),
+            );
+        }
+        // A chain link signed by something other than the retiring ident key
+        // cannot re-anchor the account.
+        let mut forged = request("alice", &token);
+        forged.chain_signature = crypto::encode_bytes(
+            &crypto::sign(
+                &new_private,
+                &crypto::ident_rotation_message("alice", &ident_fingerprint, &new_public),
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            err_of(rotate_ident(State(h.state.clone()), Json(forged)).await).0,
+            StatusCode::BAD_REQUEST,
+        );
+        assert_eq!(
+            h.store
+                .owner_with_ident_key("alice")
+                .unwrap()
+                .unwrap()
+                .1
+                .fingerprint,
+            ident_fingerprint,
+            "a refused rotation must leave the ident binding alone",
+        );
+    }
+
+    #[tokio::test]
+    async fn put_blob_requires_a_well_formed_bearer_header() {
+        let h = harness();
+        let body = b"payload".to_vec();
+        let hash = hex::encode(crypto::sha256(&body));
+        let call = |headers: axum::http::HeaderMap| {
+            put_blob(
+                State(h.state.clone()),
+                axum::extract::Path(hash.clone()),
+                headers,
+                axum::body::Bytes::from(body.clone()),
+            )
+        };
+
+        assert_eq!(
+            err_of(call(axum::http::HeaderMap::new()).await),
+            (
+                StatusCode::UNAUTHORIZED,
+                "missing Authorization header".to_string()
+            ),
+        );
+
+        let mut basic = axum::http::HeaderMap::new();
+        basic.insert(
+            axum::http::header::AUTHORIZATION,
+            "Basic dXNlcjpwdw".parse().unwrap(),
+        );
+        assert_eq!(
+            err_of(call(basic).await),
+            (
+                StatusCode::UNAUTHORIZED,
+                "Authorization header must be `Bearer <token>`".to_string()
+            ),
+        );
+
+        let mut blank = axum::http::HeaderMap::new();
+        blank.insert(
+            axum::http::header::AUTHORIZATION,
+            "Bearer    ".parse().unwrap(),
+        );
+        assert_eq!(
+            err_of(call(blank).await).1,
+            "Authorization header must be `Bearer <token>`",
+        );
+
+        let mut binary = axum::http::HeaderMap::new();
+        binary.insert(
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderValue::from_bytes(b"Bearer \xff\xfe").unwrap(),
+        );
+        assert_eq!(
+            err_of(call(binary).await).1,
+            "malformed Authorization header"
+        );
+
+        // None of the refused shapes stored anything.
+        assert!(!h
+            .state
+            .blob_store
+            .exists(&hash, BlobKind::Native)
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn put_blob_is_throttled_per_owner() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let headers = bearer_headers(&token);
+
+        for index in 0..BLOB_UPLOAD_PER_OWNER_MAX {
+            let body = format!("vendored-blob-{index}").into_bytes();
+            let hash = hex::encode(crypto::sha256(&body));
+            let status = put_blob(
+                State(h.state.clone()),
+                axum::extract::Path(hash),
+                headers.clone(),
+                axum::body::Bytes::from(body),
+            )
+            .await
+            .expect("uploads under the cap succeed");
+            assert_eq!(status, StatusCode::CREATED);
+        }
+        let body = b"one too many".to_vec();
+        let hash = hex::encode(crypto::sha256(&body));
+        let (status, message) = err_of(
+            put_blob(
+                State(h.state.clone()),
+                axum::extract::Path(hash.clone()),
+                headers,
+                axum::body::Bytes::from(body),
+            )
+            .await,
+        );
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(message.contains("rate limit"), "{message}");
+        // A throttled upload writes nothing to the datapath.
+        assert!(!h
+            .state
+            .blob_store
+            .exists(&hash, BlobKind::Native)
+            .await
+            .unwrap());
+        assert!(h.store.blob_kind(&hash).unwrap().is_none());
+    }
+
+    fn put_u16(dst: &mut Vec<u8>, value: u16) {
+        dst.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_u32(dst: &mut Vec<u8>, value: u32) {
+        dst.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_u64(dst: &mut Vec<u8>, value: u64) {
+        dst.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_field(dst: &mut Vec<u8>, value: &[u8]) {
+        put_u32(dst, value.len() as u32);
+        dst.extend_from_slice(value);
+    }
+
+    fn mfpc_string_pool(strings: &[&str]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, strings.len() as u32);
+        for value in strings {
+            put_u32(&mut bytes, value.len() as u32);
+            bytes.extend_from_slice(value.as_bytes());
+        }
+        bytes
+    }
+
+    /// A section-10 native-library table declaring `entry_count` entries but
+    /// only ever writing one, whose single `vendor` locator names `hash`. An
+    /// inflated `entry_count` is how a malformed table is built.
+    fn mfpc_vendor_table(entry_count: u32, hash: &[u8; 32]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, entry_count);
+        put_u32(&mut bytes, 0); // logical name -> string 0
+        put_u32(&mut bytes, 1); // one locator
+        put_u32(&mut bytes, 2); // os -> string 2
+        put_u32(&mut bytes, 3); // arch -> string 3
+        bytes.push(0); // libc
+        bytes.push(1); // vendor locator
+        put_u32(&mut bytes, 1); // source filename -> string 1
+        bytes.extend_from_slice(hash);
+        bytes
+    }
+
+    fn mfpc_abi_section(exports: &[(u32, [u8; 32])]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        put_u16(&mut bytes, 1); // format version
+        put_u16(&mut bytes, 0); // reserved
+        put_u32(&mut bytes, exports.len() as u32);
+        for (name_index, hash) in exports {
+            put_u32(&mut bytes, *name_index);
+            put_u16(&mut bytes, 1); // kind
+            bytes.extend_from_slice(hash);
+        }
+        put_u32(&mut bytes, 0); // zero dependency edges
+        bytes
+    }
+
+    /// Assemble the minimal MFPC container the registry reads out of a
+    /// package's `packageBinaryRepr`.
+    fn mfpc_container(sections: &[(u16, Vec<u8>)]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"MFPC");
+        put_u16(&mut bytes, 2); // major
+        put_u16(&mut bytes, 0); // minor
+        put_u32(&mut bytes, 0); // flags
+        put_u32(&mut bytes, sections.len() as u32);
+        let mut data_offset = 16 + sections.len() * 24;
+        for (id, data) in sections {
+            put_u16(&mut bytes, *id);
+            put_u16(&mut bytes, 0);
+            put_u32(&mut bytes, 0);
+            put_u64(&mut bytes, data_offset as u64);
+            put_u64(&mut bytes, data.len() as u64);
+            data_offset += data.len();
+        }
+        for (_id, data) in sections {
+            bytes.extend_from_slice(data);
+        }
+        bytes
+    }
+
+    fn clone_request(request: &PackageArtifactRequest) -> PackageArtifactRequest {
+        PackageArtifactRequest {
+            ident: request.ident.clone(),
+            version: request.version.clone(),
+            artifact: request.artifact.clone(),
+            content_hash: request.content_hash.clone(),
+            ident_fingerprint: request.ident_fingerprint.clone(),
+            signing_fingerprint: request.signing_fingerprint.clone(),
+            session_token: request.session_token.clone(),
+        }
+    }
+
+    /// Craft a fully valid `alice#toolbox` package around `payload`, with a
+    /// genuine `/signing` attestation, and return the artifact plus the wire
+    /// request describing it. Nothing is published.
+    async fn signed_request(
+        state: &AppState,
+        keys: &TestOwnerKeys,
+        token: &str,
+        version: &str,
+        payload: Vec<u8>,
+    ) -> (Vec<u8>, PackageArtifactRequest) {
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let (attestation, attestation_sig) =
+            real_attestation(state, token, version, &signing_fingerprint).await;
+        let proof = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}",
+        );
+        let proof_sig = crypto::sign(
+            &keys.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: version.to_string(),
+                author: "alice".to_string(),
+                payload,
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof,
+                proof_sig,
+                attestation,
+                attestation_sig,
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).expect("crafted package parses");
+        let request = PackageArtifactRequest {
+            ident: parsed.ident.clone(),
+            version: parsed.version.clone(),
+            artifact: crypto::encode_bytes(&artifact),
+            content_hash: parsed.content_hash_hex(),
+            ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+            session_token: token.to_string(),
+        };
+        (artifact, request)
+    }
+
+    #[tokio::test]
+    async fn validate_handler_reports_every_request_field_mismatch() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let (_artifact, valid) = signed_request(
+            &h.state,
+            &keys,
+            &token,
+            "1.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
+
+        // The baseline validates through the public handler.
+        let report = validate_package(State(h.state.clone()), Json(clone_request(&valid)))
+            .await
+            .expect("validation ran")
+            .0;
+        assert!(report.valid, "{:?}", report.diagnostics);
+        assert_eq!(report.content_hash, valid.content_hash);
+
+        // Every wire field is cross-checked against the signed header, so a
+        // lying request cannot make the registry index the wrong thing.
+        let lying = PackageArtifactRequest {
+            ident: "alice#other".to_string(),
+            version: "9.9.9".to_string(),
+            artifact: valid.artifact.clone(),
+            content_hash: "0".repeat(64),
+            ident_fingerprint: "1".repeat(64),
+            signing_fingerprint: "2".repeat(64),
+            session_token: token.clone(),
+        };
+        let report = validate_package(State(h.state.clone()), Json(lying))
+            .await
+            .expect("validation ran")
+            .0;
+        assert!(!report.valid);
+        for expected in [
+            "request contentHash does not match package content hash",
+            "request ident does not match package ident",
+            "request version does not match package version",
+            "request identFingerprint does not match package header",
+            "request signingFingerprint does not match package header",
+        ] {
+            assert!(
+                report.diagnostics.iter().any(|d| d == expected),
+                "missing `{expected}` in {:?}",
+                report.diagnostics,
+            );
+        }
+        // The report still names the real content hash, not the claimed one.
+        assert_eq!(report.content_hash, valid.content_hash);
+
+        // A non-base64 artifact is a hard 400; base64 garbage is a diagnostic.
+        let mut undecodable = clone_request(&valid);
+        undecodable.artifact = NOT_BASE64.to_string();
+        let (status, message) =
+            err_of(validate_package(State(h.state.clone()), Json(undecodable)).await);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(message, "malformed artifact");
+
+        let mut garbage = clone_request(&valid);
+        garbage.artifact = crypto::encode_bytes(b"not an mfp package at all");
+        let report = validate_package(State(h.state), Json(garbage))
+            .await
+            .expect("validation ran")
+            .0;
+        assert!(!report.valid);
+        assert_eq!(report.content_hash, "");
+        assert_eq!(report.abi_index, serde_json::json!({}));
+        assert_eq!(report.diagnostics.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn validate_reports_owner_author_and_duplicate_problems() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let (owner, key) = h.store.owner_with_auth_key("alice").unwrap().unwrap();
+
+        // A package whose ident owner is not registered at all.
+        let (unregistered_public, unregistered_private) = crypto::generate_keypair();
+        let (sign_public, sign_private) = crypto::generate_keypair();
+        let stranger = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "mallory#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                author: "mallory".to_string(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&unregistered_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&sign_public)),
+                proof: "{}".to_string(),
+                proof_sig: crypto::sign(&unregistered_private, b"unused").unwrap(),
+                attestation: "{}".to_string(),
+                attestation_sig: vec![0u8; 64],
+            },
+            &sign_private,
+        );
+        let parsed = package::parse_mfp_package(&stranger).unwrap();
+        let report = validate_package(
+            State(h.state.clone()),
+            Json(PackageArtifactRequest {
+                ident: parsed.ident.clone(),
+                version: parsed.version.clone(),
+                artifact: crypto::encode_bytes(&stranger),
+                content_hash: parsed.content_hash_hex(),
+                ident_fingerprint: parsed.ident_fingerprint().unwrap_or_default(),
+                signing_fingerprint: parsed.signing_fingerprint().unwrap_or_default(),
+                session_token: token.clone(),
+            }),
+        )
+        .await
+        .expect("validation ran")
+        .0;
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d == "session owner does not match package ident owner"),
+            "{:?}",
+            report.diagnostics,
+        );
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d == "package ident owner is not registered"),
+            "{:?}",
+            report.diagnostics,
+        );
+
+        // A validly signed session whose auth fingerprint is no longer one of
+        // the owner's current keys stops at "session key does not match".
+        let now = now_unix();
+        let stale = session_with_claims(
+            &h.store,
+            owner.id,
+            key.id,
+            SessionClaims {
+                sub: "alice".to_string(),
+                owner_id: owner.id,
+                auth_fingerprint: crypto::fingerprint(&crypto::generate_keypair().0),
+                iat: now,
+                exp: now + 3600,
+                jti: Uuid::new_v4().to_string(),
+                iss: SESSION_TOKEN_ISSUER.to_string(),
+                aud: SESSION_TOKEN_AUDIENCE.to_string(),
+            },
+        );
+        let (_artifact, mut request) = signed_request(
+            &h.state,
+            &keys,
+            &token,
+            "1.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
+        request.session_token = stale;
+        let report = validate_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("validation ran")
+            .0;
+        assert!(!report.valid);
+        assert_eq!(
+            report.diagnostics,
+            vec!["session key does not match current owner key".to_string()],
+        );
+
+        // An author string that is not the owner's display name is flagged.
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let (attestation, attestation_sig) =
+            real_attestation(&h.state, &token, "1.0.0", &signing_fingerprint).await;
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let proof = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"1.0.0\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}",
+        );
+        let proof_sig = crypto::sign(
+            &keys.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+        let impostor = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                author: "someone-else".to_string(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof,
+                proof_sig,
+                attestation,
+                attestation_sig,
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&impostor).unwrap();
+        let report = validate_package(
+            State(h.state.clone()),
+            Json(PackageArtifactRequest {
+                ident: parsed.ident.clone(),
+                version: parsed.version.clone(),
+                artifact: crypto::encode_bytes(&impostor),
+                content_hash: parsed.content_hash_hex(),
+                ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+                signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+                session_token: token.clone(),
+            }),
+        )
+        .await
+        .expect("validation ran")
+        .0;
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d == "package author does not match owner name"),
+            "{:?}",
+            report.diagnostics,
+        );
+
+        // Once a version is published, re-validating the same artifact reports
+        // the collision instead of silently accepting a re-publish.
+        publish_valid_package(&h.state, &keys, &token, "2.0.0").await;
+        let (_artifact, republish) = signed_request(
+            &h.state,
+            &keys,
+            &token,
+            "2.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
+        let report = validate_package(State(h.state), Json(republish))
+            .await
+            .expect("validation ran")
+            .0;
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d == "package version alice#toolbox@2.0.0 is already published"),
+            "{:?}",
+            report.diagnostics,
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_refuses_an_unsigned_container() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        // `test_support::serialize` always signs, so build the unsigned shape
+        // (signatureType 0 / zero-length signature) here.
+        let payload = b"MFPCtestpayload".to_vec();
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&[0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+        put_u16(&mut bytes, 1);
+        put_u16(&mut bytes, 0);
+        put_u16(&mut bytes, 1);
+        put_u16(&mut bytes, 0);
+        put_u32(&mut bytes, 0);
+        put_field(&mut bytes, b"toolbox");
+        put_field(&mut bytes, b"alice#toolbox");
+        put_field(&mut bytes, b"1.0.0");
+        put_field(&mut bytes, b"alice");
+        put_field(&mut bytes, b"");
+        // An unsigned container may carry none of the trust-chain fields, so
+        // every one of them is empty here.
+        put_field(&mut bytes, b"");
+        put_field(&mut bytes, b"");
+        put_field(&mut bytes, b"");
+        put_field(&mut bytes, &[]);
+        put_field(&mut bytes, b"");
+        put_field(&mut bytes, &[]);
+        bytes.extend_from_slice(&crypto::sha256(&payload));
+        put_u64(&mut bytes, payload.len() as u64);
+        put_u16(&mut bytes, 0); // signatureType: unsigned
+        put_u32(&mut bytes, 0); // signatureLength
+        bytes.extend_from_slice(&payload);
+
+        let parsed = package::parse_mfp_package(&bytes).expect("unsigned container parses");
+        assert_eq!(parsed.signature_type, 0);
+        let report = validate_package(
+            State(h.state),
+            Json(PackageArtifactRequest {
+                ident: parsed.ident.clone(),
+                version: parsed.version.clone(),
+                artifact: crypto::encode_bytes(&bytes),
+                content_hash: parsed.content_hash_hex(),
+                ident_fingerprint: parsed.ident_fingerprint().unwrap_or_default(),
+                signing_fingerprint: parsed.signing_fingerprint().unwrap_or_default(),
+                session_token: token,
+            }),
+        )
+        .await
+        .expect("validation ran")
+        .0;
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d == "registry publishes require an Ed25519-signed package"),
+            "{:?}",
+            report.diagnostics,
+        );
+    }
+
+    #[tokio::test]
+    async fn validate_requires_every_vendor_blob_to_be_uploaded_first() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        let vendor_bytes = b"\x7fELF vendored archive".to_vec();
+        let vendor_hash = crypto::sha256(&vendor_bytes);
+        let vendor_hex = hex::encode(vendor_hash);
+        let strings = mfpc_string_pool(&["snd", "libsnd.a", "linux", "aarch64"]);
+        let payload = mfpc_container(&[
+            (2, strings.clone()),
+            (10, mfpc_vendor_table(1, &vendor_hash)),
+            (15, mfpc_abi_section(&[(0, [0xab; 32])])),
+        ]);
+
+        // The blob is not uploaded yet: the section-10 reference is reported
+        // per locator, naming the logical library and the source file.
+        let (_artifact, request) =
+            signed_request(&h.state, &keys, &token, "1.0.0", payload.clone()).await;
+        let report = validate_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("validation ran")
+            .0;
+        assert!(!report.valid);
+        assert!(
+            report.diagnostics.iter().any(|d| d
+                == &format!(
+                    "native library 'snd' references vendor blob {vendor_hex} (libsnd.a) that is not uploaded"
+                )),
+            "{:?}",
+            report.diagnostics,
+        );
+        // The ABI index is still parsed and served out of the same payload.
+        assert_eq!(report.abi_index["snd"], hex::encode([0xab; 32]));
+
+        // Upload the blob, then the same package validates and publishes, and
+        // the version→blob edge makes the vendor blob reachable.
+        put_blob(
+            State(h.state.clone()),
+            axum::extract::Path(vendor_hex.clone()),
+            bearer_headers(&token),
+            axum::body::Bytes::from(vendor_bytes),
+        )
+        .await
+        .expect("vendor blob uploaded");
+        let (_artifact, request) = signed_request(&h.state, &keys, &token, "1.0.0", payload).await;
+        let published = publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("publish succeeds once the vendor blob exists")
+            .0;
+        assert_eq!(published.version, "1.0.0");
+        assert!(published.blob_stored);
+        assert!(
+            h.store.blob_is_reachable(&vendor_hex).unwrap(),
+            "the publish must record the version -> vendor blob edge",
+        );
+        // The served index carries the ABI map the payload declared.
+        let index = package_index(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("index served")
+        .0;
+        assert_eq!(
+            index.versions[0].abi_map().get("snd").map(String::as_str),
+            Some(hex::encode([0xab; 32]).as_str()),
+        );
+
+        // A section-10 table that declares more entries than it can hold is a
+        // hard diagnostic, not a silently empty vendor list.
+        let malformed =
+            mfpc_container(&[(2, strings), (10, mfpc_vendor_table(2000, &vendor_hash))]);
+        let (_artifact, request) =
+            signed_request(&h.state, &keys, &token, "2.0.0", malformed).await;
+        let report = validate_package(State(h.state), Json(request))
+            .await
+            .expect("validation ran")
+            .0;
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.starts_with("native library table is malformed")),
+            "{:?}",
+            report.diagnostics,
+        );
+    }
+
+    #[tokio::test]
+    async fn publish_refuses_invalid_packages_and_tolerates_a_pre_staged_blob() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+
+        // A package that fails validation never reaches the store.
+        let (_artifact, mut broken) = signed_request(
+            &h.state,
+            &keys,
+            &token,
+            "1.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
+        broken.content_hash = "0".repeat(64);
+        let (status, message) = err_of(publish_package(State(h.state.clone()), Json(broken)).await);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            message.starts_with("package validation failed: "),
+            "{message}"
+        );
+        assert!(h
+            .store
+            .list_package_versions("alice#toolbox")
+            .unwrap()
+            .is_empty());
+
+        // A blob left behind by an earlier, half-finished publish is reused
+        // rather than re-staged: the version row still commits, and the
+        // response reports that no new blob was written.
+        let (artifact, request) = signed_request(
+            &h.state,
+            &keys,
+            &token,
+            "1.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
+        let hash = request.content_hash.clone();
+        let staged = h
+            .state
+            .blob_store
+            .stage(&hash, BlobKind::Package, artifact.clone())
+            .await
+            .unwrap();
+        h.state.blob_store.promote(staged).await.unwrap();
+        let published = publish_package(State(h.state.clone()), Json(request))
+            .await
+            .expect("publish succeeds over an existing blob")
+            .0;
+        assert!(!published.blob_stored);
+        assert_eq!(published.hash, hash);
+        assert_eq!(published.state, "available");
+        assert!(published.warnings.is_empty());
+        // ...and the bytes are still exactly the artifact.
+        let response = package_blob(State(h.state.clone()), axum::extract::Path(hash.clone()))
+            .await
+            .expect("blob served");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), artifact.as_slice());
+
+        // Re-uploading that same content hash as a *native* blob is a no-op:
+        // the row already serves it as a package, so promoting a `.bin` would
+        // leave a second, unreferenced copy behind (bug-276 R5).
+        let status = put_blob(
+            State(h.state.clone()),
+            axum::extract::Path(hash.clone()),
+            bearer_headers(&token),
+            axum::body::Bytes::from(artifact),
+        )
+        .await
+        .expect("the no-op upload reports success");
+        assert_eq!(status, StatusCode::OK);
+        assert!(h.packages_dir.join(format!("{hash}.mfp")).exists());
+        assert!(
+            !h.packages_dir.join(format!("{hash}.bin")).exists(),
+            "a package blob must not gain a duplicate .bin copy",
+        );
+        assert_eq!(
+            h.store.blob_kind(&hash).unwrap().as_deref(),
+            Some("package")
+        );
+    }
+
+    #[tokio::test]
+    async fn publish_aborts_the_staged_blob_when_the_ident_moved_owner() {
+        let h = harness();
+        let alice = register_owner_with_all_keys(&h.store, "alice");
+        let bob = register_owner_with_all_keys(&h.store, "bob");
+        let alice_token = open_session(&h.store, "alice", &alice.auth_private);
+        let bob_token = open_session(&h.store, "bob", &bob.auth_private);
+        publish_valid_package(&h.state, &alice, &alice_token, "1.0.0").await;
+
+        // Hand the package to bob.
+        let _ = transfer_offer(
+            State(h.state.clone()),
+            Json(TransferOfferRequest {
+                ident: "alice#toolbox".to_string(),
+                from_owner: "alice".to_string(),
+                to_owner: "bob".to_string(),
+                session_token: alice_token.clone(),
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &alice.ident_private,
+                        &crypto::transfer_offer_message("alice#toolbox", "alice", "bob"),
+                    )
+                    .unwrap(),
+                ),
+            }),
+        )
+        .await
+        .expect("offer");
+        let _ = transfer_accept(
+            State(h.state.clone()),
+            Json(TransferAcceptRequest {
+                ident: "alice#toolbox".to_string(),
+                to_owner: "bob".to_string(),
+                session_token: bob_token,
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &bob.ident_private,
+                        &crypto::transfer_accept_message("alice#toolbox", "bob"),
+                    )
+                    .unwrap(),
+                ),
+            }),
+        )
+        .await
+        .expect("accept");
+
+        // Alice's session still validates the package (she still holds the
+        // ident named in the header), but the store refuses the write — and the
+        // staged blob must be aborted, leaving no orphan in the datapath.
+        let (_artifact, request) = signed_request(
+            &h.state,
+            &alice,
+            &alice_token,
+            "2.0.0",
+            b"MFPCtestpayload".to_vec(),
+        )
+        .await;
+        let hash = request.content_hash.clone();
+        let (status, message) =
+            err_of(publish_package(State(h.state.clone()), Json(request)).await);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(message.contains("owned by another owner"), "{message}");
+        assert!(
+            !h.packages_dir.join(format!("{hash}.mfp")).exists(),
+            "a refused publish must not leave a servable blob behind",
+        );
+        assert!(!h
+            .state
+            .blob_store
+            .exists(&hash, BlobKind::Package)
+            .await
+            .unwrap());
+        assert!(!h
+            .store
+            .package_version_exists("alice#toolbox", "2.0.0")
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn signing_validates_ident_version_and_fingerprint_shapes() {
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let (signing_public, _private) = crypto::generate_keypair();
+        let fingerprint = crypto::fingerprint(&signing_public);
+        let request = |ident: &str, version: &str, signing_fingerprint: &str| SigningRequest {
+            owner: "alice".to_string(),
+            ident: ident.to_string(),
+            version: version.to_string(),
+            signing_fingerprint: signing_fingerprint.to_string(),
+            session_token: token.clone(),
+        };
+
+        assert_eq!(
+            err_of(
+                signing(
+                    State(h.state.clone()),
+                    Json(request("noseparator", "1.0.0", &fingerprint)),
+                )
+                .await
+            )
+            .1,
+            "ident must use <owner>#<package>",
+        );
+        // An empty package half, and an over-long ident, are both malformed.
+        for ident in ["alice#".to_string(), format!("alice#{}", "p".repeat(250))] {
+            assert_eq!(
+                err_of(
+                    signing(
+                        State(h.state.clone()),
+                        Json(request(&ident, "1.0.0", &fingerprint)),
+                    )
+                    .await
+                )
+                .1,
+                "malformed ident",
+                "{ident}",
+            );
+        }
+        for version in ["".to_string(), "9".repeat(65)] {
+            assert_eq!(
+                err_of(
+                    signing(
+                        State(h.state.clone()),
+                        Json(request("alice#toolbox", &version, &fingerprint)),
+                    )
+                    .await
+                )
+                .1,
+                "malformed version",
+                "{version}",
+            );
+        }
+        // The one-off key fingerprint the server is about to put its name on
+        // must be 64 lowercase hex characters.
+        for bad in ["deadbeef".to_string(), fingerprint.to_uppercase()] {
+            assert_eq!(
+                err_of(
+                    signing(
+                        State(h.state.clone()),
+                        Json(request("alice#toolbox", "1.0.0", &bad)),
+                    )
+                    .await
+                )
+                .1,
+                "signingFingerprint must be 64 lowercase hex characters",
+                "{bad}",
+            );
+        }
+        // Nothing above was logged: a refused request never records a signing
+        // intent, let alone issues an attestation.
+        assert_eq!(h.store.log_size().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn signing_is_rate_limited_per_owner() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        // The gate runs before session verification, so even rejected requests
+        // spend the owner's budget — the point of the cap is CPU, not success.
+        let attempt = || {
+            signing(
+                State(h.state.clone()),
+                Json(SigningRequest {
+                    owner: "alice".to_string(),
+                    ident: "alice#toolbox".to_string(),
+                    version: "1.0.0".to_string(),
+                    signing_fingerprint: "0".repeat(64),
+                    session_token: "bad.token".to_string(),
+                }),
+            )
+        };
+        let mut last = StatusCode::OK;
+        for _ in 0..61 {
+            last = err_of(attempt().await).0;
+        }
+        assert_eq!(last, StatusCode::TOO_MANY_REQUESTS);
+        // A different owner has its own bucket.
+        let other = signing(
+            State(h.state),
+            Json(SigningRequest {
+                owner: "bob".to_string(),
+                ident: "bob#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                signing_fingerprint: "0".repeat(64),
+                session_token: "bad.token".to_string(),
+            }),
+        )
+        .await;
+        assert_eq!(err_of(other).0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn token_scope_matching_is_owner_folded_and_separator_strict() {
+        assert!(scope_owner_matches("alice#toolbox", "alice"));
+        assert!(scope_owner_matches("Alice#toolbox", "alice"));
+        assert!(!scope_owner_matches("bob#toolbox", "alice"));
+        assert!(!scope_owner_matches("noseparator", "alice"));
+
+        assert!(scope_permits("alice#*", "alice#toolbox"));
+        assert!(scope_permits("alice#toolbox", "alice#toolbox"));
+        assert!(!scope_permits("alice#toolbox", "alice#other"));
+        assert!(!scope_permits("alice#*", "bob#toolbox"));
+        // A scope or an ident without the separator matches nothing.
+        assert!(!scope_permits("noseparator", "alice#toolbox"));
+        assert!(!scope_permits("alice#*", "noseparator"));
+    }
+
+    #[test]
+    fn rate_limiter_prune_drops_only_fully_elapsed_windows() {
+        let limiter = RateLimiter::new();
+        assert!(limiter.allow("key", 1, 60));
+        assert!(!limiter.allow("key", 1, 60), "the cap is one per window");
+
+        // A prune with a window the entry still falls inside keeps counting it.
+        limiter.prune(3600);
+        assert!(!limiter.allow("key", 1, 60));
+
+        // A prune whose window has fully elapsed drops the key entirely.
+        limiter.prune(0);
+        assert!(
+            limiter.allow("key", 1, 60),
+            "the elapsed window was released"
+        );
+    }
+
+    #[test]
+    fn error_helpers_map_store_messages_to_status_codes() {
+        assert_eq!(bad_request("nope".to_string()).0, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            internal("boom".to_string()).0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(unauthorized("no").0, StatusCode::UNAUTHORIZED);
+        // Only the two collision messages become a 409; everything else is a
+        // client error, so a store failure is never reported as a conflict.
+        assert_eq!(
+            conflict_or_bad_request("owner name 'alice' is already in use".to_string()).0,
+            StatusCode::CONFLICT,
+        );
+        assert_eq!(
+            conflict_or_bad_request("reused challenge".to_string()).0,
+            StatusCode::CONFLICT,
+        );
+        assert_eq!(
+            conflict_or_bad_request("unknown owner".to_string()).0,
+            StatusCode::BAD_REQUEST,
+        );
+        assert_eq!(too_many_requests().0, StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    #[test]
+    fn blob_hash_paths_must_be_lowercase_hex() {
+        validate_blob_hash(&"a".repeat(64)).expect("64 lowercase hex characters are accepted");
+        for bad in [
+            "a".repeat(63),
+            "a".repeat(65),
+            "A".repeat(64),
+            "g".repeat(64),
+        ] {
+            assert_eq!(
+                err_of(validate_blob_hash(&bad)),
+                (
+                    StatusCode::BAD_REQUEST,
+                    "blob hash must be 64 lowercase hex characters".to_string()
+                ),
+                "{bad}",
+            );
+        }
+    }
+
+    /// Drive the real `serve()` entry point over a loopback socket: the router
+    /// wiring, the `ConnectInfo` plumbing the per-IP throttles depend on, and
+    /// the JSON codec on the wire are only exercised through an actual request.
+    #[tokio::test]
+    async fn serve_binds_the_router_and_answers_over_http() {
+        let h = harness();
+        // `serve()` runs its accept loop forever, so it never reports the port
+        // it bound; take a free one from the OS, release it, and hand it over.
+        let probe = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = probe.local_addr().unwrap();
+        drop(probe);
+
+        let store = h.store.clone();
+        let blob_store = BlobStore::local(h.packages_dir.clone());
+        tokio::spawn(async move {
+            let _ = serve(store, blob_store, addr).await;
+        });
+
+        let base = format!("http://{addr}");
+        let client = reqwest::Client::new();
+        // Wait for the accept loop to come up.
+        let mut health = None;
+        for _ in 0..100 {
+            match client.get(format!("{base}/health")).send().await {
+                Ok(response) => {
+                    health = Some(response);
+                    break;
+                }
+                Err(_) => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+            }
+        }
+        let health = health.expect("the served router accepts connections");
+        assert_eq!(health.status(), reqwest::StatusCode::OK);
+        assert_eq!(
+            health.json::<serde_json::Value>().await.unwrap(),
+            serde_json::json!({ "ok": true }),
+        );
+
+        // A GET route reading state.
+        let ident: ServerIdentResponse = client
+            .get(format!("{base}/ident"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            ident.server_fingerprint,
+            crypto::fingerprint(&h.store.server_public_key().unwrap()),
+        );
+
+        // The full anonymous onboarding chain over the wire: register, then
+        // challenge, then login. `/accounts/register` and `/auth/login` are the
+        // two routes that need `ConnectInfo`, so this also proves the
+        // connect-info make-service is wired up.
+        let (payload, auth_private) = registration_payload_with_auth_private("alice");
+        let registered = client
+            .post(format!("{base}/accounts/register"))
+            .json(&payload)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(registered.status(), reqwest::StatusCode::OK);
+        let registered: RegisterResponse = registered.json().await.unwrap();
+        assert_eq!(registered.owner, "alice");
+
+        let challenge: ChallengeResponse = client
+            .post(format!("{base}/auth/challenge"))
+            .json(&ChallengeRequest {
+                owner: "alice".to_string(),
+                auth_fingerprint: registered.auth_fingerprint.clone(),
+            })
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let nonce = crypto::decode_bytes(&challenge.nonce, "nonce").unwrap();
+        let signature = crypto::sign(
+            &auth_private,
+            &crypto::challenge_message(&challenge.challenge_id, &nonce),
+        )
+        .unwrap();
+        let session: LoginResponse = client
+            .post(format!("{base}/auth/login"))
+            .json(&LoginRequest {
+                challenge_id: challenge.challenge_id,
+                signature: crypto::encode_bytes(&signature),
+            })
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            verify_session_token(&h.store, &session.session_token)
+                .expect("the token minted over HTTP is a live session")
+                .sub,
+            "alice",
+        );
+
+        // An unrouted path is a 404 rather than a 500 or a hang.
+        assert_eq!(
+            client
+                .get(format!("{base}/no/such/route"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::NOT_FOUND,
+        );
+        // ...and an unknown blob hash 404s through the real `/blob/:hash` route.
+        assert_eq!(
+            client
+                .get(format!("{base}/blob/{}", "0".repeat(64)))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            reqwest::StatusCode::NOT_FOUND,
+        );
+    }
+
+    /// Like `registration_payload`, but also hands back the auth private key so
+    /// the caller can go on to sign a login challenge.
+    fn registration_payload_with_auth_private(owner: &str) -> (RegisterRequest, Vec<u8>) {
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let auth_proof = crypto::sign(
+            &auth_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public),
+        )
+        .unwrap();
+        let ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, owner, &ident_public),
+        )
+        .unwrap();
+        (
+            RegisterRequest {
+                owner: owner.to_string(),
+                auth_key: crypto::encode_bytes(&auth_public),
+                ident_key: crypto::encode_bytes(&ident_public),
+                proofs: RegisterProofs {
+                    auth: crypto::encode_bytes(&auth_proof),
+                    ident: crypto::encode_bytes(&ident_proof),
+                },
+            },
+            auth_private,
+        )
+    }
 }
