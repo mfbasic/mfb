@@ -1,11 +1,11 @@
 # bug-357: `WHILE` is the only block closed by a bespoke keyword (`WEND`) instead of `END WHILE`
 
-Last updated: 2026-07-18
+Last updated: 2026-07-22
 Effort: large (3h–1d)
 Severity: LOW
 Class: Footgun
 
-Status: Open
+Status: Fixed (2026-07-22)
 Regression Test: `tests/syntax/control-flow/while-end-while-valid/`, `tests/syntax/control-flow/while-wend-removed-invalid/`
 
 Every multi-line block construct in MFBASIC closes with `END <kind>` — `END IF`,
@@ -319,7 +319,7 @@ delta is expected — that invariance is itself an acceptance criterion.
 
 Acceptance: fixture fails for the documented reason; fmt hazard found already
 covered at HEAD (test kept as guard); audit recorded.
-Commit: —
+Commit: `22bf455e0`
 
 ### Phase 2 — accept `END WHILE` (parser + formatter)
 
@@ -338,7 +338,7 @@ Acceptance: Phase 1 fixture builds and prints `multi=3 single=2 nested=4 exit=4`
 `WEND` still parses; all 3190 unit tests pass; 33-test control-flow acceptance
 slice passes (covers `EXIT WHILE`, `CONTINUE WHILE`, `DO WHILE … LOOP` on the
 unmigrated tree).
-Commit: —
+Commit: `22bf455e0`
 
 ### Phase 3 — migrate the tree to `END WHILE`
 
@@ -381,7 +381,7 @@ Acceptance: no `WEND` remains outside `bugs/`, `planning/old-*`, the compiler
 impl (Phase 4), and the spec keyword-list note; 3190 unit tests green;
 112-fixture acceptance slice over the migrated areas green with zero golden
 churn beyond the 3 intended files.
-Commit: —
+Commit: `3dbc4f156`
 
 ### Phase 4 — remove `WEND` from the language
 
@@ -409,20 +409,43 @@ Commit: —
 
 Acceptance: `WEND` no longer parses; its rejection diagnostic points at
 `END WHILE`; 3190 unit tests green; control-flow acceptance slice green.
-Commit: —
+Commit: `2ba5d4063`
 
 ### Phase 5 — full validation
 
-- [ ] `cargo test` (full suite, **not** a filtered run — see AGENTS.md).
-- [ ] `cargo fmt` (second pass in `repository/`, which is not a workspace member).
-- [ ] Full acceptance/golden run; confirm zero unexplained golden churn.
-- [ ] Re-run the Phase 1 reproduction end-to-end; confirm it builds and prints `3`.
-- [ ] Confirm no binary/codegen delta: build a fixture before and after and
-      diff the executable, per `scripts/artifact-gate.sh`.
+- [x] `cargo test` (full suite, **not** a filtered run — see AGENTS.md).
+      Exit 0 across every target (3190 bin tests + all integration suites).
+- [x] `cargo fmt` (second pass in `repository/`) — both passes clean, no diffs.
+- [x] Full acceptance/golden run — **1076 tests passed, zero mismatches**;
+      the only golden churn in the whole change is the 3 build.logs whose
+      fixtures quote a migrated source line (read line by line in Phase 3).
+- [x] Re-run the Phase 1 reproduction end-to-end — builds and prints `3`.
+- [x] Codegen invariance via `scripts/artifact-gate.sh`: a detached worktree at
+      pre-bug HEAD `a47c0ae80` and the post-change compiler produce
+      **byte-identical** `.ncode` (same sha256), proving the change is a pure
+      front-end change. Two pre-existing defects surfaced and were fixed in
+      follow-on commits (below).
+- [x] Man-page examples: `scripts/check-man-examples.py` — all 1013 example
+      blocks parse; the 15 failures are pre-existing environment/semantic gaps
+      (worker packages unavailable to the probe), zero parse errors, zero
+      WEND-related.
 
-Acceptance: full suite green; the reproduction passes; artifact gate shows no
-codegen delta.
-Commit: —
+Found-and-fixed while validating (pre-existing, proven at pre-bug HEAD):
+
+1. **18 stale `codegen-cover` `.ncodesum` gate goldens** — the gate was red at
+   HEAD before this bug. The sums match the compiler at their sync commit
+   `1380f6f83` and were staled by the bug-377/bug-358 codegen commits landing
+   without a gate run. Refreshed after proving determinism and pre/post-357
+   byte identity. Commit: `af75abd58`.
+2. **`mfb fmt --check` failed on `http_package.mfb`/`net_package.mfb`** (one
+   column-0 function-level `TRAP` block each, pre-existing at `a47c0ae80`).
+   Formatting shifts net's `FAIL` ErrorLoc column 8 → 10, which is recorded in
+   IR: exactly 34 IR goldens + 3 cover-net ncodesums changed, all verified as
+   that one shift. Commit: `61ff0950c`.
+
+Acceptance: full suite green; the reproduction passes; artifact gate fully
+green (1311 goldens, 0 diffs).
+Commit: validation-only; found-bug fixes in `af75abd58`, `61ff0950c`; doc move in the final commit
 
 ## Validation Plan
 
