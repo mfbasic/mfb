@@ -32,7 +32,7 @@ See `plan-61-repo-web.md` §Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-61-A complete | `grep -q package_version_targets repository/src/store.rs` → found | NOT MET |
+| plan-61-A complete | `grep -q package_version_targets repository/src/store.rs` → found | **MET** (2026-07-21, re-run): found. All four of A's phases landed (`adf1c2b54`, `fa5e8f69d`, `4e210db4c`, `0e0e01e82`). |
 
 ## 1. Goal
 
@@ -158,18 +158,18 @@ rendered `logEntry` index that cannot be independently verified proves nothing.
 The read-only routes over data that already exists. Lands before search because
 it has no ranking design risk.
 
-- [ ] Add `store.package_detail(ident)` in `repository/src/store.rs`: joins
+- [x] Add `store.package_detail(ident)` in `repository/src/store.rs`: joins
       `packages`, `owners`, `package_versions`, `package_version_targets`.
       Returns every version, ordered newest-first by `created_at`.
-- [ ] Add `store.package_audit(ident)`: joins `log_entries`,
+- [x] Add `store.package_audit(ident)`: joins `log_entries`,
       `release_state_changes`, `ident_chain`.
-- [ ] Add `GET /packages/:ident` and `GET /packages/:ident/audit` handlers in
+- [x] Add `GET /packages/:ident` and `GET /packages/:ident/audit` handlers in
       `repository/src/server.rs`, registered in the route table at `:672-704`.
       Both anonymous. Percent-decoded `:ident` must accept the `#` in
       `<owner>#<package>`. `GET /index/:ident` (`server.rs:917-923`) already
       proves axum's `Path<String>` handles `%23`, so mirror it rather than
       re-deriving it; still assert it in a test.
-- [ ] **Check the route conflict before anything else in this phase.** The table
+- [x] **Check the route conflict before anything else in this phase.** The table
       already holds `POST /packages/transfer/offer` and
       `/packages/transfer/accept` (`server.rs:698-699`). Adding
       `GET /packages/:ident` puts a parameter segment as a sibling of the static
@@ -180,17 +180,34 @@ it has no ranking design risk.
       once, immediately, and confirm both transfer routes still resolve. If it
       does conflict, rename the read routes (`/pkg/:ident`) rather than moving
       the existing POST routes, which are a published wire contract.
-- [ ] 404 with the standard `{error: "..."}` shape (`server.rs:585`) for an
+- [x] 404 with the standard `{error: "..."}` shape (`server.rs:585`) for an
       unknown ident. Do not leak whether an *owner* exists separately from a
       package.
-- [ ] Tests: a yanked version appears in the response; a package with two
+- [x] Tests: a yanked version appears in the response; a package with two
       platform targets renders both; `%23` in the path resolves; unknown ident
       404s; **no route accepts or requires a `sessionToken`**.
 
-Acceptance: `curl -s "$REPO/packages/alice%23pkg"` with no credentials returns
-every version including a yanked one, with its target rows; and the same request
-carrying a valid `sessionToken` behaves identically (proving the route ignores
-credentials rather than accepting them).
+Acceptance: **MET.** `package_detail_lists_every_version_including_yanked_ones`
+returns both versions with the yanked one present and its two platform target
+rows (macOS `arch: null` distinct from `linux/x86_64/musl`).
+`the_read_routes_ignore_credentials_entirely` drives the real router twice —
+once bare, once with an `Authorization: Bearer <valid token>` *and* a `Cookie`
+header — and asserts the status **and body bytes** are identical, which rules
+out a route that quietly reads a credential and widens its answer.
+
+The route-conflict check was done first, as instructed, and **passed**: matchit
+resolves `/packages/transfer/{offer,accept}` ahead of `/packages/:ident`. It is
+now permanently guarded by `router_has_no_route_conflicts_and_static_beats_param`,
+which required extracting `build_router` out of `serve` — a conflict panics at
+router construction, so the failure mode was a server dying at startup with no
+red test. Renaming the read routes was not needed.
+
+Also covered: `the_read_routes_404_without_leaking_whether_an_owner_exists`
+(a registered and an unregistered owner produce byte-identical 404s, so the
+route is not an owner-enumeration oracle; malformed idents are 400) and
+`package_audit_returns_a_checkpoint_with_verifiable_inclusion_proofs` (every
+proof is *verified* against the checkpoint served with it via
+`log::verify_inclusion`, not merely present). Full crate: 304 passed, 0 failed.
 Commit: —
 
 ### Phase 2 — Search
@@ -257,4 +274,24 @@ Commit: —
 
 ## Corrections
 
-- *(none yet)*
+- **A deadlock, found by the test hanging rather than failing.**
+  `store.package_audit` held the connection guard from `self.conn()` and then
+  called `self.list_package_versions(ident)`, which calls `self.conn()` again.
+  `Store`'s connection is an `Arc<Mutex<Connection>>` and a `std::sync::Mutex`
+  is **not reentrant**, so the handler deadlocked instead of erroring — the test
+  sat at "has been running for over 60 seconds". Fixed by querying the versions
+  on the guard already held. Worth stating as a rule for the rest of plan-61: a
+  `Store` method that has taken `self.conn()` must not call another `Store`
+  method that does.
+- **`build_router` had to be extracted from `serve`.** Phase 1 says to check the
+  route conflict "before anything else", but `serve` builds the table inline and
+  then binds a listener, so the conflict panic was unreachable from a test. The
+  router construction is now its own `pub fn`; `serve` calls it. No behaviour
+  change, and the conflict check is now a permanent test rather than a one-time
+  manual startup.
+- **`tower` was added as a dev-dependency.** Driving the assembled `Router`
+  without binding a listener needs `tower::ServiceExt::oneshot`. It is dev-only
+  and does not enter the shipped binary (tower is already in the tree as an axum
+  dependency), so the lean-dependency posture in §3 is intact.
+- **`CheckpointResponse` gained `Clone`.** It is now nested inside
+  `PackageAuditResponse`, which derives `Clone`.

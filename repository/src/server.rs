@@ -520,6 +520,109 @@ pub struct IndexResponse {
     pub versions: Vec<IndexVersion>,
 }
 
+/// `GET /packages/<owner>#<package>` (plan-61-B): the public, anonymous package
+/// view. Distinct from `IndexResponse`, which is the install path's contract and
+/// is deliberately left untouched.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PackageDetailResponse {
+    pub ident: String,
+    pub owner: String,
+    #[serde(rename = "identKey")]
+    pub ident_key: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: String,
+    #[serde(rename = "serverFingerprint")]
+    pub server_fingerprint: String,
+    pub author: Option<String>,
+    pub url: Option<String>,
+    /// `null` until plan-61-E populates it. Present in the shape from day one
+    /// so E adds no field and breaks no consumer.
+    pub description: Option<String>,
+    #[serde(rename = "latestVersion")]
+    pub latest_version: Option<String>,
+    /// **Every** version, newest first, including yanked and superseded — see
+    /// `PackageDetailVersionResponse::state`.
+    pub versions: Vec<PackageDetailVersionResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PackageDetailVersionResponse {
+    pub version: String,
+    pub hash: String,
+    #[serde(rename = "publishedAt")]
+    pub published_at: i64,
+    /// The release state as a value to render, never as a filter the server
+    /// applied: omitting non-current versions would reproduce the SUP-03
+    /// truncation this surface exists to make observable.
+    pub state: String,
+    #[serde(rename = "abiIndex")]
+    pub abi_index: serde_json::Value,
+    #[serde(rename = "logEntry")]
+    pub log_entry: Option<LogEntry>,
+    pub targets: Vec<PackageTargetResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PackageTargetResponse {
+    pub os: String,
+    /// `null` is the any-arch wildcard — the locator matches every
+    /// architecture on its OS — not missing data.
+    pub arch: Option<String>,
+    pub libc: Option<String>,
+    #[serde(rename = "libType")]
+    pub lib_type: String,
+    pub logical: String,
+    pub source: String,
+    #[serde(rename = "blobHash")]
+    pub blob_hash: Option<String>,
+}
+
+/// `GET /packages/<ident>/audit` (plan-61-B §4): the transparency record.
+///
+/// The publish entries carry an **inclusion proof**, not just an index. A
+/// rendered `logEntry` number that cannot be independently verified proves
+/// nothing; the proof is what lets a third-party monitor catch a registry
+/// showing different histories to different clients.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PackageAuditResponse {
+    pub ident: String,
+    pub owner: String,
+    #[serde(rename = "logCheckpoint")]
+    pub log_checkpoint: CheckpointResponse,
+    pub publishes: Vec<AuditPublishEntry>,
+    #[serde(rename = "stateChanges")]
+    pub state_changes: Vec<AuditStateChange>,
+    #[serde(rename = "identChain")]
+    pub ident_chain: Vec<AuditIdentRotation>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuditPublishEntry {
+    pub version: String,
+    pub index: i64,
+    #[serde(rename = "leafHash")]
+    pub leaf_hash: String,
+    /// Sibling hashes proving this leaf is in the checkpoint above.
+    pub proof: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuditStateChange {
+    pub version: String,
+    pub state: String,
+    pub at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuditIdentRotation {
+    #[serde(rename = "oldKey")]
+    pub old_key: String,
+    #[serde(rename = "newKey")]
+    pub new_key: String,
+    pub signature: String,
+    pub issued: i64,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IndexVersion {
     pub version: String,
@@ -557,7 +660,7 @@ impl IndexVersion {
 /// `GET /log/checkpoint` — the signed tree head (plan-23-B3): size + RFC 6962
 /// root, signed by the server key so a checkpoint cannot be forged and two
 /// consumers can compare views.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CheckpointResponse {
     pub size: i64,
     #[serde(rename = "rootHash")]
@@ -669,41 +772,7 @@ pub async fn serve(
             }
         });
     }
-    let app = Router::new()
-        .route("/health", get(health))
-        .route("/ident", get(server_ident))
-        .route("/accounts/register", post(register))
-        .route("/auth/challenge", post(challenge))
-        .route("/auth/login", post(login))
-        .route("/signing", post(signing))
-        .route("/log/checkpoint", get(log_checkpoint))
-        .route("/log/proof/:index", get(log_inclusion_proof))
-        .route("/log/consistency", get(log_consistency_proof))
-        .route("/log/publish", get(log_publish_entry))
-        .route("/keys/rotate", post(rotate_ident))
-        .route("/idents/:owner", get(ident_chain))
-        .route("/machines/link", post(link_start))
-        .route("/machines/link/fetch", post(link_fetch))
-        .route("/machines/revoke/challenge", post(revoke_challenge))
-        .route("/machines/revoke", post(revoke_machine))
-        .route("/index/:ident", get(package_index))
-        .route(
-            "/blob/:hash",
-            get(package_blob).head(head_blob).put(put_blob),
-        )
-        .route("/release-state", post(release_state))
-        .route("/orgs/members", post(org_members))
-        .route("/tokens", post(issue_token))
-        .route("/tokens/revoke", post(revoke_token))
-        .route("/packages/transfer/offer", post(transfer_offer))
-        .route("/packages/transfer/accept", post(transfer_accept))
-        .route("/root.json", get(root_metadata))
-        .route("/snapshot.json", get(snapshot_metadata))
-        .route("/timestamp.json", get(timestamp_metadata))
-        .route("/validate", post(validate_package))
-        .route("/publish", post(publish_package))
-        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .with_state(state);
+    let app = build_router(state);
     let listener = TcpListener::bind(listen)
         .await
         .map_err(|err| format!("failed to bind {listen}: {err}"))?;
@@ -723,6 +792,59 @@ pub async fn serve(
     Ok(actual)
 }
 // coverage:on
+
+/// Assemble the route table.
+///
+/// Split out of `serve` so it can be constructed in a test without binding a
+/// listener. That matters for more than tidiness: `Router::route` **panics on a
+/// route conflict at construction time**, so a bad table is a dead server at
+/// startup rather than a failing handler test. `GET /packages/:ident` puts a
+/// parameter segment beside the static `/packages/transfer/*` routes, and
+/// `router_has_no_route_conflicts` is what proves matchit resolves that the way
+/// this table assumes (static wins over param).
+pub fn build_router(state: AppState) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/ident", get(server_ident))
+        .route("/accounts/register", post(register))
+        .route("/auth/challenge", post(challenge))
+        .route("/auth/login", post(login))
+        .route("/signing", post(signing))
+        .route("/log/checkpoint", get(log_checkpoint))
+        .route("/log/proof/:index", get(log_inclusion_proof))
+        .route("/log/consistency", get(log_consistency_proof))
+        .route("/log/publish", get(log_publish_entry))
+        .route("/keys/rotate", post(rotate_ident))
+        .route("/idents/:owner", get(ident_chain))
+        .route("/machines/link", post(link_start))
+        .route("/machines/link/fetch", post(link_fetch))
+        .route("/machines/revoke/challenge", post(revoke_challenge))
+        .route("/machines/revoke", post(revoke_machine))
+        .route("/index/:ident", get(package_index))
+        // plan-61-B: anonymous read surface. These read no credential of any
+        // kind — no session token, no bearer header, no cookie — and are `GET`
+        // only. `:ident` sits beside the static `/packages/transfer/*` routes
+        // below; matchit resolves static before param.
+        .route("/packages/:ident", get(package_detail))
+        .route("/packages/:ident/audit", get(package_audit))
+        .route(
+            "/blob/:hash",
+            get(package_blob).head(head_blob).put(put_blob),
+        )
+        .route("/release-state", post(release_state))
+        .route("/orgs/members", post(org_members))
+        .route("/tokens", post(issue_token))
+        .route("/tokens/revoke", post(revoke_token))
+        .route("/packages/transfer/offer", post(transfer_offer))
+        .route("/packages/transfer/accept", post(transfer_accept))
+        .route("/root.json", get(root_metadata))
+        .route("/snapshot.json", get(snapshot_metadata))
+        .route("/timestamp.json", get(timestamp_metadata))
+        .route("/validate", post(validate_package))
+        .route("/publish", post(publish_package))
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .with_state(state)
+}
 
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
@@ -854,6 +976,189 @@ async fn log_inclusion_proof(
         size,
         leaf_hash: hex::encode(leaves[index as usize]),
         path,
+    }))
+}
+
+/// Split `<owner>#<package>`, or a 400 naming the expected shape.
+///
+/// axum percent-decodes a `Path` segment before the handler sees it, so a
+/// browser-safe `%23` arrives here as a literal `#`. `package_index` has always
+/// relied on that; these routes mirror it rather than re-deriving it.
+fn split_ident(ident: &str) -> Result<(&str, &str), (StatusCode, Json<ErrorResponse>)> {
+    match ident.split_once('#') {
+        Some((owner, package)) if !owner.is_empty() && !package.is_empty() => Ok((owner, package)),
+        _ => Err(bad_request("ident must use <owner>#<package>".to_string())),
+    }
+}
+
+/// `GET /packages/:ident` — anonymous, read-only (plan-61-B Phase 1).
+///
+/// Reads **no** credential: no `sessionToken`, no `Authorization` header, no
+/// cookie. A request carrying one behaves identically to one that does not,
+/// which is asserted by test rather than left as a property of the signature.
+async fn package_detail(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Result<Json<PackageDetailResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (owner_part, _package_part) = split_ident(&ident)?;
+    let Some(detail) = state.store.package_detail(&ident).map_err(internal)? else {
+        // One 404 for "no such package", whatever the reason. Distinguishing
+        // "unknown owner" from "unknown package under a known owner" would
+        // turn this route into an owner-enumeration oracle.
+        return Err(not_found("unknown package".to_string()));
+    };
+    let Some((owner_record, ident_key)) = state
+        .store
+        .owner_with_ident_key(owner_part)
+        .map_err(internal)?
+    else {
+        return Err(not_found("unknown package".to_string()));
+    };
+
+    // The package-level metadata shown is the **newest** version's. Versions
+    // are ordered newest-first, and an older version's author/url describes
+    // that older artifact, not the package as it stands today. Read before the
+    // loop below consumes the rows.
+    let (author, url, description) = match detail.versions.first() {
+        Some(newest) => (
+            newest.author.clone(),
+            newest.url.clone(),
+            newest.description.clone(),
+        ),
+        None => (None, None, None),
+    };
+
+    let mut versions = Vec::new();
+    for row in detail.versions {
+        let log_entry = state
+            .store
+            .publish_log_entry(&ident, &row.version)
+            .map_err(internal)?
+            .map(|entry| LogEntry {
+                index: entry.index,
+                leaf_hash: hex::encode(entry.leaf_hash),
+            });
+        versions.push(PackageDetailVersionResponse {
+            version: row.version,
+            hash: row.hash,
+            published_at: row.published_at,
+            state: row.state,
+            abi_index: serde_json::from_str(&row.abi_index)
+                .unwrap_or_else(|_| serde_json::json!({})),
+            log_entry,
+            targets: row
+                .targets
+                .into_iter()
+                .map(|target| PackageTargetResponse {
+                    os: target.os,
+                    arch: target.arch,
+                    libc: target.libc,
+                    lib_type: target.lib_type,
+                    logical: target.logical,
+                    source: target.source,
+                    blob_hash: target.blob_hash,
+                })
+                .collect(),
+        });
+    }
+
+    let (server_public, _server_private) = state.store.server_keypair().map_err(internal)?;
+    Ok(Json(PackageDetailResponse {
+        latest_version: versions.first().map(|version| version.version.clone()),
+        ident,
+        owner: owner_record.owner_display,
+        ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_key.public_key)),
+        ident_fingerprint: ident_key.fingerprint,
+        server_fingerprint: crypto::fingerprint(&server_public),
+        author,
+        url,
+        description,
+        versions,
+    }))
+}
+
+/// `GET /packages/:ident/audit` — anonymous, read-only (plan-61-B §4).
+///
+/// Every publish entry carries its inclusion proof against the checkpoint
+/// returned in the same response, so a third-party monitor can verify the
+/// history rather than take the registry's word for it.
+async fn package_audit(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Result<Json<PackageAuditResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (owner_part, _package_part) = split_ident(&ident)?;
+    let Some(audit) = state.store.package_audit(&ident).map_err(internal)? else {
+        return Err(not_found("unknown package".to_string()));
+    };
+
+    let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
+    let root = crate::log::root(&leaves);
+    let (_public, private) = state.store.server_keypair().map_err(internal)?;
+    let signature = crypto::sign(
+        &private,
+        &crate::log::checkpoint_signing_input(leaves.len() as u64, &root),
+    )
+    .map_err(internal)?;
+
+    let mut publishes = Vec::new();
+    for version in audit.versions {
+        let Some(entry) = state
+            .store
+            .publish_log_entry(&ident, &version)
+            .map_err(internal)?
+        else {
+            continue;
+        };
+        // A proof is only meaningful against the checkpoint in this same
+        // response, so both are computed from the one `leaves` snapshot.
+        let proof = if entry.index >= 0 && (entry.index as usize) < leaves.len() {
+            crate::log::inclusion_path(entry.index as usize, &leaves)
+                .into_iter()
+                .map(hex::encode)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        publishes.push(AuditPublishEntry {
+            version,
+            index: entry.index,
+            leaf_hash: hex::encode(entry.leaf_hash),
+            proof,
+        });
+    }
+
+    let ident_chain = state
+        .store
+        .ident_chain(owner_part)
+        .map_err(internal)?
+        .into_iter()
+        .map(|(old_key, new_key, signature, issued)| AuditIdentRotation {
+            old_key: format!("ed25519:{}", crypto::encode_bytes(&old_key)),
+            new_key: format!("ed25519:{}", crypto::encode_bytes(&new_key)),
+            signature: crypto::encode_bytes(&signature),
+            issued,
+        })
+        .collect();
+
+    Ok(Json(PackageAuditResponse {
+        ident,
+        owner: audit.owner,
+        log_checkpoint: CheckpointResponse {
+            size: leaves.len() as i64,
+            root_hash: hex::encode(root),
+            signature: crypto::encode_bytes(&signature),
+        },
+        publishes,
+        state_changes: audit
+            .state_changes
+            .into_iter()
+            .map(|change| AuditStateChange {
+                version: change.version,
+                state: change.state,
+                at: change.at,
+            })
+            .collect(),
+        ident_chain,
     }))
 }
 
@@ -2396,6 +2701,16 @@ fn conflict_or_bad_request(message: String) -> (StatusCode, Json<ErrorResponse>)
     } else {
         bad_request(message)
     }
+}
+
+/// 404 with the standard error shape. Used by the plan-61-B read routes, which
+/// answer "no such package" for an unknown owner and an unknown package alike
+/// rather than letting a caller tell the two apart.
+fn not_found(message: String) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ErrorResponse { error: message }),
+    )
 }
 
 fn internal(message: String) -> (StatusCode, Json<ErrorResponse>) {
@@ -4158,6 +4473,366 @@ mod tests {
             state,
             packages_dir: opened.packages_dir,
         }
+    }
+
+    /// plan-61-B Phase 1's first task, and the reason `build_router` exists.
+    ///
+    /// `GET /packages/:ident` makes a parameter segment a sibling of the static
+    /// `/packages/transfer/offer` and `/packages/transfer/accept` routes.
+    /// matchit is expected to prefer the static segment, but a conflict
+    /// **panics inside `Router::route` at construction**, which without this
+    /// test would surface as a server that dies at startup rather than as a red
+    /// test. Constructing the router at all is the assertion.
+    #[tokio::test]
+    async fn router_has_no_route_conflicts_and_static_beats_param() {
+        use tower::ServiceExt;
+        let h = harness();
+        let router = build_router(h.state.clone());
+
+        // Both transfer routes still resolve to their POST handlers, and are
+        // not swallowed by `/packages/:ident`. A 405 (not 404) proves the path
+        // matched the static route, which only accepts POST.
+        for path in ["/packages/transfer/offer", "/packages/transfer/accept"] {
+            let response = router
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .method("GET")
+                        .uri(path)
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{path} must still resolve to the static POST route, not to /packages/:ident",
+            );
+        }
+
+        // And the param route is reachable for a real ident.
+        let response = router
+            .clone()
+            .oneshot(
+                axum::http::Request::builder()
+                    .method("GET")
+                    .uri("/packages/alice%23toolbox")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "an unpublished ident reaches the handler and 404s",
+        );
+    }
+
+    /// plan-61-B Phase 1 / §4 — the sub-plan's central behavioural claim.
+    ///
+    /// A **yanked** version must still be listed. A view that silently omits
+    /// non-current versions reproduces exactly the truncation the open SUP-03
+    /// downgrade attack performs (`plan-61-repo-web.md` §4), so `state` is a
+    /// field to render and never a filter the server applies. This is the test
+    /// that would fail if someone later "tidied" the query with a WHERE clause.
+    #[tokio::test]
+    async fn package_detail_lists_every_version_including_yanked_ones() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .record_native_blob("vendorhash", "data/vendorhash.bin")
+            .unwrap();
+
+        let targets = [
+            crate::abi::VendorBlobRef {
+                logical: "snd".to_string(),
+                source: "libsnd.dylib".to_string(),
+                hash: "vendorhash".to_string(),
+                os: "macos".to_string(),
+                arch: None,
+                libc: None,
+                lib_type: "vendor".to_string(),
+            },
+            crate::abi::VendorBlobRef {
+                logical: "snd".to_string(),
+                source: "libsnd.a".to_string(),
+                hash: "vendorhash".to_string(),
+                os: "linux".to_string(),
+                arch: Some("x86_64".to_string()),
+                libc: Some("musl".to_string()),
+                lib_type: "vendor".to_string(),
+            },
+        ];
+        for (version, blobs) in [("1.0.0", &targets[..]), ("2.0.0", &[][..])] {
+            h.store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("data/{version}.mfp"),
+                    "{}",
+                    blobs,
+                    &crate::store::PublishMetadata {
+                        author: Some("alice".to_string()),
+                        url: Some("https://example.invalid".to_string()),
+                    },
+                )
+                .unwrap();
+        }
+        h.store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+
+        // `%23` is percent-decoded by axum before the handler sees it, so the
+        // handler receives a literal `#`.
+        let detail = package_detail(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("detail served")
+        .0;
+
+        assert_eq!(detail.ident, "alice#toolbox");
+        assert_eq!(detail.owner, "alice");
+        assert_eq!(detail.versions.len(), 2, "the yanked version is still here");
+        // Newest first, so `latestVersion` is the un-yanked 2.0.0.
+        assert_eq!(detail.latest_version.as_deref(), Some("2.0.0"));
+        let yanked = detail
+            .versions
+            .iter()
+            .find(|version| version.version == "1.0.0")
+            .expect("the yanked version must be listed, not filtered out");
+        assert_eq!(yanked.state, "yanked");
+
+        // Both platform targets render, and the any-arch wildcard stays null
+        // rather than collapsing into the concrete arch.
+        assert_eq!(yanked.targets.len(), 2);
+        let macos = &yanked.targets[0];
+        assert_eq!(macos.os, "macos");
+        assert_eq!(macos.arch, None);
+        assert_eq!(macos.lib_type, "vendor");
+        let linux = &yanked.targets[1];
+        assert_eq!(linux.arch.as_deref(), Some("x86_64"));
+        assert_eq!(linux.libc.as_deref(), Some("musl"));
+
+        // Package-level metadata comes from the newest version.
+        assert_eq!(detail.author.as_deref(), Some("alice"));
+        assert_eq!(detail.url.as_deref(), Some("https://example.invalid"));
+        // `description` is in the shape from day one, null until plan-61-E, so
+        // that sub-plan adds no field and breaks no consumer.
+        assert_eq!(detail.description, None);
+    }
+
+    /// An unknown package 404s with the standard error shape, and an unknown
+    /// *owner* is indistinguishable from an unknown *package* — otherwise the
+    /// route is an owner-enumeration oracle.
+    #[tokio::test]
+    async fn the_read_routes_404_without_leaking_whether_an_owner_exists() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+
+        let known_owner = err_of(
+            package_detail(
+                State(h.state.clone()),
+                axum::extract::Path("alice#nosuchpackage".to_string()),
+            )
+            .await,
+        );
+        let unknown_owner = err_of(
+            package_detail(
+                State(h.state.clone()),
+                axum::extract::Path("mallory#nosuchpackage".to_string()),
+            )
+            .await,
+        );
+        assert_eq!(known_owner.0, StatusCode::NOT_FOUND);
+        assert_eq!(
+            known_owner, unknown_owner,
+            "a registered owner and an unregistered one must be indistinguishable",
+        );
+
+        // The audit route answers identically.
+        let audit_known = err_of(
+            package_audit(
+                State(h.state.clone()),
+                axum::extract::Path("alice#nosuchpackage".to_string()),
+            )
+            .await,
+        );
+        let audit_unknown = err_of(
+            package_audit(
+                State(h.state.clone()),
+                axum::extract::Path("mallory#nosuchpackage".to_string()),
+            )
+            .await,
+        );
+        assert_eq!(audit_known.0, StatusCode::NOT_FOUND);
+        assert_eq!(audit_known, audit_unknown);
+
+        // A malformed ident is a 400, not a 404.
+        for ident in ["noseparator", "#toolbox", "alice#"] {
+            let (status, message) = err_of(
+                package_detail(
+                    State(h.state.clone()),
+                    axum::extract::Path(ident.to_string()),
+                )
+                .await,
+            );
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{ident}");
+            assert!(message.contains("<owner>#<package>"), "{ident}: {message}");
+        }
+    }
+
+    /// plan-61-B §4: the audit route exposes an **inclusion proof** per publish,
+    /// not just an index. A rendered log index nobody can verify proves nothing;
+    /// the proof against the checkpoint in the same response is what lets a
+    /// third-party monitor catch a registry equivocating.
+    #[tokio::test]
+    async fn package_audit_returns_a_checkpoint_with_verifiable_inclusion_proofs() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for version in ["1.0.0", "2.0.0"] {
+            h.store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("data/{version}.mfp"),
+                    "{}",
+                    &[],
+                    &crate::store::PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+        h.store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+
+        let audit = package_audit(
+            State(h.state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("audit served")
+        .0;
+
+        assert_eq!(audit.ident, "alice#toolbox");
+        assert_eq!(audit.owner, "alice");
+        assert_eq!(audit.publishes.len(), 2);
+        assert!(audit.log_checkpoint.size >= 2);
+
+        // Every proof actually verifies against the checkpoint served
+        // alongside it — the property that makes the tab worth anything.
+        let root: [u8; 32] = hex::decode(&audit.log_checkpoint.root_hash)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        for entry in &audit.publishes {
+            let leaf: [u8; 32] = hex::decode(&entry.leaf_hash).unwrap().try_into().unwrap();
+            let path: Vec<[u8; 32]> = entry
+                .proof
+                .iter()
+                .map(|hop| hex::decode(hop).unwrap().try_into().unwrap())
+                .collect();
+            crate::log::verify_inclusion(
+                entry.index as usize,
+                audit.log_checkpoint.size as usize,
+                &leaf,
+                &path,
+                &root,
+            )
+            .unwrap_or_else(|err| {
+                panic!(
+                    "inclusion proof for {} must verify against the served checkpoint: {err}",
+                    entry.version,
+                )
+            });
+        }
+
+        // The yank shows up as a release-state transition.
+        assert!(
+            audit
+                .state_changes
+                .iter()
+                .any(|change| change.version == "1.0.0" && change.state == "yanked"),
+            "{:?}",
+            audit.state_changes,
+        );
+    }
+
+    /// plan-61-B Phase 1 acceptance: the read routes are anonymous, and a
+    /// request carrying a valid credential behaves **identically** to one
+    /// carrying none.
+    ///
+    /// Asserting equality both ways matters. "No credential required" would
+    /// still hold if the route quietly read a token and widened what it
+    /// returned; that is the shape this rules out. The handlers take no token
+    /// parameter at all, and this pins that as behaviour rather than as a
+    /// property of the current signature.
+    #[tokio::test]
+    async fn the_read_routes_ignore_credentials_entirely() {
+        use tower::ServiceExt;
+        let h = harness();
+        let keys = register_owner_with_all_keys(&h.store, "alice");
+        let token = open_session(&h.store, "alice", &keys.auth_private);
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash",
+                "data/1.0.0.mfp",
+                "{}",
+                &[],
+                &crate::store::PublishMetadata::default(),
+            )
+            .unwrap();
+
+        let router = build_router(h.state.clone());
+        let fetch = |authorized: bool| {
+            let router = router.clone();
+            let token = token.clone();
+            async move {
+                let mut request = axum::http::Request::builder()
+                    .method("GET")
+                    .uri("/packages/alice%23toolbox");
+                if authorized {
+                    request = request
+                        .header("Authorization", format!("Bearer {token}"))
+                        .header("Cookie", "session=whatever");
+                }
+                let response = router
+                    .oneshot(request.body(axum::body::Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (status, body)
+            }
+        };
+
+        let (anon_status, anon_body) = fetch(false).await;
+        let (auth_status, auth_body) = fetch(true).await;
+        assert_eq!(anon_status, StatusCode::OK);
+        assert_eq!(
+            anon_status, auth_status,
+            "a credential must not change the status",
+        );
+        assert_eq!(
+            anon_body, auth_body,
+            "a credential must not change the body — the route is anonymous in \
+             both directions, not merely credential-optional",
+        );
     }
 
     fn peer(ip: &str) -> ConnectInfo<SocketAddr> {

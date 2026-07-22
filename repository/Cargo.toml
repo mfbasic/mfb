@@ -39,3 +39,12 @@ sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+# Test-only. `ServiceExt::oneshot` drives the assembled `Router` without binding
+# a listener, which is what lets `router_has_no_route_conflicts_and_static_beats_param`
+# prove matchit resolves `/packages/transfer/*` ahead of `/packages/:ident`.
+# A route conflict panics at router construction, so without this the failure
+# mode is a server that dies at startup rather than a red test. Dev-only: tower
+# is already in the tree as an axum dependency and does not enter the binary.
+tower = { version = "0.4", features = ["util"] }

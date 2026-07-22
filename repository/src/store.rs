@@ -1299,6 +1299,173 @@ impl Store {
         Ok(versions)
     }
 
+    /// Everything `GET /packages/:ident` renders: the package's owner, its
+    /// recorded metadata, and **every** version with its native target rows
+    /// (plan-61-B §3).
+    ///
+    /// Returns `None` when no package carries this ident.
+    ///
+    /// No `state` filter, deliberately and permanently. A yanked or superseded
+    /// version is still part of the published history, and a view that silently
+    /// omits non-current versions reproduces exactly the truncation the open
+    /// SUP-03 downgrade attack performs (`plan-61-repo-web.md` §4). `state` is a
+    /// field for the caller to render, never a filter this query applies.
+    pub fn package_detail(&self, ident: &str) -> Result<Option<PackageDetailRow>, String> {
+        let conn = self.conn();
+        let owner: Option<String> = conn
+            .query_row(
+                "SELECT o.owner_display FROM packages p
+                 JOIN owners o ON o.id = p.owner_id
+                 WHERE p.ident = ?1",
+                params![ident],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load package: {err}"))?;
+        let Some(owner) = owner else {
+            return Ok(None);
+        };
+
+        let mut statement = conn
+            .prepare(
+                "SELECT pv.id, pv.version, pv.hash, pv.created_at, pv.state,
+                        pv.abi_index, pv.author, pv.url, pv.description
+                 FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1
+                 ORDER BY pv.created_at DESC, pv.id DESC",
+            )
+            .map_err(|err| format!("failed to prepare detail query: {err}"))?;
+        let rows = statement
+            .query_map(params![ident], |row| {
+                Ok(PackageDetailVersion {
+                    id: row.get(0)?,
+                    version: row.get(1)?,
+                    hash: row.get(2)?,
+                    published_at: row.get(3)?,
+                    state: row.get(4)?,
+                    abi_index: row.get(5)?,
+                    author: row.get(6)?,
+                    url: row.get(7)?,
+                    description: row.get(8)?,
+                    targets: Vec::new(),
+                })
+            })
+            .map_err(|err| format!("failed to load package detail: {err}"))?;
+        let mut versions = Vec::new();
+        for row in rows {
+            versions.push(row.map_err(|err| format!("failed to read package detail: {err}"))?);
+        }
+
+        let mut target_statement = conn
+            .prepare(
+                "SELECT os, arch, libc, lib_type, logical, source, blob_hash
+                 FROM package_version_targets
+                 WHERE package_version_id = ?1
+                 ORDER BY rowid",
+            )
+            .map_err(|err| format!("failed to prepare target query: {err}"))?;
+        for version in &mut versions {
+            let rows = target_statement
+                .query_map(params![version.id], |row| {
+                    Ok(PackageTargetRow {
+                        os: row.get(0)?,
+                        arch: row.get(1)?,
+                        libc: row.get(2)?,
+                        lib_type: row.get(3)?,
+                        logical: row.get(4)?,
+                        source: row.get(5)?,
+                        blob_hash: row.get(6)?,
+                    })
+                })
+                .map_err(|err| format!("failed to load version targets: {err}"))?;
+            for row in rows {
+                version
+                    .targets
+                    .push(row.map_err(|err| format!("failed to read version target: {err}"))?);
+            }
+        }
+
+        Ok(Some(PackageDetailRow { owner, versions }))
+    }
+
+    /// The transparency record for one package: its release-state history and
+    /// its owner's ident-key rotations (plan-61-B §4). The publish log entries
+    /// and inclusion proofs are assembled by the handler from the existing log
+    /// API, which already knows how to build them.
+    ///
+    /// Returns `None` for an unknown ident, so the handler can 404 without a
+    /// second existence query.
+    pub fn package_audit(&self, ident: &str) -> Result<Option<PackageAuditRow>, String> {
+        let conn = self.conn();
+        let owner: Option<String> = conn
+            .query_row(
+                "SELECT o.owner_display FROM packages p
+                 JOIN owners o ON o.id = p.owner_id
+                 WHERE p.ident = ?1",
+                params![ident],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load package: {err}"))?;
+        let Some(owner) = owner else {
+            return Ok(None);
+        };
+
+        let mut statement = conn
+            .prepare(
+                "SELECT pv.version, rsc.state, rsc.created_at
+                 FROM release_state_changes rsc
+                 JOIN package_versions pv ON pv.id = rsc.package_version_id
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1
+                 ORDER BY rsc.id ASC",
+            )
+            .map_err(|err| format!("failed to prepare state-change query: {err}"))?;
+        let rows = statement
+            .query_map(params![ident], |row| {
+                Ok(ReleaseStateChangeRow {
+                    version: row.get(0)?,
+                    state: row.get(1)?,
+                    at: row.get(2)?,
+                })
+            })
+            .map_err(|err| format!("failed to load state changes: {err}"))?;
+        let mut state_changes = Vec::new();
+        for row in rows {
+            state_changes.push(row.map_err(|err| format!("failed to read state change: {err}"))?);
+        }
+
+        // Query the versions on the connection already held. Calling
+        // `list_package_versions` here would re-enter `self.conn()` while this
+        // function still owns the guard, and the mutex is not reentrant — that
+        // deadlocks the handler rather than failing it.
+        let mut version_statement = conn
+            .prepare(
+                "SELECT pv.version FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1
+                 ORDER BY pv.created_at ASC, pv.id ASC",
+            )
+            .map_err(|err| format!("failed to prepare version query: {err}"))?;
+        let rows = version_statement
+            .query_map(params![ident], |row| row.get::<_, String>(0))
+            .map_err(|err| format!("failed to list package versions: {err}"))?;
+        let mut versions = Vec::new();
+        for row in rows {
+            versions.push(row.map_err(|err| format!("failed to read package version: {err}"))?);
+        }
+        drop(version_statement);
+        drop(statement);
+        drop(conn);
+
+        Ok(Some(PackageAuditRow {
+            owner,
+            versions,
+            state_changes,
+        }))
+    }
+
     pub fn package_version_exists(&self, ident: &str, version: &str) -> Result<bool, String> {
         let conn = self.conn();
         let exists: Option<i64> = conn
@@ -2466,6 +2633,58 @@ pub struct RegistryConfig {
     pub snapshot_private: Vec<u8>,
     pub timestamp_public: Vec<u8>,
     pub timestamp_private: Vec<u8>,
+}
+
+/// One package as `GET /packages/:ident` sees it (plan-61-B).
+#[derive(Debug, Clone)]
+pub struct PackageDetailRow {
+    pub owner: String,
+    /// Every version, newest first, regardless of release state.
+    pub versions: Vec<PackageDetailVersion>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PackageDetailVersion {
+    /// `package_versions.id` — used to attach targets, not rendered.
+    pub id: i64,
+    pub version: String,
+    pub hash: String,
+    pub published_at: i64,
+    pub state: String,
+    pub abi_index: String,
+    pub author: Option<String>,
+    pub url: Option<String>,
+    /// NULL until plan-61-E populates it.
+    pub description: Option<String>,
+    pub targets: Vec<PackageTargetRow>,
+}
+
+/// One row of the native target matrix. `arch = None` is the any-arch
+/// wildcard, not missing data (plan-61-A §3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PackageTargetRow {
+    pub os: String,
+    pub arch: Option<String>,
+    pub libc: Option<String>,
+    pub lib_type: String,
+    pub logical: String,
+    pub source: String,
+    pub blob_hash: Option<String>,
+}
+
+/// The transparency record for one package (plan-61-B §4).
+#[derive(Debug, Clone)]
+pub struct PackageAuditRow {
+    pub owner: String,
+    pub versions: Vec<String>,
+    pub state_changes: Vec<ReleaseStateChangeRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseStateChangeRow {
+    pub version: String,
+    pub state: String,
+    pub at: i64,
 }
 
 /// One published version of a package (plan-10-A `/index`).
