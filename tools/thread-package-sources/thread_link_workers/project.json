@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package: bug-369 regression for a native LINK call made from inside an ISOLATED worker.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "libraries": {
     "sqlite3": [

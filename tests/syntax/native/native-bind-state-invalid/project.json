@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "plan-53-B: BIND STATE is validated at the native declaration, not deferred to thunk emission (a package build never emits the thunk).",
   "libraries": {
     "sqlite3": [
       { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },

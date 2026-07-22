@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "bug-372: a `RES` binding of a stateful native resource whose initializer carries an inline `TRAP`.",
   "libraries": {
     "libsnd": [
       { "os": "macos", "type": "system", "source": "libsndfile.dylib" },

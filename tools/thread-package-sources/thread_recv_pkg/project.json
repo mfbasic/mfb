@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package: a drain function receiving queued messages from a thread channel.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:thread-recv-pkg",
   "identKey": "ed25519-public:test-thread-recv-pkg-ident",

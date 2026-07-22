@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "plan-50-H deleted the magic ABI slot name: a wrapper's result is named by the `RETURN <expr>` clause, so `return` carries no special meaning in a slot position — it is simply a keyword, and not a legal slot name.",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

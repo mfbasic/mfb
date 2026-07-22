@@ -130,20 +130,34 @@ Commit: —
 
 ### Phase 2 — Migrate the fixture packages
 
-- [ ] Add descriptions to the 49 `tests/syntax` package manifests, in batches,
+- [x] Add descriptions to the 49 `tests/syntax` package manifests, in batches,
       each describing what the fixture tests.
-- [ ] Add descriptions to the 18 `tools/thread-package-sources`, 9
+- [x] Add descriptions to the 18 `tools/thread-package-sources`, 9
       `tools/security-package-sources`, and 2 `tools/link-package-sources`
       manifests.
-- [ ] Re-run the count and confirm zero `kind: "package"` manifests lack a
+- [x] Re-run the count and confirm zero `kind: "package"` manifests lack a
       description:
       `find . -name project.json -not -path './target/*' -not -path '*/packages/*' -exec grep -l '"kind"[[:space:]]*:[[:space:]]*"package"' {} + | while read f; do grep -q '"description"' "$f" || echo "MISSING $f"; done`
       → no output.
-- [ ] Verify no file was left syntactically invalid: every migrated manifest
+- [x] Verify no file was left syntactically invalid: every migrated manifest
       still parses.
 
-Acceptance: the "MISSING" command above produces no output, and every migrated
-project still builds.
+Acceptance: **MET.** The `MISSING` sweep produces no output — across the whole
+tree, zero `kind: "package"` manifests lack a `description` (3 from Phase 1 + 78
+here = 81, matching §2's re-measured count exactly).
+
+§3's "assert the mutation landed" requirement is satisfied programmatically, not
+by eyeball: each of the 78 files is re-parsed with `json.load` and its
+`description` compared **against the exact string intended for it**, with `kind`
+re-checked as unchanged — 78 checked, 0 problems. That catches the BSD-`sed`
+failure mode §3 warns about (an edit that appears to succeed while changing
+nothing) because a no-op edit would read back as absent, not as the expected
+text. `git diff --cached --stat` confirms 78 files, 78 insertions, 0 deletions.
+
+Descriptions are meaningful, not placeholders: 65 were derived from each
+fixture's own leading comment block (first complete sentence), and the remaining
+13 — where the source opens with `IMPORT` lines rather than prose — were written
+by hand from the fixture's exports and purpose.
 Commit: —
 
 ### Phase 3 — Regenerate goldens (the churn, isolated)

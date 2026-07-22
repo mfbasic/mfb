@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package: isolated thread workers exercising the fs package, including read and no-follow open.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:fs-thread-workers",
   "identKey": "ed25519-public:test-fs-thread-workers-ident",

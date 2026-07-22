@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package: baseline isolated and non-isolated worker entry points for the thread test suite.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:thread-workers",
   "identKey": "ed25519-public:test-thread-workers-ident",

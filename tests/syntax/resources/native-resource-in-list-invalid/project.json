@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "A List may hold pointers to a native resource, but the element must carry the `RES` ownership-axis marker (`List OF RES Db`); a bare `List OF Db` is rejected just like `AS Db` without `RES` (§15.6).",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

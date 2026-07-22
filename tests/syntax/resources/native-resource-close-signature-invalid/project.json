@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "The close op must consume exactly one `RES Db` parameter (§5/§12).",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

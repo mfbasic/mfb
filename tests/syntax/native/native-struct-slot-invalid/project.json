@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Struct slot and BIND IN misuse (plan-50-E §4.6).",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

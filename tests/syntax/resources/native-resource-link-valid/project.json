@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "A native binding package: an opaque native resource `Db` plus its LINK block and a re-exported close op (plan-link-update.md §5/§5a).",
   "libraries": {
     "sqlite3": [
       { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },

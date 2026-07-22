@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package: isolated thread workers exercising the regex package inside a worker's own arena.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:regex-thread-workers",
   "identKey": "ed25519-public:test-regex-thread-workers-ident",

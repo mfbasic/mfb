@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "A binding package that VENDORS its native library on every supported target (plan-46-D).",
   "libraries": {
     "demolib": [
       { "os": "macos", "type": "vendor", "source": "libfixture.dylib" },

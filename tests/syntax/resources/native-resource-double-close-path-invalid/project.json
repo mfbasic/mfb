@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Closing on one branch then unconditionally closing double-closes a native resource on the flag=TRUE path (§12 control-flow).",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

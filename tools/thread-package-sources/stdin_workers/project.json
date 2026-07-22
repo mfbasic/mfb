@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "plan-15 stdin-subscription workers.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:stdin-workers",
   "identKey": "ed25519-public:test-stdin-workers-ident",

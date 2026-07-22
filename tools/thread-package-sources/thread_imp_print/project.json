@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package: a plain printing sub imported by worker packages that need io from a thread.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:thread-imp-print",
   "identKey": "ed25519-public:test-thread-imp-print-ident",

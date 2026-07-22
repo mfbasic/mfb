@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "bug-373: a user RESOURCE may not reuse a built-in resource type's name.",
   "libraries": {
     "sqlite3": [
       { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },

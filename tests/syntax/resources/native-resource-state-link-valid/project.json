@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "plan-53-A: a native LINK resource declared with a STATE clause is an 80-byte RECORD, so it can carry STATE without corrupting the native handle.",
   "libraries": {
     "sqlite3": [
       { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },

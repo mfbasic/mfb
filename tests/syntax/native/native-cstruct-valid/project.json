@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "A CSTRUCT declares a C struct's byte layout and the MFBASIC record it presents as.",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

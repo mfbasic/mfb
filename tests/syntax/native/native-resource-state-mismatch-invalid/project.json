@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "plan-53-A guardrail: a native resource's STATE type is fixed, so two native declarations of one resource — a producer's `AS RES Db STATE A` and the close op's `RES db AS Db STATE B` — must agree.",
   "libraries": {
     "sqlite3": [
       { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },

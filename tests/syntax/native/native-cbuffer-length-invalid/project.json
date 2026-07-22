@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "plan-58-B rules 10, 11 and 12 — the `RETURN <expr> LENGTH <expr>` clause.",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

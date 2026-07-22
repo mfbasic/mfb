@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Receives a File on the resource plane together with its STATE Cursor and returns the transferred `pos` (the consumer set it to 99 before transfer).",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:state-xfer-workers",
   "identKey": "ed25519-public:test-state-xfer-workers-ident",

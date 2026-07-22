@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "bug-64 regression workers.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:os-env-race-workers",
   "identKey": "ed25519-public:test-os-env-race-workers-ident",

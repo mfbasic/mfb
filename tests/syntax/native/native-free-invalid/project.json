@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "A FREE deallocator must take exactly one CPtr parameter and return CVoid (mfbasic.md §17).",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

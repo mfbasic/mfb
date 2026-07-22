@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "plan-53-B: `BIND STATE <res> = <out-struct>` on a native LINK function.",
   "libraries": {
     "libsnd": [
       { "os": "macos", "type": "system", "source": "libsndfile.dylib" },

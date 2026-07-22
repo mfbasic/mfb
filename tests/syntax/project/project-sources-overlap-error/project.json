@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Project fixture: two sources entries that overlap, which the manifest validator rejects.",
   "sources": [
     {
       "root": "src",

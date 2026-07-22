@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package: bug-369 regression for package-level globals read inside an ISOLATED worker's arena.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:thread-global-workers",
   "identKey": "ed25519-public:test-thread-global-workers-ident",

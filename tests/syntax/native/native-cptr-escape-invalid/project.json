@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "A `CPtr` may appear only inside ABI slots, never in a wrapper signature (§11).",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

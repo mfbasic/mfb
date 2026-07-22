@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "allocator-04 execution proof: heavy mixed-size alloc/free churn inside a worker thread.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:allocator-churn-worker",
   "identKey": "ed25519-public:test-allocator-churn-worker-ident",

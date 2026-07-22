@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Every ABI slot must bind to a parameter, a CONST pin, or the result (§5c).",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Receives a File on the resource plane and returns its content length.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:thread-file-sink",
   "identKey": "ed25519-public:test-thread-file-sink-ident",

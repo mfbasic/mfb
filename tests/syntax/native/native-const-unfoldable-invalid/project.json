@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "A CONST pin must fold to an immediate the compiler can bake into the call frame.",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

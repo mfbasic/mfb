@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package: an echo worker used to exercise thread cancellation.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:thread-cancel-worker",
   "identKey": "ed25519-public:test-thread-cancel-worker-ident",

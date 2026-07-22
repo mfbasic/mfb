@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "CLOSE BY must name a native LINK function, not an ordinary FUNC (§5/§12).",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

@@ -4,5 +4,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Benign base for PKG-02c; generate.py rewrites the compiled body into a `run` whose IR subtracts a String from an Integer (operand type confusion).",
   "sources": [{ "root": "src" }]
 }

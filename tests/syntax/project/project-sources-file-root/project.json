@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Project fixture: a sources entry whose root names a single file rather than a directory.",
   "sources": [
     {
       "root": "src/only.mfb",

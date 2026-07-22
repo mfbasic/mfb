@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "plan-58-A §4.1: a CBuffer cannot be a CSTRUCT field — a struct field needs a constant offset, and a CBuffer's size is a runtime expression.",
   "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
 }

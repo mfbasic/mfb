@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "bug-291: escape analysis floats a resource's ownership to a RETURNed collection only when the collection is declared strictly BEFORE the resource, because the collection's runtime owned-list must alre",
   "sources": [
     {
       "root": "src",

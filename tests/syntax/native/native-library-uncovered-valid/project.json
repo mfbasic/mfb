@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "A minimal native binding package used to exercise the project.json `libraries` section and the .mfp NATIVE_LIBRARY_TABLE (plan-46-B).",
   "libraries": {
     "demolib": [
       { "os": "macos", "type": "system", "source": "libdemolib.dylib" }
