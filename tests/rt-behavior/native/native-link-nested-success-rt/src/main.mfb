@@ -68,7 +68,7 @@ FUNC main AS Integer
   MUT names AS String = ""
   WHILE sql::step(rows)
     names = names & sql::columnText(rows, 0) & ";"
-  WEND
+  END WHILE
   sql::finalize(rows)
   sql::close(db)
   io::print(names)
@@ -79,7 +79,7 @@ FUNC main AS Integer
   WHILE i < 3000
     acc = acc & toString(i) & ","
     i = i + 1
-  WEND
+  END WHILE
   io::print("len=" & toString(len(acc)))
   RETURN 0
 END FUNC

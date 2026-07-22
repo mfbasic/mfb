@@ -24,7 +24,7 @@ FUNC main AS Integer
 
   WHILE "loop"
     io::print("no")
-  WEND
+  END WHILE
 
   DO
     io::print("once")

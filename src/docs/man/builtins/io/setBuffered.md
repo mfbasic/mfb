@@ -86,7 +86,7 @@ SUB main()
   WHILE i < 100000
     io::print(toString(i))
     i = i + 1
-  WEND
+  END WHILE
   io::flush()
 END SUB
 ```

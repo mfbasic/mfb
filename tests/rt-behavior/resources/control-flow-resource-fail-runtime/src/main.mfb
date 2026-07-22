@@ -20,7 +20,7 @@ FUNC main AS Integer
   WHILE i < 4000
     trapFail("tests/rt-behavior/resources/control-flow-resource-fail-runtime/src/main.mfb")
     i = i + 1
-  WEND
+  END WHILE
   io::print("fail")
   RETURN 0
 END FUNC

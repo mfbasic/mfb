@@ -210,7 +210,7 @@ fn native_resource_closes_on_loop_exit() {
         \x20     EXIT WHILE\n\
         \x20   END IF\n\
         \x20   i = i + 1\n\
-        \x20 WEND\n\
+        \x20 END WHILE\n\
          END FUNC\n\n\
          FUNC main() AS Integer\n\
         \x20 dropIt()\n\

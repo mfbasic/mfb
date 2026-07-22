@@ -44,22 +44,22 @@ FUNC __collections_sort OF T(value AS List OF T) AS List OF T
           i = i + 1
         END IF
         k = k + 1
-      WEND
+      END WHILE
       WHILE i < mid
         dst = collections::set(dst, k, collections::get(src, i))
         i = i + 1
         k = k + 1
-      WEND
+      END WHILE
       WHILE j < hi
         dst = collections::set(dst, k, collections::get(src, j))
         j = j + 1
         k = k + 1
-      WEND
+      END WHILE
       lo = lo + width + width
-    WEND
+    END WHILE
     src = dst
     width = width + width
-  WEND
+  END WHILE
   RETURN src
 END FUNC
 
@@ -89,7 +89,7 @@ FUNC __collections_slice OF T(value AS List OF T, start AS Integer, stop AS Inte
   WHILE i < stop
     result = collections::append(result, collections::get(value, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -133,25 +133,25 @@ FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS 
           i = i + 1
         END IF
         k = k + 1
-      WEND
+      END WHILE
       WHILE i < mid
         itemsDst = collections::set(itemsDst, k, collections::get(items, i))
         keysDst = collections::set(keysDst, k, collections::get(keys, i))
         i = i + 1
         k = k + 1
-      WEND
+      END WHILE
       WHILE j < hi
         itemsDst = collections::set(itemsDst, k, collections::get(items, j))
         keysDst = collections::set(keysDst, k, collections::get(keys, j))
         j = j + 1
         k = k + 1
-      WEND
+      END WHILE
       lo = lo + width + width
-    WEND
+    END WHILE
     items = itemsDst
     keys = keysDst
     width = width + width
-  WEND
+  END WHILE
   RETURN items
 END FUNC
 
@@ -165,7 +165,7 @@ FUNC __collections_reduceRight OF T, U(value AS List OF T, initial AS U, f AS FU
   WHILE i >= 0
     acc = f(acc, collections::get(value, i))
     i = i - 1
-  WEND
+  END WHILE
   RETURN acc
 END FUNC
 
@@ -176,7 +176,7 @@ FUNC __collections_any OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean)
       RETURN TRUE
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN FALSE
 END FUNC
 
@@ -187,7 +187,7 @@ FUNC __collections_all OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean)
       RETURN FALSE
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN TRUE
 END FUNC
 
@@ -201,7 +201,7 @@ FUNC __collections_findIndex OF T(value AS List OF T, predicate AS FUNC(T) AS Bo
       RETURN i
     END IF
     i = i + 1
-  WEND
+  END WHILE
   FAIL error(77050004, "Requested item, key, file, or resource was not found.")
 END FUNC
 
@@ -219,7 +219,7 @@ FUNC __collections_findLastIndex OF T(value AS List OF T, predicate AS FUNC(T) A
       RETURN i
     END IF
     i = i - 1
-  WEND
+  END WHILE
   FAIL error(77050004, "Requested item, key, file, or resource was not found.")
 END FUNC
 
@@ -241,7 +241,7 @@ FUNC __collections_groupBy OF T, K, V(value AS List OF T, keyFn AS FUNC(T) AS K,
       result = collections::set(result, k, bucket)
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -260,7 +260,7 @@ FUNC __collections_flatten OF T(value AS List OF List OF T) AS List OF T
     LET inner AS List OF T = collections::get(value, i)
     result = collections::append(result, inner)
     i = i + 1
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -275,7 +275,7 @@ FUNC __collections_zip OF A, B(a AS List OF A, b AS List OF B) AS List OF Pair O
     LET p AS Pair OF A, B = Pair[collections::get(a, i), collections::get(b, i)]
     result = collections::append(result, p)
     i = i + 1
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -293,7 +293,7 @@ FUNC __collections_chunks OF T(value AS List OF T, chunkSize AS Integer) AS List
     LET piece AS List OF T = __collections_slice(value, i, stop)
     result = collections::append(result, piece)
     i = i + chunkSize
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -307,7 +307,7 @@ FUNC __collections_window OF T(value AS List OF T, size AS Integer, stride AS In
     LET piece AS List OF T = __collections_slice(value, i, i + size)
     result = collections::append(result, piece)
     i = i + stride
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -320,7 +320,7 @@ FUNC __collections_distinct OF T(value AS List OF T) AS List OF T
       result = collections::append(result, item)
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -346,7 +346,7 @@ FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS Bo
       unmatched = collections::append(unmatched, item)
     END IF
     i = i + 1
-  WEND
+  END WHILE
   LET result AS Partition OF T = Partition[matched, unmatched]
   RETURN result
 END FUNC

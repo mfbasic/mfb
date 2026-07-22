@@ -8,7 +8,7 @@ Editor support for the MFBASIC language (`.mfb`):
   `TYPE` (+ fields), `ENUM` (+ variants), `UNION`, `LINK` blocks (+ nested
   functions), and `PACKAGE`/`PROGRAM` headers.
 - **Folding** for every block (`FUNC…END FUNC`, `IF…END IF`, `MATCH`, `TRAP`,
-  `WITH`, `FOR…NEXT`, `WHILE…WEND`, `DO…LOOP`, `LINK`), `DOC` blocks,
+  `WITH`, `FOR…NEXT`, `WHILE…END WHILE`, `DO…LOOP`, `LINK`), `DOC` blocks,
   `' #region`/`' #endregion` markers, and multi-line comment runs.
 
 No language server: the outline and folding are computed by a small, fast,

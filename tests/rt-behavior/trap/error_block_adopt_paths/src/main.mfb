@@ -75,7 +75,7 @@ FUNC main() AS Integer
     acc = acc + inlineCase()
     acc = acc + len(failCase(i))
     i = i + 1
-  WEND
+  END WHILE
   io::print("domain=" & domainCase())
   io::print("helper=" & helperCase())
   io::print("inline=" & toString(inlineCase()))

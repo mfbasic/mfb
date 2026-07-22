@@ -57,7 +57,7 @@ FUNC main AS Integer
   WHILE round < 50
     collections::forEach(xs, show)
     round = round + 1
-  WEND
+  END WHILE
   io::print("stable after repeats")
   RETURN 0
 END FUNC

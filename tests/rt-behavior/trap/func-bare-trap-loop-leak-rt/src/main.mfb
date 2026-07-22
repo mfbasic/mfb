@@ -25,7 +25,7 @@ FUNC main() AS Integer
   WHILE i < 20000
     sum = sum + handle(i)
     i = i + 1
-  WEND
+  END WHILE
   io::print("sum=" & toString(sum))
   io::print("one=" & toString(handle(1)))
   RETURN 0

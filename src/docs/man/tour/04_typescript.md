@@ -45,7 +45,7 @@ EXPORT ISOLATED FUNC wordCount(w AS ThreadWorker OF String TO Integer, seed AS S
   WHILE line <> "done"
     total = total + len(strings::split(line, " "))
     line = thread::receive(w)
-  WEND
+  END WHILE
   RETURN total
 END FUNC
 
@@ -189,7 +189,7 @@ FUNC copyHeader(src AS String, dst AS String) AS Integer
   WHILE copied < 10 AND NOT fs::eof(input)
     fs::writeAll(output, fs::readLine(input) & "\n")   ' a failure here still closes both
     copied = copied + 1
-  WEND
+  END WHILE
   RETURN copied              ' output closes, then input — reverse declaration order
 END FUNC
 ```

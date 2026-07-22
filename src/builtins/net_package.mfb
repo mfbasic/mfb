@@ -48,7 +48,7 @@ FUNC __net_lastIndexOf(s AS String, needle AS String) AS Integer
         scanning = FALSE
       END IF
     END IF
-  WEND
+  END WHILE
   RETURN best
 END FUNC
 
@@ -255,7 +255,7 @@ FUNC __net_percentDecodeImpl(s AS String, plusSpace AS Boolean) AS String
       out = collections::append(out, strings::toBytes(c))
       i = i + 1
     END IF
-  WEND
+  END WHILE
   RETURN toString(out)
 TRAP(e)
   FAIL error(77050003, "invalid percent-encoding")

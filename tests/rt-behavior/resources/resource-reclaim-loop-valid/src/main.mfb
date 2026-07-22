@@ -51,7 +51,7 @@ FUNC main AS Integer
   WHILE i < 3000
     cycle(readPath, writePath)
     i = i + 1
-  WEND
+  END WHILE
   io::print("ok")
   fs::deleteFile(readPath)
   fs::deleteFile(writePath)

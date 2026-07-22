@@ -82,7 +82,7 @@ FUNC dump(label AS String, data AS List OF Byte) AS Nothing
       out = out & ","
     END IF
     i = i + 1
-  WEND
+  END WHILE
   io::print(out)
 END FUNC
 

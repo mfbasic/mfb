@@ -110,7 +110,7 @@ SUB main()
   RES f = fs::openFile("data.txt")
   WHILE NOT fs::eof(f)
     io::print(fs::readLine(f))
-  WEND
+  END WHILE
 END SUB
 ```
 

@@ -25,7 +25,7 @@ FUNC safeLoopSum(n AS Integer) AS Integer
   WHILE i < n
     total = total + i
     i = i + 1
-  WEND
+  END WHILE
   RETURN total
 END FUNC
 
@@ -34,7 +34,7 @@ FUNC reassignThenAdd(s AS Integer) AS Integer
   WHILE i < 100
     i = 9223372036854775807
     RETURN i + 1
-  WEND
+  END WHILE
   RETURN -1
 END FUNC
 

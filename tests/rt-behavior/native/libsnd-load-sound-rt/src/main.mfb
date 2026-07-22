@@ -57,7 +57,7 @@ FUNC silenceBlock() AS List OF Byte
   WHILE i < 65536
     block = collections::append(block, toByte(0))
     i = i + 1
-  WEND
+  END WHILE
   RETURN block
 END FUNC
 
@@ -70,7 +70,7 @@ FUNC describe(label AS String, rate AS Integer, ch AS Integer, pcm AS List OF By
       out = out & ","
     END IF
     i = i + 1
-  WEND
+  END WHILE
   io::print(out)
 END FUNC
 
@@ -88,7 +88,7 @@ FUNC overCap() AS Nothing
   WHILE written < 1088
     fs::appendBytes(bigPath, block)
     written = written + 1
-  WEND
+  END WHILE
   LET big = libsnd::loadSound(bigPath)
   io::print("unreachable: over-cap load returned " & toString(len(big.pcm)))
   fs::deleteFile(bigPath)
@@ -129,7 +129,7 @@ FUNC main() AS Integer
       same = FALSE
     END IF
     j = j + 1
-  WEND
+  END WHILE
   io::print("pcm_identical=" & toString(same))
   IF fromWav.samplerate = fromFlac.samplerate AND fromWav.channels = fromFlac.channels THEN
     io::print("geometry_identical=TRUE")

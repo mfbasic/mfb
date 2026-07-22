@@ -34,7 +34,7 @@ FUNC main() AS Integer
     LET r AS String = top(i)
     acc = acc + len(r)
     i = i + 1
-  WEND
+  END WHILE
   io::print("acc=" & toString(acc))
   io::print("sample=" & top(3))
   RETURN 0

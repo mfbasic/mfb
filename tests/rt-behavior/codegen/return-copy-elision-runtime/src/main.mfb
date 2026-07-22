@@ -9,7 +9,7 @@ FUNC build(n AS Integer) AS List OF Integer
   WHILE i < n
     r = collections::append(r, i)
     i = i + 1
-  WEND
+  END WHILE
   RETURN r
 END FUNC
 
@@ -40,7 +40,7 @@ FUNC nested(n AS Integer) AS List OF Integer
       RETURN r
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN r
 END FUNC
 

@@ -102,7 +102,7 @@ FUNC control_flow_valid_run AS Integer
   FOR EACH entry IN scores : io::print(entry.key & "=" & toString(entry.value)) : NEXT
 
   MUT counter AS Integer = 0
-  WHILE counter < 3 : counter = counter + 1 : io::print("while=" & toString(counter)) : WEND
+  WHILE counter < 3 : counter = counter + 1 : io::print("while=" & toString(counter)) : END WHILE
 
   MUT once AS Integer = 0
   DO : once = once + 1 : io::print("doUntil=" & toString(once)) : LOOP UNTIL once >= 2

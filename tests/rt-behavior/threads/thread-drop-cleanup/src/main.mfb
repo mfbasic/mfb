@@ -6,7 +6,7 @@ IMPORT thread_runtime_workers
 FUNC completedScopeDrop AS Integer
   LET t AS Thread OF Nothing TO Integer = thread::start(thread_workers::noMessages, 5, 1, 1)
   WHILE thread::isRunning(t)
-  WEND
+  END WHILE
   RETURN 0
 END FUNC
 

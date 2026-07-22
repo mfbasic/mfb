@@ -629,21 +629,21 @@ FUNC __datetime_format(dt AS DateTime, pattern AS String) AS String
         WHILE j < n AND strings::mid(pattern, j, 1) <> "'"
           out = out & strings::mid(pattern, j, 1)
           j = j + 1
-        WEND
+        END WHILE
         i = j + 1
       END IF
     ELSEIF __datetime_isLetter(ch) THEN
       MUT runLen AS Integer = 1
       WHILE i + runLen < n AND strings::mid(pattern, i + runLen, 1) = ch
         runLen = runLen + 1
-      WEND
+      END WHILE
       out = out & __datetime_formatToken(dt, ch, runLen)
       i = i + runLen
     ELSE
       out = out & ch
       i = i + 1
     END IF
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -728,7 +728,7 @@ FUNC __datetime_readNum(value AS String, start AS Integer, maxDigits AS Integer)
     acc = acc * 10 + toInt(strings::mid(value, i, 1))
     i = i + 1
     count = count + 1
-  WEND
+  END WHILE
   IF count = 0 THEN
     FAIL error(77050003, "datetime: expected digits while parsing")
   END IF
@@ -751,7 +751,7 @@ FUNC __datetime_monthFromName(value AS String, start AS Integer) AS __datetime_N
       RETURN __datetime_NumRead[m, start + 3]
     END IF
     m = m + 1
-  WEND
+  END WHILE
   FAIL error(77050003, "datetime: unrecognized month name")
 END FUNC
 
@@ -760,7 +760,7 @@ FUNC __datetime_skipWeekdayName(value AS String, start AS Integer) AS Integer
   LET n AS Integer = len(value)
   WHILE i < n AND __datetime_isLetter(strings::mid(value, i, 1))
     i = i + 1
-  WEND
+  END WHILE
   RETURN i
 END FUNC
 
@@ -827,14 +827,14 @@ FUNC __datetime_parseFields(value AS String, pattern AS String) AS __datetime_Fi
           END IF
           vi = vi + 1
           pj = pj + 1
-        WEND
+        END WHILE
         pi = pj + 1
       END IF
     ELSEIF __datetime_isLetter(ch) THEN
       MUT runLen AS Integer = 1
       WHILE pi + runLen < pn AND strings::mid(pattern, pi + runLen, 1) = ch
         runLen = runLen + 1
-      WEND
+      END WHILE
       IF ch = "y" THEN
         LET r AS __datetime_NumRead = __datetime_readNum(value, vi, runLen)
         year = r.value
@@ -880,7 +880,7 @@ FUNC __datetime_parseFields(value AS String, pattern AS String) AS __datetime_Fi
         WHILE k < 9
           frac = frac * 10
           k = k + 1
-        WEND
+        END WHILE
         nanos = frac
         vi = r.nextPos
       ELSEIF ch = "a" THEN
@@ -914,7 +914,7 @@ FUNC __datetime_parseFields(value AS String, pattern AS String) AS __datetime_Fi
       vi = vi + 1
       pi = pi + 1
     END IF
-  WEND
+  END WHILE
   RETURN __datetime_Fields[year, month, day, hour, minute, second, nanos, offset, hasOff, isPM, is12, hadPM, vi]
 END FUNC
 
@@ -972,15 +972,15 @@ FUNC __datetime_parseIso(value AS String) AS DateTime
       frac = frac * 10 + toInt(strings::mid(value, pos, 1))
       digits = digits + 1
       pos = pos + 1
-    WEND
+    END WHILE
     WHILE digits < 9
       frac = frac * 10
       digits = digits + 1
-    WEND
+    END WHILE
     nanos = frac
     WHILE pos < n AND __datetime_isDigit(strings::mid(value, pos, 1))
       pos = pos + 1
-    WEND
+    END WHILE
   END IF
   LET off AS __datetime_NumRead = __datetime_readOffset(value, pos)
   LET d AS Date = Date[yr.value, mo.value, dy.value]

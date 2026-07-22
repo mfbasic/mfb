@@ -25,7 +25,7 @@ FUNC main AS Integer
   WHILE i < 2000
     touch(path)
     i = i + 1
-  WEND
+  END WHILE
   io::print("ok")
   fs::deleteFile(path)
   RETURN 0

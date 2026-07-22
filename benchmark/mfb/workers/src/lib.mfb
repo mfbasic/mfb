@@ -10,6 +10,6 @@ EXPORT ISOLATED FUNC sumChunk(t AS ThreadWorker OF Nothing TO Integer, start AS 
   WHILE i < stop
     total = total + i
     i = i + 1
-  WEND
+  END WHILE
   RETURN total
 END FUNC

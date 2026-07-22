@@ -69,7 +69,7 @@ FUNC dropExit() AS Nothing
       EXIT WHILE
     END IF
     i = i + 1
-  WEND
+  END WHILE
 END FUNC
 
 ' §15's "CONTINUE": the same per-iteration binding, left via the back edge
@@ -80,7 +80,7 @@ FUNC dropContinue() AS Nothing
     RES db AS Db = sql::open(":memory:")
     i = i + 1
     CONTINUE WHILE
-  WEND
+  END WHILE
 END FUNC
 
 ' §15's "FAIL" + "TRAP routing": the failure unwinds out of a scope holding a
@@ -120,7 +120,7 @@ FUNC main() AS Integer
     driveFail()
     closeExplicitly()
     i = i + 1
-  WEND
+  END WHILE
   io::print("drops=" & toString(i))
   io::print("done")
   RETURN 0

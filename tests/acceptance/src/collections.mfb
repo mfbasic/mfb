@@ -89,7 +89,7 @@ TESTING
           LET part AS List OF Integer = [k, k + 100]
           acc = collections::append(acc, part)
           k = k + 1
-        WEND
+        END WHILE
         expectInteger(len(acc), 8)
         expectInteger(collections::get(acc, 0), 0)
         expectInteger(collections::get(acc, 1), 100)

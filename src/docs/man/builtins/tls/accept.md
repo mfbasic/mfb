@@ -102,7 +102,7 @@ SUB main()
     LET request = tls::readText(client, 4096)
     tls::writeText(client, "HTTP/1.0 200 OK\r\n\r\nhi")
     tls::close(client)
-  WEND
+  END WHILE
 END SUB
 ```
 

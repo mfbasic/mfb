@@ -17,7 +17,7 @@ tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:21 e
      | ^
 tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:25 error[2-203-0006 TYPE_CONDITION_REQUIRES_BOOLEAN]: control-flow condition must be Boolean
                WHILE condition has type String, expected Boolean.
-  27 |   WEND
+  27 |   END WHILE
   28 | 
   29 |   DO
      | ^

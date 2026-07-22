@@ -57,7 +57,7 @@ FUNC main() AS Integer
     RES t AS File = makeFile(path)
     fs::close(t)
     i = i + 1
-  WEND
+  END WHILE
   io::print("escaped=" & toString(i))
 
   io::print("done")

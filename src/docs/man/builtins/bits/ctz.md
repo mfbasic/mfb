@@ -178,7 +178,7 @@ SUB main()
     LET lowest AS Integer = bits::band(mask, -mask)
     io::print(toString(bits::ctz(lowest)))
     mask = bits::bxor(mask, lowest)
-  WEND
+  END WHILE
 END SUB
 ```
 

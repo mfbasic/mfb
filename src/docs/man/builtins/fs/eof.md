@@ -82,7 +82,7 @@ SUB main()
   RES f = fs::openFile("data.txt")
   WHILE NOT fs::eof(f)
     io::print(fs::readLine(f))
-  WEND
+  END WHILE
   ' f is closed by lexical drop when this scope ends
 END SUB
 ```

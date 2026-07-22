@@ -44,7 +44,7 @@ FUNC churn(rounds AS Integer) AS Integer
     LET items AS List OF String = [name, p.city, "tail"]
     total = total + len(name) + len(collections::get(items, 0))
     i = i + 1
-  WEND
+  END WHILE
   RETURN total
 END FUNC
 

@@ -1048,7 +1048,7 @@ mod tests {
             "  NEXT\n",
             "  WHILE n > 0\n",
             "    LET e = thread::start(worker)\n",
-            "  WEND\n",
+            "  END WHILE\n",
             "  DO\n",
             "    LET g = net::accept(listener)\n",
             "  LOOP UNTIL n < 0\n",
@@ -1284,7 +1284,7 @@ mod tests {
         assert_eq!(
             trap_classification(concat!(
                 "FUNC f() AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
-                "    WHILE TRUE\n      PROPAGATE\n    WEND\n",
+                "    WHILE TRUE\n      PROPAGATE\n    END WHILE\n",
                 "  END TRAP\nEND FUNC\n",
             )),
             "propagates"

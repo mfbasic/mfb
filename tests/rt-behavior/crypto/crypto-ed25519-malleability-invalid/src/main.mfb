@@ -24,7 +24,7 @@ FUNC malleate(sig AS List OF Byte) AS List OF Byte
   WHILE i < 32
     out = collections::append(out, collections::get(sig, i))
     i = i + 1
-  WEND
+  END WHILE
   MUT carry AS Integer = 0
   MUT j AS Integer = 0
   WHILE j < 32
@@ -32,7 +32,7 @@ FUNC malleate(sig AS List OF Byte) AS List OF Byte
     out = collections::append(out, toByte(bits::band(sum, 255)))
     carry = bits::sr(sum, 8)
     j = j + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 

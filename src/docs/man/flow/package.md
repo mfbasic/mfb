@@ -18,7 +18,7 @@ form is a language keyword, so no `IMPORT` is needed.
 MFBASIC control flow is statement-based and structured — there is no `GOTO` and
 no `SELECT CASE` (use `MATCH`). Conditions must be `Boolean`; there is no
 truthiness coercion from numbers, strings, or collections. Blocks either use a
-dedicated terminator such as `END IF`, `WEND`, or `LOOP UNTIL`, or a single-line
+dedicated terminator such as `END IF`, `END WHILE`, or `LOOP UNTIL`, or a single-line
 form whose statements are separated with `:`.
 
 `EXIT FOR`, `EXIT DO`, and `EXIT WHILE` leave the innermost enclosing loop of the
@@ -33,7 +33,7 @@ jumps.
 - `if` — conditional execution with `THEN`, `ELSEIF`, `ELSE`, and `END IF`.
 - `for` — counted loops with `TO`, optional `STEP`, and `NEXT`.
 - `forEach` — collection iteration over `List` and `Map` values.
-- `while` — pre-test loops with `WHILE` and `WEND`.
+- `while` — pre-test loops with `WHILE` and `END WHILE`.
 - `do` — pre-test and post-test `DO` loop forms.
 - `match` — value-based branching over unions, enums, and literals.
 

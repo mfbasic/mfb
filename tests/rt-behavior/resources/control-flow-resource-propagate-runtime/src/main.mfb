@@ -25,7 +25,7 @@ FUNC main AS Integer
   WHILE i < 4000
     trapPropagate("tests/rt-behavior/resources/control-flow-resource-propagate-runtime/src/main.mfb")
     i = i + 1
-  WEND
+  END WHILE
   io::print("propagate")
   RETURN 0
 END FUNC

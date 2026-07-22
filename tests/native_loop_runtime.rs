@@ -107,7 +107,7 @@ FUNC main AS Integer
   WHILE n < 4
     s = s & "X"
     n = n + 1
-  WEND
+  END WHILE
   io::print(s)
   RETURN 0
 END FUNC
@@ -244,7 +244,7 @@ SUB main()
     MUT s AS String
     io::print(s)
     n = n + 1
-  WEND
+  END WHILE
 END SUB
 "#,
     );
@@ -277,7 +277,7 @@ FUNC main AS Integer
       io::print("looping c=" & toString(c))
       RETURN 0
     END IF
-  WEND
+  END WHILE
   io::print("terminated c=" & toString(c))
   RETURN 0
 END FUNC
@@ -309,7 +309,7 @@ FUNC main AS Integer
       io::print("looping c=" & toString(c))
       RETURN 0
     END IF
-  WEND
+  END WHILE
   io::print("terminated c=" & toString(c))
   RETURN 0
 END FUNC
@@ -331,7 +331,7 @@ FUNC main AS Integer
   MUT c AS Integer = 0
   WHILE c < 3
     c = c + 1
-  WEND
+  END WHILE
   io::print("terminated c=" & toString(c))
   RETURN 0
 END FUNC

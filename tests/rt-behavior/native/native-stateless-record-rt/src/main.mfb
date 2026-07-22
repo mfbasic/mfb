@@ -95,7 +95,7 @@ FUNC roundTrip() AS Integer
   MUT found AS Integer = 0
   WHILE sql::step(q)
     found = sql::columnInt(q, 0)
-  WEND
+  END WHILE
   sql::finalize(q)
   sql::close(db)
   RETURN found
@@ -113,7 +113,7 @@ FUNC main() AS Integer
   WHILE i < 200
     openOnly()
     i = i + 1
-  WEND
+  END WHILE
   io::print("dropped=" & toString(i))
 
   MUT j AS Integer = 0
@@ -121,7 +121,7 @@ FUNC main() AS Integer
   WHILE j < 200
     sum = sum + roundTrip()
     j = j + 1
-  WEND
+  END WHILE
   io::print("sum=" & toString(sum))
 
   io::print("done")

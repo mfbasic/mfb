@@ -176,7 +176,7 @@ simpleStmt     = letStmt | mutStmt | assignStmt | failStmt | propagateStmt
 forStmt        = "FOR" ident "=" expr "TO" expr [ "STEP" expr ]
                    block "NEXT" ;
 foreachStmt    = "FOR" "EACH" ident "IN" expr block "NEXT" ;
-whileStmt      = "WHILE" expr block "WEND" ;
+whileStmt      = "WHILE" expr block "END" "WHILE" ;
 doStmt         = "DO" block "LOOP" "UNTIL" expr
                | "DO" "WHILE" expr block "LOOP" ;
 

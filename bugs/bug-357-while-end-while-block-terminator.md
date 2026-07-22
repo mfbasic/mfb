@@ -342,18 +342,45 @@ Commit: —
 
 ### Phase 3 — migrate the tree to `END WHILE`
 
-- [ ] Convert all 295 occurrences across the 61 `.mfb` files: stdlib packages,
-      `bindings/sqlite3`, benchmarks, `tools/thread-package-sources/**`, and
-      every test fixture. Single-line `: WEND` becomes `: END WHILE`.
-- [ ] Update `tools/mfbgen/mfbgen.py` and the three VS Code tooling files.
-- [ ] Update spec (`02`, `10`, `16`, `19`, `20`, `tooling/05`) and man pages
-      (`flow/while`, `flow/package`, `builtins/tls/accept`, all six `tour/*`),
-      per `.ai/specifications.md`.
-- [ ] Regenerate the 2 affected goldens; **read the diff line by line** and
-      confirm each changed line traces to a changed source line.
+- [x] Convert all occurrences (331 per the re-audit) across the 73 `.mfb`
+      files: stdlib packages, `bindings/sqlite3`, benchmarks,
+      `tools/thread-package-sources/**`, and every test fixture. Single-line
+      `: WEND` becomes `: END WHILE`. Also the Rust-embedded MFB sources from
+      the re-audit (`src/audit/collect/source.rs`, `src/resolver/resolution.rs`,
+      `src/scope_privates.rs`, `src/syntaxcheck/*`, `src/testing/desugar.rs`,
+      `src/monomorph/lower.rs`, `src/ast/tests.rs`, `src/ir/tests.rs`,
+      `src/fmt.rs` test, `tests/native_{loop_runtime,resource_scope_drop}.rs`)
+      and `scripts/gen_vector_package.py`. *(Note: `gen_vector_package.py` was
+      already stale vs. the tree copy before this bug — plan-39 C2 replaced the
+      isqrt algorithm in `vector_package.mfb` without updating the generator;
+      only its `WEND` emission was fixed here.)*
+- [x] Update `tools/mfbgen/mfbgen.py` and the three VS Code tooling files
+      (tmLanguage keyword set drops `WEND`; `decreaseIndentPattern` drops
+      `WEND` — `END` already matches `END WHILE` lines; `mfbasic-parse.js`
+      `WHILE` close regex becomes `END\s+WHILE`; README updated).
+- [x] Update spec (`02`, `10`, `16`, `19`, `20`, `tooling/05`) and man pages
+      (`flow/while`, `flow/package`, `builtins/tls/accept`, all six `tour/*`,
+      plus the re-audit's `builtins/bits/ctz`, `builtins/fs/{eof,readLine}`,
+      `builtins/io/setBuffered`, `builtins/net/read`, `builtins/term/sync`,
+      `builtins/thread/{cancel,isCancelled,isRunning}`, `tour/package`),
+      per `.ai/specifications.md`. `02_lexical-structure` keeps `WEND` in the
+      keyword set with a note that it is reserved but productionless (see
+      Open Decisions).
+- [x] Regenerate the **3** affected goldens (the 2 listed plus the re-audit's
+      `use-after-move-still-fires-invalid`); diffs read line by line:
+      `control-flow-condition-types-invalid` and `use-after-move-still-fires-invalid`
+      change only the quoted source line (`WEND` → `END WHILE`), same errors,
+      same lines. `control-flow-invalid` keeps both primary inline-IF
+      assertions verbatim; its trailing *cascade* changes because recovery
+      after the intentionally-invalid line 8 now consumes the bare `END`
+      ("END must name the block kind it closes") and unwinds the `FUNC` early,
+      yielding two top-level UNEXPECTED_STATEMENT follow-ons in place of the
+      old WEND-as-expression pair. Intended text, not blind churn.
 
-Acceptance: no `WEND` remains outside `bugs/`, `planning/old-*`, and this
-document; full suite green; golden delta is exactly the intended text change.
+Acceptance: no `WEND` remains outside `bugs/`, `planning/old-*`, the compiler
+impl (Phase 4), and the spec keyword-list note; 3190 unit tests green;
+112-fixture acceptance slice over the migrated areas green with zero golden
+churn beyond the 3 intended files.
 Commit: —
 
 ### Phase 4 — remove `WEND` from the language

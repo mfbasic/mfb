@@ -680,7 +680,7 @@ FUNC main AS Integer
   NEXT
   WHILE FALSE
     EXIT WHILE
-  WEND
+  END WHILE
   DO
     EXIT DO
   LOOP UNTIL TRUE
@@ -1087,7 +1087,7 @@ FUNC main AS Integer
   MUT i AS Integer = 0
   WHILE i < 3
     i = i + 1
-  WEND
+  END WHILE
   RETURN i
 END FUNC
 ";

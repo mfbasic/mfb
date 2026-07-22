@@ -119,7 +119,7 @@ FUNC __encoding_utf8Valid(data AS List OF Byte) AS Boolean
         END IF
         codePoint = codePoint * 64 + (cont - 128)
         j = j + 1
-      WEND
+      END WHILE
       IF codePoint < minValue THEN
         RETURN FALSE
       END IF
@@ -131,7 +131,7 @@ FUNC __encoding_utf8Valid(data AS List OF Byte) AS Boolean
       END IF
       i = i + 1 + extra
     END IF
-  WEND
+  END WHILE
   RETURN TRUE
 END FUNC
 
@@ -169,11 +169,11 @@ FUNC __encoding_codepoints(value AS String) AS List OF Integer
         cont = toInt(collections::get(data, i + 1 + j))
         codePoint = codePoint * 64 + (cont - 128)
         j = j + 1
-      WEND
+      END WHILE
       result = collections::append(result, codePoint)
       i = i + 1 + extra
     END IF
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -265,7 +265,7 @@ FUNC __encoding_utf16Decode(value AS List OF Integer) AS String
       out = out & __encoding_fromCodepoint(unit)
       i = i + 1
     END IF
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -336,7 +336,7 @@ FUNC __encoding_hexDecode(text AS String) AS List OF Byte
     END IF
     result = collections::append(result, toByte(hi * 16 + lo))
     i = i + 2
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -356,7 +356,7 @@ FUNC __encoding_baseEncode(data AS List OF Byte, alphabet AS String, bitsPer AS 
       bitCount = bitCount - bitsPer
       idx = bits::band(bits::sr(buffer, bitCount), bits::sl(1, bitsPer) - 1)
       out = out & strings::mid(alphabet, idx, 1)
-    WEND
+    END WHILE
     buffer = __encoding_lowBits(buffer, bitCount)
   NEXT
   IF bitCount > 0 THEN
@@ -366,7 +366,7 @@ FUNC __encoding_baseEncode(data AS List OF Byte, alphabet AS String, bitsPer AS 
   IF pad THEN
     WHILE len(out) - (len(out) / groupSymbols) * groupSymbols <> 0
       out = out & "="
-    WEND
+    END WHILE
   END IF
   RETURN out
 END FUNC
@@ -384,7 +384,7 @@ FUNC __encoding_baseDecodeBits(values AS List OF Integer, bitsPer AS Integer) AS
       bitCount = bitCount - 8
       byteValue = bits::band(bits::sr(buffer, bitCount), 255)
       result = collections::append(result, toByte(byteValue))
-    WEND
+    END WHILE
     buffer = __encoding_lowBits(buffer, bitCount)
   NEXT
   RETURN result
@@ -469,7 +469,7 @@ FUNC __encoding_base64Symbols(text AS String, urlSafe AS Boolean) AS List OF Int
       values = collections::append(values, v)
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN values
 END FUNC
 
@@ -522,7 +522,7 @@ FUNC __encoding_base32Decode(text AS String) AS List OF Byte
       values = collections::append(values, v)
     END IF
     i = i + 1
-  WEND
+  END WHILE
   LET symbols AS Integer = len(values)
   LET tail AS Integer = symbols - (symbols / 8) * 8
   IF tail = 1 OR tail = 3 OR tail = 6 THEN
@@ -612,7 +612,7 @@ FUNC __encoding_percentDecodeBytes(text AS String, plusSpace AS Boolean) AS Stri
       END IF
       i = i + 1
     END IF
-  WEND
+  END WHILE
   IF __encoding_utf8Valid(result) = FALSE THEN
     FAIL error(77050003, "invalid utf-8")
   END IF
@@ -820,7 +820,7 @@ FUNC __encoding_parseDecimal(text AS String) AS Integer
       RETURN -1
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN value
 END FUNC
 
@@ -844,7 +844,7 @@ FUNC __encoding_parseHex(text AS String) AS Integer
       RETURN -1
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN value
 END FUNC
 
@@ -871,7 +871,7 @@ FUNC __encoding_htmlUnescape(text AS String) AS String
           body = body & collections::get(chars, j)
           j = j + 1
         END IF
-      WEND
+      END WHILE
       IF found = FALSE THEN
         FAIL error(77050003, "malformed entity")
       END IF
@@ -893,7 +893,7 @@ FUNC __encoding_htmlUnescape(text AS String) AS String
       out = out & ch
       i = i + 1
     END IF
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -916,7 +916,7 @@ FUNC __encoding_uleb128Encode(value AS Integer) AS List OF Byte
     ELSE
       result = collections::append(result, toByte(chunk + 128))
     END IF
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -944,7 +944,7 @@ FUNC __encoding_uleb128Decode(data AS List OF Byte) AS Integer
     IF byteValue < 128 THEN
       done = TRUE
     END IF
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -970,7 +970,7 @@ FUNC __encoding_sleb128Encode(value AS Integer) AS List OF Byte
     ELSE
       result = collections::append(result, toByte(chunk))
     END IF
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -1001,7 +1001,7 @@ FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
         result = bits::bor(result, bits::sl(0 - 1, shift))
       END IF
     END IF
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -1020,7 +1020,7 @@ FUNC __encoding_varintEncode(value AS Integer) AS List OF Byte
     ELSE
       result = collections::append(result, toByte(chunk + 128))
     END IF
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -1043,7 +1043,7 @@ FUNC __encoding_punyAdapt(delta AS Integer, numPoints AS Integer, firstTime AS B
   WHILE d > 455
     d = d / 35
     k = k + 36
-  WEND
+  END WHILE
   RETURN k + (36 * d) / (d + 38)
 END FUNC
 
@@ -1130,7 +1130,7 @@ FUNC __encoding_punyEncodeLabel(points AS List OF Integer) AS String
             q = (q - threshold) / (36 - threshold)
             k = k + 36
           END IF
-        WEND
+        END WHILE
         bias = __encoding_punyAdapt(delta, handled + 1, handled = basicLength)
         delta = 0
         handled = handled + 1
@@ -1138,7 +1138,7 @@ FUNC __encoding_punyEncodeLabel(points AS List OF Integer) AS String
     NEXT
     delta = delta + 1
     n = n + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -1157,7 +1157,7 @@ FUNC __encoding_punyDecodeLabel(label AS String) AS String
       lastDelim = i
     END IF
     i = i + 1
-  WEND
+  END WHILE
   IF lastDelim >= 0 THEN
     i = 0
     WHILE i < lastDelim
@@ -1167,7 +1167,7 @@ FUNC __encoding_punyDecodeLabel(label AS String) AS String
       END IF
       output = collections::append(output, bc)
       i = i + 1
-    WEND
+    END WHILE
     basicEnd = lastDelim + 1
   ELSE
     basicEnd = 0
@@ -1205,7 +1205,7 @@ FUNC __encoding_punyDecodeLabel(label AS String) AS String
         w = w * (36 - threshold)
         k = k + 36
       END IF
-    WEND
+    END WHILE
     outLen = len(output) + 1
     bias = __encoding_punyAdapt(pos - oldPos, outLen, oldPos = 0)
     n = n + pos / outLen
@@ -1219,13 +1219,13 @@ FUNC __encoding_punyDecodeLabel(label AS String) AS String
       END IF
       rebuilt = collections::append(rebuilt, collections::get(output, t))
       t = t + 1
-    WEND
+    END WHILE
     IF pos >= len(output) THEN
       rebuilt = collections::append(rebuilt, n)
     END IF
     output = rebuilt
     pos = pos + 1
-  WEND
+  END WHILE
   MUT result AS String = ""
   FOR EACH cp IN output
     result = result & __encoding_fromCodepoint(cp)

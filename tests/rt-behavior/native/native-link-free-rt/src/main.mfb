@@ -62,7 +62,7 @@ FUNC main() AS Integer
   WHILE i < 5000
     last = sql::expandedSql(stmt)
     i = i + 1
-  WEND
+  END WHILE
   io::print(last)
   sql::finalize(stmt)
   sql::close(db)

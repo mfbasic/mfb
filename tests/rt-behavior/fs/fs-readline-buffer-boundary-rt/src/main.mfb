@@ -12,7 +12,7 @@ FUNC main AS Integer
     LET line AS String = fs::readLine(f)
     io::print(toString(idx) & ":" & toString(strings::byteLen(line)))
     idx = idx + 1
-  WEND
+  END WHILE
   io::print("lines=" & toString(idx))
   RETURN 0
 END FUNC

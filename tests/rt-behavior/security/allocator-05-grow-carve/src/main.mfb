@@ -26,7 +26,7 @@ FUNC main AS Integer
     END IF
     total = total + len(big) + len(small)
     i = i + 1
-  WEND
+  END WHILE
   LET giant AS String = strings::repeat("z", 1048576)
   io::print("giant " & toString(len(giant)))
   io::print("giant quads " & toString(strings::count(giant, "zzzz")))

@@ -605,7 +605,7 @@ FUNC test_list_removeAt(run AS Integer, tests AS List OF BenchResult) AS List OF
     WHILE len(nums) > 0
       nums = collections::removeAt(nums, 0)
       cnt = cnt + 1
-    WEND
+    END WHILE
     checksum = cnt
     LET t1 AS Integer = datetime::monotonicNanos()
     times = collections::append(times, t1 - t0)

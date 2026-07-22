@@ -27,7 +27,7 @@ FUNC churn(rounds AS Integer) AS Integer
     WHILE j < (i MOD 29)
       xs = collections::append(xs, i * 1000 + j)
       j = j + 1
-    WEND
+    END WHILE
     ' Verify values while their siblings' freed chunks are being reused.
     IF len(small) <> 1 + (i MOD 13) THEN
       io::print("BAD small at " & toString(i))
@@ -45,7 +45,7 @@ FUNC churn(rounds AS Integer) AS Integer
     END IF
     acc = acc + len(small) + len(wide) + len(xs)
     i = i + 1
-  WEND
+  END WHILE
   RETURN acc
 END FUNC
 
@@ -59,7 +59,7 @@ FUNC control AS Integer
     LET a AS String = strings::repeat("z", 64)
     probe = probe + len(a)
     k = k + 1
-  WEND
+  END WHILE
   RETURN probe
 END FUNC
 

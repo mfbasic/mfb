@@ -16,7 +16,7 @@ FUNC main AS Integer
   WHILE j < 17
     xs = collections::append(xs, j)
     j = j + 1
-  WEND
+  END WHILE
   io::print("len=" & toString(len(xs)))
   RETURN 0
 END FUNC

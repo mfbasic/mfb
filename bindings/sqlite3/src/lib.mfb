@@ -719,7 +719,7 @@ EXPORT FUNC listTables(RES db AS Db) AS List OF String
   MUT names AS List OF String = []
   WHILE sqliteLink::step(stmt)              ' pointer passed each iteration
     names = collections::append(names, sqliteLink::columnText(stmt, 0))   ' pointer passed; stmt stays live
-  WEND
+  END WHILE
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN names
   TRAP(e)
@@ -789,7 +789,7 @@ FUNC rows(RES stmt AS Stmt) AS List OF List OF SqlValue
       row = collections::append(row, cell)
     NEXT
     out = collections::append(out, row)
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -848,7 +848,7 @@ FUNC rowsAsMaps(RES stmt AS Stmt) AS List OF Map OF String TO SqlValue
       row = collections::set(row, sqliteLink::columnName(stmt, i), cell)   ' key by column name
     NEXT
     out = collections::append(out, row)
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 

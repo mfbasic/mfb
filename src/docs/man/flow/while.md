@@ -5,10 +5,10 @@ Pre-test loops
 ## Synopsis
 
 ```
-WHILE condition : ... : WEND
+WHILE condition : ... : END WHILE
 WHILE condition
   ...
-WEND
+END WHILE
 ```
 
 ## Description
@@ -29,7 +29,7 @@ Count to ten:
 ```
 SUB main()
   MUT x AS Integer = 0
-  WHILE x < 10 : x = x + 1 : WEND
+  WHILE x < 10 : x = x + 1 : END WHILE
 END SUB
 ```
 

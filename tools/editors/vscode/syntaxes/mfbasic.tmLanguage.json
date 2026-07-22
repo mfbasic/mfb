@@ -117,7 +117,7 @@
       "patterns": [
         {
           "comment": "Control flow.",
-          "match": "(?i)\\b(IF|THEN|ELSEIF|ELSE|END|FOR|EACH|IN|TO|STEP|NEXT|WHILE|WEND|DO|LOOP|UNTIL|CONTINUE|EXIT|RETURN|MATCH|CASE|WHEN|WITH|RECOVER|PROPAGATE|FAIL|TRAP)\\b",
+          "match": "(?i)\\b(IF|THEN|ELSEIF|ELSE|END|FOR|EACH|IN|TO|STEP|NEXT|WHILE|DO|LOOP|UNTIL|CONTINUE|EXIT|RETURN|MATCH|CASE|WHEN|WITH|RECOVER|PROPAGATE|FAIL|TRAP)\\b",
           "name": "keyword.control.mfbasic"
         },
         {

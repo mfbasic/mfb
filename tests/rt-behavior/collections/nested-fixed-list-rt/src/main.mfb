@@ -105,7 +105,7 @@ FUNC main() AS Integer
     LET pair AS List OF Integer = [i, i + 1]
     many = collections::append(many, pair)
     i = i + 1
-  WEND
+  END WHILE
   check("bulk len", toString(len(many)), "40")
   LET firstRow AS List OF List OF Integer = [collections::get(many, 0)]
   LET lastRow AS List OF List OF Integer = [collections::get(many, 39)]
@@ -129,7 +129,7 @@ FUNC main() AS Integer
       END IF
     END IF
     j = j + 1
-  WEND
+  END WHILE
   check("bulk contents", toString(bad), "0")
 
   ' Byte inner lists too: payload width 1 is where an entry-vs-payload confusion

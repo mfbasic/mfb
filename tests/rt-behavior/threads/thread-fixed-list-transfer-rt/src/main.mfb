@@ -27,7 +27,7 @@ FUNC main AS Integer
   WHILE i < 100
     xs = collections::append(xs, i)
     i = i + 1
-  WEND
+  END WHILE
 
   LET t AS Thread OF List OF Integer TO List OF Integer = thread::start(fixed_list_xfer_worker::doubleIntegers, "seed")
   thread::send(t, xs, 10)
@@ -41,7 +41,7 @@ FUNC main AS Integer
       bad = bad + 1
     END IF
     j = j + 1
-  WEND
+  END WHILE
   check("contents", toString(bad), "0")
 
   ' Byte payload (width 1): 200 elements, so the block is far larger than the
@@ -51,7 +51,7 @@ FUNC main AS Integer
   WHILE k < 200
     bs = collections::append(bs, toByte(k MOD 251))
     k = k + 1
-  WEND
+  END WHILE
 
   LET tb AS Thread OF List OF Byte TO List OF Byte = thread::start(fixed_list_xfer_worker::echoBytes, "seed")
   thread::send(tb, bs, 10)
@@ -65,7 +65,7 @@ FUNC main AS Integer
       badBytes = badBytes + 1
     END IF
     m = m + 1
-  WEND
+  END WHILE
   check("byte contents", toString(badBytes), "0")
 
   io::print("fixed-width list thread transfer: " & toString(failures) & " failure(s)")

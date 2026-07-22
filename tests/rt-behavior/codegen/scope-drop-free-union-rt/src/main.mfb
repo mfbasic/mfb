@@ -42,7 +42,7 @@ FUNC churn(rounds AS Integer) AS Integer
     LET m AS Map OF String TO Integer = Map OF String TO Integer { "n" := i, "len" := len(text) }
     total = total + len(text) + collections::get(m, "n") + collections::get(m, "len")
     i = i + 1
-  WEND
+  END WHILE
   RETURN total
 END FUNC
 

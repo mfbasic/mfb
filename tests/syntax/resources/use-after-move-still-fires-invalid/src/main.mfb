@@ -41,14 +41,14 @@ FUNC branchJoin(p AS String, cond AS Boolean) AS Nothing
 END FUNC
 
 ' 3. After a loop whose body closed it: the body's moves union back into the
-'    outer set on fall-through, so the use after WEND is rejected.
+'    outer set on fall-through, so the use after END WHILE is rejected.
 FUNC afterLoop(p AS String) AS Nothing
   RES f AS File = fs::openFile(p)
   MUT n AS Integer = 0
   WHILE n < 2
     fs::close(f)
     n = n + 1
-  WEND
+  END WHILE
   LET s AS String = fs::readAll(f)
   RETURN NOTHING
 END FUNC

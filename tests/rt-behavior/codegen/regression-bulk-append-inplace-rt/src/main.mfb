@@ -14,7 +14,7 @@ FUNC main AS Integer
   WHILE r < 900
     reference = collections::append(reference, r)
     r = r + 1
-  WEND
+  END WHILE
 
   ' Bulk: build the same 900 elements as 300 sublists of 3, appended in place.
   MUT bulk AS List OF Integer = []
@@ -24,7 +24,7 @@ FUNC main AS Integer
     LET part AS List OF Integer = [base, base + 1, base + 2]
     bulk = collections::append(bulk, part)
     i = i + 1
-  WEND
+  END WHILE
 
   IF len(bulk) <> len(reference) THEN
     io::print("FAIL length " & toString(len(bulk)))
@@ -38,7 +38,7 @@ FUNC main AS Integer
       mismatch = mismatch + 1
     END IF
     j = j + 1
-  WEND
+  END WHILE
   io::print("int len=" & toString(len(bulk)) & " mismatch=" & toString(mismatch))
 
   ' Variable-width String payloads: append growing sublists in place.
@@ -48,7 +48,7 @@ FUNC main AS Integer
     LET chunk AS List OF String = ["item" & toString(w), "x"]
     words = collections::append(words, chunk)
     w = w + 1
-  WEND
+  END WHILE
   io::print("words len=" & toString(len(words)))
   io::print("first=" & collections::get(words, 0))
   io::print("last=" & collections::get(words, len(words) - 1))

@@ -228,7 +228,7 @@ def type_of(e):
 #   ("for", var, start, end, step, body)   body = list of stmts
 #   ("dowhile", cond, body)                pre-test  DO WHILE cond ... LOOP
 #   ("dountil", body, cond)                post-test DO ... LOOP UNTIL cond
-#   ("while", cond, body)                  WHILE cond ... WEND
+#   ("while", cond, body)                  WHILE cond ... END WHILE
 
 
 def emit_stmt(s, ind, out):
@@ -266,7 +266,7 @@ def emit_stmt(s, ind, out):
         out.append(f"{pad}WHILE {emit_expr(cond)}")
         for b in body:
             emit_stmt(b, ind + 1, out)
-        out.append(f"{pad}WEND")
+        out.append(f"{pad}END WHILE")
     else:
         raise ValueError(s)
 

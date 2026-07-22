@@ -20,6 +20,6 @@ FUNC main AS Integer
     handles = collections::append(handles, f)
     fs::close(f)
     i = i + 1
-  WEND
+  END WHILE
   RETURN 0
 END FUNC

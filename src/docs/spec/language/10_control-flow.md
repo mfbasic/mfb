@@ -4,7 +4,7 @@
 FOR i = 1 TO 10 STEP 2 : io::print(toString(i)) : NEXT
 FOR EACH item IN lines : io::print(item) : NEXT
 FOR EACH entry IN scores : io::print(entry.key & "=" & toString(entry.value)) : NEXT
-WHILE x < 10 : x = x + 1 : WEND
+WHILE x < 10 : x = x + 1 : END WHILE
 DO : ... : LOOP UNTIL done
 DO WHILE ready : ... : LOOP
 

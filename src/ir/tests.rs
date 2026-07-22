@@ -1243,7 +1243,7 @@ mod lower_tests {
             "SUB main\n\
                FOR i = 1 TO 3\n  EXIT FOR\n  CONTINUE FOR\n  NEXT\n\
                DO\n  EXIT DO\nLOOP UNTIL TRUE\n\
-               WHILE FALSE\n  EXIT WHILE\n  WEND\n\
+               WHILE FALSE\n  EXIT WHILE\n  END WHILE\n\
                EXIT PROGRAM 2\n\
              END SUB\n",
         );
@@ -1324,7 +1324,7 @@ mod lower_tests {
         let ir = lower_src(
             "SUB main\n\
                MUT i AS Integer = 0\n\
-               WHILE i < 3\n    i = i + 1\n  WEND\n\
+               WHILE i < 3\n    i = i + 1\n  END WHILE\n\
                DO\n    i = i - 1\n  LOOP UNTIL i <= 0\n\
              END SUB\n",
         );
@@ -2927,7 +2927,7 @@ mod lower_tests {
                MUT acc AS Integer = 0\n\
                LET n AS Integer = toInt(s) TRAP(e)\n\
                  FOR i = 1 TO 2\n\
-                   WHILE acc < 0\n              acc = acc + 1\n            WEND\n\
+                   WHILE acc < 0\n              acc = acc + 1\n            END WHILE\n\
                    DO\n              acc = acc + 1\n            LOOP UNTIL acc > 5\n\
                    FOR EACH v IN [1, 2]\n              acc = acc + v\n            NEXT\n\
                    RECOVER acc\n\
@@ -2956,7 +2956,7 @@ mod lower_tests {
                MUT acc AS Integer = 0\n\
                LET n AS Integer = toInt(s) TRAP(e)\n\
                  FOR i = 1 TO 2\n            acc = acc + i\n          NEXT\n\
-                 WHILE acc < 0\n            acc = acc + 1\n          WEND\n\
+                 WHILE acc < 0\n            acc = acc + 1\n          END WHILE\n\
                  RECOVER acc\n\
                END TRAP\n\
                RETURN n\n\
@@ -3882,7 +3882,7 @@ FUNC main AS Integer
   NEXT
   WHILE total < 100
     total = total + 10
-  WEND
+  END WHILE
   DO
     total = total - 1
   LOOP UNTIL total < 50
@@ -3915,7 +3915,7 @@ FUNC main AS Integer
   WHILE k < 5
     k = k + 1
     IF k = 4 THEN EXIT WHILE
-  WEND
+  END WHILE
   RETURN k
 END FUNC
 "#,
@@ -4220,7 +4220,7 @@ FUNC h(v AS Integer) AS Integer
     NEXT
     WHILE acc < 100
       acc = acc + 10
-    WEND
+    END WHILE
     DO
       acc = acc + 1
     LOOP UNTIL acc > 120

@@ -344,7 +344,7 @@ FUNC main AS Integer
   FOR i = 1 TO 3
     EXIT FOR
     WHILE FALSE
-    WEND
+    END WHILE
   NEXT
   RETURN 0
 END FUNC
@@ -389,7 +389,7 @@ FUNC main AS Integer
       total = 6
     NEXT
     WHILE FALSE
-    WEND
+    END WHILE
     DO
       total = 7
     LOOP UNTIL TRUE

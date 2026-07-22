@@ -25,7 +25,7 @@ FUNC prependGrow(n AS Integer) AS List OF Integer
   WHILE i < n
     xs = collections::prepend(xs, i)
     i = i + 1
-  WEND
+  END WHILE
   RETURN xs
 END FUNC
 
@@ -38,7 +38,7 @@ FUNC listSetGrow(n AS Integer) AS List OF String
   WHILE i <= n
     xs = collections::set(xs, 1, strings::repeat("y", i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN xs
 END FUNC
 
@@ -50,7 +50,7 @@ FUNC mapCapGrow(n AS Integer) AS Map OF Integer TO Integer
   WHILE i < n
     m = collections::set(m, i, i * 2)
     i = i + 1
-  WEND
+  END WHILE
   RETURN m
 END FUNC
 
@@ -62,7 +62,7 @@ FUNC mapValGrow(n AS Integer) AS String
   WHILE i <= n
     m = collections::set(m, 1, strings::repeat("z", i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN collections::getOr(m, 1, "MISSING")
 END FUNC
 
@@ -73,7 +73,7 @@ FUNC globalReassign(n AS Integer) AS Integer
   WHILE i < n
     gList = collections::prepend([100, 200], i)
     i = i + 1
-  WEND
+  END WHILE
   RETURN len(gList)
 END FUNC
 

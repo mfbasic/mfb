@@ -1764,7 +1764,7 @@ mod tests {
             "  END IF\n",
             "  WHILE n < 3\n",
             "    n = n + 1\n",
-            "  WEND\n",
+            "  END WHILE\n",
             "  DO\n",
             "    n = n + 1\n",
             "  LOOP UNTIL n > 5\n",

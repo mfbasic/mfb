@@ -1242,7 +1242,7 @@ ISOLATED FUNC compute(a AS Integer, b AS Integer = 2) AS RES Db STATE Integer
   NEXT
   WHILE total < 100
     total = total + 1
-  WEND
+  END WHILE
   DO
     total = total + 1
   LOOP UNTIL total > 200
@@ -1536,7 +1536,7 @@ fn statement_errors() {
     assert!(try_parse("FUNC f\n  FOR i = 1 2\n  NEXT\nEND FUNC\n").is_err());
     // FOR EACH without IN.
     assert!(try_parse("FUNC f\n  FOR EACH i xs\n  NEXT\nEND FUNC\n").is_err());
-    // WHILE without WEND.
+    // WHILE without END WHILE.
     assert!(try_parse("FUNC f\n  WHILE TRUE\n    x = 1\nEND FUNC\n").is_err());
     // DO without LOOP.
     assert!(try_parse("FUNC f\n  DO\n    x = 1\nEND FUNC\n").is_err());

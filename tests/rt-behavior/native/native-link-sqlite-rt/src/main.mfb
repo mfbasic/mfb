@@ -89,7 +89,7 @@ FUNC main AS Integer
     ' columnDouble: CDouble return (finite Float); column index goes through the
     ' CInt32 input range-check.
     io::print(toString(sql::columnInt(rows, 0)) & "=" & sql::columnText(rows, 1) & "@" & toString(sql::columnDouble(rows, 2)))
-  WEND
+  END WHILE
   sql::finalize(rows)
   sql::close(db)
   io::print("done")

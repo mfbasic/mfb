@@ -1274,7 +1274,7 @@ FUNC f AS Integer
   NEXT
   WHILE total < 100
     total = total + 1
-  WEND
+  END WHILE
   DO
     total = total + 1
   LOOP UNTIL total > 200

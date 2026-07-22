@@ -27,7 +27,7 @@ FUNC main AS Integer
     LET f AS FUNC(Integer, Integer) AS Integer = collections::get(fns, i)
     io::print("fns[" & toString(i) & "](10,3)=" & toString(f(10, 3)))
     i = i + 1
-  WEND
+  END WHILE
 
   ' 2. A Map OF String TO FUNC: look a value up and call it.
   LET ops AS Map OF String TO FUNC(Integer, Integer) AS Integer = Map OF String TO FUNC(Integer, Integer) AS Integer { "add" := plus, "mul" := times }

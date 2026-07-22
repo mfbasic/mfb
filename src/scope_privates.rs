@@ -654,7 +654,7 @@ FUNC driver(input AS Shape) AS Integer
   NEXT
   WHILE total < shadow
     total = total + 1
-  WEND
+  END WHILE
   DO
     total = total + 1
   LOOP UNTIL total > shadow

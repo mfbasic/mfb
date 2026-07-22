@@ -869,7 +869,7 @@ FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, c
         k = k + 1
         more = (rep.hi < 0) OR (k < rep.hi)
       END IF
-    WEND
+    END WHILE
     REM Give back one at a time until the continuation matches or we fall below the
     REM minimum. `k = count` is the floor: nothing was consumed by this call.
     MUT backtracking AS Boolean = TRUE
@@ -886,7 +886,7 @@ FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, c
         p = p - 1
         k = k - 1
       END IF
-    WEND
+    END WHILE
     RETURN __regex_fail()
   END IF
   IF rep.greedy THEN
@@ -941,7 +941,7 @@ FUNC __regex_initCaps(groups AS Integer) AS List OF Integer
   WHILE i < total
     caps = collections::append(caps, -1)
     i = i + 1
-  WEND
+  END WHILE
   RETURN caps
 END FUNC
 
@@ -963,7 +963,7 @@ FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS Int
       RETURN r
     END IF
     s = s + 1
-  WEND
+  END WHILE
   RETURN __regex_fail()
 END FUNC
 
@@ -1040,7 +1040,7 @@ FUNC __regex_parseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) A
     WHILE j < n AND collections::get(pat, j) <> "}"
       hexText = hexText & collections::get(pat, j)
       j = j + 1
-    WEND
+    END WHILE
     IF j >= n THEN
       FAIL error(77050003, "invalid regex")
     END IF
@@ -1120,7 +1120,7 @@ FUNC __regex_parseProp(pat AS List OF String, n AS Integer, i AS Integer, neg AS
     WHILE j < n AND collections::get(pat, j) <> "}"
       name = name & collections::get(pat, j)
       j = j + 1
-    WEND
+    END WHILE
     IF j >= n THEN
       FAIL error(77050003, "invalid regex")
     END IF
@@ -1175,7 +1175,7 @@ FUNC __regex_parsePosix(pat AS List OF String, n AS Integer, idx AS Integer) AS 
   WHILE j < n AND collections::get(pat, j) <> ":"
     name = name & collections::get(pat, j)
     j = j + 1
-  WEND
+  END WHILE
   IF j + 1 >= n THEN
     FAIL error(77050003, "invalid regex")
   END IF
@@ -1335,7 +1335,7 @@ FUNC __regex_isCountedAt(pat AS List OF String, n AS Integer, i AS Integer) AS B
   END IF
   WHILE j < n AND __regex_isDigit(collections::get(pat, j))
     j = j + 1
-  WEND
+  END WHILE
   IF j < n AND collections::get(pat, j) = "}" THEN
     RETURN TRUE
   END IF
@@ -1347,7 +1347,7 @@ FUNC __regex_isCountedAt(pat AS List OF String, n AS Integer, i AS Integer) AS B
     IF j < n AND __regex_isDigit(collections::get(pat, j)) THEN
       WHILE j < n AND __regex_isDigit(collections::get(pat, j))
         j = j + 1
-      WEND
+      END WHILE
       IF j < n AND collections::get(pat, j) = "}" THEN
         RETURN TRUE
       END IF
@@ -1362,7 +1362,7 @@ FUNC __regex_parseCounted(pat AS List OF String, n AS Integer, i AS Integer) AS 
   WHILE j < n AND __regex_isDigit(collections::get(pat, j))
     loS = loS & collections::get(pat, j)
     j = j + 1
-  WEND
+  END WHILE
   LET lo AS Integer = __regex_parseIntClamp(loS)
   IF collections::get(pat, j) = "}" THEN
     RETURN __regex_Count[lo, lo, j + 1]
@@ -1375,7 +1375,7 @@ FUNC __regex_parseCounted(pat AS List OF String, n AS Integer, i AS Integer) AS 
   WHILE j < n AND __regex_isDigit(collections::get(pat, j))
     hiS = hiS & collections::get(pat, j)
     j = j + 1
-  WEND
+  END WHILE
   LET hi AS Integer = __regex_parseIntClamp(hiS)
   IF lo > hi THEN
     FAIL error(77050003, "invalid regex")
@@ -1460,7 +1460,7 @@ FUNC __regex_parseName(pat AS List OF String, n AS Integer, i AS Integer) AS __r
   WHILE j < n AND __regex_isNameCont(collections::get(pat, j))
     name = name & collections::get(pat, j)
     j = j + 1
-  WEND
+  END WHILE
   IF j >= n OR collections::get(pat, j) <> ">" THEN
     FAIL error(77050003, "invalid regex")
   END IF
@@ -1682,7 +1682,7 @@ FUNC __regex_parseConcat(pat AS List OF String, n AS Integer, i AS Integer, flag
     IF fl.verbose AND c = "#" THEN
       WHILE idx < n AND collections::get(pat, idx) <> "\n"
         idx = idx + 1
-      WEND
+      END WHILE
       CONTINUE DO
     END IF
     IF c = "(" THEN
@@ -1737,7 +1737,7 @@ FUNC __regex_parseAlt(pat AS List OF String, n AS Integer, i AS Integer, flags A
     gg = nextc.groups
     nm = nextc.names
     opts = collections::append(opts, nextc.node)
-  WEND
+  END WHILE
   IF len(opts) = 1 THEN
     RETURN __regex_Parse[collections::get(opts, 0), idx, gg, nm]
   END IF

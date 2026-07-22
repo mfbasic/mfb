@@ -28,7 +28,7 @@ FUNC loadPoints(path AS String) AS List OF Vec3
   WHILE NOT fs::eof(f)
     LET v = parseLine(fs::readLine(f))      ' auto-propagates to TRAP below on bad input
     pts = collections::append(pts, v)      ' optimized in place for MUT
-  WEND
+  END WHILE
   RETURN pts                               ' f closed by lexical drop here; pts freezes automatically
 
   TRAP(err)

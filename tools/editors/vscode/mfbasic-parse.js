@@ -145,7 +145,7 @@ const FOLD_OPENERS = [
   { open: /^\s*FOR\b/i, close: /^\s*NEXT\b/i },
   // DO must be tested before WHILE so `DO WHILE` pushes one frame, not two.
   { open: /^\s*DO\b/i, close: /^\s*LOOP\b/i },
-  { open: /^\s*WHILE\b/i, close: /^\s*WEND\b/i },
+  { open: /^\s*WHILE\b/i, close: /^\s*END\s+WHILE\b/i },
 ];
 
 const REGION_START_RE = /^\s*'\s*#region\b/i;

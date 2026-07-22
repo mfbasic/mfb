@@ -22,7 +22,7 @@ FUNC check(lo AS Integer, hi AS Integer, label AS String) AS Integer
       ok = FALSE
     END IF
     i = i + 1
-  WEND
+  END WHILE
   IF ok THEN
     io::print(label & " in range")
   ELSE

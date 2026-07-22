@@ -108,7 +108,7 @@ ISOLATED FUNC drain(t AS ThreadWorker OF String TO Integer, seed AS String) AS I
   MUT seen AS Integer = 0
   WHILE NOT thread::isCancelled(t)
     seen = seen + 1
-  WEND
+  END WHILE
   RETURN seen
 END FUNC
 ```

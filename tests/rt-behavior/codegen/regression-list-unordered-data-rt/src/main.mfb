@@ -25,7 +25,7 @@ FUNC main AS Integer
   WHILE i < 4
     base = collections::append(base, -1)
     i = i + 1
-  WEND
+  END WHILE
   LET a AS List OF Integer = collections::set(base, 0, 5)
   LET b AS List OF Integer = collections::set(a, 1, 8)
   LET c AS List OF Integer = collections::set(b, 3, 9)
@@ -61,7 +61,7 @@ FUNC main AS Integer
   WHILE k < 4
     caps = collections::set(caps, k, k * 10)
     k = k + 1
-  WEND
+  END WHILE
   LET z9 AS Integer = dump("caps", caps)
   RETURN 0
 END FUNC

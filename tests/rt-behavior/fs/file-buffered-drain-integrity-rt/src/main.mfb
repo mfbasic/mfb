@@ -25,7 +25,7 @@ FUNC main AS Integer
   WHILE i < 5000
     fs::writeAll(f, "line " & toString(i) & "\n")
     i = i + 1
-  WEND
+  END WHILE
   fs::flush(f)
   fs::close(f)
 
@@ -43,7 +43,7 @@ FUNC main AS Integer
       ok = FALSE
     END IF
     n = n + 1
-  WEND
+  END WHILE
   IF ok THEN
     io::print("all lines exact")
   ELSE

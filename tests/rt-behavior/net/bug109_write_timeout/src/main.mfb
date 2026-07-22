@@ -21,12 +21,12 @@ FUNC pump() AS Integer
   WHILE i < 20
     big = big & big
     i = i + 1
-  WEND
+  END WHILE
   MUT n AS Integer = 0
   WHILE n < 1000
     net::writeText(client, big)
     n = n + 1
-  WEND
+  END WHILE
   RETURN 0
   TRAP(e)
     RETURN e.code

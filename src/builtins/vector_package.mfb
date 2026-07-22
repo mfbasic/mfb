@@ -82,11 +82,11 @@ FUNC __vector_isqrtFloor(n AS Integer) AS Integer
   ' Bring seed down to a lower bound: seed*seed > n  <=>  seed > n / seed.
   WHILE seed > 0 AND seed > n / seed
     seed = seed - 1
-  WEND
+  END WHILE
   ' Climb while (seed+1)^2 <= n  <=>  (seed+1) <= n / (seed+1).
   WHILE seed + 1 <= n / (seed + 1)
     seed = seed + 1
-  WEND
+  END WHILE
   RETURN seed
 END FUNC
 

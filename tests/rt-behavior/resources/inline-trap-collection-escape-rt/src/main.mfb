@@ -28,7 +28,7 @@ FUNC guarded AS Integer
       RECOVER handles
     END TRAP
     n = n + 1
-  WEND
+  END WHILE
   io::print("guarded opened=" & toString(len(handles)))
   fs::writeAll(collections::get(handles, 0), "still open")
   io::print("guarded wrote ok")
@@ -50,7 +50,7 @@ FUNC handlerSide AS Integer
       RECOVER collections::insert(handles, 0, g)
     END TRAP
     n = n + 1
-  WEND
+  END WHILE
   io::print("handler opened=" & toString(len(handles)))
   fs::writeAll(collections::get(handles, 0), "still open")
   io::print("handler wrote ok")

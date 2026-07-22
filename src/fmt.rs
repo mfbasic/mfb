@@ -373,7 +373,7 @@ enum Op {
     Case,
     /// `END X`: closes a block. The keyword identifies it (for `END MATCH`).
     End(Option<Keyword>),
-    /// `NEXT`/`WEND`/`LOOP`: closes the top loop block.
+    /// `NEXT`/`END WHILE`/`LOOP`: closes the top loop block.
     Pop,
 }
 
@@ -442,7 +442,7 @@ fn classify(
     // target, not a block opener.
     let after_exit = matches!(prev_kw, Some(K::Exit) | Some(K::Continue));
     // `WHILE` following `DO`/`LOOP` (`DO WHILE c`, `LOOP WHILE c`) is a loop
-    // condition, not a `WHILE … WEND` block opener.
+    // condition, not a `WHILE … END WHILE` block opener.
     let while_is_condition = matches!(prev_kw, Some(K::Do) | Some(K::Loop));
     match k {
         K::If => (is_first && multiline_if).then_some(Op::Open(Block::If)),
@@ -891,8 +891,8 @@ mod tests {
 
     #[test]
     fn single_line_while_inside_if_is_balanced() {
-        let input = "FUNC f() AS Integer\nIF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND\nRETURN 0\nEND FUNC\n";
-        let expected = "FUNC f() AS Integer\n  IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND\n  RETURN 0\nEND FUNC\n";
+        let input = "FUNC f() AS Integer\nIF TRUE THEN RETURN 3 ELSE WHILE FALSE : END WHILE\nRETURN 0\nEND FUNC\n";
+        let expected = "FUNC f() AS Integer\n  IF TRUE THEN RETURN 3 ELSE WHILE FALSE : END WHILE\n  RETURN 0\nEND FUNC\n";
         assert_eq!(fmt(input), expected);
     }
 

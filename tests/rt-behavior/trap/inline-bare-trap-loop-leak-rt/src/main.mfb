@@ -16,7 +16,7 @@ FUNC main() AS Integer
     END TRAP
     sum = sum + n
     i = i + 1
-  WEND
+  END WHILE
   io::print("sum=" & toString(sum))
   RETURN 0
 END FUNC

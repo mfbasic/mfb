@@ -24,7 +24,7 @@ FUNC leaveByExit(path AS String) AS Nothing
   WHILE n < 4
     RES f AS File = fs::openFile(path)
     EXIT WHILE
-  WEND
+  END WHILE
   RETURN NOTHING
 END FUNC
 
@@ -36,7 +36,7 @@ FUNC leaveByContinue(path AS String) AS Nothing
     RES f AS File = fs::openFile(path)
     n = n + 1
     CONTINUE WHILE
-  WEND
+  END WHILE
   RETURN NOTHING
 END FUNC
 
@@ -72,7 +72,7 @@ FUNC main AS Integer
       RECOVER
     END TRAP
     i = i + 1
-  WEND
+  END WHILE
   io::print("exit-paths=" & toString(i))
   io::print("done")
   RETURN 0

@@ -13,7 +13,7 @@ FUNC main AS Integer
     RES f AS File = fs::openFile("tests/rt-behavior/resources/resource-collection-floats-runtime/src/main.mfb")
     handles = collections::append(handles, f)
     i = i + 1
-  WEND
+  END WHILE
   MUT opened AS Integer = 0
   FOR EACH h IN handles
     LET line AS String = fs::readLine(h)

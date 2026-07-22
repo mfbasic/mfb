@@ -16,12 +16,12 @@ EXPORT ISOLATED FUNC churnWorker(t AS ThreadWorker OF Nothing TO Integer, rounds
     WHILE j < (i MOD 7)
       xs = collections::append(xs, i + j)
       j = j + 1
-    WEND
+    END WHILE
     IF len(s) <> 1 + (i MOD 23) THEN
       RETURN -1
     END IF
     acc = acc + len(s) + len(xs)
     i = i + 1
-  WEND
+  END WHILE
   RETURN acc
 END FUNC

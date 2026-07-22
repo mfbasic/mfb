@@ -16,7 +16,7 @@ WHILE thread::isRunning(t)
     LET message = thread::receive(t)
     io::print(message)
   END IF
-WEND
+END WHILE
 
 LET count = thread::waitFor(t)
 io::print("Parsed " & toString(count) & " records")

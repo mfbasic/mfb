@@ -30,7 +30,7 @@ FUNC main AS Integer
   WHILE TRUE
     w = w + 1
     IF w = 2 THEN EXIT WHILE
-  WEND
+  END WHILE
 
   RETURN total + w
 END FUNC

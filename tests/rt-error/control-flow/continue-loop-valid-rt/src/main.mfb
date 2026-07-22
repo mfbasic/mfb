@@ -30,7 +30,7 @@ FUNC main AS Integer
     w = w + 1
     IF w = 2 THEN CONTINUE WHILE
     total = total + 100
-  WEND
+  END WHILE
 
   LET values AS List OF Integer = [1, -1, 2]
   FOR EACH value IN values

@@ -26,7 +26,7 @@ SUB check(label AS String, field AS Integer)
       prefixOk = FALSE
     END IF
     i = i + 1
-  WEND
+  END WHILE
   io::print(label & " pub-is-point-prefix=" & toString(prefixOk))
   io::print(label & " first-byte-uncompressed=" & toString(collections::get(kp.publicKey, 0)))
 END SUB

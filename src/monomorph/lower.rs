@@ -2110,7 +2110,7 @@ FUNC main() AS Integer
   WHILE n < 2
     emit(n)
     n = n + 1
-  WEND
+  END WHILE
   DO
     emit(n)
     n = n + 1

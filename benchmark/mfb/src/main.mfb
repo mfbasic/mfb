@@ -74,7 +74,7 @@ FUNC padLeft(s AS String, w AS Integer) AS String
   MUT r AS String = s
   WHILE len(r) < w
     r = " " & r
-  WEND
+  END WHILE
   RETURN r
 END FUNC
 
@@ -82,7 +82,7 @@ FUNC padRight(s AS String, w AS Integer) AS String
   MUT r AS String = s
   WHILE len(r) < w
     r = r & " "
-  WEND
+  END WHILE
   RETURN r
 END FUNC
 
@@ -129,7 +129,7 @@ FUNC readLinesFile(path AS String) AS Integer
   WHILE NOT fs::eof(f)
     LET line AS String = fs::readLine(f)
     lines = lines + 1
-  WEND
+  END WHILE
   RETURN lines
 END FUNC
 
@@ -150,7 +150,7 @@ SUB writeJsonInput(path AS String)
     END IF
     fs::writeAll(f, toString(i))
     i = i + 1
-  WEND
+  END WHILE
   fs::writeAll(f, "],\"tail\":5000}")
 END SUB
 
@@ -163,7 +163,7 @@ SUB writeRegexInput(path AS String)
     END IF
     fs::writeAll(f, toString(i))
     i = i + 1
-  WEND
+  END WHILE
 END SUB
 
 ' ===========================================================================
@@ -550,13 +550,13 @@ FUNC bnNorm(a AS List OF Integer) AS List OF Integer
   MUT n AS Integer = len(a)
   WHILE n > 1 AND collections::get(a, n - 1) = 0
     n = n - 1
-  WEND
+  END WHILE
   MUT r AS List OF Integer = []
   MUT i AS Integer = 0
   WHILE i < n
     r = collections::append(r, collections::get(a, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN r
 END FUNC
 
@@ -584,7 +584,7 @@ FUNC bnCmp(a AS List OF Integer, b AS List OF Integer) AS Integer
       RETURN 1
     END IF
     i = i - 1
-  WEND
+  END WHILE
   RETURN 0
 END FUNC
 
@@ -611,7 +611,7 @@ FUNC bnAdd(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
     r = collections::append(r, bits::band(s, 268435455))
     c = bits::sr(s, 28)
     i = i + 1
-  WEND
+  END WHILE
   IF c <> 0 THEN
     r = collections::append(r, c)
   END IF
@@ -638,7 +638,7 @@ FUNC bnSub(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
     END IF
     r = collections::append(r, s)
     i = i + 1
-  WEND
+  END WHILE
   RETURN bnNorm(r)
 END FUNC
 
@@ -650,7 +650,7 @@ FUNC bnMul(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
   WHILE z < la + lb
     r = collections::append(r, 0)
     z = z + 1
-  WEND
+  END WHILE
   MUT i AS Integer = 0
   WHILE i < la
     MUT c AS Integer = 0
@@ -662,11 +662,11 @@ FUNC bnMul(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
       r = collections::set(r, idx, bits::band(t, 268435455))
       c = bits::sr(t, 28)
       j = j + 1
-    WEND
+    END WHILE
     LET hidx AS Integer = i + lb
     r = collections::set(r, hidx, collections::get(r, hidx) + c)
     i = i + 1
-  WEND
+  END WHILE
   RETURN bnNorm(r)
 END FUNC
 
@@ -679,7 +679,7 @@ FUNC bnShl1(a AS List OF Integer) AS List OF Integer
     r = collections::append(r, bits::band(t, 268435455))
     c = bits::sr(t, 28)
     i = i + 1
-  WEND
+  END WHILE
   IF c <> 0 THEN
     r = collections::append(r, c)
   END IF
@@ -702,7 +702,7 @@ FUNC bnMod(x AS List OF Integer, m AS List OF Integer) AS List OF Integer
   WHILE z < rlen
     r = collections::append(r, 0)
     z = z + 1
-  WEND
+  END WHILE
   LET nbits AS Integer = len(x) * 28
   MUT i AS Integer = nbits - 1
   WHILE i >= 0
@@ -717,7 +717,7 @@ FUNC bnMod(x AS List OF Integer, m AS List OF Integer) AS List OF Integer
       r = collections::set(r, k, bits::band(t, 268435455))
       carry = bits::sr(t, 28)
       k = k + 1
-    WEND
+    END WHILE
     ' if r >= m then r = r - m, in place (r stays < 2*m so one subtract suffices).
     IF bnCmp(r, m) >= 0 THEN
       MUT brw AS Integer = 0
@@ -736,10 +736,10 @@ FUNC bnMod(x AS List OF Integer, m AS List OF Integer) AS List OF Integer
         END IF
         r = collections::set(r, kk, s)
         kk = kk + 1
-      WEND
+      END WHILE
     END IF
     i = i - 1
-  WEND
+  END WHILE
   RETURN bnNorm(r)
 END FUNC
 
@@ -760,13 +760,13 @@ FUNC test_bignum_modmul(run AS Integer, tests AS List OF BenchResult) AS List OF
     WHILE i < 200
       b = bnModmul(b, g, p)
       i = i + 1
-    WEND
+    END WHILE
     MUT acc AS Integer = 0
     MUT j AS Integer = 0
     WHILE j < len(b)
       acc = acc + collections::get(b, j)
       j = j + 1
-    WEND
+    END WHILE
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
     times = collections::append(times, t1 - t0)
@@ -792,13 +792,13 @@ FUNC test_bignum_modexp(run AS Integer, tests AS List OF BenchResult) AS List OF
       END IF
       b = bnModmul(b, b, p)
       i = i + 1
-    WEND
+    END WHILE
     MUT acc AS Integer = 0
     MUT j AS Integer = 0
     WHILE j < len(r)
       acc = acc + collections::get(r, j)
       j = j + 1
-    WEND
+    END WHILE
     checksum = acc
     LET t1 AS Integer = datetime::monotonicNanos()
     times = collections::append(times, t1 - t0)
@@ -997,7 +997,7 @@ FUNC parseRun(args AS List OF String) AS Integer
       END IF
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN run
 END FUNC
 

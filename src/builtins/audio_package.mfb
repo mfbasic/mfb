@@ -117,7 +117,7 @@ FUNC __mml_parseUint(s AS String) AS Integer
       RETURN -1
     END IF
     i = i + 1
-  WEND
+  END WHILE
   LET v AS Integer = toInt(s) TRAP(e)
     RETURN -1
   END TRAP
@@ -170,7 +170,7 @@ FUNC __mml_trailingDots(token AS String, fromIdx AS Integer) AS Integer
     END IF
     count = count + 1
     i = i + 1
-  WEND
+  END WHILE
   RETURN count
 END FUNC
 
@@ -220,7 +220,7 @@ FUNC __mml_note(token AS String, octave AS Integer, length AS Integer, tempo AS 
   WHILE idx < len(token) AND __mml_isDigit(strings::mid(token, idx, 1))
     digits = digits & strings::mid(token, idx, 1)
     idx = idx + 1
-  WEND
+  END WHILE
   MUT noteLen AS Integer = length
   IF len(digits) > 0 THEN
     noteLen = __mml_parseUint(digits)
@@ -270,7 +270,7 @@ FUNC __mml_expand(tokens AS List OF String) AS List OF String
       ELSE
         i = i + 1
       END IF
-    WEND
+    END WHILE
     IF closeIdx < 0 THEN
       IF __mml_hasOpen(work) THEN
         FAIL error(77050002, "audio::play: unbalanced '{' in MML")
@@ -291,7 +291,7 @@ FUNC __mml_expand(tokens AS List OF String) AS List OF String
       ELSE
         j = j - 1
       END IF
-    WEND
+    END WHILE
     IF openIdx < 0 THEN
       FAIL error(77050002, "audio::play: '}' without matching '{' in MML")
     END IF
@@ -305,12 +305,12 @@ FUNC __mml_expand(tokens AS List OF String) AS List OF String
         rebuilt = collections::append(rebuilt, collections::get(work, k))
       NEXT
       rep = rep + 1
-    WEND
+    END WHILE
     FOR k = closeIdx + 1 TO len(work) - 1
       rebuilt = collections::append(rebuilt, collections::get(work, k))
     NEXT
     work = rebuilt
-  WEND
+  END WHILE
   RETURN work
 END FUNC
 
@@ -333,7 +333,7 @@ FUNC __mml_applyLegato(events AS List OF MmlEvent, startIdx AS Integer) AS List 
     ev = WITH ev { fadeIn := fi, fadeOut := fo }
     out = collections::set(out, i, ev)
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 

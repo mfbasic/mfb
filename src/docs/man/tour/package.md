@@ -93,7 +93,7 @@ More: `mfb man types`, `mfb man collections`.
 ## Control flow
 
 The classic BASIC forms, structured: `IF`/`ELSEIF`/`ELSE`, counted `FOR`,
-`FOR EACH` over lists and maps, `WHILE`/`WEND`, and `DO` loops. Loops leave
+`FOR EACH` over lists and maps, `WHILE`/`END WHILE`, and `DO` loops. Loops leave
 and skip with `EXIT FOR`/`EXIT WHILE`/`EXIT DO` and the matching `CONTINUE`
 forms. There is no `GOTO` and no `SELECT CASE`.
 

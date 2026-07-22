@@ -81,7 +81,7 @@ FUNC __csv_parse(value AS String) AS List OF List OF String
       fieldStarted = TRUE
       index = index + 1
     END IF
-  WEND
+  END WHILE
 
   IF inQuotes THEN
     FAIL error(77050003, "invalid CSV format")

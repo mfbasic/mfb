@@ -33,7 +33,7 @@ FUNC test_io_readnum(run AS Integer, tests AS List OF BenchResult) AS List OF Be
     WHILE NOT fs::eof(f)
       LET line AS String = fs::readLine(f)
       sumv = sumv + toInt(line)
-    WEND
+    END WHILE
     checksum = sumv
     LET t1 AS Integer = datetime::monotonicNanos()
     times = collections::append(times, t1 - t0)

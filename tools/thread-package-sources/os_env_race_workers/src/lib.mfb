@@ -10,7 +10,7 @@ EXPORT ISOLATED FUNC envWriter(t AS ThreadWorker OF Nothing TO Integer, data AS 
     os::setEnv("MFB_RACE_KEY", "v")
     os::unsetEnv("MFB_RACE_KEY")
     i = i + 1
-  WEND
+  END WHILE
   RETURN data
 END FUNC
 
@@ -24,6 +24,6 @@ EXPORT ISOLATED FUNC envReader(t AS ThreadWorker OF Nothing TO Integer, data AS 
       seen = seen + 1
     END IF
     i = i + 1
-  WEND
+  END WHILE
   RETURN seen
 END FUNC

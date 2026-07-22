@@ -46,7 +46,7 @@ TESTING
       WHILE i < 3
         acc = vector::scale(acc, Float3[2.0, 2.0, 2.0])
         i = i + 1
-      WEND
+      END WHILE
       expectFloat(acc.x, 8.0)
     END TCASE
     TCASE "argument and return boundaries"

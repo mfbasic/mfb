@@ -35,7 +35,7 @@ FUNC main() AS Integer
       bad = bad + 1
     END IF
     i = i + 1
-  WEND
+  END WHILE
   io::print("ok=" & toString(ok))
   io::print("bad=" & toString(bad))
   io::print("final=" & toString(len(collections::set(xs, 0, 99))))

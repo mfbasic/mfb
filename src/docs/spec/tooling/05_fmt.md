@@ -152,7 +152,7 @@ The op set is: [[src/fmt.rs:Op]]
 | `Else` | `ELSE` / `ELSEIF`: stays inside the open `IF`. | none | one level *out* (`len-1`) |
 | `Case` | `CASE`: closes any previous case arm, opens a new one. | pop a `Case` if on top, then push `Case` | depth after the optional pop |
 | `End(Option<Keyword>)` | `END X`: closes a block; the keyword names which (for `END MATCH`). | pop (and a leading `Case` first for `END MATCH`) | depth after pop |
-| `Pop` | `NEXT` / `WEND` / `LOOP`: closes the top loop block. | pop | depth after pop |
+| `Pop` | `NEXT` / `LOOP`: closes the top loop block. | pop | depth after pop |
 
 `Block` variants: `Func`, `Sub`, `Type`, `Union`, `Enum`, `If`, `For`, `While`,
 `Do`, `Match`, `Trap`, `Case`, `Testing`, `Tgroup`, `Tcase`. [[src/fmt.rs:Block]]
@@ -187,7 +187,7 @@ and position: [[src/fmt.rs:classify]]
 - **`EXIT`/`CONTINUE` targets.** A loop/routine keyword after `EXIT` or
   `CONTINUE` (`EXIT FOR`, `CONTINUE DO`) names a target and opens nothing.
 - **`DO WHILE` / `LOOP WHILE`.** `WHILE` after `DO` or `LOOP` is a loop
-  *condition*, not a `WHILE … WEND` opener, so `DO WHILE c` opens exactly one
+  *condition*, not a `WHILE … END WHILE` opener, so `DO WHILE c` opens exactly one
   block.
 - **`FUNC`/`SUB` may be mid-line.** They are *not* required to be the first token
   (visibility/`ISOLATED`/`EXPORT` modifiers may precede), so `EXPORT FUNC f()`
@@ -208,7 +208,7 @@ dedent). [[src/fmt.rs:structural_ops]] [[src/fmt.rs:classify]]
 
 A single-line loop (`FOR i = 1 TO 3 : … : NEXT`) opens and closes on one line, so
 its ops net to zero and mid-line position is harmless. Likewise a single-line
-`WHILE FALSE : WEND` nested in a single-line `IF` stays balanced.
+`WHILE FALSE : END WHILE` nested in a single-line `IF` stays balanced.
 
 ### Func-alias and `FUNC(`-type non-openers
 

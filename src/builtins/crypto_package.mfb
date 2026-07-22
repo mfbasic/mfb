@@ -109,7 +109,7 @@ FUNC __crypto_copyBytes(data AS List OF Byte) AS List OF Byte
   WHILE i < n
     out = collections::append(out, collections::get(data, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -133,7 +133,7 @@ FUNC __crypto_beWords(data AS List OF Byte) AS List OF Integer
     LET w AS Integer = __crypto_beWord(data, o)
     out = collections::append(out, w)
     o = o + 4
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -212,14 +212,14 @@ FUNC __crypto_pad512(data AS List OF Byte) AS List OF Byte
   msg = collections::append(msg, toByte(128))
   WHILE (len(msg) MOD 64) <> 56
     msg = collections::append(msg, toByte(0))
-  WEND
+  END WHILE
   MUT pos AS Integer = 0
   WHILE pos < 8
     LET shift AS Integer = 56 - pos * 8
     LET b AS Integer = bits::band(bits::sr(bitLen, shift), 255)
     msg = collections::append(msg, toByte(b))
     pos = pos + 1
-  WEND
+  END WHILE
   RETURN msg
 END FUNC
 
@@ -231,7 +231,7 @@ FUNC __crypto_sha256Schedule(msg AS List OF Byte, base AS Integer) AS List OF In
     LET word AS Integer = __crypto_beWord(msg, base + t * 4)
     w = collections::append(w, word)
     t = t + 1
-  WEND
+  END WHILE
   t = 16
   WHILE t < 64
     LET a AS Integer = __crypto_ssig1(collections::get(w, t - 2))
@@ -243,7 +243,7 @@ FUNC __crypto_sha256Schedule(msg AS List OF Byte, base AS Integer) AS List OF In
     LET word AS Integer = __crypto_add32(s1, s2)
     w = collections::append(w, word)
     t = t + 1
-  WEND
+  END WHILE
   RETURN w
 END FUNC
 
@@ -286,7 +286,7 @@ FUNC __crypto_sha2_32(data AS List OF Byte, iv AS List OF Integer, outBytes AS I
       b = a
       a = __crypto_add32(t1, t2)
       t = t + 1
-    WEND
+    END WHILE
     h0 = __crypto_add32(h0, a)
     h1 = __crypto_add32(h1, b)
     h2 = __crypto_add32(h2, c)
@@ -296,7 +296,7 @@ FUNC __crypto_sha2_32(data AS List OF Byte, iv AS List OF Integer, outBytes AS I
     h6 = __crypto_add32(h6, g)
     h7 = __crypto_add32(h7, h)
     base = base + 64
-  WEND
+  END WHILE
   MUT digest AS List OF Byte = []
   digest = __crypto_appendBeWord(digest, h0)
   digest = __crypto_appendBeWord(digest, h1)
@@ -316,7 +316,7 @@ FUNC __crypto_truncate(data AS List OF Byte, n AS Integer) AS List OF Byte
   WHILE i < n
     out = collections::append(out, collections::get(data, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -362,7 +362,7 @@ FUNC __crypto_beWord64(data AS List OF Byte, o AS Integer) AS Integer
     LET b AS Integer = toInt(collections::get(data, o + i))
     w = bits::bor(bits::sl(w, 8), b)
     i = i + 1
-  WEND
+  END WHILE
   RETURN w
 END FUNC
 
@@ -374,7 +374,7 @@ FUNC __crypto_beWords64(data AS List OF Byte) AS List OF Integer
   WHILE o < n
     out = collections::append(out, __crypto_beWord64(data, o))
     o = o + 8
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -387,7 +387,7 @@ FUNC __crypto_appendBeWord64(out AS List OF Byte, w AS Integer) AS List OF Byte
     LET b AS Integer = bits::band(bits::sr(w, shift), 255)
     result = collections::append(result, toByte(b))
     i = i + 1
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -460,12 +460,12 @@ FUNC __crypto_pad1024(data AS List OF Byte) AS List OF Byte
   msg = collections::append(msg, toByte(128))
   WHILE (len(msg) MOD 128) <> 112
     msg = collections::append(msg, toByte(0))
-  WEND
+  END WHILE
   MUT z AS Integer = 0
   WHILE z < 8
     msg = collections::append(msg, toByte(0))
     z = z + 1
-  WEND
+  END WHILE
   msg = __crypto_appendBeWord64(msg, bitLen)
   RETURN msg
 END FUNC
@@ -477,7 +477,7 @@ FUNC __crypto_sha512Schedule(msg AS List OF Byte, base AS Integer) AS List OF In
   WHILE t < 16
     w = collections::append(w, __crypto_beWord64(msg, base + t * 8))
     t = t + 1
-  WEND
+  END WHILE
   t = 16
   WHILE t < 80
     LET a AS Integer = __crypto_ssig1_64(collections::get(w, t - 2))
@@ -488,7 +488,7 @@ FUNC __crypto_sha512Schedule(msg AS List OF Byte, base AS Integer) AS List OF In
     LET s2 AS Integer = __crypto_add64(c, d)
     w = collections::append(w, __crypto_add64(s1, s2))
     t = t + 1
-  WEND
+  END WHILE
   RETURN w
 END FUNC
 
@@ -531,7 +531,7 @@ FUNC __crypto_sha2_64(data AS List OF Byte, iv AS List OF Integer, outBytes AS I
       b = a
       a = __crypto_add64(t1, t2)
       t = t + 1
-    WEND
+    END WHILE
     h0 = __crypto_add64(h0, a)
     h1 = __crypto_add64(h1, b)
     h2 = __crypto_add64(h2, c)
@@ -541,7 +541,7 @@ FUNC __crypto_sha2_64(data AS List OF Byte, iv AS List OF Integer, outBytes AS I
     h6 = __crypto_add64(h6, g)
     h7 = __crypto_add64(h7, h)
     base = base + 128
-  WEND
+  END WHILE
   MUT digest AS List OF Byte = []
   digest = __crypto_appendBeWord64(digest, h0)
   digest = __crypto_appendBeWord64(digest, h1)
@@ -581,7 +581,7 @@ FUNC __crypto_xorPad(data AS List OF Byte, pad AS Integer) AS List OF Byte
     LET b AS Integer = toInt(collections::get(data, i))
     out = collections::append(out, toByte(bits::bxor(b, pad)))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -590,7 +590,7 @@ FUNC __crypto_zeroPad(data AS List OF Byte, size AS Integer) AS List OF Byte
   MUT out AS List OF Byte = __crypto_copyBytes(data)
   WHILE len(out) < size
     out = collections::append(out, toByte(0))
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -602,7 +602,7 @@ FUNC __crypto_concat(a AS List OF Byte, b AS List OF Byte) AS List OF Byte
   WHILE i < n
     out = collections::append(out, collections::get(b, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -665,7 +665,7 @@ FUNC __crypto_hkdfExpand256(prk AS List OF Byte, info AS List OF Byte, length AS
     prev = __crypto_hmacSha256_bytes(prk, block)
     okm = __crypto_concat(okm, prev)
     counter = counter + 1
-  WEND
+  END WHILE
   RETURN __crypto_truncate(okm, length)
 END FUNC
 
@@ -692,7 +692,7 @@ FUNC __crypto_hkdfExpand512(prk AS List OF Byte, info AS List OF Byte, length AS
     prev = __crypto_hmacSha512_bytes(prk, block)
     okm = __crypto_concat(okm, prev)
     counter = counter + 1
-  WEND
+  END WHILE
   RETURN __crypto_truncate(okm, length)
 END FUNC
 
@@ -718,7 +718,7 @@ FUNC __crypto_xorBytes(a AS List OF Byte, b AS List OF Byte) AS List OF Byte
     LET y AS Integer = toInt(collections::get(b, i))
     out = collections::append(out, toByte(bits::bxor(x, y)))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -731,7 +731,7 @@ FUNC __crypto_pbkdf2Block256(password AS List OF Byte, salt AS List OF Byte, ite
     u = __crypto_hmacSha256_bytes(password, u)
     result = __crypto_xorBytes(result, u)
     j = j + 1
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -744,7 +744,7 @@ FUNC __crypto_pbkdf2Sha256_bytes(password AS List OF Byte, salt AS List OF Byte,
   WHILE len(okm) < length
     okm = __crypto_concat(okm, __crypto_pbkdf2Block256(password, salt, iterations, index))
     index = index + 1
-  WEND
+  END WHILE
   RETURN __crypto_truncate(okm, length)
 END FUNC
 
@@ -761,7 +761,7 @@ FUNC __crypto_pbkdf2Block512(password AS List OF Byte, salt AS List OF Byte, ite
     u = __crypto_hmacSha512_bytes(password, u)
     result = __crypto_xorBytes(result, u)
     j = j + 1
-  WEND
+  END WHILE
   RETURN result
 END FUNC
 
@@ -774,7 +774,7 @@ FUNC __crypto_pbkdf2Sha512_bytes(password AS List OF Byte, salt AS List OF Byte,
   WHILE len(okm) < length
     okm = __crypto_concat(okm, __crypto_pbkdf2Block512(password, salt, iterations, index))
     index = index + 1
-  WEND
+  END WHILE
   RETURN __crypto_truncate(okm, length)
 END FUNC
 
@@ -844,7 +844,7 @@ FUNC __crypto_chachaState(key AS List OF Byte, nonce AS List OF Byte, counter AS
   WHILE i < 8
     s = collections::append(s, __crypto_leWord(key, i * 4))
     i = i + 1
-  WEND
+  END WHILE
   s = collections::append(s, bits::band(counter, 4294967295))
   s = collections::append(s, __crypto_leWord(nonce, 0))
   s = collections::append(s, __crypto_leWord(nonce, 4))
@@ -867,14 +867,14 @@ FUNC __crypto_chachaBlock(key AS List OF Byte, nonce AS List OF Byte, counter AS
     s = __crypto_chachaQr(s, 2, 7, 8, 13)
     s = __crypto_chachaQr(s, 3, 4, 9, 14)
     r = r + 1
-  WEND
+  END WHILE
   MUT out AS List OF Byte = []
   MUT i AS Integer = 0
   WHILE i < 16
     LET word AS Integer = __crypto_add32(collections::get(s, i), collections::get(init, i))
     out = __crypto_appendLeWord(out, word)
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -892,10 +892,10 @@ FUNC __crypto_chacha20(key AS List OF Byte, nonce AS List OF Byte, counter AS In
       LET k AS Integer = toInt(collections::get(ks, j))
       out = collections::append(out, toByte(bits::bxor(p, k)))
       j = j + 1
-    WEND
+    END WHILE
     offset = offset + 64
     block = block + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -955,13 +955,13 @@ FUNC __crypto_poly1305(key AS List OF Byte, msg AS List OF Byte) AS List OF Byte
     WHILE bi < take
       block = collections::append(block, collections::get(msg, offset + bi))
       bi = bi + 1
-    WEND
+    END WHILE
     MUT hibit AS Integer = 16777216
     IF take < 16 THEN
       block = collections::append(block, toByte(1))
       WHILE len(block) < 16
         block = collections::append(block, toByte(0))
-      WEND
+      END WHILE
       hibit = 0
     END IF
     LET t0 AS Integer = __crypto_leWord(block, 0)
@@ -999,7 +999,7 @@ FUNC __crypto_poly1305(key AS List OF Byte, msg AS List OF Byte) AS List OF Byte
     h0 = bits::band(h0, 67108863)
     h1 = h1 + c
     offset = offset + take
-  WEND
+  END WHILE
   RETURN __crypto_polyFinish(h0, h1, h2, h3, h4, key)
 END FUNC
 
@@ -1083,7 +1083,7 @@ FUNC __crypto_pad16(data AS List OF Byte) AS List OF Byte
   MUT out AS List OF Byte = __crypto_copyBytes(data)
   WHILE (len(out) MOD 16) <> 0
     out = collections::append(out, toByte(0))
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -1096,7 +1096,7 @@ FUNC __crypto_le64(value AS Integer) AS List OF Byte
     out = collections::append(out, toByte(bits::band(v, 255)))
     v = bits::sr(v, 8)
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -1178,7 +1178,7 @@ FUNC __crypto_gmul8(a AS Integer, b AS Integer) AS Integer
     x = __crypto_xtime(x)
     y = bits::sr(y, 1)
     i = i + 1
-  WEND
+  END WHILE
   RETURN bits::band(p, 255)
 END FUNC
 
@@ -1218,7 +1218,7 @@ FUNC __crypto_aesExpandKey(key AS List OF Byte) AS List OF Byte
     w = collections::append(w, toByte(bits::bxor(a2, toInt(collections::get(w, p0 + 2)))))
     w = collections::append(w, toByte(bits::bxor(a3, toInt(collections::get(w, p0 + 3)))))
     i = i + 4
-  WEND
+  END WHILE
   RETURN w
 END FUNC
 
@@ -1231,7 +1231,7 @@ FUNC __crypto_aesAddRoundKey(state AS List OF Byte, roundKeys AS List OF Byte, r
     LET v AS Integer = bits::bxor(toInt(collections::get(s, i)), toInt(collections::get(roundKeys, base + i)))
     s = collections::set(s, i, toByte(v))
     i = i + 1
-  WEND
+  END WHILE
   RETURN s
 END FUNC
 
@@ -1241,7 +1241,7 @@ FUNC __crypto_aesSubBytes(state AS List OF Byte) AS List OF Byte
   WHILE i < 16
     s = collections::set(s, i, toByte(__crypto_aesSub(toInt(collections::get(s, i)))))
     i = i + 1
-  WEND
+  END WHILE
   RETURN s
 END FUNC
 
@@ -1255,9 +1255,9 @@ FUNC __crypto_aesShiftRows(state AS List OF Byte) AS List OF Byte
       LET src AS Integer = ((c + r) MOD 4) * 4 + r
       out = collections::set(out, c * 4 + r, collections::get(state, src))
       c = c + 1
-    WEND
+    END WHILE
     r = r + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -1279,7 +1279,7 @@ FUNC __crypto_aesMixColumns(state AS List OF Byte) AS List OF Byte
     out = collections::set(out, b + 2, toByte(m2))
     out = collections::set(out, b + 3, toByte(m3))
     c = c + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -1294,7 +1294,7 @@ FUNC __crypto_aesEncryptBlock(roundKeys AS List OF Byte, block AS List OF Byte) 
     s = __crypto_aesMixColumns(s)
     s = __crypto_aesAddRoundKey(s, roundKeys, round)
     round = round + 1
-  WEND
+  END WHILE
   s = __crypto_aesSubBytes(s)
   s = __crypto_aesShiftRows(s)
   s = __crypto_aesAddRoundKey(s, roundKeys, 14)
@@ -1332,7 +1332,7 @@ FUNC __crypto_ghashMul(xHi AS Integer, xLo AS Integer, yHi AS Integer, yLo AS In
       vHi = bits::bxor(vHi, bits::sl(225, 56))
     END IF
     i = i + 1
-  WEND
+  END WHILE
   MUT out AS List OF Integer = []
   out = collections::append(out, zHi)
   out = collections::append(out, zLo)
@@ -1354,7 +1354,7 @@ FUNC __crypto_ghash(hHi AS Integer, hLo AS Integer, data AS List OF Byte) AS Lis
     yHi = collections::get(prod, 0)
     yLo = collections::get(prod, 1)
     o = o + 16
-  WEND
+  END WHILE
   MUT out AS List OF Integer = []
   out = collections::append(out, yHi)
   out = collections::append(out, yLo)
@@ -1383,7 +1383,7 @@ FUNC __crypto_gcmInc32(ctr AS List OF Byte) AS List OF Byte
     c = collections::set(c, i, toByte(bits::band(v, 255)))
     carry = bits::sr(v, 8)
     i = i - 1
-  WEND
+  END WHILE
   RETURN c
 END FUNC
 
@@ -1400,10 +1400,10 @@ FUNC __crypto_gcmGctr(roundKeys AS List OF Byte, ctr AS List OF Byte, data AS Li
       LET v AS Integer = bits::bxor(toInt(collections::get(data, offset + j)), toInt(collections::get(ks, j)))
       out = collections::append(out, toByte(v))
       j = j + 1
-    WEND
+    END WHILE
     counter = __crypto_gcmInc32(counter)
     offset = offset + 16
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -1424,7 +1424,7 @@ FUNC __crypto_be64(value AS Integer) AS List OF Byte
     LET shift AS Integer = 56 - i * 8
     out = collections::append(out, toByte(bits::band(bits::sr(value, shift), 255)))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -1502,7 +1502,7 @@ FUNC __crypto_constantTimeEqual(a AS List OF Byte, b AS List OF Byte) AS Boolean
     LET y AS Integer = toInt(collections::get(b, i))
     diff = bits::bor(diff, bits::bxor(x, y))
     i = i + 1
-  WEND
+  END WHILE
   RETURN diff = 0
 END FUNC
 
@@ -1517,7 +1517,7 @@ FUNC __crypto_rand62() AS Integer
   WHILE i < 7
     v = v * 256 + toInt(collections::get(rb, i))
     i = i + 1
-  WEND
+  END WHILE
   LET top AS Integer = bits::band(toInt(collections::get(rb, 7)), 63)
   RETURN v + top * 72057594037927936
 END FUNC
@@ -1532,7 +1532,7 @@ FUNC __crypto_rand63() AS Integer
   WHILE i < 7
     v = v * 256 + toInt(collections::get(rb, i))
     i = i + 1
-  WEND
+  END WHILE
   LET top AS Integer = bits::band(toInt(collections::get(rb, 7)), 127)
   RETURN v + top * 72057594037927936
 END FUNC
@@ -1565,14 +1565,14 @@ FUNC __crypto_randomInt(min AS Integer, max AS Integer) AS Integer
     MUT wide AS Integer = __crypto_rand63()
     WHILE wide >= range
       wide = __crypto_rand63()
-    WEND
+    END WHILE
     RETURN min + wide
   END IF
   LET limit AS Integer = maxVal - (maxVal MOD range)
   MUT v AS Integer = __crypto_rand62()
   WHILE v >= limit
     v = __crypto_rand62()
-  WEND
+  END WHILE
   RETURN min + (v MOD range)
 END FUNC
 
@@ -1607,7 +1607,7 @@ FUNC __crypto_gf0() AS List OF Integer
   WHILE i < 16
     g = collections::append(g, 0)
     i = i + 1
-  WEND
+  END WHILE
   RETURN g
 END FUNC
 
@@ -1687,7 +1687,7 @@ FUNC __crypto_gfY() AS List OF Integer
   WHILE i < 16
     g = collections::append(g, 26214)
     i = i + 1
-  WEND
+  END WHILE
   RETURN g
 END FUNC
 
@@ -1720,7 +1720,7 @@ FUNC __crypto_edL() AS List OF Integer
   WHILE i < 32
     g = collections::append(g, toInt(collections::get(raw, i)))
     i = i + 1
-  WEND
+  END WHILE
   RETURN g
 END FUNC
 
@@ -1732,7 +1732,7 @@ FUNC __crypto_edA(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
   WHILE i < 16
     o = collections::append(o, collections::get(a, i) + collections::get(b, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN o
 END FUNC
 
@@ -1742,7 +1742,7 @@ FUNC __crypto_edZ(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
   WHILE i < 16
     o = collections::append(o, collections::get(a, i) - collections::get(b, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN o
 END FUNC
 
@@ -1759,7 +1759,7 @@ FUNC __crypto_car25519(o AS List OF Integer) AS List OF Integer
     END IF
     r = collections::set(r, i, v - c * 65536)
     i = i + 1
-  WEND
+  END WHILE
   RETURN r
 END FUNC
 
@@ -1779,10 +1779,10 @@ FUNC __crypto_edM(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
         acc = acc + 38 * (collections::get(a, i) * collections::get(b, j2))
       END IF
       i = i + 1
-    WEND
+    END WHILE
     o = collections::append(o, acc)
     k = k + 1
-  WEND
+  END WHILE
   o = __crypto_car25519(o)
   o = __crypto_car25519(o)
   RETURN o
@@ -1801,7 +1801,7 @@ FUNC __crypto_inv25519(i0 AS List OF Integer) AS List OF Integer
       c = __crypto_edM(c, i0)
     END IF
     a = a - 1
-  WEND
+  END WHILE
   RETURN c
 END FUNC
 
@@ -1814,7 +1814,7 @@ FUNC __crypto_pow2523(i0 AS List OF Integer) AS List OF Integer
       c = __crypto_edM(c, i0)
     END IF
     a = a - 1
-  WEND
+  END WHILE
   RETURN c
 END FUNC
 
@@ -1834,7 +1834,7 @@ FUNC __crypto_pack25519(n AS List OF Integer) AS List OF Byte
       m = collections::append(m, mi)
       m = collections::set(m, i - 1, bits::band(collections::get(m, i - 1), 65535))
       i = i + 1
-    WEND
+    END WHILE
     LET prev14 AS Integer = collections::get(m, 14)
     LET m15 AS Integer = collections::get(t, 15) - 32767 - bits::band(bits::sra(prev14, 16), 1)
     m = collections::append(m, m15)
@@ -1844,7 +1844,7 @@ FUNC __crypto_pack25519(n AS List OF Integer) AS List OF Byte
       t = m
     END IF
     pass2 = pass2 + 1
-  WEND
+  END WHILE
   MUT out AS List OF Byte = []
   MUT i AS Integer = 0
   WHILE i < 16
@@ -1852,7 +1852,7 @@ FUNC __crypto_pack25519(n AS List OF Integer) AS List OF Byte
     out = collections::append(out, toByte(bits::band(ti, 255)))
     out = collections::append(out, toByte(bits::band(bits::sr(ti, 8), 255)))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -1864,7 +1864,7 @@ FUNC __crypto_unpack25519(b AS List OF Byte) AS List OF Integer
     LET hi AS Integer = toInt(collections::get(b, 2 * i + 1))
     o = collections::append(o, lo + bits::sl(hi, 8))
     i = i + 1
-  WEND
+  END WHILE
   o = collections::set(o, 15, bits::band(collections::get(o, 15), 32767))
   RETURN o
 END FUNC
@@ -1889,7 +1889,7 @@ FUNC __crypto_concatInt(a AS List OF Integer, b AS List OF Integer) AS List OF I
   WHILE i < n
     o = collections::append(o, collections::get(b, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN o
 END FUNC
 
@@ -1900,7 +1900,7 @@ FUNC __crypto_gfAt(p AS List OF Integer, which AS Integer) AS List OF Integer
   WHILE i < 16
     g = collections::append(g, collections::get(p, base + i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN g
 END FUNC
 
@@ -1917,7 +1917,7 @@ FUNC __crypto_first64(pair AS List OF Integer) AS List OF Integer
   WHILE i < 64
     o = collections::append(o, collections::get(pair, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN o
 END FUNC
 
@@ -1927,7 +1927,7 @@ FUNC __crypto_last64(pair AS List OF Integer) AS List OF Integer
   WHILE i < 64
     o = collections::append(o, collections::get(pair, 64 + i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN o
 END FUNC
 
@@ -1974,7 +1974,7 @@ FUNC __crypto_cswap128(pair AS List OF Integer, b AS Integer) AS List OF Integer
     r = collections::set(r, i, bits::bxor(x, t))
     r = collections::set(r, 64 + i, bits::bxor(y, t))
     i = i + 1
-  WEND
+  END WHILE
   RETURN r
 END FUNC
 
@@ -2000,7 +2000,7 @@ FUNC __crypto_scalarmult(q AS List OF Integer, s AS List OF Byte) AS List OF Int
     pair = __crypto_concatInt(newP, newQ)
     pair = __crypto_cswap128(pair, b)
     i = i - 1
-  WEND
+  END WHILE
   RETURN __crypto_first64(pair)
 END FUNC
 
@@ -2059,7 +2059,7 @@ FUNC __crypto_unpackneg(p AS List OF Byte) AS List OF Integer
     WHILE z < 64
       bad = collections::append(bad, 0)
       z = z + 1
-    WEND
+    END WHILE
     RETURN bad
   END IF
   LET par AS Integer = __crypto_par25519(r0)
@@ -2088,11 +2088,11 @@ FUNC __crypto_modL(x AS List OF Integer) AS List OF Byte
       carry = bits::sra(xj + 128, 8)
       xs = collections::set(xs, j, xj - carry * 256)
       j = j + 1
-    WEND
+    END WHILE
     xs = collections::set(xs, j, collections::get(xs, j) + carry)
     xs = collections::set(xs, i, 0)
     i = i - 1
-  WEND
+  END WHILE
   LET q AS Integer = bits::sra(collections::get(xs, 31), 4)
   MUT carry AS Integer = 0
   MUT j AS Integer = 0
@@ -2101,12 +2101,12 @@ FUNC __crypto_modL(x AS List OF Integer) AS List OF Byte
     carry = bits::sra(xj, 8)
     xs = collections::set(xs, j, bits::band(xj, 255))
     j = j + 1
-  WEND
+  END WHILE
   j = 0
   WHILE j < 32
     xs = collections::set(xs, j, collections::get(xs, j) - carry * collections::get(L, j))
     j = j + 1
-  WEND
+  END WHILE
   MUT out AS List OF Byte = []
   MUT k AS Integer = 0
   WHILE k < 32
@@ -2114,7 +2114,7 @@ FUNC __crypto_modL(x AS List OF Integer) AS List OF Byte
     xs = collections::set(xs, k + 1, collections::get(xs, k + 1) + nextAdd)
     out = collections::append(out, toByte(bits::band(collections::get(xs, k), 255)))
     k = k + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -2124,7 +2124,7 @@ FUNC __crypto_reduce(r AS List OF Byte) AS List OF Byte
   WHILE i < 64
     x = collections::append(x, toInt(collections::get(r, i)))
     i = i + 1
-  WEND
+  END WHILE
   RETURN __crypto_modL(x)
 END FUNC
 
@@ -2136,7 +2136,7 @@ FUNC __crypto_slice(data AS List OF Byte, start AS Integer, stop AS Integer) AS 
   WHILE i < stop
     out = collections::append(out, collections::get(data, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -2175,7 +2175,7 @@ FUNC __crypto_bytePrefix(data AS List OF Byte, n AS Integer) AS List OF Byte
   WHILE i < n
     out = collections::append(out, collections::get(data, i))
     i = i + 1
-  WEND
+  END WHILE
   RETURN out
 END FUNC
 
@@ -2221,7 +2221,7 @@ FUNC __crypto_ed25519Sign(privateKey AS List OF Byte, message AS List OF Byte) A
       x = collections::append(x, 0)
     END IF
     i = i + 1
-  WEND
+  END WHILE
   i = 0
   WHILE i < 32
     MUT j AS Integer = 0
@@ -2230,9 +2230,9 @@ FUNC __crypto_ed25519Sign(privateKey AS List OF Byte, message AS List OF Byte) A
       LET add AS Integer = toInt(collections::get(h, i)) * toInt(collections::get(a, j))
       x = collections::set(x, idx, collections::get(x, idx) + add)
       j = j + 1
-    WEND
+    END WHILE
     i = i + 1
-  WEND
+  END WHILE
   LET bigS AS List OF Byte = __crypto_modL(x)
   RETURN __crypto_concat(bigR, bigS)
 END FUNC
@@ -2255,7 +2255,7 @@ FUNC __crypto_scalarBelowL(s AS List OF Byte) AS Boolean
       RETURN FALSE
     END IF
     i = i - 1
-  WEND
+  END WHILE
   RETURN FALSE
 END FUNC
 
@@ -2275,7 +2275,7 @@ FUNC __crypto_ed25519Verify(publicKey AS List OF Byte, message AS List OF Byte, 
   WHILE i < 65
     q = collections::append(q, collections::get(negRes, i))
     i = i + 1
-  WEND
+  END WHILE
   LET bigR AS List OF Byte = __crypto_truncate(signature, 32)
   LET bigS AS List OF Byte = __crypto_slice(signature, 32, 64)
   ' bug-269 / CRY-02: reject a non-canonical S (S >= L) before verifying, so a

@@ -54,7 +54,7 @@ FUNC __vector_isqrtFloor(n AS Integer) AS Integer
   WHILE y < x
     x = y
     y = (x + n / x) / 2
-  WEND
+  END WHILE
   RETURN x
 END FUNC
 

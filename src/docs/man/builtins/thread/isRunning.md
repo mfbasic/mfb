@@ -86,7 +86,7 @@ FUNC main AS Integer
   LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::printNumbers, "seed")
   WHILE thread::isRunning(t)
     io::print("still working...")
-  WEND
+  END WHILE
   LET count AS Integer = thread::waitFor(t)
   RETURN count
 END FUNC

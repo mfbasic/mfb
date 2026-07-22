@@ -172,7 +172,7 @@ FUNC __json_stringifyNumber(value AS Float) AS String
       RETURN shortened
     END IF
     places = places + 1
-  WEND
+  END WHILE
   ' No representable rendering round-trips; emitting a silently-lossy number is
   ' exactly the defect this fixes, so fail loudly instead.
   FAIL error(77050003, "invalid JSON format")
@@ -396,7 +396,7 @@ FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items AS 
     ELSE
       FAIL error(77050003, "invalid JSON format")
     END IF
-  WEND
+  END WHILE
   LET value AS Json = JsonArr[acc]
   RETURN __json_Node[value, endIndex]
 END FUNC
@@ -458,7 +458,7 @@ FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, fields A
     ELSE
       FAIL error(77050003, "invalid JSON format")
     END IF
-  WEND
+  END WHILE
   LET value AS Json = JsonObj[acc]
   RETURN __json_Node[value, endIndex]
 END FUNC
@@ -498,7 +498,7 @@ FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS St
       chunks = collections::append(chunks, ch)
       idx = idx + 1
     END IF
-  WEND
+  END WHILE
   LET result AS String = strings::join(chunks, "")
   RETURN __json_StringNode[result, endIndex]
 END FUNC
@@ -517,7 +517,7 @@ FUNC __json_isRawControlCharAt(ch AS String, codePoint AS Integer) AS Boolean
       RETURN TRUE
     END IF
     cp = cp + 1
-  WEND
+  END WHILE
   RETURN FALSE
 END FUNC
 
@@ -645,7 +645,7 @@ FUNC __json_collectNumber(chars AS List OF String, index AS Integer, current AS 
     END IF
     acc = acc & ch
     at = at + 1
-  WEND
+  END WHILE
   RETURN __json_StringNode[acc, at]
 END FUNC
 
@@ -750,7 +750,7 @@ FUNC __json_consumeDigits(chars AS List OF String, index AS Integer) AS Integer
       RETURN at
     END IF
     at = at + 1
-  WEND
+  END WHILE
   RETURN at
 END FUNC
 
@@ -776,7 +776,7 @@ FUNC __json_expectLiteralAt(chars AS List OF String, index AS Integer, literal A
     END IF
     at = at + 1
     off = off + 1
-  WEND
+  END WHILE
   RETURN at
 END FUNC
 
@@ -792,7 +792,7 @@ FUNC __json_skipWhitespace(chars AS List OF String, index AS Integer) AS Integer
       RETURN at
     END IF
     at = at + 1
-  WEND
+  END WHILE
   RETURN at
 END FUNC
 

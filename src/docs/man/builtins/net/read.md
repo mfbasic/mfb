@@ -109,7 +109,7 @@ FUNC drain(RES sock AS Socket) AS Integer
   WHILE reading
     LET chunk = net::read(sock, 4096)
     total = total + len(chunk)
-  WEND
+  END WHILE
   RETURN total
   TRAP(e)
     RETURN total

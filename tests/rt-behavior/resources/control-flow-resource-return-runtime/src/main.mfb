@@ -14,7 +14,7 @@ FUNC main AS Integer
   WHILE i < 4000
     useOnce("tests/rt-behavior/resources/control-flow-resource-return-runtime/src/main.mfb")
     i = i + 1
-  WEND
+  END WHILE
   io::print("return")
   RETURN 0
 END FUNC

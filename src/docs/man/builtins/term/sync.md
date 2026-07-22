@@ -119,7 +119,7 @@ SUB main()
     IF io::pollInput(50) THEN
       running = io::readChar() <> "q"
     END IF
-  WEND
+  END WHILE
   term::off()
 END SUB
 ```

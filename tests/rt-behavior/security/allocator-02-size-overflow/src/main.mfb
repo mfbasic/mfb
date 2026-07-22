@@ -58,10 +58,10 @@ FUNC main AS Integer
     WHILE j < (i MOD 11)
       xs = collections::append(xs, j)
       j = j + 1
-    WEND
+    END WHILE
     total = total + len(s) + len(xs)
     i = i + 1
-  WEND
+  END WHILE
   io::print("churn total " & toString(total))
   RETURN 0
 END FUNC
