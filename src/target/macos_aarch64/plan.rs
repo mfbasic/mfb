@@ -1,6 +1,6 @@
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, NativePlan, PlatformImport};
-use crate::target::shared::runtime::RuntimeHelperSpec;
+use crate::target::shared::runtime::{self, RuntimeHelperSpec};
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -159,6 +159,9 @@ impl plan::NativePlanPlatform for Platform {
     }
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
+        // Every import in this table is attributed to the helper's code unit
+        // by its runtime symbol, derived once here (bug-329).
+        let required_by = runtime::symbol_for_call(spec.helper, spec.call);
         // plan-15: the stdin broadcast log helpers (`_mfb_rt_stdin_next_byte`,
         // subscribe/unsubscribe/recompute) are shared by every stdin builtin and
         // reference these libSystem symbols; every spec that can trigger the log's
@@ -179,7 +182,7 @@ impl plan::NativePlanPlatform for Platform {
                 imports.push(PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: name.to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 });
             }
         };
@@ -187,70 +190,70 @@ impl plan::NativePlanPlatform for Platform {
             "crypto.randomBytes" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_getentropy".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "datetime.nowNanos" | "datetime.monotonicNanos" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_clock_gettime".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "datetime.localOffset" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_localtime_r".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_getenv".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "os.setEnv" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_setenv".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
             ],
             "os.unsetEnv" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_unsetenv".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "os.environ" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "__NSGetEnviron".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "os.pid" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_getpid".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "os.cpuCount" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_sysconf".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "os.hostName" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_gethostname".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "os.userName" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_getuid".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_getpwuid".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
             ],
             // plan-55-B: `os.resourcePath` reuses the same exe-path acquisition as
@@ -258,12 +261,12 @@ impl plan::NativePlanPlatform for Platform {
             "os.executablePath" | "os.resourcePath" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "__NSGetExecutablePath".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_write".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             // `io.flush` is drain-only since plan-14-A (`lower_io_flush_helper`
             // calls STDOUT_DRAIN and never fsyncs / reads errno), so it needs no
@@ -274,24 +277,24 @@ impl plan::NativePlanPlatform for Platform {
                 let mut imports = vec![PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_read".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 }];
                 if spec.call == "io.input" {
                     imports.extend([
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "_write".to_string(),
-                            required_by: spec.symbol.to_string(),
+                            required_by: required_by.clone(),
                         },
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "_fsync".to_string(),
-                            required_by: spec.symbol.to_string(),
+                            required_by: required_by.clone(),
                         },
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "___error".to_string(),
-                            required_by: spec.symbol.to_string(),
+                            required_by: required_by.clone(),
                         },
                         // bug-149: with `term::` active, `io::input` restores
                         // cooked mode for its read then re-enters raw via
@@ -299,7 +302,7 @@ impl plan::NativePlanPlatform for Platform {
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "_tcsetattr".to_string(),
-                            required_by: spec.symbol.to_string(),
+                            required_by: required_by.clone(),
                         },
                     ]);
                 } else {
@@ -307,17 +310,17 @@ impl plan::NativePlanPlatform for Platform {
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "_isatty".to_string(),
-                            required_by: spec.symbol.to_string(),
+                            required_by: required_by.clone(),
                         },
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "_tcgetattr".to_string(),
-                            required_by: spec.symbol.to_string(),
+                            required_by: required_by.clone(),
                         },
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "_tcsetattr".to_string(),
-                            required_by: spec.symbol.to_string(),
+                            required_by: required_by.clone(),
                         },
                         // bug-62: the read helpers' EINTR guard re-reads errno
                         // through the accessor to retry a blocking read interrupted
@@ -326,7 +329,7 @@ impl plan::NativePlanPlatform for Platform {
                         PlatformImport {
                             library: "libSystem".to_string(),
                             symbol: "___error".to_string(),
-                            required_by: spec.symbol.to_string(),
+                            required_by: required_by.clone(),
                         },
                     ]);
                 }
@@ -337,7 +340,7 @@ impl plan::NativePlanPlatform for Platform {
                 let mut imports = vec![PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_poll".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 }];
                 stdin_broadcast_imports(&mut imports);
                 imports
@@ -346,7 +349,7 @@ impl plan::NativePlanPlatform for Platform {
                 vec![PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_isatty".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 }]
             }
             // `term::on` also drives stdin into single-key (cbreak) mode and
@@ -362,7 +365,7 @@ impl plan::NativePlanPlatform for Platform {
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: (*symbol).to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 })
                 .collect(),
             "term.off" => ["_write", "_tcsetattr"]
@@ -370,7 +373,7 @@ impl plan::NativePlanPlatform for Platform {
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: (*symbol).to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 })
                 .collect(),
             "term.sync" => ["_write", "_ioctl"]
@@ -378,104 +381,104 @@ impl plan::NativePlanPlatform for Platform {
                 .map(|symbol| PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: (*symbol).to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 })
                 .collect(),
             "term.terminalSize" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_ioctl".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             // `term.isOn`, `term.get*` only read the term-state global and
             // (for getters) arena-allocate a record; no platform imports needed.
             "fs.exists" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_access".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "fs.fileExists" | "fs.directoryExists" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_stat".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "fs.currentDirectory" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_getcwd".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "fs.tempDirectory" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_confstr".to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             }],
             "fs.setCurrentDirectory" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_chdir".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
             ],
             "fs.deleteFile" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_unlink".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
             ],
             "fs.createDirectory" | "fs.createDirectories" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_mkdir".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
             ],
             "fs.deleteDirectory" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_rmdir".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
             ],
             "fs.listDirectory" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_opendir".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_readdir".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_closedir".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
             ],
             "fs.open"
@@ -504,44 +507,44 @@ impl plan::NativePlanPlatform for Platform {
                     PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_open".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     },
                     PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_read".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     },
                     PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_write".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     },
                     PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_close".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     },
                     PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_fsync".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     },
                     PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_lseek".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     },
                     PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "___error".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     },
                 ];
                 if matches!(spec.call, "fs.createTempFile") {
                     imports.push(PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_getentropy".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     });
                 }
                 if matches!(spec.call, "fs.openWithin") {
@@ -550,28 +553,28 @@ impl plan::NativePlanPlatform for Platform {
                     imports.push(PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_realpath".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     });
                 }
                 if matches!(spec.call, "fs.writeTextAtomic" | "fs.writeBytesAtomic") {
                     imports.push(PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_mkstemps".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     });
                 }
                 if matches!(spec.call, "fs.writeTextAtomic" | "fs.writeBytesAtomic") {
                     imports.push(PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_rename".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     });
                     // bug-63: the atomic-write failure tails unlink the leftover
                     // temp file, so the helper needs the `_unlink` wrapper too.
                     imports.push(PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: "_unlink".to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     });
                 }
                 imports
@@ -580,12 +583,12 @@ impl plan::NativePlanPlatform for Platform {
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_realpath".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 },
             ],
             // plan-15: the openStdIn/closeStdIn wrappers call the stdin broadcast
@@ -626,7 +629,7 @@ impl plan::NativePlanPlatform for Platform {
             .map(|symbol| PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: symbol.to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.clone(),
             })
             .collect(),
             call if crate::builtins::net::is_net_call(call) => {
@@ -635,13 +638,13 @@ impl plan::NativePlanPlatform for Platform {
                     .map(|base| PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: format!("_{base}"),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     })
                     .collect::<Vec<_>>();
                 imports.push(PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "___error".to_string(),
-                    required_by: spec.symbol.to_string(),
+                    required_by: required_by.clone(),
                 });
                 imports
             }
@@ -656,7 +659,7 @@ impl plan::NativePlanPlatform for Platform {
                     .map(|symbol| PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: symbol.to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     })
                     .collect()
             }
@@ -773,7 +776,7 @@ impl plan::NativePlanPlatform for Platform {
                     .map(|(library, symbol)| PlatformImport {
                         library: library.to_string(),
                         symbol: symbol.to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     })
                     .collect()
             }
@@ -792,7 +795,7 @@ impl plan::NativePlanPlatform for Platform {
                     .map(|symbol| PlatformImport {
                         library: "libSystem".to_string(),
                         symbol: symbol.to_string(),
-                        required_by: spec.symbol.to_string(),
+                        required_by: required_by.clone(),
                     })
                     .collect()
             }

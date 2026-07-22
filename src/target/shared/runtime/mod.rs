@@ -56,7 +56,11 @@ pub fn symbol_for_call(helper: RuntimeHelper, target: &str) -> String {
 pub(crate) struct RuntimeHelperSpec {
     pub(crate) helper: RuntimeHelper,
     pub(crate) call: &'static str,
-    pub(crate) symbol: &'static str,
+    // No `symbol` field: the helper symbol is always derived via
+    // `symbol_for_call(helper, call)` (bug-329). `catalog::tests` proved the
+    // transcribed copies were byte-identical for every spec before the field
+    // was deleted; if a future spec ever needs a non-derivable symbol, the
+    // field must come back rather than special-casing `symbol_for_call`.
     pub(crate) abi: RuntimeHelperAbi,
 }
 

@@ -167,7 +167,7 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
 pub(crate) fn spec_for_symbol(symbol: &str) -> Option<&'static RuntimeHelperSpec> {
     supported_helper_specs()
         .iter()
-        .find(|spec| spec.symbol == symbol)
+        .find(|spec| symbol_for_call(spec.helper, spec.call) == symbol)
 }
 
 pub(crate) fn spec_for_call(target: &str) -> Option<&'static RuntimeHelperSpec> {
@@ -181,22 +181,6 @@ mod tests {
     use super::*;
     use crate::target::shared::runtime::{helper_for_call, symbol_for_call};
     use std::collections::HashSet;
-
-    // bug-329: every catalogued symbol is exactly what `symbol_for_call`
-    // produces — the transcribed `symbol` field is derivable, not independent.
-    // This is the gate that makes deleting the field safe; if a future spec
-    // ever needs a non-derivable symbol, this test is what surfaces it.
-    #[test]
-    fn every_spec_symbol_is_derivable() {
-        for spec in supported_helper_specs() {
-            assert_eq!(
-                spec.symbol,
-                symbol_for_call(spec.helper, spec.call),
-                "{} symbol must equal symbol_for_call",
-                spec.call
-            );
-        }
-    }
 
     // One table-driven parity test over the catalog itself (bug-329), replacing
     // the hand-copied per-family call arrays that used to live in
@@ -247,7 +231,9 @@ mod tests {
                 "spec_for_call {}",
                 spec.call
             );
-            // Symbol round-trip + uniqueness.
+            // Symbol round-trip + uniqueness. This is the surviving form of
+            // the pre-deletion `every_spec_symbol_is_derivable` gate: the
+            // derived symbol must resolve back to exactly this spec.
             let symbol = symbol_for_call(spec.helper, spec.call);
             assert!(
                 std::ptr::eq(spec_for_symbol(&symbol).unwrap(), spec),

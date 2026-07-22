@@ -443,18 +443,31 @@ Commit: (see git log — "bug-329 phase 3")
 
 ### Phase 4 — remove the derivable `symbol` field
 
-- [ ] Delete `symbol` from `RuntimeHelperSpec` (`mod.rs:60`), all 156 `symbol:`
-      lines, and the `$symbol:literal` parameter from the three `crypto_specs.rs`
-      macros.
-- [ ] Rewrite `spec_for_symbol` (`catalog.rs:168-172`) to compare against
+- [x] Delete `symbol` from `RuntimeHelperSpec`, all 147 literal `symbol:` lines
+      (156 minus the 9 macro-generated), and the `$symbol:literal` parameter
+      from the three `crypto_specs.rs` macros plus its 9 invocation arguments.
+      A comment on the struct records why the field is gone and when it must
+      come back.
+- [x] Rewrite `spec_for_symbol` to compare against
       `symbol_for_call(spec.helper, spec.call)`.
-- [ ] Verify `code/mod.rs:667` and `:1342` need no change; record the verdict.
-- [ ] Rewrite `every_spec_symbol_is_derivable` as a `spec_for_symbol` round-trip
-      over the derived symbol — the guarantee must survive the field's removal.
+- [x] Verify the `spec_for_symbol` consumers (`code/mod.rs:772`, `:1479` in the
+      current tree) need no change — verified, they pass a `&str` and read
+      `spec.call`; no edit made.
+- [x] The plan-layer consumers the original census missed (see Corrections)
+      rewritten: `linux_common/plan.rs` and `macos_aarch64/plan.rs`
+      `runtime_imports` derive the symbol once at function entry;
+      `shared/plan/mod.rs` test platform likewise; `shared/plan/symbols.rs`
+      derives at its two spec sites and `os_env_lock_helper_symbols` returns
+      `Vec<String>`.
+- [x] `every_spec_symbol_is_derivable` folded into `catalog_is_consistent`,
+      whose symbol round-trip over the derived symbol
+      (`spec_for_symbol(symbol_for_call(...)) → same spec` + uniqueness) is the
+      surviving form of the guarantee, marked as such in a comment.
 
-Acceptance: parity test green; artifact gate zero delta (the derived string is
-byte-identical to the deleted literal, proven by Phase 1).
-Commit: —
+Acceptance: parity test green; artifact gate zero delta (whole-change run in
+Phase 6; the derived string was proven byte-identical by the Phase 1 test
+before deletion).
+Commit: (see git log — "bug-329 phase 4")
 
 ### Phase 5 — resolve `params` / `clobbers` per Open Decisions
 

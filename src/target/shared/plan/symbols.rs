@@ -52,7 +52,10 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     {
         for call in ["term.off", "term.sync"] {
             if let Some(spec) = runtime::spec_for_call(call) {
-                push_unique(&mut symbols, spec.symbol.to_string());
+                push_unique(
+                    &mut symbols,
+                    runtime::symbol_for_call(spec.helper, spec.call),
+                );
             }
         }
     }
@@ -193,7 +196,7 @@ pub(super) fn platform_imports(
                     PlatformImport {
                         library: import.library.clone(),
                         symbol: import.symbol.clone(),
-                        required_by: (*helper).to_string(),
+                        required_by: helper.clone(),
                     },
                 );
             }
@@ -233,12 +236,15 @@ const OS_ENV_LOCK_CALLS: &[&str] = &[
 /// The runtime helper symbols for the env/pwd helpers `module` actually emits, so
 /// the pthread mutex imports can be attributed to each real caller (the object-plan
 /// model records an import against the runtime code unit named by `required_by`).
-fn os_env_lock_helper_symbols(module: &NirModule) -> Vec<&'static str> {
+fn os_env_lock_helper_symbols(module: &NirModule) -> Vec<String> {
     let symbols = runtime_symbols(module);
     OS_ENV_LOCK_CALLS
         .iter()
-        .filter_map(|call| runtime::spec_for_call(call).map(|spec| spec.symbol))
-        .filter(|helper| symbols.iter().any(|symbol| symbol.as_str() == *helper))
+        .filter_map(|call| {
+            runtime::spec_for_call(call)
+                .map(|spec| runtime::symbol_for_call(spec.helper, spec.call))
+        })
+        .filter(|helper| symbols.iter().any(|symbol| symbol == helper))
         .collect()
 }
 

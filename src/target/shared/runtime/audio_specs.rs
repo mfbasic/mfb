@@ -138,7 +138,6 @@ const AUDIO_OUTPUT_STREAM_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
 pub(crate) const AUDIO_DEVICES_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.devices",
-    symbol: "_mfb_rt_audio_audio_devices",
     abi: RuntimeHelperAbi {
         // Nullary, like `os.pid`; the family rides on the open/read/write specs
         // for the `validate.rs` completeness predicate (plan-33-A §5).
@@ -151,7 +150,6 @@ pub(crate) const AUDIO_DEVICES_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_OPEN_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.openInput",
-    symbol: "_mfb_rt_audio_audio_openInput",
     abi: RuntimeHelperAbi {
         params: AUDIO_OPEN_PARAMS,
         returns: "AudioInput",
@@ -162,7 +160,6 @@ pub(crate) const AUDIO_OPEN_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_OPEN_INPUT_DEVICE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.openInputDevice",
-    symbol: "_mfb_rt_audio_audio_openInputDevice",
     abi: RuntimeHelperAbi {
         params: AUDIO_OPEN_INPUT_DEVICE_PARAMS,
         returns: "AudioInput",
@@ -173,7 +170,6 @@ pub(crate) const AUDIO_OPEN_INPUT_DEVICE_SPEC: RuntimeHelperSpec = RuntimeHelper
 pub(crate) const AUDIO_OPEN_OUTPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.openOutput",
-    symbol: "_mfb_rt_audio_audio_openOutput",
     abi: RuntimeHelperAbi {
         params: AUDIO_OPEN_PARAMS,
         returns: "AudioOutput",
@@ -184,7 +180,6 @@ pub(crate) const AUDIO_OPEN_OUTPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_OPEN_OUTPUT_DEVICE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.openOutputDevice",
-    symbol: "_mfb_rt_audio_audio_openOutputDevice",
     abi: RuntimeHelperAbi {
         params: AUDIO_OPEN_INPUT_DEVICE_PARAMS,
         returns: "AudioOutput",
@@ -195,7 +190,6 @@ pub(crate) const AUDIO_OPEN_OUTPUT_DEVICE_SPEC: RuntimeHelperSpec = RuntimeHelpe
 pub(crate) const AUDIO_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.read",
-    symbol: "_mfb_rt_audio_audio_read",
     abi: RuntimeHelperAbi {
         params: AUDIO_READ_PARAMS,
         returns: "List OF Byte",
@@ -206,7 +200,6 @@ pub(crate) const AUDIO_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_READ_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.readTimeout",
-    symbol: "_mfb_rt_audio_audio_readTimeout",
     abi: RuntimeHelperAbi {
         params: AUDIO_READ_TIMEOUT_PARAMS,
         returns: "List OF Byte",
@@ -217,7 +210,6 @@ pub(crate) const AUDIO_READ_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec 
 pub(crate) const AUDIO_WRITE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.write",
-    symbol: "_mfb_rt_audio_audio_write",
     abi: RuntimeHelperAbi {
         params: AUDIO_WRITE_PARAMS,
         returns: "Nothing",
@@ -228,7 +220,6 @@ pub(crate) const AUDIO_WRITE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.poll",
-    symbol: "_mfb_rt_audio_audio_poll",
     abi: RuntimeHelperAbi {
         params: AUDIO_STREAM_PARAMS,
         returns: "Boolean",
@@ -239,7 +230,6 @@ pub(crate) const AUDIO_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_POLL_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.pollTimeout",
-    symbol: "_mfb_rt_audio_audio_pollTimeout",
     abi: RuntimeHelperAbi {
         params: AUDIO_STREAM_TIMEOUT_PARAMS,
         returns: "Boolean",
@@ -250,7 +240,6 @@ pub(crate) const AUDIO_POLL_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec 
 pub(crate) const AUDIO_AVAILABLE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.available",
-    symbol: "_mfb_rt_audio_audio_available",
     abi: RuntimeHelperAbi {
         params: AUDIO_STREAM_PARAMS,
         returns: "Integer",
@@ -261,7 +250,6 @@ pub(crate) const AUDIO_AVAILABLE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_XRUNS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.xruns",
-    symbol: "_mfb_rt_audio_audio_xruns",
     abi: RuntimeHelperAbi {
         params: AUDIO_STREAM_PARAMS,
         returns: "Integer",
@@ -272,7 +260,6 @@ pub(crate) const AUDIO_XRUNS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_CLOSE_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.closeInput",
-    symbol: "_mfb_rt_audio_audio_closeInput",
     abi: RuntimeHelperAbi {
         params: AUDIO_INPUT_STREAM_PARAMS,
         returns: "Nothing",
@@ -283,7 +270,6 @@ pub(crate) const AUDIO_CLOSE_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const AUDIO_CLOSE_OUTPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Audio,
     call: "audio.closeOutput",
-    symbol: "_mfb_rt_audio_audio_closeOutput",
     abi: RuntimeHelperAbi {
         params: AUDIO_OUTPUT_STREAM_PARAMS,
         returns: "Nothing",

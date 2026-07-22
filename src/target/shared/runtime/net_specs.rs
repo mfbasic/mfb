@@ -125,7 +125,6 @@ const NET_SOCKET_STRING_PARAMS: &[RuntimeAbiParam] = &[
 pub(crate) const NET_LOOKUP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.lookup",
-    symbol: "_mfb_rt_net_net_lookup",
     abi: RuntimeHelperAbi {
         params: NET_HOST_PORT_PARAMS,
         returns: "List OF Address",
@@ -136,7 +135,6 @@ pub(crate) const NET_LOOKUP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_CONNECT_TCP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.connectTcp",
-    symbol: "_mfb_rt_net_net_connectTcp",
     abi: RuntimeHelperAbi {
         params: NET_CONNECT_TCP_PARAMS,
         returns: "Socket",
@@ -160,7 +158,6 @@ const NET_CONNECT_TCP_ADDR_PARAMS: &[RuntimeAbiParam] = &[
 pub(crate) const NET_CONNECT_TCP_ADDR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.connectTcpAddr",
-    symbol: "_mfb_rt_net_net_connectTcpAddr",
     abi: RuntimeHelperAbi {
         params: NET_CONNECT_TCP_ADDR_PARAMS,
         returns: "Socket",
@@ -171,7 +168,6 @@ pub(crate) const NET_CONNECT_TCP_ADDR_SPEC: RuntimeHelperSpec = RuntimeHelperSpe
 pub(crate) const NET_LISTEN_TCP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.listenTcp",
-    symbol: "_mfb_rt_net_net_listenTcp",
     abi: RuntimeHelperAbi {
         params: NET_LISTEN_TCP_PARAMS,
         returns: "Listener",
@@ -182,7 +178,6 @@ pub(crate) const NET_LISTEN_TCP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.accept",
-    symbol: "_mfb_rt_net_net_accept",
     abi: RuntimeHelperAbi {
         params: NET_LISTENER_TIMEOUT_PARAMS,
         returns: "Socket",
@@ -193,7 +188,6 @@ pub(crate) const NET_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.poll",
-    symbol: "_mfb_rt_net_net_poll",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_TIMEOUT_PARAMS,
         returns: "Boolean",
@@ -204,7 +198,6 @@ pub(crate) const NET_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.read",
-    symbol: "_mfb_rt_net_net_read",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_INT_PARAMS,
         returns: "List OF Byte",
@@ -215,7 +208,6 @@ pub(crate) const NET_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_READ_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.readText",
-    symbol: "_mfb_rt_net_net_readText",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_INT_PARAMS,
         returns: "String",
@@ -226,7 +218,6 @@ pub(crate) const NET_READ_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_WRITE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.write",
-    symbol: "_mfb_rt_net_net_write",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_BYTES_PARAMS,
         returns: "Nothing",
@@ -237,7 +228,6 @@ pub(crate) const NET_WRITE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_WRITE_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.writeText",
-    symbol: "_mfb_rt_net_net_writeText",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_STRING_PARAMS,
         returns: "Nothing",
@@ -248,7 +238,6 @@ pub(crate) const NET_WRITE_TEXT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.close",
-    symbol: "_mfb_rt_net_net_close",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_PARAMS,
         returns: "Nothing",
@@ -259,7 +248,6 @@ pub(crate) const NET_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_LOCAL_ADDRESS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.localAddress",
-    symbol: "_mfb_rt_net_net_localAddress",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_PARAMS,
         returns: "Address",
@@ -270,7 +258,6 @@ pub(crate) const NET_LOCAL_ADDRESS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_REMOTE_ADDRESS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.remoteAddress",
-    symbol: "_mfb_rt_net_net_remoteAddress",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_PARAMS,
         returns: "Address",
@@ -281,7 +268,6 @@ pub(crate) const NET_REMOTE_ADDRESS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec 
 pub(crate) const NET_SET_READ_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.setReadTimeout",
-    symbol: "_mfb_rt_net_net_setReadTimeout",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_TIMEOUT_PARAMS,
         returns: "Nothing",
@@ -292,7 +278,6 @@ pub(crate) const NET_SET_READ_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpe
 pub(crate) const NET_SET_WRITE_TIMEOUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.setWriteTimeout",
-    symbol: "_mfb_rt_net_net_setWriteTimeout",
     abi: RuntimeHelperAbi {
         params: NET_SOCKET_TIMEOUT_PARAMS,
         returns: "Nothing",
@@ -356,7 +341,6 @@ const NET_SEND_TEXT_TO_PARAMS: &[RuntimeAbiParam] = &[
 pub(crate) const NET_BIND_UDP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.bindUdp",
-    symbol: "_mfb_rt_net_net_bindUdp",
     abi: RuntimeHelperAbi {
         params: NET_HOST_PORT_PARAMS,
         returns: "UdpSocket",
@@ -367,7 +351,6 @@ pub(crate) const NET_BIND_UDP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_RECEIVE_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.receiveFrom",
-    symbol: "_mfb_rt_net_net_receiveFrom",
     abi: RuntimeHelperAbi {
         params: NET_UDP_SOCKET_INT_PARAMS,
         returns: "Datagram",
@@ -378,7 +361,6 @@ pub(crate) const NET_RECEIVE_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_RECEIVE_TEXT_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.receiveTextFrom",
-    symbol: "_mfb_rt_net_net_receiveTextFrom",
     abi: RuntimeHelperAbi {
         params: NET_UDP_SOCKET_INT_PARAMS,
         returns: "DatagramText",
@@ -389,7 +371,6 @@ pub(crate) const NET_RECEIVE_TEXT_FROM_SPEC: RuntimeHelperSpec = RuntimeHelperSp
 pub(crate) const NET_SEND_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.sendTo",
-    symbol: "_mfb_rt_net_net_sendTo",
     abi: RuntimeHelperAbi {
         params: NET_SEND_TO_PARAMS,
         returns: "Nothing",
@@ -400,7 +381,6 @@ pub(crate) const NET_SEND_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const NET_SEND_TEXT_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Net,
     call: "net.sendTextTo",
-    symbol: "_mfb_rt_net_net_sendTextTo",
     abi: RuntimeHelperAbi {
         params: NET_SEND_TEXT_TO_PARAMS,
         returns: "Nothing",

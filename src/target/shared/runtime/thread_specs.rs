@@ -115,7 +115,6 @@ const THREAD_WORKER_SEND_PARAMS: &[RuntimeAbiParam] = &[
 pub(crate) const THREAD_START_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.start",
-    symbol: "_mfb_rt_thread_thread_start",
     abi: RuntimeHelperAbi {
         params: THREAD_START_PARAMS,
         returns: "Thread OF Msg TO Out",
@@ -126,7 +125,6 @@ pub(crate) const THREAD_START_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_IS_RUNNING_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.isRunning",
-    symbol: "_mfb_rt_thread_thread_isRunning",
     abi: RuntimeHelperAbi {
         params: THREAD_HANDLE_PARAMS,
         returns: "Boolean",
@@ -137,7 +135,6 @@ pub(crate) const THREAD_IS_RUNNING_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_WAIT_FOR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.waitFor",
-    symbol: "_mfb_rt_thread_thread_waitFor",
     abi: RuntimeHelperAbi {
         params: THREAD_HANDLE_PARAMS,
         returns: "Out",
@@ -148,7 +145,6 @@ pub(crate) const THREAD_WAIT_FOR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_CANCEL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.cancel",
-    symbol: "_mfb_rt_thread_thread_cancel",
     abi: RuntimeHelperAbi {
         params: THREAD_HANDLE_PARAMS,
         returns: "Nothing",
@@ -162,7 +158,6 @@ pub(crate) const THREAD_CANCEL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_OPEN_STD_IN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.openStdIn",
-    symbol: "_mfb_rt_thread_thread_openStdIn",
     abi: RuntimeHelperAbi {
         params: THREAD_HANDLE_PARAMS,
         returns: "Nothing",
@@ -173,7 +168,6 @@ pub(crate) const THREAD_OPEN_STD_IN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec 
 pub(crate) const THREAD_CLOSE_STD_IN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.closeStdIn",
-    symbol: "_mfb_rt_thread_thread_closeStdIn",
     abi: RuntimeHelperAbi {
         params: THREAD_HANDLE_PARAMS,
         returns: "Nothing",
@@ -184,7 +178,6 @@ pub(crate) const THREAD_CLOSE_STD_IN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec
 pub(crate) const THREAD_DROP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.drop",
-    symbol: "_mfb_rt_thread_thread_drop",
     abi: RuntimeHelperAbi {
         params: THREAD_HANDLE_PARAMS,
         returns: "Nothing",
@@ -195,7 +188,6 @@ pub(crate) const THREAD_DROP_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_SEND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.send",
-    symbol: "_mfb_rt_thread_thread_send",
     abi: RuntimeHelperAbi {
         params: THREAD_SEND_PARAMS,
         returns: "Nothing",
@@ -206,7 +198,6 @@ pub(crate) const THREAD_SEND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.poll",
-    symbol: "_mfb_rt_thread_thread_poll",
     abi: RuntimeHelperAbi {
         params: THREAD_POLL_PARAMS,
         returns: "Boolean",
@@ -217,7 +208,6 @@ pub(crate) const THREAD_POLL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.read",
-    symbol: "_mfb_rt_thread_thread_read",
     abi: RuntimeHelperAbi {
         params: THREAD_PARENT_RECEIVE_PARAMS,
         returns: "Msg",
@@ -228,7 +218,6 @@ pub(crate) const THREAD_READ_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_RECEIVE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.receive",
-    symbol: "_mfb_rt_thread_thread_receive",
     abi: RuntimeHelperAbi {
         params: THREAD_RECEIVE_PARAMS,
         returns: "Msg",
@@ -239,7 +228,6 @@ pub(crate) const THREAD_RECEIVE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_EMIT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.emit",
-    symbol: "_mfb_rt_thread_thread_emit",
     abi: RuntimeHelperAbi {
         params: THREAD_WORKER_SEND_PARAMS,
         returns: "Nothing",
@@ -250,7 +238,6 @@ pub(crate) const THREAD_EMIT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_IS_CANCELLED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.isCancelled",
-    symbol: "_mfb_rt_thread_thread_isCancelled",
     abi: RuntimeHelperAbi {
         params: THREAD_WORKER_HANDLE_PARAMS,
         returns: "Boolean",
@@ -263,7 +250,6 @@ pub(crate) const THREAD_IS_CANCELLED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec
 pub(crate) const THREAD_TRANSFER_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.transferResource",
-    symbol: "_mfb_rt_thread_thread_transferResource",
     abi: RuntimeHelperAbi {
         params: THREAD_SEND_PARAMS,
         returns: "Nothing",
@@ -274,7 +260,6 @@ pub(crate) const THREAD_TRANSFER_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.acceptResource",
-    symbol: "_mfb_rt_thread_thread_acceptResource",
     abi: RuntimeHelperAbi {
         params: THREAD_RECEIVE_PARAMS,
         returns: "Msg",
@@ -289,7 +274,6 @@ pub(crate) const THREAD_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 pub(crate) const THREAD_EMIT_RESOURCE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.emitResource",
-    symbol: "_mfb_rt_thread_thread_emitResource",
     abi: RuntimeHelperAbi {
         params: THREAD_WORKER_SEND_PARAMS,
         returns: "Nothing",
@@ -300,7 +284,6 @@ pub(crate) const THREAD_EMIT_RESOURCE_SPEC: RuntimeHelperSpec = RuntimeHelperSpe
 pub(crate) const THREAD_READ_RESOURCE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Thread,
     call: "thread.readResource",
-    symbol: "_mfb_rt_thread_thread_readResource",
     abi: RuntimeHelperAbi {
         params: THREAD_PARENT_RECEIVE_PARAMS,
         returns: "Msg",

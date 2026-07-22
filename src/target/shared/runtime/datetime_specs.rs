@@ -17,7 +17,6 @@ const DATETIME_LOCAL_OFFSET_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
 pub(crate) const DATETIME_NOW_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Datetime,
     call: "datetime.nowNanos",
-    symbol: "_mfb_rt_datetime_datetime_nowNanos",
     abi: RuntimeHelperAbi {
         params: &[],
         returns: "Integer",
@@ -28,7 +27,6 @@ pub(crate) const DATETIME_NOW_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec 
 pub(crate) const DATETIME_MONOTONIC_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Datetime,
     call: "datetime.monotonicNanos",
-    symbol: "_mfb_rt_datetime_datetime_monotonicNanos",
     abi: RuntimeHelperAbi {
         params: &[],
         returns: "Integer",
@@ -39,7 +37,6 @@ pub(crate) const DATETIME_MONOTONIC_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelpe
 pub(crate) const DATETIME_LOCAL_OFFSET_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Datetime,
     call: "datetime.localOffset",
-    symbol: "_mfb_rt_datetime_datetime_localOffset",
     abi: RuntimeHelperAbi {
         params: DATETIME_LOCAL_OFFSET_PARAMS,
         returns: "Integer",

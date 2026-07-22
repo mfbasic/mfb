@@ -13,7 +13,7 @@
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::{self, PlatformImport};
-use crate::target::shared::runtime::RuntimeHelperSpec;
+use crate::target::shared::runtime::{self, RuntimeHelperSpec};
 
 /// The per-arch facts the shared plan lowering needs.
 ///
@@ -168,6 +168,10 @@ impl LinuxPlan<'_> {
     }
 
     pub(crate) fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
+        // Every import in this table is attributed to the helper's code unit
+        // by its runtime symbol, derived once here (bug-329).
+        let required_by = runtime::symbol_for_call(spec.helper, spec.call);
+        let required_by = required_by.as_str();
         // plan-15: the stdin broadcast log helpers are shared by every stdin
         // builtin and reference these libc symbols; every triggering spec pulls
         // them in so the merged import table always resolves them.
@@ -184,42 +188,42 @@ impl LinuxPlan<'_> {
                 "pthread_mutex_init",
                 "pthread_cond_init",
             ] {
-                imports.push(self.libc_import(name, spec.symbol));
+                imports.push(self.libc_import(name, required_by));
             }
         };
         // `write` is a libc PLT call on aarch64/riscv64 and a raw syscall on
         // x86-64 (bug-79.4); every helper that writes consults this.
         let write_import = |imports: &mut Vec<PlatformImport>| {
             if !self.abi.raw_write {
-                imports.push(self.libc_import("write", spec.symbol));
+                imports.push(self.libc_import("write", required_by));
             }
         };
         match spec.call {
-            "crypto.randomBytes" => vec![self.libc_import("getentropy", spec.symbol)],
+            "crypto.randomBytes" => vec![self.libc_import("getentropy", required_by)],
             "datetime.nowNanos" | "datetime.monotonicNanos" => {
-                vec![self.libc_import("clock_gettime", spec.symbol)]
+                vec![self.libc_import("clock_gettime", required_by)]
             }
-            "datetime.localOffset" => vec![self.libc_import("localtime_r", spec.symbol)],
+            "datetime.localOffset" => vec![self.libc_import("localtime_r", required_by)],
             "os.getEnv" | "os.getEnvOr" | "os.hasEnv" => {
-                vec![self.libc_import("getenv", spec.symbol)]
+                vec![self.libc_import("getenv", required_by)]
             }
             "os.setEnv" => vec![
-                self.libc_import("setenv", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
+                self.libc_import("setenv", required_by),
+                self.libc_import("__errno_location", required_by),
             ],
-            "os.unsetEnv" => vec![self.libc_import("unsetenv", spec.symbol)],
-            "os.environ" => vec![self.libc_import("environ", spec.symbol)],
-            "os.pid" => vec![self.libc_import("getpid", spec.symbol)],
-            "os.cpuCount" => vec![self.libc_import("sysconf", spec.symbol)],
-            "os.hostName" => vec![self.libc_import("gethostname", spec.symbol)],
+            "os.unsetEnv" => vec![self.libc_import("unsetenv", required_by)],
+            "os.environ" => vec![self.libc_import("environ", required_by)],
+            "os.pid" => vec![self.libc_import("getpid", required_by)],
+            "os.cpuCount" => vec![self.libc_import("sysconf", required_by)],
+            "os.hostName" => vec![self.libc_import("gethostname", required_by)],
             "os.userName" => vec![
-                self.libc_import("getuid", spec.symbol),
-                self.libc_import("getpwuid", spec.symbol),
+                self.libc_import("getuid", required_by),
+                self.libc_import("getpwuid", required_by),
             ],
             // plan-55-B: `os.resourcePath` reuses the `readlink("/proc/self/exe")`
             // acquisition, so it needs the same import.
             "os.executablePath" | "os.resourcePath" => {
-                vec![self.libc_import("readlink", spec.symbol)]
+                vec![self.libc_import("readlink", required_by)]
             }
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 let mut imports = Vec::new();
@@ -233,39 +237,39 @@ impl LinuxPlan<'_> {
             // (bug-71, bug-117).
             "io.flush" => Vec::new(),
             "io.input" | "io.readLine" | "io.readChar" | "io.readByte" => {
-                let mut imports = vec![self.libc_import("read", spec.symbol)];
+                let mut imports = vec![self.libc_import("read", required_by)];
                 if spec.call == "io.input" {
                     // The prompt echo.
                     write_import(&mut imports);
-                    imports.push(self.libc_import("fsync", spec.symbol));
-                    imports.push(self.libc_import("__errno_location", spec.symbol));
+                    imports.push(self.libc_import("fsync", required_by));
+                    imports.push(self.libc_import("__errno_location", required_by));
                     // bug-149: when the program also uses `term::`, `io::input`
                     // restores cooked mode for its read then re-enters raw via
                     // `tcsetattr` (a no-op when TUI single-key mode is inactive).
                     // `tcsetattr` is a libc call on every backend, unlike `write`.
-                    imports.push(self.libc_import("tcsetattr", spec.symbol));
+                    imports.push(self.libc_import("tcsetattr", required_by));
                 } else {
-                    imports.push(self.libc_import("isatty", spec.symbol));
-                    imports.push(self.libc_import("tcgetattr", spec.symbol));
-                    imports.push(self.libc_import("tcsetattr", spec.symbol));
+                    imports.push(self.libc_import("isatty", required_by));
+                    imports.push(self.libc_import("tcgetattr", required_by));
+                    imports.push(self.libc_import("tcsetattr", required_by));
                     // bug-62: the read helpers' EINTR guard re-reads errno through
                     // the accessor to retry a blocking read interrupted by a signal.
                     // `read` goes through libc on every backend (only `write` is
                     // ever a raw syscall), so the guard needs the accessor here
                     // too; without it a pure-`io::` program (no fs/net) could not
                     // distinguish EINTR and would hard-error on it.
-                    imports.push(self.libc_import("__errno_location", spec.symbol));
+                    imports.push(self.libc_import("__errno_location", required_by));
                 }
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
             "io.pollInput" => {
-                let mut imports = vec![self.libc_import("poll", spec.symbol)];
+                let mut imports = vec![self.libc_import("poll", required_by)];
                 stdin_broadcast_imports(&mut imports);
                 imports
             }
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
-                vec![self.libc_import("isatty", spec.symbol)]
+                vec![self.libc_import("isatty", required_by)]
             }
             // `term::on` also drives stdin into single-key (cbreak) mode and
             // `term::off` restores the saved cooked discipline (bug-149), so both
@@ -279,17 +283,17 @@ impl LinuxPlan<'_> {
                 let mut imports = Vec::new();
                 write_import(&mut imports);
                 imports.extend([
-                    self.libc_import("isatty", spec.symbol),
-                    self.libc_import("tcgetattr", spec.symbol),
-                    self.libc_import("tcsetattr", spec.symbol),
-                    self.libc_import("ioctl", spec.symbol),
+                    self.libc_import("isatty", required_by),
+                    self.libc_import("tcgetattr", required_by),
+                    self.libc_import("tcsetattr", required_by),
+                    self.libc_import("ioctl", required_by),
                 ]);
                 imports
             }
             "term.off" => {
                 let mut imports = Vec::new();
                 write_import(&mut imports);
-                imports.push(self.libc_import("tcsetattr", spec.symbol));
+                imports.push(self.libc_import("tcsetattr", required_by));
                 imports
             }
             // The drawing calls mutate the in-memory shadow grid only — no ANSI,
@@ -302,35 +306,35 @@ impl LinuxPlan<'_> {
             "term.sync" => {
                 let mut imports = Vec::new();
                 write_import(&mut imports);
-                imports.push(self.libc_import("ioctl", spec.symbol));
+                imports.push(self.libc_import("ioctl", required_by));
                 imports
             }
-            "term.terminalSize" => vec![self.libc_import("ioctl", spec.symbol)],
-            "fs.exists" => vec![self.libc_import("access", spec.symbol)],
-            "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", spec.symbol)],
-            "fs.currentDirectory" => vec![self.libc_import("getcwd", spec.symbol)],
-            "fs.tempDirectory" => vec![self.libc_import("getenv", spec.symbol)],
+            "term.terminalSize" => vec![self.libc_import("ioctl", required_by)],
+            "fs.exists" => vec![self.libc_import("access", required_by)],
+            "fs.fileExists" | "fs.directoryExists" => vec![self.libc_import("stat", required_by)],
+            "fs.currentDirectory" => vec![self.libc_import("getcwd", required_by)],
+            "fs.tempDirectory" => vec![self.libc_import("getenv", required_by)],
             "fs.setCurrentDirectory" => vec![
-                self.libc_import("chdir", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
+                self.libc_import("chdir", required_by),
+                self.libc_import("__errno_location", required_by),
             ],
             "fs.deleteFile" => vec![
-                self.libc_import("unlink", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
+                self.libc_import("unlink", required_by),
+                self.libc_import("__errno_location", required_by),
             ],
             "fs.createDirectory" | "fs.createDirectories" => vec![
-                self.libc_import("mkdir", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
+                self.libc_import("mkdir", required_by),
+                self.libc_import("__errno_location", required_by),
             ],
             "fs.deleteDirectory" => vec![
-                self.libc_import("rmdir", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
+                self.libc_import("rmdir", required_by),
+                self.libc_import("__errno_location", required_by),
             ],
             "fs.listDirectory" => vec![
-                self.libc_import("opendir", spec.symbol),
-                self.libc_import("readdir", spec.symbol),
-                self.libc_import("closedir", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
+                self.libc_import("opendir", required_by),
+                self.libc_import("readdir", required_by),
+                self.libc_import("closedir", required_by),
+                self.libc_import("__errno_location", required_by),
             ],
             "fs.open"
             | "fs.openFile"
@@ -355,44 +359,44 @@ impl LinuxPlan<'_> {
             | "fs.flush"
             | "fs.eof" => {
                 let mut imports = vec![
-                    self.libc_import("open", spec.symbol),
-                    self.libc_import("read", spec.symbol),
+                    self.libc_import("open", required_by),
+                    self.libc_import("read", required_by),
                 ];
                 write_import(&mut imports);
                 imports.extend([
-                    self.libc_import("close", spec.symbol),
-                    self.libc_import("fsync", spec.symbol),
-                    self.libc_import("lseek", spec.symbol),
-                    self.libc_import("__errno_location", spec.symbol),
+                    self.libc_import("close", required_by),
+                    self.libc_import("fsync", required_by),
+                    self.libc_import("lseek", required_by),
+                    self.libc_import("__errno_location", required_by),
                 ]);
                 // `fs.createTempFile` draws its random suffix through
                 // `platform.emit_random_bytes` — libc `getentropy` on
                 // aarch64/riscv64, the raw `getrandom` syscall on x86-64, where
                 // the import would be dead (bug-71).
                 if matches!(spec.call, "fs.createTempFile") && !self.abi.raw_getrandom {
-                    imports.push(self.libc_import("getentropy", spec.symbol));
+                    imports.push(self.libc_import("getentropy", required_by));
                 }
                 if matches!(spec.call, "fs.openFileNoFollow" | "fs.openWithin") {
                     // bug-260/bug-259: openFileNoFollow/openWithin use openat2 via the libc
                     // `syscall` wrapper to reject symlinks (RESOLVE_NO_SYMLINKS).
-                    imports.push(self.libc_import("syscall", spec.symbol));
+                    imports.push(self.libc_import("syscall", required_by));
                 }
                 if matches!(spec.call, "fs.openWithin") {
                     // bug-259: openWithin canonicalizes its trusted root via realpath.
-                    imports.push(self.libc_import("realpath", spec.symbol));
+                    imports.push(self.libc_import("realpath", required_by));
                 }
                 if matches!(spec.call, "fs.writeTextAtomic" | "fs.writeBytesAtomic") {
-                    imports.push(self.libc_import("mkstemps", spec.symbol));
-                    imports.push(self.libc_import("rename", spec.symbol));
+                    imports.push(self.libc_import("mkstemps", required_by));
+                    imports.push(self.libc_import("rename", required_by));
                     // bug-63: the atomic-write failure tails unlink the leftover
                     // temp file, so the helper needs the `unlink` wrapper too.
-                    imports.push(self.libc_import("unlink", spec.symbol));
+                    imports.push(self.libc_import("unlink", required_by));
                 }
                 imports
             }
             "fs.canonicalPath" | "fs.isWithin" => vec![
-                self.libc_import("realpath", spec.symbol),
-                self.libc_import("__errno_location", spec.symbol),
+                self.libc_import("realpath", required_by),
+                self.libc_import("__errno_location", required_by),
             ],
             // bug-176 C: the resource-plane ops (transfer/accept/emitResource/
             // readResource) run on the pthread mutex/cond queues just like send/
@@ -437,7 +441,7 @@ impl LinuxPlan<'_> {
             .map(|symbol| PlatformImport {
                 library: self.libpthread().to_string(),
                 symbol: symbol.to_string(),
-                required_by: spec.symbol.to_string(),
+                required_by: required_by.to_string(),
             })
             .collect(),
             call if crate::builtins::audio::is_audio_runtime_call(call) => {
@@ -448,7 +452,7 @@ impl LinuxPlan<'_> {
                 // bounds a timed read; the state page is mmap/munmap'd.
                 ["dlopen", "dlsym", "free", "clock_gettime", "mmap", "munmap"]
                     .into_iter()
-                    .map(|symbol| self.libc_import(symbol, spec.symbol))
+                    .map(|symbol| self.libc_import(symbol, required_by))
                     .collect()
             }
             call if crate::builtins::net::is_net_call(call) => {
@@ -461,9 +465,9 @@ impl LinuxPlan<'_> {
                 let mut imports = plan::net_libc_symbols(call)
                     .iter()
                     .filter(|base| !(self.abi.raw_write && **base == "write"))
-                    .map(|base| self.libc_import(base, spec.symbol))
+                    .map(|base| self.libc_import(base, required_by))
                     .collect::<Vec<_>>();
-                imports.push(self.libc_import("__errno_location", spec.symbol));
+                imports.push(self.libc_import("__errno_location", required_by));
                 imports
             }
             call if crate::builtins::crypto::is_native_crypto_call(call)
@@ -472,8 +476,8 @@ impl LinuxPlan<'_> {
                 // The NIST-EC helpers resolve libcrypto at load time via
                 // dlopen/dlsym (no deprecated OpenSSL calls on any version).
                 vec![
-                    self.libc_import("dlopen", spec.symbol),
-                    self.libc_import("dlsym", spec.symbol),
+                    self.libc_import("dlopen", required_by),
+                    self.libc_import("dlsym", required_by),
                 ]
             }
             call if crate::builtins::tls::is_tls_runtime_call(call) => {
@@ -481,15 +485,15 @@ impl LinuxPlan<'_> {
                 // tls.connect/listen also open the TCP socket themselves, and
                 // every helper can report errno-derived failures.
                 let mut imports = vec![
-                    self.libc_import("dlopen", spec.symbol),
-                    self.libc_import("dlsym", spec.symbol),
-                    self.libc_import("__errno_location", spec.symbol),
+                    self.libc_import("dlopen", required_by),
+                    self.libc_import("dlsym", required_by),
+                    self.libc_import("__errno_location", required_by),
                 ];
                 if matches!(
                     call,
                     "tls.connect" | "tls.close" | "tls.listen" | "tls.accept" | "tls.closeListener"
                 ) {
-                    imports.push(self.libc_import("close", spec.symbol));
+                    imports.push(self.libc_import("close", required_by));
                 }
                 if call == "tls.connect" {
                     // getaddrinfo..connect open the socket; fcntl/poll/getsockopt
@@ -505,7 +509,7 @@ impl LinuxPlan<'_> {
                         "getsockopt",
                         "setsockopt",
                     ] {
-                        imports.push(self.libc_import(base, spec.symbol));
+                        imports.push(self.libc_import(base, required_by));
                     }
                 }
                 if call == "tls.listen" {
@@ -519,14 +523,14 @@ impl LinuxPlan<'_> {
                         "listen",
                         "setsockopt",
                     ] {
-                        imports.push(self.libc_import(base, spec.symbol));
+                        imports.push(self.libc_import(base, required_by));
                     }
                 }
                 if call == "tls.accept" {
                     // accept the inbound connection; poll bounds the wait when
                     // timeoutMs > 0.
                     for base in ["accept", "poll"] {
-                        imports.push(self.libc_import(base, spec.symbol));
+                        imports.push(self.libc_import(base, required_by));
                     }
                 }
                 imports
