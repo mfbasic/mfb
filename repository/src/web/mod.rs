@@ -140,8 +140,12 @@ pub fn external_link(url: &str) -> Markup {
     }
 }
 
-/// The shell every page shares: doctype, head, stylesheet link, and the masthead.
-pub fn page(title: &str, body: Markup) -> Markup {
+/// The shell every page shares.
+///
+/// Markup structure, class names and copy come from `planning/plan-61/`, which
+/// §3.1 makes normative for appearance. The routes do not: every mockup `href`
+/// and form `action` is repointed at the real route table here.
+pub fn page(title: &str, registry_id: &str, body: Markup) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -153,23 +157,262 @@ pub fn page(title: &str, body: Markup) -> Markup {
             }
             body {
                 header."masthead" {
-                    a."masthead-brand" href="/" { "mfb-repo" }
-                    form."masthead-search" method="get" action="/search.html" {
-                        input type="search" name="q" placeholder="Search packages"
-                              aria-label="Search packages";
-                        button type="submit" { "Search" }
+                    div."masthead__inner" {
+                        a."brand" href="/" { "mfb-repo" }
+                        span."masthead__tag" {
+                            "Public, anonymous, read-only registry for the MFBASIC language."
+                        }
+                        // A plain GET form: search works with JavaScript
+                        // entirely disabled, which is a hard requirement, not a
+                        // progressive-enhancement nicety.
+                        form."site-search" method="get" action="/search.html" role="search" {
+                            label."vh" for="q" { "Search packages" }
+                            input type="search" id="q" name="q" placeholder="owner#package"
+                                  autocomplete="off" spellcheck="false";
+                            button type="submit" { "Search" }
+                        }
                     }
                 }
                 main { (body) }
-                footer."site-footer" {
-                    p {
-                        "Anonymous, read-only. No account, no cookie, no JavaScript. "
-                        a href="/search.html" { "Browse" }
+                footer."foot" {
+                    div."foot__inner" {
+                        span."mono" { "mfb-repo" }
+                        span { "Registry ID " span."mono" { (registry_id) } }
+                        span."foot__note" {
+                            "Anonymous & read-only. Content is publisher-supplied \
+                             and unverified by the registry."
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/// `GET /` — the landing page.
+///
+/// The fingerprint block is the most load-bearing copy on the site, so §4's
+/// constraints are enforced here rather than left to the template:
+///
+/// - It shows the **root** fingerprint (from the signed-metadata root), not the
+///   `/ident` server fingerprint. They are different values from different
+///   keys, and `mfb repo trust` consumes the root one — printing the server
+///   fingerprint above that command would read as a verified copy-paste and
+///   then simply fail.
+/// - It is worded as *"compare this against an out-of-band source"*, never as a
+///   claim that the registry is verified. An attacker serving a forged copy of
+///   this page serves their own fingerprint and this same reassuring paragraph,
+///   so the page authenticates nothing about itself. Getting this wrong turns a
+///   convenience into security theater that actively misleads.
+pub fn landing(registry_id: &str, root_fingerprint: Option<&str>) -> Markup {
+    let body = html! {
+        div."wrap" {
+            section."hero" {
+                h1 { "mfb-repo" }
+                p."lede" {
+                    "A package registry for the MFBASIC language. Every package, every \
+                     version, and every state change is public and permanently visible — \
+                     including versions that have been deprecated or yanked. Nothing here \
+                     can log in, and nothing here can be changed from a browser."
+                }
+                form."hero-search" method="get" action="/search.html" role="search" {
+                    label."vh" for="q2" { "Search packages" }
+                    input type="search" id="q2" name="q"
+                          placeholder="Search by owner#package or keyword"
+                          autocomplete="off" spellcheck="false";
+                    button type="submit" { "Search" }
+                }
+            }
+
+            @if let Some(fingerprint) = root_fingerprint {
+                section."fingerprint" aria-labelledby="fp-title" {
+                    div."fingerprint__head" {
+                        p."eyebrow" { "Compare this — do not trust it on sight" }
+                        h2 id="fp-title" { "Root fingerprint" }
+                    }
+                    div."fingerprint__body" {
+                        p {
+                            "The value below is the root of the signed-metadata chain "
+                            strong { "this server is presenting to you right now" }
+                            ". This page cannot prove that it is the real mfb-repo. An \
+                             impostor serving a forged copy of this site would show you a \
+                             fingerprint too — its own — and this same reassuring \
+                             paragraph. So do not act on it here."
+                        }
+                        code."fingerprint__value" { (fingerprint) }
+                        p {
+                            "Obtain the fingerprint you " em { "expect" } " from a source \
+                             that does not pass through this server — your organization’s \
+                             records, a colleague, the project’s signed release notes — and \
+                             compare it character by character with the value above. Only \
+                             if the two match exactly, pin it locally:"
+                        }
+                        code."cmd" { "mfb repo trust " (registry_id) "  " (fingerprint) }
+                        p."fingerprint__warnoff" {
+                            "If the two values differ, stop. You are not talking to the \
+                             registry you think you are."
+                        }
+                    }
+                }
+            }
+
+            h2."section-title" { "Using the registry" }
+            div."prose" {
+                p {
+                    "Search for a package to see its versions, native target matrix, and \
+                     publish history. Each package also exposes a transparency "
+                    strong { "Audit" }
+                    " tab: an append-only log with inclusion proofs, release-state \
+                     transitions, and the registry’s identity-key rotation chain, so an \
+                     independent monitor can check whether this registry is showing the \
+                     same history to everyone."
+                }
+                p."muted" {
+                    "There are no accounts and no sign-in. Every action is a plain link or \
+                     a GET request; nothing on this site mutates state."
+                }
+            }
+        }
+    };
+    page("mfb-repo — MFBASIC package registry", registry_id, body)
+}
+
+/// One rendered search hit.
+pub struct SearchRow {
+    pub ident: String,
+    pub owner: String,
+    pub latest_version: Option<String>,
+    pub description: Option<String>,
+    pub published_at: Option<i64>,
+}
+
+/// `GET /search.html?q=` — all three states of one route.
+///
+/// A query that matches nothing is **HTTP 200 with a "no results" page**, not a
+/// 404: the request succeeded and the answer is "none", which is different from
+/// "that page does not exist". An empty query renders the form and no results,
+/// never the whole table.
+pub fn search_page(registry_id: &str, query: &str, results: &[SearchRow]) -> Markup {
+    let body = html! {
+        div."wrap" {
+            @if query.trim().is_empty() {
+                div."empty empty--center" role="note" {
+                    h2 { "Search the registry" }
+                    p {
+                        "Enter an owner, a package name, or a whole identifier of the \
+                         form " span."mono" { "owner#package" } " — the "
+                        span."mono" { "#" } " is literal."
+                    }
+                    p."muted" {
+                        "Nothing is listed until you search: this registry does not \
+                         enumerate its whole contents to anonymous callers."
+                    }
+                }
+            } @else {
+                p."summary" {
+                    strong { (results.len()) }
+                    " results for "
+                    span."query-echo" { (query) }
+                }
+
+                @if results.is_empty() {
+                    div."empty empty--center" role="note" {
+                        h2 { "No packages match this query." }
+                        p {
+                            "Nothing in the registry matches "
+                            span."query-echo" { (query) } "."
+                        }
+                        p."muted" {
+                            "Check spelling, or try a shorter term. Identifiers have the \
+                             form " span."mono" { "owner#package" } " — the "
+                            span."mono" { "#" } " is literal."
+                        }
+                        p { a href="/search.html" { "Start a new search" } }
+                    }
+                } @else {
+                    ul."results" {
+                        @for row in results {
+                            li."result" {
+                                div."result__top" {
+                                    a."result__ident" href=(package_path(&row.ident)) {
+                                        (row.ident)
+                                    }
+                                    @if let Some(version) = &row.latest_version {
+                                        span."result__ver" { "v" (version) }
+                                    }
+                                    @if let Some(at) = row.published_at {
+                                        span."result__meta" {
+                                            "published " (format_date(at))
+                                        }
+                                    }
+                                }
+                                p."result__owner" { "owner: " (row.owner) }
+                                p."result__desc" {
+                                    @match &row.description {
+                                        Some(text) => (text),
+                                        // plan-61-E fills these in; until then
+                                        // this is the common state.
+                                        None => span."nil" { "No description provided." },
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    page(
+        &format!(
+            "Search — {}",
+            if query.is_empty() { "mfb-repo" } else { query }
+        ),
+        registry_id,
+        body,
+    )
+}
+
+/// A minimal page for an error or notice, so every non-200 HTML response is
+/// still a real page carrying the CSP rather than a bare status.
+pub fn message_page(registry_id: &str, heading: &str, detail: &str) -> Markup {
+    let body = html! {
+        div."wrap" {
+            div."empty empty--center" role="note" {
+                h2 { (heading) }
+                p { (detail) }
+                p { a href="/" { "Back to the registry" } }
+            }
+        }
+    };
+    page(heading, registry_id, body)
+}
+
+/// The site path for a package page, percent-encoding the `#` so it does not
+/// become a URL fragment. Only `#` and `%` need encoding — idents are already
+/// restricted to a safe charset by `validate_ident`.
+pub fn package_path(ident: &str) -> String {
+    format!("/p/{}", ident.replace('%', "%25").replace('#', "%23"))
+}
+
+/// A Unix timestamp as `YYYY-MM-DD`, UTC.
+///
+/// Hand-rolled from the civil-from-days algorithm rather than pulling in a date
+/// crate for one format: the registry stores seconds and the pages show days.
+pub fn format_date(seconds: i64) -> String {
+    let days = seconds.div_euclid(86_400);
+    // Howard Hinnant's civil_from_days, shifted to a March-based year so the
+    // leap day lands at the end.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
 }
 
 #[cfg(test)]
@@ -337,12 +580,12 @@ mod tests {
     /// route, which is what `style-src 'self'` (no `'unsafe-inline'`) requires.
     #[test]
     fn the_page_shell_is_script_free_and_links_a_real_stylesheet() {
-        let rendered = page("t", html! { p { "body" } }).into_string();
+        let rendered = page("t", "reg.example", html! { p { "body" } }).into_string();
         assert!(!rendered.contains("<script"), "{rendered}");
         assert!(!rendered.contains("style="), "no inline styles: {rendered}");
         assert!(rendered.contains("<link rel=\"stylesheet\" href=\"/style.css\""));
         // The search form is a plain GET form, so search works with JavaScript
         // disabled.
-        assert!(rendered.contains("method=\"get\" action=\"/search.html\""));
+        assert!(rendered.contains("action=\"/search.html\""));
     }
 }

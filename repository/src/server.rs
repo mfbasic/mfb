@@ -2,7 +2,8 @@ use crate::blobstore::{BlobFetch, BlobKind, BlobStore};
 use crate::store::{now_unix, NewSession, Store};
 use crate::{crypto, package};
 use axum::extract::{ConnectInfo, State};
-use axum::http::StatusCode;
+use axum::http::{header, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
@@ -833,6 +834,11 @@ pub fn build_router(state: AppState) -> Router {
         .route("/machines/link/fetch", post(link_fetch))
         .route("/machines/revoke/challenge", post(revoke_challenge))
         .route("/machines/revoke", post(revoke_machine))
+        // plan-61-C: the HTML surface. All GET, all anonymous, all carrying
+        // the CSP from `web::html_response`.
+        .route("/", get(landing_page))
+        .route("/style.css", get(stylesheet))
+        .route("/search.html", get(search_html))
         .route("/search", get(search))
         .route("/index/:ident", get(package_index))
         // plan-61-B: anonymous read surface. These read no credential of any
@@ -1067,6 +1073,111 @@ async fn search(
         total: results.len(),
         results,
     }))
+}
+
+/// The registry id and root fingerprint the HTML pages display.
+///
+/// Both are `None` before `mfb-repo init-root` runs, and the landing page
+/// simply omits the fingerprint block rather than showing a placeholder — a
+/// blank or fabricated fingerprint in the one section whose entire purpose is
+/// "compare this exactly" is worse than no section at all.
+fn registry_identity(state: &AppState) -> (String, Option<String>) {
+    match state.store.registry_config() {
+        Ok(Some(config)) => (
+            config.registry_id,
+            Some(crypto::fingerprint(&config.root_public)),
+        ),
+        _ => ("(uninitialized)".to_string(), None),
+    }
+}
+
+/// `GET /style.css` — the stylesheet, compiled into the binary.
+///
+/// A real route rather than an inline `<style>` block because the CSP is
+/// `style-src 'self'` with no `'unsafe-inline'`; and `include_str!` rather than
+/// a `ServeDir` so the server stays a single self-contained binary.
+async fn stylesheet() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=3600"),
+        ],
+        crate::web::STYLESHEET,
+    )
+}
+
+/// `GET /` — the landing page (plan-61-C Phase 2).
+async fn landing_page(State(state): State<AppState>) -> Response {
+    let (registry_id, root_fingerprint) = registry_identity(&state);
+    crate::web::html_response(
+        StatusCode::OK,
+        crate::web::landing(&registry_id, root_fingerprint.as_deref()),
+    )
+}
+
+/// `GET /search.html?q=` — the rendered search page (plan-61-C Phase 2).
+///
+/// Shares `search_packages` with the JSON route, including its server-side
+/// `limit` cap, so the HTML surface cannot be used to enumerate more than the
+/// API allows.
+async fn search_html(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    axum::extract::Query(query): axum::extract::Query<SearchQuery>,
+) -> Response {
+    let (registry_id, _fingerprint) = registry_identity(&state);
+    if !state
+        .rate_limiter
+        .allow(&format!("search:{}", peer.ip()), SEARCH_PER_IP_MAX, 60)
+    {
+        return crate::web::html_response(
+            StatusCode::TOO_MANY_REQUESTS,
+            crate::web::message_page(
+                &registry_id,
+                "Too many searches",
+                "This client has made too many searches in a short window. Wait a \
+                 minute and try again.",
+            ),
+        );
+    }
+    let text = query.q.unwrap_or_default();
+    let limit = query
+        .limit
+        .unwrap_or(SEARCH_LIMIT_DEFAULT)
+        .clamp(0, SEARCH_LIMIT_MAX);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let rows = match state.store.search_packages(&text, limit, offset) {
+        Ok(rows) => rows,
+        Err(_err) => {
+            return crate::web::html_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                crate::web::message_page(
+                    &registry_id,
+                    "Search failed",
+                    "The registry could not complete this search.",
+                ),
+            )
+        }
+    };
+    let rows: Vec<crate::web::SearchRow> = rows
+        .into_iter()
+        .map(|row| crate::web::SearchRow {
+            ident: row.ident,
+            owner: row.owner,
+            latest_version: row.latest_version,
+            description: row.description,
+            published_at: row.published_at,
+        })
+        .collect();
+
+    // A query that matches nothing is 200 with a "no results" page: the request
+    // succeeded and the answer is "none", which is not the same as "that page
+    // does not exist".
+    crate::web::html_response(
+        StatusCode::OK,
+        crate::web::search_page(&registry_id, &text, &rows),
+    )
 }
 
 /// Split `<owner>#<package>`, or a 400 naming the expected shape.
@@ -5113,6 +5224,220 @@ mod tests {
         search(State(h.state.clone()), peer("198.51.100.8"), query())
             .await
             .expect("a different peer has its own bucket");
+    }
+
+    /// Drive a GET through the real router and return `(status, headers, body)`.
+    async fn get_page(state: &AppState, uri: &str) -> (StatusCode, axum::http::HeaderMap, String) {
+        use tower::ServiceExt;
+        // `serve` supplies `ConnectInfo` via
+        // `into_make_service_with_connect_info`; `oneshot` bypasses that layer,
+        // so the rate-limited handlers would fail their extractor with a 500.
+        // Inject it as a request extension, which is where that layer puts it.
+        let mut request = axum::http::Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(ConnectInfo(
+            "203.0.113.1:40000".parse::<SocketAddr>().unwrap(),
+        ));
+        let response = build_router(state.clone()).oneshot(request).await.unwrap();
+        let status = response.status();
+        let headers = response.headers().clone();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, headers, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    /// plan-61-C Phase 2: adding a `/` handler and the `.html` routes must not
+    /// shadow any existing JSON route. `/health` and `/ident` are called out
+    /// specifically because a catch-all or a misplaced `/` route is exactly how
+    /// they would silently start returning HTML.
+    #[tokio::test]
+    async fn the_html_routes_do_not_shadow_any_json_route() {
+        let h = harness();
+
+        for (uri, expected) in [
+            ("/health", "application/json"),
+            ("/ident", "application/json"),
+            ("/log/checkpoint", "application/json"),
+            ("/search?q=x", "application/json"),
+        ] {
+            let (status, headers, _body) = get_page(&h.state, uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert!(
+                headers
+                    .get(header::CONTENT_TYPE)
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .starts_with(expected),
+                "{uri} must still be JSON, not HTML",
+            );
+        }
+
+        // And the HTML routes are HTML, with the CSP.
+        for uri in ["/", "/search.html?q=x"] {
+            let (status, headers, _body) = get_page(&h.state, uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            assert!(headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/html"));
+            assert_eq!(
+                headers
+                    .get(header::CONTENT_SECURITY_POLICY)
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                crate::web::CONTENT_SECURITY_POLICY,
+                "{uri}",
+            );
+        }
+
+        // The stylesheet is a real route, which is what `style-src 'self'`
+        // with no `'unsafe-inline'` requires.
+        let (status, headers, body) = get_page(&h.state, "/style.css").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(headers
+            .get(header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("text/css"));
+        assert!(
+            body.contains("--font-sans"),
+            "the real stylesheet is served"
+        );
+    }
+
+    /// The landing page shows the **root** fingerprint, worded as something to
+    /// compare rather than as a trust claim (plan-61-C §4). Showing the
+    /// `/ident` server fingerprint above a `mfb repo trust` command — which
+    /// consumes the *root* fingerprint — would read as a verified copy-paste
+    /// and then fail.
+    #[tokio::test]
+    async fn the_landing_page_presents_the_root_fingerprint_as_a_thing_to_compare() {
+        let h = harness();
+        h.store
+            .init_registry_root("reg.example", 4_102_444_800)
+            .unwrap();
+        let config = h.store.registry_config().unwrap().unwrap();
+        let root_fingerprint = crypto::fingerprint(&config.root_public);
+        let server_fingerprint = crypto::fingerprint(&h.store.server_keypair().unwrap().0);
+
+        let (status, _headers, body) = get_page(&h.state, "/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.contains(&root_fingerprint),
+            "the root fingerprint must be shown",
+        );
+        assert!(
+            !body.contains(&server_fingerprint),
+            "the /ident server fingerprint is a different value from a different \
+             key and must not appear next to `mfb repo trust`",
+        );
+        assert!(body.contains("mfb repo trust reg.example"));
+
+        // The copy must not claim the page authenticates itself.
+        assert!(body.contains("Compare this"));
+        assert!(body.contains("cannot prove that it is the real mfb-repo"));
+        // Scoped to the fingerprint section: the footer legitimately says
+        // content is "unverified by the registry", which contains "verified".
+        let section = body
+            .split("class=\"fingerprint\"")
+            .nth(1)
+            .expect("the fingerprint section is present")
+            .split("</section>")
+            .next()
+            .unwrap();
+        for overclaim in [
+            "is verified",
+            "Verified",
+            "secure connection",
+            "trusted registry",
+            "authentic",
+        ] {
+            assert!(
+                !section.contains(overclaim),
+                "the fingerprint block must not overclaim with {overclaim:?}",
+            );
+        }
+
+        // No script, no inline style, and a real stylesheet link.
+        assert!(!body.contains("<script"));
+        assert!(!body.contains("style="));
+        assert!(body.contains("href=\"/style.css\""));
+    }
+
+    /// A search that matches nothing renders a "no results" page with **HTTP
+    /// 200**, not a 404: the request succeeded and the answer is "none".
+    #[tokio::test]
+    async fn the_search_page_renders_all_three_states() {
+        let h = harness();
+        seed_packages(&h, &["alice#toolbox"]);
+
+        // Results.
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("alice#toolbox"));
+        assert!(
+            body.contains("/p/alice%23toolbox"),
+            "results link to the package page"
+        );
+        assert!(body.contains("1</strong> results"), "{body}");
+
+        // No results — 200, not 404.
+        let (status, _headers, body) = get_page(&h.state, "/search.html?q=xyzzy-nope").await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "an empty result set is a successful request, not a missing page",
+        );
+        assert!(body.contains("No packages match this query."));
+
+        // Empty query — the form, and no enumeration of the whole table.
+        let (status, _headers, body) = get_page(&h.state, "/search.html").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("Search the registry"));
+        assert!(
+            !body.contains("alice#toolbox"),
+            "an empty query must not list the registry",
+        );
+    }
+
+    /// A hostile ident renders escaped in the results list. The ident charset is
+    /// restricted at publish, so this drives the renderer directly — the
+    /// escaping must not depend on an upstream validator that a future change
+    /// could relax.
+    #[tokio::test]
+    async fn search_results_escape_html_metacharacters_in_publisher_values() {
+        let rows = [crate::web::SearchRow {
+            ident: "alice#<script>alert(1)</script>".to_string(),
+            owner: "<img src=x onerror=alert(1)>".to_string(),
+            latest_version: Some("1.0.0\"><script>".to_string()),
+            description: Some("<b>bold</b>".to_string()),
+            published_at: Some(1_700_000_000),
+        }];
+        let rendered = crate::web::search_page("reg", "<script>", &rows).into_string();
+
+        // Assert the absence of live *markup*, not of scary substrings: an
+        // escaped `&lt;img src=x onerror=alert(1)&gt;` legitimately still
+        // contains the text "onerror=", and asserting on that would be a test
+        // that fails for the wrong reason.
+        assert!(!rendered.contains("<script"), "{rendered}");
+        assert!(!rendered.contains("<img"), "{rendered}");
+        assert!(!rendered.contains("<b>bold"), "{rendered}");
+        assert!(rendered.contains("&lt;script&gt;"));
+        assert!(
+            rendered.contains("&lt;img src=x onerror=alert(1)&gt;"),
+            "{rendered}"
+        );
+        // The echoed query is publisher-independent but still user-controlled.
+        assert!(rendered.contains("query-echo"));
     }
 
     fn peer(ip: &str) -> ConnectInfo<SocketAddr> {

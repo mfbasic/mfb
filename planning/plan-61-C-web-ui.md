@@ -232,28 +232,44 @@ Commit: —
 
 ### Phase 2 — Landing and search pages
 
-- [ ] Add `GET /style.css`, serving the stylesheet from `planning/plan-61/style.css`
+- [x] Add `GET /style.css`, serving the stylesheet from `planning/plan-61/style.css`
       embedded in the binary (`include_str!`) with `Content-Type: text/css`. The
       §2 CSP is `style-src 'self'` with no `'unsafe-inline'`, so the stylesheet
       **must** be a real served route — there is no inline fallback. Keeping it
       compiled in preserves the single self-contained binary principle.
-- [ ] Add `GET /` rendering the title, search form, and fingerprint with the §4
+- [x] Add `GET /` rendering the title, search form, and fingerprint with the §4
       wording. Port the markup from `planning/plan-61/index.html` (§3.1).
-- [ ] Add `GET /search.html?q=` rendering `SearchResponse`. Port the markup from
+- [x] Add `GET /search.html?q=` rendering `SearchResponse`. Port the markup from
       `planning/plan-61/search.html`, and its two states from
       `search-noresults.html` and `search-empty.html`.
-- [ ] Register both in the route table (`repository/src/server.rs:672-704`).
+- [x] Register both in the route table (`repository/src/server.rs:672-704`).
       Confirm the HTML routes do not shadow any existing JSON route — in
       particular that adding a `/` handler does not disturb `/health` or
       `/ident`.
-- [ ] Tests: the landing page renders the fingerprint from `/ident`; a search for
+- [x] Tests: the landing page renders the fingerprint ~~from `/ident`~~ **from `/root.json`** (see §4 and §Corrections); a search for
       a nonexistent term renders a "no results" page with HTTP 200, not 404; an
       empty `q` renders the form with no results.
-- [ ] Tests: a package whose ident contains HTML metacharacters renders escaped
+- [x] Tests: a package whose ident contains HTML metacharacters renders escaped
       in the results list.
 
-Acceptance: with JavaScript disabled, submitting the landing form navigates to a
-results page listing matching packages.
+Acceptance: **MET.** The landing and masthead search forms are plain
+`<form method="get" action="/search.html">` with no script anywhere on the page
+(`the_landing_page_...` asserts `!body.contains("<script")` and no inline
+`style=`), so submitting works with JavaScript entirely disabled;
+`the_search_page_renders_all_three_states` then shows `/search.html?q=toolbox`
+listing the package and linking to `/p/alice%23toolbox`.
+
+`the_html_routes_do_not_shadow_any_json_route` checks the Phase-2 worry
+directly: `/health`, `/ident`, `/log/checkpoint` and `/search` all still answer
+`application/json` after a `/` handler exists, while `/` and `/search.html`
+answer `text/html` **with the CSP**, and `/style.css` serves the real stylesheet
+as `text/css`.
+
+`the_landing_page_presents_the_root_fingerprint_as_a_thing_to_compare` asserts
+the **root** fingerprint appears and the `/ident` server fingerprint does *not*
+— the §4 hazard, pinned as a test rather than trusted to review — plus that the
+fingerprint section contains no overclaiming language.
+A no-results search is **HTTP 200**, not 404. Full crate: 301 lib tests passing.
 Commit: —
 
 ### Phase 3 — Package page and audit tab (largest surface)
@@ -350,6 +366,28 @@ Commit: —
   (so a package page can never be sniffed as another type) and
   `Referrer-Policy: no-referrer` (so browsing a package does not leak which one
   to third-party sites). Both are free and neither weakens §2.
+- **`planning/plan-61/index.html` was already correct.** §4 says the mockup
+  "currently has the wrong form" at line 67 and must be fixed in the same
+  change. It was in fact already showing the **root** fingerprint next to
+  `mfb repo trust`, having been corrected during the umbrella plan's
+  pre-execution review (see `plan-61-repo-web.md` §Corrections). No mockup edit
+  was needed; the implementation follows it.
+- **The landing page omits the fingerprint block entirely before `init-root`.**
+  Not specified. A registry with no signed-metadata root has no root
+  fingerprint, and rendering a blank or placeholder value in the one section
+  whose entire purpose is "compare this exactly, character by character" is
+  worse than rendering no section.
+- **The Phase-2 test harness needed `ConnectInfo` injected.** `serve` supplies
+  it through `into_make_service_with_connect_info`, which `oneshot` bypasses, so
+  the rate-limited handlers failed their extractor with a 500 in tests while
+  being correct in production. The helper inserts it as a request extension.
+  Worth recording because the 500 looked like a routing bug and was not.
+- **An escaping test asserted on the wrong thing at first.** Checking
+  `!rendered.contains("onerror=")` fails against a *correctly* escaped
+  `&lt;img src=x onerror=alert(1)&gt;` — the substring legitimately survives
+  inside escaped text. The assertions now check for absence of live **markup**
+  (`<script`, `<img`, `<b>bold`) and for presence of the escaped form, which is
+  the property that actually matters.
 - **`safe_href` also rejects a scheme with no authority.** `http:evil` and
   `https:/evil` parse as an allowed scheme but are not usable absolute URLs;
   admitting them would have produced links that resolve relative to the
