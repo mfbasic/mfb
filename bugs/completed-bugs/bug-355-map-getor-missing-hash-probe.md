@@ -348,7 +348,7 @@ Acceptance: the reproduction shows `getOr` flat across M = 64…4096 — measure
 variant equally flat (298 → 769 µs, tracking `get` exactly); the Phase 1
 behavior fixture still green with identical stdout, including the
 String-default owned-copy line; the non-eligible Money-key path unchanged. ✓
-Commit: `—`
+Commit: `5b55b27d3`
 
 ### Phase 3 — regenerate expected outputs + full validation
 
@@ -366,7 +366,7 @@ Commit: `—`
       `get.md` already carries.
 
 Acceptance: full suite green; golden delta exactly the map-`getOr` lowering.
-Commit: `—`
+Commit: `5b55b27d3`
 
 ## Validation Plan
 
