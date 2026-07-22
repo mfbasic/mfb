@@ -67,6 +67,7 @@ Sections may appear in any order. The current reader (`read_binary_repr_package`
 15 = ABI_INDEX
 16 = IR
 17 = DOC
+18 = PACKAGE_META       (optional; emitted only when the manifest declares a `description`)
 ```
 
 Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary Representation; the function table records zero-length code regions (the `FUNCTION_TABLE` entry format, however, still carries the legacy register/cleanup fields — see `functions`).

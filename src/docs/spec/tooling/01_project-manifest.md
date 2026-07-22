@@ -34,6 +34,7 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `mode` | string | no | `"console"` (default) or `"app"`; `"app"` is equivalent to passing `--app` (see ²) |
 | `icon` | string | no | project-relative path to a 1024×1024 PNG source for the app icon, used on macOS and Linux (see ³) |
 | `entry` | string | no | entry-point function name; defaults to `"main"` |
+| `description` | string | no⁵ | one-line summary shown on the registry; at most **4096 bytes**. Carried inside the signed `.mfp` payload as `PACKAGE_META` section 18 (./mfb spec package package-meta-section) |
 | `author` | string | no | package author metadata |
 | `url` | string | no | package homepage/source URL |
 | `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires it to belong to the signing owner and defaults it to `<owner>#<name>` |
@@ -95,6 +96,17 @@ absent, non-numeric, or below one read chunk (8 KiB, which could not hold a sing
 chunk); unknown keys under `config` are ignored. It is not a runtime env var or
 setter — the value is fixed into the binary at build time.
 [[src/manifest/mod.rs:stdin_log_cap]]
+
+⁵ `description` is optional, but a project with `kind: "package"` that omits it
+warns (`2-200-0016 PROJECT_JSON_DESCRIPTION_MISSING`). It is *shown on the
+registry*, so a package without one is published with nothing to say what it
+does. The value travels inside the signed payload rather than in the publish
+request, which means the registry renders a string the publisher actually
+signed; see the `package-meta-section` topic for the section layout and its
+forward-compatibility limits. `kind: "executable"` neither requires nor rejects
+the field — executables are never published, so it is inert there, but
+forbidding it would make a `kind` flip needlessly lossy.
+[[src/manifest/mod.rs:MAX_DESCRIPTION_BYTES]]
 
 ## Native buffer ceiling (`maxBuffer`)
 

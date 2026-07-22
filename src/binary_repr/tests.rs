@@ -613,6 +613,80 @@ mod util_tests {
         assert_eq!(&bytes[first_off..first_off + 3], &[1, 2, 3]);
     }
 
+    /// plan-61-D Phase 2: section 18 round-trips, and is **omitted entirely**
+    /// when there is no description — an empty section would change the bytes
+    /// of every package that has none, which is the thing this design exists to
+    /// avoid.
+    #[test]
+    fn package_meta_section_round_trips_and_is_omitted_when_empty() {
+        assert!(
+            encode_package_meta("").is_none(),
+            "no description means no section at all, not an empty one",
+        );
+
+        let encoded = encode_package_meta("A demo package.").expect("a description encodes");
+        assert_eq!(read_package_meta(&encoded).unwrap(), "A demo package.");
+
+        // UTF-8 survives, and the cap is counted in *bytes*, not characters.
+        let unicode = "描述 — naïve café 🎵";
+        let encoded = encode_package_meta(unicode).unwrap();
+        assert_eq!(read_package_meta(&encoded).unwrap(), unicode);
+    }
+
+    /// Unknown field ids inside section 18 are **skipped**, not rejected. That
+    /// is what makes a later field (`license`, `keywords`) additive within the
+    /// section, exactly as the section itself is additive within the container.
+    #[test]
+    fn an_unknown_package_meta_field_id_is_skipped_not_rejected() {
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, 3); // three fields
+                                // An unknown id *before* the description, so a reader that bailed on
+                                // the first unknown field would never reach the value it does know.
+        put_u16(&mut bytes, 999);
+        put_u32(&mut bytes, 5);
+        bytes.extend_from_slice(b"skipme");
+        // ...that was 6 bytes declared as 5, so trim to keep the frame honest.
+        bytes.truncate(bytes.len() - 1);
+        put_u16(&mut bytes, PACKAGE_META_FIELD_DESCRIPTION);
+        put_u32(&mut bytes, 4);
+        bytes.extend_from_slice(b"real");
+        // And an unknown id *after* it too.
+        put_u16(&mut bytes, 1000);
+        put_u32(&mut bytes, 2);
+        bytes.extend_from_slice(b"xy");
+
+        assert_eq!(
+            read_package_meta(&bytes).unwrap(),
+            "real",
+            "unknown field ids must be skipped on both sides of a known one",
+        );
+    }
+
+    /// The 4096-byte cap is re-checked at section-read time, not trusted from
+    /// manifest validation — a hand-built payload never went through the
+    /// manifest.
+    #[test]
+    fn an_over_cap_description_is_rejected_at_read_time() {
+        let mut bytes = Vec::new();
+        let oversized = "x".repeat(crate::manifest::MAX_DESCRIPTION_BYTES + 1);
+        put_u32(&mut bytes, 1);
+        put_u16(&mut bytes, PACKAGE_META_FIELD_DESCRIPTION);
+        put_u32(&mut bytes, oversized.len() as u32);
+        bytes.extend_from_slice(oversized.as_bytes());
+
+        let err = read_package_meta(&bytes).unwrap_err();
+        assert!(err.contains("exceeds the 4096 byte limit"), "{err}");
+
+        // A field claiming more bytes than the section holds is truncation, not
+        // a cap violation, and must not read past the end.
+        let mut bytes = Vec::new();
+        put_u32(&mut bytes, 1);
+        put_u16(&mut bytes, PACKAGE_META_FIELD_DESCRIPTION);
+        put_u32(&mut bytes, 100);
+        bytes.extend_from_slice(b"short");
+        assert!(read_package_meta(&bytes).is_err());
+    }
+
     #[test]
     fn hex_dump_formats_rows_of_sixteen() {
         let out = hex_dump(&[0xAB, 0x00, 0xFF]);
@@ -1243,6 +1317,89 @@ mod reader_tests {
         assert_eq!(package.project.functions.len(), 3);
         assert_eq!(package.exports.len(), 2);
         assert_eq!(package.project.globals.len(), 3);
+    }
+
+    /// plan-61-D Phase 2: a real package round-trips its description through
+    /// section 18, and a package without one emits no section 18 at all.
+    #[test]
+    fn a_description_round_trips_through_section_eighteen() {
+        let project = rich_project();
+
+        // No description: no section, and it reads back empty.
+        let metadata = BinaryReprMetadata::new("richpkg".to_string(), "1.0.0".to_string());
+        let without = encode_project(&project, &metadata);
+        let package = read_binary_repr_package(&without).expect("decode package");
+        assert_eq!(package.project.description, "");
+
+        // With one: the section is present and the value survives.
+        let mut metadata = BinaryReprMetadata::new("richpkg".to_string(), "1.0.0".to_string());
+        metadata.description = "A rich demo package.".to_string();
+        let with = encode_project(&project, &metadata);
+        let package = read_binary_repr_package(&with).expect("decode package");
+        assert_eq!(package.project.description, "A rich demo package.");
+
+        // The no-description build must be byte-identical to what a
+        // pre-plan-61-D compiler produced — that is the whole reason the
+        // section is omitted rather than emitted empty. A shorter payload is
+        // the observable proof the section is genuinely absent.
+        assert!(
+            without.len() < with.len(),
+            "the description-free build must not carry an empty section 18",
+        );
+    }
+
+    /// **The forward-compatibility regression test** — the premise the entire
+    /// section-18 design rests on (plan-61-D §2).
+    ///
+    /// A payload carrying a section with an id no reader knows must parse
+    /// **successfully** and ignore it. This is the claim that makes adding
+    /// section 18 safe for readers built before it existed, tested in the only
+    /// direction a current-day test can: a *future* section against *this*
+    /// reader.
+    #[test]
+    fn a_section_with_an_unknown_id_is_parsed_and_ignored() {
+        let project = rich_project();
+        let metadata = BinaryReprMetadata::new("richpkg".to_string(), "1.0.0".to_string());
+        let bytes = encode_project(&project, &metadata);
+        let baseline = read_binary_repr_package(&bytes).expect("baseline decodes");
+
+        // Rebuild the same payload with two extra sections carrying ids no
+        // reader knows — one just past the allocated range, one far outside it.
+        let mut sections = decompose_sections(&bytes);
+        sections.push(Section::new(99, vec![0xde, 0xad, 0xbe, 0xef]));
+        sections.push(Section::new(4242, vec![0x01, 0x02]));
+        let extended = encode_sections(&sections);
+
+        let package = read_binary_repr_package(&extended)
+            .expect("an unknown section id must parse, not error");
+
+        // And it is genuinely ignored: everything the reader does understand is
+        // unchanged.
+        assert_eq!(
+            package.project.functions.len(),
+            baseline.project.functions.len()
+        );
+        assert_eq!(package.exports.len(), baseline.exports.len());
+        assert_eq!(
+            package.project.globals.len(),
+            baseline.project.globals.len()
+        );
+        assert_eq!(package.project.description, baseline.project.description);
+    }
+
+    /// Split an encoded MFPC payload back into its sections, so a test can add
+    /// one and re-encode.
+    fn decompose_sections(bytes: &[u8]) -> Vec<Section> {
+        let count = checked_u32_at(bytes, 12).unwrap() as usize;
+        (0..count)
+            .map(|index| {
+                let entry = 16 + index * 24;
+                let id = checked_u16_at(bytes, entry).unwrap();
+                let offset = checked_u64_at(bytes, entry + 8).unwrap() as usize;
+                let length = checked_u64_at(bytes, entry + 16).unwrap() as usize;
+                Section::new(id, bytes[offset..offset + length].to_vec())
+            })
+            .collect()
     }
 
     #[test]

@@ -13,6 +13,12 @@ const SECTION_MANIFEST: u16 = 1;
 const SECTION_STRING_POOL: u16 = 2;
 const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
 const SECTION_ABI_INDEX: u16 = 15;
+/// Optional human-facing package metadata (plan-61-D). Restated here for the
+/// same reason as the ids above: this crate does not depend on the compiler.
+const SECTION_PACKAGE_META: u16 = 18;
+const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
+/// Mirrors `crate::manifest::MAX_DESCRIPTION_BYTES` in the compiler crate.
+const MAX_DESCRIPTION_BYTES: usize = 4096;
 const ABI_FORMAT_VERSION: u16 = 1;
 const ABI_HASH_LEN: usize = 32;
 
@@ -196,6 +202,51 @@ fn read_native_vendor_locators(
 pub struct ManifestMetadata {
     pub author: String,
     pub url: String,
+}
+
+/// Read the `description` from section 18 (plan-61-D §3).
+///
+/// `Ok(None)` when the package carries no section 18 — the normal case for
+/// every package built before plan-61-D and every package that declares no
+/// description. Unknown field ids inside the section are **skipped**, which is
+/// what makes a later field additive.
+pub fn parse_package_description(payload: &[u8]) -> Result<Option<String>, String> {
+    let Ok(sections) = read_section_table(payload) else {
+        return Ok(None);
+    };
+    let Some(bytes) = sections.get(&SECTION_PACKAGE_META) else {
+        return Ok(None);
+    };
+    let mut offset = 0usize;
+    let field_count = read_u32(bytes, offset)? as usize;
+    offset += 4;
+    let mut description = None;
+    for _ in 0..field_count {
+        let field_id = read_u16(bytes, offset)?;
+        offset += 2;
+        let length = read_u32(bytes, offset)? as usize;
+        offset += 4;
+        let end = offset
+            .checked_add(length)
+            .ok_or("package meta field length overflows")?;
+        let value = bytes
+            .get(offset..end)
+            .ok_or("truncated package meta field")?;
+        offset = end;
+        if field_id == PACKAGE_META_FIELD_DESCRIPTION {
+            if length > MAX_DESCRIPTION_BYTES {
+                return Err(format!(
+                    "package description exceeds the {MAX_DESCRIPTION_BYTES} byte limit \
+                     ({length} bytes)"
+                ));
+            }
+            description = Some(
+                String::from_utf8(value.to_vec())
+                    .map_err(|_| "package description is not valid UTF-8".to_string())?,
+            );
+        }
+    }
+    Ok(description)
 }
 
 /// Byte offsets of `author` and `url` within MANIFEST section 1. The section is
@@ -675,6 +726,57 @@ mod tests {
             (SECTION_STRING_POOL, string_pool(&["x"])),
         ]);
         assert!(parse_manifest_metadata(&payload).is_err());
+    }
+
+    /// plan-61-D Phase 2, repository side: section 18 is read here too, so the
+    /// registry can surface a description without re-deriving the format.
+    #[test]
+    fn reads_the_description_from_section_eighteen() {
+        let mut section = Vec::new();
+        put_u32(&mut section, 1);
+        put_u16(&mut section, 1); // fieldId = description
+        let text = "A demo package.";
+        put_u32(&mut section, text.len() as u32);
+        section.extend_from_slice(text.as_bytes());
+        let payload = container(&[(SECTION_PACKAGE_META, section)]);
+        assert_eq!(
+            parse_package_description(&payload).unwrap().as_deref(),
+            Some("A demo package."),
+        );
+
+        // No section 18 at all — every package built before plan-61-D, and
+        // every package that declares no description.
+        let payload = container(&[(SECTION_STRING_POOL, string_pool(&["x"]))]);
+        assert_eq!(parse_package_description(&payload).unwrap(), None);
+        assert_eq!(parse_package_description(b"not a container").unwrap(), None);
+
+        // Unknown field ids are skipped rather than rejected.
+        let mut section = Vec::new();
+        put_u32(&mut section, 2);
+        put_u16(&mut section, 777);
+        put_u32(&mut section, 3);
+        section.extend_from_slice(b"abc");
+        put_u16(&mut section, 1);
+        put_u32(&mut section, 4);
+        section.extend_from_slice(b"real");
+        let payload = container(&[(SECTION_PACKAGE_META, section)]);
+        assert_eq!(
+            parse_package_description(&payload).unwrap().as_deref(),
+            Some("real"),
+        );
+
+        // The cap is re-checked here: this reader sees payloads the compiler's
+        // manifest validation never touched.
+        let mut section = Vec::new();
+        let oversized = "x".repeat(MAX_DESCRIPTION_BYTES + 1);
+        put_u32(&mut section, 1);
+        put_u16(&mut section, 1);
+        put_u32(&mut section, oversized.len() as u32);
+        section.extend_from_slice(oversized.as_bytes());
+        let payload = container(&[(SECTION_PACKAGE_META, section)]);
+        assert!(parse_package_description(&payload)
+            .unwrap_err()
+            .contains("exceeds the 4096 byte limit"));
     }
 
     #[test]

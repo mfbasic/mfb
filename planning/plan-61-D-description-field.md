@@ -221,58 +221,78 @@ Commit: —
 
 ### Phase 2 — Write and read section 18
 
-- [ ] Add `SECTION_PACKAGE_META: u16 = 18` to `src/binary_repr/mod.rs` (highest
+- [x] Add `SECTION_PACKAGE_META: u16 = 18` to `src/binary_repr/mod.rs` (highest
       in use today is 17, `SECTION_DOC_TABLE` — re-confirm with
       `grep -nE 'SECTION_[A-Z_]+: u16 = [0-9]+' src/binary_repr/mod.rs` before
       claiming 18 is free).
-- [ ] Emit the section in the writer (`src/binary_repr/writer.rs` / the section
+- [x] Emit the section in the writer (`src/binary_repr/writer.rs` / the section
       assembly in `src/binary_repr/sections.rs`), per the §3 layout. **Omit the
       section entirely when there is no description** — do not emit an empty
       section, so packages without one are byte-identical to today.
-- [ ] Read it in the compiler reader (`src/binary_repr/reader.rs`), following the
+- [x] Read it in the compiler reader (`src/binary_repr/reader.rs`), following the
       DOC absence idiom at `:407-410`: `match sections.get(&SECTION_PACKAGE_META)`
       → `None` yields a default.
-- [ ] Read it in the repository reader (`repository/src/abi.rs`), using the
+- [x] Read it in the repository reader (`repository/src/abi.rs`), using the
       existing `read_section_table` (`:168-195`).
-- [ ] Skip unknown `fieldId`s rather than erroring, per §3.
-- [ ] Tests: round-trip a description through write→read; a package with no
+- [x] Skip unknown `fieldId`s rather than erroring, per §3.
+- [x] Tests: round-trip a description through write→read; a package with no
       description emits no section 18 and reads back as `None`; a section with an
       unknown `fieldId` is skipped without error; an over-cap length in the
       section is rejected at read time.
-- [ ] Tests — **the forward-compatibility regression test**, which is the whole
+- [x] Tests — **the forward-compatibility regression test**, which is the whole
       premise: construct a payload containing a section with an id no reader
       knows (e.g. 99) and assert `read_binary_repr_package` and the repository's
       `read_section_table` both parse it successfully. This guards the property
       that a *future* section will not break *this* reader.
 
-Acceptance: `mfb build --sign` on a package with a description produces a `.mfp`
-containing section 18; a package without one produces a file with no section 18;
-and the unknown-section-id test passes in both readers.
+Acceptance: **MET.**
+`a_description_round_trips_through_section_eighteen` encodes a real project
+twice — with and without a description — and asserts the value survives the
+round trip *and* that the description-free payload is **strictly shorter**,
+which is the observable proof no empty section was emitted.
+`a_section_with_an_unknown_id_is_parsed_and_ignored` is the
+forward-compatibility test: it decomposes a real payload, appends sections with
+ids `99` and `4242`, re-encodes, and asserts `read_binary_repr_package` parses
+it **and** that every field the reader does understand is byte-for-byte what the
+baseline produced. `reads_the_description_from_section_eighteen` covers the
+repository reader (present / absent / non-container / unknown fieldId /
+over-cap). `an_unknown_package_meta_field_id_is_skipped_not_rejected` places
+unknown ids on **both sides** of the known one, so a reader that bailed on the
+first unknown field would fail it.
+
+**Golden churn: zero, as the plan required — and measured, not assumed.**
+`artifact-gate.sh` reports 18 diffs, but a stash-and-rerun on a clean tree
+reports the *same 18*, and `diff` of the two sorted DIFF lists is empty. All 18
+are pre-existing `codegen-cover` `.ncode` diffs unrelated to this work. Nothing
+was re-baselined.
 Commit: —
 
 ### Phase 3 — Spec sync
 
 Part of the Hard Completion Gate, not cleanup (`.ai/specifications.md:12-18`).
 
-- [ ] Add `description` to the schema table in
+- [x] Add `description` to the schema table in
       `src/docs/spec/tooling/01_project-manifest.md` (table header at `:27`), with type,
       required-ness (`no` for now — plan-61-E changes this row), meaning, and the
       4096-byte cap.
-- [ ] Add section 18 to the section table in
+- [x] Add section 18 to the section table in
       `src/docs/spec/package/02_binary-representation.md:53-70`.
-- [ ] Write a new topic `src/docs/spec/package/15_package-meta-section.md`
+- [x] Write a new topic `src/docs/spec/package/15_package-meta-section.md`
       (next free `NN`) describing the §3 layout, following the DOC topic
       (`11_doc-section.md`) as the model. **Include the §2 caveat**: the format
       has no critical-section marker, so section 18 must never carry
       security-relevant data.
-- [ ] Add invisible `[[src/file.rs:Symbol]]` provenance citations and confirm
+- [x] Add invisible `[[src/file.rs:Symbol]]` provenance citations and confirm
       each with grep before citing (`.ai/specifications.md:28-53`).
-- [ ] Verify: `cargo build` (regenerates the embedded table; `touch build.rs` if
+- [x] Verify: `cargo build` (regenerates the embedded table; `touch build.rs` if
       a brand-new file is not picked up), `cargo test --bin mfb spec`, then
       `mfb spec package --all` renders with no leaked `[[` markers.
 
-Acceptance: `cargo test --bin mfb spec` passes, including `spec_links_resolve`
-and `spec_citations_resolve`; `mfb spec package --all` renders the new topic.
+Acceptance: **MET** — `cargo test --bin mfb spec` → 48 passed, 0 failed,
+including `spec_links_resolve` and `spec_citations_resolve` (all four new
+`[[…]]` citations were grepped against real symbols before being written).
+`mfb spec package --all` renders with **0** leaked `[[` markers, lists
+`package-meta-section` in the topic index, and includes the new topic's body.
 Commit: —
 
 ## Validation Plan
@@ -307,6 +327,23 @@ Commit: —
 
 ## Corrections
 
+- **The runtime proof used a purpose-built fixture, not `bindings/sqlite3`.**
+  §Validation Plan says to add a description to `bindings/sqlite3` and rebuild
+  it. That package is **modified in the working tree by another agent** (as is
+  `bindings/libsnd`), and editing a fixture mid-edit by someone else is how work
+  gets stashed away. A throwaway package at `/tmp` gave the identical evidence
+  without touching a shared file.
+- **The forward-compatibility proof got a genuinely old binary, as asked.**
+  `HEAD` was D Phase 1 — the manifest field, but *not* section 18 — so stashing
+  Phase 2 and building produced a real reader that has never heard of section 18.
+  It read a `.mfp` containing one with `mfb pkg info` (exit 0, all known metadata
+  intact) and `mfb pkg validate` (`payload hash: OK`, `result: valid`). The
+  section was silently ignored, which is exactly the claim.
+- **`artifact-gate.sh` must be run with `bash`, not `sh`.** It uses process
+  substitution (`done < <(find …)`), so `sh scripts/artifact-gate.sh` dies with
+  a syntax error at line 103 — and, because the failure is inside the script,
+  the wrapper still exits 0. A gate that reports success while never having run
+  is worth recording; the golden-churn check was re-run under `bash`.
 - **§4's warning about stale prose was itself stale.** It says
   `01_rule-codes.md` narrates the block as `0001`-`0013` with "exactly six
   `warn` rules", and instructs D to leave the sentence correct. As found, the

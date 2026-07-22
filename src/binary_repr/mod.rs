@@ -42,6 +42,23 @@ const SECTION_RESOURCE_TABLE: u16 = 11;
 /// Ids 12-14 are reserved by the format for DEBUG_INFO/SOURCE_MAP/AUDIT_INFO,
 /// so the doc table takes the next free id past the IR section.
 const SECTION_DOC_TABLE: u16 = 17;
+/// Optional human-facing package metadata (plan-61-D).
+///
+/// Named `PACKAGE_META` rather than `DESCRIPTION` so `license`/`keywords` can
+/// join it later without consuming another section id. Self-contained and
+/// length-prefixed like the DOC section: it does **not** intern into the string
+/// pool, so it can be parsed without section 2.
+///
+/// **Never put security-relevant data here.** The format has no
+/// "critical section" marker, so a reader that predates this section accepts a
+/// package carrying it and silently ignores the contents. That is exactly right
+/// for a description — a missing one is cosmetic — and exactly wrong for
+/// anything a consumer must not miss.
+const SECTION_PACKAGE_META: u16 = 18;
+/// Field ids within section 18. Unknown ids are **skipped**, not rejected, so a
+/// later field is additive within the section just as the section itself is
+/// additive within the container.
+const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
 const SECTION_ABI_INDEX: u16 = 15;
 /// Structured Binary Representation payload section. Replaces the old flat code section as
 /// the carrier of function bodies; see `crate::ir::encode_binary_repr`.
@@ -576,6 +593,9 @@ struct BinaryReprProject {
     /// Optional native `LINK` locator table emitted as section 10 (plan-46-B).
     /// Empty for every package without a `LINK` block.
     native_libraries: NativeLibraryTable,
+    /// The `description` carried in section 18 (plan-61-D). Empty when the
+    /// package declares none, in which case the section is not emitted.
+    description: String,
 }
 
 struct GlobalEntry {

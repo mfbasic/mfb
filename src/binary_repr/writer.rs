@@ -252,6 +252,9 @@ pub(super) fn lower_project_with_external_functions(
         // Assembled by the build path from the manifest's `libraries` section and
         // the IR's `LINK` names (plan-46-B §4.3); empty for a non-binding package.
         native_libraries: metadata.native_libraries.clone(),
+        // plan-61-D: carried from the manifest into section 18. Empty here means
+        // the section is not emitted at all.
+        description: metadata.description.clone(),
     })
 }
 
@@ -985,6 +988,13 @@ impl BinaryReprProject {
         }
         if let Some(table) = native_libraries {
             sections.push(Section::new(SECTION_NATIVE_LIBRARY_TABLE, table));
+        }
+        // Section 18 is emitted **only** when there is something to put in it.
+        // Emitting an empty section instead would change the bytes of every
+        // package that has no description — and the whole point of plan-61-D is
+        // that packages without one are byte-identical to before.
+        if let Some(section) = encode_package_meta(&self.description) {
+            sections.push(Section::new(SECTION_PACKAGE_META, section));
         }
 
         encode_sections(&sections)

@@ -18,6 +18,68 @@ pub(super) fn doc_kind_name(kind: u16) -> &'static str {
     }
 }
 
+/// Encode section 18 (plan-61-D §3), or `None` when there is nothing to encode.
+///
+/// ```text
+/// u32          fieldCount
+///   per field:
+///     u16      fieldId        (1 = description; 2..= reserved)
+///     u32      byteLength
+///     u8[]     utf8 value
+/// ```
+///
+/// A field-id/length design rather than a positional record, so a later field
+/// is additive *within* the section and an unknown id is skipped by the same
+/// logic that makes the section itself skippable.
+pub(super) fn encode_package_meta(description: &str) -> Option<Vec<u8>> {
+    if description.is_empty() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    put_u32(&mut bytes, 1); // one field
+    put_u16(&mut bytes, PACKAGE_META_FIELD_DESCRIPTION);
+    put_u32(&mut bytes, description.len() as u32);
+    bytes.extend_from_slice(description.as_bytes());
+    Some(bytes)
+}
+
+/// Decode section 18. Returns the description, or an empty string when the
+/// section carries no `description` field.
+///
+/// **Unknown field ids are skipped, not rejected** — that is what makes a later
+/// field additive. The 4096-byte cap is re-checked here rather than trusted
+/// from manifest validation, because a hand-built payload never went through
+/// the manifest.
+pub(super) fn read_package_meta(bytes: &[u8]) -> Result<String, String> {
+    let mut offset = 0usize;
+    let field_count = cursor_u32(bytes, &mut offset)? as usize;
+    let mut description = String::new();
+    for _ in 0..field_count {
+        let field_id = cursor_u16(bytes, &mut offset)?;
+        let length = cursor_u32(bytes, &mut offset)? as usize;
+        let end = offset
+            .checked_add(length)
+            .ok_or("package meta field length overflows")?;
+        let value = bytes
+            .get(offset..end)
+            .ok_or("truncated package meta field")?;
+        offset = end;
+        if field_id == PACKAGE_META_FIELD_DESCRIPTION {
+            if length > crate::manifest::MAX_DESCRIPTION_BYTES {
+                return Err(format!(
+                    "package description exceeds the {} byte limit ({length} bytes)",
+                    crate::manifest::MAX_DESCRIPTION_BYTES,
+                ));
+            }
+            description = String::from_utf8(value.to_vec())
+                .map_err(|_| "package description is not valid UTF-8".to_string())?;
+        }
+        // Any other field id: skipped. Its length prefix is what makes that
+        // possible without knowing what it was.
+    }
+    Ok(description)
+}
+
 pub(super) fn encode_doc_table(docs: &PackageDocs) -> Vec<u8> {
     let mut bytes = Vec::new();
     match &docs.package {
@@ -408,6 +470,12 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
         Some(section) => read_doc_table(section)?,
         None => PackageDocs::default(),
     };
+    // Section 18 is optional; its absence is the normal case and decodes to an
+    // empty description, following the DOC absence idiom directly above.
+    let description = match sections.get(&SECTION_PACKAGE_META).copied() {
+        Some(section) => read_package_meta(section)?,
+        None => String::new(),
+    };
     // Section 10 is present only for a binding package (plan-46-B); its absence is
     // the normal case and decodes to an empty table.
     let native_libraries = match sections.get(&SECTION_NATIVE_LIBRARY_TABLE).copied() {
@@ -459,6 +527,7 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
             binary_repr,
             docs,
             native_libraries,
+            description,
         },
         exports,
     })
