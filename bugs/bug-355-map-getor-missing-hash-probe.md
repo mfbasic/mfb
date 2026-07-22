@@ -296,15 +296,35 @@ regenerated deliberately — this cannot land inside bug-333's byte-identical ph
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add the benchmark reproduction above as a checked-in perf case; record the
-      current divergence.
-- [ ] Add a `tests/rt-behavior/collections/` fixture asserting `getOr` returns
+- [x] Add the benchmark reproduction above as a checked-in perf case; record the
+      current divergence. → `bugs/repro/bug-355-map-getor-hash-probe.mfb`.
+      Re-measured 2026-07-22 at `169db18b3` (release build): get flat
+      1,967–2,655 µs across M=64…4096 while getOr grows 4,850 → 77,758 µs —
+      the divergence reproduces. (Doc drift: the original repro used `WEND`,
+      which bug-357 removed from the grammar; the checked-in repro uses
+      `END WHILE`.)
+- [x] Add a `tests/rt-behavior/collections/` fixture asserting `getOr` returns
       correct values for hit and miss, for `String` and `Integer` value types, on
       probe-eligible and non-eligible key types. It passes today (results are
       correct) and guards the fix.
-- [ ] Blast-radius audit complete above, verdict per site.
+      → `tests/rt-behavior/collections/func_map_getor_hash_probe/`, with a
+      `.macos-aarch64.ncode` golden pinning the lowering: the fixture's maps are
+      built with nested functional `set` calls (not `name = set(name, …)`, which
+      would take the in-place probe path), so `getOr` is its only probe-eligible
+      map read and any `map_probe_*` label in the ncode proves the `[hash]`
+      probe was selected for `getOr`. Pre-fix ncode has zero `map_probe` labels.
+- [x] Blast-radius audit complete above, verdict per site. Re-verified at
+      `169db18b3`: `grep -rn "map_key_probe_eligible\|emit_map_probe" src/` hits
+      exactly `lower_map_get` (`builder_collection_query.rs:328`),
+      `lower_collection_has_key` (`builder_collection_queries.rs:321`),
+      `lower_map_set_in_place` (`builder_collection_mutate.rs:2704`), and the
+      definitions — `lower_map_get_or` is the only probe-eligible map lookup
+      without the probe. (Line numbers in this doc drifted: `lower_map_get_or`
+      is now at `builder_collection_query.rs:522`.)
 
-Acceptance: divergence recorded; the behavior fixture is green pre-fix.
+Acceptance: divergence recorded; the behavior fixture is green pre-fix. ✓
+(`scripts/test-accept.sh target/debug/mfb target/accept-actual
+func_map_getor_hash_probe` passes.)
 Commit: `—`
 
 ### Phase 2 — the fix

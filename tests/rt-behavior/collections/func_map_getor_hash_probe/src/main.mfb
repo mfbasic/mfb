@@ -1,0 +1,52 @@
+' bug-355: `collections::getOr` on a probe-eligible map must take the same O(1)
+' hash probe as `collections::get`, substituting the default on the probe's
+' not-found branch.
+'
+' This fixture pins two things:
+'
+' 1. Behavior (build.log): `getOr` returns the stored value on a hit and the
+'    default on a miss, for probe-eligible keys (String, Integer) and a
+'    non-eligible key (Money, which keeps the linear scan), for both a
+'    fixed-width (Integer) and a String value type. The String-value miss also
+'    re-prints the default variable afterwards: the miss path must return an
+'    owned COPY of the default (see `lower_map_get_or`'s use_default block) —
+'    if it ever returns the borrow, scope-drop double-frees it and this output
+'    corrupts.
+'
+' 2. Lowering (the .ncode golden): `getOr` is this program's ONLY probe-eligible
+'    map read — no `get`, no `hasKey`, and the maps are built with nested
+'    functional `collections::set` calls into fresh `LET` bindings, which take
+'    the builder path, not the in-place probe path (`name = set(name, …)` on a
+'    MUT local would). So any `map_probe_*` label in the generated code proves
+'    the `[hash]` probe was selected for `getOr` itself.
+IMPORT io
+IMPORT collections
+
+SUB main
+  ' --- probe-eligible String key ---
+  LET si AS Map OF String TO Integer = collections::set(collections::set(collections::set(Map OF String TO Integer {}, "alpha", 1), "beta", 2), "gamma", 3)
+  io::print("si hit=" & toString(collections::getOr(si, "beta", -1)) & " miss=" & toString(collections::getOr(si, "delta", -1)))
+
+  LET ss AS Map OF String TO String = collections::set(collections::set(Map OF String TO String {}, "alpha", "one"), "beta", "two")
+  LET fallback AS String = "none"
+  io::print("ss hit=" & collections::getOr(ss, "alpha", fallback) & " miss=" & collections::getOr(ss, "delta", fallback))
+  io::print("fallback still owned=" & fallback)
+
+  ' --- probe-eligible Integer key ---
+  LET ii AS Map OF Integer TO Integer = collections::set(collections::set(Map OF Integer TO Integer {}, 10, 100), 20, 200)
+  io::print("ii hit=" & toString(collections::getOr(ii, 20, -1)) & " miss=" & toString(collections::getOr(ii, 30, -1)))
+
+  LET istr AS Map OF Integer TO String = collections::set(collections::set(Map OF Integer TO String {}, 10, "ten"), 20, "twenty")
+  io::print("istr hit=" & collections::getOr(istr, 10, "absent") & " miss=" & collections::getOr(istr, 30, "absent"))
+
+  ' --- non-eligible Money key: linear scan in both `get` and `getOr`, must
+  ' --- keep returning correct values untouched by the probe change ---
+  LET low AS Money = 1.25
+  LET high AS Money = 2.50
+  LET absent AS Money = 9.99
+  LET mi AS Map OF Money TO Integer = collections::set(collections::set(Map OF Money TO Integer {}, low, 125), high, 250)
+  io::print("mi hit=" & toString(collections::getOr(mi, high, -1)) & " miss=" & toString(collections::getOr(mi, absent, -1)))
+
+  LET ms AS Map OF Money TO String = collections::set(collections::set(Map OF Money TO String {}, low, "low"), high, "high")
+  io::print("ms hit=" & collections::getOr(ms, low, "absent") & " miss=" & collections::getOr(ms, absent, "absent"))
+END SUB

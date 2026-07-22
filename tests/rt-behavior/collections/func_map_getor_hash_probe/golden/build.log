@@ -1,0 +1,17 @@
+$ mfb build -ast -ir -ncode tests/rt-behavior/collections/func_map_getor_hash_probe
+Wrote AST to tests/rt-behavior/collections/func_map_getor_hash_probe/func_map_getor_hash_probe.ast
+Wrote IR to tests/rt-behavior/collections/func_map_getor_hash_probe/func_map_getor_hash_probe.ir
+Wrote native code plan to tests/rt-behavior/collections/func_map_getor_hash_probe/func_map_getor_hash_probe.ncode
+[exit 0]
+$ mfb build tests/rt-behavior/collections/func_map_getor_hash_probe
+Wrote executable to tests/rt-behavior/collections/func_map_getor_hash_probe/build/func_map_getor_hash_probe.out
+[exit 0]
+$ tests/rt-behavior/collections/func_map_getor_hash_probe/build/func_map_getor_hash_probe.out
+si hit=2 miss=-1
+ss hit=one miss=none
+fallback still owned=none
+ii hit=200 miss=-1
+istr hit=ten miss=absent
+mi hit=250 miss=-1
+ms hit=low miss=absent
+[exit 0]

@@ -1,0 +1,56 @@
+' bug-355 benchmark reproduction: `collections::getOr` on a probe-eligible map
+' must stay O(1) like `collections::get`, not degrade linearly with map size.
+'
+' Run: drop into a scratch project as src/main.mfb (entry "main") and
+' `mfb build && ./build/<name>.out`. Every lookup hits (acc == acc2 proves both
+' loops read identical values); the timing columns are the signal.
+'
+' Pre-fix (2026-07-22, macOS aarch64, release compiler, median of 3):
+'   M=64   get_us=2655 getOr_us=4850
+'   M=256  get_us=2142 getOr_us=7512
+'   M=1024 get_us=2375 getOr_us=28271
+'   M=4096 get_us=1967 getOr_us=77758   <- getOr doubles with M; get is flat
+'
+' Post-fix both columns are flat: getOr tracks get within the cost of one
+' default-materialization branch.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+SUB bench(m AS Integer, lookups AS Integer)
+  MUT map AS Map OF String TO Integer = Map OF String TO Integer {}
+  MUT i AS Integer = 0
+  WHILE i < m
+    map = collections::set(map, "k" & toString(i), i)
+    i = i + 1
+  END WHILE
+
+  LET t0 AS Integer = datetime::monotonicNanos()
+  MUT acc AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < lookups
+    acc = acc + collections::get(map, "k" & toString(j MOD m))
+    j = j + 1
+  END WHILE
+  LET t1 AS Integer = datetime::monotonicNanos()
+
+  MUT acc2 AS Integer = 0
+  MUT k AS Integer = 0
+  WHILE k < lookups
+    acc2 = acc2 + collections::getOr(map, "k" & toString(k MOD m), 0)
+    k = k + 1
+  END WHILE
+  LET t2 AS Integer = datetime::monotonicNanos()
+
+  io::print("M=" & toString(m) & " get_us=" & toString((t1 - t0) / 1000) & " getOr_us=" & toString((t2 - t1) / 1000) & " acc=" & toString(acc) & "/" & toString(acc2))
+END SUB
+
+SUB main
+  bench(64, 20000)
+  bench(128, 20000)
+  bench(256, 20000)
+  bench(512, 20000)
+  bench(1024, 20000)
+  bench(2048, 20000)
+  bench(4096, 20000)
+END SUB
