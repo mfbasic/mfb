@@ -1261,7 +1261,7 @@ pub(super) const RULES: &[Rule] = &[
         code: "1-103-0002",
         name: "DOC_BAD_HEADER",
         severity: Severity::Error,
-        message: "DOC block header must be FUNC, SUB, TYPE, UNION, ENUM, or PACKAGE",
+        message: "DOC block header must be FUNC, SUB, TYPE, UNION, ENUM, RESOURCE, or PACKAGE",
     },
     Rule {
         code: "1-103-0003",

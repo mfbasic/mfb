@@ -429,6 +429,7 @@ const DOC_KIND_SUB: u16 = 1;
 const DOC_KIND_TYPE: u16 = 2;
 const DOC_KIND_UNION: u16 = 3;
 const DOC_KIND_ENUM: u16 = 4;
+const DOC_KIND_RESOURCE: u16 = 5;
 
 /// Read the optional `doc` section from a compiled `.mfp` package. Returns an
 /// empty [`PackageDocs`] when the package carries no documentation.

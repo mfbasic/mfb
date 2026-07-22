@@ -118,6 +118,10 @@ pub enum DocHeaderKind {
     Type,
     Union,
     Enum,
+    /// A `RESOURCE` declaration. An exported resource is importer-visible — it
+    /// appears in every signature that takes or returns the handle — so it needs
+    /// a documentable form like any other exported declaration.
+    Resource,
     Package,
 }
 
@@ -129,6 +133,7 @@ impl DocHeaderKind {
             DocHeaderKind::Type => "TYPE",
             DocHeaderKind::Union => "UNION",
             DocHeaderKind::Enum => "ENUM",
+            DocHeaderKind::Resource => "RESOURCE",
             DocHeaderKind::Package => "PACKAGE",
         }
     }

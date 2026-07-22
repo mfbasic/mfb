@@ -239,7 +239,7 @@ severity is `error`.
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
 | `1-103-0001` | `DOC_UNTERMINATED` | error | DOC block was not closed with END DOC |
-| `1-103-0002` | `DOC_BAD_HEADER` | error | DOC block header must be FUNC, SUB, TYPE, UNION, ENUM, or PACKAGE |
+| `1-103-0002` | `DOC_BAD_HEADER` | error | DOC block header must be FUNC, SUB, TYPE, UNION, ENUM, RESOURCE, or PACKAGE |
 | `1-103-0003` | `DOC_UNKNOWN_LINE` | error | DOC line keyword is not recognized |
 | `1-103-0004` | `DOC_EXAMPLE_UNTERMINATED` | error | EXAMPLE block was not closed with END EXAMPLE |
 

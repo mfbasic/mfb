@@ -18,6 +18,7 @@ impl Resolver<'_> {
         // and a name may carry several overloads.
         let mut funcs: HashMap<&str, Vec<&Function>> = HashMap::new();
         let mut types: HashMap<&str, &TypeDecl> = HashMap::new();
+        let mut resources: HashMap<&str, &ResourceDecl> = HashMap::new();
         for file in &ast.files {
             for item in &file.items {
                 match item {
@@ -29,6 +30,9 @@ impl Resolver<'_> {
                     }
                     Item::Type(type_decl) => {
                         types.entry(type_decl.name.as_str()).or_insert(type_decl);
+                    }
+                    Item::Resource(resource) => {
+                        resources.entry(resource.name.as_str()).or_insert(resource);
                     }
                     _ => {}
                 }
@@ -50,6 +54,7 @@ impl Resolver<'_> {
                     doc,
                     &funcs,
                     &types,
+                    &resources,
                     &mut seen,
                     &mut package_doc_seen,
                 );
@@ -63,6 +68,7 @@ impl Resolver<'_> {
         doc: &DocBlock,
         funcs: &HashMap<&str, Vec<&Function>>,
         types: &HashMap<&str, &TypeDecl>,
+        resources: &HashMap<&str, &ResourceDecl>,
         seen: &mut HashSet<(DocHeaderKind, String, String)>,
         package_doc_seen: &mut bool,
     ) {
@@ -339,7 +345,12 @@ impl Resolver<'_> {
                         false
                     }
                     None => {
-                        let rule = if funcs.contains_key(doc.header_name.as_str()) {
+                        // A RESOURCE of that name is the likely mix-up (`TYPE
+                        // SoundFile` for an `EXPORT RESOURCE SoundFile`), so name
+                        // the kind clash rather than claiming nothing resolves.
+                        let rule = if funcs.contains_key(doc.header_name.as_str())
+                            || resources.contains_key(doc.header_name.as_str())
+                        {
                             "DOC_NAME_MISMATCH"
                         } else {
                             "DOC_UNRESOLVED"
@@ -351,6 +362,39 @@ impl Resolver<'_> {
                                 kind.keyword(),
                                 doc.header_name,
                                 kind.keyword()
+                            ),
+                            file,
+                            doc.header_line,
+                        );
+                        false
+                    }
+                };
+                if resolved {
+                    self.note_doc_target(file, doc, seen);
+                }
+            }
+            DocHeaderKind::Resource => {
+                // A resource is an opaque handle with no fields, variants or
+                // members, so there is nothing for PROP to name and no member set
+                // to validate against. `is_member_kind` above already excludes
+                // RESOURCE, so a stray PROP is reported once as
+                // DOC_PROP_INVALID_CONTEXT; checking it again here would only
+                // double-report the same line.
+                let resolved = match resources.get(doc.header_name.as_str()) {
+                    Some(_) => true,
+                    None => {
+                        let rule = if funcs.contains_key(doc.header_name.as_str())
+                            || types.contains_key(doc.header_name.as_str())
+                        {
+                            "DOC_NAME_MISMATCH"
+                        } else {
+                            "DOC_UNRESOLVED"
+                        };
+                        self.report(
+                            rule,
+                            &format!(
+                                "DOC header `RESOURCE {}` does not name a RESOURCE in this package.",
+                                doc.header_name
                             ),
                             file,
                             doc.header_line,

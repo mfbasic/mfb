@@ -94,6 +94,7 @@ pub(crate) enum IrDocKind {
     Type,
     Union,
     Enum,
+    Resource,
 }
 
 #[derive(Clone)]

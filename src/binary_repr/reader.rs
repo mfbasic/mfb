@@ -14,6 +14,7 @@ pub(super) fn doc_kind_name(kind: u16) -> &'static str {
         DOC_KIND_TYPE => "type",
         DOC_KIND_UNION => "union",
         DOC_KIND_ENUM => "enum",
+        DOC_KIND_RESOURCE => "resource",
         _ => "func",
     }
 }
@@ -98,6 +99,7 @@ pub(super) fn encode_doc_table(docs: &PackageDocs) -> Vec<u8> {
             "type" => DOC_KIND_TYPE,
             "union" => DOC_KIND_UNION,
             "enum" => DOC_KIND_ENUM,
+            "resource" => DOC_KIND_RESOURCE,
             _ => DOC_KIND_FUNC,
         };
         put_u16(&mut bytes, kind);
@@ -195,6 +197,7 @@ pub(super) fn docs_from_ir(docs: &crate::ir::ProjectDocs) -> PackageDocs {
                 IrDocKind::Type => "type",
                 IrDocKind::Union => "union",
                 IrDocKind::Enum => "enum",
+                IrDocKind::Resource => "resource",
             }
             .to_string(),
             name: decl.name.clone(),

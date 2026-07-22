@@ -1,7 +1,7 @@
 use crate::ast::{
     AstFile, AstProject, ConstructorArg, DocBlock, DocHeaderKind, Expression, Function,
-    FunctionKind, Item, MatchPattern, Statement, TopLevelBinding, TypeDecl, TypeDeclKind,
-    TypeField, Visibility,
+    FunctionKind, Item, MatchPattern, ResourceDecl, Statement, TopLevelBinding, TypeDecl,
+    TypeDeclKind, TypeField, Visibility,
 };
 use crate::binary_repr;
 use crate::builtins;

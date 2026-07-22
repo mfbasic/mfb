@@ -1576,6 +1576,23 @@ impl TypeDecl {
     }
 }
 
+impl ResourceDecl {
+    /// Render the declaration's source-form header line for documentation output,
+    /// e.g. `EXPORT RESOURCE SoundFile CLOSE BY sndLink.closeFile`.
+    ///
+    /// The close op is part of the signature because it is the observable
+    /// contract of the handle: it names what running the automatic drop actually
+    /// calls, and a reader comparing two resources wants to see it.
+    pub fn signature_line(&self) -> String {
+        format!(
+            "{}RESOURCE {} CLOSE BY {}",
+            visibility_prefix(self.visibility),
+            self.name,
+            self.close_fn
+        )
+    }
+}
+
 /// JSON fragment appended to a binding/parameter/return for `RES` declarations.
 /// Empty for non-resource declarations so ordinary `LET`/`MUT` output (and its
 /// goldens) is unchanged.

@@ -57,6 +57,7 @@ fn kind_label(kind: &str) -> &'static str {
         "type" => "Type",
         "union" => "Union",
         "enum" => "Enum",
+        "resource" => "Resource",
         _ => "Function",
     }
 }
@@ -67,6 +68,7 @@ fn badge_class(kind: &str) -> &'static str {
         "type" => "type",
         "union" => "union",
         "enum" => "enum",
+        "resource" => "resource",
         _ => "function",
     }
 }
@@ -84,7 +86,7 @@ fn member_label(kind: &str) -> Option<&'static str> {
 /// (falling back to "Functions"); type-like kinds collect under "Types".
 fn group_title(kind: &str, group: &str) -> String {
     match kind {
-        "type" | "union" | "enum" => "Types".to_string(),
+        "type" | "union" | "enum" | "resource" => "Types".to_string(),
         _ if !group.is_empty() => group.to_string(),
         _ => "Functions".to_string(),
     }
@@ -213,6 +215,7 @@ pub fn from_package(docs: PackageDocs, fallback_name: &str) -> DocPage {
 pub fn from_source(ast: &AstProject) -> DocPage {
     let mut funcs: HashMap<&str, Vec<&Function>> = HashMap::new();
     let mut type_meta: HashMap<&str, (String, bool, &'static str)> = HashMap::new();
+    let mut resource_meta: HashMap<&str, (String, bool, &'static str)> = HashMap::new();
     for file in &ast.files {
         if file.internal {
             continue;
@@ -235,6 +238,13 @@ pub fn from_source(ast: &AstProject) -> DocPage {
                         type_decl.signature_line(),
                         type_decl.visibility == Visibility::Export,
                         kind,
+                    ));
+                }
+                Item::Resource(resource) => {
+                    resource_meta.entry(resource.name.as_str()).or_insert((
+                        resource.signature_line(),
+                        resource.visibility == Visibility::Export,
+                        "resource",
                     ));
                 }
                 _ => {}
@@ -270,7 +280,8 @@ pub fn from_source(ast: &AstProject) -> DocPage {
                 }
                 continue;
             }
-            let Some((kind_str, signature, exported)) = source_decl_meta(doc, &funcs, &type_meta)
+            let Some((kind_str, signature, exported)) =
+                source_decl_meta(doc, &funcs, &type_meta, &resource_meta)
             else {
                 continue;
             };
@@ -342,6 +353,7 @@ fn source_decl_meta(
     doc: &DocBlock,
     funcs: &HashMap<&str, Vec<&Function>>,
     type_meta: &HashMap<&str, (String, bool, &'static str)>,
+    resource_meta: &HashMap<&str, (String, bool, &'static str)>,
 ) -> Option<(&'static str, String, bool)> {
     match doc.header_kind {
         DocHeaderKind::Func | DocHeaderKind::Sub => {
@@ -364,6 +376,10 @@ fn source_decl_meta(
         }
         DocHeaderKind::Type | DocHeaderKind::Union | DocHeaderKind::Enum => {
             let (signature, exported, kind) = type_meta.get(doc.header_name.as_str())?;
+            Some((kind, signature.clone(), *exported))
+        }
+        DocHeaderKind::Resource => {
+            let (signature, exported, kind) = resource_meta.get(doc.header_name.as_str())?;
             Some((kind, signature.clone(), *exported))
         }
         DocHeaderKind::Package => None,
@@ -678,6 +694,7 @@ pre code{background:none;padding:0;font-size:.8125rem;line-height:1.7}\
 .badge.function{background:#dbeafe;color:#1d4ed8;border-color:#bfdbfe}\
 .badge.type{background:#dcfce7;color:#15803d;border-color:#bbf7d0}\
 .badge.enum{background:#ffedd5;color:#c2410c;border-color:#fed7aa}\
+.badge.resource{background:#ccfbf1;color:#0f766e;border-color:#99f6e4}\
 table{width:100%;border-collapse:collapse;margin:.75rem 0;font-size:.875rem}\
 th,td{padding:.75rem 1rem;text-align:left;vertical-align:top;border-bottom:1px solid var(--border)}\
 th{font-weight:600;background:var(--surface);white-space:nowrap}\
@@ -1114,7 +1131,11 @@ END DOC
         let doc = doc.expect("a package doc block");
         let funcs: HashMap<&str, Vec<&Function>> = HashMap::new();
         let type_meta: HashMap<&str, (String, bool, &'static str)> = HashMap::new();
-        assert_eq!(source_decl_meta(doc, &funcs, &type_meta), None);
+        let resource_meta: HashMap<&str, (String, bool, &'static str)> = HashMap::new();
+        assert_eq!(
+            source_decl_meta(doc, &funcs, &type_meta, &resource_meta),
+            None
+        );
     }
 
     #[test]

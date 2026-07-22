@@ -8,7 +8,7 @@ hover and generated docs work for an imported package.
 
 ```basic
 DOC [INTERNAL]
-  <header>            ' FUNC|SUB|TYPE|UNION|ENUM <name>, or PACKAGE
+  <header>            ' FUNC|SUB|TYPE|UNION|ENUM|RESOURCE <name>, or PACKAGE
   [DESC ...]          ' description paragraph; a blank DESC starts a new one
   [INFO ...]          ' an informational callout (works like DESC)
   [WARN ...]          ' a warning callout
@@ -19,6 +19,7 @@ DOC [INTERNAL]
   [RET  desc]         ' FUNC/SUB only — at most one
   [ERROR code desc]   ' FUNC/SUB only — documented error codes, source order
   [PROP name desc]    ' TYPE/UNION/ENUM only — field/variant/member
+                      ' (a RESOURCE is opaque, so it has no members)
   [EXAMPLE
     ...               ' raw MFBASIC source, rendered as a code block
   END EXAMPLE]
@@ -38,9 +39,18 @@ END DOC
 - **`GROUP <name>`** (FUNC/SUB only, at most one) groups the callable under a
   named heading and sidebar section in rendered docs. Type-like declarations are
   grouped under a derived "Types" heading.
+- **`RESOURCE <name>`** documents a `RESOURCE` declaration. An exported resource
+  is importer-visible — it names the handle in every signature that takes or
+  returns one — so it carries documentation like any other exported declaration.
+  Its rendered signature includes the registered close op
+  (`EXPORT RESOURCE Db CLOSE BY sqlite.close`), because that is the observable
+  contract of the handle: it names what the automatic drop actually calls. A
+  resource is an opaque handle with no fields, so `PROP` is rejected on it
+  (`DOC_PROP_INVALID_CONTEXT`), and it groups under the derived "Types" heading.
 - **Overloads**: a header may carry a parenthesized parameter-type list to pick a
-  specific overload, e.g. `FUNC query(RES Db, String, List OF String)` —
-  whitespace is normalized and `RES`/parameter names are omitted. Each overload
+  specific overload, e.g. `FUNC query(Db, String, List OF String)` —
+  whitespace is normalized, and `RES`, any `STATE T` clause, and parameter names
+  are all omitted: a `RES db AS Db STATE Cursor` parameter is written `Db`. Each overload
   may then carry its own `DOC` block; a bare `FUNC name` (no parens) documents the
   function family. Two blocks naming the same overload are a `DOC_DUPLICATE`.
 - **`INTERNAL`** (a flag on the `DOC` line) marks an exported declaration as not

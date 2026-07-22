@@ -1349,12 +1349,13 @@ impl<'a> FileParser<'a> {
             "TYPE" => DocHeaderKind::Type,
             "UNION" => DocHeaderKind::Union,
             "ENUM" => DocHeaderKind::Enum,
+            "RESOURCE" => DocHeaderKind::Resource,
             "PACKAGE" => DocHeaderKind::Package,
             _ => {
                 self.report_at(
                     "DOC_BAD_HEADER",
                     &format!(
-                        "`{head_kw}` is not a valid DOC header; expected FUNC, SUB, TYPE, UNION, ENUM, or PACKAGE."
+                        "`{head_kw}` is not a valid DOC header; expected FUNC, SUB, TYPE, UNION, ENUM, RESOURCE, or PACKAGE."
                     ),
                     header_line,
                 );

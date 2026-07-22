@@ -15,6 +15,7 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
 
     let mut funcs: HashMap<&str, Vec<&Function>> = HashMap::new();
     let mut types: HashMap<&str, (TypeDeclKind, Visibility, String)> = HashMap::new();
+    let mut resources: HashMap<&str, (Visibility, String)> = HashMap::new();
     for file in &ast.files {
         for item in &file.items {
             match item {
@@ -30,6 +31,11 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
                         type_decl.visibility,
                         type_decl.signature_line(),
                     ));
+                }
+                Item::Resource(resource) => {
+                    resources
+                        .entry(resource.name.as_str())
+                        .or_insert((resource.visibility, resource.signature_line()));
                 }
                 _ => {}
             }
@@ -140,6 +146,15 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
                         _ => IrDocKind::Enum,
                     };
                     decls.push(make_decl(doc, kind, signature.clone()));
+                }
+                DocHeaderKind::Resource => {
+                    let Some((vis, signature)) = resources.get(doc.header_name.as_str()) else {
+                        continue;
+                    };
+                    if *vis != Visibility::Export {
+                        continue;
+                    }
+                    decls.push(make_decl(doc, IrDocKind::Resource, signature.clone()));
                 }
             }
         }
