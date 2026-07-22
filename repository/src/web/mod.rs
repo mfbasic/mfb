@@ -372,6 +372,422 @@ pub fn search_page(registry_id: &str, query: &str, results: &[SearchRow]) -> Mar
     )
 }
 
+/// A long hex/key value: an abbreviated summary that expands to the full value.
+/// `<details>` is native HTML, so this works with JavaScript disabled.
+fn hex_value(value: &str) -> Markup {
+    let short: String = value.chars().take(20).collect();
+    html! {
+        details."hex" {
+            summary { span."hx" { (short) @if value.chars().count() > 20 { "…" } } }
+            code."hex-full" { (value) }
+        }
+    }
+}
+
+/// The tab strip shared by the two package views. The audit "tab" is a separate
+/// URL, not a script toggle — the site has no script.
+fn package_tabs(ident: &str, audit: bool) -> Markup {
+    let base = package_path(ident);
+    html! {
+        nav."tabs" aria-label="Package views" {
+            @if audit {
+                a."tab" href=(base) { "Overview" }
+                a."tab" href={ (base) "/audit" } aria-current="page" { "Audit" }
+            } @else {
+                a."tab" href=(base) aria-current="page" { "Overview" }
+                a."tab" href={ (base) "/audit" } { "Audit" }
+            }
+        }
+    }
+}
+
+/// One rendered native target row.
+pub struct TargetRow {
+    pub os: String,
+    pub arch: Option<String>,
+    pub libc: Option<String>,
+    pub lib_type: String,
+    pub logical: String,
+    pub source: String,
+    pub blob_hash: Option<String>,
+}
+
+/// One rendered version row.
+pub struct VersionRow {
+    pub version: String,
+    pub hash: String,
+    pub published_at: i64,
+    pub state: String,
+    pub abi_symbols: usize,
+    pub log_index: Option<i64>,
+    pub targets: Vec<TargetRow>,
+}
+
+/// Everything `GET /p/:ident` renders.
+pub struct PackageView {
+    pub ident: String,
+    pub owner: String,
+    pub ident_key: String,
+    pub ident_fingerprint: String,
+    pub server_fingerprint: String,
+    pub author: Option<String>,
+    pub url: Option<String>,
+    pub description: Option<String>,
+    pub latest_version: Option<String>,
+    pub versions: Vec<VersionRow>,
+}
+
+/// `GET /p/:ident` — the package page (plan-61-C Phase 3).
+///
+/// Renders the most publisher-controlled data on the site. Every interpolated
+/// value goes through maud's auto-escaping, and `url` additionally through
+/// [`external_link`]'s scheme allowlist.
+///
+/// **Every version is listed, with its state visible.** A yanked version is
+/// distinguished visually but never hidden: a version that vanished from this
+/// list would itself be the evidence of tampering this page exists to expose.
+pub fn package_page(registry_id: &str, view: &PackageView) -> Markup {
+    let body = html! {
+        div."wrap" {
+            div."pkg-head" {
+                h1."pkg-head__ident" { (view.ident) }
+                div."pkg-head__row" {
+                    @if let Some(latest) = &view.latest_version {
+                        span."pkg-latest" { "latest v" (latest) }
+                    }
+                    span."muted" { "owner " span."mono" { (view.owner) } }
+                }
+                p."pkg-desc" {
+                    @match &view.description {
+                        Some(text) => (text),
+                        None => span."nil" { "No description provided." },
+                    }
+                }
+
+                dl."dl" {
+                    dt { "author" }
+                    dd."mono" {
+                        @match &view.author {
+                            Some(author) => (author),
+                            None => span."nil" { "—" },
+                        }
+                    }
+
+                    dt { "url" }
+                    dd {
+                        @match &view.url {
+                            Some(url) => {
+                                (external_link(url))
+                                @if safe_href(url).is_none() {
+                                    span."url-note" {
+                                        "link withheld — scheme not in the http/https allowlist"
+                                    }
+                                }
+                            }
+                            None => span."nil" { "—" },
+                        }
+                    }
+
+                    dt { "ident key" }
+                    dd { (hex_value(&view.ident_key)) }
+                    dt { "ident fp" }
+                    dd { (hex_value(&view.ident_fingerprint)) }
+                    dt { "server fp" }
+                    dd { (hex_value(&view.server_fingerprint)) }
+                }
+            }
+
+            (package_tabs(&view.ident, false))
+
+            h2."section-title" {
+                "Versions " span."muted" { "(" (view.versions.len()) ")" }
+            }
+            p."table-caption" {
+                "Every published version is listed, including deprecated and yanked \
+                 releases. Nothing is hidden or collapsed — a version that has \
+                 disappeared from this list would itself be evidence of tampering."
+            }
+
+            table."versions" {
+                thead {
+                    tr {
+                        th { "version" } th { "state" } th { "published" }
+                        th { "ABI" } th { "hash" } th { "log" }
+                    }
+                }
+                @for version in &view.versions {
+                    tbody."v" {
+                        tr."v-main" {
+                            td."v-ver" data-label="version" { (version.version) }
+                            td data-label="state" {
+                                span class={ "state state--" (state_modifier(&version.state)) } {
+                                    (version.state)
+                                }
+                            }
+                            td."v-date" data-label="published" {
+                                (format_date(version.published_at))
+                            }
+                            td."v-abi num" data-label="ABI index" { (version.abi_symbols) }
+                            td."v-hash" data-label="hash" { (hex_value(&version.hash)) }
+                            td."v-log" data-label="log entry" {
+                                @match version.log_index {
+                                    Some(index) => a href={ (package_path(&view.ident)) "/audit" } {
+                                        "#" (index)
+                                    },
+                                    None => span."nil" { "—" },
+                                }
+                            }
+                        }
+                        @if !version.targets.is_empty() {
+                            tr."v-targets" {
+                                td colspan="6" {
+                                    div."targets-wrap" {
+                                        p."targets-cap" {
+                                            "Native targets — " (version.targets.len())
+                                            " for v" (version.version)
+                                        }
+                                        table."targets" {
+                                            thead {
+                                                tr {
+                                                    th { "os" } th { "arch" } th { "libc" }
+                                                    th { "type" } th { "logical" }
+                                                    th { "source" } th { "blobHash" }
+                                                }
+                                            }
+                                            tbody {
+                                                @for target in &version.targets {
+                                                    tr {
+                                                        td data-label="os" { (target.os) }
+                                                        // NULL arch is the
+                                                        // any-arch wildcard, and
+                                                        // reads as "any" — never
+                                                        // as a blank cell, which
+                                                        // would look like
+                                                        // missing data.
+                                                        td data-label="arch" {
+                                                            @match &target.arch {
+                                                                Some(arch) => (arch),
+                                                                None => span."nil" { "any" },
+                                                            }
+                                                        }
+                                                        td data-label="libc" {
+                                                            @match &target.libc {
+                                                                Some(libc) => (libc),
+                                                                None => span."nil" { "—" },
+                                                            }
+                                                        }
+                                                        td data-label="type" {
+                                                            span."libtype" { (target.lib_type) }
+                                                        }
+                                                        td data-label="logical" { (target.logical) }
+                                                        td data-label="source" { (target.source) }
+                                                        td data-label="blobHash" {
+                                                            @match &target.blob_hash {
+                                                                Some(hash) => (hex_value(hash)),
+                                                                None => span."nil" { "—" },
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    page(&format!("{} — mfb-repo", view.ident), registry_id, body)
+}
+
+/// The CSS modifier for a release state. Unknown states fall back to a neutral
+/// modifier rather than being interpolated into the class list unchecked.
+fn state_modifier(state: &str) -> &'static str {
+    match state {
+        "available" => "available",
+        "deprecated" => "deprecated",
+        "yanked" => "yanked",
+        "blocked" => "blocked",
+        _ => "other",
+    }
+}
+
+/// One rendered publish log entry.
+pub struct AuditPublish {
+    pub version: String,
+    pub index: i64,
+    pub leaf_hash: String,
+    pub proof: Vec<String>,
+}
+
+/// Everything `GET /p/:ident/audit` renders.
+pub struct AuditView {
+    pub ident: String,
+    pub checkpoint_size: i64,
+    pub checkpoint_root: String,
+    pub checkpoint_signature: String,
+    pub publishes: Vec<AuditPublish>,
+    pub state_changes: Vec<(String, String, i64)>,
+    pub ident_chain: Vec<(String, String, String, i64)>,
+}
+
+/// `GET /p/:ident/audit` — the transparency tab (plan-61-C Phase 3, §4).
+///
+/// Renders the inclusion **proof path** inline and links the raw JSON endpoint,
+/// so a third-party monitor can script against it. The copy is deliberate: this
+/// is evidence for the reader to check, never an assurance from the registry
+/// that anything is correct.
+pub fn audit_page(registry_id: &str, view: &AuditView) -> Markup {
+    let raw = format!("{}/audit", package_json_path(&view.ident));
+    let body = html! {
+        div."wrap" {
+            div."pkg-head" {
+                h1."pkg-head__ident" { (view.ident) }
+                div."pkg-head__row" {
+                    span."muted" { "transparency log & identity history" }
+                }
+            }
+
+            (package_tabs(&view.ident, true))
+
+            div."prose" {
+                p {
+                    "This is an append-only transparency log for "
+                    span."mono" { (view.ident) }
+                    ". It records an inclusion proof for every publish, every \
+                     release-state transition, and every rotation of the registry’s \
+                     identity key. It is evidence for you to check — not an assurance \
+                     that anything is correct. To detect a registry that shows \
+                     different histories to different people, fetch this log from more \
+                     than one vantage point and compare the checkpoint root hashes, or \
+                     script against the raw endpoint:"
+                }
+                p { a."raw-link" href=(raw) { (raw) " — raw JSON" } }
+            }
+
+            h2."section-title" { "Log checkpoint" }
+            p."table-caption" {
+                "A signed statement of the log’s size and Merkle root at a point in \
+                 time. Two observers who see the same root at the same size are being \
+                 shown the same log."
+            }
+            div."checkpoint" {
+                dl."dl" {
+                    dt { "log size" }
+                    dd."mono num" { (view.checkpoint_size) " entries" }
+                    dt { "root hash" }
+                    dd { (hex_value(&view.checkpoint_root)) }
+                    dt { "signature" }
+                    dd { (hex_value(&view.checkpoint_signature)) }
+                }
+            }
+
+            h2."section-title" { "Publishes" }
+            p."table-caption" {
+                "Each publish is a leaf in the log. The leaf hash, the sibling path \
+                 below it, and the checkpoint above together form an inclusion proof \
+                 that this exact release was recorded."
+            }
+            table."grid" {
+                thead {
+                    tr {
+                        th { "version" } th { "leaf index" } th { "leaf hash" }
+                        th { "inclusion proof" }
+                    }
+                }
+                tbody {
+                    @for entry in &view.publishes {
+                        tr id={ "leaf-" (entry.index) } {
+                            td."mono" data-label="version" { (entry.version) }
+                            td."mono num" data-label="leaf index" { (entry.index) }
+                            td data-label="leaf hash" { (hex_value(&entry.leaf_hash)) }
+                            td data-label="inclusion proof" {
+                                @if entry.proof.is_empty() {
+                                    span."nil" { "— (sole leaf)" }
+                                } @else {
+                                    ol."proof-path" {
+                                        @for hop in &entry.proof {
+                                            li { (hex_value(hop)) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            h2."section-title" { "State changes" }
+            p."table-caption" {
+                "Every release-state transition this package has undergone. A yank is \
+                 recorded here permanently; it does not remove the version."
+            }
+            @if view.state_changes.is_empty() {
+                p."muted" { "No state changes recorded." }
+            } @else {
+                table."grid" {
+                    thead { tr { th { "version" } th { "state" } th { "at" } } }
+                    tbody {
+                        @for (version, state, at) in &view.state_changes {
+                            tr {
+                                td."mono" data-label="version" { (version) }
+                                td data-label="state" {
+                                    span class={ "state state--" (state_modifier(state)) } {
+                                        (state)
+                                    }
+                                }
+                                td."mono" data-label="at" { (format_date(*at)) }
+                            }
+                        }
+                    }
+                }
+            }
+
+            h2."section-title" { "Identity key rotations" }
+            p."table-caption" {
+                "Each rotation is signed by the key being replaced, so the chain can be \
+                 followed from any earlier pin. An unexplained re-anchor with no chain \
+                 link is what a compromised or seized registry looks like."
+            }
+            @if view.ident_chain.is_empty() {
+                p."muted" { "No rotations recorded — the owner still holds its original ident key." }
+            } @else {
+                table."grid" {
+                    thead {
+                        tr { th { "old key" } th { "new key" } th { "signature" } th { "at" } }
+                    }
+                    tbody {
+                        @for (old_key, new_key, signature, issued) in &view.ident_chain {
+                            tr {
+                                td data-label="old key" { (hex_value(old_key)) }
+                                td data-label="new key" { (hex_value(new_key)) }
+                                td data-label="signature" { (hex_value(signature)) }
+                                td."mono" data-label="at" { (format_date(*issued)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    page(
+        &format!("{} — audit — mfb-repo", view.ident),
+        registry_id,
+        body,
+    )
+}
+
+/// The JSON API path for a package, for the audit tab's raw-JSON link.
+fn package_json_path(ident: &str) -> String {
+    format!(
+        "/packages/{}",
+        ident.replace('%', "%25").replace('#', "%23")
+    )
+}
+
 /// A minimal page for an error or notice, so every non-200 HTML response is
 /// still a real page carrying the CSP rather than a bare status.
 pub fn message_page(registry_id: &str, heading: &str, detail: &str) -> Markup {

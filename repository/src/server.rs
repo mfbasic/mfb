@@ -839,6 +839,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/", get(landing_page))
         .route("/style.css", get(stylesheet))
         .route("/search.html", get(search_html))
+        .route("/p/:ident", get(package_page_html))
+        .route("/p/:ident/audit", get(package_audit_html))
         .route("/search", get(search))
         .route("/index/:ident", get(package_index))
         // plan-61-B: anonymous read surface. These read no credential of any
@@ -1178,6 +1180,126 @@ async fn search_html(
         StatusCode::OK,
         crate::web::search_page(&registry_id, &text, &rows),
     )
+}
+
+/// `GET /p/:ident` — the rendered package page (plan-61-C Phase 3).
+///
+/// Renders the *same* `package_detail` handler output the JSON route serves, so
+/// the two surfaces cannot disagree about what a package's history is — which
+/// is the whole point of a transparency view.
+async fn package_page_html(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Response {
+    let (registry_id, _fingerprint) = registry_identity(&state);
+    let detail =
+        match package_detail(State(state.clone()), axum::extract::Path(ident.clone())).await {
+            Ok(Json(detail)) => detail,
+            Err((status, Json(error))) => {
+                return crate::web::html_response(
+                    status,
+                    crate::web::message_page(&registry_id, "Package not found", &error.error),
+                )
+            }
+        };
+
+    let view = crate::web::PackageView {
+        ident: detail.ident,
+        owner: detail.owner,
+        ident_key: detail.ident_key,
+        ident_fingerprint: detail.ident_fingerprint,
+        server_fingerprint: detail.server_fingerprint,
+        author: detail.author,
+        url: detail.url,
+        description: detail.description,
+        latest_version: detail.latest_version,
+        versions: detail
+            .versions
+            .into_iter()
+            .map(|version| crate::web::VersionRow {
+                version: version.version,
+                hash: version.hash,
+                published_at: version.published_at,
+                state: version.state,
+                abi_symbols: version
+                    .abi_index
+                    .as_object()
+                    .map(|map| map.len())
+                    .unwrap_or(0),
+                log_index: version.log_entry.map(|entry| entry.index),
+                targets: version
+                    .targets
+                    .into_iter()
+                    .map(|target| crate::web::TargetRow {
+                        os: target.os,
+                        arch: target.arch,
+                        libc: target.libc,
+                        lib_type: target.lib_type,
+                        logical: target.logical,
+                        source: target.source,
+                        blob_hash: target.blob_hash,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    };
+    crate::web::html_response(
+        StatusCode::OK,
+        crate::web::package_page(&registry_id, &view),
+    )
+}
+
+/// `GET /p/:ident/audit` — the rendered transparency tab (plan-61-C Phase 3).
+async fn package_audit_html(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Response {
+    let (registry_id, _fingerprint) = registry_identity(&state);
+    let audit = match package_audit(State(state.clone()), axum::extract::Path(ident.clone())).await
+    {
+        Ok(Json(audit)) => audit,
+        Err((status, Json(error))) => {
+            return crate::web::html_response(
+                status,
+                crate::web::message_page(&registry_id, "Package not found", &error.error),
+            )
+        }
+    };
+
+    let view = crate::web::AuditView {
+        ident: audit.ident,
+        checkpoint_size: audit.log_checkpoint.size,
+        checkpoint_root: audit.log_checkpoint.root_hash,
+        checkpoint_signature: audit.log_checkpoint.signature,
+        publishes: audit
+            .publishes
+            .into_iter()
+            .map(|entry| crate::web::AuditPublish {
+                version: entry.version,
+                index: entry.index,
+                leaf_hash: entry.leaf_hash,
+                proof: entry.proof,
+            })
+            .collect(),
+        state_changes: audit
+            .state_changes
+            .into_iter()
+            .map(|change| (change.version, change.state, change.at))
+            .collect(),
+        ident_chain: audit
+            .ident_chain
+            .into_iter()
+            .map(|rotation| {
+                (
+                    rotation.old_key,
+                    rotation.new_key,
+                    rotation.signature,
+                    rotation.issued,
+                )
+            })
+            .collect(),
+    };
+    crate::web::html_response(StatusCode::OK, crate::web::audit_page(&registry_id, &view))
 }
 
 /// Split `<owner>#<package>`, or a 400 naming the expected shape.
@@ -5438,6 +5560,245 @@ mod tests {
         );
         // The echoed query is publisher-independent but still user-controlled.
         assert!(rendered.contains("query-echo"));
+    }
+
+    /// **The XSS regression test** (plan-61-C Phase 3) — the single most
+    /// important test in this sub-plan.
+    ///
+    /// Publishes a package whose `author` is `<script>alert(1)</script>` and
+    /// whose `url` is `javascript:alert(1)`, then asserts the rendered page:
+    /// shows the author as visible escaped text, contains no `<script`
+    /// substring anywhere, and renders the hostile url as text rather than an
+    /// anchor. This is the same hostile fixture the mockups use, kept in sync
+    /// as §3.1 requires.
+    ///
+    /// It drives the **real route through the real router**, not the template
+    /// function, so it covers the whole path including the CSP header.
+    #[tokio::test]
+    async fn a_hostile_author_and_url_render_inert() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .record_native_blob("vendorhash", "data/vendorhash.bin")
+            .unwrap();
+        h.store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                "hash-1",
+                "data/1.mfp",
+                "{}",
+                &[crate::abi::VendorBlobRef {
+                    logical: "<script>alert('logical')</script>".to_string(),
+                    source: "<img src=x onerror=alert('source')>".to_string(),
+                    hash: "vendorhash".to_string(),
+                    os: "linux".to_string(),
+                    arch: None,
+                    libc: None,
+                    lib_type: "vendor".to_string(),
+                }],
+                &crate::store::PublishMetadata {
+                    author: Some("<script>alert(1)</script>".to_string()),
+                    url: Some("javascript:alert(1)".to_string()),
+                },
+            )
+            .unwrap();
+
+        let (status, headers, body) = get_page(&h.state, "/p/alice%23toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+
+        // 1. No live script anywhere on the page — from any of the four
+        //    publisher-controlled fields.
+        assert!(!body.contains("<script"), "{body}");
+        assert!(!body.contains("<img"), "{body}");
+        // NB: the *string* `javascript:` is expected to appear — §2 requires
+        // the hostile url to render as visible inert text, so asserting its
+        // absence would contradict the design. What must never appear is the
+        // url in an attribute position; that is asserted below.
+
+        // 2. The hostile author is *visible*, escaped. Hiding it would keep the
+        //    hostile value from the reader best placed to notice it.
+        assert!(
+            body.contains("&lt;script&gt;alert(1)&lt;/script&gt;"),
+            "the author must render as visible escaped text: {body}",
+        );
+
+        // 3. The hostile url is text, not an anchor, and is annotated as
+        //    withheld rather than silently dropped.
+        assert!(
+            body.contains("url-inert"),
+            "the javascript: url must render inert: {body}",
+        );
+        assert!(body.contains("link withheld"), "{body}");
+        assert!(
+            body.contains(">javascript:alert(1)<"),
+            "the hostile url must still be visible to the reader: {body}",
+        );
+        assert!(
+            !body.contains("href=\"javascript"),
+            "the hostile url must never become an href: {body}",
+        );
+        assert!(
+            !body.contains("=\"javascript:"),
+            "the hostile url must never reach any attribute: {body}",
+        );
+
+        // 4. The CSP is present, so even a total escaping failure could not
+        //    execute.
+        assert_eq!(
+            headers
+                .get(header::CONTENT_SECURITY_POLICY)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            crate::web::CONTENT_SECURITY_POLICY,
+        );
+    }
+
+    /// The rendered version table shows every state, and the target table
+    /// renders a NULL arch as "any" rather than as a blank cell that would read
+    /// as missing data (plan-61-C Phase 3).
+    #[tokio::test]
+    async fn the_package_page_shows_yanked_versions_and_the_target_matrix() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        h.store
+            .record_native_blob("vendorhash", "data/vendorhash.bin")
+            .unwrap();
+        let targets = [
+            crate::abi::VendorBlobRef {
+                logical: "snd".to_string(),
+                source: "libsnd.dylib".to_string(),
+                hash: "vendorhash".to_string(),
+                os: "macos".to_string(),
+                arch: None,
+                libc: None,
+                lib_type: "vendor".to_string(),
+            },
+            crate::abi::VendorBlobRef {
+                logical: "snd".to_string(),
+                source: "libsnd.a".to_string(),
+                hash: "vendorhash".to_string(),
+                os: "linux".to_string(),
+                arch: Some("x86_64".to_string()),
+                libc: Some("musl".to_string()),
+                lib_type: "vendor".to_string(),
+            },
+        ];
+        for (version, blobs) in [("1.0.0", &targets[..]), ("2.0.0", &[][..])] {
+            h.store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("data/{version}.mfp"),
+                    "{}",
+                    blobs,
+                    &crate::store::PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+        h.store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+
+        let (status, _headers, body) = get_page(&h.state, "/p/alice%23toolbox").await;
+        assert_eq!(status, StatusCode::OK);
+
+        // Every version present, the yanked one labeled and visually marked.
+        assert!(
+            body.contains("Versions <span class=\"muted\">(2)"),
+            "{body}"
+        );
+        assert!(body.contains("state--yanked"), "{body}");
+        assert!(body.contains(">yanked<"), "{body}");
+        assert!(body.contains("state--available"), "{body}");
+
+        // Two target rows, and the wildcard arch reads as "any".
+        assert!(body.contains("Native targets — 2 for v1.0.0"), "{body}");
+        assert!(
+            body.contains(">any<"),
+            "a NULL arch renders as \"any\": {body}"
+        );
+        assert!(body.contains("x86_64"));
+        assert!(body.contains("musl"));
+
+        // No script on the page at all.
+        assert!(!body.contains("<script"));
+    }
+
+    /// The audit tab renders the checkpoint, the per-publish inclusion proof
+    /// path, and links the raw JSON so a monitor can script against it.
+    #[tokio::test]
+    async fn the_audit_tab_renders_proofs_and_links_the_raw_json() {
+        let h = harness();
+        register_owner_with_all_keys(&h.store, "alice");
+        let alice_id = h.store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        for version in ["1.0.0", "2.0.0"] {
+            h.store
+                .publish_package_version(
+                    alice_id,
+                    "alice#toolbox",
+                    version,
+                    &format!("hash-{version}"),
+                    &format!("data/{version}.mfp"),
+                    "{}",
+                    &[],
+                    &crate::store::PublishMetadata::default(),
+                )
+                .unwrap();
+        }
+        h.store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap();
+
+        let (status, _headers, body) = get_page(&h.state, "/p/alice%23toolbox/audit").await;
+        assert_eq!(status, StatusCode::OK);
+
+        assert!(body.contains("Log checkpoint"));
+        assert!(body.contains("entries"));
+        assert!(body.contains("inclusion proof"));
+        assert!(
+            body.contains("proof-path"),
+            "the proof path renders: {body}"
+        );
+        // The raw JSON endpoint is linked for third-party monitors.
+        assert!(
+            body.contains("/packages/alice%23toolbox/audit"),
+            "the raw JSON endpoint must be linked: {body}",
+        );
+        // The yank appears as a state transition.
+        assert!(body.contains("State changes"));
+        assert!(body.contains("state--yanked"));
+        // The copy frames this as evidence, not assurance.
+        assert!(body.contains("evidence for you to check"));
+        assert!(!body.contains("<script"));
+    }
+
+    /// An unknown package renders a 404 **page**, not a bare status — and that
+    /// page still carries the CSP, because it is built by the shared builder.
+    #[tokio::test]
+    async fn an_unknown_package_renders_a_404_page_with_the_csp() {
+        let h = harness();
+        for uri in ["/p/alice%23nope", "/p/alice%23nope/audit"] {
+            let (status, headers, body) = get_page(&h.state, uri).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            assert!(body.contains("Package not found"), "{uri}: {body}");
+            assert!(body.contains("<html"), "{uri} must render a page");
+            assert_eq!(
+                headers
+                    .get(header::CONTENT_SECURITY_POLICY)
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                crate::web::CONTENT_SECURITY_POLICY,
+                "{uri}",
+            );
+        }
     }
 
     fn peer(ip: &str) -> ConnectInfo<SocketAddr> {

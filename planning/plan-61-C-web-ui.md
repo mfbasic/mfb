@@ -276,40 +276,55 @@ Commit: —
 
 Last, because it renders the most publisher-controlled fields.
 
-- [ ] Add `GET /p/:ident` per §3, porting the markup from
+- [x] Add `GET /p/:ident` per §3, porting the markup from
       `planning/plan-61/package.html` (§3.1). Handle `%23` in the path as in
       plan-61-B Phase 1.
-- [ ] Render the version table with **every** state visible and labeled. A yanked
+- [x] Render the version table with **every** state visible and labeled. A yanked
       version must be visually distinguished but present.
-- [ ] Render the native blob table: one row per target, `arch = NULL` shown as
+- [x] Render the native blob table: one row per target, `arch = NULL` shown as
       "any", `libc = NULL` shown as "—".
-- [ ] Add `GET /p/:ident/audit` per §3, porting the markup from
+- [x] Add `GET /p/:ident/audit` per §3, porting the markup from
       `planning/plan-61/audit.html`, and linking to `GET /packages/:ident/audit`
       for the raw JSON.
-- [ ] Tests: **the XSS regression test** — publish a fixture whose `author` is
+- [x] Tests: **the XSS regression test** — publish a fixture whose `author` is
       `<script>alert(1)</script>` and whose `url` is `javascript:alert(1)`, then
       assert the rendered page contains the escaped text, contains no `<script`
       substring, and renders the url as text rather than an anchor.
-- [ ] Tests: a yanked version appears in the rendered table; a package with two
+- [x] Tests: a yanked version appears in the rendered table; a package with two
       platform targets renders two rows; unknown ident renders a 404 page.
 
-Acceptance: the XSS regression test passes, and a package page for a real
-published package with native libraries shows its full version history and target
-matrix with JavaScript disabled.
+Acceptance: **MET.** `a_hostile_author_and_url_render_inert` publishes a package
+whose `author` is `<script>alert(1)</script>`, whose `url` is
+`javascript:alert(1)`, and whose target `logical`/`source` are
+`<script>`/`<img onerror=>` payloads, drives `/p/:ident` **through the real
+router**, and asserts: no `<script` or `<img` anywhere, the author visible as
+escaped text, the url inert and annotated "link withheld", no `="javascript:` in
+any attribute position, and the CSP header present.
+
+`the_package_page_shows_yanked_versions_and_the_target_matrix` confirms both
+versions render with `state--yanked` and `state--available` visible, two target
+rows, and a NULL arch rendering as "any" rather than a blank cell.
+`the_audit_tab_renders_proofs_and_links_the_raw_json` and
+`an_unknown_package_renders_a_404_page_with_the_csp` (a 404 is a real page, and
+the shared builder still attaches the CSP) round it out. 305 lib tests, 0 failed.
 Commit: —
 
 ### Phase 4 — Spec sync
 
-- [ ] Document the HTML routes in
+- [x] Document the HTML routes in
       `src/docs/spec/package-manager/01_repository-protocol.md`, stating
       explicitly that they are anonymous, read-only, and carry no credential.
-- [ ] Record the CSP and the no-cookie invariant in that topic, so a future
+- [x] Record the CSP and the no-cookie invariant in that topic, so a future
       change that would break it has to argue with the spec first.
-- [ ] Verify: `cargo build && cargo test --bin mfb spec`; `mfb spec
+- [x] Verify: `cargo build && cargo test --bin mfb spec`; `mfb spec
       package-manager --all` renders with no leaked `[[` markers.
 
-Acceptance: `cargo test --bin mfb spec` passes; the topic documents all HTML
-routes and the no-cookie invariant.
+Acceptance: **MET** — `cargo test --bin mfb spec` → 48 passed, 0 failed;
+`mfb spec package-manager --all` renders with **0** leaked `[[` markers and
+contains the new "The HTML surface" section. All five HTML routes are in the
+endpoint table marked `**none, ever**`, and the topic records the CSP verbatim,
+the no-cookie/zero-CSRF invariant, the no-JavaScript requirement, and the href
+allowlist — so a change that would break any of them has to argue with the spec.
 Commit: —
 
 ## Validation Plan
@@ -388,6 +403,21 @@ Commit: —
   inside escaped text. The assertions now check for absence of live **markup**
   (`<script`, `<img`, `<b>bold`) and for presence of the escaped form, which is
   the property that actually matters.
+- **The XSS test first asserted the wrong thing — twice, in the same shape.**
+  It asserted `!body.contains("javascript:")`, which *contradicts* §2: the
+  design requires a rejected url to render as **visible inert text**, so the
+  string is supposed to be there. The same trap had already bitten the Phase-2
+  escaping test (`onerror=` legitimately survives inside
+  `&lt;img src=x onerror=alert(1)&gt;`). Both now assert the absence of live
+  *markup* and of attribute-position injection (`="javascript:`), plus the
+  *presence* of the escaped/inert text. Recording it because "assert the scary
+  substring is absent" is the intuitive wrong test for escaping, and it fails
+  against a correct implementation.
+- **Package-level `author`/`url`/`description` come from the newest version.**
+  Not specified. `PackageDetailResponse` has one author and many versions; an
+  older version's author describes that older artifact, not the package as it
+  stands. Surfaced during the runtime proof, where hostile data seeded on the
+  *older* version correctly did not appear on the page.
 - **`safe_href` also rejects a scheme with no authority.** `http:evil` and
   `https:/evil` parse as an allowed scheme but are not usable absolute URLs;
   admitting them would have produced links that resolve relative to the

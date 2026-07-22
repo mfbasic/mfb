@@ -78,6 +78,11 @@ response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]]
 | `/search` | GET | **none, ever** | `?q=&limit=&offset=` | `SearchResponse` | `pkg add` (search), web UI |
 | `/packages/<owner>#<package>` | GET | **none, ever** | — | `PackageDetailResponse` | web UI (package page) |
 | `/packages/<owner>#<package>/audit` | GET | **none, ever** | — | `PackageAuditResponse` | web UI (transparency tab) |
+| `/` | GET | **none, ever** | — | `text/html` landing page | web UI |
+| `/style.css` | GET | **none, ever** | — | `text/css` | web UI |
+| `/search.html` | GET | **none, ever** | `?q=&limit=&offset=` | `text/html` results page | web UI |
+| `/p/<owner>#<package>` | GET | **none, ever** | — | `text/html` package page | web UI |
+| `/p/<owner>#<package>/audit` | GET | **none, ever** | — | `text/html` audit tab | web UI |
 | `/blob/<hash>` | GET | none | — | raw blob bytes (or `302` to a presigned URL in S3 mode) | `pkg add` (registry) |
 | `/blob/<hash>` | HEAD | none | — | `200` if present, `404` otherwise (no body) | `repo publish` (dedup probe) |
 | `/blob/<hash>` | PUT | `Authorization: Bearer` session token | raw bytes (`application/octet-stream`) | `201` stored, `200` already present | `repo publish` (vendor blobs) |
@@ -136,6 +141,57 @@ whitespace-only `?q` returns an empty result set rather than the whole table, an
 the query is matched with `LIKE ... ESCAPE`, so `%` and `_` are literal text
 rather than wildcards that would hand a caller the entire
 registry.[[repository/src/server.rs:search]]
+
+### The HTML surface
+
+The same data is served as server-rendered HTML at `/`, `/search.html`,
+`/p/<ident>` and `/p/<ident>/audit`, with the stylesheet at `/style.css`
+(compiled into the binary with `include_str!`, so the server remains a single
+self-contained executable with no asset directory). Everything said above about
+the JSON read surface applies unchanged: anonymous, read-only, `GET` only, every
+release state listed.
+
+Three invariants hold this surface together, and a change that breaks any of
+them has to argue with this topic first.[[repository/src/web/mod.rs:html_response]]
+
+**No cookie is ever set or read, anywhere in this server.** Every authenticated
+route takes its session token from the JSON body; the sole exception,
+`PUT /blob/<hash>`, uses a bearer header. That is what gives the registry **zero
+CSRF surface**, and serving HTML from the same origin does not change it.
+Introducing cookie authentication — for the web UI or for anything else — would
+silently make every existing mutating `POST` CSRF-vulnerable. There is no login
+page, no registration, and no session on the web surface, and there is not
+intended to be one.
+
+**No JavaScript is required for any function.** Search is a plain
+`<form method="get">`; the audit "tab" is a separate URL rather than a script
+toggle; long hashes expand with native `<details>`. This is what allows the
+third invariant to be as strict as it is.
+
+**Every HTML response carries a strict `Content-Security-Policy`:**
+
+```
+default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self';
+base-uri 'none'; frame-ancestors 'none'
+```
+
+There is deliberately **no `script-src`** — `default-src 'none'` denies script
+outright, so even a total escaping failure could not execute. The header is
+attached by the shared response builder rather than by each handler, so a new
+page cannot omit it. `style-src 'self'` with no `'unsafe-inline'` is why the
+stylesheet is a real route rather than a `<style>` block.
+
+Everything the package page renders is publisher-controlled — `author`, `url`,
+`logical`, `source`, `ident`, and `description`. Two layers sit in front of the
+CSP: templates that escape every interpolated value by default, and an href
+**scheme allowlist**. Only `http` and `https` become links; a `javascript:`,
+`data:`, `vbscript:`, `file:` or protocol-relative `//host` url renders as
+visible inert text with a note saying the link was withheld. The scheme is
+matched after stripping ASCII whitespace and control characters, because
+browsers strip those before resolving a scheme — so `java<TAB>script:` must not
+survive a check the browser then honours. A withheld url is *shown*, not
+dropped: hiding it would keep the hostile value from the reader best placed to
+notice it.[[repository/src/web/mod.rs:safe_href]]
 
 JSON field names use camelCase on the wire (set by `#[serde(rename)]`), even
 though the Rust fields are snake_case. The tables below give the wire names.
