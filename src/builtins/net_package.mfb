@@ -257,9 +257,9 @@ FUNC __net_percentDecodeImpl(s AS String, plusSpace AS Boolean) AS String
     END IF
   END WHILE
   RETURN toString(out)
-TRAP(e)
-  FAIL error(77050003, "invalid percent-encoding")
-END TRAP
+  TRAP(e)
+    FAIL error(77050003, "invalid percent-encoding")
+  END TRAP
 END FUNC
 
 ' Percent-decode a request-target path component: `%XX` -> bytes, UTF-8

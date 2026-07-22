@@ -499,9 +499,9 @@ END FUNC
 ' crash-proof. Header blocks are ASCII, so "" reliably signals a bad request.
 FUNC __http_bytesToText(b AS List OF Byte) AS String
   RETURN toString(b)
-TRAP(e)
-  RETURN ""
-END TRAP
+  TRAP(e)
+    RETURN ""
+  END TRAP
 END FUNC
 
 ' ---- Header parsing shared by framing and request building ----
