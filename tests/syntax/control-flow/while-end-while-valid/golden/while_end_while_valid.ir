@@ -74,18 +74,18 @@
       ]
     },
     { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nested=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
-    { "op": "bind", "line": 27, "mutable": true, "name": "z", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 27, "mutable": true, "name": "wend", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
       "line": 28,
       "loop": "while",
       "condition": { "kind": "const", "type": "Boolean", "value": "true" },
       "body": [
-      { "op": "assign", "line": 29, "name": "z", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "z" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+      { "op": "assign", "line": 29, "name": "wend", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "wend" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
       {
         "op": "if",
         "line": 30,
-        "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "z" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
+        "condition": { "kind": "binary", "type": "Boolean", "op": ">=", "left": { "kind": "local", "name": "wend" }, "right": { "kind": "const", "type": "Integer", "value": "4" } },
         "then": [
         { "op": "exitLoop", "line": 30, "loop": "while" }
         ],
@@ -94,7 +94,7 @@
       }
       ]
     },
-    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "exit=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "z" }] } }] } }
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "exit=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "wend" }] } }] } }
     ]
   }
   ]

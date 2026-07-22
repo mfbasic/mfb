@@ -72,17 +72,17 @@
         ]
       },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nested=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] } }] }, "line": 25 },
-      { "kind": "binding", "mutable": true, "name": "z", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 27 },
+      { "kind": "binding", "mutable": true, "name": "wend", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 27 },
       {
         "kind": "while",
         "loop": "while",
         "condition": { "kind": "boolean", "value": true },
         "line": 28,
         "body": [
-        { "kind": "assignment", "name": "z", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "z" }, "right": { "kind": "number", "value": "1" } }, "line": 29 },
+        { "kind": "assignment", "name": "wend", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "wend" }, "right": { "kind": "number", "value": "1" } }, "line": 29 },
         {
           "kind": "if",
-          "condition": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "z" }, "right": { "kind": "number", "value": "4" } },
+          "condition": { "kind": "binary", "operator": ">=", "left": { "kind": "identifier", "value": "wend" }, "right": { "kind": "number", "value": "4" } },
           "line": 30,
           "then": [
           { "kind": "exit", "target": "while", "code": null, "line": 30 }
@@ -92,7 +92,7 @@
         }
         ]
       },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exit=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "z" }] } }] }, "line": 32 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exit=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "wend" }] } }] }, "line": 32 }
       ]
     }
     ]

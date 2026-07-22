@@ -116,7 +116,6 @@ pub enum Keyword {
     Union,
     When,
     While,
-    Wend,
     With,
 }
 
@@ -1226,8 +1225,6 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Testing)
     } else if value.eq_ignore_ascii_case("WHILE") {
         Some(Keyword::While)
-    } else if value.eq_ignore_ascii_case("WEND") {
-        Some(Keyword::Wend)
     } else if value.eq_ignore_ascii_case("WITH") {
         Some(Keyword::With)
     } else {
@@ -1292,7 +1289,6 @@ pub fn keyword_lexeme(keyword: Keyword) -> &'static str {
         Keyword::Union => "union",
         Keyword::When => "when",
         Keyword::While => "while",
-        Keyword::Wend => "wend",
         Keyword::With => "with",
     }
 }
@@ -1513,7 +1509,6 @@ END DOC
             "union",
             "when",
             "while",
-            "wend",
             "with",
         ];
         for lexeme in LEXEMES {
@@ -1524,6 +1519,8 @@ END DOC
             assert_eq!(lookup_keyword(&lexeme.to_uppercase()), Some(keyword));
         }
         assert_eq!(lookup_keyword("notakeyword"), None);
+        // `WEND` was removed from the language (bug-357) and is not reserved.
+        assert_eq!(lookup_keyword("wend"), None);
     }
 
     #[test]

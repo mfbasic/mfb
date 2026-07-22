@@ -24,10 +24,10 @@ SUB main()
   END WHILE
   io::print("nested=" & toString(total))
 
-  MUT z AS Integer = 0
+  MUT wend AS Integer = 0
   WHILE TRUE
-    z = z + 1
-    IF z >= 4 THEN EXIT WHILE
+    wend = wend + 1
+    IF wend >= 4 THEN EXIT WHILE
   END WHILE
-  io::print("exit=" & toString(z))
+  io::print("exit=" & toString(wend))
 END SUB

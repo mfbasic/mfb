@@ -1,10 +1,4 @@
 $ mfb build -ast -ir tests/syntax/control-flow/while-wend-removed-invalid
-   3 |   WHILE x < 3
-   4 |     x = x + 1
-   5 |   WEND
-     |   ^^^^
-tests/syntax/control-flow/while-wend-removed-invalid/src/main.mfb:5 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
-               WEND has been removed; a WHILE block ends with END WHILE.
    4 |     x = x + 1
    5 |   WEND
    6 | END SUB

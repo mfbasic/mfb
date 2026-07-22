@@ -37,20 +37,6 @@ impl<'a> FileParser<'a> {
         &mut self,
         allow_else_terminator: bool,
     ) -> Option<Statement> {
-        // `WEND` is reserved but productionless (bug-357): the terminator it
-        // once was is `END WHILE`. Rejecting it here, before expression
-        // parsing, turns a stale source file's failure into an actionable
-        // message instead of a bare "expected an expression" at `WEND`.
-        if self.check_keyword(Keyword::Wend) {
-            let token = self.peek().clone();
-            self.report(
-                "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "WEND has been removed; a WHILE block ends with END WHILE.",
-                &token,
-            );
-            return None;
-        }
-
         if self.check_keyword(Keyword::If)
             || self.check_keyword(Keyword::Match)
             || self.check_keyword(Keyword::For)

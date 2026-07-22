@@ -387,25 +387,23 @@ Commit: `3dbc4f156`
 
 - [x] `src/lexer.rs:119,1205,1271,1446` — delete `Keyword::Wend`, its text
       mapping, its rendering, and its reserved-word entry.
-      *(Deliberately NOT done — superseded by the Open Decisions
-      recommendation, which this fix adopts: `WEND` stays reserved so a stale
-      source fails at the `WEND` line with an actionable message instead of
-      silently becoming an identifier. The lexer keyword is retained; only the
-      grammar lost it.)*
+      *(Initially NOT done — Phase 4 as first landed (`2ba5d4063`) kept the
+      lexer keyword per the Open Decisions recommendation. That decision was
+      overturned by the user on 2026-07-22 (see Open Decisions); a follow-up
+      commit deleted `Keyword::Wend` and the dedicated rejection entirely.)*
 - [x] `src/ast/parser.rs`, `src/ast/stmt.rs` — delete `BlockTerminator::Wend`
       and its arm; `parse_while_statement` closes only via
       `consume_end_block(Keyword::While, …)`. Also deleted the
       `K::Wend => Op::Pop` formatter arm.
 - [x] Add `tests/syntax/control-flow/while-wend-removed-invalid/` asserting that
       a source file using `WEND` is rejected, and that the diagnostic names
-      `END WHILE`. *(The first diagnostic is
-      `MFB_PARSE_UNEXPECTED_STATEMENT: WEND has been removed; a WHILE block
-      ends with END WHILE.` with the caret on `WEND` — reported from
-      `parse_simple_statement` before expression parsing can produce the old
-      bare `MFB_PARSE_EXPECTED_EXPRESSION`.)*
-- [x] Confirm `WEND` is now a legal *identifier* — it is **not**: per the
-      adopted recommendation it remains reserved; `LET wend = 1` still fails
-      with `MFB_PARSE_INVALID_IDENTIFIER` (verified).
+      `END WHILE`. *(After the 2026-07-22 reversal, `WEND` is an ordinary
+      identifier, so the rejection is the generic stray-identifier cascade;
+      the golden's `MFB_PARSE_UNEXPECTED_TOKEN` line still names the fix:
+      "WHILE block must end with END WHILE.")*
+- [x] Confirm `WEND` is now a legal *identifier* — **it is**, per the
+      2026-07-22 reversal: `while-end-while-valid`'s final loop counter is
+      named `wend`; the fixture builds and prints `exit=4` unchanged.
 
 Acceptance: `WEND` no longer parses; its rejection diagnostic points at
 `END WHILE`; 3190 unit tests green; control-flow acceptance slice green.
@@ -468,11 +466,16 @@ Commit: validation-only; found-bug fixes in `af75abd58`, `61ff0950c`; doc move i
   (Phase 4). The alternative — freeing it as an ordinary identifier — is
   cheaper but means a stale source file silently reinterprets `WEND` as a
   variable name and fails somewhere far from the real cause.
-  **DECIDED (2026-07-22): kept reserved.** The Goal bullet saying "no longer a
-  reserved word" is superseded by this decision; the spec's keyword list keeps
-  `WEND` with a note that it is reserved but productionless. No new error code
-  was minted — the rejection reuses `MFB_PARSE_UNEXPECTED_STATEMENT` with a
-  dedicated detail, so the diagnostics Constant Registry is unchanged.
+  ~~**DECIDED (2026-07-22): kept reserved.**~~ **OVERTURNED (2026-07-22, user
+  decision): fully removed.** `Keyword::Wend` and the dedicated
+  "WEND has been removed" rejection in `parse_simple_statement` were deleted;
+  `wend` is now an ordinary identifier (proven by the migrated
+  `while-end-while-valid` fixture, whose last loop counter is named `wend`).
+  A stale `WEND` source still fails at parse (an identifier is not a block
+  terminator), and the cascade's `MFB_PARSE_UNEXPECTED_TOKEN` detail still says
+  "WHILE block must end with END WHILE." — the actionable pointer survives via
+  the terminator requirement itself, not a keyword special case. The original
+  Goal bullet ("no longer a reserved word") is authoritative after all.
 - **Is the four-phase transitional window acceptable, or should Phases 2–4 land
   as one commit?** Recommended: **keep them separate**. Phase 3 is a 295-site
   mechanical diff; folding a semantic parser change into it makes both
