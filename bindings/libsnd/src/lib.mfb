@@ -207,12 +207,6 @@ LINK "libsnd" AS sndLink
     RETURN position
   END FUNC
 
-  FUNC lastSoundErrNum(RES sndfile AS SoundFile) AS Integer
-    SYMBOL "sf_error"
-    ABI (sndfile CPtr) AS status CInt32
-    RETURN status
-  END FUNC
-
   FUNC errMessage(errNum AS Integer) AS String
     SYMBOL "sf_error_number"
     ABI (errNum CInt32) AS message CPtr
@@ -255,13 +249,6 @@ LET SND_ERR_TOO_LARGE AS Integer = 91000010
 ' for that number, so the reason travels with the code.
 FUNC sndError(errNum AS Integer) AS Error
   RETURN error(SND_ERR_BASE + errNum, "libsnd: " & sndLink::errMessage(errNum))
-END FUNC
-
-' The handle-bearing form: ask the file itself what went wrong, then build the
-' error through `sndError` like everything else. Not an overload of `sndError` —
-' resolution does not accept a `RES` parameter as an overload discriminator.
-FUNC sndFileError(RES sndfile AS SoundFile) AS Error
-  RETURN sndError(sndLink::lastSoundErrNum(sndfile))
 END FUNC
 
 DOC
