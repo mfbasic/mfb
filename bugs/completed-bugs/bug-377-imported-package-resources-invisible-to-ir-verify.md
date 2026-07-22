@@ -220,22 +220,45 @@ RESOURCE type, so signature and definition arrive together. `07219a948`
 - `cargo test` green (3188 + all integration targets); full acceptance
   **1073 tests, zero mismatches**, twice.
 
-### Known limitation — a wrapper-FUNC closer
+### Not a limitation — a wrapper-FUNC closer is specified behavior
 
-Compile-time double-close detection keys on the call target being the
-*registered* close op. That holds for the §5a re-export shape (sqlite3's
-`EXPORT FUNC close AS sqliteLink::close`), which is why `sqlite3::close(db)`
-twice is rejected. It does **not** hold when a package wraps its closer in an
-ordinary exported function — libsnd's `closeSound`, which takes the `RES` and
-calls `sndLink::closeFile` internally. From the importer's side that is an
-ordinary call, and ordinary calls do not move ownership, so
-`libsnd::closeSound(music)` twice still compiles.
+An earlier revision of this section called it a shortfall that
+`libsnd::closeSound(music)` twice compiles clean, while `sqlite3::close(db)`
+twice is rejected, and suggested filing a follow-up bug. **That was wrong** —
+both behaviors are exactly what §15 specifies, and the asymmetry is the rule,
+not a gap:
 
-It is no longer a double free: with (3), the second call reaches a thunk that
-sees `RESOURCE_CLOSED_BIT` set and fails with a defined `ERR_RESOURCE_CLOSED`.
-Making it a compile-time rejection would mean teaching the importer that a
-wrapper *is* a close op, which needs a package-level declaration that does not
-exist today. Worth a separate bug if the wrapper shape spreads.
+> A resource is closed exactly once. **Ordinary calls do not move ownership.**
+> […] the callee may use the handle and mutate its `STATE`, but the owning
+> scope is unchanged, and the caller's binding stays live after the call. A
+> `RES` binding is invalidated **only** by this fixed set of events, all
+> visible at the call site
+> — `src/docs/spec/language/15_resource-management.md:13`
+
+`sqlite3::close` IS the registered close op, so it is one of those events and
+invalidates. `libsnd::closeSound` is an ordinary call, so it does not — and the
+spec names that very shape as intended, by name:
+
+> any holder may close it, `RETURN` it, or `thread::transfer` it, including a
+> callee given only a `RES` parameter. The owning scope then closes it once
+> **if nobody already did** — so `closeSound(RES sound AS SoundFile)`, "take a
+> handle, give it back", is expressible.
+> — `…/15_resource-management.md:20`
+
+Rejecting the second `closeSound` would require invalidation that is *not*
+visible at the call site, which §15:13 forbids outright. Nothing to fix.
+
+Two things worth recording, since the wrong framing was reached by only
+testing packages:
+
+- **It is not package-specific.** A same-project wrapper behaves identically —
+  `FUNC closeDb(RES d AS Db)` calling `sql::close(d)`, then `closeDb(db)`
+  twice, also compiles clean. The rule is about ordinary calls, not about
+  package boundaries, so "teach the importer that a wrapper is a close op"
+  was never the right frame.
+- **It is not a double free.** With (3), the second call reaches a thunk that
+  sees `RESOURCE_CLOSED_BIT` set, which is the backstop §15 relies on for
+  exactly this case.
 
 ## Summary
 
