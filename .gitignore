@@ -20,6 +20,12 @@ build/
 # Stale pre-plan-46-D artifacts sitting at project roots in existing worktrees.
 *.out
 
+# Compiled package artifacts. Rebuilt from source by `mfb build`.
+bindings/**/*.mfp
+
+# Packages installed into a consuming project by `mfb pkg install`.
+examples/**/packages/
+
 # Local editor and OS files
 .DS_Store
 *.swp
