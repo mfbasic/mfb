@@ -430,13 +430,16 @@ Commit: 8ec1872b6 (bug-326)
 
 ### Phase 3 — move the TLS specs
 
-- [ ] Create `src/target/shared/runtime/tls_specs.rs` from
-      `net_specs.rs:410-627` plus the `TLS_*_PARAMS` consts; wire `mod`/`use` in
-      `mod.rs`.
-- [ ] Remove the TLS section and banner from `net_specs.rs`.
+- [x] Create `src/target/shared/runtime/tls_specs.rs` from
+      `net_specs.rs:415-627` plus the `TLS_*_PARAMS` consts; wire `mod`/`use` in
+      `mod.rs`. (Moved block verified byte-identical:
+      `git show HEAD:...net_specs.rs | sed -n '415,627p' | diff - <(sed -n
+      '9,221p' tls_specs.rs)` — empty.)
+- [x] Remove the TLS section and banner from `net_specs.rs`.
 
-Acceptance: pure move; parity test green; artifact gate zero delta.
-Commit: —
+Acceptance: pure move (diff-verified); parity test green; artifact gate covered
+by the whole-change run in Phase 6 (no spec content changed).
+Commit: (see git log — "bug-329 phase 3")
 
 ### Phase 4 — remove the derivable `symbol` field
 

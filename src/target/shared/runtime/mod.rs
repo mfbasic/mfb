@@ -84,6 +84,7 @@ mod net_specs;
 mod os_specs;
 mod term_specs;
 mod thread_specs;
+mod tls_specs;
 mod usage;
 
 pub(crate) use catalog::{spec_for_call, spec_for_symbol, supported_helper_specs};
@@ -98,6 +99,7 @@ use net_specs::*;
 use os_specs::*;
 use term_specs::*;
 use thread_specs::*;
+use tls_specs::*;
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
     if builtins::audio::is_audio_runtime_call(name) {
