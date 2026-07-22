@@ -3855,7 +3855,6 @@ pub(crate) mod tests {
         let _ = keys;
     }
 
-    #[test]
     /// A negative log size is refused rather than silently selecting zero leaves
     /// (bug-276 R6).
     ///

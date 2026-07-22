@@ -4081,7 +4081,7 @@ mod tests {
         };
 
         // The org bootstraps its first member.
-        org_members(
+        let _ = org_members(
             State(state.clone()),
             Json(grant(
                 "acme",
@@ -4128,7 +4128,7 @@ mod tests {
                 .unwrap(),
             ),
         };
-        org_members(State(state.clone()), Json(remove))
+        let _ = org_members(State(state.clone()), Json(remove))
             .await
             .expect("removal");
         assert!(store.org_member_role("acme", "alice").unwrap().is_none());
@@ -4172,7 +4172,7 @@ mod tests {
                 .unwrap(),
             ),
         };
-        issue_token(State(state.clone()), Json(issue))
+        let _ = issue_token(State(state.clone()), Json(issue))
             .await
             .expect("token issued");
 
@@ -4180,7 +4180,7 @@ mod tests {
         let token_session =
             open_session_for_key(&store, "alice", &token_private, &token_fingerprint);
         let (in_scope_public, _) = crypto::generate_keypair();
-        signing(
+        let _ = signing(
             State(state.clone()),
             Json(SigningRequest {
                 owner: "alice".to_string(),
@@ -4209,7 +4209,7 @@ mod tests {
         assert!(refused.err().unwrap().1.error.contains("scope"));
 
         // Revocation (ident-authorized) kills the token session.
-        revoke_token(
+        let _ = revoke_token(
             State(state.clone()),
             Json(TokenRevokeRequest {
                 owner: "alice".to_string(),
@@ -4290,7 +4290,7 @@ mod tests {
                 .unwrap(),
             ),
         };
-        transfer_offer(State(state.clone()), Json(offer))
+        let _ = transfer_offer(State(state.clone()), Json(offer))
             .await
             .expect("offer");
         let accept = TransferAcceptRequest {
@@ -4305,7 +4305,7 @@ mod tests {
                 .unwrap(),
             ),
         };
-        transfer_accept(State(state.clone()), Json(accept))
+        let _ = transfer_accept(State(state.clone()), Json(accept))
             .await
             .expect("accept");
 
@@ -5371,7 +5371,7 @@ mod tests {
         };
 
         for _ in 0..SEARCH_PER_IP_MAX {
-            search(State(h.state.clone()), peer("198.51.100.7"), query())
+            let _ = search(State(h.state.clone()), peer("198.51.100.7"), query())
                 .await
                 .expect("within the per-IP window");
         }
@@ -5380,7 +5380,7 @@ mod tests {
         assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 
         // A different client is unaffected: the bucket is per IP, not global.
-        search(State(h.state.clone()), peer("198.51.100.8"), query())
+        let _ = search(State(h.state.clone()), peer("198.51.100.8"), query())
             .await
             .expect("a different peer has its own bucket");
     }
@@ -8184,7 +8184,7 @@ mod tests {
             "https://example.invalid/toolbox",
         )
         .await;
-        publish_package(State(h.state.clone()), Json(request))
+        let _ = publish_package(State(h.state.clone()), Json(request))
             .await
             .expect("publish succeeds");
 
@@ -8205,7 +8205,7 @@ mod tests {
             &h.state, &keys, &token, "2.0.0", payload, "alice", "",
         )
         .await;
-        publish_package(State(h.state.clone()), Json(request))
+        let _ = publish_package(State(h.state.clone()), Json(request))
             .await
             .expect("publish succeeds with no url");
 
@@ -8302,7 +8302,7 @@ mod tests {
         // The same artifact through `/publish` does write them — otherwise the
         // assertion above would pass for the wrong reason.
         let (_artifact, request) = signed_request(&h.state, &keys, &token, "1.0.0", payload).await;
-        publish_package(State(h.state.clone()), Json(request))
+        let _ = publish_package(State(h.state.clone()), Json(request))
             .await
             .expect("publish succeeds");
 
