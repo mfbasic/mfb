@@ -49,6 +49,17 @@ A handler that does not need to distinguish codes should not import this package
 at all — `err.message` is already a human-readable string, and `PROPAGATE`
 re-raises without inspecting anything.
 
+## User-defined codes are not here
+
+`errorCode` covers the **runtime** registry — generator `7` — only. Codes in the
+generator `9` range (`90000000` through `99999999`) are defined by packages and
+programs for their own failure modes, and deliberately have no constant here:
+they are not centrally allocated, so two unrelated packages may use the same
+integer for different failures. Match one against the integer the raising
+package documents (or a constant that package exports itself), and only where
+the handler already knows which package it is handling. See
+`./mfb spec diagnostics error-codes` for the full convention.
+
 ## Errors
 
 `errorCode` raises no errors. It exports only constants; there is nothing to

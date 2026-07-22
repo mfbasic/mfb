@@ -20,7 +20,7 @@ surfaced here.
 
 The canonical code string has the hyphenated form `G-SSS-EEEE`:
 
-* `G` — generator (`7` for all runtime codes)
+* `G` — generator (`7` for runtime codes, `9` for user-defined codes)
 * `SSS` — subsystem
 * `EEEE` — concrete error within that subsystem
 
@@ -44,6 +44,48 @@ registry are:
 | `7-707-*` | platform ABI and networking                                      |
 
 (`7-704-*` is unused by the current registry.)
+
+## User-Defined Codes (generator `9`)
+
+Generator `9` — the integer range `90000000` through `99999999` — is reserved for
+codes a package or program defines for itself. **The runtime never raises a
+generator-`9` code, and no such code appears in the `errorCode::` registry.** It
+exists so a library with failure modes the standard registry does not model can
+report them without overlaying an unrelated standard meaning.
+
+The problem it solves is concrete. A binding wrapping a C library has its own
+error enum, and mapping that enum onto the `7-705-*` range by arithmetic offset
+lands on unrelated standard names: a "format not recognised" reported as
+`77050001` is indistinguishable from `errorCode::ErrIndexOutOfRange`, so a
+`TRAP` matching that constant silently catches the wrong failure. Generator `9`
+gives that binding a range where it cannot collide with a standard name.
+
+Rules:
+
+* **Not in `errorCode::`.** There is no constant for a generator-`9` code, and
+  `errorCode::` will never gain one. A handler compares against the package's own
+  documented integer, or against a constant the package exports itself.
+* **Codes may overlap between packages.** `SSS` is chosen by whoever defines the
+  code, with no central registry and no allocation authority, so two unrelated
+  packages may both use `9-100-0001` for different failures. A code is meaningful
+  only together with the package that raised it — never treat a generator-`9`
+  integer as globally identifying.
+* **Because they overlap, match them narrowly.** A `TRAP` keying on a
+  generator-`9` code should already know which package it is handling — typically
+  by wrapping a single call. Matching one across a broad block risks catching a
+  same-numbered code from an unrelated package.
+* **Document every one.** A generator-`9` code carries no registry meaning, so
+  the raising package's `DOC` `ERROR` lines are the only specification of what it
+  means. An undocumented one is unusable by a caller.
+* **Prefer a standard code where one genuinely fits.** Generator `9` is for
+  failures the registry does not model, not a default. A missing file really is
+  `ErrPathNotFound`; a bad argument really is `ErrInvalidArgument`. Reach for
+  generator `9` only when no standard code carries the right meaning.
+
+The encoding rule is unchanged: `9-100-0001` is stored as `91000001`, and the
+value is built with the ordinary `error(code, message)` built-in. Nothing in the
+compiler or runtime treats the range specially — the reservation is a convention
+that keeps user codes from being mistaken for registry codes.
 
 ## Constant Registry
 
