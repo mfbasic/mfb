@@ -200,10 +200,10 @@ either copy.
 
 Adds the columns and table. Safe alone: nothing writes to them yet.
 
-- [ ] Add to `repository/src/store.rs` `migrate()` (`:163-356`): `ALTER`-equivalent
+- [x] Add to `repository/src/store.rs` `migrate()` (`:163-356`): `ALTER`-equivalent
       columns on `package_versions` — `author TEXT`, `url TEXT`,
       `description TEXT`, all NULL-able.
-- [ ] Add table `package_version_targets (package_version_id INTEGER NOT NULL
+- [x] Add table `package_version_targets (package_version_id INTEGER NOT NULL
       REFERENCES package_versions(id), blob_hash TEXT, os TEXT NOT NULL,
       arch TEXT, libc TEXT, lib_type TEXT NOT NULL, logical TEXT NOT NULL,
       source TEXT NOT NULL)` with an index on `package_version_id`. `arch` NULL
@@ -212,16 +212,21 @@ Adds the columns and table. Safe alone: nothing writes to them yet.
       integers in §2 — see Open Decisions; the readability argument that settles
       `libc` settles `lib_type` identically. Per §3.1, every row A writes has
       `lib_type = 'vendor'`.
-- [ ] Follow the existing migration idiom rather than inventing one: new tables
+- [x] Follow the existing migration idiom rather than inventing one: new tables
       go in the `CREATE TABLE IF NOT EXISTS` batch; new columns on an existing
       table go through `add_column_if_missing` (helper at `store.rs:2342`, used
       at `store.rs:342-354`). Together these open a pre-existing deployed
       database (`repository/DEPLOY.md`: Fly.io volume) cleanly.
-- [ ] Tests: a `store.rs` unit test that opens a database created *before* this
+      Followed exactly: the three columns are also spelled into the `CREATE
+      TABLE` body, mirroring how `abi_index` appears in both places.
+- [x] Tests: a `store.rs` unit test that opens a database created *before* this
       change and confirms the new columns exist and are NULL.
+      `migrating_a_legacy_database_adds_the_metadata_columns_and_target_table`.
 
-Acceptance: `cargo test -p mfb_repository store` passes, and opening a
-pre-migration database file succeeds with the new columns present and NULL.
+Acceptance: **MET** — `cargo test -p mfb_repository --lib store` → 81 passed, 0
+failed; the new test opens a `package_versions` table created without the three
+columns and reads all three back as NULL, with `package_version_targets` and its
+index present.
 Commit: —
 
 ### Phase 2 — Capture native targets

@@ -267,9 +267,39 @@ impl Store {
                 hash TEXT NOT NULL,
                 state TEXT NOT NULL,
                 abi_index TEXT NOT NULL DEFAULT '{}',
+                author TEXT NULL,
+                url TEXT NULL,
+                description TEXT NULL,
                 created_at INTEGER NOT NULL,
                 UNIQUE(package_id, version)
             );
+
+            -- plan-61-A §3: the native target matrix, one row per section-10
+            -- *locator* — never per distinct blob hash, which under-reports
+            -- targets when two platforms ship byte-identical blobs under
+            -- different `source` filenames.
+            --
+            -- `arch` NULL is the any-arch wildcard (a locator whose `arch` is
+            -- the empty string), not missing data. `libc` and `lib_type` are
+            -- token strings decoded from the wire integers so the database
+            -- reads honestly under `sqlite3` and needs no mapping table
+            -- downstream. Per §3.1 every row written today has
+            -- `lib_type = 'vendor'` and a non-NULL `blob_hash`; both stay
+            -- permissive so capturing `system` locators later needs no
+            -- migration.
+            CREATE TABLE IF NOT EXISTS package_version_targets (
+                package_version_id INTEGER NOT NULL REFERENCES package_versions(id),
+                blob_hash TEXT NULL,
+                os TEXT NOT NULL,
+                arch TEXT NULL,
+                libc TEXT NULL,
+                lib_type TEXT NOT NULL,
+                logical TEXT NOT NULL,
+                source TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS package_version_targets_version_idx
+                ON package_version_targets(package_version_id);
 
             CREATE TABLE IF NOT EXISTS package_blobs (
                 hash TEXT PRIMARY KEY,
@@ -352,6 +382,14 @@ impl Store {
             "package_blobs",
             "kind TEXT NOT NULL DEFAULT 'package'",
         )?;
+        // plan-61-A §1: human-facing metadata the server already receives and
+        // parses but discarded until now. All three are NULL-able: a version
+        // published before this migration has no recorded value, and NULL says
+        // "not known" where '' would claim the publisher set it empty.
+        // `description` is created here and stays NULL until plan-61-E.
+        add_column_if_missing(&conn, "package_versions", "author TEXT NULL")?;
+        add_column_if_missing(&conn, "package_versions", "url TEXT NULL")?;
+        add_column_if_missing(&conn, "package_versions", "description TEXT NULL")?;
         Ok(())
     }
 
@@ -4049,6 +4087,87 @@ pub(crate) mod tests {
             store.blob_kind("legacyhash").unwrap().as_deref(),
             Some("package")
         );
+    }
+
+    #[test]
+    fn migrating_a_legacy_database_adds_the_metadata_columns_and_target_table() {
+        // plan-61-A Phase 1. `author`/`url`/`description` land on a table that
+        // already exists in a deployed database (repository/DEPLOY.md: a Fly.io
+        // volume), so `CREATE TABLE IF NOT EXISTS` cannot add them — only the
+        // idempotent ALTER can. The contract is that every pre-existing version
+        // row reads back NULL for all three: the server never knew these values,
+        // and NULL is how it says so.
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("legacy.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE packages (
+                    id INTEGER PRIMARY KEY,
+                    ident TEXT NOT NULL UNIQUE,
+                    owner_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE package_versions (
+                    id INTEGER PRIMARY KEY,
+                    package_id INTEGER NOT NULL,
+                    version TEXT NOT NULL,
+                    hash TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(package_id, version)
+                );
+                INSERT INTO packages (id, ident, owner_id, created_at)
+                    VALUES (1, 'legacy#pkg', 1, 100);
+                INSERT INTO package_versions (package_id, version, hash, state, created_at)
+                    VALUES (1, '1.0.0', 'legacyhash', 'available', 100);
+                "#,
+            )
+            .unwrap();
+        }
+
+        let opened =
+            Store::open_repository(&db_path, &temp.path().join("data")).expect("legacy migration");
+        let store = opened.store;
+        let conn = store.conn();
+
+        let (author, url, description): (Option<String>, Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT author, url, description FROM package_versions WHERE version = '1.0.0'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("the three metadata columns must exist after migrating");
+        assert_eq!(author, None, "a legacy row cannot claim an author");
+        assert_eq!(url, None);
+        assert_eq!(
+            description, None,
+            "plan-61-A creates `description` but never writes it; plan-61-E does"
+        );
+
+        // The target table and its index came from the CREATE batch, so they
+        // appear even though `package_versions` predates this migration.
+        let targets: i64 = conn
+            .query_row("SELECT count(*) FROM package_version_targets", [], |row| {
+                row.get(0)
+            })
+            .expect("package_version_targets must exist after migrating");
+        assert_eq!(targets, 0);
+        let index_count: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'index' \
+                 AND name = 'package_version_targets_version_idx'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(index_count, 1, "the lookup index must be created too");
+
+        // Re-running the migration over the now-current schema is a no-op.
+        drop(conn);
+        store.migrate().unwrap();
+        store.migrate().unwrap();
     }
 
     #[test]
