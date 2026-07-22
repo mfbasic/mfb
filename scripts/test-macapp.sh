@@ -35,6 +35,12 @@ failures=0
 # (only when you are not actively using the machine).
 gui_enabled() { [ "${MFB_MACAPP_GUI:-0}" = "1" ]; }
 
+# The compiler writes app bundles under the project's build directory
+# (src/os/mod.rs:BUILD_DIR, src/os/macos/link/mod.rs:write_app_bundle).
+# Keep this the single source of that knowledge: a future layout change
+# breaks one line here, not every case below.
+bundle() { printf '%s' "$1/build/$2.app"; }
+
 # Run a bundle's executable headlessly with a watchdog; echo "code=N" or "signal=N".
 run_headless() {
   local exe=$1
@@ -76,7 +82,7 @@ if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   echo "FAIL: build -app exitcode" >&2
   failures=$((failures + 1))
 else
-  result=$(run_headless "$proj/exitcode.app/Contents/MacOS/exitcode")
+  result=$(run_headless "$(bundle "$proj" exitcode)/Contents/MacOS/exitcode")
   if [ "$result" = "code=42" ]; then
     echo "ok: worker ran program and propagated exit code ($result)"
   else
@@ -101,7 +107,7 @@ if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   echo "FAIL: build -app nothing" >&2
   failures=$((failures + 1))
 else
-  result=$(run_headless "$proj/nothing.app/Contents/MacOS/nothing")
+  result=$(run_headless "$(bundle "$proj" nothing)/Contents/MacOS/nothing")
   if [ "$result" = "code=0" ]; then
     echo "ok: SUB main() worker ran and exited cleanly ($result)"
   else
@@ -132,7 +138,7 @@ if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   echo "FAIL: build -app output" >&2
   failures=$((failures + 1))
 else
-  out=$(run_headless_stdout "$proj/output.app/Contents/MacOS/output")
+  out=$(run_headless_stdout "$(bundle "$proj" output)/Contents/MacOS/output")
   if [ "$out" = $'APPMODE_LINE\nAPPMODE_NONL' ]; then
     echo "ok: app-mode io::print/io::write produced expected output"
   else
@@ -175,7 +181,7 @@ else
     my $r = waitpid($pid, WNOHANG);
     if ($r == 0) { print "alive"; kill "KILL", $pid; waitpid($pid, 0); }
     else { printf "exited=%d", ($? >> 8); }
-  ' "$proj/keepopen.app/Contents/MacOS/keepopen")
+  ' "$(bundle "$proj" keepopen)/Contents/MacOS/keepopen")
   if [ "$result" = "alive" ]; then
     echo "ok: window stayed open after the program finished"
   else
@@ -214,7 +220,7 @@ else
     if ($pid == 0) { exec($ARGV[0]) or exit 127; }
     local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99; };
     alarm 15; local $/; my $o = <$fh>; close($fh); print $o;
-  ' "$proj/input.app/Contents/MacOS/input")
+  ' "$(bundle "$proj" input)/Contents/MacOS/input")
   if [ "$out" = $'Name? Hi bob\nEcho second' ]; then
     echo "ok: app-mode io::input + io::readLine consume input correctly"
   else
@@ -251,7 +257,7 @@ else
     if ($pid == 0) { exec($ARGV[0]) or exit 127; }
     local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99; };
     alarm 15; local $/; my $o = <$fh>; close($fh); print $o;
-  ' "$proj/inputonly.app/Contents/MacOS/inputonly")
+  ' "$(bundle "$proj" inputonly)/Contents/MacOS/inputonly")
   if [ "$out" = 'Name? Hi bob' ]; then
     echo "ok: app-mode io::input alone (no io::readLine) builds and reads"
   else
@@ -287,7 +293,7 @@ elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   failures=$((failures + 1))
 else
   rm -f "$proj/got.txt"
-  open "$proj/keyinput.app"
+  open "$(bundle "$proj" keyinput)"
   sleep 2
   osascript -e 'tell application "System Events" to keystroke "WindowKeys"' >/dev/null 2>&1
   osascript -e 'tell application "System Events" to key code 36' >/dev/null 2>&1
@@ -328,7 +334,7 @@ else
     my $pid = open(my $fh, "-|"); if ($pid == 0) { exec($ARGV[0]) or exit 127; }
     local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99 }; alarm 10;
     local $/; my $o = <$fh>; close($fh); chomp $o; print $o;
-  ' "$proj/isterm.app/Contents/MacOS/isterm")
+  ' "$(bundle "$proj" isterm)/Contents/MacOS/isterm")
   if [ "$out" = "terminal:yes" ]; then
     echo "ok: app-mode io::is*Terminal return TRUE"
   else
@@ -367,7 +373,7 @@ elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
   failures=$((failures + 1))
 else
   rm -f "$proj/size.txt"
-  open "$proj/tsize.app"
+  open "$(bundle "$proj" tsize)"
   sleep 2
   pkill -KILL tsize >/dev/null 2>&1
   size=$(cat "$proj/size.txt" 2>/dev/null || true)

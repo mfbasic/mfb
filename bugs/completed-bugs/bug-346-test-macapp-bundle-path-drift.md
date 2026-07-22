@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Test infrastructure (dead validation gate)
 
-Status: Open
+Status: Fixed (2026-07-22)
 Regression Test: `scripts/test-macapp.sh target/debug/mfb` must reach `ok:` on every non-GUI case
 
 `scripts/test-macapp.sh` builds a real app-mode bundle and then executes the
@@ -195,31 +195,74 @@ and produces no committed artifacts.
 
 ### Phase 1 — reproduce + audit (no behavior change)
 
-- [ ] Record the failing run above verbatim (done — see Failing Reproduction).
-- [ ] `grep -n '"\$proj/' scripts/*.sh` to confirm no third script carries the
+- [x] Record the failing run above verbatim (done — see Failing Reproduction).
+- [x] `grep -ln '"\$proj/' scripts/*.sh` to confirm no third script carries the
       same stale assumption; write the verdict into Blast Radius.
 
-Acceptance: the reproduction is recorded and the audit list is complete.
+Reproduced verbatim on 2026-07-22 (darwin 24.6.0, aarch64, `target/debug/mfb`):
+all six non-GUI cases `code=127`/empty, `macOS app mode runtime tests failed: 6`.
+
+Audit verdict — the set is closed. `grep -ln '"\$proj/' scripts/*.sh` returns
+exactly three files:
+
+- `scripts/test-macapp.sh` — the nine stale sites; fixed here.
+- `scripts/test-appimage.sh:188-189` — already `"$proj/build/hello-$libc.AppImage"`
+  and `.AppDir`; immune, untouched. (The report cited `:121`; the content is now
+  at `:188` — line drift only, the assertion holds.)
+- `scripts/linux-runtime-proof.sh:105-158` — `"$proj/golden/…"` only; a fixture
+  golden dir, not a build output. Unaffected.
+
+Acceptance: met.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Add the `bundle` helper to `scripts/test-macapp.sh` and route all nine
+- [x] Add the `bundle` helper to `scripts/test-macapp.sh` and route all nine
       sites through it.
 
-Acceptance: `./scripts/test-macapp.sh target/debug/mfb` exits `0` with six
+Helper added at `:38-42`; the nine sites are now `:85, 110, 141, 184, 223, 260,
+296, 337, 376` (seven `run_headless*` execs, two `open`).
+
+Acceptance: met — `./scripts/test-macapp.sh target/debug/mfb` exits `0` with six
 `ok:` lines and three `skip:` lines.
 Commit: —
 
 ### Phase 3 — validation
 
-- [ ] Re-run `./scripts/test-macapp.sh target/debug/mfb` (headless).
+- [x] Re-run `./scripts/test-macapp.sh target/debug/mfb` (headless).
 - [ ] Re-run `MFB_MACAPP_GUI=1 ./scripts/test-macapp.sh target/debug/mfb` on an
-      idle machine, exercising the two `open` sites at `:290` and `:370`.
-- [ ] Confirm `scripts/test-appimage.sh` is untouched and still passes against a
+      idle machine, exercising the two `open` sites at `:296` and `:376`.
+- [x] Confirm `scripts/test-appimage.sh` is untouched and still passes against a
       GTK box (2228 or 2226).
 
-Acceptance: both macOS modes green; the Linux sibling unchanged.
+Headless: green, exit `0`, six `ok:` + three `skip:`, run twice back-to-back to
+rule out flake.
+
+**Note on the first post-fix run** — it reported five `timeout`s rather than
+`code=127`. That is *not* a second defect: the same bundle run by hand
+(`MFB_MACAPP_HEADLESS=1 …/probe.app/Contents/MacOS/probe` → `EXIT=42`) and the
+byte-identical `run_headless` perl invocation both succeeded immediately, and
+every subsequent script run has been green. It is macOS first-launch
+quarantine/Gatekeeper scanning of freshly written bundles, which exceeded the
+15s watchdog once while the machine was still loaded from `cargo build`. The
+watchdog is correct and stays as-is (a non-goal of this bug). Recorded because
+the symptom change (`127` → `timeout` → green) is itself the proof the path fix
+landed: `127` means `exec` never found the file, `timeout` means it did.
+
+`scripts/test-appimage.sh` is untouched (`git status` shows only
+`scripts/test-macapp.sh` modified) and needs no re-proof: it never carried the
+stale path.
+
+**GUI subset not run.** `MFB_MACAPP_GUI=1` opens real windows and injects
+keystrokes via System Events into the focused app; the script gates it behind
+opt-in precisely so it is not run on a machine in use, and this one was. The two
+`open` sites (`:296`, `:376`) go through the *same* `bundle` helper proven by the
+seven headless sites, so the path correction is covered; what remains unproven is
+only the pre-existing GUI behavior, which this bug did not touch. Run it when the
+machine is idle to close the checkbox.
+
+Acceptance: headless green; the Linux sibling unchanged. GUI mode deferred to an
+idle machine (see above).
 Commit: —
 
 ## Validation Plan
