@@ -2645,6 +2645,9 @@ fn ties_away_encodes_the_exact_fraction_sequence() {
     // The commandeered GPR is chosen to differ from dst: with dst == rax it must not
     // push/pop the register it is about to return in.
     let with_rax_dst = bytes("fcvtas_x_from_d", &[("dst", "rax"), ("src", "xmm3")]);
-    assert_eq!(with_rax_dst[0], 0x51, "dst == rax must commandeer rcx, not rax");
+    assert_eq!(
+        with_rax_dst[0], 0x51,
+        "dst == rax must commandeer rcx, not rax"
+    );
     assert_eq!(*with_rax_dst.last().unwrap(), 0x59, "and restore rcx");
 }

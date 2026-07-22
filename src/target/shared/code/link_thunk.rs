@@ -1024,7 +1024,11 @@ fn lower_link_thunk(
             instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), param_base + pidx * 8),
                 abi::load_u64("%v10", "%v9", FILE_OFFSET_CLOSED),
-                abi::move_immediate("%v11", "Integer", &(1u64 << RESOURCE_CLOSED_BIT).to_string()),
+                abi::move_immediate(
+                    "%v11",
+                    "Integer",
+                    &(1u64 << RESOURCE_CLOSED_BIT).to_string(),
+                ),
                 abi::or_registers("%v10", "%v10", "%v11"),
                 abi::store_u64("%v10", "%v9", FILE_OFFSET_CLOSED),
             ]);

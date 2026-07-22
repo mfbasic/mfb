@@ -1187,8 +1187,7 @@ impl TypeEnv {
                         // cannot show the opaque value carries.
                         if self.is_opaque_state_value(value) {
                             let ret = self.current_return.borrow().clone();
-                            if let Some(declared) =
-                                crate::builtins::resource::state_type_name(&ret)
+                            if let Some(declared) = crate::builtins::resource::state_type_name(&ret)
                             {
                                 self.emit(
                                     "TYPE_STATE_OPAQUE_NARROWING",
