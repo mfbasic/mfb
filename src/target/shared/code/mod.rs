@@ -464,6 +464,15 @@ struct TypeModel {
     /// through. That is what lets both spellings the name can take — the dotted
     /// `alias.func` and the bare re-export alias — resolve to the one thunk.
     ///
+    /// bug-377: an IMPORTED package's close op takes one of two spellings,
+    /// depending on how the package declared it, and only `resolve_closer_symbol`
+    /// knows both. `RESOURCE T CLOSE BY link::op` serializes the internal dotted
+    /// target, which `merge_packages` identity-prefixes along with the link
+    /// function, so it resolves as `<id>.<package>.<alias>.<op>`. A re-exported
+    /// `EXPORT FUNC close AS link::op` serializes the BARE alias, and
+    /// `ir::package::merge_package` registers it as `<package>.close` with no
+    /// identity prefix. Storing one spelling makes the other miss silently.
+    ///
     /// bug-374: `resource_cleanup_symbol` resolved the close op only through
     /// `builtins::resource_close_function`, an 8-entry table of the language's
     /// own resources. A `RESOURCE Db CLOSE BY sql::close` missed it, so
@@ -745,6 +754,17 @@ pub(crate) fn lower_module_for_platform(
         }
     }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
+    // bug-377: the close thunks, by symbol. Every consumer of a resource's
+    // registered close op resolves it through `resolve_closer_symbol`, so the
+    // scope-drop call site and the thunk's own "am I a close op?" test cannot
+    // disagree about which function is the closer — which is exactly how an
+    // imported resource ended up closed by the drop path while its thunk never
+    // set `RESOURCE_CLOSED_BIT`.
+    let close_op_symbols: HashSet<String> = type_model
+        .resource_closers
+        .values()
+        .filter_map(|close| resolve_closer_symbol(close, &function_symbols))
+        .collect();
     let mut code_functions = Vec::new();
     let mut runtime_symbols = native_plan.runtime_symbols.clone();
     let skip_entry_arena_destroy = platform.target().starts_with("linux")
@@ -1331,7 +1351,7 @@ pub(crate) fn lower_module_for_platform(
             &platform_imports,
             platform,
             &link_libraries,
-            &type_model.resource_closers,
+            &close_op_symbols,
         )?;
         code_functions.extend(support.functions);
         data_objects.extend(support.data_objects);
@@ -3307,6 +3327,34 @@ pub(crate) mod regalloc;
 pub(crate) use mir::MirPlan;
 
 /// Resolve every logical `LINK` library this module names to the concrete
+/// The thunk symbol a resource's registered `CLOSE BY` op resolves to, or `None`
+/// when the name routes to nothing in this module.
+///
+/// bug-377: two spellings reach here and both must resolve, or a resource is
+/// silently never closed.
+///
+/// * `<id>.<package>.<alias>.<op>` — a `RESOURCE T CLOSE BY link::op` whose
+///   internal dotted target `merge_packages` identity-prefixed with the link
+///   function it names.
+/// * `<package>.<alias-name>` — a re-exported `EXPORT FUNC close AS link::op`.
+///   `ir::package::merge_package` qualifies the bare alias with the package name
+///   but does NOT identity-prefix it, so the identity-prefixed spelling that
+///   `code::validation` built for it misses.
+///
+/// Try the name as given, then again with a leading identity segment stripped.
+/// The identity is a 16-hex-digit content hash, which no package or alias name
+/// can be, so the retry cannot capture a legitimately-dotted first segment.
+fn resolve_closer_symbol(close: &str, function_symbols: &HashMap<String, String>) -> Option<String> {
+    if let Some(symbol) = function_symbols.get(close) {
+        return Some(symbol.clone());
+    }
+    let (identity, rest) = close.split_once('.')?;
+    if identity.len() != 16 || !identity.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    function_symbols.get(rest).cloned()
+}
+
 /// `source` the declaring binding declared for this build's `(os, arch, libc)`
 /// (plan-46-C §4.2).
 ///

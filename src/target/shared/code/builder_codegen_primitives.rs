@@ -1371,7 +1371,10 @@ impl CodeBuilder<'_> {
                 .type_model
                 .resource_closers
                 .get(crate::builtins::resource::base_resource_name(type_))?;
-            return self.function_symbols.get(close.as_str()).cloned();
+            return crate::target::shared::code::resolve_closer_symbol(
+                close,
+                self.function_symbols,
+            );
         };
         let symbol = self
             .function_symbols

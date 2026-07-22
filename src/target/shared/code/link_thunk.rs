@@ -142,7 +142,7 @@ pub(super) fn emit_link_support(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     libraries: &LinkLibraries,
-    resource_closers: &HashMap<String, String>,
+    close_op_symbols: &HashSet<String>,
 ) -> Result<LinkSupport, String> {
     let LinkCodegenOptions {
         globals_base,
@@ -243,18 +243,22 @@ pub(super) fn emit_link_support(
     // `CLOSE BY` op, by dotted `alias.func` — the set that must set
     // `RESOURCE_CLOSED_BIT` on the record it was handed.
     //
-    // bug-377: read from the type model's closer table, NOT `native_resources`.
-    // The latter holds the current project's `RESOURCE T CLOSE BY` declarations
-    // only — a decoded package contributes none (`ir/binary.rs` drops them by
-    // contract) — so an imported package's close thunk was left out of this set
-    // and never set the closed bit. An explicit `sqlite3::close(db)` therefore
-    // closed the handle while leaving the record looking open, and the scope-exit
-    // drop closed it a second time for real: a double free into the native
-    // library (`EXC_BAD_ACCESS` inside `libsqlite3`). The closer table carries
-    // both spellings already — the bare `alias.func` for this project and the
-    // identity-prefixed `<id>.<package>.<alias>.<func>` for an imported one,
-    // which is exactly how `function.alias` reads post-merge.
-    let close_ops: HashSet<String> = resource_closers.values().cloned().collect();
+    // bug-377: matched by SYMBOL, and computed by the same `resolve_closer_symbol`
+    // the scope-drop call site uses, NOT from `native_resources`.
+    //
+    // `native_resources` holds the current project's `RESOURCE T CLOSE BY`
+    // declarations only — a decoded package contributes none (`ir/binary.rs`
+    // drops them by contract) — so an imported package's close thunk was left out
+    // of this set and never set the closed bit. An explicit `sqlite3::close(db)`
+    // then released the handle while leaving the record looking open, and the
+    // scope-exit drop closed it a second time for real: a double free into the
+    // native library (`EXC_BAD_ACCESS` inside `libsqlite3`).
+    //
+    // Matching on the resolved symbol rather than on a name is what keeps the two
+    // sides honest. A close op reaches this module under either of two spellings
+    // (see `resolve_closer_symbol`), so a name comparison marked one shape and
+    // missed the other — and the shape it missed is precisely the one the drop
+    // path was closing.
 
     let initializer = lower_link_initializer(
         link_functions,
@@ -279,7 +283,10 @@ pub(super) fn emit_link_support(
                 max_buffer_bytes,
             },
             &record_native_resources,
-            close_ops.contains(&format!("{}.{}", function.alias, function.name)),
+            close_op_symbols.contains(&crate::target::shared::nir::link_thunk_symbol(
+                &function.alias,
+                &function.name,
+            )),
         )?);
     }
 
