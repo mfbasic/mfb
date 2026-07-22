@@ -1,0 +1,20 @@
+$ mfb build -ast -ir tests/syntax/datetime/bug349_instant_named_arg_arity_invalid
+   7 |   ' error, never a silently-wrong slot. `days` names position 0 only in the
+   8 |   ' 5-arg form; supplied alone it selects the 1-arg form, which has no `days`.
+   9 |   LET a AS Instant = datetime::instant(days := 5)
+     | ^
+tests/syntax/datetime/bug349_instant_named_arg_arity_invalid/src/main.mfb:9 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `datetime.instant` omits parameter `hours` before a later supplied argument.
+  10 |   ' Two names -> selects the 2-arg form `(seconds, nanos)`; `days`/`hours` name
+  11 |   ' no slot there. Formerly bound to seconds/nanos (1000000002 = 1s + 2ns).
+  12 |   LET b AS Instant = datetime::instant(days := 1, hours := 2)
+     | ^
+tests/syntax/datetime/bug349_instant_named_arg_arity_invalid/src/main.mfb:12 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `datetime.instant` omits parameter `mins` before a later supplied argument.
+  12 |   LET b AS Instant = datetime::instant(days := 1, hours := 2)
+  13 |   ' duration binds by the same rule.
+  14 |   LET c AS Duration = datetime::duration(hours := 3)
+     | ^
+tests/syntax/datetime/bug349_instant_named_arg_arity_invalid/src/main.mfb:14 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `datetime.duration` omits parameter `mins` before a later supplied argument.
+[exit 1]

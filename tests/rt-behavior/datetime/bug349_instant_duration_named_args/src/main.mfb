@@ -1,0 +1,27 @@
+IMPORT io
+IMPORT datetime
+
+' bug-349: `instant`/`duration` merged all five overloads' names into one
+' leading-aligned positional table, but their overloads drop components off the
+' FRONT (`instant1(seconds)` … `instant5(days, hours, mins, seconds, nanos)`).
+' So `instant(days := 5)` bound `days` to the 1-arg `seconds` slot and meant 5
+' seconds, not 5 days — an 86,400x silent error. A per-overload table (like
+' fixedOffset, bug-94) binds a name to its parameter in the SELECTED overload:
+' `days` only exists in the 5-arg form, so a name that names no slot in the
+' chosen arity is a clean arity error instead of a wrong value.
+FUNC main() AS Integer
+  ' Named args at the arity that actually declares them.
+  LET a = datetime::instant(seconds := 5)
+  io::print(toString(datetime::toNanos(a)))
+  LET b = datetime::instant(days := 1, hours := 2, mins := 3, seconds := 4, nanos := 5)
+  io::print(toString(datetime::toNanos(b)))
+  ' The same call spelled positionally must be byte-identical.
+  LET c = datetime::instant(1, 2, 3, 4, 5)
+  io::print(toString(datetime::toNanos(c)))
+  ' duration binds by the same discipline.
+  LET d = datetime::duration(days := 1, hours := 2, mins := 3, seconds := 4, nanos := 5)
+  io::print(datetime::formatDuration(d))
+  LET e = datetime::duration(seconds := 5)
+  io::print(datetime::formatDuration(e))
+  RETURN 0
+END FUNC

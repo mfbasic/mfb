@@ -1,0 +1,16 @@
+IMPORT datetime
+
+FUNC main AS Integer
+  ' bug-349: `instant`/`duration` overloads drop components off the FRONT
+  ' (`instant1(seconds)` … `instant5(days, hours, mins, seconds, nanos)`), so a
+  ' name that does not exist in the SELECTED (by count) overload is an arity
+  ' error, never a silently-wrong slot. `days` names position 0 only in the
+  ' 5-arg form; supplied alone it selects the 1-arg form, which has no `days`.
+  LET a AS Instant = datetime::instant(days := 5)
+  ' Two names -> selects the 2-arg form `(seconds, nanos)`; `days`/`hours` name
+  ' no slot there. Formerly bound to seconds/nanos (1000000002 = 1s + 2ns).
+  LET b AS Instant = datetime::instant(days := 1, hours := 2)
+  ' duration binds by the same rule.
+  LET c AS Duration = datetime::duration(hours := 3)
+  RETURN 0
+END FUNC

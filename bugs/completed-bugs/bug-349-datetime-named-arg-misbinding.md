@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Correctness (silent wrong value in a documented public API)
 
-Status: Open
+Status: Fixed (2026-07-22)
 Regression Test: a new `tests/rt-behavior/datetime/` fixture asserting `datetime::instant(days := 5)` is rejected or equals 5 days
 
 `datetime::instant` and `datetime::duration` are overloaded by argument count
@@ -312,46 +312,73 @@ calls are untouched. No goldens should move — search the fixtures for named-ar
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a fixture reproducing `instant(days := 5)` and `instant(days := 1,
+- [x] Add a fixture reproducing `instant(days := 5)` and `instant(days := 1,
       hours := 2)`; confirm the wrong values `5000000000` and `1000000002`.
-- [ ] `grep -rn 'instant(.*:=\|duration(.*:=' tests/ examples/ src/` to find any
+- [x] `grep -rn 'instant(.*:=\|duration(.*:=' tests/ examples/ src/` to find any
       existing source relying on the buggy binding; each hit must be inspected,
       since Phase 2 turns it into a compile error.
-- [ ] Complete the blast-radius audit (done above); write the verdicts into this
+- [x] Complete the blast-radius audit (done above); write the verdicts into this
       file.
 
-Acceptance: the fixture fails with the documented wrong values; the audit is
-complete with a verdict per site; the list of affected existing call sites is
-known.
+Reproduced verbatim on 2026-07-22 (darwin 24.6.0, aarch64): `instant(days := 5)`
+→ `5000000000` (5 s), byte-identical to `instant(5)`; `instant(days := 1,
+hours := 2)` → `1000000002`. Both compile with zero diagnostics.
+
+Existing-call-site audit: `grep -rn 'instant(.*:=\|duration(.*:=' tests/ examples/
+src/` (excluding this fixture and the fixedOffset sibling) returns **only** the
+three explanatory comments I added in `src/builtins/datetime.rs`. **No source in
+the tree relied on the buggy binding**, so turning it into a compile error breaks
+nothing that existed. Blast-radius audit verdicts recorded above.
+
+Acceptance: met.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] `src/builtins/datetime.rs:141` → `INSTANT | DURATION => return None`, and
-      delete the false comment at `:139-140`.
-- [ ] Add the five-overload table to `call_param_name_overloads`
-      (`src/builtins/datetime.rs:187`).
-- [ ] Fix any call site found in Phase 1.
+- [x] `src/builtins/datetime.rs` → `INSTANT | DURATION => return None`, replacing
+      the false "leading names line up" comment with the checked fact.
+- [x] Add the five-overload table to `call_param_name_overloads`.
+- [x] Fix any call site found in Phase 1. (None existed.)
 
-Acceptance: the Phase 1 fixture passes; positional `instant`/`duration` calls at
-every arity 1–5 are unchanged; `cargo test` green including
+The two type-checker/lowering consumers of the merged table
+(`src/ir/lower.rs:2747`, `src/syntaxcheck/builtins.rs:890`) already fall through
+to `call_param_name_overloads` when `call_param_names` returns `None`, exactly as
+they do for `fixedOffset` — no change needed there.
+
+Runtime proof (rebuilt compiler):
+- `instant(seconds := 5)` → `5000000000` (5 s) — correct.
+- `instant(days := 1, hours := 2, mins := 3, seconds := 4, nanos := 5)` →
+  `93784000000005`, **byte-identical** to positional `instant(1, 2, 3, 4, 5)`.
+- `instant(days := 5)` → clean `TYPE_CALL_ARITY_MISMATCH` ("omits parameter
+  `hours` before a later supplied argument"), not a wrong value.
+- `duration` verified the same way (`1d 02:03:04.000`, `00:00:05.000`).
+
+Acceptance: met — `cargo test --bin mfb builtins::` green (346 passed), including
 `overloaded_param_name_tables_are_well_formed`.
 Commit: —
 
 ### Phase 3 — close the class + full validation
 
-- [ ] Add a guard test that checks each arity-dispatched builtin's declared
+- [x] Add a guard test that checks each arity-dispatched builtin's declared
       parameter names against the actual `__pkg_nameN` signatures in the package
-      source. The existing test at `src/builtins/mod.rs:589` checks alias
-      uniqueness only and passes on this bug; the new one must fail on it. This is
-      what stops a fourth instance of bug-28/94/349.
-- [ ] Re-run the reproduction end-to-end and confirm the diagnostic.
-- [ ] Full acceptance:
-      `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
-- [ ] Confirm no golden moved.
+      source. `arity_dispatched_param_tables_match_the_mfb_overloads` in
+      `src/builtins/datetime.rs` parses `datetime_package.mfb` and asserts, for
+      INSTANT/DURATION/FIXED_OFFSET/PARSE at every arity, that the declared names
+      equal the actual parameters. **Bisected: it fails on the pre-fix merged
+      table** — `\`datetime.instant\` at arity 1 names its parameters ["days"],
+      but \`__datetime_instant1\` takes ["seconds"]` — and passes after.
+- [x] Re-run the reproduction end-to-end and confirm the diagnostic. Also added
+      `tests/syntax/datetime/bug349_instant_named_arg_arity_invalid` freezing the
+      three `TYPE_CALL_ARITY_MISMATCH` diagnostics (`instant(days := 5)`,
+      `instant(days := 1, hours := 2)`, `duration(hours := 3)`).
+- [x] Acceptance for both new fixtures:
+      `scripts/test-accept.sh target/debug/mfb target/accept-actual 'bug349*'`
+      → `acceptance tests passed (2 test(s) ran)`.
+- [x] Confirm no *existing* golden moved (only the new fixture's goldens are new;
+      `git status` shows no modified golden outside the new directory).
 
-Acceptance: the new guard fails against the pre-fix table and passes after; full
-suite green; zero golden churn.
+Acceptance: the new guard fails against the pre-fix table and passes after; the
+rt-behavior fixture passes; zero churn to existing goldens.
 Commit: —
 
 ## Validation Plan

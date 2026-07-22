@@ -136,9 +136,15 @@ pub(crate) fn is_datetime_call(name: &str) -> bool {
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     let params: &'static [&'static [&'static str]] = match name {
         NOW | MONOTONIC | UTC | LOCAL => &[],
-        // Overloaded/component constructors: name parameters by their maximal
-        // arity. Overload selection is by count, so the leading names line up.
-        INSTANT | DURATION => &[&["days"], &["hours"], &["mins"], &["seconds"], &["nanos"]],
+        // INSTANT/DURATION drop components off the FRONT as arity falls
+        // (`__datetime_instant1(seconds)` … `__datetime_instant5(days, hours,
+        // mins, seconds, nanos)`, `datetime_package.mfb:113-129, 137-153`), so
+        // position 0 is `seconds` at arity 1 and `days` only at arity 5. A
+        // merged per-position table is positionally false at arities 1-4 — it
+        // bound `instant(days := 5)` to the 1-arg `seconds` slot, i.e. 5
+        // seconds rather than 5 days (bug-349, same class as bug-94). They use
+        // a per-overload table instead; see `call_param_name_overloads`.
+        INSTANT | DURATION => return None,
         DATE => &[&["year"], &["month"], &["day"]],
         TIME => &[&["hour"], &["minute"], &["second"], &["nanos"]],
         // FIXED_OFFSET's two overloads disagree on position 0 (`offsetSeconds`
@@ -185,6 +191,13 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 pub(crate) fn call_param_name_overloads(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         FIXED_OFFSET => Some(&[&["offsetSeconds"], &["hours", "mins"]]),
+        INSTANT | DURATION => Some(&[
+            &["seconds"],
+            &["seconds", "nanos"],
+            &["mins", "seconds", "nanos"],
+            &["hours", "mins", "seconds", "nanos"],
+            &["days", "hours", "mins", "seconds", "nanos"],
+        ]),
         _ => None,
     }
 }
@@ -468,15 +481,22 @@ mod tests {
     #[test]
     fn param_names_present_and_unknown_none() {
         assert_eq!(call_param_names(NOW), Some(&[][..] as &[&[&str]]));
+        // INSTANT/DURATION have no merged per-position table either: their
+        // overloads drop components off the FRONT, so position 0 is `seconds`
+        // at arity 1 and `days` only at arity 5. The merged table this line
+        // used to assert bound `instant(days := 5)` to the 1-arg `seconds`
+        // slot — 5 seconds, not 5 days (bug-349, the sibling bug-94 missed).
+        assert_eq!(call_param_names(INSTANT), None);
+        assert_eq!(call_param_names(DURATION), None);
         assert_eq!(
-            call_param_names(INSTANT),
+            call_param_name_overloads(INSTANT),
             Some(
                 &[
-                    &["days"][..],
-                    &["hours"],
-                    &["mins"],
-                    &["seconds"],
-                    &["nanos"]
+                    &["seconds"][..],
+                    &["seconds", "nanos"][..],
+                    &["mins", "seconds", "nanos"][..],
+                    &["hours", "mins", "seconds", "nanos"][..],
+                    &["days", "hours", "mins", "seconds", "nanos"][..],
                 ][..]
             )
         );
@@ -771,6 +791,89 @@ mod tests {
     #[test]
     fn source_file_parses() {
         assert!(source_file().is_ok());
+    }
+
+    /// The parameter names of `FUNC <func>(...)` as written in
+    /// `datetime_package.mfb` — the ground truth a param-name table must match.
+    fn mfb_param_names(func: &str) -> Vec<String> {
+        let source = include_str!("datetime_package.mfb");
+        let prefix = format!("FUNC {func}(");
+        let rest = source
+            .lines()
+            .find_map(|line| line.trim_start().strip_prefix(&prefix).map(str::to_string))
+            .unwrap_or_else(|| panic!("`{func}` is not declared in datetime_package.mfb"));
+        let close = rest.find(')').expect("parameter list closes");
+        if rest[..close].trim().is_empty() {
+            return Vec::new();
+        }
+        crate::builtins::split_top_level_commas(&rest[..close])
+            .into_iter()
+            .map(|param| {
+                param
+                    .split_whitespace()
+                    .next()
+                    .expect("a parameter has a name")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn arity_dispatched_param_tables_match_the_mfb_overloads() {
+        // bug-349: a param-name table must be positionally TRUE against the
+        // overload the call actually selects, not merely unambiguous.
+        // `no_named_argument_alias_repeats_across_positions` only rules out an
+        // alias appearing twice; INSTANT/DURATION passed it while binding
+        // `instant(days := 5)` to the 1-arg `seconds` slot — 5 seconds, not 5
+        // days — because their overloads drop components off the FRONT.
+        //
+        // The rule this asserts: for every arity-dispatched family, the names
+        // declared for arity N must equal `__datetime_<name>{N}`'s actual
+        // parameters. A merged table is only legal when the family is
+        // leading-aligned (each shorter overload is a prefix of the longer).
+        for (builtin, stem, arities) in [
+            (INSTANT, "__datetime_instant", 1..=5),
+            (DURATION, "__datetime_duration", 1..=5),
+            (FIXED_OFFSET, "__datetime_fixedOffset", 1..=2),
+            (PARSE, "__datetime_parse", 2..=3),
+        ] {
+            for argc in arities {
+                let actual = mfb_param_names(&format!("{stem}{argc}"));
+                assert_eq!(
+                    actual.len(),
+                    argc,
+                    "`{stem}{argc}` should take {argc} parameters"
+                );
+
+                // Whichever table the builtin declares, resolve the names it
+                // claims sit at positions 0..argc for this arity.
+                let declared: Vec<String> = if let Some(overloads) =
+                    call_param_name_overloads(builtin)
+                {
+                    let params = overloads
+                        .iter()
+                        .find(|params| params.len() == argc)
+                        .unwrap_or_else(|| panic!("`{builtin}` declares no arity-{argc} overload"));
+                    params.iter().map(|p| (*p).to_string()).collect()
+                } else {
+                    let merged = call_param_names(builtin)
+                        .unwrap_or_else(|| panic!("`{builtin}` declares no param names at all"));
+                    // A merged table names position i once, for every arity.
+                    merged
+                        .iter()
+                        .take(argc)
+                        .map(|group| group[0].to_string())
+                        .collect()
+                };
+
+                assert_eq!(
+                    declared, actual,
+                    "`{builtin}` at arity {argc} names its parameters {declared:?}, but \
+                     `{stem}{argc}` takes {actual:?} — a named argument would bind to the \
+                     wrong slot (bug-349)"
+                );
+            }
+        }
     }
 
     #[test]
