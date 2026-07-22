@@ -10,7 +10,7 @@ $ mfb test tests/syntax/testing/testing-run-valid
   * [P] expectFixed / expectNFixed
   * [P] expectString / expectNString
   * [F] expectFloat fails with a typed detail
-    X expected 3.0, got 2.00  (src/main.mfb:49)
+    X expected 3.00, got 2.00  (src/main.mfb:49)
 * traps
   * [P] expectTrap passes
   * [P] expectTrap with matching code passes

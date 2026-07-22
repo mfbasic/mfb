@@ -1,0 +1,37 @@
+IMPORT io
+
+' bug-358: `toString(Float|Fixed)` with no precision argument must render the
+' same text whether the argument is a compile-time constant (the constant fold)
+' or a runtime value (the runtime helper). The documented default precision is
+' 2, so each line below prints "<folded> | <runtime>" and the two halves must be
+' identical. The Fixed pairs also pin the two documented rounding rules: Float
+' resolves an exact decimal half ties-to-even (0.125 -> "0.12"), Fixed rounds
+' half away from zero (0.125 -> "0.13").
+FUNC floatId(x AS Float) AS Float
+  RETURN x
+END FUNC
+
+FUNC fixedId(x AS Fixed) AS Fixed
+  RETURN x
+END FUNC
+
+FUNC main() AS Integer
+  io::print("f-pi    " & toString(3.141592653589793) & " | " & toString(floatId(3.141592653589793)))
+  io::print("f-2.5   " & toString(2.5) & " | " & toString(floatId(2.5)))
+  io::print("f-0.1   " & toString(0.1) & " | " & toString(floatId(0.1)))
+  io::print("f-tie   " & toString(0.125) & " | " & toString(floatId(0.125)))
+  io::print("f-up    " & toString(0.135) & " | " & toString(floatId(0.135)))
+  io::print("f-tiny  " & toString(0.000000000000123) & " | " & toString(floatId(0.000000000000123)))
+  io::print("f-carry " & toString(9.999) & " | " & toString(floatId(9.999)))
+  io::print("f-sci   " & toString(2.5e2) & " | " & toString(floatId(2.5e2)))
+  io::print("f-down  " & toString(2.675) & " | " & toString(floatId(2.675)))
+  io::print("x-0.666 " & toString(0.666F) & " | " & toString(fixedId(0.666F)))
+  io::print("x-tie   " & toString(0.125F) & " | " & toString(fixedId(0.125F)))
+  io::print("x-2.5   " & toString(2.5F) & " | " & toString(fixedId(2.5F)))
+  io::print("x-0.99  " & toString(0.99F) & " | " & toString(fixedId(0.99F)))
+  io::print("x-sci   " & toString(2.5e2F) & " | " & toString(fixedId(2.5e2F)))
+  io::print("x-min   " & toString(-2147483648.0F) & " | " & toString(fixedId(-2147483648.0F)))
+  ' The explicit two-argument form is not folded and must stay unchanged.
+  io::print("f-prec  " & toString(0.666, toByte(1)) & " | " & toString(floatId(0.666), toByte(1)))
+  RETURN 0
+END FUNC

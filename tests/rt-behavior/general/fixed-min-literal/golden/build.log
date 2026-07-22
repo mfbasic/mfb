@@ -6,6 +6,6 @@ $ mfb build tests/rt-behavior/general/fixed-min-literal
 Wrote executable to tests/rt-behavior/general/fixed-min-literal/build/fixed_min_literal.out
 [exit 0]
 $ tests/rt-behavior/general/fixed-min-literal/build/fixed_min_literal.out
--2147483648.0
+-2147483648.00
 equal
 [exit 0]

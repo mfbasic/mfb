@@ -233,13 +233,13 @@ pub(super) fn static_primitive_text_with_constants(
 ) -> Option<String> {
     match value {
         NirValue::Const { type_, value } => match type_.as_str() {
-            // A Float/Fixed scientific-notation literal folds to its expanded
-            // plain decimal (`2.5e2` -> `250`), so `toString` on a constant reads
-            // the same as the equivalent plain literal (plan-28-B).
-            "Float" | "Fixed" if value.contains('e') || value.contains('E') => {
-                numeric::expanded_literal_text(value)
-            }
-            "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
+            // A Float/Fixed constant folds to the runtime formatter's
+            // default-precision rendering (2 places), so the same value prints
+            // identically whether or not the argument was foldable (bug-358).
+            // Scientific notation goes through the same conversions, so `2.5e2`
+            // still reads the same as the plain literal (plan-28-B).
+            "Float" | "Fixed" => numeric::default_to_string_text(type_, value),
+            "Integer" | "Byte" | "String" => Some(value.clone()),
             "Boolean" => match value.as_str() {
                 "true" => Some("TRUE".to_string()),
                 "false" => Some("FALSE".to_string()),

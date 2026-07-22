@@ -69,9 +69,8 @@ const MAX_EXPANDED_DIGITS: usize = 8192;
 /// arithmetic, no `f64` rounding. A string with no `e`/`E` is returned unchanged,
 /// as is one whose exponent is so extreme that the expansion would exceed
 /// [`MAX_EXPANDED_DIGITS`] (callers reject the still-exponential text rather than
-/// materializing gigabytes of zeros). Used to keep the exact Fixed conversion
-/// precise for exponent literals and to fold a scientific-notation literal's
-/// `toString` to a plain decimal (plan-28-B).
+/// materializing gigabytes of zeros). Used to keep the exact Fixed/Money
+/// conversions precise for exponent literals (plan-28-B).
 pub(crate) fn expand_scientific_notation(value: &str) -> String {
     let Some((mantissa, exponent_text)) = value.split_once(['e', 'E']) else {
         return value.to_string();
@@ -132,14 +131,70 @@ pub(crate) fn expand_scientific_notation(value: &str) -> String {
     result
 }
 
-/// The plain-decimal text of a scientific-notation `Float`/`Fixed` literal, for
-/// the constant `toString` fold (plan-28-B). `None` when the exponent is too
-/// extreme to expand ([`MAX_EXPANDED_DIGITS`]) — the fold is then skipped and the
-/// runtime formatter handles the value, rather than folding to the raw
-/// exponential text or materializing gigabytes of zeros (bug-11).
-pub(crate) fn expanded_literal_text(value: &str) -> Option<String> {
-    let expanded = expand_scientific_notation(value);
-    (!expanded.contains(['e', 'E'])).then_some(expanded)
+/// The text the runtime `toString(value)` helper produces for a `Float`/`Fixed`
+/// constant when no precision argument is supplied — the default is two digits
+/// after the decimal point (`builder_strings.rs` stores `Byte 2` into the
+/// precision slot). The constant fold must match the runtime byte-for-byte, or
+/// the same value prints two different ways depending on whether the compiler
+/// could see it (bug-358).
+///
+/// - `Float`: the literal parses to the same `f64` the immediate encoder
+///   materializes (`native_immediate_value`), and Rust's fixed-precision
+///   formatting is the exact correctly-rounded `%.2f` (ties-to-even) that
+///   `float_format.rs` computes at runtime.
+/// - `Fixed`: the literal converts through [`fixed_raw_from_decimal`] — the
+///   same single source of truth the immediate encoder uses — and the Q32.32
+///   raw renders exactly as `emit_fixed_to_string_value` does at precision 2.
+///
+/// Scientific-notation literals go through the same conversions, so `2.5e2`
+/// still reads the same as the equivalent plain literal (plan-28-B). `None`
+/// when the literal does not convert (e.g. a `Fixed` exponent outside the
+/// 32.32 range) — the fold is then skipped and the runtime formatter handles
+/// the value.
+pub(crate) fn default_to_string_text(type_: &str, literal: &str) -> Option<String> {
+    match type_ {
+        TYPE_FLOAT => {
+            let value: f64 = literal.parse().ok()?;
+            value.is_finite().then(|| format!("{value:.2}"))
+        }
+        TYPE_FIXED => fixed_raw_from_decimal(literal)
+            .ok()
+            .map(fixed_default_to_string_text),
+        _ => None,
+    }
+}
+
+/// Render a Q32.32 `Fixed` raw at the default precision (2), mirroring
+/// `emit_fixed_to_string_value` exactly: strip the sign, pre-round the
+/// magnitude half-away-from-zero by `ceil(2^31 / 10^2)` (bug-312 K1), split at
+/// the radix point, and emit each fraction digit as the carry of a truncating
+/// ×10 step.
+fn fixed_default_to_string_text(raw: i64) -> String {
+    // Half a 2^-32 ULP at two decimal places, rounded up so an exactly
+    // representable boundary value (`0.125`) lands on the away-from-zero side.
+    const HALF: u64 = (1_u64 << 31).div_ceil(100);
+    let negative = raw < 0;
+    let mut magnitude = raw.unsigned_abs();
+    // The runtime guard is a *signed* compare of the magnitude register against
+    // `i64::MAX - half`, so the minimum Fixed (magnitude 2^63, which reads as
+    // negative) still takes the bump and the logical shift below sees the
+    // carried integer part — reproduce that exactly.
+    if (magnitude as i64) <= i64::MAX - HALF as i64 {
+        magnitude = magnitude.wrapping_add(HALF);
+    }
+    let mut text = String::new();
+    if negative {
+        text.push('-');
+    }
+    text.push_str(&(magnitude >> 32).to_string());
+    text.push('.');
+    let mut fraction = magnitude & u64::from(u32::MAX);
+    for _ in 0..2 {
+        fraction *= 10;
+        text.push(char::from(b'0' + (fraction >> 32) as u8));
+        fraction &= u64::from(u32::MAX);
+    }
+    text
 }
 
 /// Convert a decimal `Fixed` literal string into its 32.32 fixed-point `i64` raw
@@ -419,9 +474,53 @@ mod tests {
         assert_eq!(expand_scientific_notation("1e-2147483648"), "1e-2147483648");
         // The widest f64 literal still expands (325 characters).
         assert_eq!(expand_scientific_notation("5e-324").len(), 326);
-        // The fold helper declines rather than yielding exponential text.
-        assert_eq!(expanded_literal_text("2.5e2").as_deref(), Some("250"));
-        assert_eq!(expanded_literal_text("1e-1000000000"), None);
+    }
+
+    #[test]
+    fn default_to_string_text_matches_the_runtime_default() {
+        // Every expectation here is the observed output of the runtime helper
+        // (`toString` through an identity function, default precision 2) on
+        // macos-aarch64 at bug-358 — the fold must agree byte-for-byte.
+        for (literal, expected) in [
+            ("3.141592653589793", "3.14"),
+            ("2.5", "2.50"),
+            ("0.1", "0.10"),
+            // An exact decimal half resolves ties-to-even on a Float…
+            ("0.125", "0.12"),
+            ("0.135", "0.14"),
+            ("0.000000000000123", "0.00"),
+            ("9.999", "10.00"),
+            ("2.675", "2.67"),
+            ("2.5e2", "250.00"),
+            ("-2.5", "-2.50"),
+        ] {
+            assert_eq!(
+                default_to_string_text(TYPE_FLOAT, literal).as_deref(),
+                Some(expected),
+                "Float {literal}"
+            );
+        }
+        for (literal, expected) in [
+            ("0.666", "0.67"),
+            // …but half-away-from-zero on a Fixed (bug-312 K1).
+            ("0.125", "0.13"),
+            ("2.5", "2.50"),
+            ("0.99", "0.99"),
+            ("2.5e2", "250.00"),
+            ("-0.005", "-0.01"),
+            ("-0.001", "-0.00"),
+            // The minimum Fixed exercises the signed overflow-guard compare.
+            ("-2147483648.0", "-2147483648.00"),
+        ] {
+            assert_eq!(
+                default_to_string_text(TYPE_FIXED, literal).as_deref(),
+                Some(expected),
+                "Fixed {literal}"
+            );
+        }
+        // A literal the conversion rejects is not folded.
+        assert_eq!(default_to_string_text(TYPE_FIXED, "1e-1000000000"), None);
+        assert_eq!(default_to_string_text(TYPE_FLOAT, "not-a-number"), None);
     }
 
     #[test]

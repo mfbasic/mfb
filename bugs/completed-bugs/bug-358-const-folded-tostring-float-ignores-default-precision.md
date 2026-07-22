@@ -1,11 +1,11 @@
 # bug-358: constant-folded `toString(Float)` ignores the documented default precision, so a literal and a runtime value of the same Float print differently
 
-Last updated: 2026-07-18
+Last updated: 2026-07-22
 Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (compile-time / runtime divergence)
 
-Status: Open
+Status: Resolved (2026-07-22) — the fold now renders the runtime default
 Regression Test: tests/rt-behavior (new) — `toString(<float literal>)` and `toString(<same value at runtime>)` produce identical text
 
 `toString(value AS Float, precision AS Byte = 2)` is documented to default to **two**
@@ -101,12 +101,25 @@ precision explicitly rather than relying on any default.
 ## Phases
 
 ### Phase 1 — failing test
-- [ ] rt-behavior fixture printing a literal and a runtime Float of the same value.
+- [x] rt-behavior fixture printing a literal and a runtime Float of the same value:
+      `tests/rt-behavior/conversions/bug358_tostring_default_precision` (15
+      folded/runtime pairs across Float and Fixed, plus an explicit-precision
+      guard). Proven to fail against the pre-fix compiler and pass post-fix.
 ### Phase 2 — the fix
-- [ ] Make the folder honor the documented default (or, if the default changes,
-      update the man page, the runtime, and every affected golden together).
+- [x] Make the folder honor the documented default. `numeric::default_to_string_text`
+      renders a folded `Float` with Rust's exact `{:.2}` (the same correctly-rounded
+      `%.2f`, ties-to-even, that `float_format.rs` computes) and a folded `Fixed` by
+      converting through `fixed_raw_from_decimal` and mirroring
+      `emit_fixed_to_string_value` at precision 2 (half-away-from-zero pre-round,
+      truncating ×10 digit steps, including the signed overflow-guard compare the
+      minimum Fixed exercises). All four copies of the fold
+      (`code/type_utils.rs`, `code/builder_value_semantics.rs`, `plan/symbols.rs`,
+      `validate.rs`) now call it; `numeric::expanded_literal_text` (whose only
+      callers they were) is removed — scientific notation flows through the
+      conversions themselves, preserving plan-28-B.
 ### Phase 3 — validation
-- [ ] Full suite green; check `Fixed` for the same divergence.
+- [x] Full suite green; `Fixed` had the same divergence (confirmed by reproduction)
+      and is fixed and regression-tested by the same fixture.
 
 ## Validation Plan
 
@@ -118,3 +131,37 @@ precision explicitly rather than relying on any default.
 Two renderers, one documented default, no agreement between them. Low-risk to fix in
 the folder; the broader question of what the default *should* be is worth deciding
 deliberately rather than by accident.
+
+## Resolution (2026-07-22)
+
+Reproduced exactly as reported (`literal =3.141592653589793` vs `runtime =3.14`), and
+`Fixed` had the same divergence (`toString(0.666F)` folded to `0.666` where the
+runtime prints `0.67`). Converged the folder onto the documented runtime default of
+two decimal places, per this report's recommendation; the runtime and the man page
+are unchanged.
+
+The fold turned out to be a raw source-text passthrough duplicated in four places
+(`static_primitive_text_with_constants`, `CodeBuilder::static_primitive_text`,
+and the two `native_primitive_text` copies in `plan/symbols.rs` and `validate.rs`);
+all four now delegate `Float`/`Fixed` to a single new renderer,
+`numeric::default_to_string_text`, which reproduces the runtime formatters
+byte-for-byte (verified against runtime output for ties, carries, scientific
+notation, sub-ULP values, and the minimum `Fixed`). Four committed tests encoded the
+old fold text and were updated as the intended behavior change, each cross-checked
+against the runtime path:
+
+- `tests/rt-behavior/general/fixed-min-literal` and
+  `tests/rt-behavior/codegen/bug367_negative_fixed_literal` goldens:
+  `-2147483648.0` → `-2147483648.00`.
+- `tests/rt-behavior/lexical/lexical-literals`: literal-typing assertions like
+  `toString(1e3) = "1000"` → `"1000.00"`; `toString(1e-3)` now passes an explicit
+  precision so the sub-cent digits stay visible.
+- `tests/acceptance/src/primitives.mfb`: `f=3.5` → `f=3.50` in the mixed-type
+  concatenation case.
+- `tests/syntax/testing/testing-run-valid` golden: the testing framework's own
+  failure detail previously mixed the two renderers (`expected 3.0, got 2.00`);
+  it now reads `expected 3.00, got 2.00`.
+
+Unrelated find while validating: `rules::tests::unknown_rule_name_trips_the_debug_assert`
+asserts a `debug_assert!` panic and so could never pass under `cargo test --release`;
+it is now gated `#[cfg(debug_assertions)]`.

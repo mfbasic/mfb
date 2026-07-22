@@ -1,0 +1,70 @@
+{
+  "project": "bug358_tostring_default_precision",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "floatId",
+      "line": 10,
+      "params": [
+      { "name": "x", "type": "Float", "default": null, "line": 10 }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "x" }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fixedId",
+      "line": 14,
+      "params": [
+      { "name": "x", "type": "Fixed", "default": null, "line": 14 }
+      ],
+      "returnType": "Fixed",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "x" }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-pi    " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "3.141592653589793" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "3.141592653589793" }] }] } }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-2.5   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2.5" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "2.5" }] }] } }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-0.1   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "0.1" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "0.1" }] }] } }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-tie   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "0.125" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "0.125" }] }] } }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-up    " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "0.135" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "0.135" }] }] } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-tiny  " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "0.000000000000123" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "0.000000000000123" }] }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-carry " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "9.999" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "9.999" }] }] } }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-sci   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2.5e2" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "2.5e2" }] }] } }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-down  " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2.675" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "2.675" }] }] } }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "x-0.666 " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "0.666F" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fixedId", "arguments": [{ "kind": "number", "value": "0.666F" }] }] } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "x-tie   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "0.125F" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fixedId", "arguments": [{ "kind": "number", "value": "0.125F" }] }] } }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "x-2.5   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2.5F" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fixedId", "arguments": [{ "kind": "number", "value": "2.5F" }] }] } }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "x-0.99  " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "0.99F" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fixedId", "arguments": [{ "kind": "number", "value": "0.99F" }] }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "x-sci   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "2.5e2F" }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fixedId", "arguments": [{ "kind": "number", "value": "2.5e2F" }] }] } }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "x-min   " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483648.0F" } }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fixedId", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2147483648.0F" } }] }] } }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "f-prec  " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "number", "value": "0.666" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "1" }] }] } }, "right": { "kind": "string", "value": " | " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "floatId", "arguments": [{ "kind": "number", "value": "0.666" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "1" }] }] } }] }, "line": 35 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 36 }
+      ]
+    }
+    ]
+  }
+  ]
+}

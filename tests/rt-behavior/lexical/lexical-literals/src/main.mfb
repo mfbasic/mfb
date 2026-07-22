@@ -75,10 +75,13 @@ TESTING
   TGROUP "scientific notation"
     TCASE "exponent literals are Float"
       expectString(typeName(1e3), "Float")
-      expectString(toString(1e3), "1000")
-      expectString(toString(2.5e2), "250")
-      expectString(toString(1e-3), "0.001")
-      expectString(toString(1_0e1_0), "100000000000")
+      ' `toString` defaults to two decimal places on both the folded and the
+      ' runtime path (bug-358); the explicit precision keeps the sub-cent
+      ' exponent's digits visible.
+      expectString(toString(1e3), "1000.00")
+      expectString(toString(2.5e2), "250.00")
+      expectString(toString(1e-3, toByte(3)), "0.001")
+      expectString(toString(1_0e1_0), "100000000000.00")
     END TCASE
   END TGROUP
   TGROUP "type suffixes"
@@ -91,14 +94,14 @@ TESTING
     TCASE "intrinsic Fixed literal without annotation"
       LET x = 2F
       expectString(typeName(x), "Fixed")
-      ' A constant `toString` folds to the expanded plain decimal.
-      expectString(toString(2F), "2")
-      expectString(toString(1.5F), "1.5")
+      ' A constant `toString` folds to the runtime default rendering (bug-358).
+      expectString(toString(2F), "2.00")
+      expectString(toString(1.5F), "1.50")
     END TCASE
     TCASE "exponent plus suffix"
       expectString(typeName(1e3f), "Float")
       expectString(typeName(1e3F), "Fixed")
-      expectString(toString(2.5e2F), "250")
+      expectString(toString(2.5e2F), "250.00")
     END TCASE
     TCASE "negated suffix keeps type"
       LET n = -2F

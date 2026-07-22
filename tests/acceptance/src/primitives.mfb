@@ -80,8 +80,8 @@ TESTING
         LET text AS String = "i=" & toString(intValue) & ",b=" & toString(byteValue) & ",f=" & toString(floatValue) & ",x=" & toString(fixedValue) & ",ok=" & toString(boolValue) & ",s=" & toString(stringValue)
         MUT copy AS String = text
         copy = copy & "!"
-        expectString(text, "i=1,b=2,f=3.5,x=4.25,ok=TRUE,s=six")
-        expectString(copy, "i=1,b=2,f=3.5,x=4.25,ok=TRUE,s=six!")
+        expectString(text, "i=1,b=2,f=3.50,x=4.25,ok=TRUE,s=six")
+        expectString(copy, "i=1,b=2,f=3.50,x=4.25,ok=TRUE,s=six!")
       END TCASE
     END TGROUP
 
