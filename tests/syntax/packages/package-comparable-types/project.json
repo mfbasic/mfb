@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Package fixture: an exported type used to check comparability rules across a package boundary.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:package-comparable-types",
   "identKey": "ed25519-public:test-package-comparable-types-ident",

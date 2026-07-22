@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Package fixture: exported work-item types and enums shared with thread worker fixtures.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:package-workers",
   "identKey": "ed25519-public:test-package-workers-ident",

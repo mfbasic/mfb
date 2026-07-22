@@ -3,5 +3,6 @@
   "version": "1.0.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Package fixture: exported mutable and immutable package-level globals, as reported by mfb audit.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }]
 }

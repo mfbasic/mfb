@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Package fixture: an exported record type and constructor used to check record comparability.",
   "sources": [
     {
       "root": "src",

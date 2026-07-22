@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Package fixture: exported Point and Circle geometry types used across package boundaries.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:package-shape",
   "identKey": "ed25519-public:test-package-shape-ident",

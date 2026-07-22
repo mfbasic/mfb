@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Package fixture: a fallible exported function using a builtin TRAP, exercised across a package boundary.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "ident": "tests:trap-builtin-pkg",
   "identKey": "ed25519-public:test-trap-builtin-ident",

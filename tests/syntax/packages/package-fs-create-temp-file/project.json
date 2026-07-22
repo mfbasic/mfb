@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Package fixture: exported wrappers over temp-file creation, used to audit filesystem capabilities.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }],
   "targets": ["native"]
 }

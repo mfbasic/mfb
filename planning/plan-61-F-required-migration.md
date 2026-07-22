@@ -62,15 +62,19 @@ added since.
 
 | What | Count | Command |
 |---|---|---|
-| `kind: "package"` manifests | 81 | `find . -name project.json -not -path './target/*' -not -path '*/packages/*' -exec grep -ohE '"kind"[[:space:]]*:[[:space:]]*"[a-zA-Z]+"' {} + \| sort \| uniq -c` |
+| `kind: "package"` manifests | ~~81~~ **91** (see §Corrections) | `find . -name project.json -not -path './target/*' -not -path '*/packages/*' -exec grep -ohE '"kind"[[:space:]]*:[[:space:]]*"[a-zA-Z]+"' {} + \| sort \| uniq -c` |
 | …that also carry a `golden/` dir | 49 | see `plan-61-repo-web.md` §Measured populations |
 | `.mfp` goldens | 16 | `find tests -name '*.mfp' -path '*/golden/*' \| wc -l` |
 | `.hex` goldens | 2 | `find tests -name '*.hex' -path '*/golden/*' \| wc -l` |
 | `.info` / `.audit` goldens | 23 | `find tests \( -name '*.info' -o -name '*.audit' \) -path '*/golden/*' \| wc -l` |
 
-Distribution of the 81: `tests/syntax` 49, `tools/thread-package-sources` 18,
-`tools/security-package-sources` 9, `tools/link-package-sources` 2,
-`bindings/sqlite3` 1, `bindings/libsnd` 1, `benchmark/mfb` 1.
+Distribution, **corrected** (`find . -name project.json -not -path './target/*'
+-exec grep -l '"kind"[[:space:]]*:[[:space:]]*"package"' {} +`, 2026-07-21):
+`tests/syntax/native` 35, `tests/syntax/resources` 11, `tests/syntax/packages`
+**10**, `tests/syntax/project` 3 (= 59 under `tests/syntax`, not 49),
+`tools/thread-package-sources` 18, `tools/security-package-sources` 9,
+`tools/link-package-sources` 2, `bindings/sqlite3` 1, `bindings/libsnd` 1,
+`benchmark/mfb/workers` 1. **Total 91.**
 
 **This diverges from the project's standing pattern for new manifest fields**,
 which is optional-with-a-documented-default: the worked precedent is plan-58-C's
@@ -266,6 +270,25 @@ Commit: —
 
 ## Corrections
 
+- **The population is 91, not 81 — the plan's own measurement command hides 10
+  manifests.** Every count in §2 (and in `plan-61-repo-web.md` §Measured
+  populations) is produced by a `find` carrying `-not -path '*/packages/*'`.
+  That filter is meant to skip *vendored* dependency directories, but it also
+  excludes the entire `tests/syntax/packages/` fixture group — 10 `kind:
+  "package"` manifests — because the path segment is spelled identically.
+
+  Not caught by re-measuring, because re-running the plan's command faithfully
+  reproduces its blind spot: the corrected count of 81 agreed with the plan and
+  looked like confirmation. It surfaced only when Phase 3's acceptance run still
+  reported 10 `build.log` mismatches whose diff was the description warning
+  *still firing* — i.e. the artifact told me about files my census could not
+  see. The 10 were migrated and the sweep re-run with **no path exclusions but
+  `target/`**, which is the form that should have been used throughout.
+
+  Scope impact: F's migration surface grows from 81 to 91 files. No other
+  letter's scope derived from this number — A–E are all count-independent — so
+  nothing else needs rescoping. The `tests/syntax` sub-count also changes from
+  49 to 59.
 - **`benchmark/mfb/project.json` is an executable; the package is
   `benchmark/mfb/workers/project.json`.** §2's distribution table lists
   `benchmark/mfb 1`, and Phase 1 names `benchmark/mfb/project.json` directly —
