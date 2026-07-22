@@ -73,20 +73,17 @@ EXPORT TYPE Sound
   pcm        AS List OF Byte
 END TYPE
 
-' An open libsndfile handle, carrying the file's geometry as its STATE.
-' `openSound` returns one; read `.state` for the `FileInfo`, pull PCM from it
-' with `loadFrames`, and position it with `seekFrame`. The handle carries the
-' read position, which is what lets a loop walk the whole file.
-'
-' Bind it with RES, never LET/MUT. It closes automatically when its binding
-' leaves scope, on every exit path, so `closeSound` is only for releasing the
-' file earlier.
-'
-' This is deliberately a comment and not a DOC block: a DOC header must be
-' FUNC, SUB, TYPE, UNION, ENUM or PACKAGE (DOC_BAD_HEADER), and `TYPE SoundFile`
-' does not resolve to a RESOURCE declaration (DOC_UNRESOLVED) — so an exported
-' resource type has no documentable form and none of this reaches an importer's
-' rendered docs. `openSound`'s RET and INFO lines carry what a caller needs.
+DOC
+  RESOURCE SoundFile
+  DESC An open libsndfile handle, carrying the file's geometry as its `STATE`.
+  DESC `openSound` returns one; read `.state` for the `FileInfo`, pull PCM from
+  DESC it with `loadFrames`, and position it with `seekFrame`.
+  INFO Bind it with `RES`, never `LET` or `MUT`. It closes automatically when its
+  INFO binding leaves scope, on every exit path — including a failure propagating
+  INFO past it — so `closeSound` is only for releasing the file earlier.
+  INFO The handle carries the read position. Each `loadFrames` advances it, which
+  INFO is what lets a loop walk the whole file.
+END DOC
 EXPORT RESOURCE SoundFile CLOSE BY sndLink::closeFile
 
 DOC
@@ -230,14 +227,34 @@ LINK "libsnd" AS sndLink
   END FUNC
 END LINK
 
+' This package's base for user-defined error codes: generator 9, subsystem 100.
+'
+' Generator 9 (90000000-99999999) is the range reserved for codes a package
+' defines for itself — the runtime never raises one and `errorCode::` never names
+' one. libsndfile's failure modes have no standard equivalent, so they belong
+' here.
+'
+' They previously sat at `77050000 + errNum`, which put them straight on top of
+' the standard registry: "unrecognised format" WAS `errorCode::ErrIndexOutOfRange`
+' (77050001), "system error" WAS `ErrInvalidArgument`, and "unsupported encoding"
+' WAS `ErrNotFound`. A TRAP matching any of those constants silently caught an
+' audio-decoding failure instead. The offset idea was right; the range was not.
+LET SND_ERR_BASE AS Integer = 91000000
+
+' Decoded PCM larger than `MAX_LOAD_BYTES`. This is the package's own condition,
+' not one of libsndfile's, so it sits above the SF_ERR_* block rather than inside
+' it. It is deliberately NOT `ErrInvalidArgument`: the arguments are all valid —
+' the file is simply bigger than this package will hold in memory at once.
+LET SND_ERR_TOO_LARGE AS Integer = 91000010
+
 ' Every libsndfile failure becomes an `Error` through here.
 '
 ' libsndfile's `SF_ERR_*` numbers are a small private enum (0..4) and are NOT
-' MFBASIC error codes, so they are offset into the standard-package range rather
-' than used raw — `error(1, ...)` names nothing. The message is libsndfile's own
-' text for that number, so the reason travels with the code.
+' MFBASIC error codes, so they are offset off this package's own base rather than
+' used raw — `error(1, ...)` names nothing. The message is libsndfile's own text
+' for that number, so the reason travels with the code.
 FUNC sndError(errNum AS Integer) AS Error
-  RETURN error(77050000 + errNum, "libsnd: " & sndLink::errMessage(errNum))
+  RETURN error(SND_ERR_BASE + errNum, "libsnd: " & sndLink::errMessage(errNum))
 END FUNC
 
 ' The handle-bearing form: ask the file itself what went wrong, then build the
@@ -306,10 +323,10 @@ DOC
   INFO `closeSound` closes it earlier, and is never required.
   ERROR 77030007 libsndfile or one of its dependencies could not be loaded; raised at startup, before `main` runs.
   ERROR 77030001 No readable file at `path` — it is missing, or it is a directory or other non-regular entry. The message names the path.
-  ERROR 77050001 The file exists but libsndfile does not recognise its format (`SF_ERR_UNRECOGNISED_FORMAT`).
-  ERROR 77050002 libsndfile hit a system-level failure opening the file, such as a permission denial (`SF_ERR_SYSTEM`).
-  ERROR 77050003 The file is malformed (`SF_ERR_MALFORMED_FILE`).
-  ERROR 77050004 The file's encoding is not supported by this libsndfile build (`SF_ERR_UNSUPPORTED_ENCODING`).
+  ERROR 91000001 The file exists but libsndfile does not recognise its format (`SF_ERR_UNRECOGNISED_FORMAT`).
+  ERROR 91000002 libsndfile hit a system-level failure opening the file, such as a permission denial (`SF_ERR_SYSTEM`).
+  ERROR 91000003 The file is malformed (`SF_ERR_MALFORMED_FILE`).
+  ERROR 91000004 The file's encoding is not supported by this libsndfile build (`SF_ERR_UNSUPPORTED_ENCODING`).
   EXAMPLE
     IMPORT audio
     IMPORT libsnd
@@ -334,11 +351,18 @@ EXPORT FUNC openSound(path AS String) AS RES SoundFile STATE FileInfo
   IF NOT fs::fileExists(path) THEN
     FAIL error(77030001, "libsnd: no audio file at " & path)
   END IF
-  
-  RETURN sndLink::openFile(path)
-  TRAP(e)
+
+  ' An INLINE trap on the open, not a function-level one. A function-level TRAP
+  ' here also catches the `FAIL` above and rewrites it: the handler asks
+  ' libsndfile what went wrong, libsndfile has not been called and reports
+  ' SF_ERR_NO_ERROR, and the caller gets `sndError(0)` — code 91000000, message
+  ' "libsnd: No Error" — instead of the path-not-found error naming the file.
+  ' Scoping the trap to the call it is meant to guard is what keeps that FAIL
+  ' intact.
+  RES handle AS SoundFile STATE FileInfo = sndLink::openFile(path) TRAP(e)
     FAIL sndError(sndLink::lastGlobalErrNum())
   END TRAP
+  RETURN handle
 END FUNC
 
 DOC
@@ -374,10 +398,11 @@ DOC
   WARN allocated. Stream longer audio with `openSound` and `loadFrames` instead.
   ERROR 77030007 libsndfile or one of its dependencies could not be loaded; raised at startup, before `main` runs.
   ERROR 77030001 No readable file at `path` — it is missing, or it is a directory or other non-regular entry. The message names the path.
-  ERROR 77050001 The file exists but libsndfile does not recognise its format (`SF_ERR_UNRECOGNISED_FORMAT`).
-  ERROR 77050002 libsndfile hit a system-level failure opening the file, such as a permission denial (`SF_ERR_SYSTEM`), or the file's decoded size exceeds the 64 MiB limit — the cap message names both the file's size and the cap.
-  ERROR 77050003 The file is malformed (`SF_ERR_MALFORMED_FILE`).
-  ERROR 77050004 The file's encoding is not supported by this libsndfile build (`SF_ERR_UNSUPPORTED_ENCODING`).
+  ERROR 91000001 The file exists but libsndfile does not recognise its format (`SF_ERR_UNRECOGNISED_FORMAT`).
+  ERROR 91000002 libsndfile hit a system-level failure opening the file, such as a permission denial (`SF_ERR_SYSTEM`).
+  ERROR 91000003 The file is malformed (`SF_ERR_MALFORMED_FILE`).
+  ERROR 91000004 The file's encoding is not supported by this libsndfile build (`SF_ERR_UNSUPPORTED_ENCODING`).
+  ERROR 91000010 The decoded PCM exceeds the 64 MiB limit. The message names both the size and the cap.
   EXAMPLE
     IMPORT audio
     IMPORT libsnd
@@ -401,7 +426,7 @@ EXPORT FUNC loadSound(path AS String) AS Sound
   LET items AS Integer = info.frames * info.channels
   LET bytes AS Integer = items * 2
   IF bytes > MAX_LOAD_BYTES THEN
-    FAIL error(77050002, "libsnd: " & path & " decodes to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; stream it with loadFrames instead")
+    FAIL error(SND_ERR_TOO_LARGE, "libsnd: " & path & " decodes to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; stream it with loadFrames instead")
   END IF
 
   ' A truncated or malformed file simply yields fewer bytes than `frames`
@@ -457,7 +482,7 @@ FUNC resample(pcm AS List OF Byte, channels AS Integer, fromRate AS Integer, toR
   LET outFrames AS Integer = inFrames * toRate / fromRate
   LET outBytes AS Integer = outFrames * frameBytes
   IF outBytes > MAX_LOAD_BYTES THEN
-    FAIL error(77050002, "libsnd: resampling to " & toString(toRate) & " Hz yields " & toString(outBytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
+    FAIL error(SND_ERR_TOO_LARGE, "libsnd: resampling to " & toString(toRate) & " Hz yields " & toString(outBytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
   END IF
 
   MUT out AS List OF Byte
@@ -521,7 +546,8 @@ DOC
   WARN and again to the converted PCM — so asking for a rate above the file's own
   WARN can be refused even when the file itself fits. Stream longer audio with the
   WARN three-argument `loadFrames` instead.
-  ERROR 77050002 The decoded or converted PCM exceeds the 64 MiB limit, or `sampleRate` is not positive. The message names the size and the cap.
+  ERROR 91000010 The decoded or converted PCM exceeds the 64 MiB limit. The message names both the size and the cap.
+  ERROR 77050002 `sampleRate` is not positive.
   ERROR 77030008 libsndfile reported a failure reading the file.
   EXAMPLE
     IMPORT audio
@@ -545,7 +571,7 @@ EXPORT FUNC loadSound(RES sound AS SoundFile STATE FileInfo, sampleRate AS Integ
   LET items AS Integer = info.frames * info.channels
   LET bytes AS Integer = items * 2
   IF bytes > MAX_LOAD_BYTES THEN
-    FAIL error(77050002, "libsnd: the file decodes to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; stream it with loadFrames instead")
+    FAIL error(SND_ERR_TOO_LARGE, "libsnd: the file decodes to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; stream it with loadFrames instead")
   END IF
 
   LET pcm AS List OF Byte = sndLink::readSamples(sound, items)
@@ -565,7 +591,7 @@ DOC
   INFO Each call advances the handle, so a loop over `.state.frames` walks the
   INFO whole file. Reading past the end is not an error — the last chunk simply
   INFO comes back short, and further calls return empty PCM.
-  ERROR 77050002 `frames` frames would decode to more than the 64 MiB limit. The message names the size and the cap.
+  ERROR 91000010 `frames` frames would decode to more than the 64 MiB limit. The message names both the size and the cap.
   ERROR 77030008 libsndfile reported a failure reading the file.
   EXAMPLE
     IMPORT audio
@@ -590,7 +616,7 @@ EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, frames AS Integer)
   LET items AS Integer = frames * info.channels
   LET bytes AS Integer = items * 2
   IF bytes > MAX_LOAD_BYTES THEN
-    FAIL error(77050002, "libsnd: " & toString(frames) & " frames decode to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
+    FAIL error(SND_ERR_TOO_LARGE, "libsnd: " & toString(frames) & " frames decode to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
   END IF
 
   ' A truncated or malformed file simply yields fewer bytes than `frames`
@@ -622,7 +648,8 @@ DOC
   WARN chunks of a few thousand frames rather than a few hundred; a file short
   WARN enough to hold in memory is better read with the rate-taking `loadSound`,
   WARN which converts it in one piece and has no boundaries at all.
-  ERROR 77050002 `frames` frames would decode to more than the 64 MiB limit, or `sampleRate` is not positive. The message names the size and the cap.
+  ERROR 91000010 `frames` frames would decode to more than the 64 MiB limit. The message names both the size and the cap.
+  ERROR 77050002 `sampleRate` is not positive.
   ERROR 77030008 libsndfile reported a failure reading the file.
   EXAMPLE
     IMPORT audio
@@ -648,7 +675,7 @@ EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, sampleRate AS Inte
   LET items AS Integer = frames * info.channels
   LET bytes AS Integer = items * 2
   IF bytes > MAX_LOAD_BYTES THEN
-    FAIL error(77050002, "libsnd: " & toString(frames) & " frames decode to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
+    FAIL error(SND_ERR_TOO_LARGE, "libsnd: " & toString(frames) & " frames decode to " & toString(bytes) & " bytes, over the " & toString(MAX_LOAD_BYTES) & " byte limit; request fewer frames")
   END IF
 
   ' A short read at the end of the file simply yields fewer bytes than `frames`
