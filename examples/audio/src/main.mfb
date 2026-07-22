@@ -1,6 +1,8 @@
 IMPORT audio
 IMPORT collections
 IMPORT io
+IMPORT libsnd
+IMPORT os
 
 SUB main()
   LET devices AS List OF AudioDevice = audio::devices()
@@ -43,19 +45,69 @@ SUB main()
     EXIT PROGRAM 0
   END TRAP
 
-  LET ttls = "T160 O4 V8 I triangle C4 C D4 D E4 E C2 F4 F E4 E D4 D ( C2 ) G4 G F4 F E4 E D2 G4 G F4 F E4 E ( D2 ) C4 C D4 D E4 E C2 F4 F E4 E D4 D ( C2 )"
-  audio::play(out, ttls)
+  MUT useIn AS String
+  DO
+    ' Show a menu of what to play
+    io::print("1) Twinkle Tinkle Little Star (Play - Single Track)")
+    io::print("2) Row-Row-Row You Boat (Play - Multi Track)")
+    io::print("3) Mozart 1 (libsnd - Ogg)")
+    io::print("4) Mozart 2 (libsnd - Ogg)")
+    io::print("Q) Quit")
+    useIn = io::input("Choose> ")
 
-  ' Play a short tune written in MML. `audio::play` parses the MML, renders it to
-  ' PCM, and writes it to the open output stream. Multiple strings are mixed as
-  ' independent tracks (here a triangle bass under a sine melody).
-  LET bass AS String = "T120 O2 L4 I triangle { C G }4"
-  LET lead AS String = "T120 O4 L8 I sine C E G < C > [ C E G ] { C. D16 }2"
-  LET tracks AS List OF String = [bass, lead]
-  audio::play(out, tracks) TRAP(e)
-    io::print("MML playback failed:\n" & e.message)
-    EXIT PROGRAM 0
-  END TRAP
+    LET choice = toInt(useIn) TRAP(e)
+      RECOVER -1
+    END TRAP
+
+    MATCH choice
+      CASE 1
+        LET ttls = "T160 O4 V8 I triangle C4 C D4 D E4 E C2 F4 F E4 E D4 D ( C2 ) G4 G F4 F E4 E D2 G4 G F4 F E4 E ( D2 ) C4 C D4 D E4 E C2 F4 F E4 E D4 D ( C2 )"
+        audio::play(out, ttls)
+      CASE 2
+        ' "Row, Row, Row Your Boat" as a three-part round.
+        '
+        ' The tune is 8 bars of 6/8. A quarter note is one beat, so a bar is six
+        ' eighths and one bar of rest is `P2 P4` (4 + 2) — P takes no dot, unlike
+        ' a note or R, so a dotted-half pause has to be spelled out.
+        '
+        '   bar 1  C4. C4.                  Row,  row,
+        '   bar 2  C4 D8 E4.                row your boat
+        '   bar 3  E4 D8 E4 F8              Gently down the
+        '   bar 4  G2.                      stream
+        '   bar 5  > C C C < G G G          Mer-ri-ly, mer-ri-ly,
+        '   bar 6  E E E C C C              mer-ri-ly, mer-ri-ly
+        '   bar 7  G4 F8 E4 D8              Life is but a
+        '   bar 8  C2.                      dream
+        '
+        ' Each voice sings it three times, and they enter two bars apart, so all
+        ' three overlap through the middle and peel off one at a time at the end
+        ' — which is what makes it a round rather than three people in unison.
+        ' The `> ... <` around the high C is balanced within one pass, so the
+        ' octave is back where it started each time the repeat comes around.
+        LET tune AS String = "C4. C4. C4 D8 E4. E4 D8 E4 F8 G2. > C8 C8 C8 < G8 G8 G8 E8 E8 E8 C8 C8 C8 G4 F8 E4 D8 C2."
+        LET voice1 AS String = "T120 O4 L8 V4 I sine { " & tune & " }3"
+        LET voice2 AS String = "T120 O4 L8 V4 I triangle { P2 P4 }2 { " & tune & " }3"
+        LET voice3 AS String = "T120 O4 L8 V3 I square { P2 P4 }4 { " & tune & " }3"
+        LET tracks AS List OF String = [voice1, voice2, voice3]
+        audio::play(out, tracks)
+      CASE 3
+        RES music AS SoundFile STATE FileInfo = libsnd::openSound(os::resourcePath("music/Mozart1.ogg"))
+        LET info AS FileInfo = music.state
+        FOR i = 0 TO info.frames STEP 500
+          LET sound = libsnd::loadFrames(music, 500)
+          audio::write(out, sound.pcm)
+        NEXT
+      CASE 4
+        RES music AS SoundFile STATE FileInfo = libsnd::openSound(os::resourcePath("music/Mozart2.ogg"))
+        LET info AS FileInfo = music.state
+        FOR i = 0 TO info.frames STEP 500
+          LET sound = libsnd::loadFrames(music, 500)
+          audio::write(out, sound.pcm)
+        NEXT
+      CASE ELSE
+    END MATCH
+
+  LOOP UNTIL useIn = "Q" OR useIn = "q"
 
   io::print("Done")
 END SUB
