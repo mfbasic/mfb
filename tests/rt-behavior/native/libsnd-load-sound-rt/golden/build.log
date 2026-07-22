@@ -13,6 +13,6 @@ flac rate=8000 ch=2 len=16 pcm=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
 pcm_identical=TRUE
 geometry_identical=TRUE
 mono rate=8000 ch=1 len=8 pcm=0,1,2,3,4,5,6,7
-over_cap_error=libsnd: target/libsnd_load_sound_rt_big.wav decodes to 71303168 bytes, over the 67108864 byte limit; stream it with readSamples instead
+over_cap_error=libsnd: target/libsnd_load_sound_rt_big.wav decodes to 71303168 bytes, over the 67108864 byte limit; stream it with loadFrames instead
 ok
 [exit 0]
