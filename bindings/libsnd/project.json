@@ -3,6 +3,7 @@
     "version": "1.3.0",
     "mfb": "1.0",
     "kind": "package",
+    "description": "libsndfile binding package: LINK declarations and MFBASIC wrappers for reading and writing audio files.",
     "libraries": {
         "libsnd": [
             {

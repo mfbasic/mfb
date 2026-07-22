@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Worker package for the thread-sum benchmark: one isolated function summing an integer chunk per OS thread.",
   "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }]
 }
