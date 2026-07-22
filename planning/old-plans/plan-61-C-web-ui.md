@@ -228,7 +228,7 @@ assertion that explains why not to.
 `interpolated_values_are_escaped_by_the_template_engine` verifies maud's
 auto-escaping in text *and* attribute position rather than assuming it.
 7 tests, all passing.
-Commit: —
+Commit: `549051194`
 
 ### Phase 2 — Landing and search pages
 
@@ -270,7 +270,7 @@ the **root** fingerprint appears and the `/ident` server fingerprint does *not*
 — the §4 hazard, pinned as a test rather than trusted to review — plus that the
 fingerprint section contains no overclaiming language.
 A no-results search is **HTTP 200**, not 404. Full crate: 301 lib tests passing.
-Commit: —
+Commit: `68887fabc`
 
 ### Phase 3 — Package page and audit tab (largest surface)
 
@@ -307,7 +307,7 @@ rows, and a NULL arch rendering as "any" rather than a blank cell.
 `the_audit_tab_renders_proofs_and_links_the_raw_json` and
 `an_unknown_package_renders_a_404_page_with_the_csp` (a 404 is a real page, and
 the shared builder still attaches the CSP) round it out. 305 lib tests, 0 failed.
-Commit: —
+Commit: `7186cec75`
 
 ### Phase 4 — Spec sync
 
@@ -325,7 +325,7 @@ contains the new "The HTML surface" section. All five HTML routes are in the
 endpoint table marked `**none, ever**`, and the topic records the CSP verbatim,
 the no-cookie/zero-CSRF invariant, the no-JavaScript requirement, and the href
 allowlist — so a change that would break any of them has to argue with the spec.
-Commit: —
+Commit: `7186cec75` (landed with Phase 3 — `.ai/specifications.md` requires the spec change in the same commit as the contract change)
 
 ## Validation Plan
 
