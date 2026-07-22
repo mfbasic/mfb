@@ -899,9 +899,55 @@ impl TypeEnv {
                     // untracked — a leak/UAF on decoded IR), and RES may only
                     // mark a resource. RES-ness on the IR = membership in the
                     // function's resource-owner table.
-                    if *explicit_type && !name.starts_with('$') {
-                        let base = resource_base_type(type_);
-                        let is_resource = self.is_resource_or_resource_union(base);
+                    //
+                    // bug-376: this deliberately does NOT gate on
+                    // `explicit_type`. The gate above at check_binding_type is
+                    // right to — only an `AS T` annotation can *disagree* with
+                    // the initializer. But this block compares nothing: it asks
+                    // whether `type_` is a resource and whether `name` is an
+                    // owner, and `type_` is populated for inferred bindings by
+                    // construction. Gating here silently exempted
+                    // `LET f = fs::open(...)`, dropping the close obligation
+                    // along with the annotation.
+                    //
+                    // Ungating exposes the *synthesized* binds that also carry
+                    // `explicit_type: false`, so they are excluded by shape.
+                    // The exclusion list is exhaustive over the emitters in
+                    // `src/ir/lower.rs` (audited for bug-376):
+                    //   - `$`-prefixed temps ($match, $for_iter, $trap_res,
+                    //     $trap_val): the guard below. Load-bearing — a
+                    //     `$trap_val` for `RES f = open() TRAP` is typed with
+                    //     the resource itself.
+                    //   - `UnionExtract`: the `CASE File(f)` match-arm binding
+                    //     (lower.rs match_case_binding). There is nowhere to
+                    //     write `RES` in a case pattern, so the name is
+                    //     legitimately absent from the owner table.
+                    //   - `ResultValue`/`ResultError`: the match-arm siblings on
+                    //     the `Result OF` path, and the `TRAP(e)` handler
+                    //     binding.
+                    //   - `Capture`: the lambda-capture prologue, whose
+                    //     synthesized function has an empty owner table by
+                    //     construction. Exempted rather than owner-listed:
+                    //     adding every capture to `current_owners` would make
+                    //     ordinary data captures trip TYPE_RES_REQUIRES_RESOURCE
+                    //     below. This leaves no hole — a genuine resource
+                    //     capture is already rejected, more precisely, by
+                    //     TYPE_LAMBDA_CAPTURE_UNSUPPORTED.
+                    // The remaining `explicit_type: false` emitters (the FOR
+                    // loop variable, the `TRAP(e)` binding) are structurally
+                    // non-resource: numeric and `Error` respectively.
+                    let synthesized_bind = matches!(
+                        value,
+                        Some(
+                            IrValue::UnionExtract { .. }
+                                | IrValue::ResultValue { .. }
+                                | IrValue::ResultError { .. }
+                                | IrValue::Capture { .. }
+                        )
+                    );
+                    let base = resource_base_type(type_);
+                    let is_resource = self.is_resource_or_resource_union(base);
+                    if !synthesized_bind && !name.starts_with('$') {
                         let is_res_declared = self.current_owners.borrow().contains(name.as_str());
                         if is_resource && !is_res_declared {
                             self.emit(
@@ -922,11 +968,18 @@ impl TypeEnv {
                                 ),
                             );
                         }
-                        // STATE is undefined on a resource union (varies by
-                        // tag), and a STATE payload type must be defaultable.
-                        // `state_type_name` peels only a *top-level* STATE, so a
-                        // thread handle whose plane carries `STATE` (`Thread OF RES
-                        // File STATE Cursor TO Out`, plan-54) is not misread here.
+                    }
+                    // STATE is undefined on a resource union (varies by
+                    // tag), and a STATE payload type must be defaultable.
+                    // `state_type_name` peels only a *top-level* STATE, so a
+                    // thread handle whose plane carries `STATE` (`Thread OF RES
+                    // File STATE Cursor TO Out`, plan-54) is not misread here.
+                    //
+                    // bug-376 widened only the RES axis above; these keep the
+                    // `explicit_type` gate they have always had. A STATE clause
+                    // can only be *written*, so an inferred binding has nothing
+                    // new for them to check.
+                    if *explicit_type && !name.starts_with('$') {
                         if let Some(state_type) = crate::builtins::resource::state_type_name(type_)
                         {
                             if self.unions.contains_key(base) {

@@ -8,7 +8,7 @@ IMPORT crypto
 ' (crypto::randomBytes), the TlsSocket resource, and the fallible tls/crypto call
 ' sites.
 FUNC main() AS Integer
-  LET s = tls::connect("example.com", 443)
+  RES s = tls::connect("example.com", 443)
   LET key AS List OF Byte = crypto::randomBytes(32)
   tls::writeText(s, "GET / HTTP/1.0")
   tls::close(s)
