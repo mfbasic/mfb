@@ -1,25 +1,15 @@
 use super::*;
 
-use crate::target::shared::abi;
-
 // `crypto::randomBytes(count)` — the CSPRNG entry point. `count` arrives in the
 // standard return/argument register; the helper allocates and fills a
 // `List OF Byte` from OS entropy (`getentropy`, plan-04-crypto.md §A.6). Every
 // other `crypto` primitive is a portable software core (see the package source);
 // the NIST-EC public-key operations are the only other native helpers.
-const CRYPTO_RANDOM_BYTES_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
-    name: "count",
-    type_: "Integer",
-    location: abi::ARG[0],
-}];
-
 pub(crate) const CRYPTO_RANDOM_BYTES_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Crypto,
     call: "crypto.randomBytes",
     abi: RuntimeHelperAbi {
-        params: CRYPTO_RANDOM_BYTES_PARAMS,
         returns: "List OF Byte",
-        clobbers: abi::IO_PRINT_CLOBBERS,
     },
 };
 
@@ -29,46 +19,13 @@ pub(crate) const CRYPTO_RANDOM_BYTES_SPEC: RuntimeHelperSpec = RuntimeHelperSpec
 // `generateP*Raw` returns the raw private bytes; the public `crypto::generateP*`
 // is source glue that slices the public point out and builds the `KeyPair`.
 
-const CRYPTO_EC_SIGN_PARAMS: &[RuntimeAbiParam] = &[
-    RuntimeAbiParam {
-        name: "privateKey",
-        type_: "List OF Byte",
-        location: abi::ARG[0],
-    },
-    RuntimeAbiParam {
-        name: "message",
-        type_: "List OF Byte",
-        location: abi::ARG[1],
-    },
-];
-
-const CRYPTO_EC_VERIFY_PARAMS: &[RuntimeAbiParam] = &[
-    RuntimeAbiParam {
-        name: "publicKey",
-        type_: "List OF Byte",
-        location: abi::ARG[0],
-    },
-    RuntimeAbiParam {
-        name: "message",
-        type_: "List OF Byte",
-        location: abi::ARG[1],
-    },
-    RuntimeAbiParam {
-        name: "signature",
-        type_: "List OF Byte",
-        location: abi::ARG[2],
-    },
-];
-
 macro_rules! crypto_ec_generate_spec {
     ($ident:ident, $call:literal) => {
         pub(crate) const $ident: RuntimeHelperSpec = RuntimeHelperSpec {
             helper: RuntimeHelper::Crypto,
             call: $call,
             abi: RuntimeHelperAbi {
-                params: &[],
                 returns: "List OF Byte",
-                clobbers: abi::IO_PRINT_CLOBBERS,
             },
         };
     };
@@ -80,9 +37,7 @@ macro_rules! crypto_ec_sign_spec {
             helper: RuntimeHelper::Crypto,
             call: $call,
             abi: RuntimeHelperAbi {
-                params: CRYPTO_EC_SIGN_PARAMS,
                 returns: "List OF Byte",
-                clobbers: abi::IO_PRINT_CLOBBERS,
             },
         };
     };
@@ -93,11 +48,7 @@ macro_rules! crypto_ec_verify_spec {
         pub(crate) const $ident: RuntimeHelperSpec = RuntimeHelperSpec {
             helper: RuntimeHelper::Crypto,
             call: $call,
-            abi: RuntimeHelperAbi {
-                params: CRYPTO_EC_VERIFY_PARAMS,
-                returns: "Boolean",
-                clobbers: abi::IO_PRINT_CLOBBERS,
-            },
+            abi: RuntimeHelperAbi { returns: "Boolean" },
         };
     };
 }

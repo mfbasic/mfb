@@ -471,16 +471,36 @@ Commit: (see git log — "bug-329 phase 4")
 
 ### Phase 5 — resolve `params` / `clobbers` per Open Decisions
 
-- [ ] Apply the decision recorded below. If deleting: remove the fields, remove
-      the 133 `RuntimeAbiParam` records, and adjust `validate.rs:210-215` to gate
-      on `returns` alone — documenting in that function why the params/clobbers
-      conditions went away.
-- [ ] Confirm the four §6 disagreements are gone *by deletion*, and that
-      `src/builtins/net.rs`, `audio.rs`, `strings.rs` were not edited.
+Decision applied: **delete** (the recommended branch of all three Open
+Decisions; `location` not kept).
 
-Acceptance: artifact gate zero delta; `validate.rs` still rejects an
-unimplemented helper family (add a unit test for that if none exists).
-Commit: —
+- [x] `params` + `clobbers` fields, the `RuntimeAbiParam` struct, all 63
+      `*_PARAMS` consts (149 `params:` lines, 150 `clobbers:` lines), and the
+      crypto macro body fields removed. `validate.rs` gates on `returns` alone,
+      with an in-function comment explaining why, plus two new unit tests
+      (`rejects_helper_family_with_no_catalogued_spec`,
+      `accepts_helper_family_with_catalogued_spec`).
+- [x] The four §6 disagreements gone by deletion; `src/builtins/net.rs`,
+      `audio.rs`, `strings.rs` untouched (`git status` — not modified).
+- [x] The 39 `CodeFunction` construction sites in `code/mod.rs` now emit
+      `params: Vec::new()` for runtime helpers (see Corrections — the census
+      missed these multi-line reads).
+- [x] Dead code found and removed in the same sweep: the 14 unreachable
+      `strings.*` arms of `lower_runtime_helper` +
+      `lower_direct_builtin_runtime_helper` (unreachable since bug-120.1), and
+      `abi::IO_PRINT_CLOBBERS` (the spec fields were its only users).
+- [x] `audio_family_is_complete_for_validate` and bug-70's
+      `io_flush_declares_call_clobbers` deleted — both asserted on the deleted
+      fields; bug-70's protected invariant ("no false empty clobber
+      declaration") is vacuously unviolable with no declaration surface, and
+      the history is recorded in an `io_specs.rs` comment.
+
+Acceptance: full bin suite green (3188). Artifact gate: NOT zero delta — the
+zero-delta premise was false (see Corrections); the 27 diffs are exactly the
+`runtime.*` `"params"` arrays leaving the `.ncode`/`.mir` dumps, verified
+per-fixture by A/B against a detached HEAD worktree, and the goldens were
+regenerated to match.
+Commit: (see git log — "bug-329 phase 5")
 
 ### Phase 6 — doc sync + full validation
 
@@ -570,6 +590,31 @@ Commit: —
   list is empty with exactly these four excluded). The landed
   `catalog_is_consistent` pins this seam both ways: those four must be
   unclassified, every other spec must classify to its helper.
+- **The "params is inert / zero artifact delta" premise is FALSE — found at
+  Phase 5 implementation time.** The §3 census (and this document's throwaway
+  test) counted only single-line `abi.params` accesses; `code/mod.rs` reads
+  `spec\n.abi\n.params` across line breaks at 40 sites (the same
+  grep-under-reports failure mode as rename censuses). Two distinct readers:
+  1. **39 `CodeFunction` construction sites** copy the spec params into
+     `CodeFunction::params`, whose only downstream consumer is the code-plan
+     JSON dump (`code_impl.rs` `to_json`) — i.e. the `.ncode`/`.ncodesum`
+     goldens. Machine code is untouched, but the artifact gate CANNOT be
+     zero-delta while also deleting the fields: the goldens contain the
+     transcribed (and §6-drifted-wrong) metadata itself. The `.ncode` golden
+     churn is confined to `runtime.*` functions' `"params"` arrays becoming
+     empty — that is the §6 drift being deleted from published artifacts, and
+     each changed line is exactly that. Resolution: fields deleted, goldens
+     regenerated, every diff line verified to be a `runtime.*` params entry.
+  2. **One load-bearing site**, `lower_direct_builtin_runtime_helper`
+     (`code/mod.rs`), which used spec params to marshal argument registers into
+     typed locals — reachable ONLY from the 14 `strings.*` arms of
+     `lower_runtime_helper`. Since bug-120.1/bug-326 removed the strings
+     catalog, `spec_for_symbol` can never return a strings spec, so the arms
+     and the function were unreachable dead code; both deleted here.
+- **"`abi::IO_PRINT_CLOBBERS` — unaffected, has other users" was also wrong**:
+  the spec `clobbers` fields were its ONLY users (`cargo check` reports it dead
+  the moment they go). Deleted, with its bug-120 caution rewritten as a comment
+  in `abi.rs` explaining why no per-helper clobber list exists.
 - The three per-family test modules: the audio/os hand-array parity tests were
   deleted in Phase 1, replaced by the catalog-driven test (strict superset for
   catalogued specs). `audio_family_is_complete_for_validate` (params/clobbers

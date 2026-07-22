@@ -1743,7 +1743,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 256, "calleeSaved": ["x21", "x22", "lr"] },
     "params": [
-    { "name": "value", "type": "String", "location": "%arg0" }
     ],
     "stackSlots": [
     { "name": "spill_0", "type": "spill", "offset": 48 },

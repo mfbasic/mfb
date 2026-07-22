@@ -64,18 +64,19 @@ pub(crate) struct RuntimeHelperSpec {
     pub(crate) abi: RuntimeHelperAbi,
 }
 
+/// The machine-read half of a helper's calling contract. `returns` is the one
+/// field code planning consumes (it types each helper's `CodeFunction`).
+///
+/// There are deliberately no `params`/`clobbers` fields (bug-329): the former
+/// transcribed argument names/types/registers that nothing read — the front-end
+/// tables in `src/builtins/` own argument shapes, and the copies here had
+/// already drifted from them — and the latter repeated one constant at every
+/// spec while the register allocator models call clobbering independently
+/// (every internal `bl _mfb_*` destroys all of `x0`–`x17`; see
+/// `regalloc/analysis.rs` call-clobber masks and `.ai/compiler.md`).
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeHelperAbi {
-    pub(crate) params: &'static [RuntimeAbiParam],
     pub(crate) returns: &'static str,
-    pub(crate) clobbers: &'static [&'static str],
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct RuntimeAbiParam {
-    pub(crate) name: &'static str,
-    pub(crate) type_: &'static str,
-    pub(crate) location: &'static str,
 }
 
 mod audio_specs;

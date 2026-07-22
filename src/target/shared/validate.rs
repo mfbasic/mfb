@@ -207,12 +207,16 @@ pub(crate) fn validate_capabilities(
         if !helper_used_by_emitted_call {
             continue;
         }
-        let helper_supported = runtime::supported_helper_specs().iter().any(|spec| {
-            spec.helper == *helper
-                && !spec.abi.params.is_empty()
-                && !spec.abi.returns.is_empty()
-                && !spec.abi.clobbers.is_empty()
-        });
+        // A family is implemented when at least one catalogued spec exists for
+        // it with a non-empty `returns`. The former `params`/`clobbers`
+        // conditions went away with the fields themselves (bug-329): they were
+        // unread transcriptions, and because this is an `any()` over the whole
+        // family, a single sibling spec satisfied them anyway — they could
+        // never detect an under-described helper. `catalog_is_consistent`
+        // asserts every catalogued spec has a non-empty `returns`.
+        let helper_supported = runtime::supported_helper_specs()
+            .iter()
+            .any(|spec| spec.helper == *helper && !spec.abi.returns.is_empty());
         if !helper_supported {
             return Err(format!(
                 "native backend does not implement runtime helper '{}'",
@@ -1652,6 +1656,53 @@ mod tests {
     fn rejects_undeclared_runtime_helper() {
         let err = validate_nir(&module(Vec::new())).expect_err("missing helper");
         assert_eq!(err, "NIR runtime call requires undeclared helper 'io'");
+    }
+
+    fn test_capabilities(
+        runtime_calls: &'static [&'static str],
+    ) -> crate::target::BackendCapabilities {
+        crate::target::BackendCapabilities {
+            executable: true,
+            native_ir: true,
+            native_plan: true,
+            native_object_plan: true,
+            native_code_plan: true,
+            runtime_calls,
+        }
+    }
+
+    // The is-implemented gate: a declared-and-used helper family with no
+    // catalogued spec must be rejected (bug-329 — the gate now keys on a
+    // family having a spec with non-empty `returns`, the one machine-read abi
+    // field). `general` is such a family: fully native-direct, so a General
+    // runtime call is legal NIR, but no `_mfb_rt_general_*` helper can be
+    // emitted for it.
+    #[test]
+    fn rejects_helper_family_with_no_catalogued_spec() {
+        let mut nir = module(vec![RuntimeHelper::General]);
+        nir.functions[0].body = vec![NirOp::Eval {
+            value: NirValue::RuntimeCall {
+                helper: RuntimeHelper::General,
+                target: "len".to_string(),
+                args: vec![NirValue::Const {
+                    type_: "String".to_string(),
+                    value: "x".to_string(),
+                }],
+                loc: NirSourceLoc::default(),
+            },
+        }];
+        let err = validate_capabilities(&nir, &test_capabilities(&[])).expect_err("no spec");
+        assert_eq!(
+            err,
+            "native backend does not implement runtime helper 'general'"
+        );
+    }
+
+    #[test]
+    fn accepts_helper_family_with_catalogued_spec() {
+        let nir = module(vec![RuntimeHelper::Io]);
+        validate_capabilities(&nir, &test_capabilities(&["io.print"]))
+            .expect("io has catalogued specs");
     }
 
     /// A resource-union bind nested inside a `FOR EACH` body drops by dispatching

@@ -11894,9 +11894,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "r", "type": "Byte", "location": "%arg0" },
-    { "name": "g", "type": "Byte", "location": "%arg1" },
-    { "name": "b", "type": "Byte", "location": "%arg2" }
     ],
     "stackSlots": [
     ],
@@ -11970,9 +11967,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "r", "type": "Byte", "location": "%arg0" },
-    { "name": "g", "type": "Byte", "location": "%arg1" },
-    { "name": "b", "type": "Byte", "location": "%arg2" }
     ],
     "stackSlots": [
     ],
@@ -12046,7 +12040,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "enabled", "type": "Boolean", "location": "%arg0" }
     ],
     "stackSlots": [
     ],
@@ -12111,7 +12104,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "enabled", "type": "Boolean", "location": "%arg0" }
     ],
     "stackSlots": [
     ],
@@ -12302,8 +12294,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "row", "type": "Integer", "location": "%arg0" },
-    { "name": "column", "type": "Integer", "location": "%arg1" }
     ],
     "stackSlots": [
     ],
@@ -12389,7 +12379,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "value", "type": "String", "location": "%arg0" }
     ],
     "stackSlots": [
     ],
@@ -12904,7 +12893,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "value", "type": "String", "location": "%arg0" }
     ],
     "stackSlots": [
     ],

@@ -1,197 +1,99 @@
 use super::*;
 
-use crate::target::shared::abi;
-
-const IO_PRINT_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
-    name: "value",
-    type_: "String",
-    location: abi::ARG[0],
-}];
-
-const IO_INPUT_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
-    name: "prompt",
-    type_: "String",
-    location: abi::ARG[0],
-}];
-
-const IO_POLL_INPUT_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
-    name: "timeoutMs",
-    type_: "Integer",
-    location: abi::ARG[0],
-}];
-
 pub(crate) const IO_PRINT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.print",
-    abi: RuntimeHelperAbi {
-        params: IO_PRINT_PARAMS,
-        returns: "Nothing",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
 pub(crate) const IO_WRITE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.write",
-    abi: RuntimeHelperAbi {
-        params: IO_PRINT_PARAMS,
-        returns: "Nothing",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
 pub(crate) const IO_PRINT_ERROR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.printError",
-    abi: RuntimeHelperAbi {
-        params: IO_PRINT_PARAMS,
-        returns: "Nothing",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
 pub(crate) const IO_WRITE_ERROR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.writeError",
-    abi: RuntimeHelperAbi {
-        params: IO_PRINT_PARAMS,
-        returns: "Nothing",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
 pub(crate) const IO_FLUSH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.flush",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "Nothing",
-        // `bl _mfb_rt_io_io_flush` clobbers caller-saved registers like every
-        // runtime call; declare it truthfully to match every sibling io spec
-        // (bug-70). Only read as an is-implemented gate today, but a false
-        // empty-clobbers declaration would mislead any future per-call clobber
-        // reader.
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Nothing" },
 };
-
-const IO_SET_BUFFERED_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
-    name: "enabled",
-    type_: "Boolean",
-    location: abi::ARG[0],
-}];
 
 pub(crate) const IO_IS_BUFFERED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.isBuffered",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "Boolean",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
 pub(crate) const IO_SET_BUFFERED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.setBuffered",
-    abi: RuntimeHelperAbi {
-        params: IO_SET_BUFFERED_PARAMS,
-        returns: "Nothing",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
 pub(crate) const IO_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.input",
-    abi: RuntimeHelperAbi {
-        params: IO_INPUT_PARAMS,
-        returns: "String",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "String" },
 };
 
 pub(crate) const IO_READ_LINE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.readLine",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "String",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "String" },
 };
 
 pub(crate) const IO_READ_CHAR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.readChar",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "String",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "String" },
 };
 
 pub(crate) const IO_READ_BYTE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.readByte",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "Byte",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Byte" },
 };
 
 pub(crate) const IO_POLL_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.pollInput",
-    abi: RuntimeHelperAbi {
-        params: IO_POLL_INPUT_PARAMS,
-        returns: "Boolean",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
 pub(crate) const IO_IS_INPUT_TERMINAL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.isInputTerminal",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "Boolean",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
 pub(crate) const IO_IS_OUTPUT_TERMINAL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.isOutputTerminal",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "Boolean",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
 pub(crate) const IO_IS_ERROR_TERMINAL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.isErrorTerminal",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "Boolean",
-        clobbers: abi::IO_PRINT_CLOBBERS,
-    },
+    abi: RuntimeHelperAbi { returns: "Boolean" },
 };
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // bug-70: `io.flush` is a `bl _mfb_rt_io_io_flush` call and clobbers
-    // caller-saved registers like every sibling io helper; it must declare that,
-    // not the former `clobbers: &[]`, so no future per-call clobber reader is
-    // misled by a false empty declaration.
-    #[test]
-    fn io_flush_declares_call_clobbers() {
-        assert_eq!(IO_FLUSH_SPEC.abi.clobbers, abi::IO_PRINT_CLOBBERS);
-        assert!(!IO_FLUSH_SPEC.abi.clobbers.is_empty());
-    }
-}
+// bug-70 once asserted here that `io.flush` declared a truthful non-empty
+// clobber set rather than the `clobbers: &[]` it originally shipped with. The
+// per-spec `clobbers` field itself was deleted by bug-329 (it repeated one
+// constant at every spec and nothing read the register names), so a false
+// empty declaration can no longer exist. The real clobber model — every
+// internal `bl _mfb_*` destroys all of `x0`–`x17` — lives in the register
+// allocator's call-clobber masks (`regalloc/analysis.rs`).

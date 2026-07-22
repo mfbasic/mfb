@@ -10934,7 +10934,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "value", "type": "String", "location": "%arg0" }
     ],
     "stackSlots": [
     ],
@@ -11081,7 +11080,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "value", "type": "String", "location": "%arg0" }
     ],
     "stackSlots": [
     ],
@@ -11198,7 +11196,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "value", "type": "String", "location": "%arg0" }
     ],
     "stackSlots": [
     ],
@@ -11368,7 +11365,6 @@
     "returns": "Nothing",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "value", "type": "String", "location": "%arg0" }
     ],
     "stackSlots": [
     ],
@@ -11579,7 +11575,6 @@
     "returns": "String",
     "frame": { "stackSize": 0, "calleeSaved": [] },
     "params": [
-    { "name": "prompt", "type": "String", "location": "%arg0" }
     ],
     "stackSlots": [
     ],
@@ -12926,7 +12921,6 @@
     "returns": "Boolean",
     "frame": { "stackSize": 64, "calleeSaved": ["lr"] },
     "params": [
-    { "name": "timeoutMs", "type": "Integer", "location": "%arg0" }
     ],
     "stackSlots": [
     ],

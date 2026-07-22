@@ -1507,16 +1507,7 @@ fn lower_runtime_helper(
         return Ok(CodeFunction {
             name: format!("runtime.{}", spec.call),
             symbol: symbol.to_string(),
-            params: spec
-                .abi
-                .params
-                .iter()
-                .map(|param| CodeParam {
-                    name: param.name.to_string(),
-                    type_: param.type_.to_string(),
-                    location: param.location.to_string(),
-                })
-                .collect(),
+            params: Vec::new(),
             returns: spec.abi.returns.to_string(),
             frame,
             stack_slots,
@@ -1530,16 +1521,7 @@ fn lower_runtime_helper(
         return Ok(CodeFunction {
             name: format!("runtime.{}", spec.call),
             symbol: symbol.to_string(),
-            params: spec
-                .abi
-                .params
-                .iter()
-                .map(|param| CodeParam {
-                    name: param.name.to_string(),
-                    type_: param.type_.to_string(),
-                    location: param.location.to_string(),
-                })
-                .collect(),
+            params: Vec::new(),
             returns: spec.abi.returns.to_string(),
             frame,
             stack_slots,
@@ -1554,16 +1536,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1577,16 +1550,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1606,16 +1570,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1658,16 +1613,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1720,16 +1666,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1743,16 +1680,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1789,16 +1717,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1874,16 +1793,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1902,16 +1812,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1953,16 +1854,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1976,16 +1868,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -1999,16 +1882,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2023,16 +1897,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2046,16 +1911,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2069,16 +1925,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2092,16 +1939,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2115,16 +1953,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2138,16 +1967,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2160,16 +1980,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2183,16 +1994,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2206,16 +2008,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2229,16 +2022,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2252,16 +2036,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2276,16 +2051,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2300,16 +2066,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2328,16 +2085,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2351,16 +2099,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2374,16 +2113,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2397,16 +2127,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2420,16 +2141,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2443,16 +2155,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2466,16 +2169,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2483,20 +2177,6 @@ fn lower_runtime_helper(
                 relocations,
             })
         }
-        "strings.trim"
-        | "strings.trimStart"
-        | "strings.trimEnd"
-        | "strings.upper"
-        | "strings.lower"
-        | "strings.caseFold"
-        | "strings.normalizeNfc"
-        | "strings.graphemes"
-        | "strings.startsWith"
-        | "strings.endsWith"
-        | "strings.contains"
-        | "strings.split"
-        | "strings.join"
-        | "strings.byteLen" => lower_direct_builtin_runtime_helper(symbol, spec, platform_imports),
         "thread.start"
         | "thread.isRunning"
         | "thread.waitFor"
@@ -2525,16 +2205,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2607,16 +2278,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2630,16 +2292,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2677,16 +2330,7 @@ fn lower_runtime_helper(
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
-                params: spec
-                    .abi
-                    .params
-                    .iter()
-                    .map(|param| CodeParam {
-                        name: param.name.to_string(),
-                        type_: param.type_.to_string(),
-                        location: param.location.to_string(),
-                    })
-                    .collect(),
+                params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
                 stack_slots,
@@ -2709,145 +2353,6 @@ fn is_tls_server_symbol(symbol: &str) -> bool {
         symbol,
         "_mfb_rt_tls_tls_listen" | "_mfb_rt_tls_tls_accept" | "_mfb_rt_tls_tls_closeListener"
     )
-}
-
-fn lower_direct_builtin_runtime_helper(
-    symbol: &str,
-    spec: &runtime::RuntimeHelperSpec,
-    platform_imports: &HashMap<String, String>,
-) -> Result<CodeFunction, String> {
-    let function_symbols = HashMap::new();
-    let functions = HashMap::new();
-    let package_return_types = HashMap::new();
-    let globals = HashMap::new();
-    let string_symbols = standard_error_messages()
-        .iter()
-        .map(|(_, message, symbol)| ((*message).to_string(), (*symbol).to_string()))
-        .collect::<HashMap<_, _>>();
-    let mut builder = CodeBuilder {
-        current_symbol: symbol.to_string(),
-        function_symbols: &function_symbols,
-        functions: &functions,
-        package_return_types: &package_return_types,
-        platform_imports,
-        globals: &globals,
-        type_model: TypeModel::empty(),
-        string_symbols: &string_symbols,
-        locals: HashMap::new(),
-        instructions: vec![abi::label("entry")],
-        relocations: Vec::new(),
-        stack_slots: Vec::new(),
-        used_callee_saved: Vec::new(),
-        stack_size: 0,
-        next_register: 8,
-        next_vreg: 0,
-        vreg_eager: Vec::new(),
-        next_fp_register: 0,
-        next_fp_vreg: 0,
-        fp_vreg_eager: Vec::new(),
-        float_residents: HashMap::new(),
-        promoted_float_locals: HashMap::new(),
-        address_taken_locals: HashSet::new(),
-        regalloc_kind: regalloc::active_kind(),
-        regalloc_error: None,
-        next_label: 0,
-        trap: None,
-        loop_stack: Vec::new(),
-        active_cleanups: Vec::new(),
-        cleanup_scope_starts: Vec::new(),
-        pending_result_slots: None,
-        escaping_value_slot: None,
-        error_arena_restore_slot: None,
-        raw_result_capture: None,
-        emitting_error_route: false,
-        building_error_block: false,
-        current_file: String::new(),
-        current_loc: NirSourceLoc::default(),
-        resource_owners: HashMap::new(),
-        owner_collections: HashSet::new(),
-        owned_list_heads: HashMap::new(),
-        owned_value_slots: Vec::new(),
-        pending_temp_frees: Vec::new(),
-        for_each_iterable_locals: Vec::new(),
-        string_capacity_slots: HashMap::new(),
-        math_pool_base_vreg: None,
-        vector_natives: HashMap::new(),
-        next_vector_native: 0,
-        promoted_vector_locals: HashMap::new(),
-        promotable_vector_locals: HashSet::new(),
-        integer_lower_bounds: HashMap::new(),
-        integer_strict_upper: std::collections::HashSet::new(),
-    };
-
-    let args = spec
-        .abi
-        .params
-        .iter()
-        .enumerate()
-        .map(|(index, param)| {
-            let slot = builder.allocate_stack_object(param.name, 8);
-            builder.locals.insert(
-                param.name.to_string(),
-                LocalValue {
-                    type_: param.type_.to_string(),
-                    stack_offset: slot,
-                    constant: None,
-                    by_ref: false,
-                },
-            );
-            builder.emit(abi::store_u64(
-                &abi::argument_register(index)?,
-                abi::stack_pointer(),
-                slot,
-            ));
-            Ok(NirValue::Local(param.name.to_string()))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-
-    let result = builder.lower_value(&NirValue::Call {
-        target: spec.call.to_string(),
-        args,
-        loc: NirSourceLoc::default(),
-    })?;
-    if spec.abi.returns != "Nothing" {
-        builder.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
-    }
-    builder.emit(abi::move_immediate(
-        RESULT_TAG_REGISTER,
-        "Integer",
-        RESULT_OK_TAG,
-    ));
-    builder.emit(abi::return_());
-
-    builder.run_register_allocation()?;
-    let mut instructions = builder.instructions;
-    let mut stack_slots = builder.stack_slots;
-    let frame = finalize_frame(
-        &mut instructions,
-        &mut stack_slots,
-        builder.stack_size,
-        builder.used_callee_saved,
-    );
-
-    Ok(CodeFunction {
-        name: format!("runtime.{}", spec.call),
-        symbol: symbol.to_string(),
-        params: spec
-            .abi
-            .params
-            .iter()
-            .map(|param| CodeParam {
-                name: param.name.to_string(),
-                type_: param.type_.to_string(),
-                location: param.location.to_string(),
-            })
-            .collect(),
-        returns: spec.abi.returns.to_string(),
-        frame,
-        stack_slots,
-        instructions,
-        relocations: builder.relocations,
-    })
 }
 
 /// Call `_mfb_arena_alloc` (size in `x0`, alignment in `x1`) and branch to

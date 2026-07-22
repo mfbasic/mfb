@@ -1475,7 +1475,6 @@
     "symbol": "_mfb_rt_io_io_print",
     "returns": "Nothing",
     "params": [
-    { "name": "value", "type": "String", "location": "%arg0" }
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
