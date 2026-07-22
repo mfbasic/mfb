@@ -1,8 +1,9 @@
 # Runtime Helper ABI
 
 A *runtime helper* is a compiler-owned native routine that implements an
-OS-touching or otherwise non-inlinable builtin (`io::`, `fs::`, `net::`, `tls::`,
-`term::`, `datetime::`, `crypto::`, `os::`, and the `thread::` family). Source calls to those packages
+OS-touching or otherwise non-inlinable builtin (`audio::`, `io::`, `fs::`,
+`net::`, `tls::`, `term::`, `datetime::`, `crypto::`, `os::`, and the `thread::`
+family). Source calls to those packages
 lower to a `bl` against a stable helper symbol; the helper itself is supplied by
 the backend runtime, not by user code, and never appears as a `LINK` import or a
 package dependency. This topic owns the *general* helper ABI; the `thread`
@@ -12,8 +13,9 @@ family's per-op symbols and direction split are owned by
 Not every builtin becomes a helper call. The `math` and `general` families have
 **no** helper specs at all — they are lowered inline. The `strings` family is
 likewise emitted inline: every `strings.*` lowering target is intercepted by
-`is_native_direct_call` and codegen'd directly, so its specs are never
-reached as gated runtime calls. [[src/target/shared/runtime/usage.rs:is_native_direct_call]] [[src/target/shared/runtime/mod.rs:RuntimeHelper]]
+`is_native_direct_call` and codegen'd directly, so `strings` has no
+`RuntimeHelper` variant and no specs (its dead spec table was removed by
+bug-120.1/bug-326). [[src/target/shared/runtime/usage.rs:is_native_direct_call]] [[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
 ## Symbol Scheme
 
@@ -23,7 +25,7 @@ A helper is dispatched at a symbol built by `symbol_for_call(helper, target)`: [
 _mfb_rt_<helper>_<call>
 ```
 
-where `<helper>` is the family name (`io`, `fs`, `net`, `tls`, `term`,
+where `<helper>` is the family name (`audio`, `io`, `fs`, `net`, `tls`, `term`,
 `datetime`, `crypto`, `os`, `thread`) and `<call>` is the lowering target with every non
 `[A-Za-z0-9_]` byte replaced by `_`. Because the lowering target itself is
 already module-qualified (`io.print`, `fs.open`), the `.` is rewritten to `_` and
@@ -41,51 +43,46 @@ the lone symbol that is not formed this way — see the threading topic.)
 
 ## Per-Helper ABI Descriptor
 
-Each gated helper carries a `RuntimeHelperSpec` whose `abi` field is a
-`RuntimeHelperAbi` — an explicit, machine-checkable description of the calling
-contract: a parameter list, a return type, and a clobber set. [[src/target/shared/runtime/mod.rs:RuntimeHelperAbi]]
+Each gated helper carries a `RuntimeHelperSpec` — its family, its lowering
+target, and a `RuntimeHelperAbi` holding the one machine-read contract fact
+that is not derivable from anywhere else: [[src/target/shared/runtime/mod.rs:RuntimeHelperAbi]]
 
 ```text
-RuntimeHelperAbi
-  params   : &[RuntimeAbiParam]   ; one entry per argument, in order
-  returns  : &str                 ; the result type name ("Nothing" if none)
-  clobbers : &[&str]              ; registers destroyed across the call
+RuntimeHelperSpec
+  helper   : RuntimeHelper        ; the family
+  call     : &str                 ; the lowering target ("io.print")
 
-RuntimeAbiParam
-  name     : &str                 ; documentary parameter name
-  type_    : &str                 ; the MFBASIC type string
-  location : &str                 ; the register the argument arrives in
+RuntimeHelperAbi
+  returns  : &str                 ; the result type name ("Nothing" if none)
 ```
 
-Each `RuntimeAbiParam.location` names the argument-bank role token the argument
-is passed in — `%arg0..%arg7`, strictly by position. Each target realizes the
-token onto its physical argument register (AArch64 `x0..x7`; the native calling
-convention — see `./mfb spec memory native-calling-convention`). There are no
-stack arguments. [[src/target/shared/runtime/mod.rs:RuntimeAbiParam]] [[src/target/shared/abi.rs:ARG]]
+The spec deliberately states nothing that is owned elsewhere (bug-329):
+
+- **The symbol is derived**, never stored: `symbol_for_call(helper, call)`
+  produces it, and the catalog tests assert the derivation round-trips for
+  every spec. [[src/target/shared/runtime/mod.rs:symbol_for_call]]
+- **Argument shapes are owned by the front-end tables** in `src/builtins/`
+  (they are what accepts or rejects user code). Arguments are marshalled
+  strictly by position into the argument-bank role tokens `%arg0..%arg7`,
+  realized per target onto the physical argument registers (AArch64
+  `x0..x7`; see `./mfb spec memory native-calling-convention`). There are no
+  stack arguments. [[src/target/shared/abi.rs:ARG]]
+- **The clobber model is owned by the register allocator**: every internal
+  `bl _mfb_*` call destroys the entire caller-saved integer file `x0`–`x17`
+  (and `v0`–`v7`), modelled by the allocator's call-clobber masks. Earlier
+  revisions carried a per-spec `clobbers` list that understated this set and
+  that nothing read; it is gone, and no per-call clobber list exists to be
+  trusted.
 
 ### Worked example: `io.print`
 
-`io::print(value AS String)` lowers to `_mfb_rt_io_io_print` with this ABI: [[src/target/shared/runtime/io_specs.rs:IO_PRINT_SPEC]]
+`io::print(value AS String)` lowers to `_mfb_rt_io_io_print`: [[src/target/shared/runtime/io_specs.rs:IO_PRINT_SPEC]]
 
 ```text
-symbol   _mfb_rt_io_io_print
-param    value : String  in %arg0  ; realized to x0 on AArch64
+symbol   _mfb_rt_io_io_print     ; symbol_for_call(Io, "io.print")
+args     value : String in %arg0 ; by position, per the front-end table
 returns  Nothing
-clobbers x0, x1, x2, x9, x16
 ```
-
-The clobber set is the shared constant `IO_PRINT_CLOBBERS`: [[src/target/shared/abi.rs:IO_PRINT_CLOBBERS]]
-
-```text
-IO_PRINT_CLOBBERS = [ x0, x1, x2, x9, x16 ]
-```
-
-`x0`/`x1`/`x2` are the result-form registers the helper writes (tag, value,
-message); `x9` is a runtime scratch register; `x16` is the platform syscall
-register. A caller must spill any live value held in those registers across the
-`bl`. In practice **every** gated helper declares
-`clobbers = IO_PRINT_CLOBBERS`; the field is per-helper so a future helper can
-widen its clobber set without changing the dispatch path. [[src/target/shared/runtime/catalog.rs:supported_helper_specs]]
 
 ## Return Convention
 
@@ -114,14 +111,14 @@ meaningful.
 The helper family is the `RuntimeHelper` enum: [[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
 ```text
-Crypto  Datetime  Fs  General  Io  Math  Net  Os  Strings  Term  Thread  Tls
+Audio  Crypto  Datetime  Fs  General  Io  Math  Net  Os  Term  Thread  Tls
 ```
 
-Of these, `General`, `Math`, and `Strings` are **inline-codegen'd** and contribute
-no gated runtime calls (`Math` and `General` have zero specs; every `Strings`
-target is routed through `is_native_direct_call`). The gated, helper-dispatched
-families are `Crypto`, `Datetime`, `Fs`, `Io`, `Net`, `Os`, `Term`, `Tls`, and
-`Thread`.
+Of these, `General` and `Math` are **inline-codegen'd** and contribute no gated
+runtime calls (zero specs; the former `Strings` variant was removed outright
+when its targets went native-direct). The gated, helper-dispatched families are
+`Audio`, `Crypto`, `Datetime`, `Fs`, `Io`, `Net`, `Os`, `Term`, `Tls`, and
+`Thread` — the catalog parity test asserts exactly this set is catalogued. [[src/target/shared/runtime/catalog.rs:supported_helper_specs]]
 `helper_for_call` maps a lowering target to its family. [[src/target/shared/runtime/mod.rs:helper_for_call]]
 
 ## Required-Helper Analysis
@@ -157,8 +154,9 @@ A helper declared more than once is also rejected.
 `BackendCapabilities.runtime_calls` set: every emitted (non-native-direct) runtime
 call must be a member, or the build fails with "native backend does not support
 runtime call '<call>'". It additionally checks that each declared helper that is
-actually reached by an emitted call has a usable spec — non-empty params, return
-type, **and** clobber set — rejecting helpers the backend does not implement. [[src/target/shared/validate.rs:validate_capabilities]] [[src/target.rs:BackendCapabilities]]
+actually reached by an emitted call has at least one catalogued spec with a
+non-empty return type — rejecting helper families the backend does not
+implement. [[src/target/shared/validate.rs:validate_capabilities]] [[src/target.rs:BackendCapabilities]]
 
 ## See Also
 

@@ -504,13 +504,19 @@ Commit: (see git log — "bug-329 phase 5")
 
 ### Phase 6 — doc sync + full validation
 
-- [ ] Update `src/docs/spec/memory/07_runtime-helper-abi.md`: remove `strings`
-      from the family narrative, drop the `RuntimeAbiParam` block if the fields
-      were deleted, and either substantiate or soften the "machine-checkable"
-      claim at `:44-46` — the new `catalog.rs` test is what makes it true.
-      Opportunistically add the missing `audio` family at `:26`.
-- [ ] Run `scripts/artifact-gate.sh` — must be **empty**.
-- [ ] Run `scripts/test-accept.sh` in full.
+- [x] Update `src/docs/spec/memory/07_runtime-helper-abi.md`: strings family
+      narrative now records the variant/specs are gone (bug-120.1/bug-326);
+      the descriptor section documents the new one-field `RuntimeHelperAbi`
+      and states where symbol/arguments/clobbers are owned; the
+      "machine-checkable" claim is substantiated by the catalog tests; the
+      dropped `RuntimeAbiParam`/`IO_PRINT_CLOBBERS` blocks and their spec
+      anchors are removed; `audio` added to the intro package list, the
+      symbol-scheme family list, and the Helper Families enum/gated lists.
+      (`06_native.md`'s family list was already fixed by bug-326 — verified,
+      no edit.)
+- [x] Run `scripts/artifact-gate.sh` — 1314 goldens, 0 diffs (after the
+      justified params-removal golden sync recorded in Phase 5).
+- [x] Run `scripts/test-accept.sh` in full — green (see close-out).
 
 Acceptance: full suite green; artifact gate shows zero delta across all phases;
 spec and code agree.
