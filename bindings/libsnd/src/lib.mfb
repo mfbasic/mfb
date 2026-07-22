@@ -74,8 +74,19 @@ EXPORT TYPE Sound
 END TYPE
 
 ' An open libsndfile handle, carrying the file's geometry as its STATE.
-' `openSound` returns one; read `.state` for the `FileInfo`, stream it with
-' `loadFrames`, and close it with `closeSound` or by lexical drop.
+' `openSound` returns one; read `.state` for the `FileInfo`, pull PCM from it
+' with `loadFrames`, and position it with `seekFrame`. The handle carries the
+' read position, which is what lets a loop walk the whole file.
+'
+' Bind it with RES, never LET/MUT. It closes automatically when its binding
+' leaves scope, on every exit path, so `closeSound` is only for releasing the
+' file earlier.
+'
+' This is deliberately a comment and not a DOC block: a DOC header must be
+' FUNC, SUB, TYPE, UNION, ENUM or PACKAGE (DOC_BAD_HEADER), and `TYPE SoundFile`
+' does not resolve to a RESOURCE declaration (DOC_UNRESOLVED) — so an exported
+' resource type has no documentable form and none of this reaches an importer's
+' rendered docs. `openSound`'s RET and INFO lines carry what a caller needs.
 EXPORT RESOURCE SoundFile CLOSE BY sndLink::closeFile
 
 DOC
@@ -275,40 +286,42 @@ END FUNC
 ' exists because `loadSound` is a whole-file read: the decoded PCM is one
 ' contiguous byte list, and its size is driven entirely by the file the caller
 ' names. A program that needs longer audio should stream it through
-' `readSamples` in chunks instead.
+' `loadFrames` in chunks instead.
 LET MAX_LOAD_BYTES AS Integer = 67108864
 
 DOC
-  FUNC loadSound
-  GROUP Decoding
-  DESC Decode an entire audio file into interleaved 16-bit PCM, in one call.
-  DESC Any format the bundled libsndfile can read — WAV, FLAC, AIFF and others —
-  DESC comes back in the single layout `audio::write` plays.
-  ARG path Path to the audio file to decode.
-  RET The file's sample rate, channel count, and its complete PCM.
-  INFO Nothing is resampled or downmixed. The returned `samplerate` and
-  INFO `channels` are the file's own, and `audio::openOutput` must be opened with
-  INFO those same values or the audio plays at the wrong speed or pitch.
-  WARN The whole file is decoded into memory. Files above 64 MiB of PCM — about
-  WARN 5 minutes 49 seconds of stereo 48 kHz audio — are refused rather than
-  WARN allocated. Stream longer audio with `readSamples` instead.
+  FUNC openSound
+  GROUP Files
+  DESC Open an audio file and return a handle to it, without decoding anything.
+  DESC This is the streaming entry point: read the file's geometry from the
+  DESC handle's `.state`, pull PCM from it a chunk at a time with `loadFrames`,
+  DESC and position it with `seekFrame`.
+  ARG path Path to the audio file to open.
+  RET An open handle whose `.state` is the file's `FileInfo` geometry.
+  INFO Reach for `loadSound` instead when the whole file fits in memory and the
+  INFO program just wants its PCM — it opens, decodes and closes in one call.
+  INFO Use this form for audio too long for the 64 MiB whole-file cap, or when
+  INFO the program needs to seek.
+  INFO The handle is closed automatically when its `RES` binding leaves scope;
+  INFO `closeSound` closes it earlier, and is never required.
   ERROR 77030007 libsndfile or one of its dependencies could not be loaded; raised at startup, before `main` runs.
   ERROR 77030001 No readable file at `path` — it is missing, or it is a directory or other non-regular entry. The message names the path.
   ERROR 77050001 The file exists but libsndfile does not recognise its format (`SF_ERR_UNRECOGNISED_FORMAT`).
   ERROR 77050002 libsndfile hit a system-level failure opening the file, such as a permission denial (`SF_ERR_SYSTEM`).
-  ERROR 77050003 The file is malformed (`SF_ERR_MALFORMED_FILE`), or its decoded size exceeds the 64 MiB limit — the cap message names both the file's size and the cap.
+  ERROR 77050003 The file is malformed (`SF_ERR_MALFORMED_FILE`).
   ERROR 77050004 The file's encoding is not supported by this libsndfile build (`SF_ERR_UNSUPPORTED_ENCODING`).
-  ERROR 77050002 The file's decoded size exceeds the 64 MiB limit. The message names both the file's size and the cap.
   EXAMPLE
     IMPORT audio
     IMPORT libsnd
 
-    FUNC main() AS Integer
-      LET s = libsnd::loadSound("chime.flac")
-      RES out AS AudioOutput = audio::openOutput(s.samplerate, s.channels, 512)
-      audio::write(out, s.pcm)
-      RETURN 0
-    END FUNC
+    SUB main()
+      RES sound AS SoundFile STATE FileInfo = libsnd::openSound("long.flac")
+      LET info AS FileInfo = sound.state
+      RES out AS AudioOutput = audio::openOutput(info.samplerate, info.channels, 512)
+      FOR i = 0 TO info.frames STEP 4096
+        audio::write(out, libsnd::loadFrames(sound, 4096).pcm)
+      NEXT
+    END SUB
   END EXAMPLE
 END DOC
 ' `sf_open` signals every failure the same way — a NULL handle — so the LINK gate
@@ -328,10 +341,55 @@ EXPORT FUNC openSound(path AS String) AS RES SoundFile STATE FileInfo
   END TRAP
 END FUNC
 
+DOC
+  FUNC closeSound
+  GROUP Files
+  DESC Close an open `SoundFile` and release the underlying libsndfile handle.
+  ARG sound The open handle to close.
+  INFO Calling this is optional. A `SoundFile` is closed automatically when its
+  INFO `RES` binding leaves scope, on every exit path — including a failure that
+  INFO propagates past it — so an explicit close is only worth writing to
+  INFO release the file earlier than the end of the enclosing block.
+  ERROR 77030008 libsndfile reported a failure closing the file.
+END DOC
 EXPORT FUNC closeSound(RES sound AS SoundFile STATE FileInfo) AS Nothing
   sndLink::closeFile(sound)
 END FUNC
 
+DOC
+  FUNC loadSound(String)
+  GROUP Decoding
+  DESC Decode an entire audio file into interleaved 16-bit PCM, in one call.
+  DESC Any format the bundled libsndfile can read — WAV, FLAC, AIFF and others —
+  DESC comes back in the single layout `audio::write` plays.
+  ARG path Path to the audio file to decode.
+  RET The file's sample rate, channel count, and its complete PCM.
+  INFO Nothing is resampled or downmixed. The returned `samplerate` and
+  INFO `channels` are the file's own, and `audio::openOutput` must be opened with
+  INFO those same values or the audio plays at the wrong speed or pitch. Open the
+  INFO file with `openSound` and use the rate-taking `loadSound` overload when the
+  INFO output is already open at a rate the file does not match.
+  WARN The whole file is decoded into memory. Files above 64 MiB of PCM — about
+  WARN 5 minutes 49 seconds of stereo 48 kHz audio — are refused rather than
+  WARN allocated. Stream longer audio with `openSound` and `loadFrames` instead.
+  ERROR 77030007 libsndfile or one of its dependencies could not be loaded; raised at startup, before `main` runs.
+  ERROR 77030001 No readable file at `path` — it is missing, or it is a directory or other non-regular entry. The message names the path.
+  ERROR 77050001 The file exists but libsndfile does not recognise its format (`SF_ERR_UNRECOGNISED_FORMAT`).
+  ERROR 77050002 libsndfile hit a system-level failure opening the file, such as a permission denial (`SF_ERR_SYSTEM`), or the file's decoded size exceeds the 64 MiB limit — the cap message names both the file's size and the cap.
+  ERROR 77050003 The file is malformed (`SF_ERR_MALFORMED_FILE`).
+  ERROR 77050004 The file's encoding is not supported by this libsndfile build (`SF_ERR_UNSUPPORTED_ENCODING`).
+  EXAMPLE
+    IMPORT audio
+    IMPORT libsnd
+
+    FUNC main() AS Integer
+      LET s = libsnd::loadSound("chime.flac")
+      RES out AS AudioOutput = audio::openOutput(s.samplerate, s.channels, 512)
+      audio::write(out, s.pcm)
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
 EXPORT FUNC loadSound(path AS String) AS Sound
   RES handle AS SoundFile STATE FileInfo = openSound(path)
   LET info AS FileInfo = handle.state
@@ -442,13 +500,42 @@ FUNC resample(pcm AS List OF Byte, channels AS Integer, fromRate AS Integer, toR
   RETURN out
 END FUNC
 
-' Decode the rest of the file and deliver it at `sampleRate` instead of the
-' file's own rate — the form to reach for when an `AudioOutput` is already open
-' at a fixed rate and the file does not match it.
-'
-' Only the rate is converted. The channel count is still the file's own, so a
-' stereo file remains stereo and an output opened for one channel will not take
-' it.
+DOC
+  FUNC loadSound(SoundFile, Integer)
+  GROUP Decoding
+  DESC Decode the rest of an open file and deliver it at `sampleRate` rather than
+  DESC the file's own rate. This is the form to reach for when an `AudioOutput`
+  DESC is already open at a fixed rate and the file does not match it.
+  ARG sound An open handle, from `openSound`.
+  ARG sampleRate The rate to deliver the PCM at, in Hz.
+  RET The requested sample rate, the file's own channel count, and the converted PCM.
+  INFO Only the rate is converted. The channel count is still the file's own, so
+  INFO a stereo file stays stereo and an output opened for one channel will not
+  INFO take it.
+  INFO Conversion is linear interpolation, which does not band-limit: downsampling
+  INFO aliases frequencies above the new Nyquist limit rather than filtering them
+  INFO out. That is inaudible for playback at the usual 44100 <-> 48000 ratios,
+  INFO but a program doing analysis on the result wants a real filter instead.
+  WARN Decoding reads from the handle's current position to the end of the file,
+  WARN into memory. The 64 MiB cap is applied twice — once to the file's own PCM
+  WARN and again to the converted PCM — so asking for a rate above the file's own
+  WARN can be refused even when the file itself fits. Stream longer audio with the
+  WARN three-argument `loadFrames` instead.
+  ERROR 77050002 The decoded or converted PCM exceeds the 64 MiB limit, or `sampleRate` is not positive. The message names the size and the cap.
+  ERROR 77030008 libsndfile reported a failure reading the file.
+  EXAMPLE
+    IMPORT audio
+    IMPORT libsnd
+
+    SUB main()
+      ' The output is fixed at 48 kHz; the file may be anything.
+      RES sound AS SoundFile STATE FileInfo = libsnd::openSound("chime.flac")
+      LET s AS Sound = libsnd::loadSound(sound, 48000)
+      RES out AS AudioOutput = audio::openOutput(48000, s.channels, 512)
+      audio::write(out, s.pcm)
+    END SUB
+  END EXAMPLE
+END DOC
 EXPORT FUNC loadSound(RES sound AS SoundFile STATE FileInfo, sampleRate AS Integer) AS Sound
   LET info AS FileInfo = sound.state
 
@@ -466,6 +553,34 @@ EXPORT FUNC loadSound(RES sound AS SoundFile STATE FileInfo, sampleRate AS Integ
   RETURN Sound[samplerate := sampleRate, channels := info.channels, pcm := converted]
 END FUNC
 
+DOC
+  FUNC loadFrames(SoundFile, Integer)
+  GROUP Decoding
+  DESC Read the next `frames` frames from an open file, at the file's own rate.
+  DESC This is the streaming counterpart to `loadSound`: it decodes a chunk at a
+  DESC time, so audio far larger than memory can be played through in a loop.
+  ARG sound An open handle, from `openSound`.
+  ARG frames How many frames to read. One frame is one sample in every channel.
+  RET The file's sample rate, its channel count, and the PCM for this chunk.
+  INFO Each call advances the handle, so a loop over `.state.frames` walks the
+  INFO whole file. Reading past the end is not an error — the last chunk simply
+  INFO comes back short, and further calls return empty PCM.
+  ERROR 77050002 `frames` frames would decode to more than the 64 MiB limit. The message names the size and the cap.
+  ERROR 77030008 libsndfile reported a failure reading the file.
+  EXAMPLE
+    IMPORT audio
+    IMPORT libsnd
+
+    SUB main()
+      RES sound AS SoundFile STATE FileInfo = libsnd::openSound("long.flac")
+      LET info AS FileInfo = sound.state
+      RES out AS AudioOutput = audio::openOutput(info.samplerate, info.channels, 512)
+      FOR i = 0 TO info.frames STEP 4096
+        audio::write(out, libsnd::loadFrames(sound, 4096).pcm)
+      NEXT
+    END SUB
+  END EXAMPLE
+END DOC
 EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, frames AS Integer) AS Sound
   LET info AS FileInfo = sound.state
 
@@ -484,21 +599,46 @@ EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, frames AS Integer)
   RETURN Sound[samplerate := info.samplerate, channels := info.channels, pcm := pcm]
 END FUNC
 
-' Read `frames` frames and deliver them at `sampleRate` instead of the file's
-' own rate: the streaming twin of the two-argument `loadSound`.
-'
-' `frames` counts SOURCE frames, exactly as it does in the two-argument
-' `loadFrames`, so a read loop bounded by `.state.frames` stays correct whatever
-' rate is asked for. The returned PCM therefore holds roughly
-' `frames * sampleRate / info.samplerate` frames, and its length varies by a
-' frame from chunk to chunk as the rounding falls.
-'
-' Each chunk is resampled on its own, with no history carried across calls, so
-' the interpolation restarts at every chunk boundary. On a small chunk that is
-' an audible click; the artifact shrinks as the chunk grows, so stream in
-' chunks of a few thousand frames rather than a few hundred. A file short
-' enough to hold in memory is better read with the two-argument `loadSound`,
-' which resamples it in one piece and has no boundaries at all.
+DOC
+  FUNC loadFrames(SoundFile, Integer, Integer)
+  GROUP Decoding
+  DESC Read the next `frames` frames from an open file and deliver them at
+  DESC `sampleRate` rather than the file's own rate: the streaming twin of the
+  DESC rate-taking `loadSound`.
+  ARG sound An open handle, from `openSound`.
+  ARG sampleRate The rate to deliver the PCM at, in Hz.
+  ARG frames How many SOURCE frames to read — see below.
+  RET The requested sample rate, the file's own channel count, and the converted PCM.
+  INFO `frames` counts SOURCE frames, exactly as it does in the two-argument
+  INFO `loadFrames`, so a read loop bounded by `.state.frames` stays correct
+  INFO whatever rate is asked for. The PCM that comes back therefore holds about
+  INFO `frames * sampleRate / .state.samplerate` frames, and its length varies by
+  INFO a frame from chunk to chunk as the rounding falls — size the output buffer
+  INFO from the returned PCM, never from `frames`.
+  INFO Only the rate is converted; the channel count is still the file's own.
+  WARN Each chunk is converted on its own, carrying no history across calls, so
+  WARN the interpolation restarts at every chunk boundary. On a small chunk that
+  WARN is an audible click. The artifact shrinks as the chunk grows, so stream in
+  WARN chunks of a few thousand frames rather than a few hundred; a file short
+  WARN enough to hold in memory is better read with the rate-taking `loadSound`,
+  WARN which converts it in one piece and has no boundaries at all.
+  ERROR 77050002 `frames` frames would decode to more than the 64 MiB limit, or `sampleRate` is not positive. The message names the size and the cap.
+  ERROR 77030008 libsndfile reported a failure reading the file.
+  EXAMPLE
+    IMPORT audio
+    IMPORT libsnd
+
+    SUB main()
+      ' The output is fixed at 48 kHz; the file may be any rate.
+      RES sound AS SoundFile STATE FileInfo = libsnd::openSound("long.flac")
+      LET info AS FileInfo = sound.state
+      RES out AS AudioOutput = audio::openOutput(48000, info.channels, 512)
+      FOR i = 0 TO info.frames STEP 4096
+        audio::write(out, libsnd::loadFrames(sound, 48000, 4096).pcm)
+      NEXT
+    END SUB
+  END EXAMPLE
+END DOC
 EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, sampleRate AS Integer, frames AS Integer) AS Sound
   LET info AS FileInfo = sound.state
 
@@ -518,6 +658,23 @@ EXPORT FUNC loadFrames(RES sound AS SoundFile STATE FileInfo, sampleRate AS Inte
   RETURN Sound[samplerate := sampleRate, channels := info.channels, pcm := converted]
 END FUNC
 
+DOC
+  FUNC seekFrame
+  GROUP Files
+  DESC Move an open file's read position to `frame`, so the next `loadFrames`
+  DESC reads from there.
+  ARG sound An open handle, from `openSound`.
+  ARG frame The frame to position at, counted from the start of the file.
+  RET The resulting position, in frames from the start of the file.
+  INFO Positions are FRAMES, not bytes and not samples: one frame is one sample
+  INFO in every channel, so frame `n` of a stereo file starts at byte `n * 4`.
+  WARN A `frame` outside `0 .. .state.frames` is NOT an error — it rewinds to the
+  WARN start of the file and returns 0. Compare the returned position against the
+  WARN one asked for when that distinction matters.
+  WARN Seeking works only where `.state.seekable` is nonzero. On a stream-only
+  WARN format libsndfile refuses the seek and this fails.
+  ERROR 77030008 libsndfile could not seek this file — typically because the format is not seekable (`.state.seekable` is 0).
+END DOC
 EXPORT FUNC seekFrame(RES sound AS SoundFile STATE FileInfo, frame AS Integer) AS Integer
   LET info AS FileInfo = sound.state
   IF frame <= info.frames AND frame >= 0 THEN
