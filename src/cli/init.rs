@@ -104,6 +104,12 @@ fn package_project_manifest(location: &Path) -> String {
             "  \"version\": \"0.1.0\",\n",
             "  \"mfb\": \"1.0\",\n",
             "  \"kind\": \"package\",\n",
+            // Required for `kind: "package"` since plan-61-F Phase 4
+            // (2-200-0016 is an error, not a warning): a scaffold without it
+            // does not build, so `init-pkg` must emit one. Deliberately a
+            // placeholder the author is meant to replace -- it is shown on the
+            // registry.
+            "  \"description\": \"A reusable MFBASIC package.\",\n",
             "  \"sources\": [\n",
             "    {{\n",
             "      \"root\": \"src\",\n",
@@ -256,6 +262,16 @@ mod tests {
         assert!(location.join("src").join("lib.mfb").is_file());
         let source = std::fs::read_to_string(location.join("src").join("lib.mfb")).unwrap();
         assert!(source.contains("EXPORT FUNC answer"));
+        // `description` is REQUIRED for `kind: "package"` (2-200-0016 became an
+        // error in plan-61-F Phase 4), so a scaffold that omits it produces a
+        // project that cannot build. Nothing pinned that here, and the scaffold
+        // silently regressed; this is the assertion that would have caught it.
+        let manifest = std::fs::read_to_string(location.join("project.json")).unwrap();
+        assert!(
+            manifest.contains("\"description\""),
+            "init-pkg must scaffold a `description`; without it the new package \
+             fails validation with 2-200-0016. Manifest was:\n{manifest}"
+        );
     }
 
     #[test]

@@ -2654,6 +2654,7 @@ fn repo_vendored_native_libraries_publish_and_install_with_the_package() {
   "version": "{version}",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Test fixture package for vendored native libraries.",
   "ident": "alice#vendorbind",
   "libraries": {{
     "demo": [
@@ -2922,6 +2923,7 @@ fn repo_gc_reclaims_an_orphaned_blob_and_leaves_live_packages_installable() {
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "package",
+  "description": "Test fixture package for repo gc with a vendored library.",
   "ident": "alice#gcvendor",
   "libraries": {
     "demo": [
