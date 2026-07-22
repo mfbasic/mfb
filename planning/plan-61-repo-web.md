@@ -555,8 +555,47 @@ Per-letter detail lives in each sub-plan; the shared obligations are:
      the claim, what was actually true, and the evidence. A corrected number
      also needs a check of whether another letter's scope derived from it. -->
 
-Found by a pre-execution review on 2026-07-21, before any code was written. Each
-was verified against the tree, not reasoned about.
+### Found during execution (2026-07-21)
+
+Each letter carries its own Corrections; these are the ones that touched the
+umbrella's own claims or crossed letter boundaries.
+
+- **§Measured populations undercounts every `kind: "package"` figure.** Every
+  count there is produced by a `find` carrying `-not -path '*/packages/*'`,
+  meant to skip vendored dependency directories. It also excludes the whole
+  `tests/syntax/packages/` fixture group, so the headline **81** is really
+  **91**, and `tests/syntax` is 59 rather than 49. Re-measuring did not catch it
+  — re-running the plan's own command faithfully reproduces its blind spot, and
+  81 looked like confirmation. It surfaced only when plan-61-F's acceptance run
+  reported 10 `build.log` diffs on fixtures the census could not see. Corrected
+  in plan-61-F §2; no other letter's scope derived from the number.
+- **The 41-golden estimate was close but the *kinds* were wrong.** §Where
+  correctness risk concentrates predicts churn in 16 `.mfp` + 2 `.hex` + 23
+  `.info`/`.audit`. Actual churn: **16 `.mfp` + 10 `.info` + 0 `.hex`**, plus 9
+  crafted security packages regenerated for reproducibility. The `.hex` goldens
+  do not move because they are binary-repr fixtures with no package manifest.
+- **plan-61-D shipped believing it churned zero goldens; it churned 60.** D's
+  acceptance was verified with `artifact-gate.sh`, which never compares
+  `.mfp`, `.info`, `.audit` or `build.log` — the blind spot this plan documents
+  in plan-61-F Phase 3, walked into by a sibling letter. The new `2-200-0016`
+  warning printed into 59 `build.log` and 1 `.audit` golden. Nothing was
+  re-baselined: plan-61-F's migration removed the cause and all 60 returned to
+  their committed content on their own.
+- **A latent deadlock in the store, introduced and caught in plan-61-B.**
+  `Store`'s connection is an `Arc<Mutex<Connection>>` and `std::sync::Mutex` is
+  not reentrant, so a `Store` method holding `self.conn()` must never call
+  another `Store` method that takes it. Doing so hangs the handler rather than
+  failing it. Worth stating at umbrella level because it constrains every future
+  query added to this crate.
+- **`SUP-03` is unchanged, as predicted.** The audit route serves per-publish
+  inclusion proofs verified against the checkpoint in the same response, and
+  every release state is listed on both the JSON and HTML surfaces. That makes
+  registry equivocation *observable*; it does not make it impossible.
+
+### Found by a pre-execution review
+
+Found on 2026-07-21, before any code was written. Each was verified against the
+tree, not reasoned about.
 
 - **A Phase 2 named the wrong function.** It said to write
   `package_version_targets` rows at `repository/src/server.rs:2297-2306`. That
