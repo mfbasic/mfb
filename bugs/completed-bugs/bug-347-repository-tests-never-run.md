@@ -1,12 +1,52 @@
 # bug-347: `repository/` is outside the Cargo workspace, so its 123 tests never run and ~13k lines are invisible to the CI coverage gate
 
-Last updated: 2026-07-18
-Effort: medium (1h–2h)
+Last updated: 2026-07-21
+Effort: medium (1h–2h) — the estimate held for the workspace change; the coverage
+burn-down it exposed was several times larger (~3,800 lines of new tests)
 Severity: MEDIUM
 Class: Test infrastructure (silently-dead gate)
 
-Status: In progress — infrastructure landed; per-file coverage burn-down remains
+Status: Fixed (2026-07-21)
 Regression Test: `cargo test --workspace --no-run` must list a `mfb_repository` unittests binary
+
+## Outcome
+
+- `cargo test` at the repo root runs `mfb_repository`'s tests. **164 → 283**
+  tests (264 lib + 19 bin). All 164 pre-existing tests passed unchanged; nothing
+  had rotted.
+- `repository/src/**` is in the coverage denominator and reported per file:
+  **89.57% → 97.76%**.
+- The global line floor **passes at 95.40%**, *above* the 94.91% mfb-only
+  baseline. Bringing 16k lines of registry code into the denominator raised the
+  global figure rather than lowering it, so the predicted floor breach never
+  materialised and no floor adjustment was needed.
+- `tests/repo_acceptance.rs` no longer spawns `cargo`.
+- The three hand-duplicated `IGNORE` regexes are one sourced file,
+  `scripts/coverage-common.sh`.
+
+Commits: `43b97022f` (workspace + coverage plumbing), `d0e3962b8` (server.rs
+tests), `3ee3342ad` (the other six files).
+
+**Found on the way — a dead test.** `store.rs`'s
+`transfer_offer_and_accept_error_branches` was missing its `#[test]` attribute
+and had never run. It is the same failure mode as this bug at a smaller scale,
+and it stayed invisible for the same reason: as a non-member, the crate's
+`dead_code` warning was never surfaced. Enabled (one added attribute, body
+untouched); it passes.
+
+**Known residual — `repository/src/main.rs` at 92.22%, below the 95% per-file
+floor.** All 56 uncovered lines are inside `#[tokio::main] async fn main()` and
+are `eprintln!` + `process::exit` arms, verified by attributing every uncovered
+line to its enclosing function — not asserted from reading the code. Closing it
+requires either extracting `main`'s dispatch into a testable function (a
+production change) or an entry in `scripts/coverage-exceptions.txt`, where
+`src/main.rs` already sits on identical grounds. Left as an open policy call
+rather than forced; the per-file gate also fails on 24 pre-existing `mfb` files
+unrelated to this bug, so `repository/src/main.rs` does not change whether that
+gate is red.
+
+Also flagged, not fixed: `store.rs`'s `a_negative_log_size_is_rejected` carries
+`#[test]` twice (straddling a doc comment) and registers in the harness twice.
 
 The root `Cargo.toml` declares no `[workspace]` section, so the workspace
 contains exactly one member: `mfb`. `mfb_repository` is pulled in only as a
@@ -376,16 +416,26 @@ Per the resolved Open Decision: gate `repository/src/**` at 95% with **no**
 entries in `scripts/coverage-exceptions.txt`. ~1,166 uncovered lines across the
 7 files tabled above.
 
-- [ ] `repository/src/store.rs` (92.15%, 3,084 lines)
-- [ ] `repository/src/gc.rs` (91.71%)
-- [ ] `repository/src/blobstore.rs` (91.64%)
-- [ ] `repository/src/main.rs` (89.80%)
-- [ ] `repository/src/client.rs` (89.61%)
-- [ ] `repository/src/local.rs` (89.20%)
-- [ ] `repository/src/server.rs` (80.98%, 2,928 lines — the largest gap)
+- [x] `repository/src/store.rs` 92.15% → **96.76%**
+- [x] `repository/src/gc.rs` 91.71% → **99.60%**
+- [x] `repository/src/blobstore.rs` 91.64% → **99.12%**
+- [ ] `repository/src/main.rs` 89.80% → **92.22%** — still below floor; see the
+      Known residual in Outcome. The reachable lines (all four `parse_*`
+      parsers) are covered; the remainder is `main()` process-exit plumbing.
+- [x] `repository/src/client.rs` 89.61% → **98.01%**
+- [x] `repository/src/local.rs` 89.20% → **99.55%**
+- [x] `repository/src/server.rs` 80.98% → **98.21%** (was the largest gap:
+      2,928 lines carrying 12 tests; now 45)
 
 Acceptance: `sh scripts/coverage-check.sh` reports no `repository/src` file
-below 95%, with no new exception entries.
+below 95%, with no new exception entries. **Met for 6 of 7; `main.rs` is the
+documented exception-or-refactor decision above. No entry was added to
+`scripts/coverage-exceptions.txt`.**
+
+A measurement note for whoever picks this up: coverage for `repository/src`
+must be read from a **full-workspace** run. A `-p mfb_repository` run excludes
+`tests/repo_acceptance.rs`, which spawns the real `mfb-repo` binary; without
+that subprocess profile `main.rs` reads 80.69% instead of 92.22%.
 Commit: —
 
 ## Open Decisions

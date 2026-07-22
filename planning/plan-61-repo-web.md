@@ -41,7 +41,8 @@ References:
 - `.ai/specifications.md` — spec-sync obligations (a format change updates the
   owning spec topic *in the same change*; this is part of the Hard Completion
   Gate)
-- `bugs/bug-347-repository-tests-never-run.md` — the prerequisite
+- `bugs/completed-bugs/bug-347-repository-tests-never-run.md` — the prerequisite
+  (fixed 2026-07-21)
 - `bugs/skipped/bug-189-supply-chain-bootstrap-downgrade.md` — SUP-03, the
   downgrade weakness this plan partially mitigates
 
@@ -52,9 +53,9 @@ Stated once here; every sub-plan points back to this section.
 
 | Must be true | Command | Status |
 |---|---|---|
-| **bug-347 is fixed — `repository/` is in the Cargo workspace and its tests run** | `cargo test --workspace --no-run 2>&1 \| grep mfb_repository` → must list a `mfb_repository` unittests binary | **NOT MET, but in flight** (2026-07-21, re-checked): the command returns empty and `bugs/bug-347-…md` still reads `Status: Open` — **however** `Cargo.toml` now carries `[workspace] members = [".", "repository"]` as an *uncommitted* working-tree edit, with `repository/Cargo.lock` staged for deletion. Another agent is mid-fix. Do not start on top of a half-landed workspace merge; wait for it to commit, then re-run the command. |
-| The repository crate's existing tests pass | `cargo test -p mfb_repository` → 0 failures | UNVERIFIED until the row above is MET |
-| Working tree is clean of unrelated repo-server edits | `git status --porcelain repository/` → empty | **NOT MET** (2026-07-21, re-checked): `repository/Cargo.lock` is staged deleted by the in-flight bug-347 fix. Was MET when this plan was written. |
+| **bug-347 is fixed — `repository/` is in the Cargo workspace and its tests run** | `cargo test --workspace --no-run 2>&1 \| grep mfb_repository` → must list a `mfb_repository` unittests binary | **MET** (2026-07-21, re-checked after the fix landed): the command lists `Executable unittests src/lib.rs (…/mfb_repository-…)`. Landed in `43b97022f` (+ test work in `d0e3962b8`, `3ee3342ad`); the doc is now `bugs/completed-bugs/bug-347-repository-tests-never-run.md`, `Status: Fixed`. The earlier "wait for it to commit" instruction is discharged — it is safe to start. |
+| The repository crate's existing tests pass | `cargo test -p mfb_repository` → 0 failures | **MET** (2026-07-21): 283 passed (264 lib + 19 bin), 0 failed. Note the count grew from 164 — bug-347's burn-down took `repository/src` to 97.76% line coverage. |
+| Working tree is clean of unrelated repo-server edits | `git status --porcelain repository/` → empty | **MET** (2026-07-21, re-checked): empty. The `repository/Cargo.lock` deletion committed as part of bug-347 (a workspace member cannot carry its own lockfile). |
 | **plan-60 is complete** — it edits the same spec topic and CLI surface | `ls planning/plan-60-*` → no matches (archived to `planning/old-plans/`) | **MET** (2026-07-21, re-checked): no matches; all six docs are in `planning/old-plans/`. Was NOT MET at authoring time. |
 
 ### Why plan-60 is a gate
