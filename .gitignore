@@ -25,6 +25,7 @@ bindings/**/*.mfp
 
 # Packages installed into a consuming project by `mfb pkg install`.
 examples/**/packages/
+examples/**/*.lock
 
 # Local editor and OS files
 .DS_Store
