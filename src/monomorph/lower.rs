@@ -229,7 +229,14 @@ impl<'a> Monomorphizer<'a> {
         for qualifier in qualifiers {
             normalized = strip_qualifier_prefixes(&normalized, qualifier);
         }
-        normalized
+        // Drop a resource's `STATE T` suffix, exactly as `syntaxcheck::parse_type`
+        // does and for the same reason (plan-52-D §4): an imported signature
+        // spells a stateful `RES` parameter inline as `SoundFile STATE FileInfo`,
+        // while the call site's argument type is the bare `SoundFile`. Without
+        // this, `types_compatible` compares 3 tokens against 1 and NO overload
+        // whose first parameter is a stateful resource can ever match — the call
+        // silently resolved to `Type::Unknown` instead of reporting an error.
+        crate::builtins::resource::base_resource_name(&normalized).to_string()
     }
 
     pub(super) fn run(&mut self) {
