@@ -5,8 +5,9 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness (resource leak / footgun)
 
-Status: Open
-Regression Test: `tests/syntax/resources/resource-let-binding-inferred-invalid` (to be added, Phase 1)
+Status: Fixed (2026-07-21)
+Regression Test: `tests/syntax/resources/resource-let-binding-inferred-invalid`,
+`tests/syntax/resources/resource-let-binding-wrapper-invalid`
 
 `TYPE_RESOURCE_REQUIRES_RES` (2-203-0082) — the rule that a resource-typed
 binding must be declared `RES`, not `LET`/`MUT` — only fires when the binding
@@ -158,13 +159,49 @@ This is a real instance of the bug, so the ungated rule is *right* to reject
 it — but fixing it flips a security-audit golden, which is a deliberate call,
 not a drive-by.
 
-## Open question — the `closed-default-tls-drop-rt` segfault
+## Outcome (2026-07-21)
+
+Fixed in `b07f2c4bf` (Phase 1 fixtures in `46b169d74`). Approach **A** — the
+RES-axis check is ungated and the synthesized binds are excluded by
+initializer shape: `UnionExtract`, `ResultValue`, `ResultError`, `Capture`,
+plus the pre-existing `$`-prefix guard. The exclusion list came from an
+exhaustive audit of every `IrOp::Bind` emitter in `src/ir/lower.rs`, done
+*before* running acceptance — which is what the reverted attempt skipped.
+
+It held: the targeted run of the 8 fixtures the reverted attempt broke
+produced **zero** mismatches (15 tests ran; the only 2 diffs were the new
+Phase 1 fixtures, whose goldens were deliberately seeded to the buggy
+behavior). Full validation: `cargo test` 3188 passed / 0 failed / 1 ignored;
+full acceptance **1073 tests, zero mismatches**.
+
+Scope note: only the RES axis widened. The STATE checks in the same block
+(`TYPE_UNION_STATE_FORBIDDEN`, `TYPE_STATE_INVALID`,
+`check_binding_state_agreement`) keep their `explicit_type` gate — a STATE
+clause can only be *written*, so an inferred binding gives them nothing new
+to check.
+
+**Split out: bug-377.** The imported-package case is a separate, pre-existing
+defect — an imported package's resource types are absent from the consuming
+project's IR, so *every* resource rule in `ir::verify` skips them. That is
+strictly worse than this bug: a **double close of an imported resource
+compiles clean**. See `bugs/bug-377-imported-package-resources-invisible-to-ir-verify.md`.
+
+## Resolved: the `closed-default-tls-drop-rt` segfault — NOT this bug
 
 Under the reverted commit, `tests/rt-behavior/resources/closed-default-tls-drop-rt`
 built cleanly, printed both expected lines (`tls-failed=TRUE`, `clean`), then
 exited **139 (SIGSEGV)** at scope-drop, against a golden of exit 0.
 
-**Attribution is UNVERIFIED and must be settled in Phase 1.** `ir::verify` is
+**SETTLED 2026-07-21: not attributable to this change, and not reproducible.**
+On unmodified `main` the fixture built and ran clean 25/25 times (exit 0, both
+expected lines). With the fix it passes in the full acceptance run. The
+mechanistic argument below was right — `ir::verify` is diagnostics-only. The
+most likely explanation is the one the write-up itself flags: the tree did not
+compile at the time (unrelated in-flight `DocHeaderKind::Resource` work), so
+the artifact under test was not built from the reverted commit's source.
+No separate bug filed. Original text follows.
+
+`ir::verify` is
 diagnostics-only and cannot alter codegen, so mechanistically this change
 should not be able to cause it. The competing hypothesis is an independent
 recurrence of the plan-38 F7 macOS bug that this fixture exists to guard (the
@@ -184,8 +221,17 @@ macOS memory-safety regression — and must be split into its own bug document.
 - All four union-match fixtures, both lambda-capture fixtures, and
   `closed-default-tls-drop-rt` build and behave exactly as their current
   goldens specify.
-- `LET music = libsnd::openSound(path)` reports at the `LET`, not as a
-  downstream `TYPE_UNKNOWN_VALUE` on `.state`.
+- ~~`LET music = libsnd::openSound(path)` reports at the `LET`, not as a
+  downstream `TYPE_UNKNOWN_VALUE` on `.state`.~~ **Withdrawn — mis-attributed.
+  Split to bug-377.** This goal is not achievable by ungating `explicit_type`:
+  an imported package's resource type never reaches the consuming project's IR
+  as a resource, so `is_resource_or_resource_union` returns false and the
+  rule's precondition is never met. Proof it is a different defect: the
+  *annotated* `LET music AS SoundFile = libsnd::openSound(...)` fails
+  identically, and that path carries `explicit_type: true`, so it took the
+  same code path before and after this fix. The same-project wrapper shape
+  (`LET h = myOpen()`) IS fixed here and is pinned by
+  `resource-let-binding-wrapper-invalid`.
 
 ### Non-goals (must NOT change)
 
@@ -280,54 +326,69 @@ exemption set was assumed empty without an audit.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/syntax/resources/resource-let-binding-inferred-invalid`, the
+- [x] Add `tests/syntax/resources/resource-let-binding-inferred-invalid`, the
       un-annotated sibling of `resource-let-binding-invalid`, with a seeded
-      golden. Confirm it fails today (compiles clean, exit 0).
-- [ ] Add a fixture covering the imported-binding shape
-      (`LET h = pkg::openThing()` where the package exports
-      `AS RES T STATE S`), so the displaced-`TYPE_UNKNOWN_VALUE` symptom is
-      pinned at its true site.
-- [ ] Enumerate every lowering site that emits `IrOp::Bind` with
-      `explicit_type: false` for a resource-typed binding. This is the audit
-      the reverted attempt skipped; the exemption list must come from this,
-      not from running acceptance and reacting to failures.
-- [ ] Settle the `closed-default-tls-drop-rt` segfault attribution: build
-      current `main` (no ir/verify change) and run that fixture. If it exits
-      139 without the change, split it into its own bug document immediately —
-      it is a macOS memory-safety regression, not part of this one.
-- [ ] Re-run the blast-radius census type-aware rather than by grep, to catch
-      user-wrapper producers the pattern above cannot see.
+      golden. Confirm it fails today (compiles clean, exit 0). — confirmed
+      exit 0.
+- [x] Add a fixture covering the imported-binding shape. **Landed as a
+      SAME-PROJECT wrapper** (`resource-let-binding-wrapper-invalid`), not an
+      imported package. The wrapper shape reproduced the displaced
+      `TYPE_UNKNOWN_VALUE` symptom and IS fixed here. The genuinely *imported*
+      shape turned out to be a different defect that this fix cannot reach —
+      split to bug-377. An imported-package fixture needs hermetic package
+      install machinery and belongs to that bug.
+- [x] Enumerate every lowering site that emits `IrOp::Bind` with
+      `explicit_type: false`. Done before touching the gate; 14 sites with a
+      verdict each. Exactly two need excluding (`UnionExtract` match arms,
+      `Capture` lambda prologue, plus the `ResultValue`/`ResultError`
+      siblings); the rest are either `$`-guarded or structurally non-resource
+      (FOR loop var = numeric, `TRAP(e)` = `Error`). The list proved complete:
+      zero unexpected acceptance mismatches.
+- [x] Settle the `closed-default-tls-drop-rt` segfault attribution. **Not
+      reproducible on unmodified `main` (25/25 clean), passes with the fix.**
+      No separate bug filed — see the section above.
+- [x] Re-run the blast-radius census type-aware rather than by grep. Found the
+      wrapper-producer shape (fixture added) and the imported-package shape
+      (bug-377) — both invisible to the grep pattern, as predicted.
 
-Acceptance: the new fixtures fail for the documented reason; the
-`explicit_type: false` emitter list is complete with a verdict per site; the
-segfault is attributed.
-Commit: —
+Acceptance: met.
+Commit: `46b169d74`
 
 ### Phase 2 — the fix
 
-- [ ] Implement approach A or B per the audit's findings; ungate the RES-axis
-      check at `src/ir/verify/mod.rs:~902`.
-- [ ] Resolve the lambda-capture case deliberately — exemption vs. adding
-      captures to `current_owners` — and record which, and why, here.
-- [ ] Leave the type-agreement check's `explicit_type` gate untouched.
+- [x] Implemented **approach A** (initializer shape, no IR format change) per
+      the audit; RES-axis check ungated at `src/ir/verify/mod.rs`.
+- [x] Lambda captures: **exempted**, with the reasoning recorded under Open
+      Decisions.
+- [x] Type-agreement check's `explicit_type` gate untouched. The STATE checks
+      in the same block also keep theirs — only the RES axis widened.
 
-Acceptance: Phase 1 fixtures pass; `resource-let-binding-invalid`,
-all four union fixtures, both lambda fixtures and the three
-`not-owner-valid` fixtures are byte-identical to their current goldens.
-Commit: —
+Acceptance: met. Targeted run = 15 tests, zero unexpected mismatches;
+`resource-let-binding-invalid`, all four union fixtures, both lambda fixtures
+and the three `not-owner-valid` fixtures byte-identical.
+Commit: `b07f2c4bf`
 
 ### Phase 3 — the `bug96` decision + regeneration + full validation
 
-- [ ] Apply the Open Decision below to
-      `tests/syntax/security/bug96_audit_tls_http_crypto`.
-- [ ] Regenerate only the goldens the fix legitimately shifts; diff and confirm
-      the delta is exactly the intended change and nothing else.
-- [ ] `cargo test` (all targets) and the full acceptance suite
-      (`./scripts/test-accept.sh target/debug/mfb <outdir>`) green.
-- [ ] Re-run the original `examples/audio` reproduction end to end.
+- [x] Applied the Open Decision to `bug96_audit_tls_http_crypto` (`LET s` →
+      `RES s`); `.audit` golden unchanged, only the AST gained
+      `"resource": true`.
+- [x] Regenerated only the three goldens the fix legitimately shifts (the two
+      new fixtures + bug96's AST). Confirmed the delta is exactly the intended
+      change.
+- [x] `cargo test` 3188 passed / 0 failed / 1 ignored. Full acceptance
+      **1073 tests, zero mismatches, exit 0**.
+- [x] Re-ran the `examples/audio` reproduction. It builds clean with the
+      already-corrected `RES music AS SoundFile STATE FileInfo`. Reverting
+      that line to `LET` is **still not caught** — that is bug-377, not this
+      bug (see the withdrawn goal bullet above).
+- [x] Runtime proof: `LET f = fs::open(...)` now exits 1 with 2-203-0082,
+      while an inferred `RES f = fs::createTempFile()` builds and runs (`ok`,
+      exit 0) — the fix rejects the broken form without breaking the correct
+      one.
 
-Acceptance: full suite green; golden deltas are exactly the intended change.
-Commit: —
+Acceptance: met.
+Commit: `b07f2c4bf`
 
 ## Validation Plan
 
@@ -342,7 +403,29 @@ Commit: —
   would catch any that the widened rule newly rejects.
 - Full suite: `cargo test` + `./scripts/test-accept.sh`.
 
-## Open Decisions
+## Open Decisions — both RESOLVED 2026-07-21
+
+- **`bug96_audit_tls_http_crypto` — took the recommendation.** `LET s` →
+  `RES s`. The evidence supports it: the *only* golden delta is the AST
+  gaining `"resource": true`. The `.audit` golden — what the fixture actually
+  asserts (network capability, randomness capability, `TlsSocket` resource,
+  fallible call sites) — is **byte-identical**, as are the `.ir` and
+  `build.log`. So the `LET` really was incidental to the fixture's purpose,
+  and it was itself a live instance of this bug. Bonus: it now also covers an
+  *inferred* `RES` binding (`RES s = tls::connect(...)`, no annotation).
+
+- **Lambda captures — exempted, not owner-listed** (against the doc's
+  recommendation, on evidence). Owner-listing every capture would make
+  ordinary *data* captures satisfy `is_res_declared && !is_resource` and trip
+  `TYPE_RES_REQUIRES_RESOURCE` — trading one false positive for a broader
+  one. Owner-listing only *resource* captures is equivalent to exempting for
+  this rule's purposes. The feared hole ("a capture that genuinely needs the
+  diagnostic would never get it") does not exist: a resource capture is
+  already rejected, more precisely, by `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`
+  ("Lambda captures resource local `file`; resource captures are invalid"),
+  pinned by `tests/syntax/functions/lambda-capture-invalid`.
+
+Original text:
 
 - **`bug96_audit_tls_http_crypto`** — recommended: change the fixture source
   `LET s` → `RES s` and leave the audit golden's *findings* unchanged, since

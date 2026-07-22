@@ -1,7 +1,11 @@
 ' bug-376: the resource comes from a USER-DEFINED wrapper producer (`AS RES T
-' STATE S`), not a `pkg::producer()` call — the shape a grep census over
-' `(fs|tls|net)::(open|connect|...)` cannot see. This is the libsnd shape that
-' originally surfaced the bug.
+' STATE S`) in the SAME project, not a `pkg::producer()` call — the shape a grep
+' census over `(fs|tls|net)::(open|connect|...)` cannot see.
+'
+' NOT the imported-package shape. An imported package's resource type is absent
+' from the consuming project's IR entirely, so `is_resource_or_resource_union`
+' returns false for it and every resource rule in ir::verify skips it — bug-376's
+' fix cannot reach that case. It is tracked separately as bug-377.
 '
 ' The point of this fixture is WHERE the error lands. Before the fix the `LET h`
 ' was accepted, the STATE association was silently lost, and the failure was
