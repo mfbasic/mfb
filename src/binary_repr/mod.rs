@@ -529,7 +529,10 @@ pub fn read_package_identity_id(path: &Path) -> Result<String, String> {
         fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
     let container = mfp_binary_repr_payload(&bytes)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
-    Ok(package_identity_id(&container.identity, container.binary_repr))
+    Ok(package_identity_id(
+        &container.identity,
+        container.binary_repr,
+    ))
 }
 
 /// Decode a package's structured Binary Representation payload back into an `IrProject`.

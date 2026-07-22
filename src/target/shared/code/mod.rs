@@ -3344,7 +3344,10 @@ pub(crate) use mir::MirPlan;
 /// Try the name as given, then again with a leading identity segment stripped.
 /// The identity is a 16-hex-digit content hash, which no package or alias name
 /// can be, so the retry cannot capture a legitimately-dotted first segment.
-fn resolve_closer_symbol(close: &str, function_symbols: &HashMap<String, String>) -> Option<String> {
+fn resolve_closer_symbol(
+    close: &str,
+    function_symbols: &HashMap<String, String>,
+) -> Option<String> {
     if let Some(symbol) = function_symbols.get(close) {
         return Some(symbol.clone());
     }
