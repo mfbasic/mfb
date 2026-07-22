@@ -32,8 +32,8 @@ See `plan-61-repo-web.md` §Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-61-E complete | `curl -sf "$REPO/packages/alice%23pkg" \| grep -q '"description"'` returns a non-null value | NOT MET |
-| The tree is green before churning goldens | `scripts/test-accept.sh target/debug/mfb target/accept-actual` → 0 failures | UNVERIFIED |
+| plan-61-E complete | `curl -sf "$REPO/packages/alice%23pkg" \| grep -q '"description"'` returns a non-null value | **MET** (2026-07-21): E's runtime proof ran this against a live `mfb-repo` and got `"description":"Zygomorphic layout primitives with native BLAS kernels."` — non-null, from a real `mfb build` artifact via `backfill-metadata`. E is archived. |
+| The tree is green before churning goldens | `scripts/test-accept.sh target/debug/mfb target/accept-actual` → 0 failures | **NOT MET at F's start — 60 mismatches — cause identified and fixed by this sub-plan, not accepted.** All 60 are plan-61-D's new `2-200-0016` warning appearing in captured output (59 `build.log`, 1 `.audit`). Verified single-cause: **zero removed lines** across all 60 diffs, and every added line is one of the warning's four parts (79 warn + 79 detail + 79 caret + 237 source-echo = 79×3). No pre-existing failure is hiding among them. This is a real failure being **fixed** — F Phase 2 gives every package a description, the warning stops firing, and those goldens return to their committed content untouched. Re-checked after Phase 2; see Phase 3. |
 
 That second row is not ceremony. `AGENTS.md:139-145` is explicit that
 regenerating goldens while a bug is live enshrines the bug (bug-309). This

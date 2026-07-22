@@ -327,6 +327,32 @@ Commit: `49a710136` (landed with Phase 2 — `.ai/specifications.md` requires th
 
 ## Corrections
 
+- **D's "zero golden churn" claim was WRONG, and D's acceptance was verified
+  with the wrong instrument.** Found by plan-61-F's pre-migration gate, after D
+  was already archived.
+
+  The §Golden churn note says D "should produce **zero** golden diffs" and that
+  a diff means an empty section was emitted. That is true only of the *artifact*
+  goldens (`.ast`/`.ir`/`.hex`/native) — which is all `artifact-gate.sh`
+  compares, and it was the only gate D ran. The full `test-accept.sh` reports
+  **60 mismatches**: 59 `build.log` and 1 `.audit`, every one of them the new
+  `2-200-0016 PROJECT_JSON_DESCRIPTION_MISSING` warning appearing in captured
+  output for the 81 package fixtures.
+
+  Verified as a single cause, not assumed: across all 60 diffs there are **zero
+  removed lines**, and every added line classifies as one of the warning's four
+  parts (79 warn lines, 79 detail lines, 79 carets, 237 source-echo lines =
+  79 × 3). Nothing else changed.
+
+  This is precisely the trap `plan-61-F` Phase 3 documents — `artifact-gate.sh`
+  never compares `.mfp`, `.info`, `.audit`, or `build.log` — and D walked into
+  it about its own change. D's Validation Plan *did* list `test-accept.sh`; only
+  `artifact-gate.sh` was run, on the strength of this note.
+
+  **Not re-baselined.** The churn is transient: F Phase 2 gives all 81 manifests
+  a description, the warning stops firing, and those 60 goldens return to their
+  committed content with no regeneration. The fix is to remove the cause, which
+  is what F does.
 - **The runtime proof used a purpose-built fixture, not `bindings/sqlite3`.**
   §Validation Plan says to add a description to `bindings/sqlite3` and rebuild
   it. That package is **modified in the working tree by another agent** (as is
