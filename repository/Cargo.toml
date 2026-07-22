@@ -26,6 +26,13 @@ chacha20poly1305 = "0.10"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 hex = "0.4"
 jsonwebtoken = "9.3"
+# plan-61-C §2 layer 1: compile-time HTML templating whose default is *escaped*.
+# The choice is a security property, not ergonomics — `maud`'s `html!` escapes
+# every interpolated value and the bypass (`PreEscaped`) is explicit and
+# greppable, which inverts the failure mode of hand-rolled `format!` where every
+# interpolation is a place to forget. Its whole tail is `itoa` plus proc-macro
+# crates already in the tree.
+maud = "0.27"
 rand = "0.8"
 rand_core = "0.6"
 # `rustls-tls` lets the package client reach https registries and, in S3 mode,

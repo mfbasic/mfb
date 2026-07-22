@@ -10,6 +10,7 @@ pub mod package;
 pub mod server;
 pub mod store;
 pub mod validation;
+pub mod web;
 
 /// Registry the client talks to when `MFB_REPO_URL` is unset. This is the
 /// public hosted registry, not the local dev server: point at a local

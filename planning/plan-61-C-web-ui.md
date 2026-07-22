@@ -35,7 +35,7 @@ See `plan-61-repo-web.md` §Prerequisites, plus:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-61-B complete | `curl -sf "$REPO/packages/alice%23pkg" \| head -c1` → succeeds against a local server | NOT MET |
+| plan-61-B complete | `curl -sf "$REPO/packages/alice%23pkg" \| head -c1` → succeeds against a local server | **MET** (2026-07-21). B is archived to `planning/old-plans/`; all three routes are registered and tested (`a6c2f8e7c`, `1a1bdb72e`). The live-curl form of this check is folded into C's Phase 3 runtime proof, which starts a real server — standing one up twice to answer the same question is waste. |
 
 ## 1. Goal
 
@@ -197,21 +197,37 @@ wrong form** — fix the mockup in the same change.
 Lands first and alone because every later phase depends on it being right, and
 because it is the only part with real security consequences.
 
-- [ ] Create `repository/src/web/mod.rs`. Add `safe_href(&str) -> Option<String>`
+- [x] Create `repository/src/web/mod.rs`. Add `safe_href(&str) -> Option<String>`
       implementing the §2 allowlist.
-- [ ] Add the CSP header from §2 to every HTML response via a shared response
+- [x] Add the CSP header from §2 to every HTML response via a shared response
       builder — not per-handler, so a future page cannot forget it.
-- [ ] Tests, and these are the point of the phase — a table-driven test asserting
+- [x] Tests, and these are the point of the phase — a table-driven test asserting
       **rejection** of: `javascript:alert(1)`, `JaVaScRiPt:alert(1)`,
       `java\tscript:alert(1)`, `java\nscript:`, ` javascript:` (leading space),
       `\x01javascript:`, `data:text/html,<script>`, `vbscript:msgbox`,
       `//evil.example`, `file:///etc/passwd`; and **acceptance** of
       `http://x.example`, `https://x.example/a?b=c#d`.
-- [ ] Tests: every HTML response carries the CSP header, asserted through the
+- [x] Tests: every HTML response carries the CSP header, asserted through the
       shared builder.
 
-Acceptance: the rejection table passes in full, and a response built through the
-shared builder without explicitly requesting CSP still carries the header.
+Acceptance: **MET.** `safe_href_rejects_every_non_http_scheme` covers all ten
+cases the phase names plus seventeen more (`about:`, `blob:`, `ftp:`,
+`mailto:`, `\\evil.example`, `http:evil` with no authority, `https:/evil` with
+one slash, bare `:`, `://evil.example`, the empty string, a relative path, and a
+bare fragment). Each defeats a *different* naive implementation, which is the
+reason the table is long: `starts_with` misses the case-varied and
+whitespace-padded forms, `contains("javascript")` misses `data:`/`vbscript:`,
+and treating "no scheme" as safe misses protocol-relative `//evil`.
+
+`every_html_response_carries_the_csp_from_the_shared_builder` asserts the header
+on a 200 **and** a 404 — an error page is exactly where a forgotten header would
+be least noticed — and no handler opts in, because `html_response` attaches it.
+`the_policy_permits_no_script_at_all` pins the absence of `script-src`,
+`unsafe-inline`, and `unsafe-eval`, so weakening the policy means editing an
+assertion that explains why not to.
+`interpolated_values_are_escaped_by_the_template_engine` verifies maud's
+auto-escaping in text *and* attribute position rather than assuming it.
+7 tests, all passing.
 Commit: —
 
 ### Phase 2 — Landing and search pages
@@ -315,4 +331,26 @@ Commit: —
 
 ## Corrections
 
-- *(none yet)*
+- **Open Decision resolved: `maud`, in Phase 1 as instructed.** A compile-time
+  auto-escaping engine, chosen for the security property rather than ergonomics
+  — `html!` escapes every interpolated value and the bypass (`PreEscaped`) is
+  explicit and greppable. Its entire dependency tail is `itoa` plus proc-macro
+  crates already in the tree (9 packages locked), which fits the "gate heavy
+  optional things" precedent rather than violating it. `askama` was the other
+  candidate and would have let the mockups be used as template files verbatim,
+  but it puts the markup in files that can drift out of the binary; maud's
+  markup is Rust and is type-checked.
+- **`style.css` is copied into `repository/src/web/`, not `include_str!`'d from
+  `planning/`.** `include_str!("../../../planning/plan-61/style.css")` would
+  make the shipped binary depend on a planning directory that is archived when
+  the plan completes — the build would break the moment `planning/plan-61/`
+  moved. The crate copy is authoritative for what is served; the mockup remains
+  the design reference.
+- **`html_response` sets two headers the plan did not name.** `X-Content-Type-Options: nosniff`
+  (so a package page can never be sniffed as another type) and
+  `Referrer-Policy: no-referrer` (so browsing a package does not leak which one
+  to third-party sites). Both are free and neither weakens §2.
+- **`safe_href` also rejects a scheme with no authority.** `http:evil` and
+  `https:/evil` parse as an allowed scheme but are not usable absolute URLs;
+  admitting them would have produced links that resolve relative to the
+  registry's own origin. Not in the plan's rejection table; added to the test.
