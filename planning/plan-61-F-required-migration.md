@@ -177,30 +177,58 @@ Commit: —
 > the precise failure the Validation Plan already guards against by mandating the
 > full suite; this phase now matches it.
 
-- [ ] Run `scripts/test-accept.sh target/debug/mfb target/accept-actual` (~15 min)
+- [x] Run `scripts/test-accept.sh target/debug/mfb target/accept-actual` (~15 min)
       and record which goldens diff. **Explain every diff before regenerating any
       of them.** Expected: `.mfp` goldens gain section 18; `.info`/`.audit`
       goldens may gain a description line; `build.log` goldens lose the
       missing-description warning. Anything else is unexplained and must be
       investigated, not accepted.
-- [ ] Seed with a filter, never bare: `scripts/sync-goldens.sh target/debug/mfb
+- [x] Seed with a filter, never bare: `scripts/sync-goldens.sh target/debug/mfb
       <name-glob>` per affected group. `sync-goldens.sh` **never creates** golden
       files — if a new golden kind is needed, pre-create it empty first.
-- [ ] **The 29 `tools/*-package-sources` manifests have no `golden/` of their
+- [x] **The 29 `tools/*-package-sources` manifests have no `golden/` of their
       own** — they are inputs consumed by fixtures elsewhere
       (`tests/rt-behavior/security/README.md`,
       `src/docs/spec/threading/12_validation.md`), so their churn surfaces in
       *other* fixtures' goldens and no `<name-glob>` names them directly. Find
       the dependent fixtures and seed those.
-- [ ] **Check the crafted-bytes fixtures before assuming a clean regen.**
+- [x] **Check the crafted-bytes fixtures before assuming a clean regen.**
       `tools/security-package-sources/mfp_craft.py` builds adversarial `.mfp`
       byte layouts at hand-computed offsets. Adding a manifest field to those 9
       packages may shift them. If a crafted fixture breaks, that is the crafting
       script needing an update — not a golden needing a re-baseline.
-- [ ] Re-run `scripts/test-accept.sh` and confirm zero failures.
+- [x] Re-run `scripts/test-accept.sh` and confirm zero failures.
 
-Acceptance: `test-accept.sh` reports 0 failures, and every regenerated golden's
-change is explained by one of the three expected causes above.
+Acceptance: **MET** — `acceptance tests passed (1069 test(s) ran)`, exit 0.
+
+Every diff was explained **before** any regeneration, and the explanation was
+checked mechanically rather than asserted:
+
+1. **60 → 18 → 26 → 0.** The first run's 60 mismatches were plan-61-D's warning
+   (see §Prerequisites). Migrating the manifests removed the cause and **59 of
+   them self-healed with no golden touched at all**. The residual 10 `build.log`
+   diffs were the warning *still firing* on the fixtures the census could not
+   see (§Corrections); migrating those 10 healed them too.
+2. **The 26 real diffs have a single cause.** Classifying every changed line
+   across all 10 `.info` diffs yields exactly three fields — `package binary
+   hash` (20), `content hash` (20), `binary representation length` (20) — and
+   **0 unexplained lines**. That is precisely what a larger payload produces.
+   The 16 `.mfp` diffs are the same cause in binary. Note the plan predicted
+   `.info` goldens might gain a *description line*; they do not render one, they
+   only rehash.
+3. **Regeneration was filtered to the 16 named fixture directories**, never
+   bare: `sync-goldens.sh` reported `synced 75 golden file(s) across 16 test(s)`
+   and exactly **26** files changed — matching the 26 mismatches one-for-one, so
+   nothing outside the explained set moved. Spot-decoding the regenerated
+   `.mfp` goldens confirms section 18 now carries the exact description text
+   written in Phase 2.
+4. **Crafted-bytes fixtures: checked, and the script did not break.**
+   `mfp_craft.py`'s hand-computed offsets still work — all 9 `generate.py`
+   scripts ran clean, and the regenerated adversarial packages still pass
+   (`syntax/security/*` → 10 tests passed). They *were* regenerated, because the
+   9 source manifests changed and the committed bytes are meant to be
+   reproducible from them; pkg-01's deterministic pinned `identKey` is unchanged,
+   so no consumer manifest needed editing.
 Commit: —
 
 ### Phase 4 — Flip to required (the behavioral change)

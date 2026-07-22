@@ -16,9 +16,9 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  package binary hash: 36874929c191c9fc8fd81fa0a902941ec1b96c1b1aad12775bbb10c7f93cb89a
-  content hash: 38c068683e779d37efd194f1b771fe34fae25302d33b8037c75c907f010a5ab9
-  binary representation length: 3106
+  package binary hash: fc8f886574984d7457ecde2c502a8e6e72fc78427f87f0248b71049fee0b45a2
+  content hash: 819d9032745c24e082ce6d6acf73e40d43df97000372781cb5175e3237d70873
+  binary representation length: 3229
 
 Manifest:
   name: package_shape
