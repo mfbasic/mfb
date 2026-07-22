@@ -293,56 +293,11 @@ pub(crate) const AUDIO_CLOSE_OUTPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec 
 
 #[cfg(test)]
 mod tests {
-    use super::super::{helper_for_call, spec_for_call, spec_for_symbol, RuntimeHelper};
+    use super::super::spec_for_call;
 
-    // Every internal `audio.*` call routes to `RuntimeHelper::Audio` and has a
-    // catalogued spec (metadata ↔ spec parity), and every symbol is unique.
-    const AUDIO_CALLS: &[&str] = &[
-        "audio.devices",
-        "audio.openInput",
-        "audio.openInputDevice",
-        "audio.openOutput",
-        "audio.openOutputDevice",
-        "audio.read",
-        "audio.readTimeout",
-        "audio.write",
-        "audio.poll",
-        "audio.pollTimeout",
-        "audio.available",
-        "audio.xruns",
-        "audio.closeInput",
-        "audio.closeOutput",
-    ];
-
-    #[test]
-    fn every_audio_call_has_spec_and_helper() {
-        for call in AUDIO_CALLS {
-            assert_eq!(
-                helper_for_call(call),
-                Some(RuntimeHelper::Audio),
-                "helper_for_call {call}"
-            );
-            let spec = spec_for_call(call).unwrap_or_else(|| panic!("no spec for {call}"));
-            assert_eq!(spec.helper, RuntimeHelper::Audio, "{call}");
-            assert!(!spec.abi.returns.is_empty(), "{call} returns set");
-            // Round-trips through the symbol index.
-            assert_eq!(spec_for_symbol(spec.symbol).map(|s| s.call), Some(*call));
-        }
-    }
-
-    #[test]
-    fn audio_symbols_are_unique() {
-        let symbols: Vec<&str> = AUDIO_CALLS
-            .iter()
-            .map(|call| spec_for_call(call).unwrap().symbol)
-            .collect();
-        for (index, symbol) in symbols.iter().enumerate() {
-            assert!(
-                !symbols[..index].contains(symbol),
-                "duplicate audio symbol {symbol}"
-            );
-        }
-    }
+    // Routing/spec/symbol parity for every audio call is covered by the
+    // catalog-driven `catalog::tests::catalog_is_consistent` (bug-329), which
+    // replaced the hand-copied AUDIO_CALLS array that used to live here.
 
     #[test]
     fn audio_family_is_complete_for_validate() {

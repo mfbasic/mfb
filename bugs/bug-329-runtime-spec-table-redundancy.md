@@ -394,14 +394,18 @@ No spec contents change.
 
 ### Phase 1 — prove the derivation and build the parity net (no behavior change)
 
-- [ ] Add `every_spec_symbol_is_derivable` to `catalog.rs`. Confirm it passes
+- [x] Add `every_spec_symbol_is_derivable` to `catalog.rs`. Confirm it passes
       156/156 today. **This must land before any field is removed.**
-- [ ] Add the table-driven `catalog_is_consistent` test. Confirm the
-      `families.len() == 10` assertion **fails** while `RuntimeHelper::Strings`
-      exists with no catalogued spec — this is the dead-file reproduction — then
-      mark it `#[ignore]` or assert the current count until Phase 2 lands.
-- [ ] Re-verify the read-site census in Current State §3 (`abi.params`,
-      `abi.clobbers`, `abi.returns`) and record any drift in this file.
+      (Passes: `cargo test --bin mfb catalog::`.)
+- [x] Add the table-driven `catalog_is_consistent` test. The strings-hole
+      reproduction step is moot — bug-326 already deleted `RuntimeHelper::Strings`
+      (see Corrections); the family assertion pins the 10 catalogued families
+      directly. Found and encoded the code-layer-only seam for
+      `thread.drop`/`read`/`emit` (see Corrections).
+- [x] Re-verify the read-site census in Current State §3 (`abi.params`,
+      `abi.clobbers`, `abi.returns`) and record any drift in this file
+      (see Corrections: counts moved by the bug-326 strings deletion; the §2
+      `symbol` consumer census was incomplete).
 
 Acceptance: the derivation test is green and checked in; the parity test
 demonstrates the `strings` hole; the census is current.
@@ -409,16 +413,20 @@ Commit: —
 
 ### Phase 2 — delete the dead strings catalog
 
-- [ ] Delete `src/target/shared/runtime/strings_specs.rs`.
-- [ ] Delete `RuntimeHelper::Strings` (`mod.rs:14`), its `name()` arm (`:32`),
-      the `#[allow(dead_code)] mod strings_specs;` (`:87-91`), and the
-      `#[allow(unused_imports)] use strings_specs::*;` (`:105-106`).
-- [ ] Delete the tombstone comment at `catalog.rs:115-118`.
-- [ ] Un-ignore `catalog_is_consistent`; the 10-family assertion now passes.
+**Already landed by bug-326 (commit 8ec1872b6) before this bug was worked — see
+Corrections.** Verified against the working tree:
 
-Acceptance: `cargo build` clean with no new `#[allow]`; parity test green;
-`scripts/artifact-gate.sh` zero delta.
-Commit: —
+- [x] Delete `src/target/shared/runtime/strings_specs.rs`. (Done by bug-326-A1;
+      `grep -rn "Strings\|strings_specs\|STRINGS_" src/target/` → no remnants.)
+- [x] Delete `RuntimeHelper::Strings`, its `name()` arm, and both `#[allow]`
+      attributes. (Done by bug-326; `grep -rn "allow(dead_code)\|allow(unused"
+      src/target/shared/runtime/` → empty.)
+- [x] Tombstone comment at `catalog.rs`: bug-326 rewrote it into deliberate
+      documentation of why no `strings::` row exists — kept, not deleted.
+- [x] `catalog_is_consistent` lands un-ignored; the 10-family assertion passes.
+
+Acceptance: met by bug-326; parity test green in Phase 1.
+Commit: 8ec1872b6 (bug-326)
 
 ### Phase 3 — move the TLS specs
 
@@ -506,6 +514,54 @@ Commit: —
 - **Delete `RuntimeHelper::Strings` outright, or keep the variant?** Recommended:
   **delete**. Two references (§1); the "wide enum-variant churn" the comment
   warns of does not exist.
+
+## Corrections (2026-07-22, re-verified before implementation)
+
+- **Phase 2 already landed via bug-326** (commit 8ec1872b6, after this document
+  was written): `strings_specs.rs`, `RuntimeHelper::Strings`, and both `#[allow]`
+  attributes are gone. `grep -rn "Strings\|strings_specs\|STRINGS_" src/target/`
+  finds zero spec remnants. The `catalog.rs` tombstone comment was *rewritten* by
+  bug-326 into an informative note citing bug-326-A1 (why no `strings::` row
+  exists); it is deliberate documentation now, and is kept rather than deleted.
+- **The §2 note on `symbol` consumers was incomplete.** Beyond `spec_for_symbol`,
+  the plan layer reads `spec.symbol` directly: `linux_common/plan.rs`
+  `runtime_imports` (~100 uses as the `required_by` string),
+  `macos_aarch64/plan.rs` `runtime_imports` (~70 uses of
+  `spec.symbol.to_string()`), the test platform in `shared/plan/mod.rs` (3), and
+  `shared/plan/symbols.rs` (`runtime_symbols` term auto-restore push +
+  `os_env_lock_helper_symbols`). Command:
+  `grep -rn "spec\.symbol" --include='*.rs' src/`. Phase 4 rewrites each function
+  to derive the symbol once via `symbol_for_call`; `os_env_lock_helper_symbols`
+  changes return type `Vec<&'static str>` → `Vec<String>`.
+- **Counts after the bug-326 deletion:** 150 `clobbers:` definition sites (147
+  literal + 3 in crypto macro bodies), still exactly one distinct value
+  (`grep -h "clobbers:" src/target/shared/runtime/*_specs.rs | sort | uniq -c`).
+  `abi.returns` is read 46 times in `code/mod.rs` (was 48). The `spec_for_symbol`
+  consumers sit at `code/mod.rs:772` and `:1479`.
+- **`RuntimeHelper` grew `General` and `Math` variants** (not in this document's
+  10-family model). Both are fully native-direct — no catalogued spec, no
+  `_mfb_rt_*` emission — so the Phase 1 parity test pins the catalogued family
+  set to the 10 real ones and documents those two exceptions. The doc's
+  "families.len() == 10 fails while Strings exists" reproduction step is moot:
+  bug-326 already removed the hole.
+- **The Fix Design's `helper_for_call(spec.call) == Some(spec.helper)` assertion
+  is too strong for four specs.** `thread.drop`, `thread.read`, `thread.emit`,
+  and `net.connectTcpAddr` are synthesized inside the code layer
+  (`builder_values` rewrites the user call into the direction/overload-specific
+  variant; `drop` is emitted by codegen primitives), so they never exist at the
+  NIR level where `helper_for_call` routes calls — the classifier deliberately
+  returns `None` for them (found by running the test; the collected misroute
+  list is empty with exactly these four excluded). The landed
+  `catalog_is_consistent` pins this seam both ways: those four must be
+  unclassified, every other spec must classify to its helper.
+- The three per-family test modules: the audio/os hand-array parity tests were
+  deleted in Phase 1, replaced by the catalog-driven test (strict superset for
+  catalogued specs). `audio_family_is_complete_for_validate` (params/clobbers
+  gate assertion) and io's bug-70 `io_flush_declares_call_clobbers` stay until
+  Phase 5 deletes the fields they assert on — bug-70's protected behavior
+  ("never declare a false empty clobber set") becomes vacuously impossible once
+  the field itself is gone; the real clobber model lives in the register
+  allocator (`regalloc/analysis.rs` call-clobber masks), unchanged.
 
 ## Summary
 

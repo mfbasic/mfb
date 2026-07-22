@@ -211,41 +211,6 @@ pub(crate) const OS_CPU_COUNT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
-#[cfg(test)]
-mod tests {
-    use super::super::{helper_for_call, spec_for_call, RuntimeHelper};
-
-    // Every `os::` env frontend name routes to `RuntimeHelper::Os` and has a
-    // registered runtime-helper spec in the catalog (metadata ↔ spec parity).
-    const OS_ENV_CALLS: &[&str] = &[
-        "os.getEnv",
-        "os.getEnvOr",
-        "os.hasEnv",
-        "os.setEnv",
-        "os.unsetEnv",
-        "os.environ",
-        "os.args",
-        "os.pid",
-        "os.executablePath",
-        "os.resourcePath",
-        "os.name",
-        "os.arch",
-        "os.hostName",
-        "os.userName",
-        "os.cpuCount",
-    ];
-
-    #[test]
-    fn every_os_env_call_has_spec_and_helper() {
-        for call in OS_ENV_CALLS {
-            assert_eq!(
-                helper_for_call(call),
-                Some(RuntimeHelper::Os),
-                "helper_for_call {call}"
-            );
-            let spec = spec_for_call(call).unwrap_or_else(|| panic!("no spec for {call}"));
-            assert_eq!(spec.helper, RuntimeHelper::Os, "{call}");
-            assert!(!spec.abi.returns.is_empty(), "{call} returns set");
-        }
-    }
-}
+// Routing/spec parity for every os call is covered by the catalog-driven
+// `catalog::tests::catalog_is_consistent` (bug-329), which replaced the
+// hand-copied OS_ENV_CALLS array that used to live here.

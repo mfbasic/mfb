@@ -175,3 +175,116 @@ pub(crate) fn spec_for_call(target: &str) -> Option<&'static RuntimeHelperSpec> 
         .iter()
         .find(|spec| spec.call == target)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::runtime::{helper_for_call, symbol_for_call};
+    use std::collections::HashSet;
+
+    // bug-329: every catalogued symbol is exactly what `symbol_for_call`
+    // produces — the transcribed `symbol` field is derivable, not independent.
+    // This is the gate that makes deleting the field safe; if a future spec
+    // ever needs a non-derivable symbol, this test is what surfaces it.
+    #[test]
+    fn every_spec_symbol_is_derivable() {
+        for spec in supported_helper_specs() {
+            assert_eq!(
+                spec.symbol,
+                symbol_for_call(spec.helper, spec.call),
+                "{} symbol must equal symbol_for_call",
+                spec.call
+            );
+        }
+    }
+
+    // One table-driven parity test over the catalog itself (bug-329), replacing
+    // the hand-copied per-family call arrays that used to live in
+    // audio_specs.rs/os_specs.rs: a new spec is covered the moment it is added,
+    // because there is no second list to maintain.
+    #[test]
+    fn catalog_is_consistent() {
+        let specs = supported_helper_specs();
+        let mut seen_symbols = HashSet::new();
+        let mut families = HashSet::new();
+        // Catalogued calls that `helper_for_call` must NOT classify: these are
+        // synthesized inside the code layer (`builder_values` rewrites the
+        // user-facing call into the direction/overload-specific queue or addr
+        // variant; `thread.drop` is the handle-cleanup helper emitted by
+        // codegen primitives), so they never exist at the NIR level where
+        // `helper_for_call` routes calls. They are catalogued only so
+        // `spec_for_call`/`spec_for_symbol` resolve them during code emission
+        // and object planning.
+        const CODE_LAYER_ONLY_CALLS: &[&str] = &[
+            "thread.drop",
+            "thread.read",
+            "thread.emit",
+            "net.connectTcpAddr",
+        ];
+        // Family round-trip: the front end routes each call to its helper
+        // (except the code-layer-synthesized calls, which must stay invisible
+        // to the NIR-level classifier). Collected so one failure reports the
+        // whole set.
+        let misrouted: Vec<String> = specs
+            .iter()
+            .filter_map(|spec| {
+                let expected = if CODE_LAYER_ONLY_CALLS.contains(&spec.call) {
+                    None
+                } else {
+                    Some(spec.helper)
+                };
+                let actual = helper_for_call(spec.call);
+                (actual != expected)
+                    .then(|| format!("{}: {:?} (expected {:?})", spec.call, actual, expected))
+            })
+            .collect();
+        assert!(misrouted.is_empty(), "misrouted calls: {misrouted:#?}");
+        for spec in specs {
+            // Call round-trip (also proves call strings are unique: a duplicate
+            // would resolve to the first entry and fail here for the second).
+            assert!(
+                std::ptr::eq(spec_for_call(spec.call).unwrap(), spec),
+                "spec_for_call {}",
+                spec.call
+            );
+            // Symbol round-trip + uniqueness.
+            let symbol = symbol_for_call(spec.helper, spec.call);
+            assert!(
+                std::ptr::eq(spec_for_symbol(&symbol).unwrap(), spec),
+                "spec_for_symbol {symbol}"
+            );
+            assert!(
+                seen_symbols.insert(symbol),
+                "duplicate symbol for {}",
+                spec.call
+            );
+            // `returns` is the load-bearing abi field; every code-plan consumer
+            // reads it.
+            assert!(!spec.abi.returns.is_empty(), "{} returns", spec.call);
+            families.insert(spec.helper);
+        }
+        // Every RuntimeHelper family is catalogued except General and Math,
+        // which are fully native-direct (lowered inline; no `_mfb_rt_*` helper
+        // is ever emitted for them). A variant missing here with no catalogued
+        // spec is the dead-catalog situation bug-326 removed for `strings`.
+        for helper in [
+            RuntimeHelper::Audio,
+            RuntimeHelper::Crypto,
+            RuntimeHelper::Datetime,
+            RuntimeHelper::Fs,
+            RuntimeHelper::Io,
+            RuntimeHelper::Net,
+            RuntimeHelper::Os,
+            RuntimeHelper::Term,
+            RuntimeHelper::Thread,
+            RuntimeHelper::Tls,
+        ] {
+            assert!(
+                families.contains(&helper),
+                "family {} has no catalogued spec",
+                helper.name()
+            );
+        }
+        assert_eq!(families.len(), 10, "unexpected extra catalogued family");
+    }
+}
