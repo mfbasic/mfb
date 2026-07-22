@@ -1,0 +1,29 @@
+$ mfb build -ast -ir tests/syntax/control-flow/while-wend-removed-invalid
+   3 |   WHILE x < 3
+   4 |     x = x + 1
+   5 |   WEND
+     |   ^^^^
+tests/syntax/control-flow/while-wend-removed-invalid/src/main.mfb:5 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               WEND has been removed; a WHILE block ends with END WHILE.
+   4 |     x = x + 1
+   5 |   WEND
+   6 | END SUB
+     | ^^^
+tests/syntax/control-flow/while-wend-removed-invalid/src/main.mfb:6 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
+               Expected an expression.
+   4 |     x = x + 1
+   5 |   WEND
+   6 | END SUB
+     | ^^^
+tests/syntax/control-flow/while-wend-removed-invalid/src/main.mfb:6 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
+               Statement is not recognized by the current parser.
+   4 |     x = x + 1
+   5 |   WEND
+   6 | END SUB
+tests/syntax/control-flow/while-wend-removed-invalid/src/main.mfb:7 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
+               WHILE block must end with END WHILE.
+   1 | SUB main()
+     | ^^^
+tests/syntax/control-flow/while-wend-removed-invalid/src/main.mfb:1 error[1-102-0006 MFB_PARSE_UNTERMINATED_BLOCK]: parser reached end-of-file inside a block
+               Function block reached end-of-file before its END statement.
+[exit 1]

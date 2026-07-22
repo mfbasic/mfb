@@ -54,7 +54,6 @@ pub(super) enum BlockTerminator {
     EndWhile,
     Loop,
     Next,
-    Wend,
 }
 
 impl<'a> FileParser<'a> {

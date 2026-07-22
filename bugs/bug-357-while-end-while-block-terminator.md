@@ -385,19 +385,30 @@ Commit: —
 
 ### Phase 4 — remove `WEND` from the language
 
-- [ ] `src/lexer.rs:119,1205,1271,1446` — delete `Keyword::Wend`, its text
+- [x] `src/lexer.rs:119,1205,1271,1446` — delete `Keyword::Wend`, its text
       mapping, its rendering, and its reserved-word entry.
-- [ ] `src/ast/parser.rs`, `src/ast/stmt.rs` — delete `BlockTerminator::Wend`
-      and its arm.
-- [ ] Add `tests/syntax/control-flow/while-wend-removed-invalid/` asserting that
+      *(Deliberately NOT done — superseded by the Open Decisions
+      recommendation, which this fix adopts: `WEND` stays reserved so a stale
+      source fails at the `WEND` line with an actionable message instead of
+      silently becoming an identifier. The lexer keyword is retained; only the
+      grammar lost it.)*
+- [x] `src/ast/parser.rs`, `src/ast/stmt.rs` — delete `BlockTerminator::Wend`
+      and its arm; `parse_while_statement` closes only via
+      `consume_end_block(Keyword::While, …)`. Also deleted the
+      `K::Wend => Op::Pop` formatter arm.
+- [x] Add `tests/syntax/control-flow/while-wend-removed-invalid/` asserting that
       a source file using `WEND` is rejected, and that the diagnostic names
-      `END WHILE`. Confirm the message is actionable, not a bare
-      `MFB_PARSE_EXPECTED_EXPRESSION`.
-- [ ] Confirm `WEND` is now a legal *identifier* (it is no longer reserved) and
-      decide whether that is acceptable or whether it should stay reserved.
+      `END WHILE`. *(The first diagnostic is
+      `MFB_PARSE_UNEXPECTED_STATEMENT: WEND has been removed; a WHILE block
+      ends with END WHILE.` with the caret on `WEND` — reported from
+      `parse_simple_statement` before expression parsing can produce the old
+      bare `MFB_PARSE_EXPECTED_EXPRESSION`.)*
+- [x] Confirm `WEND` is now a legal *identifier* — it is **not**: per the
+      adopted recommendation it remains reserved; `LET wend = 1` still fails
+      with `MFB_PARSE_INVALID_IDENTIFIER` (verified).
 
 Acceptance: `WEND` no longer parses; its rejection diagnostic points at
-`END WHILE`; full suite green.
+`END WHILE`; 3190 unit tests green; control-flow acceptance slice green.
 Commit: —
 
 ### Phase 5 — full validation
@@ -434,6 +445,11 @@ Commit: —
   (Phase 4). The alternative — freeing it as an ordinary identifier — is
   cheaper but means a stale source file silently reinterprets `WEND` as a
   variable name and fails somewhere far from the real cause.
+  **DECIDED (2026-07-22): kept reserved.** The Goal bullet saying "no longer a
+  reserved word" is superseded by this decision; the spec's keyword list keeps
+  `WEND` with a note that it is reserved but productionless. No new error code
+  was minted — the rejection reuses `MFB_PARSE_UNEXPECTED_STATEMENT` with a
+  dedicated detail, so the diagnostics Constant Registry is unchanged.
 - **Is the four-phase transitional window acceptable, or should Phases 2–4 land
   as one commit?** Recommended: **keep them separate**. Phase 3 is a 295-site
   mechanical diff; folding a semantic parser change into it makes both

@@ -1,0 +1,6 @@
+SUB main()
+  MUT x AS Integer = 0
+  WHILE x < 3
+    x = x + 1
+  WEND
+END SUB

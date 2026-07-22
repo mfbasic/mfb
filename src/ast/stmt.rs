@@ -37,6 +37,20 @@ impl<'a> FileParser<'a> {
         &mut self,
         allow_else_terminator: bool,
     ) -> Option<Statement> {
+        // `WEND` is reserved but productionless (bug-357): the terminator it
+        // once was is `END WHILE`. Rejecting it here, before expression
+        // parsing, turns a stale source file's failure into an actionable
+        // message instead of a bare "expected an expression" at `WEND`.
+        if self.check_keyword(Keyword::Wend) {
+            let token = self.peek().clone();
+            self.report(
+                "MFB_PARSE_UNEXPECTED_STATEMENT",
+                "WEND has been removed; a WHILE block ends with END WHILE.",
+                &token,
+            );
+            return None;
+        }
+
         if self.check_keyword(Keyword::If)
             || self.check_keyword(Keyword::Match)
             || self.check_keyword(Keyword::For)
@@ -674,14 +688,8 @@ impl<'a> FileParser<'a> {
         let condition = self.parse_expression()?;
         self.consume_statement_end("Expected end of statement after WHILE header.");
         self.skip_separators();
-        let body =
-            self.parse_statement_block(&[BlockTerminator::EndWhile, BlockTerminator::Wend]);
-        // Transitional (bug-357): `WEND` is still accepted while the tree
-        // migrates to `END WHILE`; it is removed in the final phase.
-        if self.check_keyword(Keyword::Wend) {
-            self.advance();
-            self.consume_statement_end("Expected end of statement after WEND.");
-        } else if !self.consume_end_block(Keyword::While, "WHILE block must end with END WHILE.") {
+        let body = self.parse_statement_block(&[BlockTerminator::EndWhile]);
+        if !self.consume_end_block(Keyword::While, "WHILE block must end with END WHILE.") {
             return None;
         }
         Some(Statement::While {
@@ -798,7 +806,6 @@ impl<'a> FileParser<'a> {
             BlockTerminator::EndWhile => self.is_end_block(Keyword::While),
             BlockTerminator::Loop => self.check_keyword(Keyword::Loop),
             BlockTerminator::Next => self.check_keyword(Keyword::Next),
-            BlockTerminator::Wend => self.check_keyword(Keyword::Wend),
         })
     }
 }

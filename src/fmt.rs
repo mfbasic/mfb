@@ -373,7 +373,8 @@ enum Op {
     Case,
     /// `END X`: closes a block. The keyword identifies it (for `END MATCH`).
     End(Option<Keyword>),
-    /// `NEXT`/`END WHILE`/`LOOP`: closes the top loop block.
+    /// `NEXT`/`LOOP`: closes the top loop block. (`END WHILE` routes through
+    /// `End` like every other `END <kind>` closer.)
     Pop,
 }
 
@@ -449,7 +450,7 @@ fn classify(
         K::ElseIf | K::Else => is_first.then_some(Op::Else),
         K::Case => Some(Op::Case),
         K::End => Some(Op::End(next_keyword(sig, idx))),
-        K::Next | K::Wend | K::Loop => Some(Op::Pop),
+        K::Next | K::Loop => Some(Op::Pop),
         // FUNC/SUB may be preceded by visibility/ISOLATED modifiers, so they are
         // not required to lead the line; EXIT FUNC/SUB is excluded by `after_exit`.
         // A function *type* `FUNC(…) AS T` / `SUB(…)` (the keyword immediately
