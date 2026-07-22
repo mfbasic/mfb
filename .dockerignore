@@ -1,0 +1,39 @@
+# Build context for repository/Dockerfile (the `mfb-repo` server image).
+#
+# The context is the repository root because `repository/` is a workspace member
+# and builds against the root Cargo.lock (bug-347). Everything the image needs is
+# Cargo.toml, Cargo.lock, and repository/src; the rest of the tree is excluded so
+# a multi-gigabyte context does not cross the wire on every deploy.
+#
+# repository/.dockerignore no longer applies — docker reads only the
+# .dockerignore at the root of the build context.
+
+# Build output. `**/` matters: repository/target alone is several GB, and a
+# root-anchored `target/` would not match it.
+**/target/
+
+# The compiler crate's source. The image builds only `mfb_repository`; the
+# Dockerfile writes a stub src/main.rs to satisfy workspace resolution.
+/src/
+/build.rs
+
+# Test corpus and goldens: the bulk of the tree, none of it in the image.
+tests/
+benchmark/
+examples/
+bindings/
+third_party/
+
+# Docs and process files.
+bugs/
+planning/
+.ai/
+tools/
+scripts/
+
+# Databases and local blob data must never enter the builder.
+**/*.db
+**/*.db-wal
+**/*.db-shm
+data/
+.git/

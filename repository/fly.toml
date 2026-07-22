@@ -5,6 +5,10 @@
 app = "mfb-repo"
 primary_region = "iad"
 
+# The image builds from the REPOSITORY ROOT, not this directory — `repository/`
+# is a cargo workspace member and needs the root Cargo.lock (bug-347). Deploy
+# with `fly deploy . --config repository/fly.toml --dockerfile
+# repository/Dockerfile` from the root; those flags override what is set here.
 [build]
   dockerfile = "Dockerfile"
 

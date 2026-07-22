@@ -12,12 +12,33 @@ Files in this directory:
 - `docker-entrypoint.sh` — maps env vars → `mfb-repo` CLI args.
 - `fly.toml` — app config: one machine, a `/data` volume, `/health` checks.
 
+## The build context is the repository root
+
+`fly deploy` **must be run from the repository root**, not from here:
+
+```sh
+fly deploy . --config repository/fly.toml --dockerfile repository/Dockerfile
+```
+
+`repository/` used to be its own cargo workspace with its own `Cargo.lock`, so
+the image could be built from this directory alone. bug-347 made it a member of
+the root workspace and deleted that lock — the root `Cargo.lock` is now the only
+one cargo resolves and CI tests, and it lives one level up. A bare `fly deploy`
+from here fails with `"/Cargo.lock": not found`.
+
+The Dockerfile builds `-p mfb_repository --locked`, so the deployed binary pins
+exactly the dependency versions the test suite ran against. The root
+`.dockerignore` keeps the context to `Cargo.toml`, `Cargo.lock`, and
+`repository/`; `repository/.dockerignore` is inert now that the context root
+moved (docker reads only the one at the context root).
+
 ## One-time setup
 
-Run every command below **from this directory** (`repository/`). `flyctl` reads
-the app name from the `fly.toml` in the working directory; from anywhere else
-these commands either target the wrong app or fail with `app not found`. Pass
-`-a <app>` explicitly if you must run them from elsewhere.
+Run the `fly apps`/`volumes`/`storage`/`scale` commands below **from this
+directory** (`repository/`) — `flyctl` reads the app name from the `fly.toml` in
+the working directory, and from anywhere else they either target the wrong app
+or fail with `app not found`. Pass `-a <app>` explicitly if you must run them
+from elsewhere. `fly deploy` is the exception: it runs from the root, as above.
 
 ```sh
 # 1. Pick a unique app name. Set `app = "<name>"` in fly.toml FIRST, then create
@@ -40,8 +61,9 @@ fly storage create
 #     AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-1
 #    (add MFB_REPO_S3_ENDPOINT=https://... for a non-AWS S3-compatible store)
 
-# 4. Deploy.
-fly deploy
+# 4. Deploy — from the REPOSITORY ROOT (see "The build context" above).
+cd .. && fly deploy . --config repository/fly.toml \
+    --dockerfile repository/Dockerfile && cd repository
 
 # 5. Keep it to a single machine (SQLite + volume are single-writer).
 fly scale count 1
