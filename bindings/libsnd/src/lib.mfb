@@ -526,3 +526,107 @@ EXPORT FUNC seekFrame(RES sound AS SoundFile STATE FileInfo, frame AS Integer) A
      RETURN sndLink::seekFrames(sound, 0, 0)
   END IF
 END FUNC
+
+' The resampling kernel is tested directly, on synthetic PCM rather than on a
+' decoded file: `resample` is the whole of what the rate-converting `loadSound`
+' and `loadFrames` overloads add over their plain forms, and testing it here
+' needs no audio fixture, no libsndfile call and no output device, so these
+' cases run anywhere and assert exact sample values instead of tolerances.
+'
+' Every assertion reads a sample back as its RAW unsigned 16-bit little-endian
+' value (`lo + hi * 256`) rather than a sign-extended one, so it pins the byte
+' encoding as well as the arithmetic. The expected value for a negative sample
+' is therefore its two's-complement form, noted alongside each one.
+'
+' Rates are written as 1000/2000 rather than 44100/48000 wherever the ratio is
+' what matters: the kernel only ever sees `from`/`to`, so small round numbers
+' make the expected interpolation obvious by inspection.
+TESTING
+  TGROUP "resample"
+    TCASE "returns the input untouched when the rates already agree"
+      LET pcm AS List OF Byte = [0, 0, 100, 0, 200, 0]
+      LET out AS List OF Byte = resample(pcm, 1, 1000, 1000)
+      expectInteger(len(out), 6)
+      expectInteger(toInt(collections::get(out, 2)) + toInt(collections::get(out, 3)) * 256, 100)
+    END TCASE
+
+    TCASE "doubling the rate interpolates a midpoint between each pair"
+      ' Mono samples 0, 100, 200 -> 0, 50, 100, 150, 200, 200. The final frame
+      ' has no successor to interpolate towards, so it is held rather than read
+      ' past the end of the list.
+      LET pcm AS List OF Byte = [0, 0, 100, 0, 200, 0]
+      LET out AS List OF Byte = resample(pcm, 1, 1000, 2000)
+      expectInteger(len(out), 12)
+      expectInteger(toInt(collections::get(out, 0)) + toInt(collections::get(out, 1)) * 256, 0)
+      expectInteger(toInt(collections::get(out, 2)) + toInt(collections::get(out, 3)) * 256, 50)
+      expectInteger(toInt(collections::get(out, 4)) + toInt(collections::get(out, 5)) * 256, 100)
+      expectInteger(toInt(collections::get(out, 6)) + toInt(collections::get(out, 7)) * 256, 150)
+      expectInteger(toInt(collections::get(out, 8)) + toInt(collections::get(out, 9)) * 256, 200)
+      expectInteger(toInt(collections::get(out, 10)) + toInt(collections::get(out, 11)) * 256, 200)
+    END TCASE
+
+    TCASE "halving the rate keeps every other sample exactly"
+      ' Every output frame lands on an even source frame with weight 0, so no
+      ' interpolation happens at all and the samples must survive verbatim.
+      LET pcm AS List OF Byte = [0, 0, 10, 0, 20, 0, 30, 0]
+      LET out AS List OF Byte = resample(pcm, 1, 2000, 1000)
+      expectInteger(len(out), 4)
+      expectInteger(toInt(collections::get(out, 0)) + toInt(collections::get(out, 1)) * 256, 0)
+      expectInteger(toInt(collections::get(out, 2)) + toInt(collections::get(out, 3)) * 256, 20)
+    END TCASE
+
+    TCASE "sign-extends negative samples before interpolating"
+      ' The regression guard for the one silent failure mode in this kernel. The
+      ' list holds UNSIGNED bytes, so -100 arrives as 65436; interpolating it
+      ' without sign extension gives (65436 + 100) / 2 = 32768, which clamps to
+      ' 32767 — full-scale noise where the true midpoint is 0.
+      LET pcm AS List OF Byte = [156, 255, 100, 0]   ' -100, 100
+      LET out AS List OF Byte = resample(pcm, 1, 1000, 2000)
+      expectInteger(len(out), 8)
+      expectInteger(toInt(collections::get(out, 0)) + toInt(collections::get(out, 1)) * 256, 65436) ' -100
+      expectInteger(toInt(collections::get(out, 2)) + toInt(collections::get(out, 3)) * 256, 0)
+      expectInteger(toInt(collections::get(out, 4)) + toInt(collections::get(out, 5)) * 256, 100)
+      expectInteger(toInt(collections::get(out, 6)) + toInt(collections::get(out, 7)) * 256, 100)
+    END TCASE
+
+    TCASE "resamples each channel independently and keeps them interleaved"
+      ' Two frames of (L, R) = (1000, -1000) and (2000, -2000). A kernel that
+      ' lost the interleaving would mix L into R and produce a midpoint near 0
+      ' instead of the two opposite ramps asserted here.
+      LET pcm AS List OF Byte = [232, 3, 24, 252, 208, 7, 48, 248]
+      LET out AS List OF Byte = resample(pcm, 2, 1000, 2000)
+      expectInteger(len(out), 16)
+      expectInteger(toInt(collections::get(out, 0)) + toInt(collections::get(out, 1)) * 256, 1000)
+      expectInteger(toInt(collections::get(out, 2)) + toInt(collections::get(out, 3)) * 256, 64536) ' -1000
+      expectInteger(toInt(collections::get(out, 4)) + toInt(collections::get(out, 5)) * 256, 1500)
+      expectInteger(toInt(collections::get(out, 6)) + toInt(collections::get(out, 7)) * 256, 64036) ' -1500
+      expectInteger(toInt(collections::get(out, 8)) + toInt(collections::get(out, 9)) * 256, 2000)
+      expectInteger(toInt(collections::get(out, 10)) + toInt(collections::get(out, 11)) * 256, 63536) ' -2000
+    END TCASE
+
+    TCASE "rounds the frame count down on a non-integer ratio"
+      ' The real-world 44100 -> 48000 case: 100 source frames scale to
+      ' 100 * 48000 / 44100 = 108.84, and a partial frame is never emitted.
+      MUT pcm AS List OF Byte
+      FOR i = 0 TO 99
+        pcm = collections::append(pcm, toByte(i))
+        pcm = collections::append(pcm, toByte(0))
+      NEXT
+      LET out AS List OF Byte = resample(pcm, 1, 44100, 48000)
+      expectInteger(len(out), 216)
+    END TCASE
+
+    TCASE "leaves input shorter than one whole frame alone"
+      ' Three bytes is one whole stereo frame plus a stray byte: there is no
+      ' second frame to interpolate towards, so there is nothing to do.
+      LET pcm AS List OF Byte = [1, 0, 2]
+      LET out AS List OF Byte = resample(pcm, 2, 1000, 2000)
+      expectInteger(len(out), 3)
+    END TCASE
+
+    TCASE "rejects a non-positive target rate"
+      LET pcm AS List OF Byte = [0, 0, 100, 0]
+      expectTrap(resample(pcm, 1, 1000, 0), 77050002)
+    END TCASE
+  END TGROUP
+END TESTING
