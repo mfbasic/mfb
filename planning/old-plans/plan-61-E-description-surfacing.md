@@ -104,7 +104,7 @@ with no description reports `null` and its page renders the
 `backfill_fills_descriptions_and_stays_quiet_about_packages_that_have_none`
 pins the §3 rule: a blob with no section 18 leaves NULL and is **not** counted
 or logged as a skip.
-Commit: —
+Commit: `1c4c24494`
 
 ### Phase 2 — Search on description
 
@@ -118,7 +118,7 @@ only in the description — returns `alice#toolbox`.
 `search_matches_descriptions_but_ranks_them_below_idents` also pins the ranking
 with a term that is one package's *ident* and another's *description*, and
 asserts the ident-matching package comes first.
-Commit: —
+Commit: `1c4c24494`
 
 ### Phase 3 — Render
 
@@ -139,7 +139,7 @@ visible escaped text with no `<img` in the output. Live, the real description
 renders in both places — `pkg-desc">Zygomorphic layout primitives…` on the
 package page and `result__desc">…` in search results — on pages that contain no
 script at all, so JavaScript being disabled changes nothing.
-Commit: —
+Commit: `1c4c24494`
 
 ### Phase 4 — Spec sync
 
@@ -154,7 +154,7 @@ Acceptance: **MET** — `cargo test --bin mfb spec` → 48 passed, 0 failed;
 now records that `description` comes from the signed artifact rather than the
 publish request, the below-ident search ranking, the newest-version scoping, and
 the 200-character preview clamp.
-Commit: —
+Commit: `1c4c24494`
 
 ## Validation Plan
 
