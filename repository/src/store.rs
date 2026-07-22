@@ -3603,6 +3603,7 @@ pub(crate) mod tests {
             .contains("does not currently own"));
     }
 
+    #[test]
     fn transfer_offer_and_accept_error_branches() {
         let (_temp, store) = test_store();
         let alice = register_keys(&store, "alice");
@@ -3851,5 +3852,718 @@ pub(crate) mod tests {
         // Three versions across two of alice's packages; bob's row is not counted.
         assert_eq!(store.owner_version_count(alice).unwrap(), 3);
         assert_eq!(store.owner_version_count(bob).unwrap(), 1);
+    }
+
+    // --- Owner-name validation at every entry point -------------------------
+
+    /// A registration payload whose two proofs are valid for `owner`.
+    fn registration_payload(owner: &str) -> (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) {
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let auth_proof = crypto::sign(
+            &auth_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public),
+        )
+        .unwrap();
+        let ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, owner, &ident_public),
+        )
+        .unwrap();
+        (auth_public, auth_proof, ident_public, ident_proof)
+    }
+
+    #[test]
+    fn owner_name_validation_guards_every_key_and_challenge_entry_point() {
+        // Every account-scoped entry point re-validates the owner name before it
+        // reaches SQL or a signature check. The name is attacker-supplied on each
+        // of these routes, so a single unguarded one would let an unvalidated
+        // string through to `fold_owner`/the log payload.
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let (public, _private) = crypto::generate_keypair();
+        let (auth_public, auth_proof, _ident_public, _ident_proof) = registration_payload("alice");
+
+        for bad in ["bad name!", "1leading-digit", ""] {
+            let (a_pub, a_proof, i_pub, i_proof) = registration_payload(bad);
+            assert!(
+                store
+                    .register_owner(bad, &a_pub, &a_proof, &i_pub, &i_proof)
+                    .is_err(),
+                "register_owner accepted {bad:?}"
+            );
+            assert!(
+                store.create_challenge(bad).is_err(),
+                "create_challenge accepted {bad:?}"
+            );
+            assert!(
+                store.create_auth_challenge(bad, "fp").is_err(),
+                "create_auth_challenge accepted {bad:?}"
+            );
+            assert!(
+                store.create_ident_challenge(bad).is_err(),
+                "create_ident_challenge accepted {bad:?}"
+            );
+            assert!(
+                store.add_auth_key(bad, &auth_public, &auth_proof).is_err(),
+                "add_auth_key accepted {bad:?}"
+            );
+            assert!(
+                store
+                    .rotate_ident(bad, &public, &[0u8; 64], &[0u8; 64])
+                    .is_err(),
+                "rotate_ident accepted {bad:?}"
+            );
+            assert!(
+                store.reanchor_ident(bad, &public).is_err(),
+                "reanchor_ident accepted {bad:?}"
+            );
+        }
+
+        // The reserved name is refused with its own message, not a charset one.
+        assert!(store
+            .create_ident_challenge("std")
+            .unwrap_err()
+            .contains("reserved owner name"));
+
+        // Nothing above wrote a row: alice is still the only account.
+        assert_eq!(store.count_owners().unwrap(), 1);
+    }
+
+    #[test]
+    fn ident_challenge_rejects_an_unknown_owner() {
+        // The ident challenge is the gate in front of auth-key revocation, so a
+        // name that resolves to no active account must fail closed.
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        assert_eq!(
+            store.create_ident_challenge("nosuch").unwrap_err(),
+            "unknown owner"
+        );
+        // And the valid owner still works, so the rejection is name-specific.
+        assert!(store.create_ident_challenge("alice").is_ok());
+    }
+
+    #[test]
+    fn publishing_into_another_accounts_package_ident_is_refused() {
+        // `packages.ident` is UNIQUE, so the `INSERT OR IGNORE` silently does
+        // nothing when the ident already exists under a different account. The
+        // owner-scoped re-read is what turns that into a refusal instead of
+        // letting bob append a version to alice's package.
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        let alice = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let bob = store.owner_with_ident_key("bob").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(alice, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .unwrap();
+
+        let err = store
+            .publish_package_version(bob, "alice#toolbox", "2.0.0", "evil", "p2", "{}", &[])
+            .unwrap_err();
+        assert!(
+            err.contains("owned by another owner"),
+            "bob must not publish into alice's ident: {err}"
+        );
+        // The refusal rolled back: alice's package is untouched and bob's
+        // version never landed.
+        let versions = store.list_package_versions("alice#toolbox").unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].hash, "h1");
+        assert_eq!(
+            store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "alice"
+        );
+    }
+
+    // --- Migration of a pre-existing database -------------------------------
+
+    #[test]
+    fn migrating_a_legacy_database_adds_the_abi_index_and_kind_columns() {
+        // `abi_index` (plan-10-B1) and `package_blobs.kind` (plan-48-A) were
+        // added after the tables existed. `CREATE TABLE IF NOT EXISTS` leaves an
+        // older table exactly as it was found, so the idempotent ALTER is the
+        // only thing that upgrades a database created before those columns — and
+        // the documented contract is that every pre-existing blob row migrates to
+        // `kind = 'package'`.
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("legacy.db");
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE packages (
+                    id INTEGER PRIMARY KEY,
+                    ident TEXT NOT NULL UNIQUE,
+                    owner_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                CREATE TABLE package_versions (
+                    id INTEGER PRIMARY KEY,
+                    package_id INTEGER NOT NULL,
+                    version TEXT NOT NULL,
+                    hash TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(package_id, version)
+                );
+                CREATE TABLE package_blobs (
+                    hash TEXT PRIMARY KEY,
+                    path TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                );
+                INSERT INTO packages (id, ident, owner_id, created_at)
+                    VALUES (1, 'legacy#pkg', 1, 100);
+                INSERT INTO package_versions (package_id, version, hash, state, created_at)
+                    VALUES (1, '1.0.0', 'legacyhash', 'available', 100);
+                INSERT INTO package_blobs (hash, path, created_at)
+                    VALUES ('legacyhash', 'legacy/path', 100);
+                "#,
+            )
+            .unwrap();
+        }
+
+        let opened =
+            Store::open_repository(&db_path, &temp.path().join("data")).expect("legacy migration");
+        let store = opened.store;
+
+        // The pre-existing version row survived and picked up the `{}` default.
+        let versions = store.list_package_versions("legacy#pkg").unwrap();
+        assert_eq!(versions.len(), 1);
+        assert_eq!(versions[0].version, "1.0.0");
+        assert_eq!(versions[0].abi_index, "{}");
+        // The pre-existing blob row migrated to the `package` kind, so
+        // `GET /blob/<hash>` still resolves it the way it was stored.
+        assert_eq!(
+            store.blob_kind("legacyhash").unwrap().as_deref(),
+            Some("package")
+        );
+        // Re-running the migration over the now-current schema is a no-op.
+        store.migrate().unwrap();
+        assert_eq!(
+            store.blob_kind("legacyhash").unwrap().as_deref(),
+            Some("package")
+        );
+    }
+
+    #[test]
+    fn add_column_if_missing_distinguishes_a_duplicate_column_from_a_real_failure() {
+        // The helper swallows exactly one error — "duplicate column name", which
+        // means the migration already ran. Anything else must surface, or a
+        // half-applied schema would be reported as a successful migration.
+        let temp = tempfile::tempdir().unwrap();
+        let conn = Connection::open(temp.path().join("m.db")).unwrap();
+        conn.execute_batch("CREATE TABLE t (a TEXT NOT NULL);")
+            .unwrap();
+
+        add_column_if_missing(&conn, "t", "b TEXT NOT NULL DEFAULT ''").unwrap();
+        // Idempotent: the second call sees "duplicate column name" and succeeds.
+        add_column_if_missing(&conn, "t", "b TEXT NOT NULL DEFAULT ''").unwrap();
+        conn.execute("INSERT INTO t (a, b) VALUES ('x', 'y')", [])
+            .expect("column b must exist after the migration");
+
+        let err = add_column_if_missing(&conn, "no_such_table", "c TEXT").unwrap_err();
+        assert!(
+            err.contains("failed to add column to no_such_table"),
+            "a real ALTER failure must not be swallowed: {err}"
+        );
+    }
+
+    // --- Corrupt transparency-log rows --------------------------------------
+
+    #[test]
+    fn a_malformed_log_leaf_hash_is_rejected_rather_than_truncated() {
+        // A leaf hash is a fixed 32 bytes. A short/long blob in that column would
+        // otherwise be silently zero-padded into a `[u8; 32]`, producing a
+        // well-formed-looking inclusion/consistency proof over a hash the log
+        // never actually committed to.
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(owner, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .unwrap();
+        // Sound to begin with.
+        assert_eq!(store.log_leaf_hashes(None).unwrap().len(), 2);
+        assert!(store
+            .publish_log_entry("alice#toolbox", "1.0.0")
+            .unwrap()
+            .is_some());
+
+        {
+            let conn = store.conn();
+            conn.execute("UPDATE log_entries SET leaf_hash = x'0011'", [])
+                .unwrap();
+        }
+        assert_eq!(
+            store.log_leaf_hashes(None).unwrap_err(),
+            "malformed log leaf hash"
+        );
+        assert_eq!(
+            store
+                .publish_log_entry("alice#toolbox", "1.0.0")
+                .unwrap_err(),
+            "malformed log leaf hash"
+        );
+    }
+
+    #[test]
+    fn open_repository_reports_directories_it_cannot_create() {
+        // Both paths are operator-supplied. When the parent of either is an
+        // existing regular file the directory cannot be created, and the message
+        // has to name which path failed — the alternative is an opaque io error
+        // at first use.
+        let temp = tempfile::tempdir().unwrap();
+        let blocker = temp.path().join("blocker");
+        fs::write(&blocker, b"not a directory").unwrap();
+
+        let err = Store::open_repository(
+            &blocker.join("nested").join("meta.db"),
+            &temp.path().join("data"),
+        )
+        .map(|_| ())
+        .unwrap_err();
+        assert!(err.contains("failed to create database directory"), "{err}");
+
+        let err = Store::open_repository(&temp.path().join("meta.db"), &blocker.join("data"))
+            .map(|_| ())
+            .unwrap_err();
+        assert!(err.contains("failed to create data directory"), "{err}");
+    }
+
+    // --- SQL failures must degrade to an error, never a panic ---------------
+    //
+    // Every store method returns `Result<_, String>` on purpose: this process
+    // serves HTTP, and the file's own `conn()` comment records that a single
+    // reachable panic in a critical section is a full-service DoS (bug-264 /
+    // REPO-09). The tests below remove a table out from under a live `Store` —
+    // a botched migration or a restored-from-a-bad-backup database — and assert
+    // that each reader/writer returns its documented operator-facing message
+    // instead of unwrapping. They are the regression guard against any of these
+    // `map_err` chains being "simplified" into an `unwrap`/`expect`.
+
+    /// Drop tables from a live store. Foreign keys are disabled for the drop so
+    /// the child rows do not block it, then re-enabled for the assertions.
+    fn drop_tables(store: &Store, tables: &[&str]) {
+        let conn = store.conn();
+        conn.pragma_update(None, "foreign_keys", "OFF").unwrap();
+        for table in tables {
+            conn.execute_batch(&format!("DROP TABLE {table}")).unwrap();
+        }
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+    }
+
+    #[test]
+    fn losing_the_owners_table_errors_every_account_lookup_instead_of_panicking() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let (public, _private) = crypto::generate_keypair();
+        let (auth_public, auth_proof, ident_public, ident_proof) = registration_payload("carol");
+        drop_tables(&store, &["owners"]);
+
+        assert!(store
+            .count_owners()
+            .unwrap_err()
+            .contains("failed to count owners"));
+        assert!(store
+            .owner_with_auth_key("alice")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .owner_with_ident_key("alice")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .owner_auth_key_by_fingerprint("alice", "fp")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .org_member_role("acme", "alice")
+            .unwrap_err()
+            .contains("failed to load org member role"));
+
+        // Challenge issuance fails closed rather than minting a challenge.
+        assert!(store
+            .create_challenge("alice")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .create_auth_challenge("alice", "fp")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .create_ident_challenge("alice")
+            .unwrap_err()
+            .contains("failed to load owner"));
+
+        // Key management fails closed.
+        assert!(store
+            .add_auth_key("alice", &public, &[0u8; 64])
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .rotate_ident("alice", &public, &[0u8; 64], &[0u8; 64])
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .reanchor_ident("alice", &public)
+            .unwrap_err()
+            .contains("failed to load owner"));
+
+        // Org / token / transfer entry points all resolve an owner first.
+        assert!(store
+            .grant_org_member("acme", "alice", "admin")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .remove_org_member("acme", "alice")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .issue_publish_token("alice", &public, &[0u8; 64], "alice#pkg", 60)
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .revoke_publish_token("alice", "fp")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .accept_transfer("alice#toolbox", "bob")
+            .unwrap_err()
+            .contains("failed to load owner"));
+        assert!(store
+            .package_owner("alice#toolbox")
+            .unwrap_err()
+            .contains("failed to load package owner"));
+        assert!(store
+            .create_transfer_offer("alice#toolbox", "alice", "bob")
+            .unwrap_err()
+            .contains("failed to load package owner"));
+        assert!(store
+            .take_pairing_blob("alice", "lookup")
+            .unwrap_err()
+            .contains("failed to load pairing blob"));
+        assert!(store
+            .record_signing_request(1, "alice#toolbox", "1.0.0", "fp")
+            .is_err());
+
+        // A registration failure that is *not* a duplicate name reports the
+        // generic message, not "already in use" — misreporting a schema fault as
+        // a name collision would send the operator hunting the wrong problem.
+        let err = store
+            .register_owner(
+                "carol",
+                &auth_public,
+                &auth_proof,
+                &ident_public,
+                &ident_proof,
+            )
+            .unwrap_err();
+        assert!(err.contains("failed to register owner"), "{err}");
+        assert!(!err.contains("already in use"), "{err}");
+    }
+
+    #[test]
+    fn losing_the_key_tables_errors_revocation_and_chain_reads() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let (public, private) = crypto::generate_keypair();
+        let proof = crypto::sign(
+            &private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &public),
+        )
+        .unwrap();
+        drop_tables(&store, &["ident_chain", "publish_tokens"]);
+
+        assert!(store
+            .ident_chain("alice")
+            .unwrap_err()
+            .contains("failed to prepare chain query"));
+        assert!(store
+            .publish_token_for_key(1)
+            .unwrap_err()
+            .contains("failed to load publish token"));
+        // Issuing a token registers the key first, then records the token row;
+        // losing the token table must fail the whole issuance, not leave a
+        // registered auth key with no scope or expiry attached to it.
+        assert!(store
+            .issue_publish_token("alice", &public, &proof, "alice#pkg", 60)
+            .unwrap_err()
+            .contains("failed to record publish token"));
+        assert!(store
+            .revoke_publish_token("alice", "fp")
+            .unwrap_err()
+            .contains("failed to load token"));
+
+        drop_tables(&store, &["keys"]);
+        assert!(store
+            .revoke_auth_key(owner, "fp")
+            .unwrap_err()
+            .contains("failed to load auth key"));
+        assert!(store
+            .issue_publish_token("alice", &public, &proof, "alice#pkg", 60)
+            .unwrap_err()
+            .contains("failed to register token key"));
+    }
+
+    #[test]
+    fn losing_the_package_tables_errors_publish_and_index_reads() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        drop_tables(&store, &["package_version_blobs", "package_versions"]);
+
+        assert!(store
+            .list_package_versions("alice#toolbox")
+            .unwrap_err()
+            .contains("failed to prepare version query"));
+        assert!(store
+            .package_version_exists("alice#toolbox", "1.0.0")
+            .unwrap_err()
+            .contains("failed to check package version"));
+        assert!(store
+            .owner_version_count(owner)
+            .unwrap_err()
+            .contains("failed to count owner versions"));
+        assert!(store
+            .index_canonical_hash()
+            .unwrap_err()
+            .contains("failed to prepare index query"));
+        assert!(store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap_err()
+            .contains("failed to load package version"));
+        // The GC's reachability queries read both halves of the union, so both
+        // sides must report rather than treat an unreadable table as "nothing is
+        // reachable" — that would make every blob a deletion candidate.
+        assert!(store
+            .unreachable_blobs(now_unix(), 0)
+            .unwrap_err()
+            .contains("failed to prepare blob reachability query"));
+        assert!(store
+            .reachable_blobs()
+            .unwrap_err()
+            .contains("failed to prepare reachable blob query"));
+        assert!(store
+            .blob_is_reachable("h1")
+            .unwrap_err()
+            .contains("failed to re-check blob reachability"));
+        // A publish that cannot record its version row reports the generic
+        // failure, not the "already published" duplicate message.
+        let err = store
+            .publish_package_version(owner, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .unwrap_err();
+        assert!(err.contains("failed to publish package version"), "{err}");
+        assert!(!err.contains("already published"), "{err}");
+
+        drop_tables(&store, &["package_blobs"]);
+        assert!(store
+            .blob_kind("h1")
+            .unwrap_err()
+            .contains("failed to load blob kind"));
+        assert!(store
+            .record_native_blob("h1", "p1")
+            .unwrap_err()
+            .contains("failed to load native blob metadata"));
+
+        drop_tables(&store, &["packages"]);
+        assert!(store
+            .typosquat_candidates("alice#toolbox")
+            .unwrap_err()
+            .contains("failed to prepare typosquat query"));
+        assert!(store
+            .publish_package_version(owner, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .unwrap_err()
+            .contains("failed to create package identity"));
+    }
+
+    #[test]
+    fn losing_the_log_table_errors_reads_and_aborts_state_changes() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let (auth_public, auth_proof, ident_public, ident_proof) = registration_payload("carol");
+        drop_tables(&store, &["log_entries"]);
+
+        assert!(store
+            .log_size()
+            .unwrap_err()
+            .contains("failed to size the log"));
+        assert!(store
+            .log_leaf_hashes(None)
+            .unwrap_err()
+            .contains("failed to prepare log query"));
+        assert!(store
+            .publish_log_entry("alice#toolbox", "1.0.0")
+            .unwrap_err()
+            .contains("failed to load publish log entry"));
+
+        // Every state change appends its log entry inside the same transaction,
+        // so an unappendable log must abort the change rather than commit an
+        // unlogged one. `carol` must not exist afterwards.
+        assert!(store
+            .register_owner(
+                "carol",
+                &auth_public,
+                &auth_proof,
+                &ident_public,
+                &ident_proof
+            )
+            .unwrap_err()
+            .contains("failed to size the log"));
+        assert!(store
+            .publish_package_version(owner, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .unwrap_err()
+            .contains("failed to size the log"));
+        assert_eq!(store.count_owners().unwrap(), 1);
+        assert!(!store
+            .package_version_exists("alice#toolbox", "1.0.0")
+            .unwrap());
+    }
+
+    #[test]
+    fn losing_the_session_and_challenge_tables_errors_the_auth_path() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        drop_tables(&store, &["sessions"]);
+
+        assert!(store
+            .session_exists("jwt-1")
+            .unwrap_err()
+            .contains("failed to load session"));
+        assert!(store
+            .insert_session(&NewSession {
+                owner_id: owner,
+                key_id: 1,
+                jwt_id: "jwt-1".to_string(),
+                issued_at: now_unix(),
+                expires_at: now_unix() + 60,
+            })
+            .unwrap_err()
+            .contains("failed to store session"));
+        assert!(store
+            .reap_expired()
+            .unwrap_err()
+            .contains("failed to reap sessions"));
+
+        drop_tables(&store, &["auth_challenges"]);
+        assert!(store
+            .create_challenge("alice")
+            .unwrap_err()
+            .contains("failed to create auth challenge"));
+        assert!(store
+            .complete_challenge("some-id", &[0u8; 64])
+            .unwrap_err()
+            .contains("failed to load auth challenge"));
+        assert!(store
+            .complete_revocation_challenge("some-id", &[0u8; 64], "fp")
+            .unwrap_err()
+            .contains("failed to load auth challenge"));
+        assert!(store
+            .force_expire_challenge("some-id")
+            .unwrap_err()
+            .contains("failed to expire challenge"));
+        assert!(store
+            .reap_expired()
+            .unwrap_err()
+            .contains("failed to reap challenges"));
+
+        drop_tables(&store, &["pairing_blobs"]);
+        assert!(store
+            .store_pairing_blob(owner, "lookup", b"blob", b"salt")
+            .unwrap_err()
+            .contains("failed to clear expired pairing blobs"));
+    }
+
+    #[test]
+    fn losing_the_server_key_and_config_tables_errors_signing_and_metadata() {
+        let (_temp, store) = test_store();
+        drop_tables(&store, &["registry_config"]);
+        assert!(store
+            .registry_config()
+            .unwrap_err()
+            .contains("failed to load registry config"));
+
+        drop_tables(&store, &["server_secrets", "server_keys"]);
+        assert!(store
+            .server_secret()
+            .unwrap_err()
+            .contains("failed to load server signing secret"));
+        assert!(store
+            .server_keypair()
+            .unwrap_err()
+            .contains("failed to load server keypair"));
+        assert!(store
+            .server_public_key()
+            .unwrap_err()
+            .contains("failed to load server keypair"));
+        // The root ceremony delegates the server's attestation key, so it must
+        // refuse to sign a root that names a key it could not read.
+        assert!(store
+            .init_registry_root("reg-1", now_unix() + 3600)
+            .unwrap_err()
+            .contains("failed to load server keypair"));
+    }
+
+    #[test]
+    fn losing_the_org_and_transfer_tables_errors_membership_and_handover() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "acme");
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        let alice = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(alice, "alice#toolbox", "1.0.0", "h1", "p1", "{}", &[])
+            .unwrap();
+        drop_tables(&store, &["org_members", "transfer_offers"]);
+
+        assert!(store
+            .list_org_members("acme")
+            .unwrap_err()
+            .contains("failed to prepare org query"));
+        assert!(store
+            .grant_org_member("acme", "alice", "admin")
+            .unwrap_err()
+            .contains("failed to record org member"));
+        assert!(store
+            .remove_org_member("acme", "alice")
+            .unwrap_err()
+            .contains("failed to remove org member"));
+
+        assert!(store
+            .create_transfer_offer("alice#toolbox", "alice", "bob")
+            .unwrap_err()
+            .contains("failed to record transfer offer"));
+        assert!(store
+            .accept_transfer("alice#toolbox", "bob")
+            .unwrap_err()
+            .contains("failed to load transfer offer"));
+        // Ownership never moved.
+        assert_eq!(
+            store
+                .package_owner("alice#toolbox")
+                .unwrap()
+                .unwrap()
+                .owner_display,
+            "alice"
+        );
+
+        drop_tables(&store, &["release_state_changes"]);
+        assert!(store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap_err()
+            .contains("failed to record release-state change"));
+        // The aborted transition left the version available.
+        assert_eq!(
+            store.list_package_versions("alice#toolbox").unwrap()[0].state,
+            "available"
+        );
     }
 }

@@ -764,6 +764,191 @@ mod tests {
             .contains("unknown option"));
     }
 
+    /// Every `reanchor` flag that takes a value must reject a trailing bare
+    /// flag rather than silently binding the *next* flag as its value — an
+    /// operator typo here would otherwise re-anchor an owner named
+    /// `--ident-key`.
+    #[test]
+    fn parse_reanchor_args_rejects_every_flag_missing_its_value() {
+        for (flag, expected) in [
+            ("--dbpath", "--dbpath requires <db_path>"),
+            ("--datapath", "--datapath requires <data_path>"),
+            ("--owner", "--owner requires <owner>"),
+            ("--ident-key", "--ident-key requires <base64url>"),
+        ] {
+            assert_eq!(parse_reanchor_args(args(&[flag])).unwrap_err(), expected);
+        }
+    }
+
+    /// `reanchor` binds an owner to a brand-new ident with no chain link, so a
+    /// missing field must never be defaulted — each one is reported by name.
+    #[test]
+    fn parse_reanchor_args_names_each_missing_required_flag() {
+        let complete = [
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/data",
+            "--owner",
+            "alice",
+            "--ident-key",
+            "KEY",
+        ];
+        for (drop_flag, expected) in [
+            ("--dbpath", "--dbpath is required"),
+            ("--datapath", "--datapath is required"),
+            ("--owner", "--owner is required"),
+            ("--ident-key", "--ident-key is required"),
+        ] {
+            let mut kept: Vec<&str> = Vec::new();
+            for pair in complete.chunks(2) {
+                if pair[0] != drop_flag {
+                    kept.extend_from_slice(pair);
+                }
+            }
+            assert_eq!(
+                parse_reanchor_args(args(&kept)).unwrap_err(),
+                expected,
+                "dropping {drop_flag}"
+            );
+        }
+    }
+
+    /// The same bare-flag rule for `init-root`. `--expires-days` is the one
+    /// with a default (365), so a bare `--expires-days` must still be an error
+    /// rather than quietly falling back to the default.
+    #[test]
+    fn parse_init_root_args_rejects_every_flag_missing_its_value() {
+        for (flag, expected) in [
+            ("--dbpath", "--dbpath requires <db_path>"),
+            ("--datapath", "--datapath requires <data_path>"),
+            ("--registry-id", "--registry-id requires <id>"),
+            ("--expires-days", "--expires-days requires <n>"),
+        ] {
+            assert_eq!(parse_init_root_args(args(&[flag])).unwrap_err(), expected);
+        }
+    }
+
+    #[test]
+    fn parse_init_root_args_names_each_missing_required_flag() {
+        assert_eq!(
+            parse_init_root_args(args(&["--dbpath", "/db", "--registry-id", "reg"])).unwrap_err(),
+            "--datapath is required"
+        );
+        assert_eq!(
+            parse_init_root_args(args(&["--dbpath", "/db", "--datapath", "/data"])).unwrap_err(),
+            "--registry-id is required"
+        );
+    }
+
+    /// `gc --delete` is irreversible, so every value-taking flag must fail
+    /// loudly when its value is missing rather than shifting the argument list
+    /// (a shifted `--delete` would be consumed as a path and the sweep would
+    /// run in a mode the operator did not ask for).
+    #[test]
+    fn parse_gc_args_rejects_every_flag_missing_its_value() {
+        for (flag, expected) in [
+            ("--dbpath", "--dbpath requires <db_path>"),
+            ("--datapath", "--datapath requires <data_path>"),
+            ("--s3-endpoint", "--s3-endpoint requires <url>"),
+            ("--grace-hours", "--grace-hours requires <n>"),
+        ] {
+            assert_eq!(parse_gc_args(args(&[flag])).unwrap_err(), expected);
+        }
+
+        // A value-position flag is consumed as the value, not re-interpreted:
+        // `--datapath --delete` yields a (nonsense) data path and, critically,
+        // leaves the sweep in dry-run mode rather than enabling deletion.
+        let invocation =
+            parse_gc_args(args(&["--dbpath", "/db", "--datapath", "--delete"])).unwrap();
+        assert_eq!(invocation.datapath, "--delete");
+        assert!(
+            !invocation.options.delete,
+            "a swallowed --delete must not enable deletion"
+        );
+    }
+
+    /// The `--flag=value` spellings must be equivalent to the space form for
+    /// `gc` too, including the S3 endpoint and the grace period.
+    #[test]
+    fn parse_gc_args_reads_the_equals_form_of_every_flag() {
+        let invocation = parse_gc_args(args(&[
+            "--dbpath=/db",
+            "--datapath=s3://bucket/pkgs",
+            "--s3-endpoint=https://minio.example:9000",
+            "--grace-hours=48",
+        ]))
+        .unwrap();
+        assert_eq!(invocation.dbpath, PathBuf::from("/db"));
+        assert_eq!(invocation.datapath, "s3://bucket/pkgs");
+        assert_eq!(
+            invocation.blob_backend,
+            BlobBackend::S3 {
+                bucket: "bucket".to_string(),
+                prefix: "pkgs/".to_string(),
+                endpoint: Some("https://minio.example:9000".to_string()),
+            }
+        );
+        assert_eq!(invocation.options.grace_hours, 48);
+
+        assert!(parse_gc_args(args(&[
+            "--dbpath=/db",
+            "--datapath=/d",
+            "--grace-hours=notnum"
+        ]))
+        .unwrap_err()
+        .contains("--grace-hours must be an integer"));
+    }
+
+    /// `--s3-endpoint` only means anything against an `s3://` data path; `gc`
+    /// rejects the mismatch at the argument boundary, exactly as the server
+    /// path does, so a typo cannot silently sweep the local directory instead.
+    #[test]
+    fn parse_gc_args_rejects_an_s3_endpoint_without_an_s3_datapath() {
+        let err = parse_gc_args(args(&[
+            "--dbpath",
+            "/db",
+            "--datapath",
+            "/local/data",
+            "--s3-endpoint",
+            "https://minio.example",
+        ]))
+        .unwrap_err();
+        assert!(err.contains("--s3-endpoint requires an s3://"), "{err}");
+
+        // The equals form is validated identically.
+        let err = parse_gc_args(args(&[
+            "--dbpath=/db",
+            "--datapath=/local/data",
+            "--s3-endpoint=https://minio.example",
+        ]))
+        .unwrap_err();
+        assert!(err.contains("--s3-endpoint requires an s3://"), "{err}");
+    }
+
+    /// The server path's `--s3-endpoint=` spelling must reach `BlobBackend`
+    /// just like the space form — otherwise an S3 deployment configured with
+    /// `=` spellings would silently talk to real AWS instead of its MinIO/R2
+    /// endpoint.
+    #[test]
+    fn parse_args_reads_the_equals_form_of_s3_endpoint() {
+        let options = parse_args(args(&[
+            "--dbpath=/db",
+            "--datapath=s3://my-bucket/packages",
+            "--s3-endpoint=https://minio.example:9000",
+        ]))
+        .unwrap();
+        assert_eq!(
+            options.blob_backend,
+            BlobBackend::S3 {
+                bucket: "my-bucket".to_string(),
+                prefix: "packages/".to_string(),
+                endpoint: Some("https://minio.example:9000".to_string()),
+            }
+        );
+        assert_eq!(options.datapath, PathBuf::from("s3://my-bucket/packages"));
+    }
+
     /// The reanchor subcommand's core store operation (what `main` runs after
     /// parsing) — decode the ident key and re-anchor the owner.
     #[test]

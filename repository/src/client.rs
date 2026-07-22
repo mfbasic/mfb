@@ -2253,6 +2253,1810 @@ mod tests {
             .contains("failed to connect"));
     }
 
+    // =====================================================================
+    // A loopback HTTP stub, shared by the flow tests below.
+    //
+    // Every registry call in this file goes through *blocking* reqwest, so the
+    // stub is an ordinary blocking TCP server: read one request, record it,
+    // answer from a small route table. Replies always carry `Connection:
+    // close`, so each call lands on its own accept and route dispatch stays a
+    // pure function of the request.
+    // =====================================================================
+
+    use std::net::TcpStream;
+    use std::sync::{Arc, Mutex};
+
+    fn method_of(request: &str) -> &str {
+        request.split_whitespace().next().unwrap_or("")
+    }
+
+    /// The request target (`/log/proof/0?size=2`) from the request line.
+    fn target_of(request: &str) -> &str {
+        request.split_whitespace().nth(1).unwrap_or("")
+    }
+
+    /// The target with any query string removed.
+    fn path_of(request: &str) -> &str {
+        target_of(request).split('?').next().unwrap_or("")
+    }
+
+    fn body_of(request: &str) -> &str {
+        request.split_once("\r\n\r\n").map(|(_, b)| b).unwrap_or("")
+    }
+
+    fn json_body(request: &str) -> serde_json::Value {
+        serde_json::from_str(body_of(request))
+            .unwrap_or_else(|err| panic!("request body is not JSON ({err}): {}", body_of(request)))
+    }
+
+    /// A required string field of a recorded request body.
+    fn field(request: &str, name: &str) -> String {
+        json_body(request)
+            .get(name)
+            .and_then(|value| value.as_str())
+            .unwrap_or_else(|| {
+                panic!(
+                    "request body has no string field '{name}': {}",
+                    body_of(request)
+                )
+            })
+            .to_string()
+    }
+
+    /// Read exactly one HTTP request: headers, then `Content-Length` bytes.
+    fn read_request(sock: &mut TcpStream) -> String {
+        let mut raw: Vec<u8> = Vec::new();
+        let mut scratch = [0u8; 8192];
+        loop {
+            let read = match sock.read(&mut scratch) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => read,
+            };
+            raw.extend_from_slice(&scratch[..read]);
+            let Some(head_end) = raw.windows(4).position(|w| w == b"\r\n\r\n") else {
+                continue;
+            };
+            let head = String::from_utf8_lossy(&raw[..head_end]).to_ascii_lowercase();
+            let length = head
+                .lines()
+                .find_map(|line| line.strip_prefix("content-length:"))
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if raw.len() >= head_end + 4 + length {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&raw).to_string()
+    }
+
+    fn reason(status: u16) -> &'static str {
+        match status {
+            200 => "OK",
+            403 => "Forbidden",
+            404 => "Not Found",
+            409 => "Conflict",
+            500 => "Internal Server Error",
+            503 => "Service Unavailable",
+            _ => "Status",
+        }
+    }
+
+    /// A complete HTTP/1.1 reply. A `HEAD` gets the headers only, as the
+    /// registry's own `HEAD /blob` does.
+    fn http_reply(method: &str, status: u16, body: &str) -> Vec<u8> {
+        let mut out = format!(
+            "HTTP/1.1 {status} {}\r\nContent-Type: application/json\r\n\
+             Content-Length: {}\r\nConnection: close\r\n\r\n",
+            reason(status),
+            body.len()
+        )
+        .into_bytes();
+        if method != "HEAD" {
+            out.extend_from_slice(body.as_bytes());
+        }
+        out
+    }
+
+    struct Stub {
+        url: String,
+        requests: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Stub {
+        /// The recorded request whose path is exactly `path`, or — only when
+        /// there is no exact match — the first one that starts with it. The
+        /// exact match must win: `/machines/revoke/challenge` is a prefix
+        /// neighbour of `/machines/revoke`.
+        fn request_to(&self, path: &str) -> String {
+            let requests = self.requests.lock().unwrap();
+            requests
+                .iter()
+                .find(|request| path_of(request) == path)
+                .or_else(|| {
+                    requests
+                        .iter()
+                        .find(|request| path_of(request).starts_with(path))
+                })
+                .unwrap_or_else(|| {
+                    let seen: Vec<&str> = requests.iter().map(|r| path_of(r)).collect();
+                    panic!("no request to {path}; saw {seen:?}")
+                })
+                .clone()
+        }
+    }
+
+    /// Spawn a stub that answers each request with raw bytes from `handler`.
+    fn spawn_raw<F>(handler: F) -> Stub
+    where
+        F: Fn(&str) -> Vec<u8> + Send + 'static,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&requests);
+        thread::spawn(move || {
+            for connection in listener.incoming() {
+                let Ok(mut sock) = connection else { return };
+                let request = read_request(&mut sock);
+                if request.is_empty() {
+                    continue;
+                }
+                let reply = handler(&request);
+                recorded.lock().unwrap().push(request);
+                let _ = sock.write_all(&reply);
+                let _ = sock.flush();
+            }
+        });
+        Stub {
+            url: format!("http://127.0.0.1:{port}"),
+            requests,
+        }
+    }
+
+    /// A path → reply table. A target ending in `/` matches by prefix.
+    struct Routes(Vec<(String, u16, String)>);
+
+    impl Routes {
+        fn new() -> Self {
+            Routes(Vec::new())
+        }
+
+        fn ok(self, target: &str, body: impl Into<String>) -> Self {
+            self.reply(target, 200, body)
+        }
+
+        fn reply(mut self, target: &str, status: u16, body: impl Into<String>) -> Self {
+            self.0.push((target.to_string(), status, body.into()));
+            self
+        }
+
+        fn serve(self) -> Stub {
+            spawn_raw(move |request| {
+                let path = path_of(request);
+                let matched = self.0.iter().find(|(target, _, _)| {
+                    target.as_str() == path
+                        || (target.ends_with('/') && path.starts_with(target.as_str()))
+                });
+                let (status, body) = match matched {
+                    Some((_, status, body)) => (*status, body.clone()),
+                    None => (
+                        404,
+                        format!("{{\"error\":\"stub has no route for {path}\"}}"),
+                    ),
+                };
+                http_reply(method_of(request), status, &body)
+            })
+        }
+    }
+
+    /// The registry's own signing identity, as `GET /ident` publishes it.
+    struct Registry {
+        public: Vec<u8>,
+        private: Vec<u8>,
+    }
+
+    impl Registry {
+        fn new() -> Registry {
+            let (public, private) = crypto::generate_keypair();
+            Registry { public, private }
+        }
+
+        fn ident_body(&self) -> String {
+            serde_json::json!({
+                "serverKey": crypto::encode_bytes(&self.public),
+                "serverFingerprint": crypto::fingerprint(&self.public),
+            })
+            .to_string()
+        }
+
+        /// A route table that already answers the `GET /ident` every online
+        /// flow makes first.
+        fn routes(&self) -> Routes {
+            Routes::new().ok("/ident", self.ident_body())
+        }
+
+        fn checkpoint_body(&self, size: i64, root: &[u8; 32]) -> String {
+            let signature = crypto::sign(
+                &self.private,
+                &crate::log::checkpoint_signing_input(size as u64, root),
+            )
+            .unwrap();
+            serde_json::json!({
+                "size": size,
+                "rootHash": hex::encode(root),
+                "signature": crypto::encode_bytes(&signature),
+            })
+            .to_string()
+        }
+    }
+
+    /// Provision `owner` on this machine the way a completed `register` +
+    /// `auth` would: an ident keypair and a live session. Returns the ident
+    /// public key, which the assertions verify signatures against.
+    fn seed_ident(paths: &LocalPaths, owner: &str) -> Vec<u8> {
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        local::write_ident_keypair(paths, owner, &ident_public, &ident_private).unwrap();
+        local::write_session(paths, owner, "session-jwt").unwrap();
+        ident_public
+    }
+
+    /// Assert that `request`'s base64url `field` is a valid signature by
+    /// `public` over `message`.
+    fn assert_signed(request: &str, name: &str, public: &[u8], message: &[u8]) {
+        let signature = crypto::decode_bytes(&field(request, name), name).unwrap();
+        crypto::verify(public, message, &signature)
+            .unwrap_or_else(|err| panic!("'{name}' does not verify under the expected key: {err}"));
+    }
+
+    // --- /ident and the server-key pin -----------------------------------
+
+    /// First contact pins the served key; a body whose fingerprint disagrees
+    /// with its own key is refused before anything is pinned.
+    #[test]
+    fn ensure_server_key_pins_the_key_and_rejects_a_self_inconsistent_ident() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+
+        let stub = registry.routes().serve();
+        let fetched = ensure_server_key(&stub.url, &paths).expect("/ident pins on first contact");
+        assert_eq!(fetched, registry.public);
+        assert_eq!(
+            local::read_pinned_server_key(&paths).unwrap(),
+            registry.public,
+            "the fetched key must be the one written to server.pub"
+        );
+
+        // A registry claiming a fingerprint that is not its key's own.
+        let (_temp2, paths2) = temp_paths();
+        let liar = Routes::new()
+            .ok(
+                "/ident",
+                serde_json::json!({
+                    "serverKey": crypto::encode_bytes(&registry.public),
+                    "serverFingerprint": "0".repeat(64),
+                })
+                .to_string(),
+            )
+            .serve();
+        let err = ensure_server_key(&liar.url, &paths2).unwrap_err();
+        assert!(err.contains("fingerprint does not match its key"), "{err}");
+        assert!(
+            !paths2.server_key_path().exists(),
+            "a self-inconsistent /ident must not pin anything"
+        );
+    }
+
+    // --- register / auth --------------------------------------------------
+
+    /// A successful `register` posts role-separated proofs of possession for
+    /// the two keys it just generated, and keeps exactly those keys on disk.
+    #[test]
+    fn register_posts_role_separated_proofs_for_the_keys_it_stores() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let stub = registry
+            .routes()
+            .ok(
+                "/accounts/register",
+                serde_json::json!({
+                    "owner": "alice",
+                    "authFingerprint": "af",
+                    "identFingerprint": "if",
+                })
+                .to_string(),
+            )
+            .serve();
+
+        let response = register(&stub.url, &paths, "alice").expect("registration succeeds");
+        assert_eq!(response.owner, "alice");
+        assert_eq!(response.auth_fingerprint, "af");
+
+        // The keys the server was told about are the keys kept locally.
+        let request = stub.request_to("/accounts/register");
+        let stored_auth = local::read_auth_public_key(&paths, "alice").unwrap();
+        let stored_ident = local::read_ident_public_key(&paths, "alice").unwrap();
+        assert_eq!(
+            crypto::decode_bytes(&field(&request, "authKey"), "authKey").unwrap(),
+            stored_auth
+        );
+        assert_eq!(
+            crypto::decode_bytes(&field(&request, "identKey"), "identKey").unwrap(),
+            stored_ident
+        );
+
+        // Each proof is bound to its own role, so an auth proof can never be
+        // replayed as an ident proof.
+        let sent = json_body(&request);
+        let proofs = sent.get("proofs").expect("proofs object");
+        let auth_proof =
+            crypto::decode_bytes(proofs.get("auth").unwrap().as_str().unwrap(), "auth").unwrap();
+        let ident_proof =
+            crypto::decode_bytes(proofs.get("ident").unwrap().as_str().unwrap(), "ident").unwrap();
+        crypto::verify(
+            &stored_auth,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &stored_auth),
+            &auth_proof,
+        )
+        .expect("auth proof verifies under the auth key");
+        crypto::verify(
+            &stored_ident,
+            &crypto::registration_message(crypto::ROLE_IDENT, "alice", &stored_ident),
+            &ident_proof,
+        )
+        .expect("ident proof verifies under the ident key");
+        assert!(crypto::verify(
+            &stored_ident,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &stored_ident),
+            &ident_proof,
+        )
+        .is_err());
+    }
+
+    /// `auth` signs the server's challenge with the local auth key and stores
+    /// the returned session token.
+    #[test]
+    fn auth_signs_the_challenge_and_stores_the_session() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        local::write_auth_keypair(&paths, "alice", &auth_public, &auth_private).unwrap();
+
+        let nonce = vec![7u8; 32];
+        let stub = registry
+            .routes()
+            .ok(
+                "/auth/challenge",
+                serde_json::json!({
+                    "challengeId": "chal-1",
+                    "nonce": crypto::encode_bytes(&nonce),
+                    "expiresAt": 99,
+                })
+                .to_string(),
+            )
+            .ok(
+                "/auth/login",
+                serde_json::json!({
+                    "sessionToken": "session-jwt",
+                    "owner": "alice",
+                    "expiresAt": 99,
+                })
+                .to_string(),
+            )
+            .serve();
+
+        let login = auth(&stub.url, &paths, "alice").expect("auth succeeds");
+        assert_eq!(login.session_token, "session-jwt");
+        assert_eq!(
+            local::read_session(&paths, "alice").unwrap(),
+            "session-jwt",
+            "the session token must be persisted for later calls"
+        );
+
+        // The challenge request identifies the key by fingerprint...
+        let challenge = stub.request_to("/auth/challenge");
+        assert_eq!(
+            field(&challenge, "authFingerprint"),
+            crypto::fingerprint(&auth_public)
+        );
+        // ...and the login proves possession of it over this exact challenge.
+        assert_signed(
+            &stub.request_to("/auth/login"),
+            "signature",
+            &auth_public,
+            &crypto::challenge_message("chal-1", &nonce),
+        );
+    }
+
+    /// A local private key that does not match the stored public key is a
+    /// tampered/mixed keypair; `auth` refuses rather than signing with it.
+    #[test]
+    fn auth_refuses_a_local_keypair_whose_halves_disagree() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let (_public_a, private_a) = crypto::generate_keypair();
+        let (public_b, _private_b) = crypto::generate_keypair();
+        // Public half of B stored beside the private half of A.
+        local::write_auth_keypair(&paths, "alice", &public_b, &private_a).unwrap();
+
+        let stub = registry.routes().serve();
+        let err = auth(&stub.url, &paths, "alice").unwrap_err();
+        assert_eq!(err, "mismatched local key fingerprint");
+    }
+
+    /// With no local key, `auth` probes the registry: an "unknown owner" answer
+    /// is the more useful diagnosis and replaces the local read error.
+    #[test]
+    fn auth_surfaces_unknown_owner_from_the_probe() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let stub = registry
+            .routes()
+            .reply(
+                "/auth/challenge",
+                404,
+                "{\"error\":\"unknown owner 'alice'\"}",
+            )
+            .serve();
+
+        let err = auth(&stub.url, &paths, "alice").unwrap_err();
+        assert_eq!(err, "unknown owner 'alice'");
+
+        // A probe failure that is *not* about the owner leaves the local error
+        // in place, since it is the one the user can act on.
+        let (_temp2, paths2) = temp_paths();
+        let stub2 = registry
+            .routes()
+            .reply("/auth/challenge", 500, "{\"error\":\"database is down\"}")
+            .serve();
+        let err2 = auth(&stub2.url, &paths2, "alice").unwrap_err();
+        assert!(err2.contains("missing local private key"), "{err2}");
+    }
+
+    // --- attestation ------------------------------------------------------
+
+    /// The attestation must verify under the *pinned* server key, so a swapped
+    /// registry cannot hand back paperwork consumers would later reject.
+    #[test]
+    fn request_attestation_verifies_the_attestation_under_the_pinned_key() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        seed_ident(&paths, "alice");
+
+        let attestation = "{\"ident\":\"alice#pkg\",\"version\":\"1.0.0\"}";
+        let signature = crypto::sign(
+            &registry.private,
+            &crypto::attestation_signing_input(attestation.as_bytes()),
+        )
+        .unwrap();
+        let stub = registry
+            .routes()
+            .ok(
+                "/signing",
+                serde_json::json!({
+                    "owner": "alice",
+                    "attestation": attestation,
+                    "attestationSignature": crypto::encode_bytes(&signature),
+                })
+                .to_string(),
+            )
+            .serve();
+
+        let response = request_attestation(&stub.url, &paths, "alice", "alice#pkg", "1.0.0", "sfp")
+            .expect("a correctly signed attestation is accepted");
+        assert_eq!(response.attestation, attestation);
+        // The session token travels in the request body, not a header.
+        assert_eq!(
+            field(&stub.request_to("/signing"), "sessionToken"),
+            "session-jwt"
+        );
+
+        // Same attestation, signature from some other key: refused.
+        let (_temp2, paths2) = temp_paths();
+        seed_ident(&paths2, "alice");
+        let (_other_public, other_private) = crypto::generate_keypair();
+        let forged = crypto::sign(
+            &other_private,
+            &crypto::attestation_signing_input(attestation.as_bytes()),
+        )
+        .unwrap();
+        let stub2 = registry
+            .routes()
+            .ok(
+                "/signing",
+                serde_json::json!({
+                    "owner": "alice",
+                    "attestation": attestation,
+                    "attestationSignature": crypto::encode_bytes(&forged),
+                })
+                .to_string(),
+            )
+            .serve();
+        let err = request_attestation(&stub2.url, &paths2, "alice", "alice#pkg", "1.0.0", "sfp")
+            .unwrap_err();
+        assert!(
+            err.contains("does not verify under the pinned server key"),
+            "{err}"
+        );
+    }
+
+    // --- machine link -----------------------------------------------------
+
+    /// The relayed blob is the ident keypair sealed under the pairing code, and
+    /// the server only ever sees the one-way lookup of that code.
+    #[test]
+    fn link_start_relays_only_a_blob_sealed_under_the_pairing_code() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let ident_public = seed_ident(&paths, "alice");
+        let ident_private = local::read_ident_private_key(&paths, "alice").unwrap();
+
+        let stub = registry
+            .routes()
+            .ok(
+                "/machines/link",
+                serde_json::json!({"owner": "alice", "expiresAt": 4242}).to_string(),
+            )
+            .serve();
+
+        let (code, expires_at) = link_start(&stub.url, &paths, "alice").expect("link start");
+        assert_eq!(expires_at, 4242);
+
+        let request = stub.request_to("/machines/link");
+        // The code itself is never sent — only its one-way lookup.
+        assert!(!body_of(&request).contains(&code));
+        assert_eq!(field(&request, "lookup"), crypto::pairing_lookup(&code));
+
+        // The parked blob decrypts, with the displayed code, to exactly the
+        // local ident keypair.
+        let blob = crypto::decode_bytes(&field(&request, "blob"), "blob").unwrap();
+        let salt = crypto::decode_bytes(&field(&request, "salt"), "salt").unwrap();
+        let opened = crypto::open_pairing_blob(&code, &blob, &salt).expect("blob opens");
+        let mut expected = ident_private;
+        expected.extend_from_slice(&ident_public);
+        assert_eq!(opened, expected);
+    }
+
+    /// The new machine installs the relayed ident keypair alongside a fresh
+    /// auth keypair of its own.
+    #[test]
+    fn link_fetch_installs_the_relayed_ident_keypair() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let code = "abcde-fghij";
+        let mut plaintext = ident_private.clone();
+        plaintext.extend_from_slice(&ident_public);
+        let (blob, salt) = crypto::seal_pairing_blob(code, &plaintext).unwrap();
+
+        let stub = registry
+            .routes()
+            .ok(
+                "/machines/link/fetch",
+                serde_json::json!({
+                    "owner": "alice",
+                    "blob": crypto::encode_bytes(&blob),
+                    "salt": crypto::encode_bytes(&salt),
+                    "authFingerprint": "new-machine-af",
+                })
+                .to_string(),
+            )
+            .serve();
+
+        // The typed code is trimmed, as it would be from a terminal paste.
+        let response = link_fetch(&stub.url, &paths, "alice", "  abcde-fghij \n")
+            .expect("link fetch installs the keypair");
+        assert_eq!(response.auth_fingerprint, "new-machine-af");
+        assert_eq!(
+            response.ident_fingerprint,
+            crypto::fingerprint(&ident_public)
+        );
+        assert_eq!(
+            local::read_ident_private_key(&paths, "alice").unwrap(),
+            ident_private
+        );
+        assert_eq!(
+            local::read_ident_public_key(&paths, "alice").unwrap(),
+            ident_public
+        );
+
+        // This machine registered its *own* auth key, proving possession of it.
+        let request = stub.request_to("/machines/link/fetch");
+        let auth_public = local::read_auth_public_key(&paths, "alice").unwrap();
+        assert_eq!(
+            crypto::decode_bytes(&field(&request, "authKey"), "authKey").unwrap(),
+            auth_public
+        );
+        assert_signed(
+            &request,
+            "proof",
+            &auth_public,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &auth_public),
+        );
+        assert_eq!(field(&request, "lookup"), crypto::pairing_lookup(code));
+    }
+
+    /// A blob that decrypts but is not a well-formed ident keypair is refused
+    /// before anything is written to disk.
+    #[test]
+    fn link_fetch_rejects_a_blob_that_is_not_an_ident_keypair() {
+        let registry = Registry::new();
+        let code = "abcde-fghij";
+
+        let serve_blob = |plaintext: &[u8]| {
+            let (blob, salt) = crypto::seal_pairing_blob(code, plaintext).unwrap();
+            registry
+                .routes()
+                .ok(
+                    "/machines/link/fetch",
+                    serde_json::json!({
+                        "owner": "alice",
+                        "blob": crypto::encode_bytes(&blob),
+                        "salt": crypto::encode_bytes(&salt),
+                        "authFingerprint": "af",
+                    })
+                    .to_string(),
+                )
+                .serve()
+        };
+
+        // Wrong length.
+        let (_temp, paths) = temp_paths();
+        let stub = serve_blob(b"too short");
+        let err = link_fetch(&stub.url, &paths, "alice", code).unwrap_err();
+        assert_eq!(err, "pairing blob does not contain an ident keypair");
+        assert!(!paths.ident_private_key_path("alice").exists());
+
+        // Right length, but the halves are from different keypairs.
+        let (_temp2, paths2) = temp_paths();
+        let (_public_a, private_a) = crypto::generate_keypair();
+        let (public_b, _private_b) = crypto::generate_keypair();
+        let mut mixed = private_a;
+        mixed.extend_from_slice(&public_b);
+        let stub2 = serve_blob(&mixed);
+        let err2 = link_fetch(&stub2.url, &paths2, "alice", code).unwrap_err();
+        assert_eq!(err2, "pairing blob ident keypair is inconsistent");
+        assert!(!paths2.ident_private_key_path("alice").exists());
+    }
+
+    // --- ident rotation ---------------------------------------------------
+
+    /// A committed rotation promotes the staged keypair and leaves no staging
+    /// behind; the chain link is signed by the *old* ident key.
+    #[test]
+    fn rotate_ident_promotes_the_staged_keypair_on_success() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let old_public = seed_ident(&paths, "alice");
+
+        let stub = registry
+            .routes()
+            .ok(
+                "/keys/rotate",
+                serde_json::json!({"owner": "alice", "identFingerprint": "new-fp"}).to_string(),
+            )
+            .serve();
+
+        let response = rotate_ident(&stub.url, &paths, "alice").expect("rotation commits");
+        let new_public = local::read_ident_public_key(&paths, "alice").unwrap();
+        assert_ne!(new_public, old_public, "the local ident key must advance");
+        assert_eq!(response.ident_fingerprint, "new-fp");
+        assert!(
+            !paths.ident_pending_private_key_path("alice").exists(),
+            "a committed rotation must clear the staging"
+        );
+
+        let request = stub.request_to("/keys/rotate");
+        assert_eq!(
+            crypto::decode_bytes(&field(&request, "newIdentKey"), "newIdentKey").unwrap(),
+            new_public
+        );
+        // The chain link is signed by the old ident (the authority being
+        // handed over) and possession is proven by the new one.
+        assert_signed(
+            &request,
+            "chainSignature",
+            &old_public,
+            &crypto::ident_rotation_message(
+                "alice",
+                &crypto::fingerprint(&old_public),
+                &new_public,
+            ),
+        );
+        assert_signed(
+            &request,
+            "possessionProof",
+            &new_public,
+            &crypto::registration_message(crypto::ROLE_IDENT, "alice", &new_public),
+        );
+    }
+
+    /// `/keys/rotate` fails, and `/idents/<owner>` answers with whatever
+    /// `chain_reply` makes of the `newIdentKey` the client staged. This is the
+    /// lost-response scenario bug-276 R1 is about: the server may have
+    /// committed even though the client saw an error.
+    fn rotate_reconcile_stub(
+        ident_body: String,
+        chain_reply: impl Fn(Option<&str>) -> (u16, String) + Send + 'static,
+    ) -> Stub {
+        let staged: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        spawn_raw(move |request| {
+            let path = path_of(request).to_string();
+            let (status, body) = if path == "/ident" {
+                (200, ident_body.clone())
+            } else if path == "/keys/rotate" {
+                *staged.lock().unwrap() = Some(field(request, "newIdentKey"));
+                (503, "{\"error\":\"registry is unavailable\"}".to_string())
+            } else if path.starts_with("/idents/") {
+                let staged = staged.lock().unwrap().clone();
+                chain_reply(staged.as_deref())
+            } else {
+                (404, "{\"error\":\"no route\"}".to_string())
+            };
+            http_reply(method_of(request), status, &body)
+        })
+    }
+
+    fn ident_chain_body(ident_key: &str) -> String {
+        serde_json::json!({
+            "owner": "alice",
+            "identKey": ident_key,
+            "identFingerprint": "fp",
+            "chain": [],
+        })
+        .to_string()
+    }
+
+    /// The rotation committed but the response was lost: the registry now holds
+    /// the staged key, so promoting it is the recovery — not discarding it.
+    #[test]
+    fn rotate_ident_promotes_when_the_registry_already_holds_the_staged_key() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let old_public = seed_ident(&paths, "alice");
+
+        let stub = rotate_reconcile_stub(registry.ident_body(), |staged| {
+            (200, ident_chain_body(staged.expect("rotate ran first")))
+        });
+
+        let response = rotate_ident(&stub.url, &paths, "alice")
+            .expect("a committed-but-unacknowledged rotation is recovered");
+        let now_local = local::read_ident_public_key(&paths, "alice").unwrap();
+        assert_ne!(now_local, old_public);
+        assert_eq!(response.ident_fingerprint, crypto::fingerprint(&now_local));
+        assert!(!paths.ident_pending_private_key_path("alice").exists());
+    }
+
+    /// The registry demonstrably still holds the old ident: the rotation did
+    /// not happen, so the staging is discarded and the original error surfaces.
+    #[test]
+    fn rotate_ident_discards_the_staging_when_the_registry_kept_the_old_ident() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let old_public = seed_ident(&paths, "alice");
+
+        let encoded_old = crypto::encode_bytes(&old_public);
+        let stub = rotate_reconcile_stub(registry.ident_body(), move |_staged| {
+            (200, ident_chain_body(&encoded_old))
+        });
+
+        let err = rotate_ident(&stub.url, &paths, "alice").unwrap_err();
+        assert_eq!(err, "registry is unavailable");
+        assert_eq!(
+            local::read_ident_public_key(&paths, "alice").unwrap(),
+            old_public,
+            "an uncommitted rotation must leave the ident key alone"
+        );
+        assert!(
+            !paths.ident_pending_private_key_path("alice").exists(),
+            "a disproven rotation must clear its staging"
+        );
+    }
+
+    /// The registry cannot be consulted at all: the staged key might be the
+    /// account authority, so it is kept and the error says where it is.
+    #[test]
+    fn rotate_ident_keeps_the_staging_when_the_registry_cannot_be_consulted() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let old_public = seed_ident(&paths, "alice");
+
+        let stub = rotate_reconcile_stub(registry.ident_body(), |_staged| {
+            (503, "{\"error\":\"chain unavailable\"}".to_string())
+        });
+
+        let err = rotate_ident(&stub.url, &paths, "alice").unwrap_err();
+        assert!(err.contains("registry is unavailable"), "{err}");
+        assert!(err.contains("staged ident key was left at"), "{err}");
+        assert!(
+            paths.ident_pending_private_key_path("alice").exists(),
+            "a possibly-authoritative key must never be deleted on doubt"
+        );
+        assert_eq!(
+            local::read_ident_public_key(&paths, "alice").unwrap(),
+            old_public
+        );
+    }
+
+    // --- machine revocation ----------------------------------------------
+
+    /// Revocation authority is the ident key alone: the request signs the
+    /// server's challenge together with the fingerprint being revoked.
+    #[test]
+    fn revoke_machine_signs_the_challenge_with_the_ident_key() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let ident_public = seed_ident(&paths, "alice");
+
+        let nonce = vec![3u8; 32];
+        let stub = registry
+            .routes()
+            .ok(
+                "/machines/revoke/challenge",
+                serde_json::json!({
+                    "challengeId": "rev-1",
+                    "nonce": crypto::encode_bytes(&nonce),
+                    "expiresAt": 1,
+                })
+                .to_string(),
+            )
+            .ok(
+                "/machines/revoke",
+                serde_json::json!({
+                    "owner": "alice",
+                    "authFingerprint": "lost-machine",
+                    "revoked": true,
+                })
+                .to_string(),
+            )
+            .serve();
+
+        let response =
+            revoke_machine(&stub.url, &paths, "alice", "lost-machine").expect("revocation");
+        assert!(response.revoked);
+
+        let request = stub.request_to("/machines/revoke");
+        assert_eq!(field(&request, "challengeId"), "rev-1");
+        assert_signed(
+            &request,
+            "identSignature",
+            &ident_public,
+            &crypto::revocation_message("rev-1", &nonce, "lost-machine"),
+        );
+        // No session token is required for a revocation.
+        assert!(json_body(&request).get("sessionToken").is_none());
+    }
+
+    // --- transparency log -------------------------------------------------
+
+    /// The checkpoint is verified under the pinned server key and then held to
+    /// append-only growth: a shrunken tree or a different root at the same size
+    /// is refused, and neither ever overwrites the pin.
+    #[test]
+    fn fetch_checkpoint_pins_then_refuses_rollback_fork_and_bad_signatures() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let leaves = [
+            crate::log::leaf_hash(b"a"),
+            crate::log::leaf_hash(b"b"),
+            crate::log::leaf_hash(b"c"),
+            crate::log::leaf_hash(b"d"),
+        ];
+        let root4 = crate::log::root(&leaves);
+        let root2 = crate::log::root(&leaves[..2]);
+
+        let good = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(4, &root4))
+            .serve();
+        let checkpoint = fetch_checkpoint(&good.url, &paths).expect("first checkpoint pins");
+        assert_eq!(checkpoint.size, 4);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
+        );
+
+        // Smaller tree than the pin: a rollback.
+        let shrunk = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(2, &root2))
+            .serve();
+        let err = fetch_checkpoint(&shrunk.url, &paths).unwrap_err();
+        assert!(err.contains("ROLLBACK"), "{err}");
+
+        // Same size, different root: a fork.
+        let forked = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(4, &root2))
+            .serve();
+        let err = fetch_checkpoint(&forked.url, &paths).unwrap_err();
+        assert!(err.contains("FORK"), "{err}");
+
+        // A checkpoint nobody signed.
+        let unsigned = registry
+            .routes()
+            .ok(
+                "/log/checkpoint",
+                serde_json::json!({
+                    "size": 8,
+                    "rootHash": hex::encode(root4),
+                    "signature": crypto::encode_bytes(&[0u8; 64]),
+                })
+                .to_string(),
+            )
+            .serve();
+        let err = fetch_checkpoint(&unsigned.url, &paths).unwrap_err();
+        assert!(
+            err.contains("does not verify under the pinned server key"),
+            "{err}"
+        );
+
+        // None of the three rejections moved the pin.
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
+        );
+    }
+
+    /// A proven extension advances the pin; an unproven one must not — pinning
+    /// before verifying would erase the evidence a fork is caught by
+    /// (bug-276 R2).
+    #[test]
+    fn verify_log_consistency_advances_the_pin_only_on_a_proven_extension() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let leaves = [
+            crate::log::leaf_hash(b"a"),
+            crate::log::leaf_hash(b"b"),
+            crate::log::leaf_hash(b"c"),
+            crate::log::leaf_hash(b"d"),
+        ];
+        let root2 = crate::log::root(&leaves[..2]);
+        let root4 = crate::log::root(&leaves);
+        let path: Vec<String> = crate::log::consistency_path(2, &leaves)
+            .iter()
+            .map(hex::encode)
+            .collect();
+
+        // Nothing pinned yet: the first call just establishes the pin.
+        let first = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(2, &root2))
+            .serve();
+        let checkpoint = verify_log_consistency(&first.url, &paths).expect("first pin");
+        assert_eq!(checkpoint.size, 2);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((2, hex::encode(root2)))
+        );
+
+        // A genuine extension 2 -> 4 with a valid proof advances the pin.
+        let extended = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(4, &root4))
+            .ok(
+                "/log/consistency",
+                serde_json::json!({"from": 2, "to": 4, "path": path}).to_string(),
+            )
+            .serve();
+        let checkpoint = verify_log_consistency(&extended.url, &paths).expect("extension verifies");
+        assert_eq!(checkpoint.size, 4);
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((4, hex::encode(root4)))
+        );
+        assert!(
+            target_of(&extended.request_to("/log/consistency")).contains("from=2&to=4"),
+            "the proof must be requested between the pinned and candidate sizes"
+        );
+
+        // Rewind the pin and serve the same head with an empty proof: the
+        // candidate must be rejected *and* the pin left where it was.
+        local::write_checkpoint(&paths, 2, &hex::encode(root2)).unwrap();
+        let unproven = registry
+            .routes()
+            .ok("/log/checkpoint", registry.checkpoint_body(4, &root4))
+            .ok(
+                "/log/consistency",
+                serde_json::json!({"from": 2, "to": 4, "path": []}).to_string(),
+            )
+            .serve();
+        assert!(verify_log_consistency(&unproven.url, &paths).is_err());
+        assert_eq!(
+            local::read_checkpoint(&paths).unwrap(),
+            Some((2, hex::encode(root2))),
+            "an unproven head must not overwrite the pin it would be caught by"
+        );
+    }
+
+    /// The inclusion proof must describe the entry that was asked for.
+    #[test]
+    fn verify_publish_inclusion_rejects_a_mismatched_proof_envelope() {
+        let registry = Registry::new();
+        let leaf =
+            crate::log::leaf_hash(publish_leaf_payload("alice#pkg", "1.0.0", "hh").as_bytes());
+        let other = crate::log::leaf_hash(b"other");
+        let leaves = [leaf, other];
+        let root = crate::log::root(&leaves);
+
+        let serve = |proof: serde_json::Value| {
+            registry
+                .routes()
+                .ok("/log/checkpoint", registry.checkpoint_body(2, &root))
+                .ok(
+                    "/log/publish",
+                    serde_json::json!({"index": 0, "leafHash": hex::encode(leaf)}).to_string(),
+                )
+                .ok("/log/proof/", proof.to_string())
+                .serve()
+        };
+
+        // A proof for a different index than the entry served.
+        let (_temp, paths) = temp_paths();
+        let stub = serve(serde_json::json!({
+            "index": 1,
+            "size": 2,
+            "leafHash": hex::encode(leaf),
+            "path": [hex::encode(other)],
+        }));
+        let err =
+            verify_publish_inclusion(&stub.url, &paths, "alice#pkg", "1.0.0", "hh").unwrap_err();
+        assert_eq!(err, "inclusion proof does not match the requested entry");
+
+        // A proof whose leaf is not the entry's leaf.
+        let (_temp2, paths2) = temp_paths();
+        let stub2 = serve(serde_json::json!({
+            "index": 0,
+            "size": 2,
+            "leafHash": hex::encode(other),
+            "path": [hex::encode(other)],
+        }));
+        let err2 =
+            verify_publish_inclusion(&stub2.url, &paths2, "alice#pkg", "1.0.0", "hh").unwrap_err();
+        assert_eq!(
+            err2,
+            "inclusion proof leaf does not match the publish entry"
+        );
+    }
+
+    // --- signed metadata (plan-10-C2) -------------------------------------
+
+    /// A stable metadata root, so successive chains from the same authority
+    /// share a root fingerprint — the precondition for exercising a *version*
+    /// rollback rather than tripping the root-fingerprint check first.
+    struct MetadataAuthority {
+        root_public: Vec<u8>,
+        root_private: Vec<u8>,
+        snapshot_public: Vec<u8>,
+        snapshot_private: Vec<u8>,
+        timestamp_public: Vec<u8>,
+        timestamp_private: Vec<u8>,
+    }
+
+    impl MetadataAuthority {
+        fn new() -> MetadataAuthority {
+            let (root_public, root_private) = crypto::generate_keypair();
+            let (snapshot_public, snapshot_private) = crypto::generate_keypair();
+            let (timestamp_public, timestamp_private) = crypto::generate_keypair();
+            MetadataAuthority {
+                root_public,
+                root_private,
+                snapshot_public,
+                snapshot_private,
+                timestamp_public,
+                timestamp_private,
+            }
+        }
+
+        fn fingerprint(&self) -> String {
+            crypto::fingerprint(&self.root_public)
+        }
+    }
+
+    /// A valid metadata chain that delegates `server_public` as the
+    /// attestation key, so `trust_registry`'s cross-check can succeed.
+    fn build_metadata_delegating(
+        authority: &MetadataAuthority,
+        registry_id: &str,
+        version: i64,
+        expires: i64,
+        server_public: &[u8],
+    ) -> MetadataFixture {
+        let MetadataAuthority {
+            root_public,
+            root_private,
+            snapshot_public,
+            snapshot_private,
+            timestamp_public,
+            timestamp_private,
+        } = authority;
+        let root_signed = format!(
+            "{{\"type\":\"root\",\"registryId\":\"{registry_id}\",\"version\":1,\"expires\":{expires},\"serverKey\":\"{}\",\"snapshotKey\":\"{}\",\"timestampKey\":\"{}\"}}",
+            crypto::encode_bytes(server_public),
+            crypto::encode_bytes(snapshot_public),
+            crypto::encode_bytes(timestamp_public),
+        );
+        let root_signature = crypto::sign(
+            root_private,
+            &crypto::root_signing_input(root_signed.as_bytes()),
+        )
+        .unwrap();
+        let timestamp_signed = format!(
+            "{{\"type\":\"timestamp\",\"registryId\":\"{registry_id}\",\"version\":{version},\"expires\":{expires},\"snapshotVersion\":{version},\"indexHash\":\"idx\"}}",
+        );
+        let timestamp_signature = crypto::sign(
+            timestamp_private,
+            &crypto::timestamp_signing_input(timestamp_signed.as_bytes()),
+        )
+        .unwrap();
+        let snapshot_signed = format!(
+            "{{\"type\":\"snapshot\",\"registryId\":\"{registry_id}\",\"version\":{version},\"expires\":{expires},\"indexHash\":\"idx\"}}",
+        );
+        let snapshot_signature = crypto::sign(
+            snapshot_private,
+            &crypto::snapshot_signing_input(snapshot_signed.as_bytes()),
+        )
+        .unwrap();
+        MetadataFixture {
+            root_fingerprint: crypto::fingerprint(root_public),
+            server_public: server_public.to_vec(),
+            root: RootResponse {
+                signed: root_signed,
+                signature: crypto::encode_bytes(&root_signature),
+                root_key: crypto::encode_bytes(root_public),
+                root_fingerprint: crypto::fingerprint(root_public),
+            },
+            timestamp: SignedMetadataResponse {
+                signed: timestamp_signed,
+                signature: crypto::encode_bytes(&timestamp_signature),
+            },
+            snapshot: SignedMetadataResponse {
+                signed: snapshot_signed,
+                signature: crypto::encode_bytes(&snapshot_signature),
+            },
+        }
+    }
+
+    /// Add the three metadata routes for `fixture` to a route table.
+    fn with_metadata_routes(routes: Routes, fixture: &MetadataFixture) -> Routes {
+        routes
+            .ok("/root.json", serde_json::to_string(&fixture.root).unwrap())
+            .ok(
+                "/timestamp.json",
+                serde_json::to_string(&fixture.timestamp).unwrap(),
+            )
+            .ok(
+                "/snapshot.json",
+                serde_json::to_string(&fixture.snapshot).unwrap(),
+            )
+    }
+
+    /// `mfb repo trust` pins the registry id and root fingerprint only when the
+    /// chain actually delegates the server key this machine pinned.
+    #[test]
+    fn trust_registry_pins_only_a_root_that_delegates_the_pinned_server_key() {
+        let registry = Registry::new();
+        let authority = MetadataAuthority::new();
+        let future = crate::store::now_unix() + 3600;
+
+        let (_temp, paths) = temp_paths();
+        let good = build_metadata_delegating(&authority, "reg-1", 5, future, &registry.public);
+        let stub = with_metadata_routes(registry.routes(), &good).serve();
+        let version = trust_registry(&stub.url, &paths, "reg-1", &good.root_fingerprint)
+            .expect("a delegating chain is trusted");
+        assert_eq!(version, 5);
+        assert_eq!(
+            local::read_root_pin(&paths).unwrap(),
+            Some(("reg-1".to_string(), good.root_fingerprint.clone()))
+        );
+        assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(5));
+
+        // Same registry, but the root delegates some *other* attestation key:
+        // trusting it would accept attestations the pinned key never made.
+        let (_temp2, paths2) = temp_paths();
+        let (stranger, _) = crypto::generate_keypair();
+        let bad = build_metadata_delegating(&authority, "reg-1", 5, future, &stranger);
+        let stub2 = with_metadata_routes(registry.routes(), &bad).serve();
+        let err = trust_registry(&stub2.url, &paths2, "reg-1", &bad.root_fingerprint).unwrap_err();
+        assert!(err.contains("not delegated by the pinned root"), "{err}");
+        assert_eq!(local::read_root_pin(&paths2).unwrap(), None);
+    }
+
+    /// Once a root is pinned, every online flow re-verifies the chain and
+    /// advances the snapshot version; a rollback is refused and does not move
+    /// the pinned version.
+    #[test]
+    fn verify_pinned_metadata_advances_the_version_and_refuses_a_rollback() {
+        let registry = Registry::new();
+        let authority = MetadataAuthority::new();
+        let future = crate::store::now_unix() + 3600;
+        let (_temp, paths) = temp_paths();
+
+        let fresh = build_metadata_delegating(&authority, "reg-1", 9, future, &registry.public);
+        let stub = with_metadata_routes(registry.routes(), &fresh).serve();
+        trust_registry(&stub.url, &paths, "reg-1", &fresh.root_fingerprint).unwrap();
+        assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(9));
+
+        // A newer snapshot from the same root advances the pinned version.
+        let newer = build_metadata_delegating(&authority, "reg-1", 12, future, &registry.public);
+        let stub2 = with_metadata_routes(registry.routes(), &newer).serve();
+        verify_pinned_metadata(&stub2.url, &paths).expect("a newer snapshot is accepted");
+        assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(12));
+
+        // An older one — correctly signed by the same, pinned root — is a
+        // rollback and must not move the pin back.
+        let stale = build_metadata_delegating(&authority, "reg-1", 4, future, &registry.public);
+        let stub3 = with_metadata_routes(registry.routes(), &stale).serve();
+        let err = verify_pinned_metadata(&stub3.url, &paths).unwrap_err();
+        assert!(err.contains("metadata ROLLBACK"), "{err}");
+        assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(12));
+
+        // A chain that no longer delegates the pinned server key is refused
+        // even though the root is right.
+        let (stranger, _) = crypto::generate_keypair();
+        let swapped = build_metadata_delegating(&authority, "reg-1", 13, future, &stranger);
+        let stub4 = with_metadata_routes(registry.routes(), &swapped).serve();
+        let err = verify_pinned_metadata(&stub4.url, &paths).unwrap_err();
+        assert!(err.contains("not delegated by the pinned root"), "{err}");
+        assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(12));
+        assert_eq!(authority.fingerprint(), fresh.root_fingerprint);
+    }
+
+    /// The chain must be re-fetched with the *pinned* root fingerprint, so a
+    /// registry that re-anchors to a new root is refused rather than followed.
+    #[test]
+    fn verify_pinned_metadata_refuses_a_re_anchored_root() {
+        let registry = Registry::new();
+        let future = crate::store::now_unix() + 3600;
+        let (_temp, paths) = temp_paths();
+
+        let original = build_metadata_delegating(
+            &MetadataAuthority::new(),
+            "reg-1",
+            3,
+            future,
+            &registry.public,
+        );
+        let stub = with_metadata_routes(registry.routes(), &original).serve();
+        trust_registry(&stub.url, &paths, "reg-1", &original.root_fingerprint).unwrap();
+
+        // A brand-new root key, otherwise a perfectly valid chain.
+        let reanchored = build_metadata_delegating(
+            &MetadataAuthority::new(),
+            "reg-1",
+            4,
+            future,
+            &registry.public,
+        );
+        let stub2 = with_metadata_routes(registry.routes(), &reanchored).serve();
+        let err = verify_pinned_metadata(&stub2.url, &paths).unwrap_err();
+        assert!(
+            err.contains("does not match the pinned root fingerprint"),
+            "{err}"
+        );
+        assert_eq!(local::read_snapshot_version(&paths).unwrap(), Some(3));
+    }
+
+    // --- org / token / transfer / release-state ---------------------------
+
+    /// The grant and the removal sign *different* messages: a removal signs the
+    /// literal role `removed`, so a captured grant signature cannot be replayed
+    /// as a removal.
+    #[test]
+    fn set_org_member_signs_grant_and_removal_distinctly() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let ident_public = seed_ident(&paths, "alice");
+        let body = serde_json::json!({"org": "acme", "member": "bob", "role": "admin"}).to_string();
+
+        let grant = registry.routes().ok("/orgs/members", body.clone()).serve();
+        let response = set_org_member(&grant.url, &paths, "acme", "alice", "bob", "admin", false)
+            .expect("grant");
+        assert_eq!(response.member, "bob");
+        let request = grant.request_to("/orgs/members");
+        assert_eq!(field(&request, "action"), "grant");
+        assert_eq!(field(&request, "sessionToken"), "session-jwt");
+        assert_signed(
+            &request,
+            "identSignature",
+            &ident_public,
+            &crypto::org_role_message("acme", "bob", "admin"),
+        );
+
+        let remove = registry.routes().ok("/orgs/members", body).serve();
+        set_org_member(&remove.url, &paths, "acme", "alice", "bob", "admin", true).expect("remove");
+        let request = remove.request_to("/orgs/members");
+        assert_eq!(field(&request, "action"), "remove");
+        assert_eq!(
+            field(&request, "role"),
+            "admin",
+            "the wire request still names the role"
+        );
+        assert_signed(
+            &request,
+            "identSignature",
+            &ident_public,
+            &crypto::org_role_message("acme", "bob", "removed"),
+        );
+    }
+
+    /// The token keypair is generated locally: only its public half and a
+    /// proof of possession leave the machine, and the private half is returned
+    /// to the operator.
+    #[test]
+    fn issue_publish_token_keeps_the_private_half_local() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let ident_public = seed_ident(&paths, "alice");
+
+        let stub = registry
+            .routes()
+            .ok(
+                "/tokens",
+                serde_json::json!({
+                    "owner": "alice",
+                    "tokenFingerprint": "tfp",
+                    "scope": "alice#*",
+                    "expiresAt": 500,
+                })
+                .to_string(),
+            )
+            .serve();
+
+        let (response, token_private) =
+            issue_publish_token(&stub.url, &paths, "alice", "alice#*", 3600).expect("issue");
+        assert_eq!(response.scope, "alice#*");
+
+        let request = stub.request_to("/tokens");
+        let token_public = crypto::decode_bytes(&field(&request, "tokenKey"), "tokenKey").unwrap();
+        let private = crypto::decode_bytes(&token_private, "tokenPrivate").unwrap();
+        assert_eq!(
+            crypto::public_from_private(&private).unwrap(),
+            token_public,
+            "the returned private half must be the one the registry registered"
+        );
+        assert!(!body_of(&request).contains(&token_private));
+        assert_eq!(
+            json_body(&request).get("ttlSeconds").unwrap().as_i64(),
+            Some(3600)
+        );
+        assert_signed(
+            &request,
+            "proof",
+            &token_public,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &token_public),
+        );
+        // The issuance itself is authorized by the account ident, over the
+        // fingerprint of the key being issued.
+        assert_signed(
+            &request,
+            "identSignature",
+            &ident_public,
+            &crypto::token_issue_message("alice", &crypto::fingerprint(&token_public), "alice#*"),
+        );
+    }
+
+    #[test]
+    fn revoke_publish_token_signs_the_revocation_with_the_ident_key() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let ident_public = seed_ident(&paths, "alice");
+        let stub = registry
+            .routes()
+            .ok(
+                "/tokens/revoke",
+                serde_json::json!({"owner": "alice", "tokenFingerprint": "tfp", "revoked": true})
+                    .to_string(),
+            )
+            .serve();
+
+        let response = revoke_publish_token(&stub.url, &paths, "alice", "tfp").expect("revoke");
+        assert!(response.revoked);
+        assert_signed(
+            &stub.request_to("/tokens/revoke"),
+            "identSignature",
+            &ident_public,
+            &crypto::token_revoke_message("alice", "tfp"),
+        );
+    }
+
+    /// Both halves of a transfer are ident-signed, each over its own message.
+    #[test]
+    fn transfer_offer_and_accept_are_each_ident_signed() {
+        let registry = Registry::new();
+        let body = serde_json::json!({"ident": "alice#pkg", "toOwner": "bob", "accepted": false})
+            .to_string();
+
+        let (_temp, paths) = temp_paths();
+        let alice_ident = seed_ident(&paths, "alice");
+        let offer = registry
+            .routes()
+            .ok("/packages/transfer/offer", body.clone())
+            .serve();
+        let response =
+            transfer_offer(&offer.url, &paths, "alice#pkg", "alice", "bob").expect("offer");
+        assert_eq!(response.to_owner, "bob");
+        assert_signed(
+            &offer.request_to("/packages/transfer/offer"),
+            "identSignature",
+            &alice_ident,
+            &crypto::transfer_offer_message("alice#pkg", "alice", "bob"),
+        );
+
+        let (_temp2, paths2) = temp_paths();
+        let bob_ident = seed_ident(&paths2, "bob");
+        let accept = registry
+            .routes()
+            .ok(
+                "/packages/transfer/accept",
+                serde_json::json!({"ident": "alice#pkg", "toOwner": "bob", "accepted": true})
+                    .to_string(),
+            )
+            .serve();
+        let response = transfer_accept(&accept.url, &paths2, "alice#pkg", "bob").expect("accept");
+        assert!(response.accepted);
+        assert_signed(
+            &accept.request_to("/packages/transfer/accept"),
+            "identSignature",
+            &bob_ident,
+            &crypto::transfer_accept_message("alice#pkg", "bob"),
+        );
+    }
+
+    /// A release-state change carries both credentials: the session (auth) and
+    /// an ident signature (authority) over the exact state being set.
+    #[test]
+    fn set_release_state_carries_both_session_and_ident_signature() {
+        let registry = Registry::new();
+        let (_temp, paths) = temp_paths();
+        let ident_public = seed_ident(&paths, "alice");
+        let stub = registry
+            .routes()
+            .ok(
+                "/release-state",
+                serde_json::json!({
+                    "ident": "alice#pkg",
+                    "version": "1.0.0",
+                    "state": "yanked",
+                    "logEntry": {"index": 4, "leafHash": "aa"},
+                })
+                .to_string(),
+            )
+            .serve();
+
+        let response =
+            set_release_state(&stub.url, &paths, "alice", "alice#pkg", "1.0.0", "yanked")
+                .expect("state change");
+        assert_eq!(response.state, "yanked");
+        assert_eq!(response.log_entry.index, 4);
+
+        let request = stub.request_to("/release-state");
+        assert_eq!(field(&request, "sessionToken"), "session-jwt");
+        assert_signed(
+            &request,
+            "identSignature",
+            &ident_public,
+            &crypto::release_state_message("alice#pkg", "1.0.0", "yanked"),
+        );
+    }
+
+    // --- index ------------------------------------------------------------
+
+    fn index_body(registry: &Registry, ident_key: &str, ident_fingerprint: &str) -> String {
+        let signature = crypto::sign(
+            &registry.private,
+            &crypto::name_binding_message("alice", ident_fingerprint),
+        )
+        .unwrap();
+        serde_json::json!({
+            "ident": "alice#pkg",
+            "owner": "alice",
+            "identKey": ident_key,
+            "identFingerprint": ident_fingerprint,
+            "nameBindingSignature": crypto::encode_bytes(&signature),
+            "serverFingerprint": crypto::fingerprint(&registry.public),
+            "versions": [{
+                "version": "1.0.0",
+                "hash": "h",
+                "publishedAt": 1,
+                "state": "available",
+                "abiIndex": {},
+                "logEntry": null,
+            }],
+        })
+        .to_string()
+    }
+
+    /// The index's `identKey` is only pinnable because the name binding is
+    /// verified under the pinned server key and cross-checked against the
+    /// fingerprint it claims.
+    #[test]
+    fn fetch_index_verifies_the_name_binding_before_returning_the_ident_key() {
+        let registry = Registry::new();
+        let (ident_public, _) = crypto::generate_keypair();
+        let fingerprint = crypto::fingerprint(&ident_public);
+
+        // Happy path, with the metadata-form `ed25519:` prefix.
+        let (_temp, paths) = temp_paths();
+        let stub = registry
+            .routes()
+            .ok(
+                "/index/",
+                index_body(
+                    &registry,
+                    &format!("ed25519:{}", crypto::encode_bytes(&ident_public)),
+                    &fingerprint,
+                ),
+            )
+            .serve();
+        let response = fetch_index(&stub.url, &paths, "alice", "pkg").expect("index verifies");
+        assert_eq!(response.ident, "alice#pkg");
+        assert_eq!(response.versions.len(), 1);
+        assert_eq!(
+            target_of(&stub.request_to("/index/")),
+            "/index/alice%23pkg",
+            "the ident must be percent-encoded into the path"
+        );
+
+        // A key that is not the one the claimed fingerprint names. (Bare
+        // base64url form, i.e. no `ed25519:` prefix.)
+        let (_temp2, paths2) = temp_paths();
+        let (other_public, _) = crypto::generate_keypair();
+        let stub2 = registry
+            .routes()
+            .ok(
+                "/index/",
+                index_body(
+                    &registry,
+                    &crypto::encode_bytes(&other_public),
+                    &fingerprint,
+                ),
+            )
+            .serve();
+        let err = fetch_index(&stub2.url, &paths2, "alice", "pkg").unwrap_err();
+        assert_eq!(
+            err,
+            "registry index identKey does not match its fingerprint"
+        );
+
+        // A consistent key/fingerprint pair, but the binding is not signed by
+        // the pinned server key.
+        let (_temp3, paths3) = temp_paths();
+        let impostor = Registry::new();
+        let mut body: serde_json::Value = serde_json::from_str(&index_body(
+            &impostor,
+            &crypto::encode_bytes(&ident_public),
+            &fingerprint,
+        ))
+        .unwrap();
+        body["serverFingerprint"] = serde_json::json!(crypto::fingerprint(&registry.public));
+        let stub3 = registry.routes().ok("/index/", body.to_string()).serve();
+        let err = fetch_index(&stub3.url, &paths3, "alice", "pkg").unwrap_err();
+        assert_eq!(
+            err,
+            "registry name binding does not verify under the pinned server key"
+        );
+    }
+
+    // --- blobs ------------------------------------------------------------
+
+    /// A blob is only returned when its bytes hash to the hash that was asked
+    /// for; error statuses surface the registry's own message when it sent one.
+    #[test]
+    fn fetch_blob_checks_the_content_hash_and_surfaces_error_bodies() {
+        let body = b"native-library-bytes".to_vec();
+        let hash = hex::encode(crypto::sha256(&body));
+
+        let served = String::from_utf8(body.clone()).unwrap();
+        let good = Routes::new().ok("/blob/", served.clone()).serve();
+        assert_eq!(fetch_blob(&good.url, &hash).expect("hash matches"), body);
+
+        // The same bytes served under a different hash must be rejected.
+        let wrong = Routes::new().ok("/blob/", served).serve();
+        let err = fetch_blob(&wrong.url, &"a".repeat(64)).unwrap_err();
+        assert_eq!(
+            err,
+            "downloaded blob does not match the requested content hash"
+        );
+
+        // A JSON error body is unwrapped to its message.
+        let missing = Routes::new()
+            .reply("/blob/", 404, "{\"error\":\"no such blob\"}")
+            .serve();
+        assert_eq!(fetch_blob(&missing.url, &hash).unwrap_err(), "no such blob");
+
+        // A non-JSON error body is reported with its status.
+        let broken = Routes::new()
+            .reply("/blob/", 500, "upstream storage exploded")
+            .serve();
+        let err = fetch_blob(&broken.url, &hash).unwrap_err();
+        assert!(err.contains("500"), "{err}");
+        assert!(err.contains("upstream storage exploded"), "{err}");
+    }
+
+    /// `HEAD /blob` is a presence probe: 404 is "absent", not an error, and
+    /// anything else is.
+    #[test]
+    fn blob_exists_maps_status_to_presence() {
+        let present = Routes::new().ok("/blob/", "").serve();
+        assert!(blob_exists(&present.url, "h").unwrap());
+
+        let absent = Routes::new().reply("/blob/", 404, "").serve();
+        assert!(!blob_exists(&absent.url, "h").unwrap());
+
+        let broken = Routes::new().reply("/blob/", 500, "").serve();
+        let err = blob_exists(&broken.url, "h").unwrap_err();
+        assert!(err.contains("HEAD /blob"), "{err}");
+        assert!(err.contains("500"), "{err}");
+    }
+
+    /// The upload is the one call that authenticates with a header, because a
+    /// raw-body request cannot carry the body-field session token.
+    #[test]
+    fn put_blob_authenticates_with_a_bearer_header_and_reports_failures() {
+        let stub = Routes::new().ok("/blob/", "{}").serve();
+        put_blob(&stub.url, "abc", b"payload".to_vec(), "session-jwt").expect("upload");
+        let request = stub.request_to("/blob/abc");
+        let lowered = request.to_ascii_lowercase();
+        assert!(
+            lowered.contains("authorization: bearer session-jwt"),
+            "upload must carry the session as a bearer token: {request}"
+        );
+        assert!(
+            lowered.contains("content-type: application/octet-stream"),
+            "{request}"
+        );
+        assert!(
+            request.ends_with("payload"),
+            "the raw bytes are the body: {request}"
+        );
+
+        // A JSON error is unwrapped; anything else is reported with its status.
+        let denied = Routes::new()
+            .reply(
+                "/blob/",
+                403,
+                "{\"error\":\"token is not scoped for this package\"}",
+            )
+            .serve();
+        assert_eq!(
+            put_blob(&denied.url, "abc", b"x".to_vec(), "t").unwrap_err(),
+            "token is not scoped for this package"
+        );
+        let broken = Routes::new()
+            .reply("/blob/", 500, "gateway timeout")
+            .serve();
+        let err = put_blob(&broken.url, "abc", b"x".to_vec(), "t").unwrap_err();
+        assert!(err.contains("PUT /blob"), "{err}");
+        assert!(err.contains("gateway timeout"), "{err}");
+    }
+
+    // --- validate / publish ----------------------------------------------
+
+    /// Both artifact calls post the same request shape, carrying the session
+    /// token read from disk.
+    #[test]
+    fn validate_and_publish_post_the_artifact_with_the_local_session() {
+        let (_temp, paths) = temp_paths();
+        local::write_session(&paths, "alice", "session-jwt").unwrap();
+        let package = PackageArtifact {
+            ident: "alice#pkg",
+            version: "1.0.0",
+            artifact: b"artifact",
+            content_hash: "ch",
+            ident_fingerprint: "ifp",
+            signing_fingerprint: "sfp",
+        };
+
+        let stub = Routes::new()
+            .ok(
+                "/validate",
+                serde_json::json!({
+                    "valid": true,
+                    "contentHash": "ch",
+                    "abiIndex": {"greet": "aa"},
+                    "diagnostics": [],
+                })
+                .to_string(),
+            )
+            .ok(
+                "/publish",
+                serde_json::json!({
+                    "ident": "alice#pkg",
+                    "version": "1.0.0",
+                    "hash": "ch",
+                    "publishedAt": 7,
+                    "state": "available",
+                    "blobStored": true,
+                    "logEntry": {"index": 2, "leafHash": "bb"},
+                })
+                .to_string(),
+            )
+            .serve();
+
+        let validated = validate_package(&stub.url, &paths, "alice", &package).expect("validate");
+        assert!(validated.valid);
+        assert_eq!(validated.content_hash, "ch");
+        assert_eq!(
+            field(&stub.request_to("/validate"), "sessionToken"),
+            "session-jwt"
+        );
+
+        let published = publish_package(&stub.url, &paths, "alice", &package).expect("publish");
+        assert_eq!(published.log_entry.index, 2);
+        assert!(published.blob_stored);
+        assert!(
+            published.warnings.is_empty(),
+            "an omitted warnings field defaults to empty"
+        );
+        assert_eq!(
+            field(&stub.request_to("/publish"), "artifact"),
+            crypto::encode_bytes(b"artifact")
+        );
+    }
+
+    // --- response plumbing ------------------------------------------------
+
+    /// The body ceiling (bug-276 R3) is enforced from the `Content-Length` hint
+    /// *and* from the read itself, and an unreadable error body never masks the
+    /// status it arrived with.
+    #[test]
+    fn response_bodies_are_capped_and_errors_keep_their_status() {
+        // A success whose body is not JSON at all.
+        let garbage = spawn_raw(|request| http_reply(method_of(request), 200, "<html>nope</html>"));
+        let err = fetch_ident_chain(&garbage.url, "alice").unwrap_err();
+        assert!(err.contains("invalid repository response"), "{err}");
+
+        // An error status with a non-JSON body keeps both status and text.
+        let plain = spawn_raw(|request| http_reply(method_of(request), 500, "backend on fire"));
+        let err = fetch_ident_chain(&plain.url, "alice").unwrap_err();
+        assert!(err.contains("500"), "{err}");
+        assert!(err.contains("backend on fire"), "{err}");
+
+        // A success declaring more than MAX_JSON_BYTES is refused on the hint
+        // alone, before a byte of it is read.
+        let huge = spawn_raw(|_| {
+            b"HTTP/1.1 200 OK\r\nContent-Length: 99999999\r\nConnection: close\r\n\r\n".to_vec()
+        });
+        let err = fetch_ident_chain(&huge.url, "alice").unwrap_err();
+        assert!(err.contains("99999999 bytes"), "{err}");
+        assert!(
+            err.contains(&format!("{MAX_JSON_BYTES}-byte limit")),
+            "{err}"
+        );
+
+        // The same oversized body on an *error* status must not swallow the
+        // status: the generic text stands in for the unreadable body.
+        let huge_error = spawn_raw(|_| {
+            b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 99999999\r\n\
+              Connection: close\r\n\r\n"
+                .to_vec()
+        });
+        let err = fetch_ident_chain(&huge_error.url, "alice").unwrap_err();
+        assert!(err.contains("503"), "{err}");
+        assert!(err.contains("repository request failed"), "{err}");
+
+        // A body with no Content-Length at all is still bounded by the read.
+        let lying = spawn_raw(|_| {
+            let mut out = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n".to_vec();
+            out.extend(std::iter::repeat_n(b'x', MAX_JSON_BYTES as usize + 1));
+            out
+        });
+        let err = fetch_ident_chain(&lying.url, "alice").unwrap_err();
+        assert!(
+            err.contains(&format!("exceeds the {MAX_JSON_BYTES}-byte limit")),
+            "{err}"
+        );
+    }
+
+    /// A registry URL that is not a URL at all is rejected by name, before any
+    /// socket is opened.
+    #[test]
+    fn transport_security_rejects_an_unparseable_url() {
+        let err = ensure_transport_security("packages.example.com/no-scheme").unwrap_err();
+        assert!(err.contains("invalid registry URL"), "{err}");
+        assert!(err.contains("packages.example.com/no-scheme"), "{err}");
+    }
+
     #[test]
     fn transport_security_requires_https_for_non_loopback() {
         // SUP-01 / bug-189: http is allowed only for loopback; anything else must
