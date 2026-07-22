@@ -515,10 +515,27 @@ pub fn package_page(registry_id: &str, view: &PackageView) -> Markup {
                         th { "ABI" } th { "hash" } th { "log" }
                     }
                 }
-                @for version in &view.versions {
+                @for (index, version) in view.versions.iter().enumerate() {
+                    // The latest release's targets are the ones a reader is
+                    // almost always after, so they stay expanded. Every older
+                    // release folds behind a toggle — the rows are still in the
+                    // document (and still in view-source), just collapsed, so
+                    // nothing is hidden from an auditor.
+                    @let folded = view.latest_version.as_deref() != Some(version.version.as_str());
+                    @let fold_id = format!("tgt-{index}");
                     tbody."v" {
                         tr."v-main" {
-                            td."v-ver" data-label="version" { (version.version) }
+                            td."v-ver" data-label="version" {
+                                (version.version)
+                                @if folded && !version.targets.is_empty() {
+                                    input type="checkbox" id=(fold_id) ."fold-cb";
+                                    label."tgt-toggle" for=(fold_id)
+                                        title="Show/hide native targets" {
+                                        span."chev" {}
+                                        span."tgt-count" { (version.targets.len()) }
+                                    }
+                                }
+                            }
                             td data-label="state" {
                                 span class={ "state state--" (state_modifier(&version.state)) } {
                                     (version.state)
@@ -539,7 +556,7 @@ pub fn package_page(registry_id: &str, view: &PackageView) -> Markup {
                             }
                         }
                         @if !version.targets.is_empty() {
-                            tr."v-targets" {
+                            tr."v-targets"."v-fold"[folded] {
                                 td colspan="6" {
                                     div."targets-wrap" {
                                         p."targets-cap" {
@@ -918,6 +935,64 @@ mod tests {
             rendered.contains("noopener noreferrer nofollow"),
             "{rendered}"
         );
+    }
+
+    /// plan-61-C — the mockup folds the native-target block for every release
+    /// except the latest. Folding is CSS-only (checkbox + `:has`), so the rows
+    /// stay in the document: collapsed, never omitted.
+    #[test]
+    fn only_the_latest_release_shows_its_native_targets_expanded() {
+        fn version(v: &str) -> VersionRow {
+            VersionRow {
+                version: v.to_string(),
+                hash: "sha256:00".to_string(),
+                published_at: 0,
+                state: "available".to_string(),
+                abi_symbols: 1,
+                log_index: Some(1),
+                targets: vec![TargetRow {
+                    os: "linux".to_string(),
+                    arch: Some("x86_64".to_string()),
+                    libc: Some("glibc".to_string()),
+                    lib_type: "system".to_string(),
+                    logical: format!("m-{v}.so"),
+                    source: "src:m".to_string(),
+                    blob_hash: None,
+                }],
+            }
+        }
+
+        let view = PackageView {
+            ident: "acme.matrix".to_string(),
+            owner: "acme".to_string(),
+            ident_key: "00".to_string(),
+            ident_fingerprint: "00".to_string(),
+            server_fingerprint: "00".to_string(),
+            author: None,
+            url: None,
+            description: None,
+            latest_version: Some("4.2.0".to_string()),
+            versions: vec![version("4.2.0"), version("3.6.0")],
+        };
+        let rendered = package_page("reg", &view).into_string();
+
+        // Exactly one fold toggle — for 3.6.0, not for the latest 4.2.0.
+        assert_eq!(rendered.matches("fold-cb").count(), 1, "{rendered}");
+        assert_eq!(rendered.matches("tgt-toggle").count(), 1, "{rendered}");
+        assert_eq!(
+            rendered.matches("v-targets v-fold").count(),
+            1,
+            "{rendered}"
+        );
+        assert!(rendered.contains(r#"class="v-targets""#), "{rendered}");
+
+        // The label's `for` must resolve to the checkbox, or the toggle is dead.
+        assert!(rendered.contains(r#"id="tgt-1""#), "{rendered}");
+        assert!(rendered.contains(r#"for="tgt-1""#), "{rendered}");
+
+        // Both versions' target rows are still present in the markup.
+        assert!(rendered.contains("m-4.2.0.so"), "{rendered}");
+        assert!(rendered.contains("m-3.6.0.so"), "{rendered}");
     }
 
     /// maud escapes interpolated values by default. This asserts the property
