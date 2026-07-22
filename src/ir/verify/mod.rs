@@ -899,7 +899,13 @@ impl TypeEnv {
                     // untracked — a leak/UAF on decoded IR), and RES may only
                     // mark a resource. RES-ness on the IR = membership in the
                     // function's resource-owner table.
-                    if *explicit_type && !name.starts_with('$') {
+                    // NOT gated on `explicit_type`: an inferred binding holds
+                    // the resource just as surely as an annotated one, and its
+                    // `type_` is the initializer's type by construction. Gating
+                    // it let `LET f = fs::open(...)` through untracked while
+                    // `LET f AS File = ...` was rejected (bug: the close
+                    // obligation silently vanished with the annotation).
+                    if !name.starts_with('$') {
                         let base = resource_base_type(type_);
                         let is_resource = self.is_resource_or_resource_union(base);
                         let is_res_declared = self.current_owners.borrow().contains(name.as_str());
