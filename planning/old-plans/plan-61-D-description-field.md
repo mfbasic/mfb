@@ -217,7 +217,7 @@ absent-on-executable (silent), absent-on-package (**Ok**, so the warning cannot
 fail a build), wrong type (error), one byte over the cap (error), and exactly at
 the cap (accepted — the boundary itself, not a value comfortably past it).
 `2-200-0016` was re-confirmed free before allocation.
-Commit: —
+Commit: `9b715ad55`
 
 ### Phase 2 — Write and read section 18
 
@@ -265,7 +265,7 @@ first unknown field would fail it.
 reports the *same 18*, and `diff` of the two sorted DIFF lists is empty. All 18
 are pre-existing `codegen-cover` `.ncode` diffs unrelated to this work. Nothing
 was re-baselined.
-Commit: —
+Commit: `49a710136`
 
 ### Phase 3 — Spec sync
 
@@ -293,7 +293,7 @@ including `spec_links_resolve` and `spec_citations_resolve` (all four new
 `[[…]]` citations were grepped against real symbols before being written).
 `mfb spec package --all` renders with **0** leaked `[[` markers, lists
 `package-meta-section` in the topic index, and includes the new topic's body.
-Commit: —
+Commit: `49a710136` (landed with Phase 2 — `.ai/specifications.md` requires the spec change in the same commit as the format change)
 
 ## Validation Plan
 
