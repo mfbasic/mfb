@@ -1,5 +1,45 @@
 use super::*;
 
+/// Emit the shared path→C-string copy loop (bug-331 §A): copy `len` bytes from
+/// `src` into `dst`, advancing both, then write the trailing NUL. When
+/// `reject_nul` is set an embedded NUL byte branches to `invalid` (the caller's
+/// `ErrInvalidArgument` path) instead of being copied — the current
+/// `openFile`/`openFileWithin` behaviour. All registers and labels are
+/// caller-owned so the emitted bytes match each site exactly.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn emit_cstring_copy(
+    instructions: &mut Vec<CodeInstruction>,
+    reject_nul: bool,
+    len: &str,
+    src: &str,
+    dst: &str,
+    index: &str,
+    byte: &str,
+    copy_loop: &str,
+    copy_done: &str,
+    invalid: &str,
+) {
+    instructions.extend([
+        abi::label(copy_loop),
+        abi::compare_registers(index, len),
+        abi::branch_eq(copy_done),
+        abi::load_u8(byte, src, 0),
+    ]);
+    if reject_nul {
+        instructions.push(abi::compare_immediate(byte, "0"));
+        instructions.push(abi::branch_eq(invalid));
+    }
+    instructions.extend([
+        abi::store_u8(byte, dst, 0),
+        abi::add_immediate(src, src, 1),
+        abi::add_immediate(dst, dst, 1),
+        abi::add_immediate(index, index, 1),
+        abi::branch(copy_loop),
+        abi::label(copy_done),
+        abi::store_u8(abi::ZERO, dst, 0),
+    ]);
+}
+
 pub(super) fn emit_errno_error_mapping(
     symbol: &str,
     errno_reg: &str,
