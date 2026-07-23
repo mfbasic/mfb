@@ -709,7 +709,7 @@ Acceptance: baseline green; the gate's artifact list matches `test-accept.sh`'s.
 ### Phase 1 — Tier 1 (7 splits with no bug-322 overlap)
 
 - [x] T1-1 `ir/lower.rs` → `ir/docs.rs` + `ir/lower_link.rs` (commit bfe4cc3ca)
-- [ ] T1-2 `entry_and_arena.rs` → 5 files (move `Vregs` to `codegen_utils.rs` in
+- [x] T1-2 `entry_and_arena.rs` → 5 files + Vregs move (commit fe81732e5)
       the same commit)
 - [x] T1-7 `doc.rs` → model + `html.rs` (commit 764de5ff9)
 - [x] T1-8 `ast/items.rs` → 3 parsers (commit 6dd854d3a)
