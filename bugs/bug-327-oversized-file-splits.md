@@ -5,7 +5,7 @@ Effort: huge (>3d — this is a multi-week work order; land it file-by-file, one
 Severity: LOW
 Class: Other (cleanup / file organization)
 
-Status: Open — Phase 0 + 17 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
+Status: Open — Phase 0 + 18 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
 T1-8; Tier 2: T2-6, T2-9), each verified byte-identical (artifact-gate 0 diffs +
 acceptance 1080). Remaining: T1-5/T1-6 blocked on `tests/common/mod.rs`
 (Agent 21 #2); T1-9 blocked on bug-330 (audio dedup); the rest of Tier 2 (T2-1..T2-5,
