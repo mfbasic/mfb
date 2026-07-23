@@ -725,7 +725,7 @@ lines.
 
 ### Phase 2 — Tier 1 items gated on bug-322
 
-- [ ] T1-3 `tls/macos.rs` → 4 files (after Agent 07 #4)
+- [x] T1-3 `tls/macos.rs` → 4 files (commit 73e733de5)
 - [ ] T1-9 `audio/macos.rs` → 4 files (after Agent 08 #1/#2/#6)
 
 Acceptance: as Phase 1.
