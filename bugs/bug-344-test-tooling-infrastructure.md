@@ -212,6 +212,13 @@ There is no orphaned-golden problem in this repository. Do not re-run this scan.
   one copy is edited, the three gates silently measure different denominators.
 - Fix: one file (e.g. `scripts/coverage-ignore.txt`) read by all three, or have
   the workflow invoke `coverage.sh` rather than restate its regex.
+- **Already fixed; no action (2026-07-22).** `scripts/coverage-common.sh:26`
+  defines `IGNORE` once and all three consumers source it
+  (`scripts/coverage.sh:18`, `scripts/coverage-check.sh:15`,
+  `.github/workflows/coverage.yml:22` — `. ./scripts/coverage-common.sh`). No
+  literal regex is duplicated anywhere (grep for `target|tests)/` outside
+  `coverage-common.sh` is empty). The doc's three-copy finding predates that
+  extraction.
 
 ### Theme C — script duplication and drift
 
@@ -331,6 +338,18 @@ There is no orphaned-golden problem in this repository. Do not re-run this scan.
 - Fix: run it. If the parity gap is at zero, promote it to a real (non-ignored)
   test — it is a valuable guard over the plan-20 split. If it is non-zero, that
   is a finding and gets its own bug. Either way, drop the phantom citation.
+- **Resolved 2026-07-22 — phantom citation already dropped; promotion declined
+  with evidence.** The `plan-20-E..I` citation is already gone: `src/ir/tests.rs`
+  now documents that those phases never existed (bug-326-A20) and that the census
+  is "a standing property, not a migration milestone". Ran it
+  (`--ignored --nocapture`, 108 fixtures): the gap is **non-zero by design** —
+  MISSING lists 24 rule ids `syntaxcheck` emits and `ir::verify` deliberately does
+  not (plan-20 stopped at phase D, 65 rules relocated), and EXTRA is a fuzzy
+  per-fixture multiset (`TYPE_CALL_ARGUMENT_MISMATCH` appears in matched/missing/
+  extra at once). So it is neither promotable to a strict parity assertion (that
+  would be false) nor a new bug (the subset boundary is the intended state). It
+  correctly stays `#[ignore]`d as a diagnostic report. There are now **2**
+  `#[ignore]`s in `src/`, not 1 — the count also drifted.
 
 #### D4 — two genuinely unused imports in `tests/`
 
