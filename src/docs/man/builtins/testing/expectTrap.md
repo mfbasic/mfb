@@ -19,7 +19,7 @@ None. The assertion builtins are always in scope and need no `IMPORT`
 statement, but they are legal **only** inside a `TCASE` body — a call anywhere
 else is rejected before any other front-end pass with
 `TESTING_EXPECT_OUTSIDE_TCASE` (`2-208-0001`).
-[[src/testing/desugar.rs:validate_expect_placement]]
+[[src/testing/desugar/placement.rs:validate_expect_placement]]
 
 The two-argument form is usually written against an `errorCode::` constant,
 which does require `IMPORT errorCode` in the file holding the `TESTING` block.
@@ -48,14 +48,14 @@ With the two-argument form, `expectTrap` additionally requires the trap's
 into a temporary inside the guard's handler, then compares it after the guard.
 `code` may be any `Integer` expression — an `errorCode::` constant, a literal, or
 a computed value — and it is evaluated once, after the guarded expression, and
-only in the two-argument form. [[src/testing/desugar.rs:expand_trap]]
+only in the two-argument form. [[src/testing/desugar/expect.rs:expand_trap]]
 
 `expectTrap` is a statement-level assertion: it produces `Nothing` and cannot be
 used as a subexpression. The compiler expands it in place — there is no runtime
 helper — into a `Boolean` flag, an inline `TRAP` around `expression` whose
 handler sets the flag (and captures the code) and then `RECOVER`s, and one or two
 `IF` guards that `FAIL` when the outcome is wrong.
-[[src/testing/desugar.rs:expand_expect]]
+[[src/testing/desugar/expect.rs:expand_expect]]
 
 On failure the expansion raises `error(77069001, <detail>)` with one of three
 details, depending on the form and the outcome:
@@ -70,7 +70,7 @@ details, depending on the form and the outcome:
 recognizes, so the failure is reported as a test failure and not as a crash. The
 raise unwinds out of the enclosing `TCASE`, so statements after the failed
 assertion in that case do not run, while sibling cases and groups still run to
-completion. [[src/testing/desugar.rs:assertion_detail]]
+completion. [[src/testing/desugar/driver.rs:assertion_detail]]
 
 ## Overloads
 
@@ -108,7 +108,7 @@ falling over with some unrelated error. [[src/builtins/testing.rs:expect_arity]]
 The trap raised by `expression` itself is *not* propagated — that is the passing
 outcome, and the guard's handler `RECOVER`s from it. Only the assertion's own
 reserved-code failure escapes the expansion.
-[[src/testing/desugar.rs:expand_trap]]
+[[src/testing/desugar/expect.rs:expand_trap]]
 
 Compile-time rejections, which never reach runtime:
 `TESTING_EXPECT_ARITY` (`2-208-0002`) for any argument count outside one to two,

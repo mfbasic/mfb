@@ -18,7 +18,7 @@ None. The assertion builtins are always in scope and need no `IMPORT`
 statement, but they are legal **only** inside a `TCASE` body — a call anywhere
 else is rejected before any other front-end pass with
 `TESTING_EXPECT_OUTSIDE_TCASE` (`2-208-0001`).
-[[src/testing/desugar.rs:validate_expect_placement]]
+[[src/testing/desugar/placement.rs:validate_expect_placement]]
 
 ## Description
 
@@ -51,7 +51,7 @@ helper — into a single inline `TRAP` around `expression` whose handler is itse
 the failure path. No trap means the guard falls through and the assertion passes;
 the expansion is therefore leaner than `expectTrap`'s, with no flag and no
 post-guard `IF`. Because the handler diverges by raising, it needs no `RECOVER`.
-[[src/testing/desugar.rs:expand_ntrap]]
+[[src/testing/desugar/expect.rs:expand_ntrap]]
 
 On failure — that is, when `expression` did trap — the handler raises
 `error(77069001, "unexpected trap: <message>")`, where `<message>` is the
@@ -62,7 +62,7 @@ that the original error's `code` is not carried through; the reported code is th
 reserved one and the original detail survives only as text. The raise unwinds out
 of the enclosing `TCASE`, so statements after the failed assertion in that case do
 not run, while sibling cases and groups still run to completion.
-[[src/testing/desugar.rs:assertion_detail]]
+[[src/testing/desugar/driver.rs:assertion_detail]]
 
 ## Parameters
 
@@ -84,7 +84,7 @@ not run, while sibling cases and groups still run to completion.
 
 The trap raised by `expression` is not propagated as itself: the guard's handler
 intercepts it and replaces it with the reserved-code assertion failure carrying
-its message. [[src/testing/desugar.rs:expand_ntrap]]
+its message. [[src/testing/desugar/expect.rs:expand_ntrap]]
 
 Compile-time rejections, which never reach runtime: `TESTING_EXPECT_ARITY`
 (`2-208-0002`) for any argument count other than one, and

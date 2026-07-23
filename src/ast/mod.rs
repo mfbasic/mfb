@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
+pub(crate) mod build;
 mod doc_items;
 mod expr;
 mod items;

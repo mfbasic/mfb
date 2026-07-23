@@ -49,7 +49,7 @@ any case failed. See `./mfb spec language test-framework` for the full model.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77069001` | *(reserved; unnamed)* | an assertion fails. The desugaring emits `FAIL error(77069001, <detail>)`, so a failed expectation is an ordinary raised error carrying the failure detail. [[src/builtins/testing.rs:TEST_ABORT_CODE]] [[src/testing/desugar.rs:fail_test]] |
+| `77069001` | *(reserved; unnamed)* | an assertion fails. The desugaring emits `FAIL error(77069001, <detail>)`, so a failed expectation is an ordinary raised error carrying the failure detail. [[src/builtins/testing.rs:TEST_ABORT_CODE]] [[src/testing/desugar/expect.rs:fail_test]] |
 
 The code sits in the `7-706-*` trap/failure subsystem but is deliberately absent
 from the `errorCode::` registry, so user code can neither name it nor collide

@@ -18,7 +18,7 @@ None. The assertion builtins are always in scope and need no `IMPORT`
 statement, but they are legal **only** inside a `TCASE` body — a call anywhere
 else is rejected before any other front-end pass with
 `TESTING_EXPECT_OUTSIDE_TCASE` (`2-208-0001`).
-[[src/testing/desugar.rs:validate_expect_placement]]
+[[src/testing/desugar/placement.rs:validate_expect_placement]]
 
 ## Description
 
@@ -43,7 +43,7 @@ numeric type mixing; use the typed `expectNInteger`, `expectNFloat`,
 be used as a subexpression. The compiler expands it in place — there is no
 runtime helper — into a pair of `LET` bindings for the two operands, a `=`
 comparison, and a `FAIL` when the comparison succeeds.
-[[src/testing/desugar.rs:expand_expect]]
+[[src/testing/desugar/expect.rs:expand_expect]]
 
 On failure the expansion raises `error(77069001, "expected values to differ, but
 both were <actual>")` — only `actual` is rendered, since the two values are
@@ -51,8 +51,8 @@ equal by definition at that point. `77069001` is a reserved internal code the
 synthesized `mfb test` driver recognizes, so the failure is reported as a test
 failure and not as a crash. The raise unwinds out of the enclosing `TCASE`, so
 statements after the failed assertion in that case do not run, while sibling
-cases and groups still run to completion. [[src/testing/desugar.rs:expand_eq]]
-[[src/testing/desugar.rs:assertion_detail]]
+cases and groups still run to completion. [[src/testing/desugar/expect.rs:expand_eq]]
+[[src/testing/desugar/driver.rs:assertion_detail]]
 
 ## Parameters
 
@@ -76,7 +76,7 @@ cases and groups still run to completion. [[src/testing/desugar.rs:expand_eq]]
 A genuine runtime error raised while evaluating `actual` or `expected` is not
 caught by the assertion. It propagates out of the `TCASE` and the driver reports
 the case as failed with `runtime error [<code>] <message>` instead of an
-assertion detail. [[src/testing/desugar.rs:case_call]]
+assertion detail. [[src/testing/desugar/driver.rs:case_call]]
 
 ## Type checking
 

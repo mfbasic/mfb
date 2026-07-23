@@ -18,7 +18,7 @@ None. The assertion builtins are always in scope and need no `IMPORT`
 statement, but they are legal **only** inside a `TCASE` body — a call anywhere
 else is rejected before any other front-end pass with
 `TESTING_EXPECT_OUTSIDE_TCASE` (`2-208-0001`).
-[[src/testing/desugar.rs:validate_expect_placement]]
+[[src/testing/desugar/placement.rs:validate_expect_placement]]
 
 ## Description
 
@@ -39,7 +39,7 @@ The comparison is the ordinary `Float` `=` — an exact bit-value comparison, no
 tolerance-based one. There is no epsilon parameter, so an assertion on the result
 of a transcendental or accumulating computation should compare against the exact
 expected `Float` the implementation produces, or be reformulated (for example by
-asserting a rounded `Fixed`). [[src/testing/desugar.rs:expand_eq]]
+asserting a rounded `Fixed`). [[src/testing/desugar/expect.rs:expand_eq]]
 
 `expectFloat` is a statement-level assertion: it produces `Nothing` and cannot be
 used as a subexpression. Once the type check has passed, it lowers through
@@ -51,8 +51,8 @@ internal code the synthesized `mfb test` driver recognizes, so the failure is
 reported as a test failure and not as a crash. The raise unwinds out of the
 enclosing `TCASE`, so statements after the failed assertion in that case do not
 run, while sibling cases and groups still run to completion.
-[[src/testing/desugar.rs:expand_expect]]
-[[src/testing/desugar.rs:assertion_detail]]
+[[src/testing/desugar/expect.rs:expand_expect]]
+[[src/testing/desugar/driver.rs:assertion_detail]]
 
 Both arguments are required; any count other than two is `TESTING_EXPECT_ARITY`
 (`2-208-0002`), and an operand of the wrong type is
@@ -82,7 +82,7 @@ cascading diagnostics. [[src/syntaxcheck/inference.rs:check_expect_call]]
 A genuine runtime error raised while evaluating `actual` or `expected` is not
 caught by the assertion. It propagates out of the `TCASE` and the driver reports
 the case as failed with `runtime error [<code>] <message>` instead of an
-assertion detail. [[src/testing/desugar.rs:case_call]]
+assertion detail. [[src/testing/desugar/driver.rs:case_call]]
 
 ## Examples
 
