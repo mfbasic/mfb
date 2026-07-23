@@ -37,7 +37,6 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
     let net_fail = format!("{symbol}_net_fail");
     let load_fail = format!("{symbol}_load_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
-    let itoa_loop = format!("{symbol}_itoa");
     let sni_default = format!("{symbol}_sni_default");
     let done = format!("{symbol}_done");
 
@@ -50,24 +49,7 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         abi::store_u64(abi::ARG[3], abi::stack_pointer(), SNAME),
     ]);
     // itoa(port) -> NUL-terminated decimal at PORTBUF, pointer in PORTCSTR.
-    ins.extend([
-        abi::move_immediate("%v9", "Integer", "0"),
-        abi::store_u8("%v9", abi::stack_pointer(), PORTBUF + 23),
-        abi::load_u64("%v10", abi::stack_pointer(), PORT),
-        abi::move_immediate("%v11", "Integer", "10"),
-        abi::add_immediate("%v14", abi::stack_pointer(), PORTBUF + 22),
-        abi::label(&itoa_loop),
-        abi::unsigned_divide_registers("%v15", "%v10", "%v11"),
-        abi::multiply_subtract_registers("%v16", "%v15", "%v11", "%v10"),
-        abi::add_immediate("%v16", "%v16", 48),
-        abi::store_u8("%v16", "%v14", 0),
-        abi::subtract_immediate("%v14", "%v14", 1),
-        abi::move_register("%v10", "%v15"),
-        abi::compare_immediate("%v10", "0"),
-        abi::branch_ne(&itoa_loop),
-        abi::add_immediate("%v13", "%v14", 1),
-        abi::store_u64("%v13", abi::stack_pointer(), PORTCSTR),
-    ]);
+    emit_port_itoa(symbol, PORT, PORTBUF, PORTCSTR, &mut ins);
     // dlopen Network.framework.
     emit_data_address(
         symbol,
