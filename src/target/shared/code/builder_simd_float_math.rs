@@ -1305,7 +1305,13 @@ impl CodeBuilder<'_> {
     /// halves through the divide closes the near-pole 2-ULP residual the plain
     /// `fdiv` left. (Medium-range Cody-Waite reduction, like sin/cos; huge
     /// arguments would need Payne-Hanek, out of scope.)
-    fn emit_tan_body(&mut self, k: &KernelRegs) {
+    /// tan's shared double-double `sin_r`/`cos_r` computation (bug-332 B2): reduce
+    /// the angle, evaluate P_cos(r2) and reduced*P_sin(r2) as compensated
+    /// double-doubles, and stash `cos_r` in (v25,v26) and `sin_r` in (v23,v24).
+    /// Identical for the branchless (`emit_tan_body`) and scalar-branching
+    /// (`emit_tan_body_scalar`) quadrant selects that follow, so extracting it
+    /// keeps the two paths bit-identical through the reduction.
+    fn emit_tan_sincos_dd(&mut self, k: &KernelRegs) {
         self.emit_sincos_reduce(k); // reduced=v2, quad=v5
         self.emit(abi::vector_fmul(
             abi::VEC_SCRATCH[1],
@@ -1359,7 +1365,11 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[7],
             abi::VEC_SCRATCH[7],
         )); // sin_lo
-            // Quadrant masks: b0 → v27, b1 → v2.
+    }
+
+    fn emit_tan_body(&mut self, k: &KernelRegs) {
+        self.emit_tan_sincos_dd(k);
+        // Quadrant masks: b0 → v27, b1 → v2.
         self.emit(abi::vector_shl(&k.v27, abi::VEC_SCRATCH[5], 63));
         self.emit(abi::vector_sshr(&k.v27, &k.v27, 63));
         self.emit(abi::vector_shl(
@@ -1478,60 +1488,8 @@ impl CodeBuilder<'_> {
     /// the 2-lane array body needs. The two compensated Horners still run (the
     /// ratio needs both halves); only the selection is removed.
     fn emit_tan_body_scalar(&mut self, k: &KernelRegs) {
-        self.emit_sincos_reduce(k); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul(
-            abi::VEC_SCRATCH[1],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[2],
-        )); // r2 (Horner var, survives)
-            // cos_r as a double-double (hi,lo) → v25/v26.
-        self.emit_compensated_horner(
-            abi::VEC_SCRATCH[3],
-            abi::VEC_SCRATCH[4],
-            abi::VEC_SCRATCH[1],
-            &COS_COEFFS,
-            k,
-        );
-        self.emit(abi::vector_orr(
-            &k.v25,
-            abi::VEC_SCRATCH[3],
-            abi::VEC_SCRATCH[3],
-        )); // cos_hi
-        self.emit(abi::vector_orr(
-            &k.v26,
-            abi::VEC_SCRATCH[4],
-            abi::VEC_SCRATCH[4],
-        )); // cos_lo
-            // sin_r = reduced * P_sin(r2) as a double-double → v23/v24.
-        self.emit_compensated_horner(
-            abi::VEC_SCRATCH[3],
-            abi::VEC_SCRATCH[4],
-            abi::VEC_SCRATCH[1],
-            &SIN_COEFFS,
-            k,
-        );
-        self.emit_twoprod(
-            abi::VEC_SCRATCH[6],
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[3],
-        ); // reduced*sin_hi → (v6,v7)
-        self.emit(abi::vector_fmla(
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[4],
-        )); // lo += reduced*sin_lo
-        self.emit(abi::vector_orr(
-            &k.v23,
-            abi::VEC_SCRATCH[6],
-            abi::VEC_SCRATCH[6],
-        )); // sin_hi
-        self.emit(abi::vector_orr(
-            &k.v24,
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[7],
-        )); // sin_lo
-            // bit0 ? -cos_r/sin_r : sin_r/cos_r (bit1 cancels in the ratio).
+        self.emit_tan_sincos_dd(k);
+        // bit0 ? -cos_r/sin_r : sin_r/cos_r (bit1 cancels in the ratio).
         let bit0 = self.temporary_vreg();
         let one = self.temporary_vreg();
         self.emit(abi::vector_extract_to_x(&bit0, abi::VEC_SCRATCH[5], 0));
