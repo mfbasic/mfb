@@ -81,21 +81,35 @@ impl CodeBuilder<'_> {
             .is_some_and(|type_| type_.starts_with("List OF "))
     }
 
+    /// Map a numeric element type name to its collection value-type code.
+    fn numeric_element_type_code(element: &str) -> Option<usize> {
+        match element {
+            "Integer" => Some(COLLECTION_TYPE_INTEGER),
+            "Float" => Some(COLLECTION_TYPE_FLOAT),
+            "Fixed" => Some(COLLECTION_TYPE_FIXED),
+            _ => None,
+        }
+    }
+
+    /// Strip the `List OF ` prefix of an array-overload argument, returning the
+    /// element type name or the shared `requires a list, got {}` diagnostic
+    /// (bug-332 D2). Standardizes the wording that had drifted across the eight
+    /// `math.*` array overloads.
+    fn list_element_type(input_type: &str, function: &str) -> Result<String, String> {
+        input_type
+            .strip_prefix("List OF ")
+            .map(str::to_string)
+            .ok_or_else(|| {
+                format!("math.{function} array overload requires a list, got {input_type}")
+            })
+    }
+
     /// `math.abs(values AS T[])` — vectorized absolute value (plan-01-simd §4.4).
     fn lower_math_abs_array(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         use super::builder_simd_math::SimdUnaryKernel;
         let input = self.lower_value(arg)?;
         let text = format!("math.abs({})", input.text);
-        let element = input
-            .type_
-            .strip_prefix("List OF ")
-            .ok_or_else(|| {
-                format!(
-                    "math.abs array overload requires a list, got {}",
-                    input.type_
-                )
-            })?
-            .to_string();
+        let element = Self::list_element_type(&input.type_, "abs")?;
         match element.as_str() {
             "Integer" => self.lower_simd_unary(
                 SimdUnaryKernel::AbsInteger,
@@ -132,16 +146,7 @@ impl CodeBuilder<'_> {
         use super::builder_simd_math::SimdUnaryKernel;
         let input = self.lower_value(arg)?;
         let text = format!("math.sqrt({})", input.text);
-        let element = input
-            .type_
-            .strip_prefix("List OF ")
-            .ok_or_else(|| {
-                format!(
-                    "math.sqrt array overload requires a list, got {}",
-                    input.type_
-                )
-            })?
-            .to_string();
+        let element = Self::list_element_type(&input.type_, "sqrt")?;
         match element.as_str() {
             "Float" => self.lower_simd_unary(
                 SimdUnaryKernel::SqrtFloat,
@@ -339,16 +344,7 @@ impl CodeBuilder<'_> {
         use super::builder_simd_float_math::FloatKernel;
         let input = self.lower_value(arg)?;
         let text = format!("math.exp({})", input.text);
-        let element = input
-            .type_
-            .strip_prefix("List OF ")
-            .ok_or_else(|| {
-                format!(
-                    "math.exp array overload requires a list, got {}",
-                    input.type_
-                )
-            })?
-            .to_string();
+        let element = Self::list_element_type(&input.type_, "exp")?;
         match element.as_str() {
             "Float" => self.lower_simd_float_unary(FloatKernel::Exp, input, text),
             other => Err(format!(
@@ -366,16 +362,7 @@ impl CodeBuilder<'_> {
         use super::builder_simd_float_math::FloatKernel;
         let input = self.lower_value(arg)?;
         let text = format!("math.{function}({})", input.text);
-        let element = input
-            .type_
-            .strip_prefix("List OF ")
-            .ok_or_else(|| {
-                format!(
-                    "math.{function} array overload requires a list, got {}",
-                    input.type_
-                )
-            })?
-            .to_string();
+        let element = Self::list_element_type(&input.type_, function)?;
         let kernel = match (function, element.as_str()) {
             ("sin", "Float") => FloatKernel::Sin,
             ("cos", "Float") => FloatKernel::Cos,
@@ -401,16 +388,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         let input = self.lower_value(arg)?;
         let text = format!("math.{function}({})", input.text);
-        let element = input
-            .type_
-            .strip_prefix("List OF ")
-            .ok_or_else(|| {
-                format!(
-                    "math.{function} array overload requires a list, got {}",
-                    input.type_
-                )
-            })?
-            .to_string();
+        let element = Self::list_element_type(&input.type_, function)?;
         match element.as_str() {
             "Fixed" => self.lower_simd_log_fixed(input, function == "log10", text),
             "Float" => {
@@ -438,16 +416,7 @@ impl CodeBuilder<'_> {
         use super::builder_simd_math::SimdUnaryKernel;
         let input = self.lower_value(arg)?;
         let text = format!("math.{function}({})", input.text);
-        let element = input
-            .type_
-            .strip_prefix("List OF ")
-            .ok_or_else(|| {
-                format!(
-                    "math.{function} array overload requires a list, got {}",
-                    input.type_
-                )
-            })?
-            .to_string();
+        let element = Self::list_element_type(&input.type_, function)?;
         let kernel = match (function, element.as_str()) {
             ("floor", "Float") => SimdUnaryKernel::FloorFloat,
             ("ceil", "Float") => SimdUnaryKernel::CeilFloat,
@@ -525,16 +494,6 @@ impl CodeBuilder<'_> {
         })
     }
 
-    /// Map a numeric element type name to its collection value-type code.
-    fn numeric_element_type_code(element: &str) -> Option<usize> {
-        match element {
-            "Integer" => Some(COLLECTION_TYPE_INTEGER),
-            "Float" => Some(COLLECTION_TYPE_FLOAT),
-            "Fixed" => Some(COLLECTION_TYPE_FIXED),
-            _ => None,
-        }
-    }
-
     /// `math.min/max(a AS T[], b AS T[]) AS T[]` — vectorized element-wise
     /// min/max (plan-01-simd §4.4). `ErrInvalidArgument` if lengths differ.
     fn lower_math_min_max_array(
@@ -567,10 +526,7 @@ impl CodeBuilder<'_> {
             ));
         }
         let result_type = left.type_.clone();
-        let element = result_type
-            .strip_prefix("List OF ")
-            .ok_or_else(|| format!("math.{function} array overload requires a list"))?
-            .to_string();
+        let element = Self::list_element_type(&result_type, function)?;
         let code = Self::numeric_element_type_code(&element).ok_or_else(|| {
             format!("math.{function} array overload does not accept List OF {element}")
         })?;
@@ -619,10 +575,7 @@ impl CodeBuilder<'_> {
         let high_bits = self.float_value_as_gpr(&high)?;
         let high_slot = self.allocate_stack_object("simd_clamp_high", 8);
         self.emit(abi::store_u64(&high_bits, abi::stack_pointer(), high_slot));
-        let element = result_type
-            .strip_prefix("List OF ")
-            .ok_or_else(|| "math.clamp array overload requires a list".to_string())?
-            .to_string();
+        let element = Self::list_element_type(&result_type, "clamp")?;
         let code = Self::numeric_element_type_code(&element).ok_or_else(|| {
             format!("math.clamp array overload does not accept List OF {element}")
         })?;
