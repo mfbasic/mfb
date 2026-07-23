@@ -57,8 +57,9 @@ const PIO2_1: f64 = 1.570_796_326_734_125_614_17;
 const PIO2_2: f64 = 6.077_100_506_303_965_976_60e-11;
 const PIO2_2T: f64 = 2.022_266_248_795_950_631_54e-21;
 
-/// fdlibm `atan` 4-segment reduction: breakpoint `atan(c)` values as hi/lo
-/// double-doubles, and the minimax polynomial `aT` for the reduced argument.
+/// fdlibm `atan` reduction: the four segment thresholds and their breakpoint
+/// `atan(c)` values as hi/lo double-doubles (four thresholds partition `|x|`
+/// into five segments), and the minimax polynomial `aT` for the reduced argument.
 /// These reach strict <=1 ULP of macOS libm (public-domain Sun fdlibm constants).
 const ATAN_SEG_THRESH: [f64; 4] = [0.4375, 0.6875, 1.1875, 2.4375];
 const ATAN_HI: [f64; 4] = [
@@ -103,14 +104,6 @@ const ATAN_AT: [f64; 11] = [
 /// Internal read-only data symbol holding the kernel constant pool. Emitted by
 /// the module assembler iff some function references it (mod.rs).
 pub(super) const MATH_CONST_POOL_SYMBOL: &str = "_mfb_math_const_pool";
-
-/// GPR pinned to the pool base for a kernel's lifetime. The register is
-/// per-backend (`mir::Backend::math_pool_base`): AArch64 uses `x2` (caller-saved
-/// scratch the allocator never assigns, `INT_ALLOCATABLE` is `x8`+, so it holds
-/// the base across the whole body; the array paths load it *after* their one
-/// `bl`, and the bodies make no further call). x86 uses `r11` instead, because
-/// `x2` is a SysV ABI-role register there and would be remapped inconsistently
-/// across the quadrant branch. See `math_pool_base` for the full rationale.
 
 /// The deduplicated constant words (f64/i64 bit patterns) the SIMD kernels
 /// broadcast, in a fixed order. Each occupies a 16-byte slot (the value in both
@@ -652,11 +645,6 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// `atan(x)` core (input in `v0`, result in `v0`): for `|x|<=1` evaluate
-    /// `ax*P(ax^2)`; for `|x|>1` use `pi/2 - inv*P(inv^2)` with `inv=1/|x|`;
-    /// restore the sign. Constants: v16=1.0, v17=pi/2, v18=sign mask, v19=abs
-    /// mask. Reused by asin/acos. (Faithfully rounded; strict <=1 ULP needs a
-    /// segmented argument reduction.)
     /// `acc[lane] = mask ? val : acc[lane]` accumulator select. `BIT acc, val,
     /// mask` inserts `val`'s bits into `acc` where `mask` is set — one instruction,
     /// leaving `mask` and `val` untouched (both are reused across atan's segments),
@@ -665,13 +653,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_bit(acc, val, mask));
     }
 
-    /// fdlibm 4-segment `atan(x)` (input/result in `v0`): reduce `|x|` into a tiny
+    /// fdlibm 5-segment `atan(x)` (input/result in `v0`): reduce `|x|` into a tiny
     /// argument via one of 5 segments (breakpoints 7/16, 11/16, 19/16, 39/16),
     /// evaluate the minimax `aT` polynomial in the fdlibm `s1`/`s2` split, and
     /// recombine `atan(c) - ((reduced*P - atan_lo) - reduced)` with the segment's
     /// double-double `atan(c)`; restore the sign. Strict <=1 ULP. Persistent
     /// inputs v18=sign mask, v19=abs mask; sign parked in v25; segment masks in
     /// v28-v31; offset in v26/v27. (Reused by asin/acos/atan2.)
+    ///
+    /// The scalar-branching twin `emit_atan_core_scalar` is deliberately kept
+    /// separate (bug-332 C2): it computes only the one taken segment and selects
+    /// via compare-and-branch rather than cumulative NEON masks, so the two are
+    /// genuinely different instruction streams. Their only shared part — the
+    /// polynomial recombine — is already factored into `emit_atan_poly_recombine`,
+    /// which both call, so a coefficient change still lands in one place.
     fn emit_atan_core(&mut self, k: &KernelRegs) {
         self.emit(abi::vector_and(
             abi::VEC_SCRATCH[1],
@@ -1899,6 +1894,13 @@ impl CodeBuilder<'_> {
     /// the backend pins a physical (AArch64 `x2`), return it; otherwise (x86) a
     /// per-kernel virtual register the allocator colors, minted once per function
     /// and reused for every coefficient load and the re-materialized base.
+    /// GPR pinned to the pool base for a kernel's lifetime. The register is
+    /// per-backend (`mir::Backend::math_pool_base`): AArch64 uses `x2` (caller-saved
+    /// scratch the allocator never assigns, `INT_ALLOCATABLE` is `x8`+, so it holds
+    /// the base across the whole body; the array paths load it *after* their one
+    /// `bl`, and the bodies make no further call). x86 uses `r11` instead, because
+    /// `x2` is a SysV ABI-role register there and would be remapped inconsistently
+    /// across the quadrant branch. See `math_pool_base` for the full rationale.
     fn math_pool_base_reg(&mut self) -> String {
         if let Some(phys) = mir::active_backend().register_model().math_pool_base() {
             return phys.to_string();
