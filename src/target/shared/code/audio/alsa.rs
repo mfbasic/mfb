@@ -287,20 +287,9 @@ fn emit_call_fnptr(instructions: &mut Vec<CodeInstruction>, returns_pointer: boo
     }
 }
 
-#[derive(Clone, Copy)]
-enum Query {
-    Available,
-    Poll,
-    PollTimeout,
-    Xruns,
-}
-
-// Parameter validation ranges (plan-33-A §3.5).
-const SR_MIN: &str = "8000";
-const SR_MAX: &str = "192000";
-const BUF_MIN: &str = "64";
-const BUF_MAX: &str = "8192";
-const READ_FRAMES_MAX: &str = "1048576";
+// Upper bound on a timed `audio::read` (plan-33-A §3.5). The open-parameter
+// ranges and `READ_FRAMES_MAX` are shared in `common` (bug-330); this bound is
+// ALSA-only, so it stays here.
 const TIMEOUT_MAX: &str = "86400000"; // 24h, matches the macOS timed-read bound
 
 /// dlsym `name` into `FNPTR_OFF`, stage the args via `stage`, call it, and leave
@@ -335,32 +324,6 @@ fn emit_alsa_call(
     stage(ctx.instructions, ctx.relocations);
     emit_call_fnptr(ctx.instructions, returns_pointer);
     Ok(())
-}
-
-fn emit_validate_open(symbol: &str, invalid: &str, instructions: &mut Vec<CodeInstruction>) {
-    let ch_ok = format!("{symbol}_ch_ok");
-    instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), SR_OFF),
-        abi::move_immediate("%v10", "Integer", SR_MIN),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_lt(invalid),
-        abi::move_immediate("%v10", "Integer", SR_MAX),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_gt(invalid),
-        abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),
-        abi::compare_immediate("%v9", "1"),
-        abi::branch_eq(&ch_ok),
-        abi::compare_immediate("%v9", "2"),
-        abi::branch_ne(invalid),
-        abi::label(&ch_ok),
-        abi::load_u64("%v9", abi::stack_pointer(), BF_OFF),
-        abi::move_immediate("%v10", "Integer", BUF_MIN),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_lt(invalid),
-        abi::move_immediate("%v10", "Integer", BUF_MAX),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_gt(invalid),
-    ]);
 }
 
 /// Copy an MFBASIC `String` (pointer at `str_off`'s record field) into the
@@ -435,7 +398,7 @@ fn lower_open(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), STATE_OFF),
         abi::store_u64(abi::ZERO, abi::stack_pointer(), PARAMS_OFF),
     ]);
-    emit_validate_open(symbol, &invalid, &mut instructions);
+    emit_validate_open(symbol, SR_OFF, CH_OFF, BF_OFF, &invalid, &mut instructions);
     // bytesPerFrame, AudioHandle, mmap state.
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),

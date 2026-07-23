@@ -87,12 +87,6 @@ const MMAP_PROT: &str = "3"; // PROT_READ | PROT_WRITE
 const MMAP_FLAGS: &str = "4098"; // MAP_ANON(0x1000) | MAP_PRIVATE(0x0002)
 const MAP_FAILED_CMP: &str = "0";
 
-// Parameter validation ranges (plan-33-A §3.5).
-const SR_MIN: &str = "8000";
-const SR_MAX: &str = "192000";
-const BUF_MIN: &str = "64";
-const BUF_MAX: &str = "8192";
-
 /// Emit `pthread_<op>(state + field)` — object pointer in x0, called through the
 /// platform ABI. `state_off` is the stack slot holding the AudioState pointer.
 fn emit_pthread1(
@@ -117,45 +111,6 @@ fn emit_pthread1(
         ctx.instructions,
         ctx.relocations,
     )
-}
-
-/// Validate `openOutput`/`openInput` scalar parameters (sampleRate x-reg from
-/// `sr_off`, channels from `ch_off`, bufferFrames from `bf_off`), branching to
-/// `invalid` (→ ErrInvalidArgument) on any §3.5 violation.
-fn emit_validate_open(
-    symbol: &str,
-    sr_off: usize,
-    ch_off: usize,
-    bf_off: usize,
-    invalid: &str,
-    instructions: &mut Vec<CodeInstruction>,
-) {
-    let ch_ok = format!("{symbol}_ch_ok");
-    instructions.extend([
-        // sampleRate in 8000..=192000
-        abi::load_u64("%v9", abi::stack_pointer(), sr_off),
-        abi::move_immediate("%v10", "Integer", SR_MIN),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_lt(invalid),
-        abi::move_immediate("%v10", "Integer", SR_MAX),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_gt(invalid),
-        // channels 1 or 2
-        abi::load_u64("%v9", abi::stack_pointer(), ch_off),
-        abi::compare_immediate("%v9", "1"),
-        abi::branch_eq(&ch_ok),
-        abi::compare_immediate("%v9", "2"),
-        abi::branch_ne(invalid),
-        abi::label(&ch_ok),
-        // bufferFrames in 64..=8192
-        abi::load_u64("%v9", abi::stack_pointer(), bf_off),
-        abi::move_immediate("%v10", "Integer", BUF_MIN),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_lt(invalid),
-        abi::move_immediate("%v10", "Integer", BUF_MAX),
-        abi::compare_registers("%v9", "%v10"),
-        abi::branch_gt(invalid),
-    ]);
 }
 
 // Stream-helper stack frame.
@@ -1288,14 +1243,6 @@ fn lower_close_output(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-#[derive(Clone, Copy)]
-enum Query {
-    Available,
-    Poll,
-    PollTimeout,
-    Xruns,
-}
-
 /// available/poll/xruns(stream): read the mutex-guarded counters, branching on
 /// handle->kind. Output uses free_top*bufferFrames; input the ring (lands with
 /// the input phase).
@@ -1550,6 +1497,26 @@ fn lower_query(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
+/// The runtime symbols whose presence in a plan means an output stream is built,
+/// so the AudioQueue output callback (whose address `openOutput` takes) must be
+/// emitted. Gated here, next to the emitter, rather than re-derived in
+/// `code/mod.rs` (bug-330).
+pub(super) const OUTPUT_CALLBACK_SYMBOLS: &[&str] = &[
+    "_mfb_rt_audio_audio_openOutput",
+    "_mfb_rt_audio_audio_openOutputDevice",
+    "_mfb_rt_audio_audio_write",
+    "_mfb_rt_audio_audio_closeOutput",
+];
+
+/// The input-stream counterpart of [`OUTPUT_CALLBACK_SYMBOLS`].
+pub(super) const INPUT_CALLBACK_SYMBOLS: &[&str] = &[
+    "_mfb_rt_audio_audio_openInput",
+    "_mfb_rt_audio_audio_openInputDevice",
+    "_mfb_rt_audio_audio_read",
+    "_mfb_rt_audio_audio_readTimeout",
+    "_mfb_rt_audio_audio_closeInput",
+];
+
 /// The AudioQueue output callback (C-ABI): void cb(void* handle, AudioQueueRef,
 /// AudioQueueBufferRef). Runs on an ordinary AudioQueue thread, so taking the
 /// mutex is legal (plan-33-B §3.1). Marks the played buffer free and signals.
@@ -1661,7 +1628,6 @@ const PRECHK_SIZE: usize = 456;
 const PRECHK_ID: usize = 464;
 const RINGCAP_OFF: usize = 472;
 const MAPSIZE_OFF: usize = 480;
-const READ_FRAMES_MAX: &str = "1048576";
 const TIMEOUT_MAX: &str = "86400000";
 
 /// openInput(sampleRate, channels, bufferFrames) or the device overload.

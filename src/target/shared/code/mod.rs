@@ -730,16 +730,11 @@ pub(crate) fn lower_module_for_platform(
             data_objects.extend(tls::tls_cstring_data_objects(tls_server));
         }
     }
-    // The Linux audio backend references read-only C strings (the libasound
-    // soname + ALSA symbol names) for its dlopen/dlsym.
-    if !platform.target().contains("macos")
-        && native_plan
-            .runtime_symbols
-            .iter()
-            .any(|symbol| symbol.starts_with("_mfb_rt_audio_"))
-    {
-        data_objects.extend(audio::alsa_data_objects());
-    }
+    // The audio backend's read-only data objects (the Linux libasound soname +
+    // ALSA symbol names; none on macOS). The backend owns the platform decision
+    // and the symbol gate (bug-330).
+    data_objects
+        .extend(audio::AudioBackend::select(platform).data_objects(&native_plan.runtime_symbols));
     // NIST-EC helpers reference read-only C strings (framework paths + dlsym
     // names) for their load-time dlopen/dlsym.
     if native_plan
@@ -1094,42 +1089,15 @@ pub(crate) fn lower_module_for_platform(
     if register_signal_handlers {
         code_functions.push(lower_signal_handler(platform)?);
     }
-    // The macOS AudioQueue output callback (plan-33-B §3.2): emitted whenever an
-    // output stream is built, since openOutput takes its address. Runs on an
-    // ordinary AudioQueue thread.
-    if platform.target().contains("macos")
-        && runtime_symbols.iter().any(|symbol| {
-            matches!(
-                symbol.as_str(),
-                "_mfb_rt_audio_audio_openOutput"
-                    | "_mfb_rt_audio_audio_openOutputDevice"
-                    | "_mfb_rt_audio_audio_write"
-                    | "_mfb_rt_audio_audio_closeOutput"
-            )
-        })
-    {
-        code_functions.push(audio::lower_audio_output_callback(
-            &platform_imports,
-            platform,
-        )?);
-    }
-    if platform.target().contains("macos")
-        && runtime_symbols.iter().any(|symbol| {
-            matches!(
-                symbol.as_str(),
-                "_mfb_rt_audio_audio_openInput"
-                    | "_mfb_rt_audio_audio_openInputDevice"
-                    | "_mfb_rt_audio_audio_read"
-                    | "_mfb_rt_audio_audio_readTimeout"
-                    | "_mfb_rt_audio_audio_closeInput"
-            )
-        })
-    {
-        code_functions.push(audio::lower_audio_input_callback(
-            &platform_imports,
-            platform,
-        )?);
-    }
+    // The macOS AudioQueue callbacks (plan-33-B §3.2): the output callback when an
+    // output stream is built and the input callback when an input stream is,
+    // since openOutput/openInput take their addresses. The backend owns the
+    // platform decision and the symbol gate (bug-330).
+    code_functions.extend(audio::AudioBackend::select(platform).callback_functions(
+        &platform_imports,
+        platform,
+        &runtime_symbols,
+    )?);
     if runtime_symbols
         .iter()
         .any(|symbol| symbol == "_mfb_rt_fs_fs_readBytes")

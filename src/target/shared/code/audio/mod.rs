@@ -110,7 +110,12 @@ pub(in crate::target::shared::code) const AUDIO_INPUT_CALLBACK_SYMBOL: &str =
     "_mfb_rt_audio_input_callback";
 
 mod alsa;
+mod common;
 mod macos;
+
+// Scaffolding both backends share (bug-330); imported here so each backend's
+// `use super::*` picks them up.
+use common::{emit_validate_open, Query, READ_FRAMES_MAX};
 
 pub(in crate::target::shared::code) use macos::{
     lower_audio_input_callback, lower_audio_output_callback,
@@ -131,6 +136,75 @@ pub(in crate::target::shared::code) fn lower_audio_helper(
 
 /// C-string data objects (the `libasound.so.2` soname + ALSA symbol names) the
 /// Linux backend references for its `dlopen`/`dlsym`.
-pub(in crate::target::shared::code) fn alsa_data_objects() -> Vec<CodeDataObject> {
+fn alsa_data_objects() -> Vec<CodeDataObject> {
     alsa::data_objects()
+}
+
+/// The selected audio backend for a build. Owns the two whole-plan decisions
+/// that `code/mod.rs` used to re-derive from `platform.target()` plus
+/// hand-maintained literal symbol lists (bug-330 cause #3): which read-only data
+/// objects the audio backend needs, and which AudioQueue callbacks to emit.
+pub(in crate::target::shared::code) enum AudioBackend {
+    CoreAudio,
+    Alsa,
+}
+
+impl AudioBackend {
+    /// Select the backend for `platform`. The single place the audio macOS/Linux
+    /// decision is made.
+    pub(in crate::target::shared::code) fn select(platform: &dyn CodegenPlatform) -> Self {
+        if platform.target().contains("macos") {
+            AudioBackend::CoreAudio
+        } else {
+            AudioBackend::Alsa
+        }
+    }
+
+    /// Read-only data objects the backend references, given the plan's runtime
+    /// symbols. CoreAudio links AudioToolbox directly and needs none; ALSA emits
+    /// its `dlopen`/`dlsym` C strings only when the plan uses an audio helper.
+    pub(in crate::target::shared::code) fn data_objects(
+        &self,
+        runtime_symbols: &[String],
+    ) -> Vec<CodeDataObject> {
+        match self {
+            AudioBackend::CoreAudio => Vec::new(),
+            AudioBackend::Alsa => {
+                if runtime_symbols
+                    .iter()
+                    .any(|symbol| symbol.starts_with("_mfb_rt_audio_"))
+                {
+                    alsa_data_objects()
+                } else {
+                    Vec::new()
+                }
+            }
+        }
+    }
+
+    /// The AudioQueue callback functions to emit (macOS only): the output
+    /// callback when the plan builds an output stream, the input callback when it
+    /// builds an input stream. `openOutput`/`openInput` take these addresses.
+    pub(in crate::target::shared::code) fn callback_functions(
+        &self,
+        platform_imports: &HashMap<String, String>,
+        platform: &dyn CodegenPlatform,
+        runtime_symbols: &[String],
+    ) -> Result<Vec<CodeFunction>, String> {
+        let mut functions = Vec::new();
+        if let AudioBackend::CoreAudio = self {
+            let uses = |list: &[&str]| {
+                runtime_symbols
+                    .iter()
+                    .any(|symbol| list.contains(&symbol.as_str()))
+            };
+            if uses(macos::OUTPUT_CALLBACK_SYMBOLS) {
+                functions.push(lower_audio_output_callback(platform_imports, platform)?);
+            }
+            if uses(macos::INPUT_CALLBACK_SYMBOLS) {
+                functions.push(lower_audio_input_callback(platform_imports, platform)?);
+            }
+        }
+        Ok(functions)
+    }
 }
