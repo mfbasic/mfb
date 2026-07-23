@@ -746,7 +746,7 @@ Acceptance: as Phase 1.
 - [ ] Convert `src/target/shared/code/mod.rs`'s 18 glob imports (`:3061-3151`)
       to explicit `use` lists; delete the `align`/`data_align` duplicate this
       exposes (Agent 04 #13)
-- [ ] T2-5, T2-6, T2-7, T2-8, T2-9, T2-10, T2-3, T2-2
+- [x] T2-6 `syntaxcheck/link.rs` extracted (commit cb2d3b8ac); T2-5, T2-7, T2-8, T2-9, T2-10, T2-3, T2-2 remain
 
 Acceptance: as Phase 1, plus the explicit-`use` conversion compiles with no
 `pub(super)` widened to `pub(crate)`.
