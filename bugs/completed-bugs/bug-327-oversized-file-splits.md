@@ -5,7 +5,13 @@ Effort: huge (>3d — this is a multi-week work order; land it file-by-file, one
 Severity: LOW
 Class: Other (cleanup / file organization)
 
-Status: Open (all pure file splits landed) — Phase 0 + **19 splits**, each verified
+Status: Completed (2026-07-23) — all pure file splits landed. The remaining items
+(T1-9, the glob→explicit conversion, and the data_objects/`.mfp`-decode/constfold
+work) are, per the assessment below, blocked on bug-330, the doc's own Open
+Decision, or explicit dedupes/deletions that this bug's non-goals assign to
+separate bugs; they are tracked here for whoever picks them up.
+
+Phase 0 + **19 splits**, each verified
 byte-identical (artifact-gate 0 diffs + acceptance 1080, + per-split unit tests
 and both citation-resolution tests):
 
