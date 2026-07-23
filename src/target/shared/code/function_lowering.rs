@@ -140,32 +140,21 @@ fn collect_vector_native_bindings(ops: &[NirOp], out: &mut HashSet<String>) {
 }
 
 fn collect_assigned_locals(ops: &[NirOp], out: &mut HashSet<String>) {
-    for op in ops {
-        match op {
-            NirOp::Assign { name, .. } => {
-                out.insert(name.clone());
+    // Collect the target name of every `Assign` op via the shared NIR seam
+    // (bug-328), which closes the silent `_ => {}` gap the hand-written match had.
+    use nir::visit::{walk_op, NirVisitor};
+    struct Collector<'a> {
+        out: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Assign { name, .. } = op {
+                self.out.insert(name.clone());
             }
-            NirOp::If {
-                then_body,
-                else_body,
-                ..
-            } => {
-                collect_assigned_locals(then_body, out);
-                collect_assigned_locals(else_body, out);
-            }
-            NirOp::Match { cases, .. } => {
-                for case in cases {
-                    collect_assigned_locals(&case.body, out);
-                }
-            }
-            NirOp::While { body, .. }
-            | NirOp::DoUntil { body, .. }
-            | NirOp::For { body, .. }
-            | NirOp::ForEach { body, .. }
-            | NirOp::Trap { body, .. } => collect_assigned_locals(body, out),
-            _ => {}
+            walk_op(self, op);
         }
     }
+    Collector { out }.visit_ops(ops);
 }
 
 /// Mark every local read in a *materializing* position — anything other than a
