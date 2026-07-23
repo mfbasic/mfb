@@ -26,7 +26,7 @@ dependency. [[src/builtins/crypto.rs:augmented_project]]
 
 The `crypto` package defines two record types. Both are plain, copyable records
 whose fields are `List OF Byte` and are read with ordinary field access; they
-raise no errors of their own. [[src/builtins/crypto_package.mfb:Sealed]]
+raise no errors of their own. [[src/builtins/crypto_hash.mfb:Sealed]]
 
 `crypto::Sealed` is the output of authenticated encryption (AEAD): it pairs a
 ciphertext with its authentication tag. It is produced by `crypto::aes256GcmSeal`
@@ -57,7 +57,7 @@ distribute only `publicKey`.
 
 ### crypto::Sealed
 
-The result of AEAD sealing: an authenticated ciphertext. [[src/builtins/crypto_package.mfb:Sealed]]
+The result of AEAD sealing: an authenticated ciphertext. [[src/builtins/crypto_hash.mfb:Sealed]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ The result of AEAD sealing: an authenticated ciphertext. [[src/builtins/crypto_p
 
 ### crypto::KeyPair
 
-A generated public/private key pair. [[src/builtins/crypto_package.mfb:KeyPair]]
+A generated public/private key pair. [[src/builtins/crypto_hash.mfb:KeyPair]]
 
 | Field | Type | Description |
 | --- | --- | --- |

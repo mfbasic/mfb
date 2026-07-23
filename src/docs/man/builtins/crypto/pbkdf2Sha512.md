@@ -29,13 +29,13 @@ RFC 8018 instantiated over HMAC-SHA-512. It stretches a low-entropy `password`
 into `length` bytes of derived key material by iterating the HMAC core
 `iterations` times per output block, deliberately making brute-force guessing of
 the password proportionally more expensive.
-[[src/builtins/crypto_package.mfb:__crypto_pbkdf2Sha512_bytes]]
+[[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Sha512_bytes]]
 
 The output is produced one 64-byte HMAC-SHA-512 block at a time until at least
 `length` bytes have accumulated, then truncated to exactly `length` bytes. Each
 block folds `salt` and the block index through `iterations` rounds of HMAC,
 XOR-accumulating every round into the block.
-[[src/builtins/crypto_package.mfb:__crypto_pbkdf2Block512]]
+[[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Block512]]
 
 `salt` should be unique per password and need not be secret; a random salt from
 `crypto::randomBytes` (16 bytes or more) is recommended, stored alongside the
@@ -76,8 +76,8 @@ type selects the `_text` implementation body.
 | `password` | `List OF Byte` | The password to derive from, as raw bytes. Any length is accepted. |
 | `password` | `String` | A password string whose UTF-8 bytes are used. |
 | `salt` | `List OF Byte` | A per-password salt. Should be unique; need not be secret. Any length is accepted. |
-| `iterations` | `Integer` | The PBKDF2 iteration count (work factor). Must be at least 1. Larger values are more resistant to brute force and slower. [[src/builtins/crypto_package.mfb:__crypto_pbkdf2Sha512_bytes]] |
-| `length` | `Integer` | Number of derived key bytes to produce. Must be at least 1. [[src/builtins/crypto_package.mfb:__crypto_pbkdf2Sha512_bytes]] |
+| `iterations` | `Integer` | The PBKDF2 iteration count (work factor). Must be at least 1. Larger values are more resistant to brute force and slower. [[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Sha512_bytes]] |
+| `length` | `Integer` | Number of derived key bytes to produce. Must be at least 1. [[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Sha512_bytes]] |
 
 ## Return value
 
@@ -89,7 +89,7 @@ type selects the `_text` implementation body.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `iterations` is less than 1, or `length` is less than 1. [[src/builtins/crypto_package.mfb:__crypto_pbkdf2Sha512_bytes]] |
+| `77050002` | `ErrInvalidArgument` | `iterations` is less than 1, or `length` is less than 1. [[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Sha512_bytes]] |
 
 ## Type checking
 

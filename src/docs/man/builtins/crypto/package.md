@@ -34,7 +34,7 @@ primitive is a portable core written in MFBASIC source over the `bits` package
 its output is **byte-identical on every target** (macOS/Linux, aarch64/x86-64)
 and uses **no deprecated platform functions**. On macOS the only C-ABI
 symmetric/AEAD/EdDSA entry points are deprecated or Swift-only, so a software
-core is both the portable and the non-deprecated choice. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]]
+core is both the portable and the non-deprecated choice. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]]
 
 Two categories bind the platform instead of computing in source:
 

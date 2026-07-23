@@ -29,7 +29,7 @@ IMPORT crypto
 by NIST SP 800-38D. It recomputes the authentication tag over the `ciphertext`
 and the additional authenticated data, compares that tag against the supplied
 `tag` in constant time, and returns the recovered plaintext only if they match.
-[[src/builtins/crypto_package.mfb:__crypto_aes256GcmOpen]]
+[[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]]
 
 The function fails closed. On any tag mismatch it raises
 `ErrAuthenticationFailed` and returns no plaintext at all — not a partial or
@@ -37,11 +37,11 @@ unverified decryption. The tag is compared with `crypto::constantTimeEqual`, so
 the check is content-independent in time and does not leak how much of the tag
 matched. A mismatch means the `ciphertext`, `tag`, `nonce`, or `aad` was
 altered, truncated, or does not belong to this key; the message must be
-rejected. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmOpen]]
+rejected. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]]
 
 `key` must be exactly 32 bytes (a 256-bit key) and `nonce` must be exactly 12
 bytes (the standard 96-bit GCM nonce); any other length raises
-`ErrInvalidArgument`. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmOpen]]
+`ErrInvalidArgument`. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]]
 To open successfully, `key`, `nonce`, `ciphertext`, `tag`, and `aad` must all be
 identical to those from the sealing call: the `aad` is authenticated but not
 carried in the ciphertext, so the same `aad` must be supplied here. `aad`
@@ -70,8 +70,8 @@ or verification fails. [[src/builtins/crypto.rs:call_param_names]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `key` | `List OF Byte` | The 256-bit AES key. Must be exactly 32 bytes and identical to the sealing key. This value is secret. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmOpen]] |
-| `nonce` | `List OF Byte` | The 96-bit GCM nonce. Must be exactly 12 bytes and identical to the nonce used to seal the message. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmOpen]] |
+| `key` | `List OF Byte` | The 256-bit AES key. Must be exactly 32 bytes and identical to the sealing key. This value is secret. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]] |
+| `nonce` | `List OF Byte` | The 96-bit GCM nonce. Must be exactly 12 bytes and identical to the nonce used to seal the message. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]] |
 | `ciphertext` | `List OF Byte` | The encrypted bytes, from `crypto::Sealed.ciphertext`. May be empty. |
 | `tag` | `List OF Byte` | The 16-byte authentication tag, from `crypto::Sealed.tag`. |
 | `aad` | `List OF Byte` | Optional additional authenticated data. Must be identical to the `aad` passed when sealing. Defaults to the empty list. [[src/builtins/crypto.rs:default_argument_padding]] |
@@ -80,14 +80,14 @@ or verification fails. [[src/builtins/crypto.rs:call_param_names]]
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The recovered plaintext, the same length as the original message, returned only when the tag verifies. An empty message recovers an empty list. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmOpen]] |
+| `List OF Byte` | The recovered plaintext, the same length as the original message, returned only when the tag verifies. An empty message recovers an empty list. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050016` | `ErrAuthenticationFailed` | The authentication tag does not verify — the `ciphertext`, `tag`, `nonce`, or `aad` was altered or does not belong to this key. No plaintext is returned. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmOpen]] [[src/target/shared/code/error_constants.rs:176]] |
-| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmOpen]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050016` | `ErrAuthenticationFailed` | The authentication tag does not verify — the `ciphertext`, `tag`, `nonce`, or `aad` was altered or does not belong to this key. No plaintext is returned. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]] [[src/target/shared/code/error_constants.rs:176]] |
+| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmOpen]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 
 ## Examples
 

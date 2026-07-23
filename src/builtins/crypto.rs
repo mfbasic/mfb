@@ -377,10 +377,21 @@ pub(crate) fn implementation_name(name: &str, arg_types: &[String]) -> Option<St
 }
 
 pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+    // The crypto companion is authored across five topic sources concatenated in
+    // declaration order (MFBASIC resolution is order-sensitive). The join is
+    // byte-exact — each file holds a contiguous line range of the former single
+    // `crypto_package.mfb`, so the parsed source is identical (bug-327 T1-4).
+    let source = concat!(
+        include_str!("crypto_hash.mfb"),
+        include_str!("crypto_aead.mfb"),
+        include_str!("crypto_util.mfb"),
+        include_str!("crypto_ed25519.mfb"),
+        include_str!("crypto_ecdsa.mfb"),
+    );
     crate::ast::parse_source_internal(
         Path::new("<builtin-crypto>"),
         "builtins/crypto.mfb",
-        include_str!("crypto_package.mfb"),
+        source,
     )
 }
 

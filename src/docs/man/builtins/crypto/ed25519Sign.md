@@ -28,14 +28,14 @@ IMPORT crypto
 fixed 64-byte signature returned as a `List OF Byte`, the concatenation of the
 32-byte `R` point and the 32-byte `S` scalar. Verify it later with
 `crypto::ed25519Verify` given the matching public key.
-[[src/builtins/crypto_package.mfb:__crypto_ed25519Sign]]
+[[src/builtins/crypto_ecdsa.mfb:__crypto_ed25519Sign]]
 
 `privateKey` is the 32-byte Ed25519 secret seed — exactly the `privateKey` field
 returned by `crypto::generateEd25519`. The public key, nonce prefix, and signing
 scalar are all derived from this seed by SHA-512, so no separate public key is
 passed in. `message` is the raw bytes to sign; Ed25519 is a PureEdDSA scheme, so
 the whole message is signed directly with no pre-hashing required from the
-caller. [[src/builtins/crypto_package.mfb:__crypto_ed25519Sign]]
+caller. [[src/builtins/crypto_ecdsa.mfb:__crypto_ed25519Sign]]
 
 Ed25519 signing is deterministic: the per-signature nonce is derived from the
 key and the message rather than from randomness, so signing the same
@@ -54,20 +54,20 @@ stringify its bytes with `encoding::hexEncode` (lowercase hex) or
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `privateKey` | `List OF Byte` | The 32-byte Ed25519 secret seed (the `privateKey` field of a `crypto::generateEd25519` key pair). Must be exactly 32 bytes. [[src/builtins/crypto_package.mfb:__crypto_ed25519Sign]] |
+| `privateKey` | `List OF Byte` | The 32-byte Ed25519 secret seed (the `privateKey` field of a `crypto::generateEd25519` key pair). Must be exactly 32 bytes. [[src/builtins/crypto_ecdsa.mfb:__crypto_ed25519Sign]] |
 | `message` | `List OF Byte` | The raw bytes to sign. Any length, signed directly without pre-hashing. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | The 64-byte Ed25519 signature: the 32-byte `R` point followed by the 32-byte `S` scalar. [[src/builtins/crypto_package.mfb:__crypto_ed25519Sign]] |
+| `List OF Byte` | The 64-byte Ed25519 signature: the 32-byte `R` point followed by the 32-byte `S` scalar. [[src/builtins/crypto_ecdsa.mfb:__crypto_ed25519Sign]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `privateKey` is not exactly 32 bytes long. [[src/builtins/crypto_package.mfb:__crypto_ed25519Sign]] |
+| `77050002` | `ErrInvalidArgument` | `privateKey` is not exactly 32 bytes long. [[src/builtins/crypto_ecdsa.mfb:__crypto_ed25519Sign]] |
 
 ## Examples
 

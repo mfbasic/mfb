@@ -30,11 +30,11 @@ Galois/Counter Mode (GCM), as specified by NIST SP 800-38D. It returns a
 and a 16-byte authentication tag that binds the ciphertext together with any
 additional authenticated data. The tag is later checked by
 `crypto::aes256GcmOpen`, which fails closed on any mismatch.
-[[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]]
+[[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]]
 
 `key` must be exactly 32 bytes (a 256-bit key) and `nonce` must be exactly 12
 bytes (the standard 96-bit GCM nonce); any other length raises
-`ErrInvalidArgument`. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]]
+`ErrInvalidArgument`. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]]
 The optional `aad` (additional authenticated data) is authenticated but not
 encrypted: it is covered by the tag yet absent from the ciphertext, so a receiver
 must supply the identical `aad` to `crypto::aes256GcmOpen`. `aad` defaults to the
@@ -70,8 +70,8 @@ succeed. [[src/builtins/crypto.rs:call_param_names]]
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `key` | `List OF Byte` | The 256-bit AES key. Must be exactly 32 bytes. This value is secret. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] |
-| `nonce` | `List OF Byte` | The 96-bit GCM nonce. Must be exactly 12 bytes and unique for every message encrypted under a given key. Not secret; normally transmitted with the ciphertext. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] |
+| `key` | `List OF Byte` | The 256-bit AES key. Must be exactly 32 bytes. This value is secret. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]] |
+| `nonce` | `List OF Byte` | The 96-bit GCM nonce. Must be exactly 12 bytes and unique for every message encrypted under a given key. Not secret; normally transmitted with the ciphertext. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]] |
 | `plaintext` | `List OF Byte` | The message bytes to encrypt. May be empty. |
 | `aad` | `List OF Byte` | Optional additional authenticated data: authenticated but not encrypted. Defaults to the empty list. The same `aad` must be passed to `crypto::aes256GcmOpen`. [[src/builtins/crypto.rs:default_argument_padding]] |
 
@@ -79,13 +79,13 @@ succeed. [[src/builtins/crypto.rs:call_param_names]]
 
 | Type | Description |
 | --- | --- |
-| `crypto::Sealed` | A record with two fields: `ciphertext` (a `List OF Byte` the same length as `plaintext`) and `tag` (the 16-byte authentication tag). [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] |
+| `crypto::Sealed` | A record with two fields: `ciphertext` (a `List OF Byte` the same length as `plaintext`) and `tag` (the 16-byte authentication tag). [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_aead.mfb:__crypto_aes256GcmSeal]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 
 ## Examples
 

@@ -1,0 +1,129 @@
+' --- NIST EC key generation --------------------------------------------------
+' The platform key API (SecKey/EVP_PKEY) is reached through the native raw
+' keygen helper, which returns the private bytes as `0x04||X||Y||K`. The public
+' key is the leading SEC1 uncompressed point `0x04||X||Y` (1 + 2*fieldLen bytes:
+' 65 for P-256, 97 for P-384, 133 for P-521). Both encodings are wire-compatible
+' across macOS and Linux.
+FUNC __crypto_bytePrefix(data AS List OF Byte, n AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, collections::get(data, i))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC __crypto_generateP256() AS KeyPair
+  LET priv AS List OF Byte = crypto::generateP256Raw()
+  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 65)
+  RETURN KeyPair[priv, pub]
+END FUNC
+
+FUNC __crypto_generateP384() AS KeyPair
+  LET priv AS List OF Byte = crypto::generateP384Raw()
+  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 97)
+  RETURN KeyPair[priv, pub]
+END FUNC
+
+FUNC __crypto_generateP521() AS KeyPair
+  LET priv AS List OF Byte = crypto::generateP521Raw()
+  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 133)
+  RETURN KeyPair[priv, pub]
+END FUNC
+
+FUNC __crypto_ed25519Sign(privateKey AS List OF Byte, message AS List OF Byte) AS List OF Byte
+  IF len(privateKey) <> 32 THEN
+    FAIL error(77050002, "ed25519 private key must be 32 bytes")
+  END IF
+  LET d AS List OF Byte = __crypto_sha512_bytes(privateKey)
+  LET a AS List OF Byte = __crypto_clampScalar(__crypto_truncate(d, 32))
+  LET prefix AS List OF Byte = __crypto_slice(d, 32, 64)
+  LET pub AS List OF Byte = __crypto_ed25519Public(privateKey)
+  LET rInput AS List OF Byte = __crypto_concat(prefix, message)
+  LET r AS List OF Byte = __crypto_reduce(__crypto_sha512_bytes(rInput))
+  LET rPoint AS List OF Integer = __crypto_scalarbase(r)
+  LET bigR AS List OF Byte = __crypto_packPoint(rPoint)
+  MUT hInput AS List OF Byte = __crypto_concat(bigR, pub)
+  hInput = __crypto_concat(hInput, message)
+  LET h AS List OF Byte = __crypto_reduce(__crypto_sha512_bytes(hInput))
+  MUT x AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 64
+    IF i < 32 THEN
+      x = collections::append(x, toInt(collections::get(r, i)))
+    ELSE
+      x = collections::append(x, 0)
+    END IF
+    i = i + 1
+  END WHILE
+  i = 0
+  WHILE i < 32
+    MUT j AS Integer = 0
+    WHILE j < 32
+      LET idx AS Integer = i + j
+      LET add AS Integer = toInt(collections::get(h, i)) * toInt(collections::get(a, j))
+      x = collections::set(x, idx, collections::get(x, idx) + add)
+      j = j + 1
+    END WHILE
+    i = i + 1
+  END WHILE
+  LET bigS AS List OF Byte = __crypto_modL(x)
+  RETURN __crypto_concat(bigR, bigS)
+END FUNC
+
+' bug-269 / CRY-02: TRUE iff the 32-byte little-endian scalar `s` is strictly less
+' than the group order L. Ed25519 signatures whose S component is >= L are
+' non-canonical and malleable — a third party can transform a valid signature into
+' a distinct still-verifying one over the same message without the key. Rejecting
+' S >= L keeps the signature bytes a stable identity (safe as a dedup/replay key).
+FUNC __crypto_scalarBelowL(s AS List OF Byte) AS Boolean
+  LET order AS List OF Integer = __crypto_edL()
+  MUT i AS Integer = 31
+  WHILE i >= 0
+    LET si AS Integer = toInt(collections::get(s, i))
+    LET li AS Integer = collections::get(order, i)
+    IF si < li THEN
+      RETURN TRUE
+    END IF
+    IF si > li THEN
+      RETURN FALSE
+    END IF
+    i = i - 1
+  END WHILE
+  RETURN FALSE
+END FUNC
+
+FUNC __crypto_ed25519Verify(publicKey AS List OF Byte, message AS List OF Byte, signature AS List OF Byte) AS Boolean
+  IF len(publicKey) <> 32 THEN
+    RETURN FALSE
+  END IF
+  IF len(signature) <> 64 THEN
+    RETURN FALSE
+  END IF
+  LET negRes AS List OF Integer = __crypto_unpackneg(publicKey)
+  IF collections::get(negRes, 0) = 0 THEN
+    RETURN FALSE
+  END IF
+  MUT q AS List OF Integer = []
+  MUT i AS Integer = 1
+  WHILE i < 65
+    q = collections::append(q, collections::get(negRes, i))
+    i = i + 1
+  END WHILE
+  LET bigR AS List OF Byte = __crypto_truncate(signature, 32)
+  LET bigS AS List OF Byte = __crypto_slice(signature, 32, 64)
+  ' bug-269 / CRY-02: reject a non-canonical S (S >= L) before verifying, so a
+  ' malleated signature cannot verify against the same message.
+  IF __crypto_scalarBelowL(bigS) = FALSE THEN
+    RETURN FALSE
+  END IF
+  MUT hInput AS List OF Byte = __crypto_concat(bigR, publicKey)
+  hInput = __crypto_concat(hInput, message)
+  LET h AS List OF Byte = __crypto_reduce(__crypto_sha512_bytes(hInput))
+  LET pMul AS List OF Integer = __crypto_scalarmult(q, h)
+  LET qMul AS List OF Integer = __crypto_scalarbase(bigS)
+  LET pSum AS List OF Integer = __crypto_edAdd(pMul, qMul)
+  LET tCheck AS List OF Byte = __crypto_packPoint(pSum)
+  RETURN __crypto_constantTimeEqual(bigR, tCheck)
+END FUNC

@@ -32,7 +32,7 @@ RFC 2104. It returns a fixed 64-byte (512-bit) MAC as a `List OF Byte`.
 Keys of any length are accepted. Per RFC 2104, a key longer than the 128-byte
 SHA-512 block size is first hashed down to 64 bytes, and any key shorter than
 the block size is right-padded with zero bytes to 128 bytes before the inner and
-outer passes. [[src/builtins/crypto_package.mfb:__crypto_hmacSha512_bytes]]
+outer passes. [[src/builtins/crypto_hash.mfb:__crypto_hmacSha512_bytes]]
 
 The MAC is a deterministic function of `key` and `data` alone: the same key and
 message always produce the same 64 bytes, with no salting or randomness. The

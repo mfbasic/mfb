@@ -30,12 +30,12 @@ accumulates the difference of every byte position and only then reports the
 result, so an attacker cannot learn how many leading bytes matched by measuring
 how long the comparison took. This is the correct way to compare secrets such
 as message authentication codes, password hashes, and tokens.
-[[src/builtins/crypto_package.mfb:__crypto_constantTimeEqual]]
+[[src/builtins/crypto_util.mfb:__crypto_constantTimeEqual]]
 
 The comparison works by folding `a[i] XOR b[i]` into a running OR accumulator
 across all `i`; the result is `TRUE` exactly when that accumulator is zero,
 meaning no byte differed. Every byte position is always examined.
-[[src/builtins/crypto_package.mfb:__crypto_constantTimeEqual]]
+[[src/builtins/crypto_util.mfb:__crypto_constantTimeEqual]]
 
 **What is and is not secret.** Only the byte contents are protected. The lengths
 of the inputs are not treated as secret. A length difference is folded into the
@@ -44,7 +44,7 @@ comparison does not branch on length (in)equality; the per-byte loop still runs
 over the shared prefix, so the running time may reveal the (min) length. When
 comparing values that should be a fixed size (for example a 32-byte HMAC tag), the
 byte contents of same-length inputs are what stays constant-time (bug-269 /
-CRY-03). [[src/builtins/crypto_package.mfb:__crypto_constantTimeEqual]]
+CRY-03). [[src/builtins/crypto_util.mfb:__crypto_constantTimeEqual]]
 
 The function is **total** — every combination of inputs, including two empty
 lists (which compare equal), yields a Boolean and it never raises an error. Its

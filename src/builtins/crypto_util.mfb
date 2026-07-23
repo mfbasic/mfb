@@ -1,0 +1,114 @@
+' --- constant-time comparison ---------------------------------------------
+
+' Compare `a` and `b` in time independent of their contents (length is not
+' secret). Accumulate the XOR of every byte with no early exit.
+FUNC __crypto_constantTimeEqual(a AS List OF Byte, b AS List OF Byte) AS Boolean
+  ' bug-269 / CRY-03: fold the length comparison into the accumulated `diff`
+  ' instead of returning early on a length mismatch, so the total time does not
+  ' branch on length (in)equality. A length difference seeds `diff` non-zero, and
+  ' the per-byte compare over the shared prefix stays constant-time (bor/bxor into
+  ' `diff`). The remaining loop count (min length) is inherent and standard.
+  LET na AS Integer = len(a)
+  LET nb AS Integer = len(b)
+  MUT diff AS Integer = bits::bxor(na, nb)
+  MUT n AS Integer = na
+  IF nb < na THEN
+    n = nb
+  END IF
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET x AS Integer = toInt(collections::get(a, i))
+    LET y AS Integer = toInt(collections::get(b, i))
+    diff = bits::bor(diff, bits::bxor(x, y))
+    i = i + 1
+  END WHILE
+  RETURN diff = 0
+END FUNC
+
+' --- CSPRNG source glue (randomInt, uuid4) ---------------------------------
+
+' A uniform 62-bit value from `crypto::randomBytes` (7 full bytes + 6 bits).
+' Bounded below 2^62 so it stays a non-negative `Integer`.
+FUNC __crypto_rand62() AS Integer
+  LET rb AS List OF Byte = crypto::randomBytes(8)
+  MUT v AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 7
+    v = v * 256 + toInt(collections::get(rb, i))
+    i = i + 1
+  END WHILE
+  LET top AS Integer = bits::band(toInt(collections::get(rb, 7)), 63)
+  RETURN v + top * 72057594037927936
+END FUNC
+
+' A uniform 63-bit value from `crypto::randomBytes` (7 full bytes + 7 bits).
+' Bounded below 2^63 so it stays a non-negative `Integer`. Used only for the wide
+' ranges `__crypto_rand62` cannot cover (bug-305).
+FUNC __crypto_rand63() AS Integer
+  LET rb AS List OF Byte = crypto::randomBytes(8)
+  MUT v AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 7
+    v = v * 256 + toInt(collections::get(rb, i))
+    i = i + 1
+  END WHILE
+  LET top AS Integer = bits::band(toInt(collections::get(rb, 7)), 127)
+  RETURN v + top * 72057594037927936
+END FUNC
+
+' Uniform, unbiased integer in the inclusive range [min, max] (rejection sampled).
+FUNC __crypto_randomInt(min AS Integer, max AS Integer) AS Integer
+  IF min > max THEN
+    FAIL error(77050002, "randomInt min > max")
+  END IF
+  IF min = max THEN
+    RETURN min
+  END IF
+  LET span AS Integer = max - min
+  LET range AS Integer = span + 1
+  IF range <= 0 THEN
+    FAIL error(77050002, "randomInt range too large")
+  END IF
+  LET maxVal AS Integer = 4611686018427387904
+  ' bug-305: when `range > maxVal` (2^62), `maxVal MOD range` is `maxVal`, so
+  ' `limit` was 0 and `WHILE v >= limit` never terminated -- `v` is always >= 0.
+  ' The `range <= 0` guard above only catches i64 overflow, not the band
+  ' (2^62, 2^63-1]. Such a range needs more entropy than a 62-bit draw provides,
+  ' so draw 63 bits instead.
+  '
+  ' For any `range` in that band, floor(2^63 / range) is exactly 1 (since
+  ' 2*range > 2^63 >= range), so the rejection limit IS `range` and the accepted
+  ' draw needs no modulo -- which also avoids naming 2^63, a value an Integer
+  ' cannot hold.
+  IF range > maxVal THEN
+    MUT wide AS Integer = __crypto_rand63()
+    WHILE wide >= range
+      wide = __crypto_rand63()
+    END WHILE
+    RETURN min + wide
+  END IF
+  LET limit AS Integer = maxVal - (maxVal MOD range)
+  MUT v AS Integer = __crypto_rand62()
+  WHILE v >= limit
+    v = __crypto_rand62()
+  END WHILE
+  RETURN min + (v MOD range)
+END FUNC
+
+' A random (version-4) UUID in canonical lowercase 8-4-4-4-12 form (RFC 4122).
+FUNC __crypto_uuid4() AS String
+  LET rb AS List OF Byte = crypto::randomBytes(16)
+  MUT bytes AS List OF Byte = rb
+  LET b6 AS Integer = bits::bor(bits::band(toInt(collections::get(rb, 6)), 15), 64)
+  LET b8 AS Integer = bits::bor(bits::band(toInt(collections::get(rb, 8)), 63), 128)
+  bytes = collections::set(bytes, 6, toByte(b6))
+  bytes = collections::set(bytes, 8, toByte(b8))
+  LET hex AS String = encoding::hexEncode(bytes)
+  LET p1 AS String = strings::mid(hex, 0, 8)
+  LET p2 AS String = strings::mid(hex, 8, 4)
+  LET p3 AS String = strings::mid(hex, 12, 4)
+  LET p4 AS String = strings::mid(hex, 16, 4)
+  LET p5 AS String = strings::mid(hex, 20, 12)
+  RETURN p1 & "-" & p2 & "-" & p3 & "-" & p4 & "-" & p5
+END FUNC
+

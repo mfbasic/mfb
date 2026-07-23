@@ -32,7 +32,7 @@ A version-4 UUID is 122 bits of randomness with the 4-bit version field fixed to
 `4` and the 2-bit variant field fixed to the RFC 4122 variant, exactly as the
 standard prescribes. Internally `uuid4` draws 16 random bytes, forces the version
 nibble of byte 6 and the variant bits of byte 8, hex-encodes the 16 bytes, and
-splits the digits into the five hyphenated groups. [[src/builtins/crypto_package.mfb:__crypto_uuid4]]
+splits the digits into the five hyphenated groups. [[src/builtins/crypto_util.mfb:__crypto_uuid4]]
 
 The random bytes come from the same OS CSPRNG as `crypto::randomBytes`
 (`getentropy` on both macOS and Linux), so the identifiers are cryptographically

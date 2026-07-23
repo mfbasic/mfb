@@ -1,0 +1,697 @@
+' --- little-endian helpers (ChaCha20, Poly1305) ----------------------------
+
+' The little-endian 32-bit word at byte offset `o` of `data`.
+FUNC __crypto_leWord(data AS List OF Byte, o AS Integer) AS Integer
+  LET b0 AS Integer = toInt(collections::get(data, o))
+  LET b1 AS Integer = toInt(collections::get(data, o + 1))
+  LET b2 AS Integer = toInt(collections::get(data, o + 2))
+  LET b3 AS Integer = toInt(collections::get(data, o + 3))
+  LET w1 AS Integer = bits::sl(b1, 8)
+  LET w2 AS Integer = bits::sl(b2, 16)
+  LET w3 AS Integer = bits::sl(b3, 24)
+  LET lo AS Integer = bits::bor(b0, w1)
+  LET hi AS Integer = bits::bor(w2, w3)
+  RETURN bits::bor(lo, hi)
+END FUNC
+
+' Append the 32-bit word `w` to `out` as four little-endian bytes.
+FUNC __crypto_appendLeWord(out AS List OF Byte, w AS Integer) AS List OF Byte
+  MUT result AS List OF Byte = out
+  result = collections::append(result, toByte(bits::band(w, 255)))
+  result = collections::append(result, toByte(bits::band(bits::sr(w, 8), 255)))
+  result = collections::append(result, toByte(bits::band(bits::sr(w, 16), 255)))
+  result = collections::append(result, toByte(bits::band(bits::sr(w, 24), 255)))
+  RETURN result
+END FUNC
+
+' --- ChaCha20 (RFC 8439) ---------------------------------------------------
+
+' One ChaCha20 quarter-round on state words a,b,c,d, mutating `s` in place.
+FUNC __crypto_chachaQr(s AS List OF Integer, ai AS Integer, bi AS Integer, ci AS Integer, di AS Integer) AS List OF Integer
+  MUT st AS List OF Integer = s
+  MUT a AS Integer = collections::get(st, ai)
+  MUT b AS Integer = collections::get(st, bi)
+  MUT c AS Integer = collections::get(st, ci)
+  MUT d AS Integer = collections::get(st, di)
+  a = __crypto_add32(a, b)
+  d = bits::rl32(bits::bxor(d, a), 16)
+  c = __crypto_add32(c, d)
+  b = bits::rl32(bits::bxor(b, c), 12)
+  a = __crypto_add32(a, b)
+  d = bits::rl32(bits::bxor(d, a), 8)
+  c = __crypto_add32(c, d)
+  b = bits::rl32(bits::bxor(b, c), 7)
+  st = collections::set(st, ai, a)
+  st = collections::set(st, bi, b)
+  st = collections::set(st, ci, c)
+  st = collections::set(st, di, d)
+  RETURN st
+END FUNC
+
+' Build the 16-word ChaCha20 state for `key` (32 bytes), `nonce` (12 bytes),
+' block `counter`.
+FUNC __crypto_chachaState(key AS List OF Byte, nonce AS List OF Byte, counter AS Integer) AS List OF Integer
+  MUT s AS List OF Integer = []
+  s = collections::append(s, 1634760805)
+  s = collections::append(s, 857760878)
+  s = collections::append(s, 2036477234)
+  s = collections::append(s, 1797285236)
+  MUT i AS Integer = 0
+  WHILE i < 8
+    s = collections::append(s, __crypto_leWord(key, i * 4))
+    i = i + 1
+  END WHILE
+  s = collections::append(s, bits::band(counter, 4294967295))
+  s = collections::append(s, __crypto_leWord(nonce, 0))
+  s = collections::append(s, __crypto_leWord(nonce, 4))
+  s = collections::append(s, __crypto_leWord(nonce, 8))
+  RETURN s
+END FUNC
+
+' The 64-byte ChaCha20 keystream block for `counter`.
+FUNC __crypto_chachaBlock(key AS List OF Byte, nonce AS List OF Byte, counter AS Integer) AS List OF Byte
+  LET init AS List OF Integer = __crypto_chachaState(key, nonce, counter)
+  MUT s AS List OF Integer = __crypto_chachaState(key, nonce, counter)
+  MUT r AS Integer = 0
+  WHILE r < 10
+    s = __crypto_chachaQr(s, 0, 4, 8, 12)
+    s = __crypto_chachaQr(s, 1, 5, 9, 13)
+    s = __crypto_chachaQr(s, 2, 6, 10, 14)
+    s = __crypto_chachaQr(s, 3, 7, 11, 15)
+    s = __crypto_chachaQr(s, 0, 5, 10, 15)
+    s = __crypto_chachaQr(s, 1, 6, 11, 12)
+    s = __crypto_chachaQr(s, 2, 7, 8, 13)
+    s = __crypto_chachaQr(s, 3, 4, 9, 14)
+    r = r + 1
+  END WHILE
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < 16
+    LET word AS Integer = __crypto_add32(collections::get(s, i), collections::get(init, i))
+    out = __crypto_appendLeWord(out, word)
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' ChaCha20 stream: XOR `data` with the keystream starting at `counter`.
+FUNC __crypto_chacha20(key AS List OF Byte, nonce AS List OF Byte, counter AS Integer, data AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = []
+  LET n AS Integer = len(data)
+  MUT offset AS Integer = 0
+  MUT block AS Integer = counter
+  WHILE offset < n
+    LET ks AS List OF Byte = __crypto_chachaBlock(key, nonce, block)
+    MUT j AS Integer = 0
+    WHILE j < 64 AND (offset + j) < n
+      LET p AS Integer = toInt(collections::get(data, offset + j))
+      LET k AS Integer = toInt(collections::get(ks, j))
+      out = collections::append(out, toByte(bits::bxor(p, k)))
+      j = j + 1
+    END WHILE
+    offset = offset + 64
+    block = block + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' --- Poly1305 (RFC 8439), poly1305-donna 5x26-bit limbs --------------------
+
+' Clamp the 16-byte `r` half of the one-time key into five 26-bit limbs.
+FUNC __crypto_polyR(key AS List OF Byte) AS List OF Integer
+  LET t0 AS Integer = __crypto_leWord(key, 0)
+  LET t1 AS Integer = __crypto_leWord(key, 4)
+  LET t2 AS Integer = __crypto_leWord(key, 8)
+  LET t3 AS Integer = __crypto_leWord(key, 12)
+  MUT r AS List OF Integer = []
+  LET r0 AS Integer = bits::band(t0, 67108863)
+  LET a1 AS Integer = bits::bor(bits::sr(t0, 26), bits::sl(t1, 6))
+  LET r1 AS Integer = bits::band(a1, 67108611)
+  LET a2 AS Integer = bits::bor(bits::sr(t1, 20), bits::sl(t2, 12))
+  LET r2 AS Integer = bits::band(a2, 67092735)
+  LET a3 AS Integer = bits::bor(bits::sr(t2, 14), bits::sl(t3, 18))
+  LET r3 AS Integer = bits::band(a3, 66076671)
+  LET r4 AS Integer = bits::band(bits::sr(t3, 8), 1048575)
+  r = collections::append(r, r0)
+  r = collections::append(r, r1)
+  r = collections::append(r, r2)
+  r = collections::append(r, r3)
+  r = collections::append(r, r4)
+  RETURN r
+END FUNC
+
+' Poly1305 MAC of `msg` under one-time `key` (32 bytes): 16-byte tag.
+FUNC __crypto_poly1305(key AS List OF Byte, msg AS List OF Byte) AS List OF Byte
+  LET r AS List OF Integer = __crypto_polyR(key)
+  LET r0 AS Integer = collections::get(r, 0)
+  LET r1 AS Integer = collections::get(r, 1)
+  LET r2 AS Integer = collections::get(r, 2)
+  LET r3 AS Integer = collections::get(r, 3)
+  LET r4 AS Integer = collections::get(r, 4)
+  LET s1 AS Integer = r1 * 5
+  LET s2 AS Integer = r2 * 5
+  LET s3 AS Integer = r3 * 5
+  LET s4 AS Integer = r4 * 5
+  MUT h0 AS Integer = 0
+  MUT h1 AS Integer = 0
+  MUT h2 AS Integer = 0
+  MUT h3 AS Integer = 0
+  MUT h4 AS Integer = 0
+  LET n AS Integer = len(msg)
+  MUT offset AS Integer = 0
+  WHILE offset < n
+    LET remaining AS Integer = n - offset
+    MUT take AS Integer = 16
+    IF remaining < 16 THEN
+      take = remaining
+    END IF
+    ' Assemble the (up to) 16-byte block with the 1-bit high terminator.
+    MUT block AS List OF Byte = []
+    MUT bi AS Integer = 0
+    WHILE bi < take
+      block = collections::append(block, collections::get(msg, offset + bi))
+      bi = bi + 1
+    END WHILE
+    MUT hibit AS Integer = 16777216
+    IF take < 16 THEN
+      block = collections::append(block, toByte(1))
+      WHILE len(block) < 16
+        block = collections::append(block, toByte(0))
+      END WHILE
+      hibit = 0
+    END IF
+    LET t0 AS Integer = __crypto_leWord(block, 0)
+    LET t1 AS Integer = __crypto_leWord(block, 4)
+    LET t2 AS Integer = __crypto_leWord(block, 8)
+    LET t3 AS Integer = __crypto_leWord(block, 12)
+    h0 = h0 + bits::band(t0, 67108863)
+    h1 = h1 + bits::band(bits::bor(bits::sr(t0, 26), bits::sl(t1, 6)), 67108863)
+    h2 = h2 + bits::band(bits::bor(bits::sr(t1, 20), bits::sl(t2, 12)), 67108863)
+    h3 = h3 + bits::band(bits::bor(bits::sr(t2, 14), bits::sl(t3, 18)), 67108863)
+    h4 = h4 + bits::bor(bits::sr(t3, 8), hibit)
+    ' d = h * r  (schoolbook, with s_i = 5*r_i for the reduction wrap).
+    LET d0 AS Integer = h0 * r0 + h1 * s4 + h2 * s3 + h3 * s2 + h4 * s1
+    LET d1 AS Integer = h0 * r1 + h1 * r0 + h2 * s4 + h3 * s3 + h4 * s2
+    LET d2 AS Integer = h0 * r2 + h1 * r1 + h2 * r0 + h3 * s4 + h4 * s3
+    LET d3 AS Integer = h0 * r3 + h1 * r2 + h2 * r1 + h3 * r0 + h4 * s4
+    LET d4 AS Integer = h0 * r4 + h1 * r3 + h2 * r2 + h3 * r1 + h4 * r0
+    ' Carry-propagate the five limbs.
+    MUT c AS Integer = bits::sr(d0, 26)
+    h0 = bits::band(d0, 67108863)
+    LET e1 AS Integer = d1 + c
+    c = bits::sr(e1, 26)
+    h1 = bits::band(e1, 67108863)
+    LET e2 AS Integer = d2 + c
+    c = bits::sr(e2, 26)
+    h2 = bits::band(e2, 67108863)
+    LET e3 AS Integer = d3 + c
+    c = bits::sr(e3, 26)
+    h3 = bits::band(e3, 67108863)
+    LET e4 AS Integer = d4 + c
+    c = bits::sr(e4, 26)
+    h4 = bits::band(e4, 67108863)
+    h0 = h0 + c * 5
+    c = bits::sr(h0, 26)
+    h0 = bits::band(h0, 67108863)
+    h1 = h1 + c
+    offset = offset + take
+  END WHILE
+  RETURN __crypto_polyFinish(h0, h1, h2, h3, h4, key)
+END FUNC
+
+' Final reduction of the accumulator and addition of the `s` half of the key.
+FUNC __crypto_polyFinish(ph0 AS Integer, ph1 AS Integer, ph2 AS Integer, ph3 AS Integer, ph4 AS Integer, key AS List OF Byte) AS List OF Byte
+  MUT h0 AS Integer = ph0
+  MUT h1 AS Integer = ph1
+  MUT h2 AS Integer = ph2
+  MUT h3 AS Integer = ph3
+  MUT h4 AS Integer = ph4
+  ' Fully carry h.
+  MUT c AS Integer = bits::sr(h1, 26)
+  h1 = bits::band(h1, 67108863)
+  h2 = h2 + c
+  c = bits::sr(h2, 26)
+  h2 = bits::band(h2, 67108863)
+  h3 = h3 + c
+  c = bits::sr(h3, 26)
+  h3 = bits::band(h3, 67108863)
+  h4 = h4 + c
+  c = bits::sr(h4, 26)
+  h4 = bits::band(h4, 67108863)
+  h0 = h0 + c * 5
+  c = bits::sr(h0, 26)
+  h0 = bits::band(h0, 67108863)
+  h1 = h1 + c
+  ' Compute h + -p (i.e. h - (2^130-5)) and select if h >= p.
+  MUT g0 AS Integer = h0 + 5
+  c = bits::sr(g0, 26)
+  g0 = bits::band(g0, 67108863)
+  MUT g1 AS Integer = h1 + c
+  c = bits::sr(g1, 26)
+  g1 = bits::band(g1, 67108863)
+  MUT g2 AS Integer = h2 + c
+  c = bits::sr(g2, 26)
+  g2 = bits::band(g2, 67108863)
+  MUT g3 AS Integer = h3 + c
+  c = bits::sr(g3, 26)
+  g3 = bits::band(g3, 67108863)
+  MUT g4 AS Integer = h4 + c - 67108864
+  ' mask = (g4 >> 63) ? all-ones-when-negative : select g. If g4 is negative
+  ' (h < p), keep h; else keep g.
+  IF g4 < 0 THEN
+    ' keep h
+    g0 = h0
+    g1 = h1
+    g2 = h2
+    g3 = h3
+    g4 = h4
+  END IF
+  ' Serialize h as four 32-bit little-endian words: pack the 26-bit limbs.
+  LET f0 AS Integer = bits::band(bits::bor(g0, bits::sl(g1, 26)), 4294967295)
+  LET f1 AS Integer = bits::band(bits::bor(bits::sr(g1, 6), bits::sl(g2, 20)), 4294967295)
+  LET f2 AS Integer = bits::band(bits::bor(bits::sr(g2, 12), bits::sl(g3, 14)), 4294967295)
+  LET f3 AS Integer = bits::band(bits::bor(bits::sr(g3, 18), bits::sl(g4, 8)), 4294967295)
+  ' tag = (h + s) mod 2^128, s is key[16..32] as four LE words.
+  LET s0 AS Integer = __crypto_leWord(key, 16)
+  LET s1w AS Integer = __crypto_leWord(key, 20)
+  LET s2w AS Integer = __crypto_leWord(key, 24)
+  LET s3w AS Integer = __crypto_leWord(key, 28)
+  MUT tag AS List OF Byte = []
+  MUT carry AS Integer = 0
+  LET a0 AS Integer = f0 + s0 + carry
+  carry = bits::sr(a0, 32)
+  tag = __crypto_appendLeWord(tag, bits::band(a0, 4294967295))
+  LET a1 AS Integer = f1 + s1w + carry
+  carry = bits::sr(a1, 32)
+  tag = __crypto_appendLeWord(tag, bits::band(a1, 4294967295))
+  LET a2 AS Integer = f2 + s2w + carry
+  carry = bits::sr(a2, 32)
+  tag = __crypto_appendLeWord(tag, bits::band(a2, 4294967295))
+  LET a3 AS Integer = f3 + s3w + carry
+  tag = __crypto_appendLeWord(tag, bits::band(a3, 4294967295))
+  RETURN tag
+END FUNC
+
+' --- ChaCha20-Poly1305 AEAD (RFC 8439) -------------------------------------
+
+' Right-pad `data` to a multiple of 16 bytes with zeros (AEAD MAC padding).
+FUNC __crypto_pad16(data AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = __crypto_copyBytes(data)
+  WHILE (len(out) MOD 16) <> 0
+    out = collections::append(out, toByte(0))
+  END WHILE
+  RETURN out
+END FUNC
+
+' The 8-byte little-endian encoding of `value` (a length, < 2^53).
+FUNC __crypto_le64(value AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT v AS Integer = value
+  MUT i AS Integer = 0
+  WHILE i < 8
+    out = collections::append(out, toByte(bits::band(v, 255)))
+    v = bits::sr(v, 8)
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' The Poly1305 authentication input: aad || pad16 || ct || pad16 || len(aad) || len(ct).
+FUNC __crypto_aeadMacData(aad AS List OF Byte, ciphertext AS List OF Byte) AS List OF Byte
+  MUT macData AS List OF Byte = __crypto_pad16(aad)
+  macData = __crypto_concat(macData, __crypto_pad16(ciphertext))
+  macData = __crypto_concat(macData, __crypto_le64(len(aad)))
+  macData = __crypto_concat(macData, __crypto_le64(len(ciphertext)))
+  RETURN macData
+END FUNC
+
+FUNC __crypto_chacha20Poly1305Seal(key AS List OF Byte, nonce AS List OF Byte, plaintext AS List OF Byte, aad AS List OF Byte) AS Sealed
+  IF len(key) <> 32 THEN
+    FAIL error(77050002, "chacha20poly1305 key must be 32 bytes")
+  END IF
+  IF len(nonce) <> 12 THEN
+    FAIL error(77050002, "chacha20poly1305 nonce must be 12 bytes")
+  END IF
+  LET polyKeyFull AS List OF Byte = __crypto_chachaBlock(key, nonce, 0)
+  LET polyKey AS List OF Byte = __crypto_truncate(polyKeyFull, 32)
+  LET ciphertext AS List OF Byte = __crypto_chacha20(key, nonce, 1, plaintext)
+  LET macData AS List OF Byte = __crypto_aeadMacData(aad, ciphertext)
+  LET tag AS List OF Byte = __crypto_poly1305(polyKey, macData)
+  RETURN Sealed[ciphertext, tag]
+END FUNC
+
+FUNC __crypto_chacha20Poly1305Open(key AS List OF Byte, nonce AS List OF Byte, ciphertext AS List OF Byte, tag AS List OF Byte, aad AS List OF Byte) AS List OF Byte
+  IF len(key) <> 32 THEN
+    FAIL error(77050002, "chacha20poly1305 key must be 32 bytes")
+  END IF
+  IF len(nonce) <> 12 THEN
+    FAIL error(77050002, "chacha20poly1305 nonce must be 12 bytes")
+  END IF
+  LET polyKeyFull AS List OF Byte = __crypto_chachaBlock(key, nonce, 0)
+  LET polyKey AS List OF Byte = __crypto_truncate(polyKeyFull, 32)
+  LET macData AS List OF Byte = __crypto_aeadMacData(aad, ciphertext)
+  LET expected AS List OF Byte = __crypto_poly1305(polyKey, macData)
+  IF __crypto_constantTimeEqual(expected, tag) = FALSE THEN
+    FAIL error(77050016, "chacha20poly1305 authentication failed")
+  END IF
+  RETURN __crypto_chacha20(key, nonce, 1, ciphertext)
+END FUNC
+
+' --- AES-256 block cipher --------------------------------------------------
+
+' The AES S-box (256 bytes), computed once.
+FUNC __crypto_aesSboxTable() AS List OF Byte
+  LET h1 AS String = "637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b275"
+  LET h2 AS String = "09832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cfd0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2c"
+  LET h3 AS String = "d0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdbe0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08ba"
+  LET h4 AS String = "78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9ee1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16"
+  RETURN encoding::hexDecode(h1 & h2 & h3 & h4)
+END FUNC
+
+FUNC __crypto_aesSub(b AS Integer) AS Integer
+  RETURN toInt(collections::get(__CRYPTO_AES_SBOX, bits::band(b, 255)))
+END FUNC
+
+' GF(2^8) multiply-by-2 (xtime) for MixColumns.
+FUNC __crypto_xtime(b AS Integer) AS Integer
+  LET shifted AS Integer = bits::sl(b, 1)
+  IF bits::band(b, 128) <> 0 THEN
+    RETURN bits::band(bits::bxor(shifted, 27), 255)
+  END IF
+  RETURN bits::band(shifted, 255)
+END FUNC
+
+' GF(2^8) multiply of `a` by `b`.
+FUNC __crypto_gmul8(a AS Integer, b AS Integer) AS Integer
+  MUT p AS Integer = 0
+  MUT x AS Integer = a
+  MUT y AS Integer = b
+  MUT i AS Integer = 0
+  WHILE i < 8
+    IF bits::band(y, 1) <> 0 THEN
+      p = bits::bxor(p, x)
+    END IF
+    x = __crypto_xtime(x)
+    y = bits::sr(y, 1)
+    i = i + 1
+  END WHILE
+  RETURN bits::band(p, 255)
+END FUNC
+
+' Expand a 32-byte AES-256 key into 240 round-key bytes (15 round keys).
+FUNC __crypto_aesExpandKey(key AS List OF Byte) AS List OF Byte
+  MUT w AS List OF Byte = __crypto_copyBytes(key)
+  LET rcon AS List OF Byte = encoding::hexDecode("01020408102040")
+  MUT i AS Integer = 32
+  MUT rc AS Integer = 0
+  WHILE i < 240
+    LET t0i AS Integer = i - 4
+    MUT a0 AS Integer = toInt(collections::get(w, t0i))
+    MUT a1 AS Integer = toInt(collections::get(w, t0i + 1))
+    MUT a2 AS Integer = toInt(collections::get(w, t0i + 2))
+    MUT a3 AS Integer = toInt(collections::get(w, t0i + 3))
+    LET pos AS Integer = i / 4
+    IF (pos MOD 8) = 0 THEN
+      ' RotWord then SubWord then XOR Rcon.
+      LET tmp AS Integer = a0
+      a0 = __crypto_aesSub(a1)
+      a1 = __crypto_aesSub(a2)
+      a2 = __crypto_aesSub(a3)
+      a3 = __crypto_aesSub(tmp)
+      a0 = bits::bxor(a0, toInt(collections::get(rcon, rc)))
+      rc = rc + 1
+    ELSE
+      IF (pos MOD 8) = 4 THEN
+        a0 = __crypto_aesSub(a0)
+        a1 = __crypto_aesSub(a1)
+        a2 = __crypto_aesSub(a2)
+        a3 = __crypto_aesSub(a3)
+      END IF
+    END IF
+    LET p0 AS Integer = i - 32
+    w = collections::append(w, toByte(bits::bxor(a0, toInt(collections::get(w, p0)))))
+    w = collections::append(w, toByte(bits::bxor(a1, toInt(collections::get(w, p0 + 1)))))
+    w = collections::append(w, toByte(bits::bxor(a2, toInt(collections::get(w, p0 + 2)))))
+    w = collections::append(w, toByte(bits::bxor(a3, toInt(collections::get(w, p0 + 3)))))
+    i = i + 4
+  END WHILE
+  RETURN w
+END FUNC
+
+' XOR the 16-byte round key at word `round` into `state`.
+FUNC __crypto_aesAddRoundKey(state AS List OF Byte, roundKeys AS List OF Byte, round AS Integer) AS List OF Byte
+  MUT s AS List OF Byte = state
+  LET base AS Integer = round * 16
+  MUT i AS Integer = 0
+  WHILE i < 16
+    LET v AS Integer = bits::bxor(toInt(collections::get(s, i)), toInt(collections::get(roundKeys, base + i)))
+    s = collections::set(s, i, toByte(v))
+    i = i + 1
+  END WHILE
+  RETURN s
+END FUNC
+
+FUNC __crypto_aesSubBytes(state AS List OF Byte) AS List OF Byte
+  MUT s AS List OF Byte = state
+  MUT i AS Integer = 0
+  WHILE i < 16
+    s = collections::set(s, i, toByte(__crypto_aesSub(toInt(collections::get(s, i)))))
+    i = i + 1
+  END WHILE
+  RETURN s
+END FUNC
+
+' ShiftRows on the column-major AES state (byte i is row i%4, col i/4).
+FUNC __crypto_aesShiftRows(state AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = __crypto_copyBytes(state)
+  MUT r AS Integer = 1
+  WHILE r < 4
+    MUT c AS Integer = 0
+    WHILE c < 4
+      LET src AS Integer = ((c + r) MOD 4) * 4 + r
+      out = collections::set(out, c * 4 + r, collections::get(state, src))
+      c = c + 1
+    END WHILE
+    r = r + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC __crypto_aesMixColumns(state AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = __crypto_copyBytes(state)
+  MUT c AS Integer = 0
+  WHILE c < 4
+    LET b AS Integer = c * 4
+    LET s0 AS Integer = toInt(collections::get(state, b))
+    LET s1 AS Integer = toInt(collections::get(state, b + 1))
+    LET s2 AS Integer = toInt(collections::get(state, b + 2))
+    LET s3 AS Integer = toInt(collections::get(state, b + 3))
+    LET m0 AS Integer = bits::bxor(bits::bxor(__crypto_gmul8(s0, 2), __crypto_gmul8(s1, 3)), bits::bxor(s2, s3))
+    LET m1 AS Integer = bits::bxor(bits::bxor(s0, __crypto_gmul8(s1, 2)), bits::bxor(__crypto_gmul8(s2, 3), s3))
+    LET m2 AS Integer = bits::bxor(bits::bxor(s0, s1), bits::bxor(__crypto_gmul8(s2, 2), __crypto_gmul8(s3, 3)))
+    LET m3 AS Integer = bits::bxor(bits::bxor(__crypto_gmul8(s0, 3), s1), bits::bxor(s2, __crypto_gmul8(s3, 2)))
+    out = collections::set(out, b, toByte(m0))
+    out = collections::set(out, b + 1, toByte(m1))
+    out = collections::set(out, b + 2, toByte(m2))
+    out = collections::set(out, b + 3, toByte(m3))
+    c = c + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' AES-256 encrypt the 16-byte `block` under the expanded `roundKeys`.
+FUNC __crypto_aesEncryptBlock(roundKeys AS List OF Byte, block AS List OF Byte) AS List OF Byte
+  MUT s AS List OF Byte = __crypto_copyBytes(block)
+  s = __crypto_aesAddRoundKey(s, roundKeys, 0)
+  MUT round AS Integer = 1
+  WHILE round < 14
+    s = __crypto_aesSubBytes(s)
+    s = __crypto_aesShiftRows(s)
+    s = __crypto_aesMixColumns(s)
+    s = __crypto_aesAddRoundKey(s, roundKeys, round)
+    round = round + 1
+  END WHILE
+  s = __crypto_aesSubBytes(s)
+  s = __crypto_aesShiftRows(s)
+  s = __crypto_aesAddRoundKey(s, roundKeys, 14)
+  RETURN s
+END FUNC
+
+' --- GHASH over GF(2^128), 128-bit values as (hi, lo) 64-bit halves ---------
+
+' Multiply two GF(2^128) elements (each a 16-byte big-endian block).
+FUNC __crypto_ghashMul(xHi AS Integer, xLo AS Integer, yHi AS Integer, yLo AS Integer) AS List OF Integer
+  MUT zHi AS Integer = 0
+  MUT zLo AS Integer = 0
+  MUT vHi AS Integer = yHi
+  MUT vLo AS Integer = yLo
+  MUT i AS Integer = 0
+  WHILE i < 128
+    MUT bit AS Integer = 0
+    IF i < 64 THEN
+      bit = bits::band(bits::sr(xHi, 63 - i), 1)
+    ELSE
+      bit = bits::band(bits::sr(xLo, 127 - i), 1)
+    END IF
+    IF bit <> 0 THEN
+      zHi = bits::bxor(zHi, vHi)
+      zLo = bits::bxor(zLo, vLo)
+    END IF
+    LET lsb AS Integer = bits::band(vLo, 1)
+    ' v = v >> 1 across the 128-bit pair.
+    LET carry AS Integer = bits::sl(bits::band(vHi, 1), 63)
+    vLo = bits::bor(bits::sr(vLo, 1), carry)
+    vHi = bits::sr(vHi, 1)
+    IF lsb <> 0 THEN
+      ' XOR the reduction polynomial R = 0xe1 << 120 into the high half
+      ' (0xe1 in the top byte of the 128-bit value → 0xe1 << 56 in the hi word).
+      vHi = bits::bxor(vHi, bits::sl(225, 56))
+    END IF
+    i = i + 1
+  END WHILE
+  MUT out AS List OF Integer = []
+  out = collections::append(out, zHi)
+  out = collections::append(out, zLo)
+  RETURN out
+END FUNC
+
+' GHASH of `data` (a multiple of 16 bytes) under hash subkey H = (hHi, hLo).
+FUNC __crypto_ghash(hHi AS Integer, hLo AS Integer, data AS List OF Byte) AS List OF Integer
+  MUT yHi AS Integer = 0
+  MUT yLo AS Integer = 0
+  LET n AS Integer = len(data)
+  MUT o AS Integer = 0
+  WHILE o < n
+    LET xHi AS Integer = __crypto_beWord64(data, o)
+    LET xLo AS Integer = __crypto_beWord64(data, o + 8)
+    yHi = bits::bxor(yHi, xHi)
+    yLo = bits::bxor(yLo, xLo)
+    LET prod AS List OF Integer = __crypto_ghashMul(yHi, yLo, hHi, hLo)
+    yHi = collections::get(prod, 0)
+    yLo = collections::get(prod, 1)
+    o = o + 16
+  END WHILE
+  MUT out AS List OF Integer = []
+  out = collections::append(out, yHi)
+  out = collections::append(out, yLo)
+  RETURN out
+END FUNC
+
+' --- AES-256-GCM AEAD (NIST SP 800-38D) ------------------------------------
+
+' The 16-byte counter block J0 for a 96-bit nonce: nonce || 0x00000001.
+FUNC __crypto_gcmJ0(nonce AS List OF Byte) AS List OF Byte
+  MUT j AS List OF Byte = __crypto_copyBytes(nonce)
+  j = collections::append(j, toByte(0))
+  j = collections::append(j, toByte(0))
+  j = collections::append(j, toByte(0))
+  j = collections::append(j, toByte(1))
+  RETURN j
+END FUNC
+
+' Increment the low 32 bits of the 16-byte counter block `ctr` (in place copy).
+FUNC __crypto_gcmInc32(ctr AS List OF Byte) AS List OF Byte
+  MUT c AS List OF Byte = __crypto_copyBytes(ctr)
+  MUT i AS Integer = 15
+  MUT carry AS Integer = 1
+  WHILE i >= 12 AND carry <> 0
+    LET v AS Integer = toInt(collections::get(c, i)) + carry
+    c = collections::set(c, i, toByte(bits::band(v, 255)))
+    carry = bits::sr(v, 8)
+    i = i - 1
+  END WHILE
+  RETURN c
+END FUNC
+
+' GCTR: CTR-mode XOR of `data` with the AES keystream from counter block `ctr`.
+FUNC __crypto_gcmGctr(roundKeys AS List OF Byte, ctr AS List OF Byte, data AS List OF Byte) AS List OF Byte
+  MUT out AS List OF Byte = []
+  LET n AS Integer = len(data)
+  MUT counter AS List OF Byte = __crypto_copyBytes(ctr)
+  MUT offset AS Integer = 0
+  WHILE offset < n
+    LET ks AS List OF Byte = __crypto_aesEncryptBlock(roundKeys, counter)
+    MUT j AS Integer = 0
+    WHILE j < 16 AND (offset + j) < n
+      LET v AS Integer = bits::bxor(toInt(collections::get(data, offset + j)), toInt(collections::get(ks, j)))
+      out = collections::append(out, toByte(v))
+      j = j + 1
+    END WHILE
+    counter = __crypto_gcmInc32(counter)
+    offset = offset + 16
+  END WHILE
+  RETURN out
+END FUNC
+
+' Build the GHASH input: aad || pad16 || ct || pad16 || len(aad)*8 || len(ct)*8.
+FUNC __crypto_gcmGhashData(aad AS List OF Byte, ciphertext AS List OF Byte) AS List OF Byte
+  MUT data AS List OF Byte = __crypto_pad16(aad)
+  data = __crypto_concat(data, __crypto_pad16(ciphertext))
+  data = __crypto_concat(data, __crypto_be64(len(aad) * 8))
+  data = __crypto_concat(data, __crypto_be64(len(ciphertext) * 8))
+  RETURN data
+END FUNC
+
+' The 8-byte big-endian encoding of `value` (a bit length, < 2^53).
+FUNC __crypto_be64(value AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < 8
+    LET shift AS Integer = 56 - i * 8
+    out = collections::append(out, toByte(bits::band(bits::sr(value, shift), 255)))
+    i = i + 1
+  END WHILE
+  RETURN out
+END FUNC
+
+' The 16-byte GCM tag: GHASH(aad,ct) XOR AES(J0).
+FUNC __crypto_gcmTag(roundKeys AS List OF Byte, hHi AS Integer, hLo AS Integer, j0 AS List OF Byte, aad AS List OF Byte, ciphertext AS List OF Byte) AS List OF Byte
+  LET ghashData AS List OF Byte = __crypto_gcmGhashData(aad, ciphertext)
+  LET s AS List OF Integer = __crypto_ghash(hHi, hLo, ghashData)
+  MUT block AS List OF Byte = []
+  block = __crypto_appendBeWord64(block, collections::get(s, 0))
+  block = __crypto_appendBeWord64(block, collections::get(s, 1))
+  LET ej0 AS List OF Byte = __crypto_aesEncryptBlock(roundKeys, j0)
+  RETURN __crypto_xorBytes(block, ej0)
+END FUNC
+
+FUNC __crypto_aes256GcmSeal(key AS List OF Byte, nonce AS List OF Byte, plaintext AS List OF Byte, aad AS List OF Byte) AS Sealed
+  IF len(key) <> 32 THEN
+    FAIL error(77050002, "aes256gcm key must be 32 bytes")
+  END IF
+  IF len(nonce) <> 12 THEN
+    FAIL error(77050002, "aes256gcm nonce must be 12 bytes")
+  END IF
+  LET roundKeys AS List OF Byte = __crypto_aesExpandKey(key)
+  LET zeros AS List OF Byte = __crypto_zeroPad([], 16)
+  LET hBlock AS List OF Byte = __crypto_aesEncryptBlock(roundKeys, zeros)
+  LET hHi AS Integer = __crypto_beWord64(hBlock, 0)
+  LET hLo AS Integer = __crypto_beWord64(hBlock, 8)
+  LET j0 AS List OF Byte = __crypto_gcmJ0(nonce)
+  LET ctr AS List OF Byte = __crypto_gcmInc32(j0)
+  LET ciphertext AS List OF Byte = __crypto_gcmGctr(roundKeys, ctr, plaintext)
+  LET tag AS List OF Byte = __crypto_gcmTag(roundKeys, hHi, hLo, j0, aad, ciphertext)
+  RETURN Sealed[ciphertext, tag]
+END FUNC
+
+FUNC __crypto_aes256GcmOpen(key AS List OF Byte, nonce AS List OF Byte, ciphertext AS List OF Byte, tag AS List OF Byte, aad AS List OF Byte) AS List OF Byte
+  IF len(key) <> 32 THEN
+    FAIL error(77050002, "aes256gcm key must be 32 bytes")
+  END IF
+  IF len(nonce) <> 12 THEN
+    FAIL error(77050002, "aes256gcm nonce must be 12 bytes")
+  END IF
+  LET roundKeys AS List OF Byte = __crypto_aesExpandKey(key)
+  LET zeros AS List OF Byte = __crypto_zeroPad([], 16)
+  LET hBlock AS List OF Byte = __crypto_aesEncryptBlock(roundKeys, zeros)
+  LET hHi AS Integer = __crypto_beWord64(hBlock, 0)
+  LET hLo AS Integer = __crypto_beWord64(hBlock, 8)
+  LET j0 AS List OF Byte = __crypto_gcmJ0(nonce)
+  LET expected AS List OF Byte = __crypto_gcmTag(roundKeys, hHi, hLo, j0, aad, ciphertext)
+  IF __crypto_constantTimeEqual(expected, tag) = FALSE THEN
+    FAIL error(77050016, "aes256gcm authentication failed")
+  END IF
+  LET ctr AS List OF Byte = __crypto_gcmInc32(j0)
+  RETURN __crypto_gcmGctr(roundKeys, ctr, ciphertext)
+END FUNC
+

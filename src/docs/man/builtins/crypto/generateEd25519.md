@@ -26,12 +26,12 @@ IMPORT crypto
 `crypto::generateEd25519` creates a fresh Ed25519 signing key pair for use with
 `crypto::ed25519Sign` and `crypto::ed25519Verify`, following RFC 8032 (PureEdDSA
 over Curve25519). It takes no arguments and returns a `crypto::KeyPair` record
-with two fields: [[src/builtins/crypto_package.mfb:__crypto_generateEd25519]]
+with two fields: [[src/builtins/crypto_ed25519.mfb:__crypto_generateEd25519]]
 
 - `privateKey` — the 32-byte Ed25519 secret seed (`List OF Byte`).
 - `publicKey` — the 32-byte Ed25519 public key (`List OF Byte`), derived from the
   seed by SHA-512, scalar clamping, and scalar-base multiplication.
-  [[src/builtins/crypto_package.mfb:__crypto_ed25519Public]]
+  [[src/builtins/crypto_ed25519.mfb:__crypto_ed25519Public]]
 
 The secret seed is drawn from the OS CSPRNG via `crypto::randomBytes(32)`, so the
 result is random and non-reproducible: every call yields a different key pair.
@@ -40,7 +40,7 @@ bytes yourself. Because the count `32` is fixed and valid, the internal
 `randomBytes` call never fails on a bad argument, but it can still surface an OS
 entropy failure (`ErrUnknown`) or an allocation failure (`ErrOutOfMemory`); the
 public-key derivation allocates its own byte lists and can likewise raise
-`ErrOutOfMemory`. [[src/builtins/crypto_package.mfb:__crypto_generateEd25519]] [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]]
+`ErrOutOfMemory`. [[src/builtins/crypto_ed25519.mfb:__crypto_generateEd25519]] [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]]
 
 Ed25519 is a portable software core, so keys and the algorithm behave identically
 on every target (macOS/Linux, aarch64/x86-64) and use no platform crypto library.
@@ -62,14 +62,14 @@ None.
 
 | Type | Description |
 | --- | --- |
-| `crypto::KeyPair` | A record whose `privateKey` is the 32-byte Ed25519 secret seed and whose `publicKey` is the 32-byte Ed25519 public key. [[src/builtins/crypto_package.mfb:KeyPair]] |
+| `crypto::KeyPair` | A record whose `privateKey` is the 32-byte Ed25519 secret seed and whose `publicKey` is the 32-byte Ed25519 public key. [[src/builtins/crypto_hash.mfb:KeyPair]] |
 
 ## Errors
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050000` | `ErrUnknown` | The OS entropy call (`getentropy`) fails while drawing the 32-byte seed via `crypto::randomBytes(32)`. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] [[src/builtins/crypto_package.mfb:__crypto_generateEd25519]] |
-| `77010001` | `ErrOutOfMemory` | An arena allocation fails — either for the random seed bytes or for a byte list built while deriving the public key. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] [[src/builtins/crypto_package.mfb:__crypto_ed25519Public]] |
+| `77050000` | `ErrUnknown` | The OS entropy call (`getentropy`) fails while drawing the 32-byte seed via `crypto::randomBytes(32)`. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] [[src/builtins/crypto_ed25519.mfb:__crypto_generateEd25519]] |
+| `77010001` | `ErrOutOfMemory` | An arena allocation fails — either for the random seed bytes or for a byte list built while deriving the public key. [[src/target/shared/code/crypto.rs:lower_crypto_random_bytes_helper]] [[src/builtins/crypto_ed25519.mfb:__crypto_ed25519Public]] |
 
 ## Examples
 
