@@ -639,7 +639,7 @@ impl CodeBuilder<'_> {
 
         // bp[kk], dp_h[kk], dp_l[kk] into homes cs/th/tl via select on kk.
         // u = ax - bp[kk]; v = 1/(ax + bp[kk]); s = u*v
-        self.emit_pow_select(kk, BP[0], BP[1], s.cs, xs, xt); // cs = bp[kk]
+        self.emit_pow_select(kk, BP[0], BP[1], s.cs, xs); // cs = bp[kk]
         self.pop('-', s.uu, s.ax, s.cs); // u = ax - bp
         self.pop('+', s.vv, s.ax, s.cs); // ax + bp
                                          // v = 1/(ax+bp)
@@ -710,14 +710,14 @@ impl CodeBuilder<'_> {
         self.pconst(s.cs, CP, xs);
         self.pop('*', s.zz, s.pl, s.cs); // p_l*cp
         self.pop('+', s.tmp, s.tmp, s.zz);
-        self.emit_pow_select(kk, DP_L[0], DP_L[1], s.cs, xs, xt); // dp_l[kk]
+        self.emit_pow_select(kk, DP_L[0], DP_L[1], s.cs, xs); // dp_l[kk]
         self.pop('+', s.zl, s.tmp, s.cs); // z_l
                                           // t = (double)n_exp
         self.emit(abi::signed_convert_to_float_d(abi::FP_SCRATCH[0], nexp));
         self.pst(abi::FP_SCRATCH[0], s.tmp); // tmp = t
                                              // t1 = lowzero(((z_h+z_l)+dp_h[kk])+t)
         self.pop('+', s.t1, s.zh, s.zl);
-        self.emit_pow_select(kk, DP_H[0], DP_H[1], s.cs, xs, xt); // dp_h[kk]
+        self.emit_pow_select(kk, DP_H[0], DP_H[1], s.cs, xs); // dp_h[kk]
         self.pop('+', s.t1, s.t1, s.cs);
         self.pop('+', s.t1, s.t1, s.tmp);
         self.plowzero(s.t1, xs, xm);
@@ -852,7 +852,7 @@ impl CodeBuilder<'_> {
     }
 
     /// `home = select(kk!=0 ? b : a)` as an f64 constant.
-    fn emit_pow_select(&mut self, kk: &str, a: f64, b: f64, home: &str, xs: &str, _xt: &str) {
+    fn emit_pow_select(&mut self, kk: &str, a: f64, b: f64, home: &str, xs: &str) {
         let pick_b = self.label("pow_sel_b");
         let done = self.label("pow_sel_done");
         self.emit(abi::compare_immediate(kk, "0"));
