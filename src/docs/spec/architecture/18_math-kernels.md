@@ -14,7 +14,7 @@ the `Float` NEON kernels live in
 [[src/target/shared/code/builder_simd_float_math.rs]] (with Remez coefficients in
 [[src/target/shared/code/simd_kernel_coeffs.rs]]), `pow` in
 [[src/target/shared/code/builder_pow.rs:emit_pow_scalar]], and `fmod` in
-[[src/target/shared/code/builder_numeric.rs:emit_float_fmod]]. The scalar and array
+[[src/target/shared/code/builder_fmod.rs:emit_float_fmod]]. The scalar and array
 overloads of each function **share one kernel**, so `math::f(x)` and
 `math::f([x])[0]` are bit-identical (`./mfb spec language builtin-functions`).
 

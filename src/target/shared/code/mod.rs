@@ -2766,6 +2766,7 @@ mod builder_inplace_assign;
 mod builder_math;
 mod builder_money;
 mod builder_money_math;
+mod builder_fmod;
 mod builder_numeric;
 mod builder_pow;
 mod builder_search;
