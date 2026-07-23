@@ -68,32 +68,19 @@ pub(super) fn collect_bind_type_names(
     ops: &[NirOp],
     types: &mut std::collections::HashSet<String>,
 ) {
-    for op in ops {
-        match op {
-            NirOp::Bind { type_, .. } => {
-                types.insert(type_.clone());
+    use nir::visit::{walk_op, NirVisitor};
+    struct Collector<'a> {
+        types: &'a mut std::collections::HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Bind { type_, .. } = op {
+                self.types.insert(type_.clone());
             }
-            NirOp::If {
-                then_body,
-                else_body,
-                ..
-            } => {
-                collect_bind_type_names(then_body, types);
-                collect_bind_type_names(else_body, types);
-            }
-            NirOp::Match { cases, .. } => {
-                for case in cases {
-                    collect_bind_type_names(&case.body, types);
-                }
-            }
-            NirOp::While { body, .. }
-            | NirOp::For { body, .. }
-            | NirOp::DoUntil { body, .. }
-            | NirOp::ForEach { body, .. }
-            | NirOp::Trap { body, .. } => collect_bind_type_names(body, types),
-            _ => {}
+            walk_op(self, op);
         }
     }
+    Collector { types }.visit_ops(ops);
 }
 
 pub(super) fn platform_imports(

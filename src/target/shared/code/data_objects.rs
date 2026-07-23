@@ -430,177 +430,49 @@ fn collect_type_name_values(module: &NirModule, values: &mut Vec<String>) {
 }
 
 fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
-    for op in ops {
-        match op {
-            NirOp::Bind { type_, value, .. } => {
-                push_string_value(values, type_.clone());
-                if let Some(value) = value {
-                    collect_type_name_values_from_value(value, values);
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    struct Collector<'a> {
+        values: &'a mut Vec<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            match op {
+                NirOp::Bind { type_, .. } => push_string_value(self.values, type_.clone()),
+                NirOp::StoreGlobal { type_, .. } if !type_.is_empty() => {
+                    push_string_value(self.values, type_.clone())
                 }
-            }
-            NirOp::StoreGlobal { type_, value, .. } => {
-                if !type_.is_empty() {
-                    push_string_value(values, type_.clone());
+                NirOp::For { type_, .. } | NirOp::ForEach { type_, .. } => {
+                    push_string_value(self.values, type_.clone())
                 }
-                if let Some(value) = value {
-                    collect_type_name_values_from_value(value, values);
+                _ => {}
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            match value {
+                NirValue::Const { type_, .. }
+                | NirValue::FunctionRef { type_, .. }
+                | NirValue::Constructor { type_, .. }
+                | NirValue::ListLiteral { type_, .. }
+                | NirValue::MapLiteral { type_, .. }
+                | NirValue::UnionExtract { type_, .. }
+                | NirValue::WithUpdate { type_, .. } => {
+                    push_string_value(self.values, type_.clone())
                 }
-            }
-            NirOp::Return { value } => {
-                if let Some(value) = value {
-                    collect_type_name_values_from_value(value, values);
+                NirValue::UnionWrap {
+                    union_type,
+                    member_type,
+                    ..
+                } => {
+                    push_string_value(self.values, union_type.clone());
+                    push_string_value(self.values, member_type.clone());
                 }
+                _ => {}
             }
-            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
-            NirOp::ExitProgram { code } => collect_type_name_values_from_value(code, values),
-            NirOp::Fail { error } => collect_type_name_values_from_value(error, values),
-            NirOp::Assign { value, .. }
-            | NirOp::StateAssign { value, .. }
-            | NirOp::Eval { value } => {
-                collect_type_name_values_from_value(value, values);
-            }
-            NirOp::If {
-                condition,
-                then_body,
-                else_body,
-            } => {
-                collect_type_name_values_from_value(condition, values);
-                collect_type_name_values_from_ops(then_body, values);
-                collect_type_name_values_from_ops(else_body, values);
-            }
-            NirOp::Match { value, cases } => {
-                collect_type_name_values_from_value(value, values);
-                for case in cases {
-                    if let NirMatchPattern::Value(value) = &case.pattern {
-                        collect_type_name_values_from_value(value, values);
-                    }
-                    if let Some(guard) = &case.guard {
-                        collect_type_name_values_from_value(guard, values);
-                    }
-                    collect_type_name_values_from_ops(&case.body, values);
-                }
-            }
-            NirOp::While {
-                condition, body, ..
-            } => {
-                collect_type_name_values_from_value(condition, values);
-                collect_type_name_values_from_ops(body, values);
-            }
-            NirOp::For {
-                type_,
-                start,
-                end,
-                step,
-                body,
-                ..
-            } => {
-                push_string_value(values, type_.clone());
-                collect_type_name_values_from_value(start, values);
-                collect_type_name_values_from_value(end, values);
-                collect_type_name_values_from_value(step, values);
-                collect_type_name_values_from_ops(body, values);
-            }
-            NirOp::DoUntil { body, condition } => {
-                collect_type_name_values_from_ops(body, values);
-                collect_type_name_values_from_value(condition, values);
-            }
-            NirOp::ForEach {
-                type_,
-                iterable,
-                body,
-                ..
-            } => {
-                push_string_value(values, type_.clone());
-                collect_type_name_values_from_value(iterable, values);
-                collect_type_name_values_from_ops(body, values);
-            }
-            NirOp::Trap { body, .. } => {
-                collect_type_name_values_from_ops(body, values);
-            }
+            walk_value(self, value);
         }
     }
-}
-
-fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String>) {
-    match value {
-        NirValue::Const { type_, .. }
-        | NirValue::FunctionRef { type_, .. }
-        | NirValue::Constructor { type_, .. }
-        | NirValue::ListLiteral { type_, .. }
-        | NirValue::MapLiteral { type_, .. } => {
-            push_string_value(values, type_.clone());
-        }
-        NirValue::UnionWrap {
-            union_type,
-            member_type,
-            value,
-        } => {
-            push_string_value(values, union_type.clone());
-            push_string_value(values, member_type.clone());
-            collect_type_name_values_from_value(value, values);
-        }
-        NirValue::UnionExtract { type_, value } => {
-            push_string_value(values, type_.clone());
-            collect_type_name_values_from_value(value, values);
-        }
-        _ => {}
-    }
-    match value {
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. }
-        | NirValue::Constructor { args, .. } => {
-            for arg in args {
-                collect_type_name_values_from_value(arg, values);
-            }
-        }
-        NirValue::UnionWrap { value, .. }
-        | NirValue::UnionExtract { value, .. }
-        | NirValue::ResultIsOk { value }
-        | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => collect_type_name_values_from_value(value, values),
-        NirValue::WithUpdate {
-            type_,
-            target,
-            updates,
-        } => {
-            push_string_value(values, type_.clone());
-            collect_type_name_values_from_value(target, values);
-            for update in updates {
-                collect_type_name_values_from_value(&update.value, values);
-            }
-        }
-        NirValue::ListLiteral { values: items, .. } => {
-            for item in items {
-                collect_type_name_values_from_value(item, values);
-            }
-        }
-        NirValue::MapLiteral { entries, .. } => {
-            for (key, value) in entries {
-                collect_type_name_values_from_value(key, values);
-                collect_type_name_values_from_value(value, values);
-            }
-        }
-        NirValue::MemberAccess { target, .. } => {
-            collect_type_name_values_from_value(target, values)
-        }
-        NirValue::Binary { left, right, .. } => {
-            collect_type_name_values_from_value(left, values);
-            collect_type_name_values_from_value(right, values);
-        }
-        NirValue::Unary { operand, .. } => collect_type_name_values_from_value(operand, values),
-        NirValue::Closure { captures, .. } => {
-            for value in captures {
-                collect_type_name_values_from_value(value, values);
-            }
-        }
-        NirValue::Capture { .. }
-        | NirValue::Const { .. }
-        | NirValue::Local(_)
-        | NirValue::LocalRef { .. }
-        | NirValue::Global { .. }
-        | NirValue::FunctionRef { .. } => {}
-    }
+    Collector { values }.visit_ops(ops);
 }
 
 pub(super) fn unicode_string_call_is_static(
@@ -1282,155 +1154,25 @@ fn collect_builtin_function_refs_in_ops(
     refs: &mut Vec<(String, String, String)>,
     seen: &mut HashSet<String>,
 ) {
-    for op in ops {
-        match op {
-            NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => {
-                if let Some(value) = value {
-                    collect_builtin_function_refs_in_value(value, refs, seen);
-                }
-            }
-            NirOp::Assign { value, .. }
-            | NirOp::StateAssign { value, .. }
-            | NirOp::Eval { value }
-            | NirOp::Fail { error: value } => {
-                collect_builtin_function_refs_in_value(value, refs, seen);
-            }
-            NirOp::Return { value } => {
-                if let Some(value) = value {
-                    collect_builtin_function_refs_in_value(value, refs, seen);
-                }
-            }
-            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
-            NirOp::ExitProgram { code } => {
-                collect_builtin_function_refs_in_value(code, refs, seen);
-            }
-            NirOp::If {
-                condition,
-                then_body,
-                else_body,
-            } => {
-                collect_builtin_function_refs_in_value(condition, refs, seen);
-                collect_builtin_function_refs_in_ops(then_body, refs, seen);
-                collect_builtin_function_refs_in_ops(else_body, refs, seen);
-            }
-            NirOp::Match { value, cases } => {
-                collect_builtin_function_refs_in_value(value, refs, seen);
-                for case in cases {
-                    if let NirMatchPattern::Value(pattern) = &case.pattern {
-                        collect_builtin_function_refs_in_value(pattern, refs, seen);
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        refs: &'a mut Vec<(String, String, String)>,
+        seen: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::FunctionRef { name, type_ } = value {
+                if let Some(symbol) = builtin_function_symbol_for_type(name, type_) {
+                    let key = format!("{name}\0{type_}");
+                    if self.seen.insert(key) {
+                        self.refs.push((name.clone(), type_.clone(), symbol));
                     }
-                    if let Some(guard) = &case.guard {
-                        collect_builtin_function_refs_in_value(guard, refs, seen);
-                    }
-                    collect_builtin_function_refs_in_ops(&case.body, refs, seen);
                 }
             }
-            NirOp::While {
-                condition, body, ..
-            } => {
-                collect_builtin_function_refs_in_value(condition, refs, seen);
-                collect_builtin_function_refs_in_ops(body, refs, seen);
-            }
-            NirOp::For {
-                start,
-                end,
-                step,
-                body,
-                ..
-            } => {
-                collect_builtin_function_refs_in_value(start, refs, seen);
-                collect_builtin_function_refs_in_value(end, refs, seen);
-                collect_builtin_function_refs_in_value(step, refs, seen);
-                collect_builtin_function_refs_in_ops(body, refs, seen);
-            }
-            NirOp::DoUntil { body, condition } => {
-                collect_builtin_function_refs_in_ops(body, refs, seen);
-                collect_builtin_function_refs_in_value(condition, refs, seen);
-            }
-            NirOp::ForEach { iterable, body, .. } => {
-                collect_builtin_function_refs_in_value(iterable, refs, seen);
-                collect_builtin_function_refs_in_ops(body, refs, seen);
-            }
-            NirOp::Trap { body, .. } => {
-                collect_builtin_function_refs_in_ops(body, refs, seen);
-            }
+            walk_value(self, value);
         }
     }
-}
-
-fn collect_builtin_function_refs_in_value(
-    value: &NirValue,
-    refs: &mut Vec<(String, String, String)>,
-    seen: &mut HashSet<String>,
-) {
-    match value {
-        NirValue::FunctionRef { name, type_ } => {
-            if let Some(symbol) = builtin_function_symbol_for_type(name, type_) {
-                let key = format!("{name}\0{type_}");
-                if seen.insert(key) {
-                    refs.push((name.clone(), type_.clone(), symbol));
-                }
-            }
-        }
-        NirValue::Closure { captures, .. } => {
-            for value in captures {
-                collect_builtin_function_refs_in_value(value, refs, seen);
-            }
-        }
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. } => {
-            for arg in args {
-                collect_builtin_function_refs_in_value(arg, refs, seen);
-            }
-        }
-        NirValue::Constructor { args, .. } => {
-            for value in args {
-                collect_builtin_function_refs_in_value(value, refs, seen);
-            }
-        }
-        NirValue::UnionWrap { value, .. }
-        | NirValue::UnionExtract { value, .. }
-        | NirValue::ResultIsOk { value }
-        | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => {
-            collect_builtin_function_refs_in_value(value, refs, seen);
-        }
-        NirValue::WithUpdate {
-            target, updates, ..
-        } => {
-            collect_builtin_function_refs_in_value(target, refs, seen);
-            for update in updates {
-                collect_builtin_function_refs_in_value(&update.value, refs, seen);
-            }
-        }
-        NirValue::ListLiteral { values, .. } => {
-            for value in values {
-                collect_builtin_function_refs_in_value(value, refs, seen);
-            }
-        }
-        NirValue::MapLiteral { entries, .. } => {
-            for (key, value) in entries {
-                collect_builtin_function_refs_in_value(key, refs, seen);
-                collect_builtin_function_refs_in_value(value, refs, seen);
-            }
-        }
-        NirValue::Binary { left, right, .. } => {
-            collect_builtin_function_refs_in_value(left, refs, seen);
-            collect_builtin_function_refs_in_value(right, refs, seen);
-        }
-        NirValue::Unary { operand, .. } => {
-            collect_builtin_function_refs_in_value(operand, refs, seen);
-        }
-        NirValue::MemberAccess { target, .. } => {
-            collect_builtin_function_refs_in_value(target, refs, seen);
-        }
-        NirValue::Capture { .. }
-        | NirValue::Const { .. }
-        | NirValue::Local(_)
-        | NirValue::LocalRef { .. }
-        | NirValue::Global { .. } => {}
-    }
+    Collector { refs, seen }.visit_ops(ops);
 }
 
 #[cfg(test)]

@@ -566,134 +566,23 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
 /// arena-allocating a fresh descriptor on every evaluation (bug-78). Exhaustive:
 /// a missed ref would reference an undefined descriptor symbol at link time.
 pub(super) fn collect_function_value_refs(module: &NirModule) -> Vec<(String, String)> {
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        refs: &'a mut Vec<(String, String)>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::FunctionRef { name, type_ } = value {
+                self.refs.push((name.clone(), type_.clone()));
+            }
+            walk_value(self, value);
+        }
+    }
     let mut refs = Vec::new();
     for function in &module.functions {
-        collect_ops_function_refs(&function.body, &mut refs);
+        Collector { refs: &mut refs }.visit_ops(&function.body);
     }
     refs
-}
-
-fn collect_ops_function_refs(ops: &[NirOp], out: &mut Vec<(String, String)>) {
-    for op in ops {
-        match op {
-            NirOp::Bind { value, .. }
-            | NirOp::StoreGlobal { value, .. }
-            | NirOp::Return { value } => {
-                if let Some(value) = value {
-                    collect_value_function_refs(value, out);
-                }
-            }
-            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
-            NirOp::ExitProgram { code } => collect_value_function_refs(code, out),
-            NirOp::Fail { error } => collect_value_function_refs(error, out),
-            NirOp::Assign { value, .. }
-            | NirOp::StateAssign { value, .. }
-            | NirOp::Eval { value } => collect_value_function_refs(value, out),
-            NirOp::If {
-                condition,
-                then_body,
-                else_body,
-            } => {
-                collect_value_function_refs(condition, out);
-                collect_ops_function_refs(then_body, out);
-                collect_ops_function_refs(else_body, out);
-            }
-            NirOp::Match { value, cases } => {
-                collect_value_function_refs(value, out);
-                for case in cases {
-                    if let NirMatchPattern::Value(v) = &case.pattern {
-                        collect_value_function_refs(v, out);
-                    }
-                    collect_ops_function_refs(&case.body, out);
-                }
-            }
-            NirOp::While {
-                condition, body, ..
-            } => {
-                collect_value_function_refs(condition, out);
-                collect_ops_function_refs(body, out);
-            }
-            NirOp::For {
-                start,
-                end,
-                step,
-                body,
-                ..
-            } => {
-                collect_value_function_refs(start, out);
-                collect_value_function_refs(end, out);
-                collect_value_function_refs(step, out);
-                collect_ops_function_refs(body, out);
-            }
-            NirOp::DoUntil { body, condition } => {
-                collect_ops_function_refs(body, out);
-                collect_value_function_refs(condition, out);
-            }
-            NirOp::ForEach { iterable, body, .. } => {
-                collect_value_function_refs(iterable, out);
-                collect_ops_function_refs(body, out);
-            }
-            NirOp::Trap { body, .. } => collect_ops_function_refs(body, out),
-        }
-    }
-}
-
-fn collect_value_function_refs(value: &NirValue, out: &mut Vec<(String, String)>) {
-    match value {
-        NirValue::FunctionRef { name, type_ } => out.push((name.clone(), type_.clone())),
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. } => {
-            for arg in args {
-                collect_value_function_refs(arg, out);
-            }
-        }
-        NirValue::Constructor { args, .. } => {
-            for arg in args {
-                collect_value_function_refs(arg, out);
-            }
-        }
-        NirValue::UnionWrap { value, .. }
-        | NirValue::UnionExtract { value, .. }
-        | NirValue::ResultIsOk { value }
-        | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => collect_value_function_refs(value, out),
-        NirValue::WithUpdate {
-            target, updates, ..
-        } => {
-            collect_value_function_refs(target, out);
-            for update in updates {
-                collect_value_function_refs(&update.value, out);
-            }
-        }
-        NirValue::ListLiteral { values, .. } => {
-            for value in values {
-                collect_value_function_refs(value, out);
-            }
-        }
-        NirValue::MapLiteral { entries, .. } => {
-            for (key, value) in entries {
-                collect_value_function_refs(key, out);
-                collect_value_function_refs(value, out);
-            }
-        }
-        NirValue::MemberAccess { target, .. } => collect_value_function_refs(target, out),
-        NirValue::Binary { left, right, .. } => {
-            collect_value_function_refs(left, out);
-            collect_value_function_refs(right, out);
-        }
-        NirValue::Unary { operand, .. } => collect_value_function_refs(operand, out),
-        NirValue::Closure { captures, .. } => {
-            for value in captures {
-                collect_value_function_refs(value, out);
-            }
-        }
-        NirValue::Capture { .. }
-        | NirValue::Const { .. }
-        | NirValue::Local(_)
-        | NirValue::LocalRef { .. }
-        | NirValue::Global { .. } => {}
-    }
 }
 
 fn ops_use_type_name(ops: &[NirOp]) -> bool {

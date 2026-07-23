@@ -50,36 +50,22 @@ pub(crate) fn validate_capabilities(
 }
 
 /// Collect the type strings of every `Bind` op (recursively) so resource-union
-/// binds can be matched against union type definitions.
+/// binds can be matched against union type definitions. Descends through the
+/// shared NIR seam (bug-328).
 pub(super) fn collect_bind_types(ops: &[NirOp], types: &mut HashSet<String>) {
-    for op in ops {
-        match op {
-            NirOp::Bind { type_, .. } => {
-                types.insert(type_.clone());
+    use super::super::nir::visit::{walk_op, NirVisitor};
+    struct Collector<'a> {
+        types: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Bind { type_, .. } = op {
+                self.types.insert(type_.clone());
             }
-            NirOp::If {
-                then_body,
-                else_body,
-                ..
-            } => {
-                collect_bind_types(then_body, types);
-                collect_bind_types(else_body, types);
-            }
-            NirOp::Match { cases, .. } => {
-                for case in cases {
-                    collect_bind_types(&case.body, types);
-                }
-            }
-            NirOp::While { body, .. }
-            | NirOp::For { body, .. }
-            | NirOp::DoUntil { body, .. }
-            | NirOp::ForEach { body, .. }
-            | NirOp::Trap { body, .. } => {
-                collect_bind_types(body, types);
-            }
-            _ => {}
+            walk_op(self, op);
         }
     }
+    Collector { types }.visit_ops(ops);
 }
 
 pub(super) fn collect_runtime_calls_from_ops(ops: &[NirOp], calls: &mut Vec<String>) {
