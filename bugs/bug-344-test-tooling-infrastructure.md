@@ -672,13 +672,28 @@ Rejected alternatives, so they are not re-litigated:
 - [ ] Record the baseline: full `scripts/test-accept.sh` output and
       `scripts/artifact-gate.sh` `checked`/`ran` counters on an unmodified tree.
       Paste the numbers into this file.
-- [ ] A1: rewrite `.ai/compiler.md:33,38` to the four-folder layout with one
-      worked example per bucket.
-- [ ] D4: delete the two unused imports (smoke test that the baseline still
+- [x] A1: rewrite the fixture-layout mandate in `.ai/compiler.md` to the
+      four-folder layout with one worked example per bucket.
+- [x] D4: delete the two unused imports (smoke test that the baseline still
       reproduces).
 
-Acceptance: baseline recorded here; `.ai/compiler.md` describes directories that
-exist; test results identical to baseline.
+A1 done 2026-07-22. The mandate lives in `.ai/compiler.md`'s Validation section
+(the "For every function created or modified…" bullet, `git`-current — the doc's
+`:33/:38` line cites had drifted). It named `tests/func_<package>_<func>_{valid,
+invalid}/**`, which do not exist (`ls -d tests/func_*` → no match). Rewritten to
+the real four-tree layout — `tests/{syntax,rt-error,rt-behavior}/<feature>/<name>`
+plus `tests/acceptance` — with a worked example per bucket and an explicit "never
+create the old flat layout" note. Source of truth: `scripts/test-accept.sh:228-234`.
+
+D4 — **already clean; no action.** The doc's two sites are stale:
+`tests/gtk_term_utf8_grid.rs` no longer imports `PathBuf` at all (grep: zero
+`PathBuf`), and `tests/tls_listen_accept_build.rs:25` is `use std::path::PathBuf;`
+— used at `:31` (`fn temp_project(...) -> PathBuf`); the `Path` the doc flagged as
+the unused half of `{Path, PathBuf}` is already gone. The repo invariant
+(`cargo check --all-targets` clean, no dead-code allows) means any real unused
+import would already be a warning; there is none to delete.
+
+Acceptance: `.ai/compiler.md` now describes directories that exist; no code moved.
 Commit: —
 
 ### Phase 2 — consolidate duplicated scaffolding

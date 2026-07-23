@@ -58,12 +58,17 @@ After completing any code or golden-output change, the acceptance suite must pas
 
 Guidelines:
 
-- For every function created or modified, automatically create or update matching tests under both `tests/func_<package>_<func>_valid/**` and `tests/func_<package>_<func>_invalid/**`.
-- Function test directories are mandatory and non-skippable. Do not omit them because a change seems small, internal, obvious, already covered indirectly, or difficult to exercise.
-- Function tests must cover every overload of the created or modified function. If an overload cannot be tested, the task is incomplete until the blocker is resolved or explicitly accepted by the user.
-- Valid function tests must prove each overload succeeds with representative runtime behavior or observable compiler behavior appropriate to the function.
-- Invalid function tests must prove each overload rejects incorrect usage, including wrong argument count, wrong argument type, invalid receiver/context, and relevant boundary or error cases.
-- Do not describe a function change as complete while either the valid or invalid function test directory is missing, empty, skipped, or lacking overload coverage.
+- For every function created or modified, automatically create or update matching fixtures. Fixtures live under four top-level trees, each `<bucket>/<feature>/<name>` (a `<feature>` directory is just a grouping dir with no `project.json` of its own):
+  - `tests/syntax/<feature>/<name>` — compile-time diagnostics (a build that must fail, or must succeed, at `-ast -ir`). Example: `tests/syntax/datetime/func_datetime_localOffset_invalid`.
+  - `tests/rt-error/<feature>/<name>` — runtime errors (the program builds, runs, and traps). Example: `tests/rt-error/arithmetic/<name>`.
+  - `tests/rt-behavior/<feature>/<name>` — runtime behavior (the program builds, runs, and produces correct output). Example: `tests/rt-behavior/datetime/datetime-instant-valid`.
+  - `tests/acceptance` — the single end-to-end TESTING app; not per-function.
+  So a new/changed function gets a valid fixture under `tests/rt-behavior/<pkg>/` (or `tests/syntax/<pkg>/` for a compile-shape-only proof) AND an invalid fixture under `tests/syntax/<pkg>/`. The old flat `tests/func_<package>_<func>_{valid,invalid}/` layout no longer exists — never create it.
+- Function fixtures are mandatory and non-skippable. Do not omit them because a change seems small, internal, obvious, already covered indirectly, or difficult to exercise.
+- Function fixtures must cover every overload of the created or modified function. If an overload cannot be tested, the task is incomplete until the blocker is resolved or explicitly accepted by the user.
+- Valid fixtures must prove each overload succeeds with representative runtime behavior or observable compiler behavior appropriate to the function.
+- Invalid fixtures must prove each overload rejects incorrect usage, including wrong argument count, wrong argument type, invalid receiver/context, and relevant boundary or error cases.
+- Do not describe a function change as complete while either the valid or invalid fixture is missing, empty, skipped, or lacking overload coverage.
 - Run `scripts/test-accept.sh target/debug/mfb target/accept-actual` after compiler work or any change that can affect generated AST, IR, bytecode, native binaries, or diagnostics.
 - Acceptance passing is required but not sufficient for runtime behavior changes. For runtime features, also add or run an execution test that proves the generated program behaves correctly.
 - If acceptance fails, verify whether each failure is caused by the compiler update, a stale expected-output fixture, or a real regression before fixing code or updating goldens.
