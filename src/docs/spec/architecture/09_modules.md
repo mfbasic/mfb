@@ -43,7 +43,7 @@ A map of the compiler's source modules and their responsibilities.
 | Shared IR-to-NIR entry[[src/target/shared/lower.rs]] | Shared IR-to-NIR entry: merges installed packages into IR, then lowers. |
 | Native IR (NIR)[[src/target/shared/nir/]] | Native IR and import/runtime-call lowering. |
 | Runtime helper discovery[[src/target/shared/runtime/]] | Runtime helper discovery and helper ABI metadata. |
-| Native validation[[src/target/shared/validate.rs]] | Native target, NIR, capability, and plan validation. |
+| Native validation[[src/target/shared/validate/mod.rs]] | Native target, NIR, capability, and plan validation. |
 | Shared native plan[[src/target/shared/plan/]] | Shared native plan lowering. |
 | Shared native code generator[[src/target/shared/code/]] | Shared native code-plan lowering (directory module with builder submodules). |
 | macOS aarch64 backend[[src/target/macos_aarch64/]] | macOS aarch64 backend wrappers and platform behavior (AppKit app mode included). |

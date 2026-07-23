@@ -72,7 +72,7 @@ There is no `strings` family: every `strings::` op is lowered inline (native-dir
 so no `_mfb_rt_strings_*` helper is ever emitted.
 
 `validate_capabilities` rejects native builds that require runtime calls not
-listed in the backend capability set.[[src/target/shared/validate.rs:validate_capabilities]]
+listed in the backend capability set.[[src/target/shared/validate/capabilities.rs:validate_capabilities]]
 All four backends declare the same set of supported native runtime calls:
 
 - `crypto.*` calls: `crypto.randomBytes` plus the P-256/384/521 key-generation,
@@ -141,7 +141,7 @@ authoritative gate on NIR shape. It first rejects any runtime helper declared
 more than once, then accumulates the set of *used* helpers while validating each
 function, and finally adds the variant-close helpers for any resource-union type
 that is the subject of a `Bind` (mirroring `required_helpers`). It then enforces
-both directions as hard errors:[[src/target/shared/validate.rs:validate_nir]]
+both directions as hard errors:[[src/target/shared/validate/mod.rs:validate_nir]]
 
 - a used helper that is not in `module.runtime_helpers` is an
   `"NIR runtime call requires undeclared helper"` error;
@@ -155,14 +155,14 @@ call rejects the build if the call is outside the backend's
 call"`). It additionally rejects any declared helper that is actually used by an
 emitted call but lacks a complete `supported_helper_specs` ABI entry (non-empty
 params, returns, and clobbers) with `"native backend does not implement runtime
-helper"`.[[src/target/shared/validate.rs:validate_capabilities]]
+helper"`.[[src/target/shared/validate/capabilities.rs:validate_capabilities]]
 
 The concrete ABI (registers, clobbers, fallibility) for each helper family is
 owned by `./mfb spec memory runtime-helper-abi`.
 
 ## Native Validation
 
-Native validation is handled by the native validator.[[src/target/shared/validate.rs]]
+Native validation is handled by the native validator.[[src/target/shared/validate/mod.rs]]
 
 It validates:
 

@@ -141,7 +141,7 @@ Two backend-shared validators enforce the helper contract on the NIR module.
 
 `validate_nir` recomputes the *used* helper set (mirroring `required_helpers`,
 including the resource-union close expansion) and requires the **declared** helper
-set to be **exactly equal** to the used set. Both directions are hard errors: [[src/target/shared/validate.rs:validate_nir]]
+set to be **exactly equal** to the used set. Both directions are hard errors: [[src/target/shared/validate/mod.rs:validate_nir]]
 
 ```text
 declared but not used  ->  "NIR declares unused runtime helper '<h>'"
@@ -156,7 +156,7 @@ call must be a member, or the build fails with "native backend does not support
 runtime call '<call>'". It additionally checks that each declared helper that is
 actually reached by an emitted call has at least one catalogued spec with a
 non-empty return type — rejecting helper families the backend does not
-implement. [[src/target/shared/validate.rs:validate_capabilities]] [[src/target.rs:BackendCapabilities]]
+implement. [[src/target/shared/validate/capabilities.rs:validate_capabilities]] [[src/target.rs:BackendCapabilities]]
 
 ## See Also
 
