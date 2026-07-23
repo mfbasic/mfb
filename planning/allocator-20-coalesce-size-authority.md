@@ -1,4 +1,4 @@
-# allocator-04 — ROBUSTNESS: coalescing trusts the caller's free size (compiler-drift canary)
+# allocator-20 — ROBUSTNESS: coalescing trusts the caller's free size (compiler-drift canary)
 
 Last updated: 2026-07-02
 Effort: small (<1h) — debug-only assertion

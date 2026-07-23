@@ -484,6 +484,24 @@ There is no orphaned-golden problem in this repository. Do not re-run this scan.
   fold `old-moved-to-src-spec/` under `old-plans/`; reconcile the allocator
   document's name and shape. Per house rule, completed planning docs are **moved**
   to `planning/old-plans/`, never deleted.
+- **Partially fixed 2026-07-22.** Done: the allocator doc's title/filename
+  mismatch. It is cited **by filename** (`allocator-20`,
+  `allocator-20-coalesce-size-authority.md`) throughout `plan-25-A`, `goal-03`,
+  and the arena source, while its internal title read `# allocator-04 …` — a
+  mis-number. Corrected the title to `allocator-20` (the Open-Decision "rename
+  title to match filename" branch), which keeps every filename citation valid. It
+  stays in `planning/`: it is a *standing robustness-invariant canary*, not a
+  completed bug, so moving it to `bugs/` would be wrong.
+- **Deferred, with reason — the file moves have a large citation blast radius the
+  finding under-counted.** `planning/mem.md` and `planning/res.md` are cited by
+  **dozens** of `planning/old-plans/plan-5{2,3,9}-*` docs and `bug-257`;
+  `planning/old-moved-to-src-spec/` (13 files, not 3) is cited by `bug-343`,
+  `bug-357`, `.ai/specifications.md`, and several `plan-6x` docs. Moving any of
+  them breaks all those references, so this is a coordinated citation-update job,
+  not a `git mv` — larger than the LOW severity justifies doing piecemeal here.
+  `prompts.md` is the one safely-movable file (only self + this bug reference it),
+  but moving it alone would leave the scratch cluster half-organized, so it waits
+  for the same coordinated pass.
 
 #### F5 — `tests/_data/` is a tooling data set inside the four-folder test tree
 
