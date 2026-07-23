@@ -7,14 +7,11 @@ use std::collections::HashMap;
 use super::*;
 use crate::target::shared::abi;
 
-pub(crate) fn lower_tls_connect_helper(
+pub(super) fn lower_tls_connect_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_connect_macos(symbol, platform_imports, platform);
-    }
     const FRAME_SIZE: usize = 256;
     const FD_OFFSET: usize = 8;
     const HANDLE_OFFSET: usize = 16;
@@ -916,14 +913,11 @@ pub(crate) fn lower_tls_connect_helper(
 // tls.listen
 // ---------------------------------------------------------------------------
 
-pub(crate) fn lower_tls_listen_helper(
+pub(super) fn lower_tls_listen_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_listen_macos(symbol, platform_imports, platform);
-    }
     const FRAME_SIZE: usize = 224;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
@@ -1445,14 +1439,11 @@ pub(crate) fn lower_tls_listen_helper(
 // tls.accept
 // ---------------------------------------------------------------------------
 
-pub(crate) fn lower_tls_accept_helper(
+pub(super) fn lower_tls_accept_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_accept_macos(symbol, platform_imports, platform);
-    }
     const FRAME_SIZE: usize = 96;
     const FD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 16;
@@ -1805,15 +1796,12 @@ pub(crate) fn lower_tls_accept_helper(
 // tls.read / tls.readText
 // ---------------------------------------------------------------------------
 
-pub(crate) fn lower_tls_read_helper(
+pub(super) fn lower_tls_read_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_read_macos(symbol, platform_imports, platform, text);
-    }
     const FRAME_SIZE: usize = 96;
     const SSL_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
@@ -2060,15 +2048,12 @@ pub(crate) fn lower_tls_read_helper(
 // tls.write / tls.writeText
 // ---------------------------------------------------------------------------
 
-pub(crate) fn lower_tls_write_helper(
+pub(super) fn lower_tls_write_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_write_macos(symbol, platform_imports, platform, text);
-    }
     const FRAME_SIZE: usize = 80;
     const SSL_OFFSET: usize = 8;
     const SRC_OFFSET: usize = 16;
@@ -2207,14 +2192,11 @@ pub(crate) fn lower_tls_write_helper(
 // tls.close
 // ---------------------------------------------------------------------------
 
-pub(crate) fn lower_tls_close_helper(
+pub(super) fn lower_tls_close_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_close_macos(symbol, platform_imports, platform);
-    }
     const FRAME_SIZE: usize = 80;
     const REC_OFFSET: usize = 8;
     const SSL_OFFSET: usize = 16;
@@ -2372,14 +2354,11 @@ pub(crate) fn lower_tls_close_helper(
 // name stays `tls::close` — see plan-06-tls-server.md §4.1/§6.4)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn lower_tls_close_listener_helper(
+pub(super) fn lower_tls_close_listener_openssl(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_close_listener_macos(symbol, platform_imports, platform);
-    }
     const FRAME_SIZE: usize = 64;
     const REC_OFFSET: usize = 8;
     const FD_OFFSET: usize = 16;

@@ -10,6 +10,25 @@ use super::super::*;
 use super::{call_fn, emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
 
+impl Curve {
+    /// Curve size in bits, passed as `kSecAttrKeySizeInBits` to SecKey.
+    fn bits(self) -> &'static str {
+        match self {
+            Curve::P256 => "256",
+            Curve::P384 => "384",
+            Curve::P521 => "521",
+        }
+    }
+    /// The macOS `SecKeyAlgorithm` constant (a CFString) for ECDSA over a message.
+    fn macos_algorithm(self) -> &'static str {
+        match self {
+            Curve::P256 => "kSecKeyAlgorithmECDSASignatureMessageX962SHA256",
+            Curve::P384 => "kSecKeyAlgorithmECDSASignatureMessageX962SHA384",
+            Curve::P521 => "kSecKeyAlgorithmECDSASignatureMessageX962SHA512",
+        }
+    }
+}
+
 const MACSEC: &str = "/System/Library/Frameworks/Security.framework/Security";
 const MACCF: &str = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 const SECPATH_SYMBOL: &str = "_mfb_crypto_ec_secpath";

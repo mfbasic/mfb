@@ -303,18 +303,91 @@ pub(super) fn emit_set_sock_timeouts(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// tls.connect
-// ---------------------------------------------------------------------------
-
 pub(crate) mod macos;
 mod openssl;
 
-pub(super) use openssl::{
-    lower_tls_accept_helper, lower_tls_close_helper, lower_tls_close_listener_helper,
-    lower_tls_connect_helper, lower_tls_listen_helper, lower_tls_read_helper,
-    lower_tls_write_helper,
-};
+// Per-helper platform dispatch, done once here in the package parent — mirroring
+// `crypto_ec::lower_crypto_ec_helper` — so neither backend is the entry point
+// that owns the other's dispatch (bug-330). Each backend file is a pure
+// `*_openssl` / `*_macos` implementation; the macOS decision lives only here.
+pub(super) fn lower_tls_connect_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_connect_macos(symbol, platform_imports, platform);
+    }
+    openssl::lower_tls_connect_openssl(symbol, platform_imports, platform)
+}
+
+pub(super) fn lower_tls_listen_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_listen_macos(symbol, platform_imports, platform);
+    }
+    openssl::lower_tls_listen_openssl(symbol, platform_imports, platform)
+}
+
+pub(super) fn lower_tls_accept_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_accept_macos(symbol, platform_imports, platform);
+    }
+    openssl::lower_tls_accept_openssl(symbol, platform_imports, platform)
+}
+
+pub(super) fn lower_tls_read_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    text: bool,
+) -> HelperResult {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_read_macos(symbol, platform_imports, platform, text);
+    }
+    openssl::lower_tls_read_openssl(symbol, platform_imports, platform, text)
+}
+
+pub(super) fn lower_tls_write_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    text: bool,
+) -> HelperResult {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_write_macos(symbol, platform_imports, platform, text);
+    }
+    openssl::lower_tls_write_openssl(symbol, platform_imports, platform, text)
+}
+
+pub(super) fn lower_tls_close_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_close_macos(symbol, platform_imports, platform);
+    }
+    openssl::lower_tls_close_openssl(symbol, platform_imports, platform)
+}
+
+pub(super) fn lower_tls_close_listener_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_close_listener_macos(symbol, platform_imports, platform);
+    }
+    openssl::lower_tls_close_listener_openssl(symbol, platform_imports, platform)
+}
 
 // ===========================================================================
 // macOS backend: Network.framework over a dispatch-semaphore synchronous bridge

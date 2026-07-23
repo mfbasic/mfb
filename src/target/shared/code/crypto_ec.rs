@@ -39,13 +39,6 @@ pub(super) enum Curve {
 }
 
 impl Curve {
-    fn bits(self) -> &'static str {
-        match self {
-            Curve::P256 => "256",
-            Curve::P384 => "384",
-            Curve::P521 => "521",
-        }
-    }
     /// Length in bytes of an uncompressed SEC1 public point (`04 || X || Y`).
     ///
     /// Both backends splice fixed-length keys, so both must reject a public key
@@ -59,14 +52,8 @@ impl Curve {
             Curve::P521 => 133,
         }
     }
-    /// The macOS `SecKeyAlgorithm` constant (a CFString) for ECDSA over a message.
-    fn macos_algorithm(self) -> &'static str {
-        match self {
-            Curve::P256 => "kSecKeyAlgorithmECDSASignatureMessageX962SHA256",
-            Curve::P384 => "kSecKeyAlgorithmECDSASignatureMessageX962SHA384",
-            Curve::P521 => "kSecKeyAlgorithmECDSASignatureMessageX962SHA512",
-        }
-    }
+    // `bits` and `macos_algorithm` are macOS-only inputs and live with the macOS
+    // backend (bug-330); the OpenSSL backend carries its own curve table.
 }
 
 /// Map a runtime-helper call name onto (operation, curve).
