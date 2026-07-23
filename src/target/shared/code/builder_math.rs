@@ -451,11 +451,7 @@ impl CodeBuilder<'_> {
                 let ok = self.label("math_abs_ok");
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 self.emit(abi::branch_ge(&ok));
-                self.emit(abi::move_immediate(
-                    &bound,
-                    "Integer",
-                    F64_SIGN_BIT,
-                ));
+                self.emit(abi::move_immediate(&bound, "Integer", F64_SIGN_BIT));
                 self.emit(abi::compare_registers(&value.location, &bound));
                 self.emit(abi::branch_ne(&ok));
                 self.emit_overflow_return()?;
@@ -834,6 +830,18 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Emit the shared IEEE-754 biased-exponent decode (bug-332 D1): shift the
+    /// 11-bit exponent field of the f64 bit pattern in `bits` into `exponent`
+    /// (using `mask` as scratch), then compare it against 2047 — the all-ones
+    /// Inf/NaN field — leaving the flags set for the caller's branch. Registers are
+    /// caller-allocated so the divergent range-check tails stay per-site.
+    pub(super) fn emit_float_exponent_classify(&mut self, exponent: &str, mask: &str, bits: &str) {
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
+        self.emit(abi::and_registers(exponent, exponent, mask));
+        self.emit(abi::compare_immediate(exponent, "2047"));
+    }
+
     fn emit_float_rounding_integer_range_check(&mut self, source_bits: &str) -> Result<(), String> {
         let bits = self.allocate_register()?;
         let exponent = self.allocate_register()?;
@@ -846,10 +854,7 @@ impl CodeBuilder<'_> {
         let overflow = self.label("math_rounding_float_range_overflow");
 
         self.emit(abi::move_register(&bits, source_bits));
-        self.emit(abi::shift_right_immediate(&exponent, &bits, 52));
-        self.emit(abi::move_immediate(&mask, "Integer", "2047"));
-        self.emit(abi::and_registers(&exponent, &exponent, &mask));
-        self.emit(abi::compare_immediate(&exponent, "2047"));
+        self.emit_float_exponent_classify(&exponent, &mask, &bits);
         self.emit(abi::branch_eq(&overflow));
         self.emit(abi::compare_immediate(&exponent, "1086"));
         self.emit(abi::branch_lt(&ok));

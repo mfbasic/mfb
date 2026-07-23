@@ -586,10 +586,7 @@ impl CodeBuilder<'_> {
         let edge = self.label("simd_tail_round_edge");
         let overflow = self.label("simd_tail_round_overflow");
 
-        self.emit(abi::shift_right_immediate(&exponent, bits, 52));
-        self.emit(abi::move_immediate(&mask, "Integer", "2047"));
-        self.emit(abi::and_registers(&exponent, &exponent, &mask));
-        self.emit(abi::compare_immediate(&exponent, "2047"));
+        self.emit_float_exponent_classify(&exponent, &mask, bits);
         self.emit(abi::branch_eq(&overflow));
         self.emit(abi::compare_immediate(&exponent, "1086"));
         self.emit(abi::branch_lt(&ok));

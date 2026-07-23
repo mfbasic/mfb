@@ -203,11 +203,7 @@ impl CodeBuilder<'_> {
                 let min_divisor = self.allocate_register()?;
                 // i64::MIN as its unsigned bit pattern (2^63); `move_immediate`
                 // takes the u64 pattern, not the signed "-9223372036854775808".
-                self.emit(abi::move_immediate(
-                    &min_divisor,
-                    "Integer",
-                    F64_SIGN_BIT,
-                ));
+                self.emit(abi::move_immediate(&min_divisor, "Integer", F64_SIGN_BIT));
                 let not_min = self.label("money_div_scalar_not_min");
                 let div_done = self.label("money_div_scalar_done");
                 self.emit(abi::compare_registers(&scalar.location, &min_divisor));
@@ -308,10 +304,7 @@ impl CodeBuilder<'_> {
         let exponent = self.allocate_register()?;
         let mask = self.allocate_register()?;
         self.emit(abi::float_move_x_from_d(&bits, value));
-        self.emit(abi::shift_right_immediate(&exponent, &bits, 52));
-        self.emit(abi::move_immediate(&mask, "Integer", "2047"));
-        self.emit(abi::and_registers(&exponent, &exponent, &mask));
-        self.emit(abi::compare_immediate(&exponent, "2047"));
+        self.emit_float_exponent_classify(&exponent, &mask, &bits);
         self.emit(abi::branch_ne(&ok));
         self.emit(abi::label(&invalid));
         self.emit_invalid_format_return()?;
