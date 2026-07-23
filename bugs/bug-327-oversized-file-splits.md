@@ -1,11 +1,15 @@
 # bug-327: ~20 files over 1,000 lines hold unrelated concerns; every one has a verified split seam
 
-Last updated: 2026-07-18
+Last updated: 2026-07-22
 Effort: huge (>3d — this is a multi-week work order; land it file-by-file, one commit per file, never as a batch)
 Severity: LOW
 Class: Other (cleanup / file organization)
 
-Status: Open
+Status: Open — Phase 0 + 6 Tier-1 splits landed (T1-1, T1-2, T1-3, T1-4, T1-7,
+T1-8), each verified byte-identical (artifact-gate 0 diffs + acceptance 1080).
+Remaining: T1-5/T1-6 blocked on `tests/common/mod.rs` (Agent 21 #2); T1-9
+blocked on bug-330 (audio dedup); all of Tier 2 (T2-1..T2-10 + the glob→explicit
+conversion) and Tier 3 (T3-1, T3-2) not yet started. See the Phases checklist.
 Regression Test: artifact gate + acceptance suite per split — `scripts/artifact-gate.sh <exe>` and `scripts/test-accept.sh <exe>`. **Byte-identical generated output is the acceptance criterion**; there is no new behavioral test, because a pure file split emits no new bytes.
 
 The cleanup review measured ~20 files between 1,000 and 5,268 lines whose
@@ -726,7 +730,10 @@ lines.
 ### Phase 2 — Tier 1 items gated on bug-322
 
 - [x] T1-3 `tls/macos.rs` → 4 files (commit 73e733de5)
-- [ ] T1-9 `audio/macos.rs` → 4 files (after Agent 08 #1/#2/#6)
+- [ ] T1-9 `audio/macos.rs` → 4 files — **BLOCKED** on the audio dedup
+      (Agent 08 #1/#2/#6), which is **bug-330** (Open); `audio/common.rs` does
+      not exist yet. Splitting first would disentangle the frame-offset const
+      schemes twice — land bug-330's audio work first.
 
 Acceptance: as Phase 1.
 
