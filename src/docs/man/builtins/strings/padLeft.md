@@ -42,7 +42,7 @@ original is never aliased.
 exactly one well-formed Unicode scalar value — neither empty nor more than one
 scalar — otherwise `ErrInvalidArgument` is raised. A negative `width` raises the
 same error, as does a result size that cannot be represented in 64 bits.
-[[src/target/shared/code/builder_codegen_primitives.rs:emit_checked_size_multiply]]
+[[src/target/shared/code/builder_error_emission.rs:emit_checked_size_multiply]]
 
 Neither argument is mutated.
 

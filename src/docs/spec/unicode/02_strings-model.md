@@ -105,7 +105,7 @@ check that arithmetic for 64-bit overflow *before* allocating and raise
 `ErrInvalidArgument` for a size that cannot be represented; sizes derived only
 from in-memory strings route through the same checked helpers and report an
 allocation failure on the (unreachable) wrap.
-[[src/target/shared/code/builder_codegen_primitives.rs:emit_checked_size_multiply]]
+[[src/target/shared/code/builder_error_emission.rs:emit_checked_size_multiply]]
 
 ## Unicode-whitespace trimming
 

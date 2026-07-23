@@ -39,7 +39,7 @@ string for any valid `times`. A negative `times` is rejected with
 The total size is computed with overflow checks. A `byteLen(value) * times`
 product, or the string header added to it, that cannot be represented in 64 bits
 raises the same `ErrInvalidArgument` rather than allocating short and writing
-past the buffer. [[src/target/shared/code/builder_codegen_primitives.rs:emit_checked_size_multiply]]
+past the buffer. [[src/target/shared/code/builder_error_emission.rs:emit_checked_size_multiply]]
 
 `value` is not mutated; the result is a new owned `String`.
 

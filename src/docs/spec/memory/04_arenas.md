@@ -319,7 +319,7 @@ read buffer, and `STATE` payload, nulling each pointer word as it goes. Only the
 closed flag. Drop skips a record whose `RESOURCE_MOVED_BIT` is set: `thread::transfer`
 copied the `STATE` pointer into the receiver's record, so freeing it here would hand
 another thread a dangling payload. (`./mfb spec language resource-management` specifies the
-close/drop split.) [[src/target/shared/code/builder_codegen_primitives.rs:emit_resource_block_reclaim]]
+close/drop split.) [[src/target/shared/code/builder_resource_cleanup.rs:emit_resource_block_reclaim]]
 
 Two classes of value are **excluded** from scope-drop frees because they are not
 plain arena blocks this scope owns: **runtime-managed thread

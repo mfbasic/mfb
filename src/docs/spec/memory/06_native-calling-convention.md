@@ -117,7 +117,7 @@ Lowerings do not name physical temporary registers. `allocate_register` mints a
 **virtual register** carried in the instruction stream; after a function is fully
 lowered, a coloring pass assigns each virtual register a physical register (or a
 spill slot). The method is a pluggable strategy selected by `--regalloc <name>`
-(see `./mfb spec architecture native`). [[src/target/shared/code/builder_codegen_primitives.rs:allocate_register]] [[src/target/shared/code/regalloc/mod.rs:allocate]]
+(see `./mfb spec architecture native`). [[src/target/shared/code/builder_registers.rs:allocate_register]] [[src/target/shared/code/regalloc/mod.rs:allocate]]
 
 The default strategy, **`linear-scan`**, computes liveness over the lowered
 stream and colors the integer class by live interval, reusing a register as soon
@@ -136,7 +136,7 @@ byte-identical to the pre-allocator backend and kept as the differential oracle
 (`--regalloc bump`). [[src/target/shared/abi.rs:temporary_register]] [[src/target/shared/code/regalloc/mod.rs:BumpAndReset]]
 
 When the coloring uses a callee-saved register (`x20..x28`), it is recorded so
-the frame finalizer saves and restores it. [[src/target/shared/code/builder_codegen_primitives.rs:mark_register_used]]
+the frame finalizer saves and restores it. [[src/target/shared/code/builder_registers.rs:mark_register_used]]
 
 ## Reserved Registers
 

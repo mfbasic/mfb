@@ -105,8 +105,8 @@ range. Infallible.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050003` | `ErrInvalidFormat` | A `String` value is not well-formed decimal text, or a `Float` value is NaN or infinite. [[src/target/shared/code/builder_codegen_primitives.rs:emit_invalid_format_return]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
-| `77050010` | `ErrOverflow` | The value is outside the representable `Money` range: a `String` or `Float` whose magnitude is too large, an `Integer` whose scaled value overflows 64 bits, or a `Fixed` too large for the `Money` range. [[src/target/shared/code/builder_codegen_primitives.rs:emit_overflow_return]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
+| `77050003` | `ErrInvalidFormat` | A `String` value is not well-formed decimal text, or a `Float` value is NaN or infinite. [[src/target/shared/code/builder_error_emission.rs:emit_invalid_format_return]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050010` | `ErrOverflow` | The value is outside the representable `Money` range: a `String` or `Float` whose magnitude is too large, an `Integer` whose scaled value overflows 64 bits, or a `Fixed` too large for the `Money` range. [[src/target/shared/code/builder_error_emission.rs:emit_overflow_return]] [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] |
 
 The `Byte` overload raises no errors. [[src/target/shared/code/builder_conversions.rs:lower_to_money]]
 

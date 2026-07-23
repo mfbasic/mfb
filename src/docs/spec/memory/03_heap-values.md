@@ -101,7 +101,7 @@ Error                              ErrorLoc
 OOM-degraded error with no origin) is represented by an **offset-0 sentinel**
 (offset 0 can never address a real inlined block, since the data region starts at
 24); `emit_load_error_fields` maps it back to a null pointer when loading the
-fallible-call ABI registers. [[src/target/shared/code/builder_codegen_primitives.rs:emit_load_error_fields]] Construction, field access, copy, and
+fallible-call ABI registers. [[src/target/shared/code/builder_error_emission.rs:emit_load_error_fields]] Construction, field access, copy, and
 thread-transfer reuse the generic flat-record machinery — copying an `Error` is
 one `memcpy`.
 

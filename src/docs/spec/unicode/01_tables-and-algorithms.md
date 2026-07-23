@@ -313,7 +313,7 @@ Every two-pass allocator (case mapping, NFC, `graphemes`) asserts at the end of
 its writing pass that the write cursor landed exactly on the byte length the
 counting pass allocated; a count/write divergence — which would otherwise be a
 silent heap overflow — faults deterministically instead.
-[[src/target/shared/code/builder_codegen_primitives.rs:emit_write_cursor_assert]]
+[[src/target/shared/code/builder_error_emission.rs:emit_write_cursor_assert]]
 
 ## See Also
 

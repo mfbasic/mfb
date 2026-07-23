@@ -2732,7 +2732,12 @@ fn lower_map_probe_helper() -> CodeFunction {
 
 mod builder_arena_transfer;
 mod builder_bits;
-mod builder_codegen_primitives;
+mod builder_error_emission;
+mod builder_exits;
+mod builder_owned_cleanup;
+mod builder_registers;
+mod builder_resource_cleanup;
+mod builder_thread_cleanup;
 mod error_constants;
 pub(crate) use error_constants::*;
 mod types;

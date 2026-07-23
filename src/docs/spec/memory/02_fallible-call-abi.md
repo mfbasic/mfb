@@ -36,7 +36,7 @@ the null sentinel. The two conversions bridge the forms: trapping materializes a
 3-field `Error` record from `x1`/`x2`/`x3` (absolute → offset), and
 `FAIL <error>` / `emit_load_error_fields` loads `x1`/`x2`/`x3` back from the
 `Error` value's `code`/`message`/`source` fields (offset → absolute, mapping a
-0 offset back to a null pointer). [[src/target/shared/code/builder_codegen_primitives.rs:emit_load_error_fields]]
+0 offset back to a null pointer). [[src/target/shared/code/builder_error_emission.rs:emit_load_error_fields]]
 
 ## See Also
 
