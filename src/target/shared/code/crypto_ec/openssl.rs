@@ -18,8 +18,9 @@
 
 use std::collections::HashMap;
 
+use super::super::native_helpers::{emit_data_address, emit_zero_guarded, hex_encode_cstring};
 use super::super::*;
-use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
+use super::{call_fn, emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
 
 const LIBCRYPTO3: &str = "libcrypto.so.3";
@@ -144,7 +145,7 @@ fn cstr_data(symbol: &str, text: &str) -> CodeDataObject {
         layout: "C string (NUL-terminated)".to_string(),
         align: 1,
         size: text.len() + 1,
-        value: super::super::tls::hex_encode_cstring(text),
+        value: hex_encode_cstring(text),
     }
 }
 
@@ -174,42 +175,6 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
     objects
 }
 
-fn data_address(
-    from: &str,
-    dst: &str,
-    data_symbol: &str,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) {
-    ins.push(
-        CodeInstruction::new("adrp")
-            .field("dst", dst)
-            .field("symbol", data_symbol),
-    );
-    ins.push(
-        CodeInstruction::new("add_pageoff")
-            .field("dst", dst)
-            .field("src", dst)
-            .field("symbol", data_symbol),
-    );
-    rel.extend([
-        CodeRelocation {
-            from: from.to_string(),
-            to: data_symbol.to_string(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        },
-        CodeRelocation {
-            from: from.to_string(),
-            to: data_symbol.to_string(),
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        },
-    ]);
-}
-
 fn dlopen_libcrypto(
     symbol: &str,
     handle_off: usize,
@@ -220,7 +185,7 @@ fn dlopen_libcrypto(
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     let loaded = format!("{symbol}_libc_loaded");
-    data_address(
+    emit_data_address(
         symbol,
         abi::return_register(),
         "_mfb_crypto_ec_lib3",
@@ -234,7 +199,7 @@ fn dlopen_libcrypto(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&loaded),
     ]);
-    data_address(
+    emit_data_address(
         symbol,
         abi::return_register(),
         "_mfb_crypto_ec_lib11",
@@ -269,7 +234,7 @@ fn dlsym_into(
         abi::stack_pointer(),
         handle_off,
     ));
-    data_address(symbol, abi::ARG[1], &fn_sym(name), ins, rel);
+    emit_data_address(symbol, abi::ARG[1], &fn_sym(name), ins, rel);
     platform.emit_libc_call("dlsym", symbol, imports, ins, rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -298,7 +263,7 @@ fn dlsym_probe(
         abi::stack_pointer(),
         handle_off,
     ));
-    data_address(symbol, abi::ARG[1], &fn_sym(name), ins, rel);
+    emit_data_address(symbol, abi::ARG[1], &fn_sym(name), ins, rel);
     platform.emit_libc_call("dlsym", symbol, imports, ins, rel)?;
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), dst_off),
@@ -306,13 +271,6 @@ fn dlsym_probe(
         abi::branch_eq(absent),
     ]);
     Ok(())
-}
-
-fn call_fn(fn_off: usize, ins: &mut Vec<CodeInstruction>) {
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), fn_off),
-        abi::branch_link_register("%v9"),
-    ]);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -412,49 +370,6 @@ fn free_guarded(
     Ok(())
 }
 
-/// Overwrite the buffer at `[buf_off]` (length `[len_off]` when `Some`, else the
-/// constant `len_const`) with zero, when the buffer slot is non-NULL. Wipes raw
-/// EC key-material scratch (the SEC1/PKCS#8 DER and raw scalar copies) before the
-/// helper returns so a later same-program arena allocation cannot be handed a
-/// block still holding key bytes (bug-55). Call-free (vreg scratch only).
-fn zero_guarded(
-    symbol: &str,
-    buf_off: usize,
-    len_off: Option<usize>,
-    len_const: usize,
-    tag: &str,
-    ins: &mut Vec<CodeInstruction>,
-) {
-    let skip = format!("{symbol}_{tag}_noz");
-    let loop_l = format!("{symbol}_{tag}_zl");
-    let end_l = format!("{symbol}_{tag}_ze");
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), buf_off),
-        abi::compare_immediate("%v9", "0"),
-        abi::branch_eq(&skip),
-    ]);
-    match len_off {
-        Some(off) => ins.push(abi::load_u64("%v10", abi::stack_pointer(), off)),
-        None => ins.push(abi::move_immediate(
-            "%v10",
-            "Integer",
-            &len_const.to_string(),
-        )),
-    }
-    ins.extend([
-        abi::move_immediate("%v11", "Integer", "0"),
-        abi::label(&loop_l),
-        abi::compare_registers("%v11", "%v10"),
-        abi::branch_eq(&end_l),
-        abi::store_u8(abi::ZERO, "%v9", 0),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::branch(&loop_l),
-        abi::label(&end_l),
-        abi::label(&skip),
-    ]);
-}
-
 pub(super) fn lower(
     op: EcOp,
     curve: Curve,
@@ -525,7 +440,7 @@ fn generate(
         &mut ins,
         &mut rel,
     )?;
-    data_address(
+    emit_data_address(
         symbol,
         abi::return_register(),
         &format!("_mfb_crypto_ec_name_{}", p.name),
@@ -815,10 +730,10 @@ fn generate(
     ));
     call_fn(FN, &mut ins);
     // Wipe the SEC1 private-key DER scratch (holds the raw scalar).
-    zero_guarded(symbol, SEC1PTR, Some(SEC1LEN), 0, "sec1S", &mut ins);
+    emit_zero_guarded(symbol, SEC1PTR, Some(SEC1LEN), 0, "sec1S", &mut ins);
     // bug-136: RAWBUF holds the raw private scalar (04||X||Y||K); wipe it once
     // the output list copy has completed so the secret is not left in scratch.
-    zero_guarded(symbol, RAWBUF, Some(RAWLEN), 0, "rawS", &mut ins);
+    emit_zero_guarded(symbol, RAWBUF, Some(RAWLEN), 0, "rawS", &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
@@ -858,7 +773,7 @@ fn generate(
             ins,
             rel,
         )?;
-        zero_guarded(
+        emit_zero_guarded(
             symbol,
             SEC1PTR,
             Some(SEC1LEN),
@@ -868,7 +783,7 @@ fn generate(
         );
         // bug-136: scrub RAWBUF (raw private scalar) on the post-populate
         // alloc_fail path too.
-        zero_guarded(symbol, RAWBUF, Some(RAWLEN), 0, &format!("{tag}raw"), ins);
+        emit_zero_guarded(symbol, RAWBUF, Some(RAWLEN), 0, &format!("{tag}raw"), ins);
         Ok(())
     };
     ins.push(abi::label(&load_fail));
@@ -1001,7 +916,7 @@ fn sign(
         abi::store_u64(abi::RET[1], abi::stack_pointer(), DERBUF),
         abi::store_u64(abi::RET[1], abi::stack_pointer(), DERPP),
     ]);
-    data_address(
+    emit_data_address(
         symbol,
         "%v9",
         &format!("_mfb_crypto_ec_tmpl_{}", p.name),
@@ -1221,8 +1136,8 @@ fn sign(
     ));
     call_fn(FN, &mut ins);
     // Wipe the raw private scalar and the spliced PKCS#8 DER (both hold the key).
-    zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, "privS", &mut ins);
-    zero_guarded(symbol, DERBUF, None, p.pkcs8_len, "derS", &mut ins);
+    emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, "privS", &mut ins);
+    emit_zero_guarded(symbol, DERBUF, None, p.pkcs8_len, "derS", &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
@@ -1262,8 +1177,8 @@ fn sign(
             ins,
             rel,
         )?;
-        zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, &format!("{tag}pz"), ins);
-        zero_guarded(symbol, DERBUF, None, p.pkcs8_len, &format!("{tag}dz"), ins);
+        emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, &format!("{tag}pz"), ins);
+        emit_zero_guarded(symbol, DERBUF, None, p.pkcs8_len, &format!("{tag}dz"), ins);
         Ok(())
     };
     ins.push(abi::label(&load_fail));
@@ -1419,7 +1334,7 @@ fn verify(
         abi::store_u64(abi::RET[1], abi::stack_pointer(), DERBUF),
         abi::store_u64(abi::RET[1], abi::stack_pointer(), DERPP),
     ]);
-    data_address(
+    emit_data_address(
         symbol,
         "%v9",
         &format!("_mfb_crypto_ec_spki_{}", p.name),

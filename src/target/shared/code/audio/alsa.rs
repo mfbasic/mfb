@@ -65,15 +65,6 @@ fn sym_data_symbol(name: &str) -> String {
     format!("_mfb_audio_alsa_sym_{name}")
 }
 
-fn hex_encode_cstring(text: &str) -> String {
-    let mut hex = String::new();
-    for byte in text.bytes() {
-        hex.push_str(&format!("{byte:02x}"));
-    }
-    hex.push_str("00");
-    hex
-}
-
 /// The read-only C strings (soname + ALSA symbol names) the backend references.
 pub(super) fn data_objects() -> Vec<CodeDataObject> {
     let mut objects = vec![

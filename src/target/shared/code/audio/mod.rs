@@ -91,11 +91,15 @@ pub(super) const DEVICE_FIELD_IS_DEFAULT_INPUT: usize = 32;
 pub(super) const DEVICE_FIELD_IS_DEFAULT_OUTPUT: usize = 40;
 pub(super) const DEVICE_RECORD_SIZE: usize = 48;
 
-// Shared emit helpers: `emit_alloc` is the one arena-allocation free function
-// (`code/mod.rs`, bug-322); the rest still live in `tls`. Reuse them rather than
-// duplicating. `emit_data_address` is re-exported for the AudioQueue phases.
+// Shared generic emitters, all from `native_helpers` (bug-330): `emit_alloc`
+// is the one arena-allocation free function (`code/mod.rs`, bug-322); the rest
+// are the package-neutral emitters that used to live in `tls`. Reuse them
+// rather than duplicating. `emit_data_address` is re-exported for the
+// AudioQueue phases.
 pub(super) use super::emit_alloc;
-pub(super) use super::tls::{emit_arena_free, emit_data_address, emit_fail};
+pub(super) use super::native_helpers::{
+    emit_arena_free, emit_data_address, emit_fail, hex_encode_cstring,
+};
 
 // The emitted AudioQueue output callback (macOS): a C-ABI function the OS calls
 // on an ordinary internal thread when a played buffer is free. openOutput takes

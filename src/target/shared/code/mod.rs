@@ -2812,6 +2812,8 @@ mod builder_values;
 mod builder_vector_inline;
 mod collection_buffer;
 mod collection_mutate;
+mod native_helpers;
+
 mod crypto;
 mod crypto_ec;
 mod datetime;

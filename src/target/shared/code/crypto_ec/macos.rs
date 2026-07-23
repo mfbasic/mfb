@@ -5,8 +5,9 @@
 
 use std::collections::HashMap;
 
+use super::super::native_helpers::{emit_data_address, emit_zero_guarded, hex_encode_cstring};
 use super::super::*;
-use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
+use super::{call_fn, emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
 
 const MACSEC: &str = "/System/Library/Frameworks/Security.framework/Security";
@@ -53,7 +54,7 @@ fn raw_cstr(symbol: &str, text: &str) -> CodeDataObject {
         layout: "C string (NUL-terminated)".to_string(),
         align: 1,
         size: text.len() + 1,
-        value: super::super::tls::hex_encode_cstring(text),
+        value: hex_encode_cstring(text),
     }
 }
 
@@ -70,43 +71,6 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
     objects
 }
 
-/// Load the address of a read-only data symbol into `dst` (adrp + add).
-fn data_address(
-    from: &str,
-    dst: &str,
-    data_symbol: &str,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) {
-    ins.push(
-        CodeInstruction::new("adrp")
-            .field("dst", dst)
-            .field("symbol", data_symbol),
-    );
-    ins.push(
-        CodeInstruction::new("add_pageoff")
-            .field("dst", dst)
-            .field("src", dst)
-            .field("symbol", data_symbol),
-    );
-    rel.extend([
-        CodeRelocation {
-            from: from.to_string(),
-            to: data_symbol.to_string(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        },
-        CodeRelocation {
-            from: from.to_string(),
-            to: data_symbol.to_string(),
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        },
-    ]);
-}
-
 #[allow(clippy::too_many_arguments)]
 /// `dlopen(path, RTLD_NOW)` into `handle_off`; branch to `fail` if NULL.
 fn dlopen_one(
@@ -119,7 +83,7 @@ fn dlopen_one(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    data_address(symbol, abi::return_register(), path_symbol, ins, rel);
+    emit_data_address(symbol, abi::return_register(), path_symbol, ins, rel);
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", RTLD_NOW));
     platform.emit_libc_call("dlopen", symbol, imports, ins, rel)?;
     ins.extend([
@@ -149,7 +113,7 @@ fn dlsym_into(
         abi::stack_pointer(),
         handle_off,
     ));
-    data_address(symbol, abi::ARG[1], &sym(name), ins, rel);
+    emit_data_address(symbol, abi::ARG[1], &sym(name), ins, rel);
     platform.emit_libc_call("dlsym", symbol, imports, ins, rel)?;
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -193,15 +157,6 @@ fn load_cf_const(
     Ok(())
 }
 
-/// Call the function pointer stored at `fn_off` (args already in x0..). Result
-/// left in the return register.
-fn call_fn(fn_off: usize, ins: &mut Vec<CodeInstruction>) {
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), fn_off),
-        abi::branch_link_register("%v9"),
-    ]);
-}
-
 /// `CFRelease(*obj_off)` using the CFRelease pointer at `release_off`.
 fn cf_release(release_off: usize, obj_off: usize, ins: &mut Vec<CodeInstruction>) {
     ins.push(abi::load_u64(
@@ -235,39 +190,6 @@ fn cf_release_guarded(
     ]);
     call_fn(release_off, ins);
     ins.push(abi::label(&skip));
-}
-
-/// Overwrite `[*buf_off]`.. (`[len_off]` bytes) with zero when the buffer slot
-/// is non-NULL. Wipes raw key-material scratch (e.g. the private scalar copied
-/// out of an argument byte list) before the helper returns, so a later
-/// same-program arena allocation cannot be handed a block still holding key
-/// bytes. Call-free (vreg scratch only); `tag` disambiguates the labels.
-fn zero_scratch_guarded(
-    symbol: &str,
-    buf_off: usize,
-    len_off: usize,
-    tag: &str,
-    ins: &mut Vec<CodeInstruction>,
-) {
-    let skip = format!("{symbol}_{tag}_noz");
-    let loop_l = format!("{symbol}_{tag}_zl");
-    let end_l = format!("{symbol}_{tag}_ze");
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), buf_off),
-        abi::compare_immediate("%v9", "0"),
-        abi::branch_eq(&skip),
-        abi::load_u64("%v10", abi::stack_pointer(), len_off),
-        abi::move_immediate("%v11", "Integer", "0"),
-        abi::label(&loop_l),
-        abi::compare_registers("%v11", "%v10"),
-        abi::branch_eq(&end_l),
-        abi::store_u8(abi::ZERO, "%v9", 0),
-        abi::add_immediate("%v9", "%v9", 1),
-        abi::add_immediate("%v11", "%v11", 1),
-        abi::branch(&loop_l),
-        abi::label(&end_l),
-        abi::label(&skip),
-    ]);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -944,7 +866,7 @@ fn sign(
     cf_release(RELEASE, KEY, &mut ins);
     cf_release(RELEASE, SIGDATA, &mut ins);
     // Wipe the private-scalar scratch copied out of the argument byte list.
-    zero_scratch_guarded(symbol, PRIVBUF, PRIVLEN, "privS", &mut ins);
+    emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, "privS", &mut ins);
 
     ins.extend([
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), COLL),
@@ -962,7 +884,7 @@ fn sign(
         cf_release_guarded(symbol, RELEASE, DICT, &format!("{tag}d"), ins);
         cf_release_guarded(symbol, RELEASE, KEY, &format!("{tag}k"), ins);
         cf_release_guarded(symbol, RELEASE, SIGDATA, &format!("{tag}s"), ins);
-        zero_scratch_guarded(symbol, PRIVBUF, PRIVLEN, &format!("{tag}z"), ins);
+        emit_zero_guarded(symbol, PRIVBUF, Some(PRIVLEN), 0, &format!("{tag}z"), ins);
     };
     ins.push(abi::label(&load_fail));
     cleanup(&mut ins, "lf");

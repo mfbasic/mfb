@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 
+use super::native_helpers::{emit_data_address, emit_fail, hex_encode_cstring};
 use super::*;
 use crate::target::shared::abi;
 
@@ -96,15 +97,6 @@ pub(super) fn sym_data_symbol(name: &str) -> String {
     format!("_mfb_tls_sym_{name}")
 }
 
-pub(super) fn hex_encode_cstring(text: &str) -> String {
-    let mut hex = String::new();
-    for byte in text.bytes() {
-        hex.push_str(&format!("{byte:02x}"));
-    }
-    hex.push_str("00"); // NUL terminator
-    hex
-}
-
 /// Read-only C-string data objects (library sonames + symbol names) referenced
 /// by the TLS helpers. Emitted once when a module uses any `tls` call; the
 /// server-only symbol names are appended only when a server helper
@@ -137,74 +129,6 @@ pub(super) fn tls_cstring_data_objects(server: bool) -> Vec<CodeDataObject> {
         });
     }
     objects
-}
-
-/// Load the address of a read-only data symbol into `dst` (adrp + add).
-pub(super) fn emit_data_address(
-    from: &str,
-    dst: &str,
-    data_symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) {
-    instructions.push(
-        CodeInstruction::new("adrp")
-            .field("dst", dst)
-            .field("symbol", data_symbol),
-    );
-    instructions.push(
-        CodeInstruction::new("add_pageoff")
-            .field("dst", dst)
-            .field("src", dst)
-            .field("symbol", data_symbol),
-    );
-    relocations.extend([
-        CodeRelocation {
-            from: from.to_string(),
-            to: data_symbol.to_string(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        },
-        CodeRelocation {
-            from: from.to_string(),
-            to: data_symbol.to_string(),
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        },
-    ]);
-}
-
-/// `bl _mfb_arena_alloc` with size in `x0` and alignment in `x1`; block pointer
-/// left in `x1`. Branches to `fail` on allocation failure.
-
-/// `bl _mfb_arena_free` returning a single compiler-sized block to the arena.
-/// The caller stages the block pointer in the return register (`x0`) and its
-/// original allocation size in `ARG[1]` (`x1`).
-pub(super) fn emit_arena_free(
-    symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-) {
-    instructions.push(abi::branch_link(ARENA_FREE_SYMBOL));
-    relocations.push(super::internal_branch(symbol, ARENA_FREE_SYMBOL));
-}
-
-pub(super) fn emit_fail(
-    symbol: &str,
-    code: &str,
-    message_symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    done: &str,
-) {
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(symbol, message_symbol, instructions, relocations);
-    instructions.push(abi::branch(done));
 }
 
 /// Copy a NUL-free MFBASIC `String` (pointer at `sp + str_off`) into a freshly

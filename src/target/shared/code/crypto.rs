@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 
+use super::native_helpers::{emit_build_byte_list, emit_fail};
 use super::*;
 use crate::target::shared::abi;
 
@@ -63,7 +64,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
         // removed a dead x0<-x0 self-move here).
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
     ]);
-    emit_arena_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
         abi::store_u64(abi::RET[1], abi::stack_pointer(), BUF_OFFSET),
         // Fill the buffer from OS entropy in <=256-byte chunks.
@@ -116,7 +117,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
     // block, writes the header, and fills the lookup table with the identity
     // mapping while copying each byte — one of the places that must stop writing
     // a lookup table when plan-57-D lands.
-    crypto_ec::emit_build_byte_list(
+    emit_build_byte_list(
         symbol,
         &format!("{symbol}_rand_build_loop"),
         &format!("{symbol}_rand_build_done"),
@@ -132,8 +133,10 @@ pub(super) fn lower_crypto_random_bytes_helper(
     // Wipe the entropy scratch buffer now that its bytes have been copied into the
     // returned List OF Byte, so a later same-program arena allocation cannot be
     // handed a block still holding the generated random bytes (bug-177 D). Call-free
-    // guarded zero loop mirroring the EC helpers' zero_scratch_guarded; %v9 = cursor,
-    // %v10 = count, %v11 = index.
+    // guarded zero loop; the instruction stream is identical to the shared
+    // `native_helpers::emit_zero_guarded`, but the loop labels are kept inline so
+    // this helper's committed `.ncode` golden does not churn (bug-330 non-goals:
+    // labels appear in the dump). %v9 = cursor, %v10 = count, %v11 = index.
     let zero_skip = format!("{symbol}_zero_skip");
     let zero_loop = format!("{symbol}_zero_loop");
     let zero_end = format!("{symbol}_zero_end");
@@ -162,7 +165,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
 
     // Error exits.
     instructions.push(abi::label(&invalid));
-    emit_fail_result(
+    emit_fail(
         symbol,
         ERR_INVALID_ARGUMENT_CODE,
         ERR_INVALID_ARGUMENT_SYMBOL,
@@ -171,7 +174,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
         &done,
     );
     instructions.push(abi::label(&entropy_fail));
-    emit_fail_result(
+    emit_fail(
         symbol,
         ERR_UNKNOWN_CODE,
         ERR_UNKNOWN_SYMBOL,
@@ -180,7 +183,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
         &done,
     );
     instructions.push(abi::label(&alloc_fail));
-    emit_fail_result(
+    emit_fail(
         symbol,
         ERR_OUT_OF_MEMORY_CODE,
         ERR_ALLOCATION_SYMBOL,
@@ -192,36 +195,4 @@ pub(super) fn lower_crypto_random_bytes_helper(
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
-}
-
-/// `bl _mfb_arena_alloc` with size in `x0`, alignment in `x1`; the block pointer
-/// is left in `x1`. Branches to `fail` on allocation failure.
-fn emit_arena_alloc(
-    symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    fail: &str,
-) {
-    instructions.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
-    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(fail),
-    ]);
-}
-
-fn emit_fail_result(
-    symbol: &str,
-    code: &str,
-    message_symbol: &str,
-    instructions: &mut Vec<CodeInstruction>,
-    relocations: &mut Vec<CodeRelocation>,
-    done: &str,
-) {
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", code),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(symbol, message_symbol, instructions, relocations);
-    instructions.push(abi::branch(done));
 }
