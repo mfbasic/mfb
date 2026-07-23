@@ -711,7 +711,7 @@ Acceptance: baseline green; the gate's artifact list matches `test-accept.sh`'s.
 - [x] T1-1 `ir/lower.rs` → `ir/docs.rs` + `ir/lower_link.rs` (commit bfe4cc3ca)
 - [ ] T1-2 `entry_and_arena.rs` → 5 files (move `Vregs` to `codegen_utils.rs` in
       the same commit)
-- [ ] T1-7 `doc.rs` → model + `html.rs`
+- [x] T1-7 `doc.rs` → model + `html.rs` (commit 764de5ff9)
 - [ ] T1-8 `ast/items.rs` → 3 parsers
 - [ ] T1-4 `crypto_package.mfb` → 5 sources (concat in `crypto.rs:362-366`)
 - [ ] T1-6 / T1-5 test-file splits — **after** `tests/common/mod.rs` exists
