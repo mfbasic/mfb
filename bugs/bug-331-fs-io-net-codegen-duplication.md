@@ -22,29 +22,59 @@ Landed this session, each its own commit and each gated byte-identical by
 `scripts/artifact-gate.sh` (0 diffs, 1064 tests). `scripts/test-accept.sh` is green apart
 from one pre-existing **flaky** fixture, `rt-behavior/resources/closed-default-tls-drop-rt`,
 which SIGSEGVs (exit 139) on roughly one run in six and passes on retry (6/6 on re-run
-here) — a TLS-drop-over-socket timing race, provably unrelated to this work (§I is a
-source-level no-op and the fixture's `.ast`/`.ir` goldens are byte-identical):
+here) — a TLS-drop-over-socket timing race, provably unrelated to this work.
 
-- **§I** — deleted the shadowing `const EINTR_ERRNO` in `net/io.rs` and `net/poll.rs`;
-  both resolve to `net/mod.rs`'s via `use super::*`.
+**Done, byte-identical:**
+
+- **§I** — deleted the shadowing `const EINTR_ERRNO` in `net/io.rs`/`net/poll.rs`.
 - **§D** — the two hand-rolled `push_error_message_address` blocks in `fs/paths.rs` now
   call the helper (the io-file §D sites were already resolved by the io split).
 - **§C** — `lower_fs_open_helper`'s eight unrolled `emit_branch_if_ascii_literal` calls
-  folded into the `for`-loop form `lower_fs_open_within_helper` already used.
+  folded into the `for`-loop form already used next door.
+- **§B** — `lower_fs_write_text_path_helper`/`_bytes_` collapsed into
+  `lower_fs_write_path_helper(bytes)`; `cap` allocated only in byte mode so the String
+  path keeps its vreg numbering.
+- **§H** — `emit_string_result_build` extracted, shared by net `read`/`receiveFrom` (the
+  error tails were already shared via `emit_alloc`/`emit_fail`/`emit_call_validate_utf8`).
+- **§J** — `emit_trailing_slash_trim` extracted (base_name/dir_name); the discarded
+  `platform` param dropped from `lower_fs_path_join_helper`; `VALIDATE_UTF8_SYMBOL`/
+  `SORT_STRING_LIST_SYMBOL` relocated to `codegen_utils.rs`.
 
-Remaining (verified still open against current code, ranked by value ÷ risk):
+**Remaining — deep investigation (2026-07-23) shows each needs a decision, not just typing:**
 
-- **§F** — the UTF-8 sequence decoder is still duplicated between
-  `io_stdin.rs:lower_io_read_char_helper` and `:lower_io_read_line_helper` (the
-  `_three_not_e0`/`_four_not_f0` ladders). A shared `emit_utf8_sequence_read` needs an
-  `on_lf` param, a label infix, and the differing `LEN_OFFSET`/`SEQ_LEN_OFFSET` — a
-  ~140-line interleaved block; high care, deferred.
-- **§E** — the buffered-output triple is still split between `io_stdout.rs` and `fs/io.rs`.
-- **§A** — the path→C-string marshal is still open-coded across `fs/paths.rs`/`fs/io.rs`/
-  `fs/atomic.rs`; three separate marshals remain (`os/mod.rs:marshal_cstring`,
-  `net/mod.rs:emit_cstring`, `tls/mod.rs:emit_cstring`). **High risk** (vreg renumbering);
-  the bug mandates one commit per call site.
-- **§B** — the four `*_path_helper`s in `fs/atomic.rs` (write pair collapsible).
+- **§A (marshal).** The full unification is NOT a byte-identical refactor. The fs sites are
+  heterogeneous: the plain path marshal (`fs/paths.rs`), the `openFile`/`openFileWithin`
+  variant that carries the embedded-NUL check *inside* the copy loop, and unrelated
+  temp-name synthesis (`fs/atomic.rs`); their alloc/OOM prologues also differ (inline
+  `ErrOutOfMemory`→`done` vs `os::marshal_cstring`'s branch-to-`alloc_fail`). The one part
+  worth unifying — making every marshal reject embedded NUL — is the **Phase-6 behavior
+  change** the doc already quarantines (`fs::exists("a\0b")` would change from `FALSE` to an
+  error). Only the inner copy-and-terminate loop is byte-identically shareable, and even it
+  spans sites with divergent register names; low value for the churn.
+- **§G (dispatch collapse).** Collapsing the ~35 `fs.*`/`io.*` arms to the `net.*` shape is
+  **not byte-identical** while the six `params: Vec::new()` arms exist: a single collapsed
+  construction derives `params` from `spec.abi.params`, which would change the
+  `.nplan`/`.nobj` descriptive model for those six. Per the doc's own Phase 1/5, that needs
+  a deliberate per-arm verdict (a golden change) — which the Non-goals forbid folding into a
+  refactor commit.
+- **§F (UTF-8 decoder).** The two decoders have **drifted apart**: not a clean label infix
+  but different label *names* (`read_second`/`read_third` vs `multi_start`/`line_read_third`)
+  plus `LEN_OFFSET` vs `SEQ_LEN_OFFSET`, `BYTES_OFFSET` 8 vs 48, `got_len` vs `have_sequence`,
+  and the `on_lf` (`trim_cr`) insertion. A byte-identical shared emitter needs ~15
+  per-label/offset params over a ~195-line interleaved block — the indirection approaches
+  the duplication it removes.
+- **§E (buffered output).** The append pair is 40% different (63 substitutions/side): the
+  buffer-block vregs are offset (`%v20`–`%v28` vs `%v30`–`%v39`) while the direct-write
+  vregs (`%v40`/`%v41`) are shared, and the fd source differs in *instruction count*
+  (immediate `1` vs a `FILE_OFFSET_FD` load). A sink-descriptor extraction is achievable but
+  is a large mixed-shared/offset-vreg rewrite; the drain/`isBuffered` pairs the doc itself
+  says "collapse … not for free."
+
+Net: the remaining duplication is entangled with the two behavior/model changes the doc
+quarantines (§A's NUL rejection, §G's six-arm verdict) or has drifted enough that a
+zero-diff shared emitter is unwieldy (§E, §F). Per the doc's Non-goals ("if an item cannot
+be landed with a zero-diff artifact gate, it must be dropped or re-scoped — not landed with
+a golden regeneration"), these await an explicit scope decision.
 - **§G** — the ~35 `fs.*`/`io.*` dispatch arms in `mod.rs` are still un-collapsed (44
   `Ok(CodeFunction {…})` constructions remain). **Hazard**: the six `params: Vec::new()`
   arms must be resolved by hand first.
