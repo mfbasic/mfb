@@ -5,11 +5,15 @@ Effort: huge (>3d — this is a multi-week work order; land it file-by-file, one
 Severity: LOW
 Class: Other (cleanup / file organization)
 
-Status: Open — Phase 0 + 6 Tier-1 splits landed (T1-1, T1-2, T1-3, T1-4, T1-7,
-T1-8), each verified byte-identical (artifact-gate 0 diffs + acceptance 1080).
-Remaining: T1-5/T1-6 blocked on `tests/common/mod.rs` (Agent 21 #2); T1-9
-blocked on bug-330 (audio dedup); all of Tier 2 (T2-1..T2-10 + the glob→explicit
-conversion) and Tier 3 (T3-1, T3-2) not yet started. See the Phases checklist.
+Status: Open — Phase 0 + 7 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
+T1-8; Tier 2: T2-6), each verified byte-identical (artifact-gate 0 diffs +
+acceptance 1080). Remaining: T1-5/T1-6 blocked on `tests/common/mod.rs`
+(Agent 21 #2); T1-9 blocked on bug-330 (audio dedup); most of Tier 2 (T2-1..T2-5,
+T2-7..T2-10 + the glob→explicit conversion) and Tier 3 (T3-1, T3-2) not yet
+started. The `shared/code/` Tier-2 items (T2-3/4/5/8) are intertwined with the
+glob→explicit conversion (a bidirectional-namespace change) — sequence them
+together. T2-7 has a hard blocker (Agent 09 #1 constfold dup, extract to
+`nir/constfold.rs` first). See the Phases checklist.
 Regression Test: artifact gate + acceptance suite per split — `scripts/artifact-gate.sh <exe>` and `scripts/test-accept.sh <exe>`. **Byte-identical generated output is the acceptance criterion**; there is no new behavioral test, because a pure file split emits no new bytes.
 
 The cleanup review measured ~20 files between 1,000 and 5,268 lines whose
