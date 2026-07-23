@@ -5,43 +5,75 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: In progress (partially landed 2026-07-23)
-Regression Test: `scripts/artifact-gate.sh` (byte-identical artifacts) + `scripts/test-accept.sh` + `tools/math-kernels/runtime_ulp.py` re-measurement for every item that touches a kernel body
+Status: Resolved (2026-07-23)
+Regression Test: `scripts/artifact-gate.sh` (byte-identical artifacts) + `scripts/test-accept.sh` + the new `math_const_pool_layout_is_pinned` unit test
 
-## Progress (2026-07-23)
+## Resolution (2026-07-23)
 
-Landed this session, each its own commit and each gated byte-identical by
-`scripts/artifact-gate.sh` (0 diffs, 1064 tests, 1321 goldens). `scripts/test-accept.sh`
-is green apart from one pre-existing flaky TLS fixture
-(`closed-default-tls-drop-rt`, a SIGSEGV race that passes on retry and is unrelated to
-these numeric-builder edits). Because every kernel-body change was proven byte-identical,
-the emitted
-machine code — and therefore the ULP measurement — is provably unchanged; byte-identity is
-a strictly stronger guarantee than the ULP harness, so no separate re-measure was needed.
+Every item is landed, each its own commit and each gated byte-identical by
+`scripts/artifact-gate.sh` (0 diffs, 1064 tests, 1321 goldens); `scripts/test-accept.sh`
+is green apart from one pre-existing flaky TLS fixture (`closed-default-tls-drop-rt`, a
+SIGSEGV race that passes on retry and is unrelated to these numeric-builder edits). Because
+every kernel-body change was proven byte-identical, the emitted machine code — and
+therefore the ULP measurement — is provably unchanged; byte-identity is strictly stronger
+than the ULP harness, so no separate re-measure was needed.
 
-- **B1** — `emit_sin_cos_body` (array) now calls `emit_cos_r_into`/`emit_sin_r_into`
-  instead of re-inlining their bodies (restores the `sin(x) == sin([x])[0]` single-source).
-- **B2** — extracted `emit_tan_sincos_dd` from the ~53 shared leading lines of
-  `emit_tan_body`/`emit_tan_body_scalar`.
-- **C1** — merged `emit_asin_acos_body`/`_scalar` behind a `scalar: bool` selecting the
-  atan callee.
-- **E1** — unified `emit_cordic_vectoring`/`emit_cordic_rotation` into `emit_cordic` with a
-  `CordicMode`; label prefixes preserved per mode.
-- **A1** (alloc half) — extracted `emit_alloc_result_list` for the 8 array-kernel
-  allocation drivers (label prefix parameterized). The `emit_two_lane_stream` half is not
-  yet done.
-- **G1** — dropped `emit_pow_select`'s unused `_xt` parameter.
-- **G5** — extracted `lower_bits_one_integer` for the four `builder_bits.rs` unary checks.
-- **C3** — corrected `builder_money_math.rs`'s false "implemented exactly once" module doc.
+Extractions / merges (all byte-identical):
 
-Remaining: A1's `emit_two_lane_stream`; **E2** (share the ±1.0 fast path + multiply loop —
-keep the caller domain guards, vreg-sensitive); **D1** (share only the 4-instr exponent
-preamble — the three sites allocate different register sets, so this is
-allocation-order-sensitive and was left rather than risk a silent renumber); **C2**
-(deferred by design); **D2** (`list_element_type` — front-end diagnostic wording, confirm
-no `tests/syntax` pin first); **F1/F2/F5** (file moves + spec anchor); **F3/F4** (module
-/doc drift); **G2** (memoize the pool — do the Phase-1 layout test first); **G3** (promote
-the shared f64 bit-pattern constants); **G4** (optional uniformity).
+- **A1** — `emit_alloc_result_list` replaces the eight hand-repeated ~18-line array-kernel
+  allocation drivers (the `SIMD_ALLOC_LIST_SYMBOL` call + `RelocIntent::Call` push + arena
+  error tail), label prefix parameterized. The secondary "2-lane chunk loop" observation is
+  re-scoped: the loops are heterogeneous (unary vs binary, per-site label schemes,
+  `?`-propagating kernel bodies), so a shared `Result`-returning closure helper would add
+  more indirection than it removes for ~10 lines/site — not a zero-diff win, so left per the
+  Non-goals.
+- **B1** — `emit_sin_cos_body` (array) calls `emit_cos_r_into`/`emit_sin_r_into` instead of
+  re-inlining them (restores the `sin(x) == sin([x])[0]` single source).
+- **B2** — `emit_tan_sincos_dd` extracted from the ~53 shared leading lines of the two tan
+  bodies.
+- **C1** — `emit_asin_acos_body`/`_scalar` merged behind a `scalar: bool`.
+- **D1** — `emit_float_exponent_classify` extracted from the three exponent classifiers;
+  registers stay caller-allocated so no vreg renumbering.
+- **E1** — `emit_cordic_vectoring`/`emit_cordic_rotation` unified into `emit_cordic` with a
+  `CordicMode`; per-mode label prefixes preserved.
+- **G1** — dropped `emit_pow_select`'s unused `_xt`.
+- **G5** — `lower_bits_one_integer` for the four `builder_bits.rs` unary checks.
+- **D2** — `list_element_type` for the eight `strip_prefix("List OF ")` blocks; wording
+  standardized on `, got {}` (no `tests/` golden pinned the short forms).
+
+Placement / docs:
+
+- **F1** — `emit_float_fmod` moved to a new `builder_fmod.rs` (mirroring `builder_pow.rs`),
+  the two String comparators to `builder_strings.rs`, a `//!` doc added to
+  `builder_numeric.rs`, and the spec anchor at `18_math-kernels.md:16-17` repointed
+  (`spec_citations_resolve` passes).
+- **F2** — `emit_money_rounding_to_integer` moved to `builder_money_math.rs`.
+- **F5** — `numeric_element_type_code` relocated next to `is_list_argument`.
+- **F3** — `builder_vector_inline.rs` module doc now covers the register-native carrier.
+- **F4** — moved the pool-base paragraph onto `math_pool_base_reg`, deleted the stale
+  `Faithfully rounded` atan paragraph, reconciled the 4-vs-5 segment wording.
+- **C3** — corrected the false "implemented exactly once" claim in `builder_money_math.rs`.
+
+Constants / safety:
+
+- **G2** — added `math_const_pool_layout_is_pinned` (offsets == index*16, data length ==
+  words*32, no dups, stability) and memoized `math_const_pool_words` behind a `OnceLock`.
+- **G3** — promoted `F64_SIGN_BIT`/`F64_MANTISSA_MASK`/`F64_POSITIVE_INF_BITS` into
+  `error_constants` and retired the two `i64::MIN` aliases; `THREAD_RECEIVE_BLOCK_SENTINEL`
+  kept separate.
+
+Documented (byte-identical merge impossible or not warranted — per the Non-goals):
+
+- **C2** — the two atan cores stay separate (different selection mechanisms; the shared
+  polynomial recombine is already factored out). Documented on `emit_atan_core`.
+- **E2** — `emit_fixed_pow` and `emit_fixed_pow_general`'s integer branch share the
+  bug-61/bug-74 fast-path *shape* but differ in accepted domain **and** in the emitted
+  multiply loop (in-place vs product-register-plus-move), so no zero-diff extraction spans
+  both. Reciprocal cross-reference docs added.
+- **G4** — left as computed. The six remaining Q32.32 constants feed
+  `fixed_raw` through IEEE-754-deterministic ops (no libm), so they are bit-reproducible on
+  any host — the review's build-reproducibility premise did not hold, so this was never a
+  fix, only optional uniformity.
 
 The eight `builder_*math*.rs` / `builder_numeric.rs` / `builder_pow.rs` files
 (~10,000 lines) that emit MFBASIC's `Float`, `Fixed`, and `Money` arithmetic carry
