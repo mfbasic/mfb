@@ -1546,594 +1546,210 @@ fn lower_runtime_helper(
                 relocations,
             })
         }
-        "io.print" | "io.write" | "io.printError" | "io.writeError" => {
-            let stderr = matches!(spec.call, "io.printError" | "io.writeError");
-            let newline = matches!(spec.call, "io.print" | "io.printError");
-            // App mode routes io output to the AppKit transcript window
-            // (plan-04-macos-app.md §5.4) instead of a file descriptor.
-            let (frame, instructions, relocations, stack_slots) = if app_mode {
-                pad_no_slots(
-                    platform
-                        .emit_app_io_write_helper(
+        call if call.starts_with("io.") || call.starts_with("fs.") => {
+            let (frame, instructions, relocations, stack_slots) = match call {
+                "io.print" | "io.write" | "io.printError" | "io.writeError" => {
+                    let stderr = matches!(spec.call, "io.printError" | "io.writeError");
+                    let newline = matches!(spec.call, "io.print" | "io.printError");
+                    // App mode routes io output to the AppKit transcript window
+                    // (plan-04-macos-app.md §5.4) instead of a file descriptor.
+                    if app_mode {
+                        pad_no_slots(
+                            platform
+                                .emit_app_io_write_helper(
+                                    symbol,
+                                    stderr,
+                                    newline,
+                                    term_state_offset,
+                                    platform_imports,
+                                )
+                                .ok_or_else(|| {
+                                    format!(
+                                        "native target '{}' does not support app-mode io helpers",
+                                        platform.target()
+                                    )
+                                })??,
+                        )
+                    } else {
+                        lower_io_write_helper(
                             symbol,
+                            platform_imports,
+                            platform,
                             stderr,
                             newline,
                             term_state_offset,
+                        )?
+                    }
+                }
+                "io.flush" => {
+                    // App-mode transcript writes are synchronous (each io write blocks on
+                    // the main thread via performSelectorOnMainThread), so output is
+                    // already visible; flush succeeds immediately (plan §5.4).
+                    if app_mode {
+                        pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(
+                            || {
+                                format!(
+                                    "native target '{}' does not support app-mode io helpers",
+                                    platform.target()
+                                )
+                            },
+                        )??)
+                    } else {
+                        lower_io_flush_helper(symbol, platform_imports, platform)?
+                    }
+                }
+                "io.isBuffered" => lower_io_is_buffered_helper(symbol, app_mode)?,
+                "io.setBuffered" => lower_io_set_buffered_helper(symbol, app_mode)?,
+                "io.pollInput" => {
+                    lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?
+                }
+                "io.input" | "io.readLine" => {
+                    // App-mode io.input writes its prompt to the transcript (via io.write)
+                    // then reads a line (via io.readLine); io.readLine itself is the
+                    // unchanged console helper, which reads fd 0 — the window input pipe
+                    // in app mode (plan §5.4). All other read helpers are likewise
+                    // unchanged and read the pipe.
+                    if app_mode && spec.call == "io.input" {
+                        pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(
+                            || {
+                                format!(
+                                    "native target '{}' does not support app-mode io helpers",
+                                    platform.target()
+                                )
+                            },
+                        )??)
+                    } else {
+                        lower_io_read_line_helper(
+                            symbol,
                             platform_imports,
+                            platform,
+                            spec.call == "io.input",
+                            app_mode,
+                            // bug-149: only a console build that also uses `term::`
+                            // brackets the line read with a cooked-mode restore.
+                            if app_mode { None } else { term_state_offset },
+                        )?
+                    }
+                }
+                "io.readChar" => {
+                    lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?
+                }
+                "io.readByte" => {
+                    lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?
+                }
+                "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
+                    let fd = match spec.call {
+                        "io.isInputTerminal" => 0,
+                        "io.isOutputTerminal" => 1,
+                        "io.isErrorTerminal" => 2,
+                        _ => unreachable!(),
+                    };
+                    // App mode: the window is the interactive console, so these return
+                    // TRUE rather than probing a file descriptor (plan §5.4).
+                    if app_mode {
+                        pad_no_slots(
+                            platform
+                                .emit_app_io_is_terminal_helper(symbol)
+                                .ok_or_else(|| {
+                                    format!(
+                                        "native target '{}' does not support app-mode io helpers",
+                                        platform.target()
+                                    )
+                                })??,
                         )
-                        .ok_or_else(|| {
-                            format!(
-                                "native target '{}' does not support app-mode io helpers",
-                                platform.target()
-                            )
-                        })??,
-                )
-            } else {
-                lower_io_write_helper(
-                    symbol,
-                    platform_imports,
-                    platform,
-                    stderr,
-                    newline,
-                    term_state_offset,
-                )?
+                    } else {
+                        lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
+                    }
+                }
+                "fs.exists" => lower_fs_exists_helper(symbol, platform_imports, platform)?,
+                "fs.fileExists" | "fs.directoryExists" => {
+                    let kind = if spec.call == "fs.fileExists" {
+                        FS_MODE_REGULAR
+                    } else {
+                        FS_MODE_DIRECTORY
+                    };
+                    lower_fs_kind_exists_helper(symbol, platform_imports, platform, kind)?
+                }
+                "fs.currentDirectory" | "fs.tempDirectory" => {
+                    if spec.call == "fs.currentDirectory" {
+                        lower_fs_current_directory_helper(symbol, platform_imports, platform)?
+                    } else {
+                        lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
+                    }
+                }
+                "fs.setCurrentDirectory"
+                | "fs.deleteFile"
+                | "fs.createDirectory"
+                | "fs.deleteDirectory" => {
+                    let operation = match spec.call {
+                        "fs.setCurrentDirectory" => FsPathOperation::Chdir,
+                        "fs.deleteFile" => FsPathOperation::Unlink,
+                        "fs.createDirectory" => FsPathOperation::Mkdir,
+                        "fs.deleteDirectory" => FsPathOperation::Rmdir,
+                        _ => unreachable!(),
+                    };
+                    lower_fs_path_operation_helper(symbol, platform_imports, platform, operation)?
+                }
+                "fs.createDirectories" => {
+                    lower_fs_create_directories_helper(symbol, platform_imports, platform)?
+                }
+                "fs.listDirectory" => {
+                    lower_fs_list_directory_helper(symbol, platform_imports, platform)?
+                }
+                "fs.open" | "fs.openFile" | "fs.openFileNoFollow" => {
+                    let no_follow = spec.call == "fs.openFileNoFollow";
+                    lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?
+                }
+                "fs.openWithin" => lower_fs_open_within_helper(symbol, platform_imports, platform)?,
+                "fs.createTempFile" => {
+                    lower_fs_create_temp_file_helper(symbol, platform_imports, platform)?
+                }
+                "fs.close" => lower_fs_close_helper(symbol, platform_imports, platform, true)?,
+                "fs.setBuffered" => lower_fs_set_buffered_helper(symbol)?,
+                "fs.isBuffered" => lower_fs_is_buffered_helper(symbol)?,
+                "fs.flush" => lower_fs_flush_helper(symbol)?,
+                "fs.writeAll" => lower_fs_write_all_helper(symbol, platform_imports, platform)?,
+                "fs.writeAllBytes" => {
+                    lower_fs_write_all_bytes_helper(symbol, platform_imports, platform)?
+                }
+                "fs.readText" => {
+                    lower_fs_read_text_path_helper(symbol, platform_imports, platform)?
+                }
+                "fs.readBytes" => {
+                    lower_fs_read_bytes_path_helper(symbol, platform_imports, platform)?
+                }
+                "fs.writeText" | "fs.appendText" => {
+                    let append = spec.call == "fs.appendText";
+                    lower_fs_write_path_helper(symbol, platform_imports, platform, append, false)?
+                }
+                "fs.writeBytes" | "fs.appendBytes" => {
+                    let append = spec.call == "fs.appendBytes";
+                    lower_fs_write_path_helper(symbol, platform_imports, platform, append, true)?
+                }
+                "fs.writeTextAtomic" | "fs.writeBytesAtomic" => {
+                    let value_kind = if spec.call == "fs.writeTextAtomic" {
+                        AtomicWriteValueKind::String
+                    } else {
+                        AtomicWriteValueKind::Bytes
+                    };
+                    lower_fs_atomic_write_helper(symbol, platform_imports, platform, value_kind)?
+                }
+                "fs.readAll" => lower_fs_read_all_helper(symbol, platform_imports, platform)?,
+                "fs.readAllBytes" => {
+                    lower_fs_read_all_bytes_helper(symbol, platform_imports, platform)?
+                }
+                "fs.readLine" => lower_fs_read_line_helper(symbol, platform_imports, platform)?,
+                "fs.eof" => lower_fs_eof_helper(symbol, platform_imports, platform)?,
+                "fs.canonicalPath" => {
+                    lower_fs_canonical_path_helper(symbol, platform_imports, platform)?
+                }
+                "fs.isWithin" => lower_fs_is_within_helper(symbol, platform_imports, platform)?,
+                other => {
+                    return Err(format!(
+                        "native code plan does not emit runtime call '{other}'"
+                    ));
+                }
             };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "io.flush" => {
-            // App-mode transcript writes are synchronous (each io write blocks on
-            // the main thread via performSelectorOnMainThread), so output is
-            // already visible; flush succeeds immediately (plan §5.4).
-            let (frame, instructions, relocations, stack_slots) = if app_mode {
-                pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(|| {
-                    format!(
-                        "native target '{}' does not support app-mode io helpers",
-                        platform.target()
-                    )
-                })??)
-            } else {
-                lower_io_flush_helper(symbol, platform_imports, platform)?
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "io.isBuffered" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_io_is_buffered_helper(symbol, app_mode)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "io.setBuffered" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_io_set_buffered_helper(symbol, app_mode)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "io.pollInput" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_io_poll_input_helper(symbol, platform_imports, platform, app_mode)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "io.input" | "io.readLine" => {
-            // App-mode io.input writes its prompt to the transcript (via io.write)
-            // then reads a line (via io.readLine); io.readLine itself is the
-            // unchanged console helper, which reads fd 0 — the window input pipe
-            // in app mode (plan §5.4). All other read helpers are likewise
-            // unchanged and read the pipe.
-            let (frame, instructions, relocations, stack_slots) =
-                if app_mode && spec.call == "io.input" {
-                    pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(|| {
-                        format!(
-                            "native target '{}' does not support app-mode io helpers",
-                            platform.target()
-                        )
-                    })??)
-                } else {
-                    lower_io_read_line_helper(
-                        symbol,
-                        platform_imports,
-                        platform,
-                        spec.call == "io.input",
-                        app_mode,
-                        // bug-149: only a console build that also uses `term::`
-                        // brackets the line read with a cooked-mode restore.
-                        if app_mode { None } else { term_state_offset },
-                    )?
-                };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "io.readChar" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "io.readByte" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => {
-            let fd = match spec.call {
-                "io.isInputTerminal" => 0,
-                "io.isOutputTerminal" => 1,
-                "io.isErrorTerminal" => 2,
-                _ => unreachable!(),
-            };
-            // App mode: the window is the interactive console, so these return
-            // TRUE rather than probing a file descriptor (plan §5.4).
-            let (frame, instructions, relocations, stack_slots) = if app_mode {
-                pad_no_slots(
-                    platform
-                        .emit_app_io_is_terminal_helper(symbol)
-                        .ok_or_else(|| {
-                            format!(
-                                "native target '{}' does not support app-mode io helpers",
-                                platform.target()
-                            )
-                        })??,
-                )
-            } else {
-                lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.exists" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_exists_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.fileExists" | "fs.directoryExists" => {
-            let kind = if spec.call == "fs.fileExists" {
-                FS_MODE_REGULAR
-            } else {
-                FS_MODE_DIRECTORY
-            };
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_kind_exists_helper(symbol, platform_imports, platform, kind)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.currentDirectory" | "fs.tempDirectory" => {
-            let (frame, instructions, relocations, stack_slots) =
-                if spec.call == "fs.currentDirectory" {
-                    lower_fs_current_directory_helper(symbol, platform_imports, platform)?
-                } else {
-                    lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
-                };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.setCurrentDirectory"
-        | "fs.deleteFile"
-        | "fs.createDirectory"
-        | "fs.deleteDirectory" => {
-            let operation = match spec.call {
-                "fs.setCurrentDirectory" => FsPathOperation::Chdir,
-                "fs.deleteFile" => FsPathOperation::Unlink,
-                "fs.createDirectory" => FsPathOperation::Mkdir,
-                "fs.deleteDirectory" => FsPathOperation::Rmdir,
-                _ => unreachable!(),
-            };
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_path_operation_helper(symbol, platform_imports, platform, operation)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.createDirectories" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_create_directories_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.listDirectory" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_list_directory_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.open" | "fs.openFile" | "fs.openFileNoFollow" => {
-            let no_follow = spec.call == "fs.openFileNoFollow";
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.openWithin" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_open_within_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.createTempFile" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_create_temp_file_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.close" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_close_helper(symbol, platform_imports, platform, true)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.setBuffered" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_set_buffered_helper(symbol)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.isBuffered" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_is_buffered_helper(symbol)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.flush" => {
-            let (frame, instructions, relocations, stack_slots) = lower_fs_flush_helper(symbol)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.writeAll" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_write_all_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.writeAllBytes" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_write_all_bytes_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.readText" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_read_text_path_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.readBytes" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_read_bytes_path_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.writeText" | "fs.appendText" => {
-            let append = spec.call == "fs.appendText";
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_write_path_helper(symbol, platform_imports, platform, append, false)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.writeBytes" | "fs.appendBytes" => {
-            let append = spec.call == "fs.appendBytes";
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_write_path_helper(symbol, platform_imports, platform, append, true)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.writeTextAtomic" | "fs.writeBytesAtomic" => {
-            let value_kind = if spec.call == "fs.writeTextAtomic" {
-                AtomicWriteValueKind::String
-            } else {
-                AtomicWriteValueKind::Bytes
-            };
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_atomic_write_helper(symbol, platform_imports, platform, value_kind)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.readAll" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_read_all_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.readAllBytes" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_read_all_bytes_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.readLine" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_read_line_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.eof" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_eof_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.canonicalPath" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_canonical_path_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "fs.isWithin" => {
-            let (frame, instructions, relocations, stack_slots) =
-                lower_fs_is_within_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
