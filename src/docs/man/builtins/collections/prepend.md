@@ -36,12 +36,12 @@ compile-time error. The lowering rejects a list-typed item explicitly as well.
 To place a whole list in front of another, use `collections::append` with the
 operands reversed — `collections::append(front, back)`.
 [[src/builtins/general.rs:resolve_prepend]]
-[[src/target/shared/code/builder_collection_mutate.rs:lower_collection_prepend]]
+[[src/target/shared/code/collection_mutate.rs:lower_collection_prepend]]
 
 Internally the element is wrapped as a one-element list and spliced into `value`
 at index `0`, so the operation is the index-`0` case of the same splice that
 backs `append` and `insert`.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_list_insert_collection]]
+[[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]]
 
 `prepend` is value-semantic. The list named by `value` is unchanged; the modified
 list is the returned value. When the compiler can prove the target is a uniquely
@@ -53,7 +53,7 @@ are identical either way. Note that prepending must shift every existing lookup
 entry right by one, so a repeated prepend stays O(n) per call even on the
 in-place path, unlike `append`.
 [[src/target/shared/code/builder_inplace_assign.rs:try_inplace_prepend_assign]]
-[[src/target/shared/code/builder_collection_mutate.rs:lower_list_prepend_in_place]]
+[[src/target/shared/code/list_mutate.rs:lower_list_prepend_in_place]]
 
 `prepend` is **infallible**: no path in its lowering raises a trappable domain
 error. It has no index to range-check and no lookup to miss, so it is classified

@@ -38,12 +38,12 @@ missing position is an error:
   the element at `index` differs. An index equal to the length is **not** an
   append position and raises `ErrIndexOutOfRange`, as does any negative index.
   Use `collections::append` or `collections::insert` to grow a list.
-  [[src/target/shared/code/builder_collection_mutate.rs:lower_list_set_in_place]]
+  [[src/target/shared/code/list_mutate.rs:lower_list_set_in_place]]
 - For a **map**, the key need not exist. When the key is present its value is
   overwritten; when it is absent a new entry is inserted. The map overload has no
   failure path at all — it raises no domain error for any key.
-  [[src/target/shared/code/builder_collection_mutate.rs:lower_map_set_in_place]]
-  [[src/target/shared/code/builder_collection_mutate.rs:lower_collection_set]]
+  [[src/target/shared/code/map_mutate.rs:lower_map_set_in_place]]
+  [[src/target/shared/code/collection_mutate.rs:lower_collection_set]]
 
 `set` is value-semantic in both overloads. The collection named by `value` is
 unchanged; the updated collection is the returned value, and a program observes
@@ -61,8 +61,8 @@ which is where its `0 <= index < len(value)` bound comes from; the map overload
 is composed from `removeKey` — which is a filter and never fails on a missing
 key — followed by a concatenation of the single new entry, which is why an
 absent key inserts rather than raising.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_collection_set]]
-[[src/target/shared/code/builder_collection_mutate.rs:lower_map_remove_key]]
+[[src/target/shared/code/collection_mutate.rs:lower_collection_set]]
+[[src/target/shared/code/map_mutate.rs:lower_map_remove_key]]
 
 `set` is classified **fallible** overall because of the list overload's range
 check, so an inline `TRAP` on a `set` call compiles and catches that failure
@@ -104,7 +104,7 @@ one. This overload cannot fail. Note that the key parameter is still spelled
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | **List overload only.** `index` is negative, or `index` is greater than or equal to `len(value)`. The map overload raises no error for any key, present or absent. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/builder_collection_mutate.rs:lower_list_set_in_place]] |
+| `77050001` | `ErrIndexOutOfRange` | **List overload only.** `index` is negative, or `index` is greater than or equal to `len(value)`. The map overload raises no error for any key, present or absent. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/list_mutate.rs:lower_list_set_in_place]] |
 
 ## Type checking
 

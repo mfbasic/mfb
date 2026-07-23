@@ -454,7 +454,7 @@ lookup entries. [[src/target/shared/code/builder_collection_query.rs:lower_map_g
 
 - **In-place (`MUT`, amortized O(1)).** When the buffer is a uniquely-owned `MUT`
   working buffer with headroom (`capacity > count` and enough `dataCapacity`),
-  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/target/shared/code/builder_collection_mutate.rs:lower_list_append_in_place]]
+  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/target/shared/code/list_mutate.rs:lower_list_append_in_place]]
   fills the next spare lookup entry, and bumps `count`/`dataLength` in place — no
   reallocation. If headroom is insufficient it first grows the buffer using the
   geometric shape in *Capacity Headroom and Growth* (reallocate-and-copy once,
@@ -469,7 +469,7 @@ lookup entries. [[src/target/shared/code/builder_collection_query.rs:lower_map_g
 in place, like `append`. It is excluded while the binding is an active `FOR EACH`
 iterable — an overwrite of an existing entry is observable to the snapshotting
 iterator, unlike a beyond-`count` append, so that case takes the value path.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_list_set_in_place]]
+[[src/target/shared/code/list_mutate.rs:lower_list_set_in_place]]
 
 - **`List`.** When the replacement payload is the **same size**
   (`newValueLength == oldValueLength` — always true for fixed-width elements and
@@ -491,7 +491,7 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
   when full. Insertion order is preserved, and the new key is folded into the hash
   index per *Map Hash Index* (incremental `_mfb_rt_map_bucket_put` when built, or
   `bucketsReady = 0` when a grow moved the bucket region).
-  [[src/target/shared/code/builder_collection_mutate.rs:lower_map_set_in_place]]
+  [[src/target/shared/code/map_mutate.rs:lower_map_set_in_place]]
 
 The source `collections::sort` is an insertion sort built on `set`, so its
 per-swap `items = collections::set(items, j, …)` overwrites run in place:
@@ -501,7 +501,7 @@ argument (the argument itself is never modified).
 ### `insert`
 
 `List` `insert` is **not** an in-place shift. `lower_list_insert_collection`
-allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/target/shared/code/builder_collection_mutate.rs:lower_list_insert_collection]]
+allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]]
 `dataLength + insertedDataLength` bytes, copies the pre-insertion data region then
 the inserted data region verbatim, splices the lookup table (head, inserted,
 tail), and writes a tight header (`capacity == count`, `dataCapacity ==
@@ -527,7 +527,7 @@ built with `insert`/`prepend`/`set` packs the spliced payload at the data tail, 
 `entry[0]` can point past the hole and shift while a later entry does not). The
 data region keeps its existing order minus the hole rather than being re-packed
 into list order; the observable value and tight sizing are unchanged.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]]
+[[src/target/shared/code/list_mutate.rs:lower_list_remove_at]]
 
 ### Map Updates
 

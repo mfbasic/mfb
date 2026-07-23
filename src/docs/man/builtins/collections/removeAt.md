@@ -34,7 +34,7 @@ bound is **exclusive**: unlike `collections::insert`, `index` equal to the lengt
 is not a valid position — there is nothing there to remove — and raises
 `ErrIndexOutOfRange`, as does any negative `index`. Removing from an empty list
 therefore always raises, since no index satisfies the range.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]]
+[[src/target/shared/code/list_mutate.rs:lower_list_remove_at]]
 
 `removeAt` is value-semantic. The list named by `value` is unchanged; the
 shortened list is the returned value, and a program observes the update only
@@ -48,7 +48,7 @@ an inline `TRAP` on a `removeAt` call compiles and catches the out-of-range
 failure rather than being reported as a dead handler. The bounds test runs before
 the result block is allocated, so a rejected index allocates nothing.
 [[src/builtins/mod.rs:inline_builtin_raw_supported]]
-[[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]]
+[[src/target/shared/code/list_mutate.rs:lower_list_remove_at]]
 
 `removeAt` operates on lists only. To drop a key from a `Map OF K TO V`, use
 `collections::removeKey`, which takes a key rather than an index and does not
@@ -59,7 +59,7 @@ raise when the key is absent. [[src/builtins/general.rs:resolve_remove_key]]
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `List OF T` | The list to remove from; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/general.rs:resolve_remove_at]] |
-| `index` | `Integer` | Zero-based position of the element to remove. Valid range is `0` through `len(value) - 1` inclusive. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]] |
+| `index` | `Integer` | Zero-based position of the element to remove. Valid range is `0` through `len(value) - 1` inclusive. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
 
 ## Return value
 
@@ -71,7 +71,7 @@ raise when the key is absent. [[src/builtins/general.rs:resolve_remove_key]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is greater than or equal to `len(value)`. This includes every call on an empty list. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]] |
+| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is greater than or equal to `len(value)`. This includes every call on an empty list. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/list_mutate.rs:lower_list_remove_at]] |
 
 ## Type checking
 

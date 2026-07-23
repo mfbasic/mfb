@@ -32,12 +32,12 @@ IMPORT collections
 place: the lowering scans the entry table to count the entries it will retain
 and size their payloads, allocates a fresh map block, and copies the retained
 entries into it. The original map is left untouched and remains usable.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_collection_remove_key]]
-[[src/target/shared/code/builder_collection_mutate.rs:lower_map_remove_key]]
+[[src/target/shared/code/collection_mutate.rs:lower_collection_remove_key]]
+[[src/target/shared/code/map_mutate.rs:lower_map_remove_key]]
 
 Retained entries are copied in their existing order, so the surviving entries of
 the result keep the relative order they had in `value`.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_map_remove_key]]
+[[src/target/shared/code/map_mutate.rs:lower_map_remove_key]]
 
 Removing a key that is not present is not an error. The scan simply retains
 every entry, and the call returns a fresh map with the same contents as `value`.
@@ -46,7 +46,7 @@ an absent key still allocates and copies, it does not return the argument
 itself. The result therefore has `len(value)` entries when `key` was absent, or
 `len(value) - 1` entries when it was present. Because a map holds at most one
 entry per key, at most one entry is ever dropped.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_map_remove_key]]
+[[src/target/shared/code/map_mutate.rs:lower_map_remove_key]]
 
 Key comparison is a comparison of the stored key payload: fixed-width keys
 compare their raw stored bits and a `String` key compares length and then bytes.

@@ -2793,7 +2793,6 @@ use builder_collection_layout::{
     byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_block_kind,
     list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
 };
-mod builder_collection_mutate;
 mod builder_collection_queries;
 mod builder_collection_query;
 mod builder_control;
@@ -2817,6 +2816,8 @@ mod builder_strings_package;
 mod builder_value_semantics;
 mod builder_values;
 mod builder_vector_inline;
+mod collection_buffer;
+mod collection_mutate;
 mod crypto;
 mod crypto_ec;
 mod datetime;
@@ -2825,6 +2826,8 @@ mod datetime;
 /// copied filename cannot diverge.
 pub(crate) mod link_locator;
 mod link_thunk;
+mod list_mutate;
+mod map_mutate;
 mod net;
 mod os;
 mod private;

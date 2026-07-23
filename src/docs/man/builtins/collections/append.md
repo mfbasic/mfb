@@ -40,8 +40,8 @@ a list when it is a single element, and the result is built by splicing that lis
 into `value` at index `count(value)` — the one-past-the-end position, which the
 splice accepts as the append position. Existing elements keep their relative
 order, and the appended content is placed after all of them in its own order.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_collection_append]]
-[[src/target/shared/code/builder_collection_mutate.rs:lower_list_insert_collection]]
+[[src/target/shared/code/collection_mutate.rs:lower_collection_append]]
+[[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]]
 
 `append` is value-semantic. The list named by `value` is unchanged; the modified
 list is the returned value, and a program observes the update only through what

@@ -34,7 +34,7 @@ bound is **inclusive**: `index` equal to the current length is the append
 position and is accepted, producing the same result as
 `collections::append(value, item)`. A negative `index`, or an `index` strictly
 greater than the length, raises `ErrIndexOutOfRange`.
-[[src/target/shared/code/builder_collection_mutate.rs:lower_list_insert_collection]]
+[[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]]
 
 Only the single-element form exists. `item` must have exactly the element type
 `T`; passing another `List OF T` resolves no overload, and the lowering rejects a
@@ -43,7 +43,7 @@ Internally the element is wrapped as a one-element list and spliced into `value`
 at `index`, which is the same splice that backs `append` (index `= len`) and
 `prepend` (index `0`).
 [[src/builtins/general.rs:resolve_insert]]
-[[src/target/shared/code/builder_collection_mutate.rs:lower_collection_insert]]
+[[src/target/shared/code/collection_mutate.rs:lower_collection_insert]]
 
 `insert` is value-semantic. The list named by `value` is unchanged; the modified
 list is the returned value, and a program observes the update only through what
@@ -64,8 +64,8 @@ allocation for the result, so a rejected index allocates nothing.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `List OF T` | The list to insert into; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/general.rs:resolve_insert]] |
-| `index` | `Integer` | Zero-based position the inserted element will occupy. Valid range is `0` through `len(value)` inclusive; `len(value)` appends. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/target/shared/code/builder_collection_mutate.rs:lower_list_insert_collection]] |
-| `item` | `T` | The single element to insert. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/target/shared/code/builder_collection_mutate.rs:lower_collection_insert]] |
+| `index` | `Integer` | Zero-based position the inserted element will occupy. Valid range is `0` through `len(value)` inclusive; `len(value)` appends. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] |
+| `item` | `T` | The single element to insert. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/target/shared/code/collection_mutate.rs:lower_collection_insert]] |
 
 ## Return value
 
@@ -77,7 +77,7 @@ allocation for the result, so a rejected index allocates nothing.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is strictly greater than `len(value)`. The append position `index == len(value)` is valid and does not raise. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/builder_collection_mutate.rs:lower_list_insert_collection]] |
+| `77050001` | `ErrIndexOutOfRange` | `index` is negative, or `index` is strictly greater than `len(value)`. The append position `index == len(value)` is valid and does not raise. [[src/target/shared/code/error_constants.rs:ERR_INDEX_OUT_OF_RANGE_CODE]] [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] |
 
 ## Type checking
 
