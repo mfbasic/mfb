@@ -293,26 +293,18 @@ fn rewrite_value_targets(
     globals: &HashSet<String>,
     pkg: &str,
 ) {
-    match value {
-        IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
+    // Descend through the shared in-place value seam (bug-328); the per-node
+    // work below qualifies a reference whose name belongs to this package. The
+    // seam has no depth cap, matching this rewrite's original unbounded walk.
+    crate::ir::value::visit_value_mut(value, &mut |value| match value {
+        IrValue::Call { target, .. } | IrValue::CallResult { target, .. } => {
             if fns.contains(target) {
                 qualify_target(target, pkg);
             }
-            for arg in args {
-                rewrite_value_targets(arg, fns, globals, pkg);
-            }
         }
-        IrValue::FunctionRef { name, .. } => {
+        IrValue::FunctionRef { name, .. } | IrValue::Closure { name, .. } => {
             if fns.contains(name) {
                 qualify_target(name, pkg);
-            }
-        }
-        IrValue::Closure { name, captures, .. } => {
-            if fns.contains(name) {
-                qualify_target(name, pkg);
-            }
-            for capture in captures {
-                rewrite_value_targets(capture, fns, globals, pkg);
             }
         }
         IrValue::Global(name) => {
@@ -320,46 +312,6 @@ fn rewrite_value_targets(
                 qualify_target(name, pkg);
             }
         }
-        IrValue::Constructor { args, .. } => {
-            for arg in args {
-                rewrite_value_targets(arg, fns, globals, pkg);
-            }
-        }
-        IrValue::UnionWrap { value, .. }
-        | IrValue::UnionExtract { value, .. }
-        | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value }
-        | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => {
-            rewrite_value_targets(value, fns, globals, pkg)
-        }
-        IrValue::WithUpdate {
-            target, updates, ..
-        } => {
-            rewrite_value_targets(target, fns, globals, pkg);
-            for update in updates {
-                rewrite_value_targets(&mut update.value, fns, globals, pkg);
-            }
-        }
-        IrValue::ListLiteral { values, .. } => {
-            for v in values {
-                rewrite_value_targets(v, fns, globals, pkg);
-            }
-        }
-        IrValue::MapLiteral { entries, .. } => {
-            for (k, v) in entries {
-                rewrite_value_targets(k, fns, globals, pkg);
-                rewrite_value_targets(v, fns, globals, pkg);
-            }
-        }
-        IrValue::Binary { left, right, .. } => {
-            rewrite_value_targets(left, fns, globals, pkg);
-            rewrite_value_targets(right, fns, globals, pkg);
-        }
-        IrValue::Const { .. }
-        | IrValue::Local(_)
-        | IrValue::LocalRef { .. }
-        | IrValue::Capture { .. } => {}
-    }
+        _ => {}
+    });
 }

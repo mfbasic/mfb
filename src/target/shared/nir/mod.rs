@@ -367,9 +367,11 @@ pub(crate) struct NirRecordUpdate {
     pub(crate) value: NirValue,
 }
 
+pub(crate) mod constfold;
 mod json;
 mod lower;
 mod symbols;
+pub(crate) mod visit;
 
 pub(crate) use lower::{lower_module, merge_packages};
 pub(crate) use symbols::{

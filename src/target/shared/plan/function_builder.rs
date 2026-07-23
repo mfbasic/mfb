@@ -2,6 +2,10 @@ use super::*;
 
 use std::collections::HashMap;
 
+use super::nir::constfold::{
+    native_constant_value, native_static_graphemes_value, native_static_string_value,
+};
+
 pub(super) struct FunctionPlanBuilder<'a> {
     pub(super) function_symbols: &'a HashMap<String, String>,
     pub(super) type_storage: &'a HashMap<String, StorageType>,
@@ -606,60 +610,21 @@ pub(super) fn describe_match_pattern(pattern: &super::nir::NirMatchPattern) -> S
 }
 
 pub(super) fn collect_string_literals(value: &NirValue, literals: &mut Vec<String>) {
-    match value {
-        NirValue::Const { type_, value } if type_ == "String" => {
-            if !literals.contains(value) {
-                literals.push(value.clone());
-            }
-        }
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. }
-        | NirValue::Constructor { args, .. } => {
-            for arg in args {
-                collect_string_literals(arg, literals);
-            }
-        }
-        NirValue::UnionWrap { value, .. }
-        | NirValue::UnionExtract { value, .. }
-        | NirValue::ResultIsOk { value }
-        | NirValue::ResultValue { value }
-        | NirValue::ResultError { value } => collect_string_literals(value, literals),
-        NirValue::WithUpdate {
-            target, updates, ..
-        } => {
-            collect_string_literals(target, literals);
-            for update in updates {
-                collect_string_literals(&update.value, literals);
-            }
-        }
-        NirValue::ListLiteral { values, .. } => {
-            for value in values {
-                collect_string_literals(value, literals);
-            }
-        }
-        NirValue::MapLiteral { entries, .. } => {
-            for (key, value) in entries {
-                collect_string_literals(key, literals);
-                collect_string_literals(value, literals);
-            }
-        }
-        NirValue::MemberAccess { target, .. } => collect_string_literals(target, literals),
-        NirValue::Binary { left, right, .. } => {
-            collect_string_literals(left, literals);
-            collect_string_literals(right, literals);
-        }
-        NirValue::Unary { operand, .. } => collect_string_literals(operand, literals),
-        NirValue::Closure { captures, .. } => {
-            for value in captures {
-                collect_string_literals(value, literals);
-            }
-        }
-        NirValue::Capture { .. }
-        | NirValue::Const { .. }
-        | NirValue::Local(_)
-        | NirValue::LocalRef { .. }
-        | NirValue::Global { .. }
-        | NirValue::FunctionRef { .. } => {}
+    // Collect every distinct `String` constant anywhere in the value, descending
+    // through the shared NIR value seam (bug-328).
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        literals: &'a mut Vec<String>,
     }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Const { type_, value } = value {
+                if type_ == "String" && !self.literals.contains(value) {
+                    self.literals.push(value.clone());
+                }
+            }
+            walk_value(self, value);
+        }
+    }
+    Collector { literals }.visit_value(value);
 }

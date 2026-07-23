@@ -22,185 +22,41 @@ pub(super) fn expanded_nir_union_variants<'a>(
 /// Collect the names of every local whose address is taken (`LocalRef`) anywhere
 /// in `ops`. A loop-promoted local must have *no* such slot reference, since a callback
 /// holding it could read or mutate the slot while the value lives only in
-/// a register (plan-03 Stage D part 2). The matches are exhaustive on purpose:
-/// missing a `LocalRef` would be unsound, so the compiler must force every
-/// variant to be handled.
+/// a register (plan-03 Stage D part 2). Descends through the shared NIR seam
+/// (bug-328), whose `walk_*` recursion is exhaustive — missing a `LocalRef`
+/// would be unsound, and a new value variant is a compile error in one place.
 pub(super) fn collect_address_taken_locals(ops: &[NirOp], out: &mut HashSet<String>) {
-    for op in ops {
-        match op {
-            NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => {
-                if let Some(v) = value {
-                    collect_value_local_refs(v, out);
-                }
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        out: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::LocalRef { name, .. } = value {
+                self.out.insert(name.clone());
             }
-            NirOp::Assign { value, .. }
-            | NirOp::StateAssign { value, .. }
-            | NirOp::Eval { value }
-            | NirOp::ExitProgram { code: value }
-            | NirOp::Fail { error: value } => collect_value_local_refs(value, out),
-            NirOp::Return { value } => {
-                if let Some(v) = value {
-                    collect_value_local_refs(v, out);
-                }
-            }
-            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
-            NirOp::If {
-                condition,
-                then_body,
-                else_body,
-            } => {
-                collect_value_local_refs(condition, out);
-                collect_address_taken_locals(then_body, out);
-                collect_address_taken_locals(else_body, out);
-            }
-            NirOp::Match { value, cases } => {
-                collect_value_local_refs(value, out);
-                for case in cases {
-                    if let NirMatchPattern::Value(v) = &case.pattern {
-                        collect_value_local_refs(v, out);
-                    }
-                    if let NirMatchPattern::OneOf(values) = &case.pattern {
-                        for v in values {
-                            collect_value_local_refs(v, out);
-                        }
-                    }
-                    if let Some(guard) = &case.guard {
-                        collect_value_local_refs(guard, out);
-                    }
-                    collect_address_taken_locals(&case.body, out);
-                }
-            }
-            NirOp::While {
-                condition, body, ..
-            }
-            | NirOp::DoUntil { body, condition } => {
-                collect_value_local_refs(condition, out);
-                collect_address_taken_locals(body, out);
-            }
-            NirOp::For {
-                start,
-                end,
-                step,
-                body,
-                ..
-            } => {
-                collect_value_local_refs(start, out);
-                collect_value_local_refs(end, out);
-                collect_value_local_refs(step, out);
-                collect_address_taken_locals(body, out);
-            }
-            NirOp::ForEach { iterable, body, .. } => {
-                collect_value_local_refs(iterable, out);
-                collect_address_taken_locals(body, out);
-            }
-            NirOp::Trap { body, .. } => collect_address_taken_locals(body, out),
+            walk_value(self, value);
         }
     }
+    Collector { out }.visit_ops(ops);
 }
 
-fn collect_value_local_refs(value: &NirValue, out: &mut HashSet<String>) {
-    match value {
-        NirValue::LocalRef { name, .. } => {
-            out.insert(name.clone());
-        }
-        NirValue::Const { .. }
-        | NirValue::Local(_)
-        | NirValue::Global { .. }
-        | NirValue::FunctionRef { .. }
-        | NirValue::Capture { .. } => {}
-        NirValue::Closure { captures, .. } => {
-            for v in captures {
-                collect_value_local_refs(v, out);
-            }
-        }
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. }
-        | NirValue::Constructor { args, .. }
-        | NirValue::ListLiteral { values: args, .. } => {
-            for v in args {
-                collect_value_local_refs(v, out);
-            }
-        }
-        NirValue::UnionWrap { value, .. }
-        | NirValue::UnionExtract { value, .. }
-        | NirValue::ResultIsOk { value }
-        | NirValue::ResultValue { value }
-        | NirValue::ResultError { value }
-        | NirValue::MemberAccess { target: value, .. }
-        | NirValue::Unary { operand: value, .. } => collect_value_local_refs(value, out),
-        NirValue::WithUpdate {
-            target, updates, ..
-        } => {
-            collect_value_local_refs(target, out);
-            for update in updates {
-                collect_value_local_refs(&update.value, out);
-            }
-        }
-        NirValue::MapLiteral { entries, .. } => {
-            for (k, v) in entries {
-                collect_value_local_refs(k, out);
-                collect_value_local_refs(v, out);
-            }
-        }
-        NirValue::Binary { left, right, .. } => {
-            collect_value_local_refs(left, out);
-            collect_value_local_refs(right, out);
-        }
-    }
-}
-
-/// Collect every local *read* (`Local`) in `value`. Exhaustive on purpose.
+/// Collect every local *read* (`Local`) in `value`, via the shared NIR value
+/// seam (bug-328).
 fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
-    match value {
-        NirValue::Local(name) => {
-            out.insert(name.clone());
-        }
-        NirValue::Const { .. }
-        | NirValue::LocalRef { .. }
-        | NirValue::Global { .. }
-        | NirValue::FunctionRef { .. }
-        | NirValue::Capture { .. } => {}
-        NirValue::Closure { captures, .. } => {
-            for v in captures {
-                collect_value_local_reads(v, out);
+    use nir::visit::{walk_value, NirVisitor};
+    struct Collector<'a> {
+        out: &'a mut HashSet<String>,
+    }
+    impl NirVisitor for Collector<'_> {
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Local(name) = value {
+                self.out.insert(name.clone());
             }
-        }
-        NirValue::Call { args, .. }
-        | NirValue::CallResult { args, .. }
-        | NirValue::RuntimeCall { args, .. }
-        | NirValue::Constructor { args, .. }
-        | NirValue::ListLiteral { values: args, .. } => {
-            for v in args {
-                collect_value_local_reads(v, out);
-            }
-        }
-        NirValue::UnionWrap { value, .. }
-        | NirValue::UnionExtract { value, .. }
-        | NirValue::ResultIsOk { value }
-        | NirValue::ResultValue { value }
-        | NirValue::ResultError { value }
-        | NirValue::MemberAccess { target: value, .. }
-        | NirValue::Unary { operand: value, .. } => collect_value_local_reads(value, out),
-        NirValue::WithUpdate {
-            target, updates, ..
-        } => {
-            collect_value_local_reads(target, out);
-            for update in updates {
-                collect_value_local_reads(&update.value, out);
-            }
-        }
-        NirValue::MapLiteral { entries, .. } => {
-            for (k, v) in entries {
-                collect_value_local_reads(k, out);
-                collect_value_local_reads(v, out);
-            }
-        }
-        NirValue::Binary { left, right, .. } => {
-            collect_value_local_reads(left, out);
-            collect_value_local_reads(right, out);
+            walk_value(self, value);
         }
     }
+    Collector { out }.visit_value(value);
 }
 
 /// Small-vector locals safe to keep in registers (their lanes) for their whole

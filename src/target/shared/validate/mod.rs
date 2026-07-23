@@ -196,7 +196,8 @@ pub(crate) use capabilities::validate_capabilities;
 mod tests {
     use super::*;
     use crate::target::shared::nir::{
-        NirEntryPoint, NirFunction, NirModule, NirOp, NirSourceLoc, NirType, NirValue, NirVariant,
+        NirEntryPoint, NirFunction, NirMatchCase, NirMatchPattern, NirModule, NirOp, NirSourceLoc,
+        NirType, NirValue, NirVariant,
     };
 
     fn module(runtime_helpers: Vec<RuntimeHelper>) -> NirModule {
@@ -299,6 +300,42 @@ mod tests {
         let nir = module(vec![RuntimeHelper::Io]);
         validate_capabilities(&nir, &test_capabilities(&["io.print"]))
             .expect("io has catalogued specs");
+    }
+
+    /// bug-328: a runtime call that appears only inside a `WHEN … WHERE` guard
+    /// still executes, so capability validation must see it. Before the fix the
+    /// capability collector walked the scrutinee and each case body but skipped
+    /// `case.guard`, so a backend-unsupported call hidden in a guard slipped
+    /// through unchecked (the same omission bug-118 fixed on the sibling passes).
+    /// Build the module directly so the collector is exercised in isolation.
+    #[test]
+    fn capability_check_sees_runtime_call_in_match_guard() {
+        let mut nir = module(vec![RuntimeHelper::Io]);
+        nir.functions[0].body = vec![NirOp::Match {
+            value: NirValue::Const {
+                type_: "Integer".to_string(),
+                value: "1".to_string(),
+            },
+            cases: vec![NirMatchCase {
+                pattern: NirMatchPattern::Else,
+                guard: Some(NirValue::RuntimeCall {
+                    helper: RuntimeHelper::Io,
+                    target: "io.print".to_string(),
+                    args: vec![NirValue::Const {
+                        type_: "String".to_string(),
+                        value: "guarded".to_string(),
+                    }],
+                    loc: NirSourceLoc::default(),
+                }),
+                body: Vec::new(),
+            }],
+        }];
+        let err = validate_capabilities(&nir, &test_capabilities(&[]))
+            .expect_err("a runtime call in a match guard must be checked against capabilities");
+        assert_eq!(
+            err,
+            "native backend does not support runtime call 'io.print'"
+        );
     }
 
     /// A resource-union bind nested inside a `FOR EACH` body drops by dispatching

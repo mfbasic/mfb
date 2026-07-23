@@ -1131,72 +1131,15 @@ fn collect_local_reads_op(op: &IrOp, out: &mut Vec<String>) {
 }
 
 /// Collect the names of every `Local` read within a value expression.
+/// Collect every `Local` name read anywhere in `value`. Descends through the
+/// shared depth-bounded [`visit_value`](crate::ir::value::visit_value) seam
+/// (bug-328), which preserves the `MAX_DEPTH` cutoff the hand-written walk had.
 fn collect_local_reads_value(value: &IrValue, out: &mut Vec<String>) {
-    collect_local_reads_value_depth(value, out, 0);
-}
-
-/// Depth-bounded body of `collect_local_reads_value`. Bounded to `MAX_DEPTH`
-/// expression levels (mirroring `check_ops`' cap); past that it stops recursing
-/// so a pathologically deep value expression cannot overflow the stack.
-fn collect_local_reads_value_depth(value: &IrValue, out: &mut Vec<String>, depth: usize) {
-    if depth > MAX_DEPTH {
-        return;
-    }
-    match value {
-        IrValue::Local(name) => out.push(name.clone()),
-        IrValue::Call { args, .. } | IrValue::CallResult { args, .. } => {
-            for a in args {
-                collect_local_reads_value_depth(a, out, depth + 1);
-            }
+    crate::ir::value::visit_value(value, &mut |v| {
+        if let IrValue::Local(name) = v {
+            out.push(name.clone());
         }
-        IrValue::Constructor { args, .. } => {
-            for a in args {
-                collect_local_reads_value_depth(a, out, depth + 1);
-            }
-        }
-        IrValue::Closure { captures, .. } => {
-            for c in captures {
-                collect_local_reads_value_depth(c, out, depth + 1);
-            }
-        }
-        IrValue::UnionWrap { value, .. }
-        | IrValue::UnionExtract { value, .. }
-        | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value }
-        | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => {
-            collect_local_reads_value_depth(value, out, depth + 1)
-        }
-        IrValue::Binary { left, right, .. } => {
-            collect_local_reads_value_depth(left, out, depth + 1);
-            collect_local_reads_value_depth(right, out, depth + 1);
-        }
-        IrValue::WithUpdate {
-            target, updates, ..
-        } => {
-            collect_local_reads_value_depth(target, out, depth + 1);
-            for u in updates {
-                collect_local_reads_value_depth(&u.value, out, depth + 1);
-            }
-        }
-        IrValue::ListLiteral { values, .. } => {
-            for e in values {
-                collect_local_reads_value_depth(e, out, depth + 1);
-            }
-        }
-        IrValue::MapLiteral { entries, .. } => {
-            for (k, val) in entries {
-                collect_local_reads_value_depth(k, out, depth + 1);
-                collect_local_reads_value_depth(val, out, depth + 1);
-            }
-        }
-        IrValue::Const { .. }
-        | IrValue::Global(_)
-        | IrValue::LocalRef { .. }
-        | IrValue::FunctionRef { .. }
-        | IrValue::Capture { .. } => {}
-    }
+    });
 }
 
 /// Parse a `Map OF K TO V` type string into `(K, V)`.
@@ -1244,78 +1187,15 @@ fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static s
 }
 
 /// Record every `Closure { name, captures }` site's captured-slot count so the
-/// capture-bounds rule knows each closure body's env size.
+/// capture-bounds rule knows each closure body's env size. Descends through the
+/// shared depth-bounded [`visit_value`](crate::ir::value::visit_value) seam
+/// (bug-328); the `MAX_DEPTH` cutoff is preserved.
 fn collect_closures(value: &IrValue, out: &mut HashMap<String, HashSet<usize>>) {
-    collect_closures_depth(value, out, 0);
-}
-
-/// Depth-bounded body of `collect_closures`. Bounded to `MAX_DEPTH` expression
-/// levels (mirroring `check_ops`' cap); past that it stops recursing so a
-/// pathologically deep value expression cannot overflow the stack.
-fn collect_closures_depth(
-    value: &IrValue,
-    out: &mut HashMap<String, HashSet<usize>>,
-    depth: usize,
-) {
-    if depth > MAX_DEPTH {
-        return;
-    }
-    match value {
-        IrValue::Closure { name, captures, .. } => {
+    crate::ir::value::visit_value(value, &mut |v| {
+        if let IrValue::Closure { name, captures, .. } = v {
             out.entry(name.clone()).or_default().insert(captures.len());
-            for capture in captures {
-                collect_closures_depth(capture, out, depth + 1);
-            }
         }
-        IrValue::Call { args, .. } | IrValue::CallResult { args, .. } => {
-            for arg in args {
-                collect_closures_depth(arg, out, depth + 1);
-            }
-        }
-        IrValue::Constructor { args, .. } => {
-            for arg in args {
-                collect_closures_depth(arg, out, depth + 1);
-            }
-        }
-        IrValue::UnionWrap { value, .. }
-        | IrValue::UnionExtract { value, .. }
-        | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value }
-        | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => {
-            collect_closures_depth(value, out, depth + 1)
-        }
-        IrValue::WithUpdate {
-            target, updates, ..
-        } => {
-            collect_closures_depth(target, out, depth + 1);
-            for update in updates {
-                collect_closures_depth(&update.value, out, depth + 1);
-            }
-        }
-        IrValue::ListLiteral { values, .. } => {
-            for v in values {
-                collect_closures_depth(v, out, depth + 1);
-            }
-        }
-        IrValue::MapLiteral { entries, .. } => {
-            for (k, v) in entries {
-                collect_closures_depth(k, out, depth + 1);
-                collect_closures_depth(v, out, depth + 1);
-            }
-        }
-        IrValue::Binary { left, right, .. } => {
-            collect_closures_depth(left, out, depth + 1);
-            collect_closures_depth(right, out, depth + 1);
-        }
-        IrValue::Const { .. }
-        | IrValue::Local(_)
-        | IrValue::Global(_)
-        | IrValue::LocalRef { .. }
-        | IrValue::FunctionRef { .. }
-        | IrValue::Capture { .. } => {}
-    }
+    });
 }
 
 fn collect_closures_ops(ops: &[IrOp], out: &mut HashMap<String, HashSet<usize>>) {
@@ -1395,72 +1275,16 @@ fn collect_closures_ops(ops: &[IrOp], out: &mut HashMap<String, HashSet<usize>>)
 
 /// Visit every `Capture` index reachable from a value expression (captures
 /// never nest through ops — a closure body's captures live in leading binds).
+/// Call `visit` with the env slot index of every `Capture` anywhere in `value`.
+/// Descends through the shared depth-bounded
+/// [`visit_value`](crate::ir::value::visit_value) seam (bug-328); the
+/// `MAX_DEPTH` cutoff is preserved.
 fn walk_captures(value: &IrValue, visit: &mut impl FnMut(u32)) {
-    walk_captures_depth(value, visit, 0);
-}
-
-/// Depth-bounded body of `walk_captures`. Bounded to `MAX_DEPTH` expression
-/// levels (mirroring `check_ops`' cap); past that it stops recursing so a
-/// pathologically deep value expression cannot overflow the stack.
-fn walk_captures_depth(value: &IrValue, visit: &mut impl FnMut(u32), depth: usize) {
-    if depth > MAX_DEPTH {
-        return;
-    }
-    match value {
-        IrValue::Capture { index, .. } => visit(*index),
-        IrValue::Call { args, .. } | IrValue::CallResult { args, .. } => {
-            for arg in args {
-                walk_captures_depth(arg, visit, depth + 1);
-            }
+    crate::ir::value::visit_value(value, &mut |v| {
+        if let IrValue::Capture { index, .. } = v {
+            visit(*index);
         }
-        IrValue::Closure { captures, .. } => {
-            for capture in captures {
-                walk_captures_depth(capture, visit, depth + 1);
-            }
-        }
-        IrValue::Constructor { args, .. } => {
-            for arg in args {
-                walk_captures_depth(arg, visit, depth + 1);
-            }
-        }
-        IrValue::UnionWrap { value, .. }
-        | IrValue::UnionExtract { value, .. }
-        | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value, .. }
-        | IrValue::ResultError { value }
-        | IrValue::Unary { operand: value, .. }
-        | IrValue::MemberAccess { target: value, .. } => {
-            walk_captures_depth(value, visit, depth + 1)
-        }
-        IrValue::WithUpdate {
-            target, updates, ..
-        } => {
-            walk_captures_depth(target, visit, depth + 1);
-            for update in updates {
-                walk_captures_depth(&update.value, visit, depth + 1);
-            }
-        }
-        IrValue::ListLiteral { values, .. } => {
-            for v in values {
-                walk_captures_depth(v, visit, depth + 1);
-            }
-        }
-        IrValue::MapLiteral { entries, .. } => {
-            for (k, v) in entries {
-                walk_captures_depth(k, visit, depth + 1);
-                walk_captures_depth(v, visit, depth + 1);
-            }
-        }
-        IrValue::Binary { left, right, .. } => {
-            walk_captures_depth(left, visit, depth + 1);
-            walk_captures_depth(right, visit, depth + 1);
-        }
-        IrValue::Const { .. }
-        | IrValue::Local(_)
-        | IrValue::Global(_)
-        | IrValue::LocalRef { .. }
-        | IrValue::FunctionRef { .. } => {}
-    }
+    });
 }
 
 mod calls;
