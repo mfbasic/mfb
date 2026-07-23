@@ -709,13 +709,15 @@ Acceptance: baseline green; the gate's artifact list matches `test-accept.sh`'s.
 ### Phase 1 — Tier 1 (7 splits with no bug-322 overlap)
 
 - [x] T1-1 `ir/lower.rs` → `ir/docs.rs` + `ir/lower_link.rs` (commit bfe4cc3ca)
-- [x] T1-2 `entry_and_arena.rs` → 5 files + Vregs move (commit fe81732e5)
-      the same commit)
-- [x] T1-7 `doc.rs` → model + `html.rs` (commit 764de5ff9)
+- [x] T1-2 `entry_and_arena.rs` → 5 files + Vregs move (commit d653d5642)
+- [x] T1-7 `doc.rs` → model + `html.rs` (commit 7c2782ba8)
 - [x] T1-8 `ast/items.rs` → 3 parsers (commit 6dd854d3a)
 - [x] T1-4 `crypto_package.mfb` → 5 sources (commit 7e13a7a7a)
-- [ ] T1-6 / T1-5 test-file splits — **after** `tests/common/mod.rs` exists
-      (Agent 21 #2)
+- [ ] T1-6 / T1-5 test-file splits — **BLOCKED**: `tests/common/mod.rs` does not
+      exist yet. Per T1-5/T1-6 these must land after it (Agent 21 #2's 17-way
+      `temp_project` dedup), or they create a third helper copy — and that dedup
+      is out of scope for a pure split (a separate bug's job). Deferred until the
+      common helper module exists.
 
 Acceptance: after **each** commit, `artifact-gate.sh` and `test-accept.sh` green
 with zero golden diffs; `git show --stat` shows only moves plus `mod`/`use`
