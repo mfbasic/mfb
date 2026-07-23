@@ -6,10 +6,10 @@ Severity: LOW
 Class: Other (cleanup / file organization)
 
 Status: Open — Phase 0 + 8 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
-T1-8; Tier 2: T2-6), each verified byte-identical (artifact-gate 0 diffs +
+T1-8; Tier 2: T2-6, T2-9), each verified byte-identical (artifact-gate 0 diffs +
 acceptance 1080). Remaining: T1-5/T1-6 blocked on `tests/common/mod.rs`
-(Agent 21 #2); T1-9 blocked on bug-330 (audio dedup); most of Tier 2 (T2-1..T2-5,
-T2-7..T2-10 + the glob→explicit conversion) and Tier 3 (T3-1, T3-2) not yet
+(Agent 21 #2); T1-9 blocked on bug-330 (audio dedup); the rest of Tier 2 (T2-1..T2-5,
+T2-7, T2-8, T2-10 + the glob→explicit conversion) and Tier 3 (T3-1, T3-2) not yet
 started. The `shared/code/` Tier-2 items (T2-3/4/5/8) are intertwined with the
 glob→explicit conversion (a bidirectional-namespace change) — sequence them
 together. T2-7 has a hard blocker (Agent 09 #1 constfold dup, extract to
@@ -750,7 +750,9 @@ Acceptance: as Phase 1.
 - [ ] Convert `src/target/shared/code/mod.rs`'s 18 glob imports (`:3061-3151`)
       to explicit `use` lists; delete the `align`/`data_align` duplicate this
       exposes (Agent 04 #13)
-- [x] T2-6 `syntaxcheck/link.rs` extracted (commit cb2d3b8ac); T2-5, T2-7, T2-8, T2-9, T2-10, T2-3, T2-2 remain
+- [x] T2-6 `syntaxcheck/link.rs` extracted (commit cb2d3b8ac)
+- [x] T2-9 `testing/desugar.rs` → desugar/ + ast/build.rs (commit 6102f80b3)
+- [ ] T2-5, T2-7, T2-8, T2-10, T2-3, T2-2 remain
 
 Acceptance: as Phase 1, plus the explicit-`use` conversion compiles with no
 `pub(super)` widened to `pub(crate)`.
