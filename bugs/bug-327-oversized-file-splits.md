@@ -694,9 +694,10 @@ the test is that nothing changes.
 
 ### Phase 0 — establish the invariant harness (once)
 
-- [ ] Record a baseline: build the compiler, run `scripts/artifact-gate.sh
+- [x] Record a baseline: build the compiler, run `scripts/artifact-gate.sh
       <exe>` and `scripts/test-accept.sh <exe>`, confirm both green **before**
-      any split.
+      any split. (2026-07-22: artifact-gate 1318 goldens 0 diffs; acceptance
+      1080 tests passed.)
 - [ ] Confirm `scripts/artifact-gate.sh` covers the artifact kinds each split
       could disturb. Agent 21 #7 found it has **drifted** from
       `scripts/test-accept.sh` — it is missing rows for the mfp/info/app-mode
@@ -707,7 +708,7 @@ Acceptance: baseline green; the gate's artifact list matches `test-accept.sh`'s.
 
 ### Phase 1 — Tier 1 (7 splits with no bug-322 overlap)
 
-- [ ] T1-1 `ir/lower.rs` → `ir/docs.rs` + `ir/lower_link.rs`
+- [x] T1-1 `ir/lower.rs` → `ir/docs.rs` + `ir/lower_link.rs` (commit bfe4cc3ca)
 - [ ] T1-2 `entry_and_arena.rs` → 5 files (move `Vregs` to `codegen_utils.rs` in
       the same commit)
 - [ ] T1-7 `doc.rs` → model + `html.rs`
