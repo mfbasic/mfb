@@ -39,7 +39,7 @@ cp "$here/mfb/workers/bench_workers.mfp" "$here/mfb/packages/bench_workers.mfp"
 
 echo "==> building mfb benchmark"
 "$MFB" build "$here/mfb" >/dev/null
-mfb_out="$here/mfb/benchmark.out"
+mfb_out="$here/mfb/build/benchmark.out"
 
 echo "==> building c benchmark (-O0 and -O2)"
 c_srcs=("$here/c/main.c" "$here/c/list.c" "$here/c/mapbench.c" "$here/c/mathbench.c" \
@@ -75,5 +75,5 @@ for n in mfb c-O0 c-O2 python; do echo "    $here/${n}-${ts}.log"; done
 
 # Tidy up build artifacts (all git-ignored, but keep the tree clean).
 rm -f "$here/c/bench-O0.out" "$here/c/bench-O2.out" \
-      "$here/mfb/benchmark.out" "$here/mfb/workers/bench_workers.mfp" \
+      "$here/mfb/build/benchmark.out" "$here/mfb/workers/bench_workers.mfp" \
       "$here/mfb/packages/bench_workers.mfp"

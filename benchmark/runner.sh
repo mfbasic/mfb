@@ -51,7 +51,7 @@ bench_build_mfb() {
   "$MFB" build "$dir" >/dev/null
   local name
   name="$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$dir/project.json" | head -1)"
-  MFB_OUT="$dir/$name.out"
+  MFB_OUT="$dir/build/$name.out"
   BENCH_ARTIFACTS+=("$MFB_OUT")
 }
 

@@ -5,7 +5,7 @@ A cross-language micro-benchmark suite comparing **MFBASIC** against **C** (at
 program that times every micro-benchmark internally and prints a grouped
 `median / average / min / max` table in milliseconds.
 
-- `mfb/`    — the MFBASIC project (`mfb build` → `benchmark.out`)
+- `mfb/`    — the MFBASIC project (`mfb build` → `build/benchmark.out`)
 - `c/`      — compiled at `-O0` and `-O2`
 - `python/` — run under `python3`
 - `empty/`  — standalone process-startup benchmark (run `./empty/run.sh`)

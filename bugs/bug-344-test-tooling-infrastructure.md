@@ -466,6 +466,15 @@ There is no orphaned-golden problem in this repository. Do not re-run this scan.
 - Fix: one timing engine (fold `empty/run.sh` onto `run.sh` and delete
   `runner.sh`), one corrected output path, and either align the file names or
   correct the README to describe what exists.
+- **Path fix done 2026-07-22 (the broken part).** All three stale `.out` sites
+  corrected to `<proj>/build/…`: `benchmark/run.sh:42` (`mfb_out`) and `:78` (the
+  cleanup `rm -f`, which had been removing nothing), `benchmark/runner.sh:54`
+  (`MFB_OUT`), and `benchmark/README.md:8`. The compiler writes
+  `benchmark/mfb/build/benchmark.out` (BUILD_DIR, confirmed in bug-346), so
+  `run_one "mfb"` now points at the binary that is actually produced.
+- **Deferred:** the two-timing-engine consolidation (fold `empty/run.sh` onto
+  `run.sh`, delete `runner.sh`) and the README file-name-contradiction — larger
+  refactors with no correctness impact once the paths resolve.
 
 #### F4 — `planning/` holds three non-plan scratch files, a second archive directory, and a bug doc named as a plan
 
