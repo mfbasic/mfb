@@ -32,17 +32,9 @@ impl CodeBuilder<'_> {
         let expmask = self.allocate_register()?;
         let mantmask = self.allocate_register()?;
         let implicit = self.allocate_register()?;
-        self.emit(abi::move_immediate(
-            &signmask,
-            "Integer",
-            F64_SIGN_BIT,
-        )); // 1<<63
+        self.emit(abi::move_immediate(&signmask, "Integer", F64_SIGN_BIT)); // 1<<63
         self.emit(abi::move_immediate(&expmask, "Integer", "2047")); // 0x7ff
-        self.emit(abi::move_immediate(
-            &mantmask,
-            "Integer",
-            F64_MANTISSA_MASK,
-        )); // (1<<52)-1
+        self.emit(abi::move_immediate(&mantmask, "Integer", F64_MANTISSA_MASK)); // (1<<52)-1
         self.emit(abi::move_immediate(
             &implicit,
             "Integer",
