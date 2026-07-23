@@ -666,78 +666,26 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         abi::store_u8(abi::ZERO, &dst, 0),
         abi::load_u64(&mode_len, &mode, 0),
     ]);
-    emit_branch_if_ascii_literal(
-        &mut instructions,
-        &mode,
-        &mode_len,
-        &mode_byte,
-        b"r",
-        &read,
-        symbol,
-    );
-    emit_branch_if_ascii_literal(
-        &mut instructions,
-        &mode,
-        &mode_len,
-        &mode_byte,
-        b"read",
-        &read,
-        symbol,
-    );
-    emit_branch_if_ascii_literal(
-        &mut instructions,
-        &mode,
-        &mode_len,
-        &mode_byte,
-        b"w",
-        &write,
-        symbol,
-    );
-    emit_branch_if_ascii_literal(
-        &mut instructions,
-        &mode,
-        &mode_len,
-        &mode_byte,
-        b"write",
-        &write,
-        symbol,
-    );
-    emit_branch_if_ascii_literal(
-        &mut instructions,
-        &mode,
-        &mode_len,
-        &mode_byte,
-        b"rw",
-        &read_write,
-        symbol,
-    );
-    emit_branch_if_ascii_literal(
-        &mut instructions,
-        &mode,
-        &mode_len,
-        &mode_byte,
-        b"readWrite",
-        &read_write,
-        symbol,
-    );
-    emit_branch_if_ascii_literal(
-        &mut instructions,
-        &mode,
-        &mode_len,
-        &mode_byte,
-        b"a",
-        &append,
-        symbol,
-    );
-    emit_branch_if_ascii_literal(
-        &mut instructions,
-        &mode,
-        &mode_len,
-        &mode_byte,
-        b"append",
-        &append,
-        symbol,
-    );
+    for (lit, target) in [
+        (&b"r"[..], &read),
+        (&b"read"[..], &read),
+        (&b"w"[..], &write),
+        (&b"write"[..], &write),
+        (&b"rw"[..], &read_write),
+        (&b"readWrite"[..], &read_write),
+        (&b"a"[..], &append),
+        (&b"append"[..], &append),
+    ] {
+        emit_branch_if_ascii_literal(
+            &mut instructions,
+            &mode,
+            &mode_len,
+            &mode_byte,
+            lit,
+            target,
+            symbol,
+        );
+    }
     instructions.extend([
         abi::branch(&invalid),
         abi::label(&read),
