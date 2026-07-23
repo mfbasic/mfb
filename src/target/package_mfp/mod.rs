@@ -218,6 +218,19 @@ fn validate_metadata(metadata: &BinaryReprMetadata) -> Result<(), String> {
     validate_string("version", &metadata.version, VERSION_LIMIT, true)?;
     validate_string("author", &metadata.author, AUTHOR_LIMIT, false)?;
     validate_string("url", &metadata.url, URL_LIMIT, false)?;
+    // bug-353 B: each dependency name is interned into the `.mfp` import table
+    // and interpolated as `packages/<name>.mfp` by a consumer, so it must be a
+    // single safe path component — the same guard the package's own name and the
+    // header reader (`read_mfp_header`) apply. The manifest reader
+    // (`package_dependencies`) does not validate these, unlike its sibling
+    // `project_package_dependency`, so a `../../etc/passwd` dependency reached
+    // the container verbatim. Refuse to *produce* such a container; this is the
+    // authoritative build-time gate at the boundary the container-format spec
+    // (`01_container-format.md:258`) claims enforces it.
+    for dependency in &metadata.dependencies {
+        validate_string("dependency name", &dependency.name, NAME_LIMIT, true)?;
+        crate::manifest::package::validate_package_name(&dependency.name)?;
+    }
     Ok(())
 }
 
@@ -334,6 +347,49 @@ mod tests {
             ident_public,
             server_public,
         )
+    }
+
+    /// bug-353 B: a dependency name is interned into the import table and
+    /// interpolated as `packages/<name>.mfp` by a consumer, so it must be a
+    /// single safe path component. The manifest reader `package_dependencies`
+    /// omits the `validate_package_name` guard its sibling applies, so a `../…`
+    /// name reached the container verbatim. `validate_metadata` is the
+    /// authoritative build-time gate and must refuse to produce such a container.
+    #[test]
+    fn rejects_a_traversal_dependency_name() {
+        let mut metadata = test_metadata();
+        metadata.dependencies = vec![binary_repr::BinaryReprDependency {
+            name: "../../etc/passwd".to_string(),
+            ident: "evil".to_string(),
+            version: "9.9.9".to_string(),
+            pin: false,
+            flags: 0,
+        }];
+        let err = build_package_bytes(&metadata, b"MFPCpayload", None)
+            .expect_err("a traversal dependency name must be rejected");
+        assert!(err.contains("not a valid path component"), "{err}");
+
+        // A blank dependency name is likewise rejected (required, non-empty).
+        let mut blank = test_metadata();
+        blank.dependencies = vec![binary_repr::BinaryReprDependency {
+            name: "   ".to_string(),
+            ident: "x".to_string(),
+            version: "1.0.0".to_string(),
+            pin: false,
+            flags: 0,
+        }];
+        assert!(build_package_bytes(&blank, b"MFPCpayload", None).is_err());
+
+        // A well-formed dependency name still produces a container.
+        let mut ok = test_metadata();
+        ok.dependencies = vec![binary_repr::BinaryReprDependency {
+            name: "greet".to_string(),
+            ident: "greet".to_string(),
+            version: "1.0.0".to_string(),
+            pin: false,
+            flags: 0,
+        }];
+        assert!(build_package_bytes(&ok, b"MFPCpayload", None).is_ok());
     }
 
     #[test]

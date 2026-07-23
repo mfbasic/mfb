@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness (silent config loss) / Footgun (misdirecting diagnostic) / Security-relevant (write-side name-validation gap)
 
-Status: Open
+Status: Fixed (2026-07-22)
 Regression Test: tests/ (new) — `mfb build` on a project whose `packages` is not an
 array must report `PROJECT_JSON_*`, not exit 0; and a package dependency named
 `../x` must be rejected at build time
@@ -262,36 +262,61 @@ required phase, not an afterthought.
 
 ### Phase 1 — failing tests + audit (no behavior change)
 
-- [ ] Test: `mfb build` on a project with `"packages": {}` (and `"oops"`, `42`,
-      `null`) must fail. Confirm all four exit 0 today.
-- [ ] Test: `mfb build` on a `kind: "package"` project with a dependency named
-      `../../etc/passwd` must fail. Confirm the `.mfp` contains the name today.
-- [ ] Sweep every fixture and test project for a malformed `packages` value that the
-      fix would newly reject; record the list here.
+- [x] Test: `mfb build` on a project with `"packages": {}` (and `"oops"`, `42`,
+      `null`) must fail. Confirmed all four exit 0 on the pre-fix build.
+- [x] Test: `mfb build` on a `kind: "package"` project with a dependency named
+      `../../etc/passwd` must fail. Confirmed the `.mfp` contained
+      `../../etc/passwd` verbatim on the pre-fix build (raw byte search).
+- [x] Sweep every fixture and test project for a malformed `packages` value that
+      the fix would newly reject; record the list here.
 
-Acceptance: six failing assertions for the documented reasons; fixture sweep
-complete with a verdict per hit.
+**Fixture sweep — clean, both defects.** Scanned all 1118 `project.json` files:
+- Non-array `packages`: **zero** — no fixture carries a non-array `packages`, so
+  defect A's gate breaks no existing build.
+- Dependency names: **93** across fixtures, all matching
+  `^[A-Za-z0-9_][A-Za-z0-9_.-]*$` (checked with the real `validate_package_name`
+  regex) — **zero** newly rejected by defect B's gate.
+
+Acceptance: met — reproductions recorded, sweep closes clean.
 Commit: —
 
 ### Phase 2 — the fixes
 
-- [ ] Call `validate_packages_array` from `validate_project_manifest`.
-- [ ] Add the blank check + `validate_package_name` to `package_dependencies`.
-- [ ] Extend `validate_metadata` to check `metadata.dependencies[].name`.
+- [x] Call `validate_packages_array` from `validate_project_manifest` (via a new
+      `validate_packages` helper that emits a `PROJECT_JSON_FIELD_TYPE` diagnostic
+      with the field's line/column, consistent with the sibling validators).
+- [x] Extend `validate_metadata` to check `metadata.dependencies[].name` (blank
+      check via `validate_string(..., required=true)` + `validate_package_name`).
+- [~] **Deviation from the doc, with reasoning:** I did NOT add the guard to
+      `package_dependencies`. That reader returns a plain `Vec` with no error
+      channel, so the only two behaviors available there are *keep* or *silently
+      skip* — and silent skipping is exactly the disease (a dropped dependency and
+      a later misdirecting `IMPORT_PACKAGE_NOT_DECLARED`) this bug is about; the
+      doc's own Non-goals forbid it. Leaving `package_dependencies` to keep the
+      raw name lets it reach `validate_metadata`, which is the erroring
+      container-boundary gate the doc itself recommends. So the name is rejected
+      *with a build error* rather than dropped — the Open-Decision "error, not
+      skip" outcome — and the fix lands at one authoritative gate instead of two
+      half-gates.
 
-Acceptance: Phase 1 tests pass; valid manifests build byte-identically; the `pkg`
-subcommands' behavior is unchanged.
+Acceptance: met — Phase 1 tests pass; a valid `packages` array and an absent key
+both still validate; artifact-gate shows zero codegen churn; `pkg` and
+`package_mfp` suites unchanged.
 Commit: —
 
 ### Phase 3 — doc sync + full validation
 
-- [ ] Re-read `01_project-manifest.md:125` and `01_container-format.md:258`; adjust
-      wording if the fix's scope differs at all from what they assert.
-- [ ] Fix any fixtures the sweep flagged.
-- [ ] Full acceptance suite; confirm the only deltas are the intended new
-      rejections.
+- [x] Re-read both spec statements. `01_project-manifest.md` ("`packages` must be
+      an array when present (`validate_packages_array`)") is now true for all five
+      commands, not just `pkg`; no wording change needed. `01_container-format.md`
+      spoke only of the package's own `name`; added a sentence documenting that
+      each **dependency** `name` carries the same single-path-component constraint,
+      enforced at build (`validate_metadata`) — a now-guaranteed invariant.
+- [x] No fixtures flagged by the sweep, so none to fix.
+- [x] Validation: `manifest::` (154), `package_mfp` (8), `spec` (45) suites green;
+      `artifact-gate.sh` → `0 diff(s)` (validation-only, no codegen impact).
 
-Acceptance: full suite green; spec statements true; no valid-manifest churn.
+Acceptance: green; spec statements true; no valid-manifest churn.
 Commit: —
 
 ## Validation Plan

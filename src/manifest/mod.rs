@@ -195,11 +195,42 @@ pub(crate) fn validate_project_manifest(
         valid = false;
     }
 
+    if !validate_packages(manifest, project_path, &contents) {
+        valid = false;
+    }
+
     if valid {
         Ok(manifest.clone())
     } else {
         Err(())
     }
+}
+
+/// The `packages` key, when present, must be an array (per-entry shape is checked
+/// downstream). Before bug-353 this was validated only on the `pkg` subcommands
+/// via [`validate_packages_array`]; `validate_project_manifest` — the sole gate
+/// for `build`/`test`/`fmt`/`doc`/`audit` — skipped it, so a non-array `packages`
+/// was silently ignored and every dependency vanished with no diagnostic (and a
+/// later `IMPORT_PACKAGE_NOT_DECLARED` that contradicted the file). Wiring the
+/// check in here fixes all five commands at once.
+fn validate_packages(
+    manifest: &HashMap<String, JsonValue>,
+    project_path: &Path,
+    contents: &str,
+) -> bool {
+    if validate_packages_array(manifest).is_ok() {
+        return true;
+    }
+    let (line, column) = field_position(contents, "packages");
+    rules::show_diagnostic(
+        "PROJECT_JSON_FIELD_TYPE",
+        "The `packages` field must be an array when present.",
+        project_path,
+        line,
+        column,
+        column + "\"packages\"".len(),
+    );
+    false
 }
 
 fn validate_required_string(
@@ -1331,6 +1362,35 @@ mod tests {
         assert_eq!(project_kind(&manifest), "executable");
         assert_eq!(entry_point(&manifest), "main");
         validate_packages_array(&manifest).expect("no packages ok");
+    }
+
+    /// bug-353 A: `validate_project_manifest` is the sole manifest gate for
+    /// `build`/`test`/`fmt`/`doc`/`audit`, and before the fix it never called
+    /// `validate_packages_array`. A non-array `packages` was silently ignored and
+    /// every dependency vanished with no diagnostic. Every non-array shape must
+    /// now fail the gate; a valid array (and an absent key) must still pass.
+    #[test]
+    fn non_array_packages_is_rejected_by_the_build_gate() {
+        for shape in ["{}", "\"oops\"", "42", "null"] {
+            let manifest = VALID.replace(
+                "\"author\": \"me\"",
+                &format!("\"packages\": {shape}, \"author\": \"me\""),
+            );
+            let (_dir, path) = write_manifest(&manifest);
+            assert!(
+                validate_project_manifest(&path).is_err(),
+                "packages: {shape} must be rejected by the build gate",
+            );
+        }
+        // A valid array and an absent key both pass — no valid-manifest churn.
+        let with_array = VALID.replace(
+            "\"author\": \"me\"",
+            "\"packages\": [{ \"name\": \"greet\" }], \"author\": \"me\"",
+        );
+        let (_dir, path) = write_manifest(&with_array);
+        assert!(validate_project_manifest(&path).is_ok());
+        let (_dir, path) = write_manifest(VALID);
+        assert!(validate_project_manifest(&path).is_ok());
     }
 
     #[test]
