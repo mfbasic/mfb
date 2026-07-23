@@ -27,7 +27,7 @@ IMPORT io
 nothing. The text is treated as UTF-8 and emitted byte for byte, with no escaping
 and no newline translation. An empty `String` writes nothing at all. It is the
 newline-free counterpart of `io::printError`.
-[[src/target/shared/code/io_helpers.rs:lower_io_write_helper]]
+[[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
 
 Only `String` is accepted, and exactly one argument; there is no implicit
 conversion, so convert other values first — for example with `toString`.
@@ -37,7 +37,7 @@ Standard error is **never buffered**. `io::setBuffered` controls standard output
 only, so this call always issues its bytes immediately and there is no flush for
 standard error. It is also never retained by `term::` TUI mode — the shadow-grid
 routing covers standard output alone.
-[[src/target/shared/code/io_helpers.rs:lower_io_write_helper]]
+[[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
 
 The underlying write loops until every byte has been transferred: a short write
 advances the cursor and re-issues, and an `EINTR` interruption retries with the

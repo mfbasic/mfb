@@ -28,7 +28,7 @@ feed (LF, byte `0x0A`) and returns the line as a `String` with its terminator
 removed. If the byte immediately before the LF is a carriage return (CR, byte
 `0x0D`) — a CRLF ending — that CR is stripped as well. A line that is empty before
 its terminator returns an empty `String`, while still consuming the terminator. It
-takes no arguments. [[src/target/shared/code/io_helpers.rs:lower_io_read_line_helper]]
+takes no arguments. [[src/target/shared/code/io_stdin.rs:lower_io_read_line_helper]]
 
 **On a terminal, `io::readLine` suppresses echo for the duration of the read.**
 It clears `ECHO` on standard input while leaving canonical (line) mode intact, so
@@ -38,11 +38,11 @@ call returns. This is the difference from `io::input`, which leaves the terminal
 untouched and therefore echoes; use `io::readLine` for passphrases and
 `io::input` when the user should see what they type. When standard input is not a
 terminal the stream is read as is with no mode change.
-[[src/target/shared/code/io_helpers.rs:emit_configure_stdin_terminal]]
+[[src/target/shared/code/io_terminal.rs:emit_configure_stdin_terminal]]
 
 Before blocking, any pending standard-output buffer is drained, so output already
 produced — including a prompt written with `io::write` — appears before the
-program waits. [[src/target/shared/code/io_helpers.rs:lower_stdout_drain]]
+program waits. [[src/target/shared/code/io_stdout.rs:lower_stdout_drain]]
 
 Bytes are decoded as UTF-8 as they arrive, one scalar value at a time, with the
 full validity check: lead bytes outside `C2`–`F4` are rejected, as are overlong
@@ -50,7 +50,7 @@ forms, surrogate encodings, and continuation bytes outside `80`–`BF`. An
 ill-formed sequence fails rather than yielding a replacement character. The
 accumulator grows as needed, so there is no fixed line-length limit beyond
 available memory, and it is returned to the arena once the result `String` has
-been built. [[src/target/shared/code/io_helpers.rs:lower_io_read_line_helper]]
+been built. [[src/target/shared/code/io_stdin.rs:lower_io_read_line_helper]]
 
 End of input is reported as an error, not as an empty result — but only when it
 arrives before any byte of the line. If input ends *after* some bytes were read,
@@ -67,7 +67,7 @@ In a console program that also uses `term::`, the read is bracketed so it works
 inside a TUI: the cooked line discipline `term::on` saved is restored for the
 duration of the line read and single-key raw mode is re-applied afterwards, so a
 `pollInput` + `readChar` loop resumes seeing bare keypresses.
-[[src/target/shared/code/io_helpers.rs:emit_console_raw_line_mode]]
+[[src/target/shared/code/io_terminal.rs:emit_console_raw_line_mode]]
 
 ## Parameters
 

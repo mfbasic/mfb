@@ -27,7 +27,7 @@ IMPORT io
 feed (LF, byte `0x0A`). The text is treated as UTF-8 and emitted byte for byte,
 with no escaping and no newline translation beyond the one trailing newline this
 call adds. An empty `String` emits nothing but that newline.
-[[src/target/shared/code/io_helpers.rs:lower_io_write_helper]]
+[[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
 
 Only `String` is accepted, and exactly one argument; there is no implicit
 conversion, so convert other values first — for example with `toString`.
@@ -39,7 +39,7 @@ buffer; there is correspondingly no flush for standard error. It is also never
 retained by `term::` TUI mode — the shadow-grid routing applies to standard
 output alone — so an error message written while a TUI frame is being composed
 goes straight to the terminal rather than into the frame.
-[[src/target/shared/code/io_helpers.rs:lower_io_write_helper]]
+[[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
 
 The underlying write loops until every byte has been transferred: a short write
 advances the cursor and re-issues, and an `EINTR` interruption retries with the

@@ -28,7 +28,7 @@ IMPORT io
 without blocking. It returns `TRUE` when input is ready and `FALSE` when the wait
 elapses first, and it **consumes nothing** — the bytes are still there for
 `io::readLine`, `io::readChar`, `io::readByte`, or `io::input`.
-[[src/target/shared/code/io_helpers.rs:lower_io_poll_input_helper]]
+[[src/target/shared/code/io_stdin.rs:lower_io_poll_input_helper]]
 
 `timeoutMs` is in milliseconds and is passed straight through to the underlying
 `poll`, so it follows that call's convention:
@@ -57,7 +57,7 @@ will succeed.
 A signal delivered while the call is blocked (`SIGWINCH` from a terminal resize,
 `SIGCHLD`, the console interrupt handler) is not an error: the `poll` is re-armed
 and retried rather than surfacing as `ErrInput`.
-[[src/target/shared/code/io_helpers.rs:lower_io_poll_input_helper]]
+[[src/target/shared/code/io_stdin.rs:lower_io_poll_input_helper]]
 
 On a terminal in the default canonical mode, the line discipline holds typed
 characters until Return, so readiness is reported per line rather than per key.

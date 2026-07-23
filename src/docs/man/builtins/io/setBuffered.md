@@ -26,7 +26,7 @@ IMPORT io
 `io::setBuffered` turns standard-output buffering on or off for the calling
 thread and returns nothing. Buffering is **off by default**, so without this call
 every `io::write` and `io::print` reaches the operating system immediately.
-[[src/target/shared/code/io_helpers.rs:lower_io_set_buffered_helper]]
+[[src/target/shared/code/io_stdout.rs:lower_io_set_buffered_helper]]
 
 Passing `TRUE` only sets the enabled flag; the 4 KiB buffer itself is allocated
 lazily on the first buffered write. From then on output is accumulated and issued
@@ -35,13 +35,13 @@ one per full buffer. A chunk larger than the whole buffer is written directly
 after the buffer is drained, so ordering is never disturbed, and if the buffer
 cannot be allocated the write falls back to going out directly — buffering is an
 optimization, never a correctness dependency.
-[[src/target/shared/code/io_helpers.rs:lower_stdout_drain]]
+[[src/target/shared/code/io_stdout.rs:lower_stdout_drain]]
 
 Passing `FALSE` **drains any pending bytes first** and then clears the flag, so
 switching buffering off never strands output. That drain is best-effort: this call
 returns `Nothing` and does not report a write failure, which instead surfaces from
 the next `io::flush` or buffered write.
-[[src/target/shared/code/io_helpers.rs:lower_io_set_buffered_helper]]
+[[src/target/shared/code/io_stdout.rs:lower_io_set_buffered_helper]]
 
 While buffering is on, held output is also drained when the buffer fills, on
 `io::flush`, before any standard-input read — so a buffered prompt always appears
@@ -51,7 +51,7 @@ The setting is per thread: each thread has its own buffer and its own enabled
 flag, and one thread's choice is invisible to another. Standard error is never
 buffered, so this call affects standard output only. In app mode the buffer is
 inert and this call does nothing.
-[[src/target/shared/code/io_helpers.rs:lower_io_set_buffered_helper]]
+[[src/target/shared/code/io_stdout.rs:lower_io_set_buffered_helper]]
 
 Because buffered output lives in memory until drained, a hard crash (`SIGSEGV`,
 `SIGKILL`, an abort) can lose bytes that were written but not yet flushed. Leave

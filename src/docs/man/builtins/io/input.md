@@ -29,13 +29,13 @@ standard input up to and including the next line feed (LF, byte `0x0A`) and
 returns the line as a `String` with its terminator removed. A preceding carriage
 return (CR, byte `0x0D`, from a CRLF ending) is stripped as well. A line that is
 empty before its terminator returns an empty `String`.
-[[src/target/shared/code/io_helpers.rs:lower_io_read_line_helper]]
+[[src/target/shared/code/io_stdin.rs:lower_io_read_line_helper]]
 
 **`io::input` does not change the terminal mode**, so typed characters are echoed
 by the terminal in the usual way and the line is submitted with Return. This is
 the difference from `io::readLine`, which suppresses echo for the read; reach for
 `io::input` when the user should see what they type.
-[[src/target/shared/code/io_helpers.rs:emit_configure_stdin_terminal]]
+[[src/target/shared/code/io_terminal.rs:emit_configure_stdin_terminal]]
 
 The prompt is written verbatim — no trailing space or newline is added — and it
 is written **directly**, bypassing the standard-output buffer, so it is on screen
@@ -48,7 +48,7 @@ exactly `io::input("")`.
 Like the flush, the prompt write is just a `write` loop — short writes advance the
 cursor and re-issue, `EINTR` retries — and a genuine failure raises `ErrOutput`
 before any input is read. There is no `fsync`.
-[[src/target/shared/code/io_helpers.rs:lower_io_read_line_helper]]
+[[src/target/shared/code/io_stdin.rs:lower_io_read_line_helper]]
 
 Bytes are decoded as UTF-8 as they arrive, with the full validity check: lead
 bytes outside `C2`–`F4` are rejected, as are overlong forms, surrogate encodings,

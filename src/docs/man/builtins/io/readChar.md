@@ -27,7 +27,7 @@ IMPORT io
 returns it as a one-character `String`. It reads the lead byte, derives the
 sequence length from it, and reads the one to three continuation bytes that
 complete the scalar. It takes no arguments and does not wait for a newline.
-[[src/target/shared/code/io_helpers.rs:lower_io_read_char_helper]]
+[[src/target/shared/code/io_stdin.rs:lower_io_read_char_helper]]
 
 **On a terminal the read is a single keypress.** For the duration of the call,
 standard input is switched out of canonical mode and echo is suppressed
@@ -35,11 +35,11 @@ standard input is switched out of canonical mode and echo is suppressed
 no Return and nothing is displayed; the previous line discipline is restored
 before the call returns. When standard input is not a terminal the stream is read
 as is with no mode change.
-[[src/target/shared/code/io_helpers.rs:emit_configure_stdin_terminal]]
+[[src/target/shared/code/io_terminal.rs:emit_configure_stdin_terminal]]
 
 Before blocking, any pending standard-output buffer is drained, so a prompt
 written with `io::write` appears before the program waits.
-[[src/target/shared/code/io_helpers.rs:lower_stdout_drain]]
+[[src/target/shared/code/io_stdout.rs:lower_stdout_drain]]
 
 Decoding is strict UTF-8, not lenient: a lead byte below `C2` (other than plain
 ASCII) or above `F4` is rejected, `E0`/`F0` sequences must not be overlong, `ED`
@@ -47,7 +47,7 @@ sequences may not encode a surrogate, `F4` sequences may not exceed U+10FFFF, an
 every continuation byte must lie in `80`–`BF`. An ill-formed sequence raises
 `ErrEncoding` rather than yielding a replacement character, and so does a
 sequence cut short by end of input.
-[[src/target/shared/code/io_helpers.rs:lower_io_read_char_helper]]
+[[src/target/shared/code/io_stdin.rs:lower_io_read_char_helper]]
 
 Note that this returns one *scalar value*, not one user-perceived character: a
 grapheme cluster made of several scalars (an emoji with a modifier, a base letter

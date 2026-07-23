@@ -30,7 +30,7 @@ non-terminal destination. It takes no arguments. [[src/builtins/io.rs:arity]]
 The answer comes from an `isatty` probe of file descriptor 1: a result greater
 than zero yields `TRUE`, anything else — including an error return — yields
 `FALSE`. Because a failure is folded into `FALSE`, the call never raises.
-[[src/target/shared/code/io_helpers.rs:lower_io_is_terminal_helper]]
+[[src/target/shared/code/io_terminal.rs:lower_io_is_terminal_helper]]
 
 The probe inspects state only: it writes nothing and changes nothing. Use it to
 decide whether emitting ANSI colour, progress bars, or cursor tricks is

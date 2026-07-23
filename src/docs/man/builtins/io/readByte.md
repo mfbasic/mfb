@@ -25,7 +25,7 @@ IMPORT io
 
 `io::readByte` reads exactly one byte from standard input and returns it as a
 `Byte` in the range 0 through 255. It takes no arguments and does not wait for a
-newline. [[src/target/shared/code/io_helpers.rs:lower_io_read_byte_helper]]
+newline. [[src/target/shared/code/io_stdin.rs:lower_io_read_byte_helper]]
 
 **On a terminal the read is a single keypress.** For the duration of the call,
 standard input is switched out of canonical mode and echo is suppressed
@@ -33,11 +33,11 @@ standard input is switched out of canonical mode and echo is suppressed
 no Return and nothing is displayed; the previous line discipline is restored
 before the call returns. When standard input is not a terminal the stream is read
 as is with no mode change.
-[[src/target/shared/code/io_helpers.rs:emit_configure_stdin_terminal]]
+[[src/target/shared/code/io_terminal.rs:emit_configure_stdin_terminal]]
 
 Before blocking, any pending standard-output buffer is drained, so a prompt
 written with `io::write` appears before the program waits.
-[[src/target/shared/code/io_helpers.rs:lower_stdout_drain]]
+[[src/target/shared/code/io_stdout.rs:lower_stdout_drain]]
 
 No decoding happens. The byte is transferred verbatim, so a multi-byte character
 such as an emoji arrives one byte at a time across successive calls and there is

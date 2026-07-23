@@ -30,7 +30,7 @@ non-terminal source. It takes no arguments. [[src/builtins/io.rs:arity]]
 The answer comes from an `isatty` probe of file descriptor 0: a result greater
 than zero yields `TRUE`, anything else — including an error return — yields
 `FALSE`. Because a failure is folded into `FALSE`, the call never raises.
-[[src/target/shared/code/io_helpers.rs:lower_io_is_terminal_helper]]
+[[src/target/shared/code/io_terminal.rs:lower_io_is_terminal_helper]]
 
 The probe inspects state only. It does not modify the stream, consume any input,
 or block waiting for data, so it is safe to call before deciding whether to

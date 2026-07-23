@@ -53,7 +53,7 @@ The call does four things, in this order.
    so `term::off`, `io::input`, and `io::readLine` can restore it. When standard
    input is not a terminal — piped input, a test harness — this step is inert, and
    if the terminal cannot be reconfigured it is abandoned rather than failing the
-   call. [[src/target/shared/code/io_helpers.rs:emit_configure_stdin_terminal]]
+   call. [[src/target/shared/code/io_terminal.rs:emit_configure_stdin_terminal]]
 
 The surface `term::on` establishes is **retained and double-buffered**: from here
 on, drawing calls — including `io::print` and `io::write` — mutate the back cell

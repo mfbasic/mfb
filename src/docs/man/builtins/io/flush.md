@@ -35,20 +35,20 @@ closed descriptor, a benign `EINVAL` on pipes and character devices, success on 
 regular file — which would make `io::flush` succeed or fail based on the runtime
 environment rather than on what the program actually wrote. The buffer drain's
 `write` is the one portable failure signal, identical on every platform and libc.
-[[src/target/shared/code/io_helpers.rs:lower_io_flush_helper]]
+[[src/target/shared/code/io_stdout.rs:lower_io_flush_helper]]
 
 It follows that `io::flush` is a **no-op when buffering is off** — the default.
 Without `io::setBuffered(TRUE)` there is no MFBASIC buffer to drain, every
 `io::write` and `io::print` has already reached the operating system, and this
 call succeeds having done nothing. It is likewise a no-op when buffering is on
-but nothing is pending. [[src/target/shared/code/io_helpers.rs:lower_stdout_drain]]
+but nothing is pending. [[src/target/shared/code/io_stdout.rs:lower_stdout_drain]]
 
 The drain loops until the buffer is empty: a short write advances the cursor and
 re-issues, and an `EINTR` interruption retries. If a write genuinely fails, the
 still-unflushed bytes are slid back to the base of the buffer and kept, so a later
 `io::flush` resumes from exactly where this one stopped instead of re-sending the
 prefix already written — and this call raises `ErrOutput`.
-[[src/target/shared/code/io_helpers.rs:lower_stdout_drain]]
+[[src/target/shared/code/io_stdout.rs:lower_stdout_drain]]
 
 An explicit flush is rarely required even under buffering: the buffer is also
 drained when it fills, before every standard-input read (so a buffered prompt

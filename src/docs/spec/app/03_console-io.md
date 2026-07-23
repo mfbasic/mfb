@@ -29,7 +29,7 @@ diverge and are flagged.
 The read helpers (`readLine`/`readChar`/`readByte`/`input`) are **not** rewritten
 for app mode beyond the input-mode prelude — they remain the standard console
 helpers that read fd 0. The only thing that makes them window-aware is the pipe
-`dup2`'d onto fd 0 at bootstrap. [[src/target/shared/code/io_helpers.rs:lower_io_read_byte_helper]]
+`dup2`'d onto fd 0 at bootstrap. [[src/target/shared/code/io_stdin.rs:lower_io_read_byte_helper]]
 
 `io::write`/`flush`/`input`/`isTerminal` are dispatched to the platform
 `emit_app_*` bodies only when `app_mode` is set; otherwise the normal console
@@ -150,7 +150,7 @@ triggers the transcript echo. [[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_K
   [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_input_helper]]
 - `io::readChar` / `io::readByte` set raw mode via `emit_set_raw_input_mode`,
   injected at the *start* of the console read-char/read-byte helper bodies in app
-  mode, before the fd-0 read. [[src/target/macos_aarch64/app/app_io.rs:emit_set_raw_input_mode]] [[src/target/shared/code/io_helpers.rs:lower_io_read_byte_helper]]
+  mode, before the fd-0 read. [[src/target/macos_aarch64/app/app_io.rs:emit_set_raw_input_mode]] [[src/target/shared/code/io_stdin.rs:lower_io_read_byte_helper]]
 - `io::readLine` does not change the mode; it relies on the zero-initialized /
   unset default (line, no echo).
 

@@ -30,7 +30,7 @@ non-terminal destination. It takes no arguments. [[src/builtins/io.rs:arity]]
 The answer comes from an `isatty` probe of file descriptor 2: a result greater
 than zero yields `TRUE`, anything else — including an error return — yields
 `FALSE`. Because a failure is folded into `FALSE`, the call never raises.
-[[src/target/shared/code/io_helpers.rs:lower_io_is_terminal_helper]]
+[[src/target/shared/code/io_terminal.rs:lower_io_is_terminal_helper]]
 
 Standard error is probed independently of standard output, which matters in the
 common case where one is redirected and the other is not: a program run as

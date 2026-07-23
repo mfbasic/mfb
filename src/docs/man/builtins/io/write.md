@@ -27,7 +27,7 @@ IMPORT io
 The text is treated as UTF-8 and emitted byte for byte, with no escaping and no
 newline translation. An empty `String` writes nothing at all. It is the
 newline-free counterpart of `io::print`, which is the same call with a trailing
-LF appended. [[src/target/shared/code/io_helpers.rs:lower_io_write_helper]]
+LF appended. [[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
 
 Only `String` is accepted, and exactly one argument; there is no implicit
 conversion, so convert other values first — for example with `toString`.
@@ -36,7 +36,7 @@ conversion, so convert other values first — for example with `toString`.
 The underlying write loops until every byte has been transferred: a short write
 advances the cursor and re-issues, and an `EINTR` interruption retries with the
 cursor unchanged. A zero-byte or failing write is a failure and raises
-`ErrOutput`. [[src/target/shared/code/io_helpers.rs:lower_io_write_helper]]
+`ErrOutput`. [[src/target/shared/code/io_stdout.rs:lower_io_write_helper]]
 
 With standard-output buffering enabled by `io::setBuffered(TRUE)` the text is
 appended to a per-thread 4 KiB buffer rather than written immediately, so it may
@@ -44,7 +44,7 @@ not be visible to an external reader until drained. The buffer is drained when i
 fills, on `io::flush`, before any standard-input read, and at program exit —
 which is why a prompt written with `io::write` still appears before a following
 `io::readLine` even under buffering.
-[[src/target/shared/code/io_helpers.rs:lower_stdout_drain]]
+[[src/target/shared/code/io_stdout.rs:lower_stdout_drain]]
 
 While the program is in `term::` TUI mode, standard output is retained rather
 than printed: `io::write` stamps its glyphs into the shadow grid's back buffer,
