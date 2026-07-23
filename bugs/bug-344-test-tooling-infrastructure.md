@@ -428,6 +428,15 @@ There is no orphaned-golden problem in this repository. Do not re-run this scan.
 - Fix: rewrite. Document what is in this directory; cross-link the syntax-bucket
   fixtures rather than tabulating them; re-point the three archived citations.
   Overlaps A3 (the `.run` merge-trigger explanation lives at `:23-25`).
+- **Fixed 2026-07-22.** The README had already been substantially updated (it now
+  documents both buckets and carries the reorg Status section). Remaining stale
+  bits corrected: the three archived citations re-pointed to
+  `planning/old-plans/` (`audit-unicode.md`, `audit-1-package-decode.md`,
+  `plan-19-ir-semantic-verification.md` — all resolve there now); the "PKG-02 …
+  has no fixture yet" line updated (three exist under `tests/syntax/security/`:
+  `pkg-02-type-confusion`, `-02b-computed-confusion`, `-02c-operator-confusion`);
+  and a new **Arena allocator fixtures** table added for the five `allocator-0N-*`
+  fixtures that live in this directory and previously had no coverage row.
 
 #### F2 — root `README.md` shows the pre-`build/` output path and omits two shipped packages
 

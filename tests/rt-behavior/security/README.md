@@ -1,8 +1,8 @@
 # Security regression tests
 
-Test cases for the security findings in `planning/audit-unicode.md` (the `strings::` /
+Test cases for the security findings in `planning/old-plans/audit-unicode.md` (the `strings::` /
 Unicode runtime audit), one directory per finding `unicode-0N-<slug>`, and for the
-`.mfp` package decode/verify audit `planning/audit-1-package-decode.md`, one directory
+`.mfp` package decode/verify audit `planning/old-plans/audit-1-package-decode.md`, one directory
 per finding `pkg-0N-<slug>`.
 
 ## `.mfp` package decode fixtures (`pkg-0N-*`)
@@ -33,12 +33,14 @@ succeeds via the lossy external-type path), so those two carry a `.run` trigger 
 | `pkg-06-duplicate-section` | PKG-06 | MED | duplicate MFPC section id → `duplicate MFPC section id 1` |
 | `pkg-07-need-overflow` | PKG-07 | LOW | `0xFFFFFFFF`-byte MFBR string length → overflow-safe `need` reports truncation (no wrap/panic) |
 
-PKG-02 (semantic verification of decoded IR) is deferred to
-`planning/plan-19-ir-semantic-verification.md` and has no fixture yet.
+PKG-02 (semantic verification of decoded IR) is tracked in
+`planning/old-plans/plan-19-ir-semantic-verification.md`; three fixtures now
+exist under `tests/syntax/security/`: `pkg-02-type-confusion`,
+`pkg-02b-computed-confusion`, and `pkg-02c-operator-confusion`.
 
 ## Unicode runtime fixtures (`unicode-0N-*`)
 
-Test cases for the security findings in `planning/audit-unicode.md` (the `strings::` /
+Test cases for the security findings in `planning/old-plans/audit-unicode.md` (the `strings::` /
 Unicode runtime audit). One directory per finding: `unicode-0N-<slug>`.
 
 ## Status: wired into the harness; fixes landed
@@ -75,3 +77,19 @@ their golden output.
 Findings #1, #2, #4, and #6 are expressed with an inline `TRAP` on a FUNC wrapper:
 the `strings::repeat` member is inline-lowered, so the fallible call is placed in a
 wrapper FUNC and the inline `TRAP` is attached to that call.
+
+## Arena allocator fixtures (`allocator-0N-*`)
+
+Runtime exercises of the bump/free-list arena — the allocator that backs every
+collection and string. Each builds and runs to completion, asserting the arena
+stays sound under the stress named. These live in *this* directory (unlike the
+`pkg-0N-*` decode diagnostics, which are compile-time and live under
+`tests/syntax/security/`).
+
+| Directory | Asserts (runs clean) |
+| --- | --- |
+| `allocator-01-quick-bins` | quick-bin (small-size) allocation churn stays consistent |
+| `allocator-02-size-overflow` | an oversized `repeat` request is caught as `77010001` (OOM), never an undersized allocation |
+| `allocator-03-free-list-integrity` | mixed alloc/free churn keeps the free list intact |
+| `allocator-04-thread-arena-init` | a worker package's per-thread arena initializes correctly (`uses allocator_churn_worker`) |
+| `allocator-05-grow-carve` | a large (`1048576`-byte) allocation grows and carves the arena correctly |
