@@ -130,6 +130,15 @@ such (A3 nuance, B2 nuance, C1/E1 corrections) so they are not re-litigated.
 - **This is the headline.** A maintainer who obeys the banner destroys a landed
   optimization with no test signal. See the diff above.
 
+> **Fixed 2026-07-22.** Resolved in the *correct* direction: the generator's
+> `HELPERS` block (`scripts/gen_vector_package.py`) now emits the plan-39-C2
+> FSQRT-seeded `__vector_isqrtFloor`, so `python3 scripts/gen_vector_package.py`
+> reproduces the checked-in `src/builtins/vector_package.mfb` **byte-for-byte**
+> (verified: `diff -q` clean). The artifact is unchanged, so the compiler embeds
+> the same optimized source and nothing downstream moves. Not "fixed" by
+> regenerating the artifact — that would have reverted the optimization, which is
+> the whole defect. The remaining B/C/D cleanup items in this doc are still open.
+
 #### A2 — Neither generator is invoked by anything, so drift cannot be caught
 - `build.rs` exists at the repo root and does **not** call either script.
 - Repo-wide grep for `gen_vector_package` / `gen_regex_unicode` outside the scripts
@@ -142,6 +151,14 @@ such (A3 nuance, B2 nuance, C1/E1 corrections) so they are not re-litigated.
 - There is **no `.gitattributes` anywhere in the repo** (confirmed by `find`), so
   neither output is marked `linguist-generated` and neither gets a collapsed diff
   or a reviewer hint.
+- **Fixed 2026-07-22.** Added `scripts/check-generated.sh` — re-runs each
+  generator and `cmp`s its output against the checked-in artifact — and wired it
+  as the first step of `.github/workflows/coverage.yml` (before the Rust
+  toolchain, since it only needs `python3`). Drift in either
+  `vector_package.mfb` or `regex_unicode.mfb` now fails CI with a diff and the
+  regenerate command. A3's soft Unicode pin is thereby hardened too: a host
+  CPython on a different Unicode version makes the regex check fail loudly rather
+  than silently reshaping the table.
 - This absence is the mechanism by which A1 went unnoticed through a full source
   review that explicitly excused both files as machine-generated.
 

@@ -44,18 +44,28 @@ def lit(element, value):
 
 # ---- helpers emitted once ---------------------------------------------------
 
-HELPERS = r"""' Deterministic floor integer square root (Newton's method), n >= 0.
+HELPERS = r"""' Deterministic floor integer square root, n >= 0. plan-39 C2: seed from the
+' hardware Float sqrt, then correct to the exact floor with integer steps that
+' use division only (never seed*seed), so they cannot overflow and converge in
+' O(1) from the Float seed — replacing the Newton iteration that started from
+' x = n. The result is the exact floor(sqrt(n)), identical to the old method.
 FUNC __vector_isqrtFloor(n AS Integer) AS Integer
   IF n <= 0 THEN
     RETURN 0
   END IF
-  MUT x AS Integer = n
-  MUT y AS Integer = (x + 1) / 2
-  WHILE y < x
-    x = y
-    y = (x + n / x) / 2
+  MUT seed AS Integer = toInt(math::sqrt(toFloat(n)))
+  IF seed < 0 THEN
+    seed = 0
+  END IF
+  ' Bring seed down to a lower bound: seed*seed > n  <=>  seed > n / seed.
+  WHILE seed > 0 AND seed > n / seed
+    seed = seed - 1
   END WHILE
-  RETURN x
+  ' Climb while (seed+1)^2 <= n  <=>  (seed+1) <= n / (seed+1).
+  WHILE seed + 1 <= n / (seed + 1)
+    seed = seed + 1
+  END WHILE
+  RETURN seed
 END FUNC
 
 ' Integer square root rounded half away from zero (n >= 0). The exact half
