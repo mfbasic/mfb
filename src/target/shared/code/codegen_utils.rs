@@ -1,5 +1,14 @@
 use super::*;
 
+/// Symbol of the shared standalone string-list sort runtime helper (generic; not
+/// path-specific — moved here from `fs/paths.rs`, bug-331 §J).
+pub(in crate::target::shared::code) const SORT_STRING_LIST_SYMBOL: &str =
+    "_mfb_rt_sort_string_list";
+
+/// Symbol of the shared standalone UTF-8 validation runtime helper (generic; not
+/// path-specific — moved here from `fs/paths.rs`, bug-331 §J).
+pub(in crate::target::shared::code) const VALIDATE_UTF8_SYMBOL: &str = "_mfb_rt_validate_utf8";
+
 /// Lower the standalone string-list sort helper used to give `fs::listDirectory`
 /// a deterministic, stable order. It takes a `List OF String` collection pointer
 /// in `x0` and sorts its entries in place by ascending byte-wise (UTF-8

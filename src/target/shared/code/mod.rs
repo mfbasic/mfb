@@ -1290,7 +1290,7 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_float_to_string_helper());
     }
     if module_uses_call(module, "fs.pathJoin") {
-        code_functions.push(lower_fs_path_join_helper(platform));
+        code_functions.push(lower_fs_path_join_helper());
     }
     if runtime_symbols
         .iter()
@@ -2761,12 +2761,12 @@ mod builder_control;
 mod builder_conversions;
 mod builder_emit_helpers;
 mod builder_fixed_math;
+mod builder_fmod;
 mod builder_fs_paths;
 mod builder_inplace_assign;
 mod builder_math;
 mod builder_money;
 mod builder_money_math;
-mod builder_fmod;
 mod builder_numeric;
 mod builder_pow;
 mod builder_search;

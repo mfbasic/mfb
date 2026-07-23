@@ -1585,13 +1585,6 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-/// Symbol of the shared standalone UTF-8 validation runtime helper.
-pub(in crate::target::shared::code) const VALIDATE_UTF8_SYMBOL: &str = "_mfb_rt_validate_utf8";
-
-/// Symbol of the shared standalone string-list sort runtime helper.
-pub(in crate::target::shared::code) const SORT_STRING_LIST_SYMBOL: &str =
-    "_mfb_rt_sort_string_list";
-
 /// Symbol of the shared standalone `fs::pathJoin` runtime helper.
 pub(in crate::target::shared::code) const FS_PATH_JOIN_SYMBOL: &str = "_mfb_rt_fs_path_join";
 
@@ -1603,15 +1596,13 @@ pub(in crate::target::shared::code) const FS_PATH_JOIN_SYMBOL: &str = "_mfb_rt_f
 /// and imported-package binary_repr lower `pathJoin` identically. Components are
 /// joined with `/`, empty components are skipped, an absolute component discards
 /// everything accumulated so far, and duplicate separators are avoided.
-pub(in crate::target::shared::code) fn lower_fs_path_join_helper(
-    platform: &dyn CodegenPlatform,
-) -> CodeFunction {
+pub(in crate::target::shared::code) fn lower_fs_path_join_helper() -> CodeFunction {
     // Vreg-allocated (plan-00-G Phase 2). `parts` (the input List) is held across
     // the `arena_alloc` (spilled); the second pass builds into the allocated string
     // with no further call, so its working registers stay in registers.
+    // Pure string joining — no syscall — so it needs no `platform` (bug-331 §J).
     const SEP: &str = "47";
     let symbol = FS_PATH_JOIN_SYMBOL;
-    let _ = platform;
 
     let length_loop = format!("{symbol}_length_loop");
     let length_done = format!("{symbol}_length_done");

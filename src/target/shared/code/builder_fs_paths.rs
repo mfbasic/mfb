@@ -1,6 +1,32 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// Emit the shared trailing-`/` trim loop (bug-331 §J): walk `length` down
+    /// while the last byte (`bytes[length-1]`) is `/` (47), stopping at length 1.
+    /// `cursor`/`byte` are scratch; the labels are created by the caller so each
+    /// path op keeps its own `fs_path_*_trim_{loop,done}` names in the goldens.
+    fn emit_trailing_slash_trim(
+        &mut self,
+        length: &str,
+        bytes: &str,
+        cursor: &str,
+        byte: &str,
+        trim_loop: &str,
+        trim_done: &str,
+    ) {
+        self.emit(abi::label(trim_loop));
+        self.emit(abi::compare_immediate(length, "1"));
+        self.emit(abi::branch_le(trim_done));
+        self.emit(abi::add_registers(cursor, bytes, length));
+        self.emit(abi::subtract_immediate(cursor, cursor, 1));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "47"));
+        self.emit(abi::branch_ne(trim_done));
+        self.emit(abi::subtract_immediate(length, length, 1));
+        self.emit(abi::branch(trim_loop));
+        self.emit(abi::label(trim_done));
+    }
+
     pub(super) fn lower_fs_path_call(
         &mut self,
         target: &str,
@@ -85,18 +111,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&length, &path_ptr, 0));
         self.emit(abi::add_immediate(&bytes, &path_ptr, 8));
 
-        self.emit(abi::label(&trim_loop));
-        self.emit(abi::compare_immediate(&length, "1"));
-        self.emit(abi::branch_le(&trim_done));
-        self.emit(abi::add_registers(&cursor, &bytes, &length));
-        self.emit(abi::subtract_immediate(&cursor, &cursor, 1));
-        self.emit(abi::load_u8(&byte, &cursor, 0));
-        self.emit(abi::compare_immediate(&byte, "47"));
-        self.emit(abi::branch_ne(&trim_done));
-        self.emit(abi::subtract_immediate(&length, &length, 1));
-        self.emit(abi::branch(&trim_loop));
-
-        self.emit(abi::label(&trim_done));
+        self.emit_trailing_slash_trim(&length, &bytes, &cursor, &byte, &trim_loop, &trim_done);
         // An all-separator path (for example "/", "//", "///") collapses under the
         // trailing-slash trim to a lone remaining "/"; route it to the root shortcut
         // so the result is "/" rather than an empty span. Gating this on the trimmed
@@ -167,18 +182,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&cursor, "47"));
         self.emit(abi::branch_eq(&root));
 
-        self.emit(abi::label(&trim_loop));
-        self.emit(abi::compare_immediate(&length, "1"));
-        self.emit(abi::branch_le(&trim_done));
-        self.emit(abi::add_registers(&cursor, &bytes, &length));
-        self.emit(abi::subtract_immediate(&cursor, &cursor, 1));
-        self.emit(abi::load_u8(&byte, &cursor, 0));
-        self.emit(abi::compare_immediate(&byte, "47"));
-        self.emit(abi::branch_ne(&trim_done));
-        self.emit(abi::subtract_immediate(&length, &length, 1));
-        self.emit(abi::branch(&trim_loop));
-
-        self.emit(abi::label(&trim_done));
+        self.emit_trailing_slash_trim(&length, &bytes, &cursor, &byte, &trim_loop, &trim_done);
         self.emit(abi::move_register(&index, &length));
         self.emit(abi::label(&scan_loop));
         self.emit(abi::compare_immediate(&index, "0"));
