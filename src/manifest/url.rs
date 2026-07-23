@@ -26,7 +26,7 @@ pub(crate) fn package_file_url_path(url: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-fn percent_decode_path(path: &str) -> Result<String, String> {
+pub(super) fn percent_decode_path(path: &str) -> Result<String, String> {
     let bytes = path.as_bytes();
     let mut decoded = Vec::with_capacity(bytes.len());
     let mut index = 0;
@@ -51,7 +51,7 @@ fn percent_decode_path(path: &str) -> Result<String, String> {
     String::from_utf8(decoded).map_err(|_| "file:// URL path is not valid UTF-8".to_string())
 }
 
-fn hex_value(byte: u8) -> Option<u8> {
+pub(super) fn hex_value(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
         b'a'..=b'f' => Some(byte - b'a' + 10),

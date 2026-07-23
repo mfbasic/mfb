@@ -562,6 +562,8 @@ pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPac
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::json_edit::*;
+    use crate::manifest::url::*;
     use tinyjson::JsonValue;
 
     // --- .mfp header byte builder -----------------------------------------

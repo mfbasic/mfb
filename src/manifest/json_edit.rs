@@ -35,7 +35,10 @@ pub(crate) fn project_json_with_package(
     }
 }
 
-fn package_dependency_json(dependency: &ProjectPackageDependency, indent: usize) -> String {
+pub(super) fn package_dependency_json(
+    dependency: &ProjectPackageDependency,
+    indent: usize,
+) -> String {
     let pad = " ".repeat(indent);
     let field_pad = " ".repeat(indent + 2);
     let ident_key = if dependency.ident_key.is_empty() {
@@ -58,7 +61,7 @@ fn package_dependency_json(dependency: &ProjectPackageDependency, indent: usize)
     )
 }
 
-fn insert_package_dependency(contents: &str, entry: &str) -> Result<String, String> {
+pub(super) fn insert_package_dependency(contents: &str, entry: &str) -> Result<String, String> {
     let Some((array_start, array_end)) = json_array_bounds(contents, "packages") else {
         return Err("could not locate project.json `packages` array".to_string());
     };
@@ -79,7 +82,7 @@ fn insert_package_dependency(contents: &str, entry: &str) -> Result<String, Stri
     Ok(updated)
 }
 
-fn insert_packages_array(contents: &str, entry: &str) -> Result<String, String> {
+pub(super) fn insert_packages_array(contents: &str, entry: &str) -> Result<String, String> {
     let Some(root_end) = root_object_end(contents) else {
         return Err("could not locate end of project.json object".to_string());
     };
@@ -321,7 +324,7 @@ pub(crate) fn project_json_with_updated_version(
 }
 
 /// Set a dependency object's `pin` to `pin`, adding the field if absent.
-fn rewrite_pin_field(object: &str, pin: bool) -> Result<String, String> {
+pub(super) fn rewrite_pin_field(object: &str, pin: bool) -> Result<String, String> {
     let literal = if pin { "true" } else { "false" };
     if let Some(field_at) = json_field_name_position(object, "pin") {
         let colon = find_json_punct(object, field_at + "\"pin\"".len(), b':')
@@ -353,7 +356,7 @@ fn rewrite_pin_field(object: &str, pin: bool) -> Result<String, String> {
     Ok(out)
 }
 
-fn json_array_bounds(contents: &str, field: &str) -> Option<(usize, usize)> {
+pub(super) fn json_array_bounds(contents: &str, field: &str) -> Option<(usize, usize)> {
     let field_start = json_field_name_position(contents, field)?;
     let colon = find_json_punct(contents, field_start + field.len() + 2, b':')?;
     let array_start = find_json_punct(contents, colon + 1, b'[')?;
@@ -361,7 +364,7 @@ fn json_array_bounds(contents: &str, field: &str) -> Option<(usize, usize)> {
     Some((array_start, array_end))
 }
 
-fn json_field_name_position(contents: &str, field: &str) -> Option<usize> {
+pub(super) fn json_field_name_position(contents: &str, field: &str) -> Option<usize> {
     let needle = format!("\"{field}\"");
     let mut index = 0;
 
@@ -378,12 +381,12 @@ fn json_field_name_position(contents: &str, field: &str) -> Option<usize> {
     }
 }
 
-fn root_object_end(contents: &str) -> Option<usize> {
+pub(super) fn root_object_end(contents: &str) -> Option<usize> {
     let start = find_json_punct(contents, 0, b'{')?;
     matching_json_delimiter(contents, start, b'{', b'}')
 }
 
-fn find_json_punct(contents: &str, start: usize, punct: u8) -> Option<usize> {
+pub(super) fn find_json_punct(contents: &str, start: usize, punct: u8) -> Option<usize> {
     let bytes = contents.as_bytes();
     let mut index = start;
     let mut in_string = false;
@@ -412,7 +415,12 @@ fn find_json_punct(contents: &str, start: usize, punct: u8) -> Option<usize> {
     None
 }
 
-fn matching_json_delimiter(contents: &str, start: usize, open: u8, close: u8) -> Option<usize> {
+pub(super) fn matching_json_delimiter(
+    contents: &str,
+    start: usize,
+    open: u8,
+    close: u8,
+) -> Option<usize> {
     let bytes = contents.as_bytes();
     let mut index = start;
     let mut depth = 0usize;
@@ -445,11 +453,11 @@ fn matching_json_delimiter(contents: &str, start: usize, open: u8, close: u8) ->
     None
 }
 
-fn next_json_string_start(contents: &str, start: usize) -> Option<usize> {
+pub(super) fn next_json_string_start(contents: &str, start: usize) -> Option<usize> {
     contents[start..].find('"').map(|offset| start + offset)
 }
 
-fn json_string_end(contents: &str, start: usize) -> Option<usize> {
+pub(super) fn json_string_end(contents: &str, start: usize) -> Option<usize> {
     let bytes = contents.as_bytes();
     if bytes.get(start) != Some(&b'"') {
         return None;
