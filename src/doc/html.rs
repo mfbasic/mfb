@@ -309,7 +309,6 @@ html{scroll-behavior:smooth}";
 mod tests {
     use super::*;
     use crate::binary_repr::{DeclDocEntry, PackageDocEntry, PackageDocs};
-    use crate::doc::*;
 
     fn decl(kind: &str, name: &str, group: &str, internal: bool) -> DeclDocEntry {
         DeclDocEntry {
