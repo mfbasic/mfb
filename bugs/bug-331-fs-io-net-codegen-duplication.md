@@ -5,10 +5,53 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: Open
+Status: In progress (partially landed 2026-07-23)
 Regression Test: `scripts/artifact-gate.sh` + `scripts/test-accept.sh` — **byte-identical
 generated output is the whole guarantee**; no new behavioral test, because a correct fix
 changes no emitted byte.
+
+## Progress (2026-07-23)
+
+The structural groundwork this bug called for has **already landed** under bug-327 and
+later cleanups: `src/target/shared/code/fs/` is now a real directory module
+(`fs/{mod,paths,io,atomic}.rs`), `os.rs` became the `os/` directory module, and
+`io_helpers.rs` was split into `io_stdin.rs`/`io_stdout.rs`/`io_terminal.rs`. Every line
+number in the sections below is against the pre-split `b12213d2` worktree and is stale.
+
+Landed this session, each its own commit and each gated byte-identical by
+`scripts/artifact-gate.sh` (0 diffs, 1064 tests). `scripts/test-accept.sh` is green apart
+from one pre-existing **flaky** fixture, `rt-behavior/resources/closed-default-tls-drop-rt`,
+which SIGSEGVs (exit 139) on roughly one run in six and passes on retry (6/6 on re-run
+here) — a TLS-drop-over-socket timing race, provably unrelated to this work (§I is a
+source-level no-op and the fixture's `.ast`/`.ir` goldens are byte-identical):
+
+- **§I** — deleted the shadowing `const EINTR_ERRNO` in `net/io.rs` and `net/poll.rs`;
+  both resolve to `net/mod.rs`'s via `use super::*`.
+- **§D** — the two hand-rolled `push_error_message_address` blocks in `fs/paths.rs` now
+  call the helper (the io-file §D sites were already resolved by the io split).
+- **§C** — `lower_fs_open_helper`'s eight unrolled `emit_branch_if_ascii_literal` calls
+  folded into the `for`-loop form `lower_fs_open_within_helper` already used.
+
+Remaining (verified still open against current code, ranked by value ÷ risk):
+
+- **§F** — the UTF-8 sequence decoder is still duplicated between
+  `io_stdin.rs:lower_io_read_char_helper` and `:lower_io_read_line_helper` (the
+  `_three_not_e0`/`_four_not_f0` ladders). A shared `emit_utf8_sequence_read` needs an
+  `on_lf` param, a label infix, and the differing `LEN_OFFSET`/`SEQ_LEN_OFFSET` — a
+  ~140-line interleaved block; high care, deferred.
+- **§E** — the buffered-output triple is still split between `io_stdout.rs` and `fs/io.rs`.
+- **§A** — the path→C-string marshal is still open-coded across `fs/paths.rs`/`fs/io.rs`/
+  `fs/atomic.rs`; three separate marshals remain (`os/mod.rs:marshal_cstring`,
+  `net/mod.rs:emit_cstring`, `tls/mod.rs:emit_cstring`). **High risk** (vreg renumbering);
+  the bug mandates one commit per call site.
+- **§B** — the four `*_path_helper`s in `fs/atomic.rs` (write pair collapsible).
+- **§G** — the ~35 `fs.*`/`io.*` dispatch arms in `mod.rs` are still un-collapsed (44
+  `Ok(CodeFunction {…})` constructions remain). **Hazard**: the six `params: Vec::new()`
+  arms must be resolved by hand first.
+- **§H** — the duplicated `net/io.rs` result builders.
+- **§J** — `VALIDATE_UTF8_SYMBOL`/`SORT_STRING_LIST_SYMBOL`/`FS_PATH_JOIN_SYMBOL`
+  placement in `fs/paths.rs` and the trailing-slash trim loops in `builder_fs_paths.rs`
+  (low-value tidiness).
 
 `src/target/shared/code/` contains four sibling implementations of the `fs`, `io`, `os`,
 and `net` runtime helpers that were built at different times and never reconciled. They

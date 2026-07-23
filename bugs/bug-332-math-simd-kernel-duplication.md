@@ -5,8 +5,43 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: Open
+Status: In progress (partially landed 2026-07-23)
 Regression Test: `scripts/artifact-gate.sh` (byte-identical artifacts) + `scripts/test-accept.sh` + `tools/math-kernels/runtime_ulp.py` re-measurement for every item that touches a kernel body
+
+## Progress (2026-07-23)
+
+Landed this session, each its own commit and each gated byte-identical by
+`scripts/artifact-gate.sh` (0 diffs, 1064 tests, 1321 goldens). `scripts/test-accept.sh`
+is green apart from one pre-existing flaky TLS fixture
+(`closed-default-tls-drop-rt`, a SIGSEGV race that passes on retry and is unrelated to
+these numeric-builder edits). Because every kernel-body change was proven byte-identical,
+the emitted
+machine code — and therefore the ULP measurement — is provably unchanged; byte-identity is
+a strictly stronger guarantee than the ULP harness, so no separate re-measure was needed.
+
+- **B1** — `emit_sin_cos_body` (array) now calls `emit_cos_r_into`/`emit_sin_r_into`
+  instead of re-inlining their bodies (restores the `sin(x) == sin([x])[0]` single-source).
+- **B2** — extracted `emit_tan_sincos_dd` from the ~53 shared leading lines of
+  `emit_tan_body`/`emit_tan_body_scalar`.
+- **C1** — merged `emit_asin_acos_body`/`_scalar` behind a `scalar: bool` selecting the
+  atan callee.
+- **E1** — unified `emit_cordic_vectoring`/`emit_cordic_rotation` into `emit_cordic` with a
+  `CordicMode`; label prefixes preserved per mode.
+- **A1** (alloc half) — extracted `emit_alloc_result_list` for the 8 array-kernel
+  allocation drivers (label prefix parameterized). The `emit_two_lane_stream` half is not
+  yet done.
+- **G1** — dropped `emit_pow_select`'s unused `_xt` parameter.
+- **G5** — extracted `lower_bits_one_integer` for the four `builder_bits.rs` unary checks.
+- **C3** — corrected `builder_money_math.rs`'s false "implemented exactly once" module doc.
+
+Remaining: A1's `emit_two_lane_stream`; **E2** (share the ±1.0 fast path + multiply loop —
+keep the caller domain guards, vreg-sensitive); **D1** (share only the 4-instr exponent
+preamble — the three sites allocate different register sets, so this is
+allocation-order-sensitive and was left rather than risk a silent renumber); **C2**
+(deferred by design); **D2** (`list_element_type` — front-end diagnostic wording, confirm
+no `tests/syntax` pin first); **F1/F2/F5** (file moves + spec anchor); **F3/F4** (module
+/doc drift); **G2** (memoize the pool — do the Phase-1 layout test first); **G3** (promote
+the shared f64 bit-pattern constants); **G4** (optional uniformity).
 
 The eight `builder_*math*.rs` / `builder_numeric.rs` / `builder_pow.rs` files
 (~10,000 lines) that emit MFBASIC's `Float`, `Fixed`, and `Money` arithmetic carry
