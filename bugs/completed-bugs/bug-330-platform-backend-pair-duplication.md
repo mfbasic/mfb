@@ -5,8 +5,77 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: Open
-Regression Test: none new — this is a behavior-preserving refactor; see Validation Plan
+Status: Fixed (2026-07-23)
+Regression Test: none new in the failing-then-passing sense (behavior-preserving);
+substitute is a per-target `.ncode` byte-identity harness + new EC `.ncode`
+goldens — see Resolution and Validation Plan
+
+## Resolution (2026-07-23)
+
+All three structural causes are fixed and every touched surface is byte-identical
+on all four registered targets (macos-aarch64, linux-aarch64, linux-x86_64,
+linux-riscv64). Note the tree had already moved on from the `b12213d2` snapshot
+this doc was written against — `tls/macos.rs` is now `tls/macos/{mod,client,
+server,tests}.rs` (bug-327), `emit_alloc` was already promoted to `code/mod.rs`
+(bug-322), and the `List OF Byte` build/read loops were already shared within
+`crypto` (plan-57). The `.ncodesum` goldens the doc said did not exist now do
+(plan-57's `cover-audio`/`cover-tls`/`cover-crypto`), so the artifact-gate is
+real byte-identity coverage for this subtree.
+
+What landed (one commit each):
+
+1. **`native_helpers.rs`** — the package-neutral emitters (`hex_encode_cstring`,
+   `emit_data_address`, `emit_arena_free`, `emit_fail`, `emit_read_byte_list`,
+   `emit_build_byte_list`, `emit_zero_guarded`) moved out of `tls/mod.rs`;
+   `tls`/`audio`/`crypto`/`crypto_ec` all import from it on equal terms. No
+   module reaches into `tls` for a generic emitter any more. Collapsed the
+   duplicates this exposed: crypto_ec's two `data_address`, two `call_fn`, and
+   `zero_scratch_guarded`→generalized `zero_guarded`; `crypto.rs`'s
+   `emit_arena_alloc` (a copy of `emit_alloc` bug-322 missed) and
+   `emit_fail_result`; and `audio/alsa`'s `hex_encode_cstring`.
+2. **TLS parent dispatch** — the seven `lower_tls_*_helper` entry points now
+   dispatch in `tls/mod.rs` (mirroring `crypto_ec`); each backend file is a pure
+   `*_openssl` / `*_macos` implementation. `Curve::bits`/`macos_algorithm` (macOS
+   -only) moved into the macOS EC backend.
+3. **`audio/common.rs` + `AudioBackend`** — the shared `enum Query`, the
+   open-parameter ranges, `emit_validate_open`, and `READ_FRAMES_MAX` moved to
+   `audio/common.rs`; an `AudioBackend` enum owns the data-object and
+   AudioQueue-callback decisions, so `platform.target().contains("macos")` no
+   longer appears in `code/mod.rs` for any audio decision and the callback
+   symbol lists live next to the emitters they gate.
+4. **`emit_port_itoa`** — the character-identical port-itoa loop factored across
+   `tls/macos/{client,server}.rs`.
+5. **EC `.ncode` goldens** — `crypto-ec-valid` gained its first artifact-level
+   coverage (3 targets), since this refactor touched both EC backends heavily.
+
+Deliberately left (as the doc's Blast Radius / Open Decisions anticipated):
+
+- The `tls/macos` dispatch-deadline and 64-byte config-block intra-file dups
+  (items #12/#13): the deadline block wraps a `dlsym` call and the config
+  block's second half diverges — neither is the clean extraction `emit_port_itoa`
+  was. File separately if wanted.
+- `tls`'s own inline `List OF Byte` build loops (part of item #10): merging them
+  onto `emit_build_byte_list` would churn a committed `.ncode` golden on label
+  names for no module-home benefit.
+- `crypto.rs`'s randomBytes zero loop kept inline (not routed through
+  `emit_zero_guarded`) for the same reason — it would change only the dump label
+  names, churning a committed golden with zero byte impact.
+- The `net`/`link_thunk` copies, the ~77-site `emit_fail` epilogue table, and
+  all man/spec drift — out of scope per the original Blast Radius.
+
+Validation: `scripts/artifact-gate.sh` green (1321 goldens, 0 diffs — this now
+includes the audio/tls/crypto/EC `.ncode` goldens); a scaffold per-target
+`.ncode` harness over `cover-audio`/`cover-tls`/`cover-crypto`/`crypto-ec-valid`/
+`accept_valid` green after every step; `cargo fmt --check`, `cargo clippy` (no
+new warnings), and the tls/crypto/audio unit tests (14/8/2, incl. error-path
+release tests) all pass. **Not** performed here: the real-hardware audio
+playback/capture and live-TLS runtime checks the Validation Plan lists — those
+need physical devices on both platforms. Byte-identity across all four targets
+(the emitted machine-code stream is unchanged) is the standing proof that
+runtime behavior is unchanged; the hardware checks remain advisable before a
+release if any doubt remains.
+
+
 
 Six files in `src/target/shared/code/` form three macOS/Linux backend pairs —
 `audio/macos.rs`+`audio/alsa.rs`, `tls/macos.rs`+`tls/openssl.rs`,
