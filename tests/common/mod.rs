@@ -471,3 +471,141 @@ __attribute__((used)) static const interpose_t interposers[] __attribute__((sect
     );
     library
 }
+
+// ---- repo_acceptance shared helpers (bug-327 T1-6) ----
+use std::io::{BufRead, BufReader};
+use std::process::Child;
+use std::sync::Once;
+use mfb_repository::crypto;
+use mfb_repository::store::Store;
+
+static BUILD_REPO: Once = Once::new();
+
+pub struct RepoProcess {
+    pub child: Child,
+    pub url: String,
+}
+
+impl Drop for RepoProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+pub fn mfb_exe() -> String {
+    std::env::var("CARGO_BIN_EXE_mfb").unwrap_or_else(|_| "target/debug/mfb".to_string())
+}
+
+// bug-347: `repository` is a workspace member, so `cargo test` builds `mfb-repo`
+// into the *shared* target dir alongside this test's own binaries and we just
+// use it. `CARGO_BIN_EXE_mfb-repo` is not usable here: Cargo defines that only
+// for integration tests of the package that declares the bin, and this test
+// belongs to `mfb`. Deriving the directory from `mfb`'s own bin path instead
+// stays correct under `--release` and a custom `CARGO_TARGET_DIR`.
+//
+// The fallback covers `cargo test --test repo_acceptance`, which selects only
+// `mfb` and so does not build another member's bin. Unlike the pre-bug-347
+// version, this build shares the workspace target dir and profile, so it cannot
+// disagree with the binary the rest of the suite uses.
+pub fn repo_exe() -> String {
+    let mfb = std::path::PathBuf::from(mfb_exe());
+    let bin_dir = mfb
+        .parent()
+        .expect("mfb binary has a parent directory")
+        .to_path_buf();
+    let exe = bin_dir.join("mfb-repo");
+
+    BUILD_REPO.call_once(|| {
+        if exe.exists() {
+            return;
+        }
+        let target_dir = bin_dir.parent().expect("target dir above the profile dir");
+        let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+        cmd.args(["build", "-p", "mfb_repository", "--bin", "mfb-repo"])
+            .arg("--target-dir")
+            .arg(target_dir);
+        if bin_dir.file_name().is_some_and(|n| n == "release") {
+            cmd.arg("--release");
+        }
+        let status = cmd.status().expect("build mfb-repo");
+        assert!(status.success(), "mfb-repo build failed");
+    });
+
+    assert!(exe.exists(), "mfb-repo missing at {}", exe.display());
+    exe.to_string_lossy().into_owned()
+}
+
+pub fn start_repo(repo_dir: &std::path::Path) -> RepoProcess {
+    let mut child = Command::new(repo_exe())
+        .args([
+            "--dbpath",
+            repo_dir.join("meta.db").to_str().unwrap(),
+            "--datapath",
+            repo_dir.join("packages").to_str().unwrap(),
+            "--listen",
+            "127.0.0.1:0",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("start mfb-repo");
+
+    let stdout = child.stdout.take().expect("repo stdout");
+    let mut reader = BufReader::new(stdout);
+    let mut line = String::new();
+    reader.read_line(&mut line).expect("repo listen line");
+    let address = line
+        .trim()
+        .strip_prefix("MFB_REPO_LISTEN=")
+        .expect("repo listen prefix");
+    RepoProcess {
+        child,
+        url: format!("http://{address}"),
+    }
+}
+
+pub fn open_store(repo_dir: &std::path::Path) -> mfb_repository::store::OpenedRepository {
+    Store::open_repository(&repo_dir.join("meta.db"), &repo_dir.join("packages"))
+        .expect("open repository store")
+}
+
+/// The local key/session store the CLI uses for this repository: MFB_HOME
+/// scoped by the SHA-256 of the repository URL (`~/.mfb/<repo-hash>/`).
+pub fn mfb_repo_home(repo: &RepoProcess, home: &std::path::Path) -> std::path::PathBuf {
+    home.join(".mfb")
+        .join(crypto::fingerprint(repo.url.as_bytes()))
+}
+
+pub fn run_mfb(repo: &RepoProcess, home: &std::path::Path, args: &[&str]) -> std::process::Output {
+    Command::new(mfb_exe())
+        .args(args)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.join(".mfb"))
+        .output()
+        .expect("run mfb")
+}
+
+pub fn run_mfb_plain(args: &[&str]) -> std::process::Output {
+    Command::new(mfb_exe())
+        .args(args)
+        .output()
+        .expect("run mfb")
+}
+
+/// `run_mfb`, but from a chosen working directory — needed to exercise the
+/// commands whose path argument defaults to `.` (plan-60-A §4.2).
+pub fn run_mfb_in(
+    repo: &RepoProcess,
+    home: &std::path::Path,
+    cwd: &std::path::Path,
+    args: &[&str],
+) -> std::process::Output {
+    Command::new(mfb_exe())
+        .args(args)
+        .current_dir(cwd)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.join(".mfb"))
+        .output()
+        .expect("run mfb")
+}
