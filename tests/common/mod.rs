@@ -473,11 +473,11 @@ __attribute__((used)) static const interpose_t interposers[] __attribute__((sect
 }
 
 // ---- repo_acceptance shared helpers (bug-327 T1-6) ----
+use mfb_repository::crypto;
+use mfb_repository::store::Store;
 use std::io::{BufRead, BufReader};
 use std::process::Child;
 use std::sync::Once;
-use mfb_repository::crypto;
-use mfb_repository::store::Store;
 
 static BUILD_REPO: Once = Once::new();
 
