@@ -388,11 +388,7 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
         include_str!("crypto_ed25519.mfb"),
         include_str!("crypto_ecdsa.mfb"),
     );
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-crypto>"),
-        "builtins/crypto.mfb",
-        source,
-    )
+    crate::ast::parse_source_internal(Path::new("<builtin-crypto>"), "builtins/crypto.mfb", source)
 }
 
 pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
