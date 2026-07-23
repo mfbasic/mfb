@@ -9,18 +9,17 @@ Status: Open (all pure file splits landed) — Phase 0 + **19 splits**, each ver
 byte-identical (artifact-gate 0 diffs + acceptance 1080, + per-split unit tests
 and both citation-resolution tests):
 
-- Tier 1: T1-1, T1-2, T1-3, T1-4, T1-5, T1-7, T1-8 (T1-5 also created the shared
-  `tests/common/mod.rs`).
+- Tier 1: T1-1, T1-2, T1-3, T1-4, T1-5, T1-6, T1-7, T1-8 — **every non-blocked
+  Tier-1 split is done** (T1-5 created the shared `tests/common/mod.rs`; T1-6
+  split repo_acceptance into 4 binaries against it).
 - Tier 2: T2-1, T2-2, T2-3, T2-4, T2-5, T2-6, T2-7, T2-8, T2-9, T2-10 — **every
   Tier-2 file split is done**.
 - Tier 3: T3-2 (partial — the `url.rs`/`json_edit.rs` extraction).
 
-Remaining, and why each is NOT a pure file split doable under this bug's non-goals:
+**Every pure file split in the work order is landed.** The only remaining items
+are, by construction, NOT byte-identical file splits doable under this bug's
+non-goals:
 
-- **T1-6** (`repo_acceptance.rs` → 4 test binaries): doable and mechanical (the
-  helpers go to the now-existing `tests/common/mod.rs`), but the tests only run
-  against a live `repository/` server the suite shells out to build — verification
-  is expensive and env-dependent, so it is deferred rather than landed unverified.
 - **T1-9** (`audio/macos.rs`): **blocked on bug-330** (the audio macos/alsa dedup;
   `audio/common.rs` does not exist yet). Splitting first disentangles the
   frame-offset const schemes twice — the doc's own ordering forbids it.
@@ -33,6 +32,10 @@ Remaining, and why each is NOT a pure file split doable under this bug's non-goa
   (e.g. `use fs::*` re-exports all of paths/io/atomic) and buys no navigability,
   while a used-only list requires resolving the entire transitive namespace of
   85 `use super::*` files. It is a large open-ended refactor, not a file split.
+- **Cosmetic-only leftover**: hoisting `code/mod.rs`'s ~110-line mod/use block
+  to the top (T3-1 side-quest). Byte-identical but a large churn in the codegen
+  entry file, interleaved with the glob lines the (deferred) glob conversion
+  owns; left as an optional cosmetic pass.
 - **T3-2's `.mfp`-decode deletion** and **T2-7's `nir/constfold` dedup** are
   explicitly deletions/dedupes (behavioral), out of scope for a byte-identical
   split per the non-goals; each is a separate bug's job.
