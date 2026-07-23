@@ -713,7 +713,7 @@ Acceptance: baseline green; the gate's artifact list matches `test-accept.sh`'s.
       the same commit)
 - [x] T1-7 `doc.rs` → model + `html.rs` (commit 764de5ff9)
 - [x] T1-8 `ast/items.rs` → 3 parsers (commit 6dd854d3a)
-- [ ] T1-4 `crypto_package.mfb` → 5 sources (concat in `crypto.rs:362-366`)
+- [x] T1-4 `crypto_package.mfb` → 5 sources (commit 7e13a7a7a)
 - [ ] T1-6 / T1-5 test-file splits — **after** `tests/common/mod.rs` exists
       (Agent 21 #2)
 
