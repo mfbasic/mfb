@@ -6,7 +6,7 @@ It backs five commands: `mfb repo register`, `mfb repo auth`, `mfb repo publish`
 accepts either a `file://…​.mfp` URL (copied into `packages/` locally, no
 protocol) or an `<owner>#<package>[@version]` ident, which resolves `GET
 /index`, downloads `GET /blob/<hash>`, and runs the full verification chain before
-installing.[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]]
+installing.[[src/cli/pkg.rs:add_package]][[src/manifest/url.rs:package_file_url_path]]
 The client side is the `mfb_repository` crate's `client`
 module; the reference server is the same crate's `server` module. This topic
 owns the HTTP surface (endpoints, methods, JSON bodies), the challenge-response

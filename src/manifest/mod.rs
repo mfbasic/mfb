@@ -1,6 +1,8 @@
 pub mod entry;
+pub mod json_edit;
 pub mod libraries;
 pub mod package;
+pub mod url;
 
 use std::collections::HashMap;
 use std::fs;

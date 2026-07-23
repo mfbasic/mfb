@@ -7,7 +7,7 @@ the HTTP endpoints and wire shapes, the local key/session store, the Ed25519
 signing model and its domain strings, and the owner-name grammar. (`mfb pkg add`
 accepts either a `file://…​.mfp` URL — copied into `packages/` locally with no
 protocol — or an `<owner>#<package>[@version]` registry ident, which is resolved
-and installed over this protocol; see `./mfb spec tooling cli-reference`.)[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]]
+and installed over this protocol; see `./mfb spec tooling cli-reference`.)[[src/cli/pkg.rs:add_package]][[src/manifest/url.rs:package_file_url_path]]
 
 This package owns the *protocol and crypto workflow*. It is distinct from the `.mfp` byte format and its
 signature header (`./mfb spec package container-format`), the CLI command surface
