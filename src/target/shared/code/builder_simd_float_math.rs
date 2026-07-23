@@ -505,8 +505,8 @@ impl CodeBuilder<'_> {
                 self.emit_atan_core_scalar(k);
                 self.emit_result_nan_into_mask(k);
             }
-            FloatKernel::Asin => self.emit_asin_acos_body_scalar(false, k),
-            FloatKernel::Acos => self.emit_asin_acos_body_scalar(true, k),
+            FloatKernel::Asin => self.emit_asin_acos_body(false, true, k),
+            FloatKernel::Acos => self.emit_asin_acos_body(true, true, k),
             _ => self.emit_float_kernel_body(kernel, k),
         }
         for err in kernel.errors() {
@@ -589,8 +589,8 @@ impl CodeBuilder<'_> {
             FloatKernel::Cos => self.emit_sin_cos_body(true, k),
             FloatKernel::Tan => self.emit_tan_body(k),
             FloatKernel::Atan => self.emit_atan_core(k),
-            FloatKernel::Asin => self.emit_asin_acos_body(false, k),
-            FloatKernel::Acos => self.emit_asin_acos_body(true, k),
+            FloatKernel::Asin => self.emit_asin_acos_body(false, false, k),
+            FloatKernel::Acos => self.emit_asin_acos_body(true, false, k),
         }
         // sin/cos/tan/atan fail only with ErrFloatNan (a NaN result, which only
         // happens for NaN/inf input); accumulate the result-NaN mask here so the
@@ -611,7 +611,7 @@ impl CodeBuilder<'_> {
     /// uses the half-angle form rather than `pi/2 - asin` to avoid catastrophic
     /// cancellation as `x → +1` (where `acos → 0`); `1±x` is exact for `|x| <= 1`
     /// (Sterbenz), so both stay ≤1 ULP. `ErrInvalidArgument` for `|x| > 1`.
-    fn emit_asin_acos_body(&mut self, want_acos: bool, k: &KernelRegs) {
+    fn emit_asin_acos_body(&mut self, want_acos: bool, scalar: bool, k: &KernelRegs) {
         // Domain: |x| > 1 fails.
         self.emit(abi::vector_and(
             abi::VEC_SCRATCH[1],
@@ -638,7 +638,11 @@ impl CodeBuilder<'_> {
                 abi::VEC_SCRATCH[0],
                 abi::VEC_SCRATCH[7],
             )); // arg → v0
-            self.emit_atan_core(k); // v0 = atan(arg) = asin(x)
+            if scalar {
+                self.emit_atan_core_scalar(k);
+            } else {
+                self.emit_atan_core(k);
+            } // v0 = atan(arg) = asin(x)
         } else {
             // acos(x) = 2*atan( sqrt( (1-x)/(1+x) ) ).
             self.emit(abi::vector_fsub(
@@ -657,63 +661,11 @@ impl CodeBuilder<'_> {
                 abi::VEC_SCRATCH[7],
             )); // (1-x)/(1+x)
             self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0])); // sqrt(...) >= 0
-            self.emit_atan_core(k); // v0 = atan(sqrt(...))
-            self.emit(abi::vector_fadd(
-                abi::VEC_SCRATCH[0],
-                abi::VEC_SCRATCH[0],
-                abi::VEC_SCRATCH[0],
-            )); // 2*atan(...)
-        }
-    }
-
-    /// plan-39 B4: scalar `asin`/`acos` — identical to `emit_asin_acos_body` but
-    /// with the scalar-branching `emit_atan_core_scalar`. The domain reduction and
-    /// the `|x| > 1` mask are the same, so the result and the `ErrInvalidArgument`
-    /// domain error are bit-identical.
-    fn emit_asin_acos_body_scalar(&mut self, want_acos: bool, k: &KernelRegs) {
-        self.emit(abi::vector_and(
-            abi::VEC_SCRATCH[1],
-            abi::VEC_SCRATCH[0],
-            &k.v19,
-        )); // ax
-        self.emit(abi::vector_fcmgt(
-            abi::VEC_SCRATCH[6],
-            abi::VEC_SCRATCH[1],
-            &k.v16,
-        )); // ax > 1
-        self.emit(abi::vector_orr(&k.v22, &k.v22, abi::VEC_SCRATCH[6]));
-        if !want_acos {
-            self.emit(abi::vector_orr(abi::VEC_SCRATCH[7], &k.v16, &k.v16)); // 1.0
-            self.emit(abi::vector_fmls(
-                abi::VEC_SCRATCH[7],
-                abi::VEC_SCRATCH[0],
-                abi::VEC_SCRATCH[0],
-            )); // 1 - x*x
-            self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[7], abi::VEC_SCRATCH[7]));
-            self.emit(abi::vector_fdiv(
-                abi::VEC_SCRATCH[0],
-                abi::VEC_SCRATCH[0],
-                abi::VEC_SCRATCH[7],
-            ));
-            self.emit_atan_core_scalar(k);
-        } else {
-            self.emit(abi::vector_fsub(
-                abi::VEC_SCRATCH[6],
-                &k.v16,
-                abi::VEC_SCRATCH[0],
-            )); // 1 - x
-            self.emit(abi::vector_fadd(
-                abi::VEC_SCRATCH[7],
-                &k.v16,
-                abi::VEC_SCRATCH[0],
-            )); // 1 + x
-            self.emit(abi::vector_fdiv(
-                abi::VEC_SCRATCH[0],
-                abi::VEC_SCRATCH[6],
-                abi::VEC_SCRATCH[7],
-            ));
-            self.emit(abi::vector_fsqrt(abi::VEC_SCRATCH[0], abi::VEC_SCRATCH[0]));
-            self.emit_atan_core_scalar(k);
+            if scalar {
+                self.emit_atan_core_scalar(k);
+            } else {
+                self.emit_atan_core(k);
+            } // v0 = atan(sqrt(...))
             self.emit(abi::vector_fadd(
                 abi::VEC_SCRATCH[0],
                 abi::VEC_SCRATCH[0],
