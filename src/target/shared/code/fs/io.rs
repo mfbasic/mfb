@@ -339,153 +339,24 @@ fn emit_append_to_file_buffer(
     tag: &str,
     write_error: &str,
 ) -> Result<(), String> {
-    let symbol = ctx.symbol;
-    let platform = ctx.platform;
-    let platform_imports = ctx.platform_imports;
-
     let cap = FILE_BUFFER_CAPACITY.to_string();
-    let have_buf = format!("{symbol}_fbuf_{tag}_have");
-    let alloc_failed = format!("{symbol}_fbuf_{tag}_alloc_failed");
-    let alloc_failed_loop = format!("{symbol}_fbuf_{tag}_alloc_failed_loop");
-    let big_write_loop = format!("{symbol}_fbuf_{tag}_big_write_loop");
-    let fits = format!("{symbol}_fbuf_{tag}_fits");
-    let copy_loop = format!("{symbol}_fbuf_{tag}_copy_loop");
-    let byte_tail = format!("{symbol}_fbuf_{tag}_byte_tail");
-    let copy_done = format!("{symbol}_fbuf_{tag}_copy_done");
-    let appended = format!("{symbol}_fbuf_{tag}_appended");
-    ctx.instructions.extend([
-        abi::load_u64("%v30", file, FILE_OFFSET_BUF_PTR),
-        abi::compare_immediate("%v30", "0"),
-        abi::branch_ne(&have_buf),
-        // Lazily allocate the buffer on first buffered write.
-        abi::move_immediate(abi::return_register(), "Integer", &cap),
-        abi::move_immediate(abi::ARG[1], "Integer", "8"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    ctx.relocations
-        .push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
-    ctx.instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_ne(&alloc_failed),
-        abi::store_u64(abi::RET[1], file, FILE_OFFSET_BUF_PTR),
-        abi::move_register("%v30", abi::RET[1]),
-        abi::branch(&have_buf),
-        // Allocation failed: write this chunk directly to the fd so no data is lost.
-        // Loop on short writes (bug-51): a single write() may transfer fewer than
-        // `remaining` bytes (pipe/FIFO, filling disk, signal); advance the cursor and
-        // retry until nothing remains. A 0 or -1 return is a write failure, never
-        // success. %v40/%v41 are vregs, so the allocator spills the cursor/remaining
-        // across each `bl write` and reloads them afterward (compiler.md register
-        // lifetimes).
-        abi::label(&alloc_failed),
-        abi::load_u64("%v31", file, FILE_OFFSET_FD),
-        abi::move_register("%v40", src),
-        abi::move_register("%v41", len),
-        abi::label(&alloc_failed_loop),
-        abi::compare_immediate("%v41", "0"),
-        abi::branch_eq(&appended),
-        abi::move_register(abi::return_register(), "%v31"),
-        abi::move_register(abi::string_data_register(), "%v40"),
-        abi::move_register(abi::string_length_register(), "%v41"),
-    ]);
-    platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
-    emit_transfer_loop_tail(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        abi::return_register(),
-        write_uses_raw_syscall(platform),
-        "%v40",
-        "%v41",
-        &alloc_failed_loop,
-        write_error,
-    )?;
-    ctx.instructions.extend([
-        abi::label(&have_buf),
-        abi::load_u64("%v32", file, FILE_OFFSET_BUF_FILLED),
-        abi::add_registers("%v33", "%v32", len),
-        abi::move_immediate("%v34", "Integer", &cap),
-        abi::compare_registers("%v33", "%v34"),
-        abi::branch_ls(&fits),
-        // filled + len would overflow: drain this handle first.
-        abi::move_register(abi::return_register(), file),
-        abi::branch_link(FILE_DRAIN_SYMBOL),
-    ]);
-    ctx.relocations
-        .push(internal_branch(symbol, FILE_DRAIN_SYMBOL));
-    ctx.instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(write_error),
-        abi::move_immediate("%v32", "Integer", "0"),
-        abi::move_immediate("%v34", "Integer", &cap),
-        abi::compare_registers(len, "%v34"),
-        abi::branch_ls(&fits),
-        // The chunk is larger than the whole buffer: write it directly to the fd,
-        // looping on short writes (bug-51) until the whole chunk lands. A 0/-1 return
-        // is a write failure. %v40/%v41 (cursor/remaining) are vregs → spilled and
-        // reloaded across each `bl write`.
-        abi::load_u64("%v31", file, FILE_OFFSET_FD),
-        abi::move_register("%v40", src),
-        abi::move_register("%v41", len),
-        abi::label(&big_write_loop),
-        abi::compare_immediate("%v41", "0"),
-        abi::branch_eq(&appended),
-        abi::move_register(abi::return_register(), "%v31"),
-        abi::move_register(abi::string_data_register(), "%v40"),
-        abi::move_register(abi::string_length_register(), "%v41"),
-    ]);
-    platform.emit_write(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
-    emit_transfer_loop_tail(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: ctx.instructions,
-            relocations: ctx.relocations,
-        },
-        abi::return_register(),
-        write_uses_raw_syscall(platform),
-        "%v40",
-        "%v41",
-        &big_write_loop,
-        write_error,
-    )?;
-    ctx.instructions.extend([
-        abi::label(&fits),
-        abi::load_u64("%v30", file, FILE_OFFSET_BUF_PTR),
-        abi::add_registers("%v35", "%v30", "%v32"),
-        abi::move_register("%v36", src),
-        abi::move_register("%v37", len),
-        // Word-then-byte block copy (plan-25-D §D2): 8 bytes per iteration with a
-        // byte tail for the remainder, mirroring emit_block_copy_advance.
-        abi::label(&copy_loop),
-        abi::compare_immediate("%v37", "8"),
-        abi::branch_lo(&byte_tail),
-        abi::load_u64("%v38", "%v36", 0),
-        abi::store_u64("%v38", "%v35", 0),
-        abi::add_immediate("%v35", "%v35", 8),
-        abi::add_immediate("%v36", "%v36", 8),
-        abi::subtract_immediate("%v37", "%v37", 8),
-        abi::branch(&copy_loop),
-        abi::label(&byte_tail),
-        abi::compare_immediate("%v37", "0"),
-        abi::branch_eq(&copy_done),
-        abi::load_u8("%v38", "%v36", 0),
-        abi::store_u8("%v38", "%v35", 0),
-        abi::add_immediate("%v35", "%v35", 1),
-        abi::add_immediate("%v36", "%v36", 1),
-        abi::subtract_immediate("%v37", "%v37", 1),
-        abi::branch(&byte_tail),
-        abi::label(&copy_done),
-        abi::add_registers("%v39", "%v32", len),
-        abi::store_u64("%v39", file, FILE_OFFSET_BUF_FILLED),
-        abi::label(&appended),
-    ]);
-    Ok(())
+    let sink = BufferSink {
+        state_reg: file,
+        buf_ptr_off: FILE_OFFSET_BUF_PTR,
+        filled_off: FILE_OFFSET_BUF_FILLED,
+        drain_symbol: FILE_DRAIN_SYMBOL,
+        drain_handle: Some(file),
+        cap: &cap,
+        prefix: "fbuf",
+        v: [
+            "%v30", "%v32", "%v33", "%v34", "%v35", "%v36", "%v37", "%v38", "%v39",
+        ],
+        fd: Some(FdLoad {
+            reg: "%v31",
+            off: FILE_OFFSET_FD,
+        }),
+    };
+    emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
 }
 
 /// `fs::isBuffered(file)` (plan-14-B §4.5): report whether this handle is buffered.

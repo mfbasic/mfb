@@ -134,33 +134,71 @@ pub(super) fn lower_stdout_drain(
 /// underlying `write` failure branches to `write_error`. `tag` disambiguates the
 /// emitted labels so the helper can append more than one chunk (e.g. a line plus
 /// its trailing newline). Uses vregs `%v20`..`%v29`.
-fn emit_append_to_stdout_buffer(
+/// How the direct-write fallback obtains the destination fd (bug-331 §E): stdout
+/// writes fd `1` as an immediate; a file loads its fd from the handle once per
+/// direct-write path and moves it into the return register.
+pub(in crate::target::shared::code) struct FdLoad<'a> {
+    pub reg: &'a str,
+    pub off: usize,
+}
+
+/// Descriptor for the buffered-output sink shared by stdout and file appends
+/// (bug-331 §E). Everything the two `emit_append_to_*_buffer` bodies differed in is
+/// a field here, so the emitter below is written once and stays byte-identical for
+/// both: the state base register + its buffer-pointer / filled offsets, the drain
+/// symbol (and, for a file, the handle passed to the drain in `x0`), the capacity
+/// constant, the label infix, the nine role registers (`%v20`..`%v28` for stdout,
+/// their irregularly-renumbered file counterparts), and the fd source.
+pub(in crate::target::shared::code) struct BufferSink<'a> {
+    pub state_reg: &'a str,
+    pub buf_ptr_off: usize,
+    pub filled_off: usize,
+    pub drain_symbol: &'a str,
+    pub drain_handle: Option<&'a str>,
+    pub cap: &'a str,
+    pub prefix: &'a str,
+    pub v: [&'a str; 9],
+    pub fd: Option<FdLoad<'a>>,
+}
+
+/// Emit the shared "append `len` bytes from `src` into the sink's buffer, draining
+/// or writing through as needed" sequence (bug-331 §E). Behaviour is identical to
+/// the two former copies; every divergence is carried by `s`.
+pub(in crate::target::shared::code) fn emit_append_to_buffer(
     ctx: &mut EmitCtx,
     src: &str,
     len: &str,
     tag: &str,
     write_error: &str,
+    s: &BufferSink,
 ) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
-    let cap = OUT_BUFFER_CAPACITY.to_string();
-    let have_buf = format!("{symbol}_buf_{tag}_have");
-    let alloc_failed = format!("{symbol}_buf_{tag}_alloc_failed");
-    let alloc_failed_loop = format!("{symbol}_buf_{tag}_alloc_failed_loop");
-    let big_write_loop = format!("{symbol}_buf_{tag}_big_write_loop");
-    let fits = format!("{symbol}_buf_{tag}_fits");
-    let copy_loop = format!("{symbol}_buf_{tag}_copy_loop");
-    let byte_tail = format!("{symbol}_buf_{tag}_byte_tail");
-    let copy_done = format!("{symbol}_buf_{tag}_copy_done");
-    let appended = format!("{symbol}_buf_{tag}_appended");
+    let prefix = s.prefix;
+    let cap = s.cap;
+    let have_buf = format!("{symbol}_{prefix}_{tag}_have");
+    let alloc_failed = format!("{symbol}_{prefix}_{tag}_alloc_failed");
+    let alloc_failed_loop = format!("{symbol}_{prefix}_{tag}_alloc_failed_loop");
+    let big_write_loop = format!("{symbol}_{prefix}_{tag}_big_write_loop");
+    let fits = format!("{symbol}_{prefix}_{tag}_fits");
+    let copy_loop = format!("{symbol}_{prefix}_{tag}_copy_loop");
+    let byte_tail = format!("{symbol}_{prefix}_{tag}_byte_tail");
+    let copy_done = format!("{symbol}_{prefix}_{tag}_copy_done");
+    let appended = format!("{symbol}_{prefix}_{tag}_appended");
+    // fd → return register for a direct write: an immediate `1` (stdout) or the
+    // handle's loaded fd register (file).
+    let fd_to_ret = |s: &BufferSink| match &s.fd {
+        Some(fd) => abi::move_register(abi::return_register(), fd.reg),
+        None => abi::move_immediate(abi::return_register(), "Integer", "1"),
+    };
     ctx.instructions.extend([
-        abi::load_u64("%v20", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
-        abi::compare_immediate("%v20", "0"),
+        abi::load_u64(s.v[0], s.state_reg, s.buf_ptr_off),
+        abi::compare_immediate(s.v[0], "0"),
         abi::branch_ne(&have_buf),
-        // Lazily allocate the 4 KiB buffer on first buffered write.
-        abi::move_immediate(abi::return_register(), "Integer", &cap),
+        // Lazily allocate the buffer on first buffered write.
+        abi::move_immediate(abi::return_register(), "Integer", cap),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -169,22 +207,25 @@ fn emit_append_to_stdout_buffer(
     ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_ne(&alloc_failed),
-        abi::store_u64(abi::RET[1], ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
-        abi::move_register("%v20", abi::RET[1]),
+        abi::store_u64(abi::RET[1], s.state_reg, s.buf_ptr_off),
+        abi::move_register(s.v[0], abi::RET[1]),
         abi::branch(&have_buf),
-        // Allocation failed: fall back to writing this chunk directly so no output
-        // is lost — buffering is an optimization, never a correctness dependency.
-        // Loop on short writes (bug-51): one write() may transfer fewer than
-        // `remaining` bytes; advance the cursor and retry until nothing remains. A 0
-        // or -1 return is a failure, never success. %v40/%v41 are vregs, so the
-        // allocator spills the cursor/remaining across each `bl write`.
+        // Allocation failed: write this chunk directly so no output is lost. Loop on
+        // short writes (bug-51) until nothing remains; %v40/%v41 are vregs, spilled
+        // across each `bl write`.
         abi::label(&alloc_failed),
+    ]);
+    if let Some(fd) = &s.fd {
+        ctx.instructions
+            .push(abi::load_u64(fd.reg, s.state_reg, fd.off));
+    }
+    ctx.instructions.extend([
         abi::move_register("%v40", src),
         abi::move_register("%v41", len),
         abi::label(&alloc_failed_loop),
         abi::compare_immediate("%v41", "0"),
         abi::branch_eq(&appended),
-        abi::move_immediate(abi::return_register(), "Integer", "1"),
+        fd_to_ret(s),
         abi::move_register(abi::string_data_register(), "%v40"),
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
@@ -206,35 +247,42 @@ fn emit_append_to_stdout_buffer(
     )?;
     ctx.instructions.extend([
         abi::label(&have_buf),
-        abi::load_u64("%v21", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
-        abi::add_registers("%v22", "%v21", len),
-        abi::move_immediate("%v23", "Integer", &cap),
-        abi::compare_registers("%v22", "%v23"),
+        abi::load_u64(s.v[1], s.state_reg, s.filled_off),
+        abi::add_registers(s.v[2], s.v[1], len),
+        abi::move_immediate(s.v[3], "Integer", cap),
+        abi::compare_registers(s.v[2], s.v[3]),
         abi::branch_ls(&fits),
-        // filled + len would overflow the buffer: drain what is pending first.
-        abi::branch_link(STDOUT_DRAIN_SYMBOL),
+        // filled + len would overflow: drain what is pending first.
     ]);
+    if let Some(handle) = s.drain_handle {
+        ctx.instructions
+            .push(abi::move_register(abi::return_register(), handle));
+    }
+    ctx.instructions.push(abi::branch_link(s.drain_symbol));
     ctx.relocations
-        .push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
+        .push(internal_branch(symbol, s.drain_symbol));
     ctx.instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(write_error),
-        // After the drain OUT_FILLED is 0; reflect that locally.
-        abi::move_immediate("%v21", "Integer", "0"),
-        abi::move_immediate("%v23", "Integer", &cap),
-        abi::compare_registers(len, "%v23"),
+        // After the drain the filled count is 0; reflect that locally.
+        abi::move_immediate(s.v[1], "Integer", "0"),
+        abi::move_immediate(s.v[3], "Integer", cap),
+        abi::compare_registers(len, s.v[3]),
         abi::branch_ls(&fits),
         // The chunk is larger than the whole buffer: write it directly (the buffer
-        // was just drained, so ordering is preserved) rather than splitting it.
-        // Loop on short writes (bug-51) until the whole chunk lands; a 0/-1 return is
-        // a failure. %v40/%v41 (cursor/remaining) are vregs → spilled/reloaded across
-        // each `bl write`.
+        // was just drained, so ordering is preserved). Loop on short writes (bug-51).
+    ]);
+    if let Some(fd) = &s.fd {
+        ctx.instructions
+            .push(abi::load_u64(fd.reg, s.state_reg, fd.off));
+    }
+    ctx.instructions.extend([
         abi::move_register("%v40", src),
         abi::move_register("%v41", len),
         abi::label(&big_write_loop),
         abi::compare_immediate("%v41", "0"),
         abi::branch_eq(&appended),
-        abi::move_immediate(abi::return_register(), "Integer", "1"),
+        fd_to_ret(s),
         abi::move_register(abi::string_data_register(), "%v40"),
         abi::move_register(abi::string_length_register(), "%v41"),
     ]);
@@ -256,39 +304,61 @@ fn emit_append_to_stdout_buffer(
     )?;
     ctx.instructions.extend([
         abi::label(&fits),
-        // Copy len bytes from src into OUT_PTR[filled..].
-        abi::load_u64("%v20", ARENA_STATE_REGISTER, ARENA_OUT_PTR_OFFSET),
-        abi::add_registers("%v24", "%v20", "%v21"),
-        abi::move_register("%v25", src),
-        abi::move_register("%v26", len),
-        // Word-then-byte block copy (plan-25-D §D2, mirroring
-        // emit_block_copy_advance): 8 bytes per iteration with a byte tail for the
-        // remainder — an order of magnitude fewer iterations than the old per-byte
-        // loop on payloads larger than a word.
+        // Copy len bytes from src into the buffer at [filled..].
+        abi::load_u64(s.v[0], s.state_reg, s.buf_ptr_off),
+        abi::add_registers(s.v[4], s.v[0], s.v[1]),
+        abi::move_register(s.v[5], src),
+        abi::move_register(s.v[6], len),
+        // Word-then-byte block copy (plan-25-D §D2, mirroring emit_block_copy_advance):
+        // 8 bytes per iteration with a byte tail for the remainder.
         abi::label(&copy_loop),
-        abi::compare_immediate("%v26", "8"),
+        abi::compare_immediate(s.v[6], "8"),
         abi::branch_lo(&byte_tail),
-        abi::load_u64("%v27", "%v25", 0),
-        abi::store_u64("%v27", "%v24", 0),
-        abi::add_immediate("%v24", "%v24", 8),
-        abi::add_immediate("%v25", "%v25", 8),
-        abi::subtract_immediate("%v26", "%v26", 8),
+        abi::load_u64(s.v[7], s.v[5], 0),
+        abi::store_u64(s.v[7], s.v[4], 0),
+        abi::add_immediate(s.v[4], s.v[4], 8),
+        abi::add_immediate(s.v[5], s.v[5], 8),
+        abi::subtract_immediate(s.v[6], s.v[6], 8),
         abi::branch(&copy_loop),
         abi::label(&byte_tail),
-        abi::compare_immediate("%v26", "0"),
+        abi::compare_immediate(s.v[6], "0"),
         abi::branch_eq(&copy_done),
-        abi::load_u8("%v27", "%v25", 0),
-        abi::store_u8("%v27", "%v24", 0),
-        abi::add_immediate("%v24", "%v24", 1),
-        abi::add_immediate("%v25", "%v25", 1),
-        abi::subtract_immediate("%v26", "%v26", 1),
+        abi::load_u8(s.v[7], s.v[5], 0),
+        abi::store_u8(s.v[7], s.v[4], 0),
+        abi::add_immediate(s.v[4], s.v[4], 1),
+        abi::add_immediate(s.v[5], s.v[5], 1),
+        abi::subtract_immediate(s.v[6], s.v[6], 1),
         abi::branch(&byte_tail),
         abi::label(&copy_done),
-        abi::add_registers("%v28", "%v21", len),
-        abi::store_u64("%v28", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),
+        abi::add_registers(s.v[8], s.v[1], len),
+        abi::store_u64(s.v[8], s.state_reg, s.filled_off),
         abi::label(&appended),
     ]);
     Ok(())
+}
+
+fn emit_append_to_stdout_buffer(
+    ctx: &mut EmitCtx,
+    src: &str,
+    len: &str,
+    tag: &str,
+    write_error: &str,
+) -> Result<(), String> {
+    let cap = OUT_BUFFER_CAPACITY.to_string();
+    let sink = BufferSink {
+        state_reg: ARENA_STATE_REGISTER,
+        buf_ptr_off: ARENA_OUT_PTR_OFFSET,
+        filled_off: ARENA_OUT_FILLED_OFFSET,
+        drain_symbol: STDOUT_DRAIN_SYMBOL,
+        drain_handle: None,
+        cap: &cap,
+        prefix: "buf",
+        v: [
+            "%v20", "%v21", "%v22", "%v23", "%v24", "%v25", "%v26", "%v27", "%v28",
+        ],
+        fd: None,
+    };
+    emit_append_to_buffer(ctx, src, len, tag, write_error, &sink)
 }
 
 pub(super) fn lower_io_write_helper(
