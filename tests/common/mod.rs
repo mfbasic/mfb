@@ -333,7 +333,11 @@ pub fn run_pty_prompt_interaction(executable: &Path, prompt: &str, input: &[u8])
 /// flakes (deterministically under `cargo llvm-cov`, which perturbs scheduling).
 /// Gating the write on `ECHO` being cleared — the child is then blocked in
 /// `read()` — closes the window without a timing hack.
-pub fn run_pty_prompt_interaction_echo_off(executable: &Path, prompt: &str, input: &[u8]) -> String {
+pub fn run_pty_prompt_interaction_echo_off(
+    executable: &Path,
+    prompt: &str,
+    input: &[u8],
+) -> String {
     run_pty_prompt_interaction_inner(executable, prompt, input, true)
 }
 
