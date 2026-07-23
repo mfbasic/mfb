@@ -610,6 +610,10 @@ const POISONING_RULES: &[&str] = &[
 ];
 
 impl TypeEnv {
+    // ===========================================================================
+    // 1. Construction, diagnostic emission, closure-capture arity
+    // ===========================================================================
+
     fn build(project: &IrProject) -> Self {
         let mut records = HashMap::new();
         let mut unions = HashMap::new();
@@ -824,6 +828,10 @@ impl TypeEnv {
             ),
         );
     }
+
+    // ===========================================================================
+    // 2. `check_ops` — per-op structural + type checks (one large dispatch)
+    // ===========================================================================
 
     fn check_ops(
         &self,
@@ -1576,6 +1584,10 @@ impl TypeEnv {
         }
     }
 
+    // ===========================================================================
+    // 3. Value walk: literal ranges and const-literal bounds
+    // ===========================================================================
+
     /// Enforce the semantic rules on a value expression and recurse into its
     /// sub-values. Argument and sub-expression checks run before the node's own
     /// rule so the innermost violation surfaces first.
@@ -1990,6 +2002,10 @@ impl TypeEnv {
         }
     }
 
+    // ===========================================================================
+    // 4. Member access + visibility
+    // ===========================================================================
+
     /// Reject a `MemberAccess` whose target provably cannot carry the member: a
     /// primitive-typed target, or a known record that does not declare it.
     fn check_member_access(
@@ -2098,6 +2114,10 @@ impl TypeEnv {
             .get(type_name)
             .is_some_and(|(file, _)| !file.is_empty() && *file != *self.current_file.borrow())
     }
+
+    // ===========================================================================
+    // 5. Operand typing (binary, money, comparability, map keys)
+    // ===========================================================================
 
     /// Reject a binary operator applied to operands whose types it cannot
     /// accept — the IR-level counterpart of `syntaxcheck`'s `infer_binary`
@@ -2323,6 +2343,10 @@ impl TypeEnv {
         true
     }
 
+    // ===========================================================================
+    // 6. Type declarations, union includes, record cycles
+    // ===========================================================================
+
     /// Structural well-formedness of the type table (`syntaxcheck`'s
     /// `check_type_decl`), checkable directly on the IR. On decoded package IR
     /// these guard codegen's layout and drop assumptions: a record that owns a
@@ -2512,6 +2536,10 @@ impl TypeEnv {
         }
         false
     }
+
+    // ===========================================================================
+    // 7. Resource moves, defaultability, collection RES axis
+    // ===========================================================================
 
     /// Reject a read of a resource binding after it was moved (closed, returned)
     /// — `syntaxcheck`'s `TYPE_USE_AFTER_MOVE`. On decoded package IR a
@@ -2995,6 +3023,10 @@ impl TypeEnv {
         // Nested collections (`List OF List OF RES File`).
         self.check_collection_res_axis(inner);
     }
+
+    // ===========================================================================
+    // 8. Native LINK (cstructs + functions) + resource classification
+    // ===========================================================================
 
     /// Validate the merged `CSTRUCT` table (plan-50-B §4.4) on the package path.
     ///
@@ -3700,6 +3732,10 @@ impl TypeEnv {
         }
     }
 
+    // ===========================================================================
+    // 9. Match exhaustiveness + patterns
+    // ===========================================================================
+
     /// Reject a `MATCH` on an enum or union that neither covers every
     /// member/variant nor has an unguarded catch-all (`syntaxcheck`'s
     /// `TYPE_MATCH_NOT_EXHAUSTIVE`). On decoded package IR this is a
@@ -3916,6 +3952,10 @@ impl TypeEnv {
             }
         }
     }
+
+    // ===========================================================================
+    // 10. Call arity/arg types, thread + STATE agreement
+    // ===========================================================================
 
     /// The unary counterpart of `check_binary_operands` (`syntaxcheck`'s
     /// `infer_unary` / `TYPE_UNARY_OPERATOR_MISMATCH`): `NOT` requires a Boolean
@@ -4302,6 +4342,10 @@ impl TypeEnv {
         }
     }
 
+    // ===========================================================================
+    // 11. Result-type checks + builtin call args
+    // ===========================================================================
+
     /// Reject a `MemberAccess` whose annotated result type disagrees with the
     /// declared type of the field it reads.
     ///
@@ -4620,6 +4664,10 @@ impl TypeEnv {
             );
         }
     }
+
+    // ===========================================================================
+    // 12. Compatibility + typed statement checks
+    // ===========================================================================
 
     /// Type compatibility (`syntaxcheck::compatible`), on canonical type-name
     /// strings. `Unknown` on either side is compatible; the `RES` ownership
@@ -4994,6 +5042,10 @@ impl TypeEnv {
             );
         }
     }
+
+    // ===========================================================================
+    // 13. Type-model lookup helpers (record_fields, union_variants, infer_type)
+    // ===========================================================================
 
     /// The complete set of field names for a record type, expanding `includes`
     /// transitively. Returns `None` when the type is not a known record or when
