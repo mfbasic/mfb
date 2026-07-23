@@ -765,6 +765,41 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Static type of `value`, resolving builtin calls the hand-written
+    /// [`Self::static_type_name`] table misses by delegating to the authoritative
+    /// per-package resolvers (`builtins::resolve_call_return_type`).
+    ///
+    /// This is used **only** for the `typeName` compile-time fold (bug-354).
+    /// `typeName` must fold its argument's type to a string constant; before this,
+    /// `static_type_name`'s table named zero `strings.*`, so `typeName` of every
+    /// `strings::` call — plus `math::abs/min/max` and
+    /// `collections::find/contains/hasKey` — failed to lower on valid source.
+    ///
+    /// It deliberately does NOT widen `static_type_name` itself: that function
+    /// also gates the in-place-append fast path, numeric-result typing, and the
+    /// slice specialization, and widening it would shift their codegen for every
+    /// program using these builtins (including inside inlined package bodies). The
+    /// fold is the only place a table miss is a hard error, so the resolver
+    /// fallback is scoped to exactly here. Recurses through itself so nested calls
+    /// (`typeName(strings::upper(strings::lower(s)))`) resolve too.
+    pub(super) fn static_type_name_for_fold(&self, value: &NirValue) -> Option<String> {
+        if let Some(type_name) = self.static_type_name(value) {
+            return Some(type_name);
+        }
+        match value {
+            NirValue::Call { target, args, .. }
+            | NirValue::CallResult { target, args, .. }
+            | NirValue::RuntimeCall { target, args, .. } => {
+                let arg_types = args
+                    .iter()
+                    .map(|arg| self.static_type_name_for_fold(arg))
+                    .collect::<Option<Vec<_>>>()?;
+                builtins::resolve_call_return_type(target, &arg_types)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) fn thread_runtime_return_type(
         &self,
         target: &str,

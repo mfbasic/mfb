@@ -1,0 +1,55 @@
+IMPORT io
+IMPORT strings
+IMPORT math
+IMPORT collections
+
+' bug-354: `typeName(<builtin call>)` folds the argument's static type to a
+' string at compile time via `CodeBuilder::static_type_name`, whose hand-written
+' table covered ZERO `strings.*`, and omitted `math.abs/min/max` and
+' `collections.find/contains/hasKey`. Those folds returned None -> a hard
+' "native code cannot determine typeName argument type" build error on valid,
+' resolver-accepted source. The builder (and its data_objects pre-pass twin) now
+' delegate any non-explicit target to `builtins::resolve_call_return_type`. Every
+' line below failed to compile before the fix.
+SUB main()
+  LET s AS String = "hello"
+  LET t AS String = "l"
+  LET f AS Float = 2.0
+  LET i AS Integer = 3
+  LET l AS List OF String = ["a", "b"]
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1 }
+
+  ' strings:: — the whole package was uncompilable inside typeName.
+  io::print(typeName(strings::upper(s)))       ' String
+  io::print(typeName(strings::lower(s)))       ' String
+  io::print(typeName(strings::trim(s)))        ' String
+  io::print(typeName(strings::caseFold(s)))    ' String
+  io::print(typeName(strings::join(l, t)))     ' String
+  io::print(typeName(strings::split(s, t)))    ' List OF String
+  io::print(typeName(strings::graphemes(s)))   ' List OF String
+  io::print(typeName(strings::byteLen(s)))     ' Integer
+  io::print(typeName(strings::find(s, t)))     ' Integer
+  io::print(typeName(strings::contains(s, t))) ' Boolean
+  io::print(typeName(strings::startsWith(s, t)))       ' Boolean
+  io::print(typeName(strings::padLeft(s, 8, t)))       ' String
+  io::print(typeName(strings::replace(s, t, s)))       ' String
+  io::print(typeName(strings::mid(s, 1, 2)))           ' String
+  io::print(typeName(strings::repeat(s, 2)))           ' String
+
+  ' math:: — abs/min/max were in neither fold table.
+  io::print(typeName(math::abs(f)))            ' Float
+  io::print(typeName(math::min(f, f)))         ' Float
+  io::print(typeName(math::max(f, f)))         ' Float
+  io::print(typeName(math::sqrt(f)))           ' Float (contrast: already worked)
+
+  ' collections:: — find/contains/hasKey failed identically.
+  io::print(typeName(collections::find(l, t)))         ' Integer
+  io::print(typeName(collections::contains(l, t)))     ' Boolean
+  io::print(typeName(collections::hasKey(m, "a")))     ' Boolean
+  io::print(typeName(collections::get(l, 0)))          ' String (contrast: list element)
+
+  ' general contrast cases — must keep their exact answers.
+  io::print(typeName(toString(i)))             ' String
+  io::print(typeName(len(l)))                  ' Integer
+  io::print(typeName(s))                       ' String (plain local)
+END SUB

@@ -1103,7 +1103,7 @@ pub(super) fn static_string_value_with_constants(
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
-            static_type_name_with_types(&args[0], types, fields)
+            static_type_name_for_fold_with_types(&args[0], types, fields)
         }
         NirValue::Call { target, args, .. }
         | NirValue::CallResult { target, args, .. }
@@ -1224,6 +1224,38 @@ pub(super) fn static_type_name_with_types(
                 _ => None,
             }
         }
+    }
+}
+
+/// The pre-pass twin of [`super::CodeBuilder::static_type_name_for_fold`]: static
+/// type of `value`, resolving builtin calls that [`static_type_name_with_types`]'s
+/// hand-written table misses via `builtins::resolve_call_return_type`.
+///
+/// Used **only** for the `typeName` compile-time fold (bug-354), where the pre-pass
+/// interns the folded type-name string the builder later looks up — so this must
+/// agree with the builder's `static_type_name_for_fold`, and both delegate to the
+/// same resolver. It does NOT widen `static_type_name_with_types`, whose other
+/// consumers (the float-numeric-error gate, module analysis, binary typing) must
+/// keep their exact current answers.
+pub(super) fn static_type_name_for_fold_with_types(
+    value: &NirValue,
+    types: &HashMap<String, String>,
+    fields: &FieldTypes,
+) -> Option<String> {
+    if let Some(type_name) = static_type_name_with_types(value, types, fields) {
+        return Some(type_name);
+    }
+    match value {
+        NirValue::Call { target, args, .. }
+        | NirValue::CallResult { target, args, .. }
+        | NirValue::RuntimeCall { target, args, .. } => {
+            let arg_types = args
+                .iter()
+                .map(|arg| static_type_name_for_fold_with_types(arg, types, fields))
+                .collect::<Option<Vec<_>>>()?;
+            builtins::resolve_call_return_type(target, &arg_types)
+        }
+        _ => None,
     }
 }
 
@@ -1398,5 +1430,100 @@ fn collect_builtin_function_refs_in_value(
         | NirValue::Local(_)
         | NirValue::LocalRef { .. }
         | NirValue::Global { .. } => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::nir::{NirSourceLoc, NirValue};
+    use std::collections::HashMap;
+
+    fn const_of(type_: &str) -> NirValue {
+        NirValue::Const {
+            type_: type_.to_string(),
+            value: String::new(),
+        }
+    }
+
+    fn call(target: &str, arg_types: &[&str]) -> NirValue {
+        NirValue::Call {
+            target: target.to_string(),
+            args: arg_types.iter().map(|t| const_of(t)).collect(),
+            loc: NirSourceLoc::default(),
+        }
+    }
+
+    /// bug-354: the `typeName` fold happens in two places that MUST agree — the
+    /// builder's `CodeBuilder::static_type_name_for_fold`
+    /// (builder_value_semantics.rs) emits the fold, and this pre-pass's
+    /// `static_type_name_for_fold_with_types` interns the folded string the builder
+    /// then looks up. They had drifted (the builder's base table knew zero
+    /// `strings.*`; this side's base table knew 18 and no `math.*`), with no test
+    /// relating them. Both fold wrappers now delegate any target their hand-written
+    /// base table misses to the single authoritative resolver
+    /// `builtins::resolve_call_return_type`. This pins that: for every builtin call
+    /// target, the pre-pass fold equals the resolver's answer — so a future base-
+    /// table arm that contradicts the resolver, or a resolver retype, fails here.
+    /// The builder side's runtime output over the same catalog is proven by
+    /// `tests/rt-behavior/general/func_typename_builtin_calls`.
+    #[test]
+    fn typename_fold_agrees_with_the_authoritative_resolver() {
+        let types = HashMap::new();
+        let fields = FieldTypes::new();
+        let catalog: &[(&str, &[&str])] = &[
+            // strings.* — the whole package was uncompilable in the builder fold.
+            ("strings.upper", &["String"]),
+            ("strings.lower", &["String"]),
+            ("strings.trim", &["String"]),
+            ("strings.caseFold", &["String"]),
+            ("strings.normalizeNfc", &["String"]),
+            ("strings.join", &["List OF String", "String"]),
+            ("strings.split", &["String", "String"]),
+            ("strings.graphemes", &["String"]),
+            ("strings.byteLen", &["String"]),
+            ("strings.contains", &["String", "String"]),
+            ("strings.startsWith", &["String", "String"]),
+            ("strings.padLeft", &["String", "Integer", "String"]),
+            ("strings.padRight", &["String", "Integer", "String"]),
+            ("strings.mid", &["String", "Integer", "Integer"]),
+            ("strings.replace", &["String", "String", "String"]),
+            ("strings.repeat", &["String", "Integer"]),
+            ("strings.stripPrefix", &["String", "String"]),
+            ("strings.stripSuffix", &["String", "String"]),
+            ("strings.count", &["String", "String"]),
+            // math.* — abs/min/max were in neither base table.
+            ("math.abs", &["Float"]),
+            ("math.min", &["Float", "Float"]),
+            ("math.max", &["Float", "Float"]),
+            ("math.sqrt", &["Float"]),
+            ("math.pow", &["Float", "Float"]),
+            // collections.* predicate/search returns.
+            ("collections.find", &["List OF String", "String"]),
+            ("collections.contains", &["List OF String", "String"]),
+            ("collections.hasKey", &["Map OF String TO Integer", "String"]),
+            // general.* contrast cases (already resolved before the fix).
+            ("toString", &["Integer"]),
+            ("toInt", &["String"]),
+            ("toFloat", &["String"]),
+            ("isNumeric", &["String"]),
+            ("typeName", &["String"]),
+        ];
+        for (target, arg_types) in catalog {
+            let want = builtins::resolve_call_return_type(
+                target,
+                &arg_types.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+            );
+            let got = static_type_name_for_fold_with_types(&call(target, arg_types), &types, &fields);
+            assert_eq!(
+                got, want,
+                "`{target}` folds to {got:?} in the pre-pass but the authoritative \
+                 resolver says {want:?} — the two typeName folds have drifted (bug-354)"
+            );
+            assert!(
+                got.is_some(),
+                "`{target}` must resolve — it is a documented builtin call"
+            );
+        }
     }
 }

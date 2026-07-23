@@ -1,0 +1,60 @@
+{
+  "project": "func_typename_builtin_calls",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "strings", "line": 2 },
+    { "module": "math", "line": 3 },
+    { "module": "collections", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": { "kind": "string", "value": "hello" }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "String", "value": { "kind": "string", "value": "l" }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Float", "value": { "kind": "number", "value": "2.0" }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "3" }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "l", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "b" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Map OF String TO Integer", "value": { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "a" }, "value": { "kind": "number", "value": "1" } }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.upper", "arguments": [{ "kind": "identifier", "value": "s" }] }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.lower", "arguments": [{ "kind": "identifier", "value": "s" }] }] }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.trim", "arguments": [{ "kind": "identifier", "value": "s" }] }] }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.caseFold", "arguments": [{ "kind": "identifier", "value": "s" }] }] }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.join", "arguments": [{ "kind": "identifier", "value": "l" }, { "kind": "identifier", "value": "t" }] }] }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.split", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "identifier", "value": "t" }] }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "identifier", "value": "s" }] }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.byteLen", "arguments": [{ "kind": "identifier", "value": "s" }] }] }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "identifier", "value": "t" }] }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.contains", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "identifier", "value": "t" }] }] }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "identifier", "value": "t" }] }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.padLeft", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "8" }, { "kind": "identifier", "value": "t" }] }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.replace", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "s" }] }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }] }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "2" }] }] }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "math.abs", "arguments": [{ "kind": "identifier", "value": "f" }] }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "math.min", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "identifier", "value": "f" }] }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "math.max", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "identifier", "value": "f" }] }] }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "math.sqrt", "arguments": [{ "kind": "identifier", "value": "f" }] }] }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "collections.find", "arguments": [{ "kind": "identifier", "value": "l" }, { "kind": "identifier", "value": "t" }] }] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "l" }, { "kind": "identifier", "value": "t" }] }] }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "string", "value": "a" }] }] }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "l" }, { "kind": "number", "value": "0" }] }] }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] }] }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "l" }] }] }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "typeName", "arguments": [{ "kind": "identifier", "value": "s" }] }] }, "line": 54 }
+      ]
+    }
+    ]
+  }
+  ]
+}

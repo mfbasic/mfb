@@ -145,9 +145,11 @@ pub(super) fn local_constant_value_with_constants(
         | NirValue::RuntimeCall { target, args, .. }
             if target == "typeName" && args.len() == 1 =>
         {
-            static_type_name_with_types(&args[0], types, fields).map(|value| NirValue::Const {
-                type_: "String".to_string(),
-                value,
+            static_type_name_for_fold_with_types(&args[0], types, fields).map(|value| {
+                NirValue::Const {
+                    type_: "String".to_string(),
+                    value,
+                }
             })
         }
         NirValue::Call { target, args, .. }

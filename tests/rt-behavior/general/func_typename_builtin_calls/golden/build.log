@@ -1,0 +1,35 @@
+$ mfb build -ast -ir tests/rt-behavior/general/func_typename_builtin_calls
+Wrote AST to tests/rt-behavior/general/func_typename_builtin_calls/func_typename_builtin_calls.ast
+Wrote IR to tests/rt-behavior/general/func_typename_builtin_calls/func_typename_builtin_calls.ir
+[exit 0]
+$ mfb build tests/rt-behavior/general/func_typename_builtin_calls
+Wrote executable to tests/rt-behavior/general/func_typename_builtin_calls/build/func_typename_builtin_calls.out
+[exit 0]
+$ tests/rt-behavior/general/func_typename_builtin_calls/build/func_typename_builtin_calls.out
+String
+String
+String
+String
+String
+List OF String
+List OF String
+Integer
+Integer
+Boolean
+Boolean
+String
+String
+String
+String
+Float
+Float
+Float
+Float
+Integer
+Boolean
+Boolean
+String
+String
+Integer
+String
+[exit 0]

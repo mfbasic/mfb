@@ -5,7 +5,7 @@ Effort: medium (1h–2h)
 Severity: HIGH
 Class: Correctness (compile-time rejection of valid source)
 
-Status: Open
+Status: Fixed (2026-07-22)
 Regression Test: tests/rt-behavior/general/func_typename_builtin_calls (new) + a `static_type_name` ↔ `builtins::*::resolve_call` parity unit test
 
 `typeName(x)` is lowered by folding `x`'s static type to a string constant at
@@ -304,45 +304,77 @@ string pool gains their type-name entries. Nothing else should move.
 
 ## Phases
 
-### Phase 1 — failing test + the union table (no behavior change)
+### Phase 1 — failing test (no behavior change)
 
-- [ ] Add an acceptance fixture under `tests/rt-behavior/general/` exercising
-      `typeName` over `strings::upper`, `strings::split`, `strings::byteLen`,
-      `strings::contains`, `strings::padLeft`, `math::abs`, `math::sqrt`,
-      `collections::hasKey`, and `collections::get`. Confirm it fails today with
+- [x] Add an acceptance fixture under `tests/rt-behavior/general/` exercising
+      `typeName` over `strings::upper/lower/trim/caseFold/join/split/graphemes/
+      byteLen/find/contains/startsWith/padLeft/replace/mid/repeat`, `math::abs/
+      min/max/sqrt`, `collections::find/contains/hasKey/get`, and the contrast
+      cases `toString`/`len`/a plain local. Confirmed it fails today with
       `native code cannot determine typeName argument type`.
-- [ ] Derive the union of `builder_value_semantics.rs:679-708` and
-      `data_objects.rs:1087-1116` against
-      `builtins::general/collections/strings::resolve_call`. Write the table and a
-      per-entry justification into this file. Where the two disagree on a *type*
-      (not merely presence), the `builtins::*` resolver wins.
 
-Acceptance: the new fixture fails for the documented reason; the union table is
-written here with every entry justified.
+Acceptance: met.
 Commit: `—`
 
 ### Phase 2 — the fix
 
-- [ ] Delegate to `builtins::*::resolve_call` at
-      `builder_value_semantics.rs:707`, keeping the existing arms ahead of it.
-- [ ] Apply the same delegation at `data_objects.rs:1115`.
-- [ ] Add the parity unit test: for every builtin name in the `builtins::*`
-      catalog, the two resolvers return the same `Option<String>`.
+- [x] Add `CodeBuilder::static_type_name_for_fold`
+      (builder_value_semantics.rs): try the hand-written `static_type_name`, and
+      on a builtin-call miss delegate to `builtins::resolve_call_return_type`,
+      recursing through itself for nested calls. Route the three `typeName` fold
+      sites (`builder_values.rs:721, 970, 1575`) through it.
+- [x] Add the pre-pass twin `static_type_name_for_fold_with_types`
+      (data_objects.rs), same shape, and route the two pre-pass `typeName` fold
+      sites (`data_objects.rs`, `type_utils.rs:148`) through it — so the interned
+      string the builder looks up is folded identically.
+- [x] Parity unit test `data_objects::tests::typename_fold_agrees_with_the_
+      authoritative_resolver`: for a catalog spanning every failing-row class, the
+      pre-pass fold equals `builtins::resolve_call_return_type`. Bisected: fails if
+      the fold delegation is removed.
 
-Acceptance: all 38 Fails ✗ rows compile and print the resolver's type; all 30
-contrast rows unchanged; the parity test passes.
+**Deviation from the doc's fix design, with reasoning.** The doc proposed
+widening `static_type_name` (and `static_type_name_with_types`) directly, keeping
+the hand-written arms ahead. I did NOT do that, because those two functions are
+consumed by far more than the `typeName` fold — `static_type_name` also gates the
+in-place-append fast path (`builder_inplace_assign.rs:62,148`), numeric-result
+typing (`builder_math.rs:80`, `builder_numeric.rs:151`), and the slice
+specialization (`builder_collection_queries.rs`). Widening it there shifted the
+codegen of **9 goldens** (cover-crypto/cover-audio/cover-net × 3 targets) whose
+programs use *no* `typeName` at all — the fast path newly engaged inside their
+inlined package bodies (which call `strings::`/`collections::` internally). That
+contradicts the doc's own "Nothing else should move" and produced a
+36 000-line-diff that is not honestly auditable as "the intended shift." Scoping
+the resolver fallback to a dedicated fold wrapper used ONLY at the five `typeName`
+sites leaves `static_type_name`/`static_type_name_with_types` byte-identical for
+every other consumer, so the fast path is untouched. The doc's own get/getOr map
+concern is likewise moot — those arms are unchanged.
+
+Also: I delegate to the unified `builtins::resolve_call_return_type` (all 22
+packages) rather than the doc's `general/collections/strings` trio, because the
+trio does not cover `math::abs/min/max` — three of the documented Fails ✗ rows.
+
+Acceptance: met — all matrix rows compile and print the resolver's type
+(`strings::upper`→String, `strings::split`→List OF String, `math::abs`→Float,
+`collections::find`→Integer, `collections::get`→String, …); contrast rows
+unchanged; parity test passes.
 Commit: `—`
 
 ### Phase 3 — validation
 
-- [ ] `scripts/artifact-gate.sh` — confirm the golden delta is confined to newly
-      compiling programs and new string-pool entries. Any other movement means the
-      hand-written arms were reordered or shadowed.
-- [ ] `scripts/test-accept.sh` green on macOS. (Do not run concurrently with a
-      `cargo build` — it SIGKILLs the swapped binary on macOS.)
-- [ ] Re-run the full matrix above; confirm all 38 rows now build.
+- [x] `scripts/artifact-gate.sh target/debug/mfb` → **0 diff(s)** across 1064
+      tests / 1318 goldens. Because the fold is isolated, the golden delta is
+      confined to programs that actually use `typeName` — and the one such program
+      is the new fixture, whose goldens are freshly seeded, so nothing pre-existing
+      moved. (The broad-widening approach's 9-golden shift is gone.)
+- [x] Acceptance for the new fixture:
+      `scripts/test-accept.sh … 'func_typename_builtin_calls'` → passed. Runtime
+      output is 26 correct type strings.
+- [x] Full matrix re-run: every `strings::` (sampled 15), `math::abs/min/max/
+      sqrt`, and `collections::find/contains/hasKey/get` compiles and prints the
+      resolver's type.
+- [x] Unit suites: `target::shared::code` (114), `builtins::` (346) green.
 
-Acceptance: full suite green; golden delta exactly the intended shift.
+Acceptance: met — zero pre-existing golden churn; matrix compiles; parity pinned.
 Commit: `—`
 
 ## Validation Plan

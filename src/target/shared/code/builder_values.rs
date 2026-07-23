@@ -718,7 +718,7 @@ impl CodeBuilder<'_> {
                     return self.lower_to_string(args);
                 }
                 if target == "typeName" && args.len() == 1 {
-                    let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
+                    let type_name = self.static_type_name_for_fold(&args[0]).ok_or_else(|| {
                         "native code cannot determine typeName argument type".to_string()
                     })?;
                     let register = self.load_string_constant(&type_name)?;
@@ -967,7 +967,7 @@ impl CodeBuilder<'_> {
                     return self.lower_empty_filter_predicate(target, &args[0]);
                 }
                 if target == "typeName" && args.len() == 1 {
-                    let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
+                    let type_name = self.static_type_name_for_fold(&args[0]).ok_or_else(|| {
                         "native code cannot determine typeName argument type".to_string()
                     })?;
                     let register = self.load_string_constant(&type_name)?;
@@ -1572,7 +1572,7 @@ impl CodeBuilder<'_> {
         }
         if target == "typeName" && args.len() == 1 {
             let type_name = self
-                .static_type_name(&args[0])
+                .static_type_name_for_fold(&args[0])
                 .ok_or_else(|| "native code cannot determine typeName argument type".to_string())?;
             let register = self.load_string_constant(&type_name)?;
             return Ok(ValueResult {
