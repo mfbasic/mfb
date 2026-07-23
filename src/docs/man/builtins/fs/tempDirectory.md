@@ -33,7 +33,7 @@ The directory path is queried from the operating system on every call rather
 than cached, so the result reflects the host environment at the moment of the
 call. The returned `String` holds only the path bytes, with the trailing NUL
 that the host query produces stripped off; no trailing path separator is added.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_temp_directory_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_temp_directory_helper]]
 
 The source of the path is platform specific:
 
@@ -49,7 +49,7 @@ The function takes no arguments and has no filesystem side effects: it neither
 creates the directory nor verifies that it exists, it only reports the
 configured path. Internally it reads into a fixed 4096-byte buffer before
 copying the result into an arena-backed `String`.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_temp_directory_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_temp_directory_helper]]
 
 ## Parameters
 

@@ -38,14 +38,14 @@ absolute or relative to the current working directory, and may contain Unicode
 characters when the host filesystem accepts those names. Internally a
 NUL-terminated copy of `path` is allocated for the host call, so `path` must be
 non-empty and must not contain an embedded NUL byte.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_path_operation_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_path_operation_helper]]
 
 When the host refuses the removal, the failure `errno` is mapped to the matching
 error below and `path` is left unchanged. Attempting to remove a directory is
 reported as a host failure (for example `ErrInvalidPath` or `ErrDirectoryNotEmpty`)
 rather than as a directory-specific error, since `unlink` does not operate on
 directories. `errno` values are per-OS; the same symbolic error is produced on
-each platform. [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]]
+each platform. [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]]
 
 ## Parameters
 
@@ -63,14 +63,14 @@ each platform. [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_m
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot become a valid NUL-terminated host path. [[src/target/shared/code/fs_helpers_paths.rs:lower_fs_path_operation_helper]] |
+| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot become a valid NUL-terminated host path. [[src/target/shared/code/fs/paths.rs:lower_fs_path_operation_helper]] |
 | `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
-| `77030001` | `ErrPathNotFound` | No entry exists at `path` (host `ENOENT`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77030003` | `ErrAccessDenied` | The host denies permission to remove the entry (host `EACCES`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77030002` | `ErrInvalidPath` | `path` is unusable as a path: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77050005` | `ErrAlreadyExists` | The host reports a conflicting existing target (host `EEXIST`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77030005` | `ErrDirectoryNotEmpty` | The host reports the entry is a non-empty directory (host `ENOTEMPTY`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77020002` | `ErrOutput` | The host refuses the removal for any other reason, such as `path` naming a directory or an otherwise non-removable entry. [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
+| `77030001` | `ErrPathNotFound` | No entry exists at `path` (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77030003` | `ErrAccessDenied` | The host denies permission to remove the entry (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77030002` | `ErrInvalidPath` | `path` is unusable as a path: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77050005` | `ErrAlreadyExists` | The host reports a conflicting existing target (host `EEXIST`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77030005` | `ErrDirectoryNotEmpty` | The host reports the entry is a non-empty directory (host `ENOTEMPTY`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77020002` | `ErrOutput` | The host refuses the removal for any other reason, such as `path` naming a directory or an otherwise non-removable entry. [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 
 ## Examples
 

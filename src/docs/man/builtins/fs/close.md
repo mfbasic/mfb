@@ -27,7 +27,7 @@ IMPORT fs
 then returns nothing. Before releasing the descriptor it drains any output held in
 the handle's per-handle buffer (see `fs::setBuffered`) so buffered on-disk data is
 never stranded; the drain is a no-op on an unbuffered handle, which is the default.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_close_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_close_helper]]
 
 The `File` is marked closed regardless of the outcome of the underlying `close`. On
 some platforms a failing `close` (for example `EINTR` or `EIO`) has still released
@@ -35,7 +35,7 @@ the descriptor, so leaving the handle usable would let a later call drain and cl
 the same descriptor number — which by then may name an unrelated open file. Setting
 the closed flag first means any later `fs::` call that takes the same `File` is
 refused rather than touching a stale or reused descriptor, and a re-close raises an
-error instead of repeating the release. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_close_helper]]
+error instead of repeating the release. [[src/target/shared/code/fs/io.rs:lower_fs_close_helper]]
 
 Closing is otherwise automatic. Every `File` returned by `fs::open`, `fs::openFile`,
 `fs::openFileNoFollow`, `fs::openWithin`, or `fs::createTempFile` is closed by
@@ -44,7 +44,7 @@ the buffer the same way. Call `fs::close` only when the descriptor must be relea
 earlier than scope exit — for example to reopen the same path, to let another process
 observe writes, or to bound how many descriptors a long-running program holds open at
 once. Closing a `File` and then letting it drop is safe: the drop sees the closed
-flag and does nothing. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_close_helper]]
+flag and does nothing. [[src/target/shared/code/fs/io.rs:lower_fs_close_helper]]
 
 Beyond the pre-close flush, `fs::close` reads and writes no file contents of its own.
 It is an error to close a `File` that is already closed, including one closed by a
@@ -69,10 +69,10 @@ distinctly. [[src/target/shared/code/error_constants.rs:RESOURCE_MOVED_BIT]]
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `file` has already been closed, whether by an earlier `fs::close` on the same value or by a prior scope-drop. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_close_helper]] |
-| `77030009` | `ErrResourceMoved` | `file` was moved to another thread by `thread::transfer` and no longer belongs to this thread, so it cannot be closed here. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_close_helper]] |
-| `77030006` | `ErrCloseFailed` | The host operating system reports a failure while releasing the descriptor. The handle is still marked closed and must not be reused. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_close_helper]] |
-| `77020002` | `ErrOutput` | The mandatory pre-close drain of the handle's buffered output fails — for example the disk is full or the descriptor is no longer writable. The descriptor is still released. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_close_helper]] |
+| `77030004` | `ErrResourceClosed` | `file` has already been closed, whether by an earlier `fs::close` on the same value or by a prior scope-drop. [[src/target/shared/code/fs/io.rs:lower_fs_close_helper]] |
+| `77030009` | `ErrResourceMoved` | `file` was moved to another thread by `thread::transfer` and no longer belongs to this thread, so it cannot be closed here. [[src/target/shared/code/fs/io.rs:lower_fs_close_helper]] |
+| `77030006` | `ErrCloseFailed` | The host operating system reports a failure while releasing the descriptor. The handle is still marked closed and must not be reused. [[src/target/shared/code/fs/io.rs:lower_fs_close_helper]] |
+| `77020002` | `ErrOutput` | The mandatory pre-close drain of the handle's buffered output fails — for example the disk is full or the descriptor is no longer writable. The descriptor is still released. [[src/target/shared/code/fs/io.rs:lower_fs_close_helper]] |
 
 ## Examples
 

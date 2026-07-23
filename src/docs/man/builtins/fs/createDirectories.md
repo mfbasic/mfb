@@ -36,7 +36,7 @@ result, existing intermediate directories and a final `path` that already exists
 as a directory all succeed quietly rather than being treated as errors, which
 makes `fs::createDirectories` idempotent: re-running it on a path that is already
 present succeeds without changing anything.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_create_directories_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_create_directories_helper]]
 
 Unlike `fs::createDirectory`, which creates only the final component and fails
 when a parent is missing, `fs::createDirectories` builds the entire chain of
@@ -52,14 +52,14 @@ NUL-terminated copy of `path` is allocated for the host calls, and the `/`
 separators in that copy are temporarily overwritten with NUL bytes to create each
 prefix and restored afterward, so `path` must be non-empty and must not contain an
 embedded NUL byte.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_create_directories_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_create_directories_helper]]
 
 When the host refuses to create a prefix or the final component for any reason
 other than `EEXIST`, the operation stops at that point and the failure `errno` is
 mapped to the matching error below. Only `ENOENT` and `EACCES` are given specific
 errors; every other refusal is reported as `ErrOutput`. `errno` values are per-OS;
 the same symbolic error is produced on each platform.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_create_directories_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_create_directories_helper]]
 
 ## Parameters
 
@@ -77,11 +77,11 @@ the same symbolic error is produced on each platform.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot become a valid NUL-terminated host path. [[src/target/shared/code/fs_helpers_paths.rs:lower_fs_create_directories_helper]] |
+| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot become a valid NUL-terminated host path. [[src/target/shared/code/fs/paths.rs:lower_fs_create_directories_helper]] |
 | `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
-| `77050004` | `ErrNotFound` | The host cannot resolve a component while creating a prefix or the final directory (host `ENOENT`, errno `2`). [[src/target/shared/code/fs_helpers_paths.rs:lower_fs_create_directories_helper]] |
-| `77030003` | `ErrAccessDenied` | The host denies permission to create a directory (host `EACCES`, errno `13`). [[src/target/shared/code/fs_helpers_paths.rs:lower_fs_create_directories_helper]] |
-| `77020002` | `ErrOutput` | The host refuses the operation for any other reason. [[src/target/shared/code/fs_helpers_paths.rs:lower_fs_create_directories_helper]] |
+| `77050004` | `ErrNotFound` | The host cannot resolve a component while creating a prefix or the final directory (host `ENOENT`, errno `2`). [[src/target/shared/code/fs/paths.rs:lower_fs_create_directories_helper]] |
+| `77030003` | `ErrAccessDenied` | The host denies permission to create a directory (host `EACCES`, errno `13`). [[src/target/shared/code/fs/paths.rs:lower_fs_create_directories_helper]] |
+| `77020002` | `ErrOutput` | The host refuses the operation for any other reason. [[src/target/shared/code/fs/paths.rs:lower_fs_create_directories_helper]] |
 
 ## Examples
 

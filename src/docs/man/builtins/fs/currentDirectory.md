@@ -33,7 +33,7 @@ is given in the host's native spelling. Internally the path is read into a
 fixed 4096-byte arena buffer, its length is measured up to the terminating NUL,
 and those bytes are copied into an arena-backed `String`; the terminating NUL is
 not included in the returned value.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_current_directory_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_current_directory_helper]]
 
 The working directory is the base against which any relative path passed to
 other `fs` functions is resolved, so this value names the directory used by

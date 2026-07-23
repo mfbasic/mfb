@@ -59,7 +59,7 @@ unusable, instead of `ErrResourceClosed`. The closed flag is set before the
 result of the host `close` is examined, so a host failure surfaces
 `ErrCloseFailed` exactly once and a second `net::close` on the same value is
 refused rather than closing a descriptor number that may by then name an
-unrelated file. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_close_helper]]
+unrelated file. [[src/target/shared/code/fs/io.rs:lower_fs_close_helper]]
 
 ## Overloads
 

@@ -61,8 +61,8 @@ symbolic link, and resolving relative paths against the working directory — th
 compares at a separator boundary. That defeats `..` traversal, a symlink pointing
 out of the root, and an absolute path smuggled in through `fs::pathJoin` (which
 restarts at any absolute component).
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_is_within_helper]]
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_path_join_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_is_within_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_path_join_helper]]
 
 However, `respondPath` **checks and then opens**, using `fs::openFile` rather
 than the atomic `fs::openWithin`. That leaves the time-of-check/time-of-use race

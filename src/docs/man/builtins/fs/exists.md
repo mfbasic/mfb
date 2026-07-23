@@ -29,7 +29,7 @@ file, a directory, a symlink to an existing target, a socket, a FIFO, or a devic
 node — and `FALSE` when nothing exists at `path`. The check is implemented with
 the host `access` call using the existence mode (`F_OK`, `0`); `access` returning
 `0` maps to `TRUE` and any nonzero result maps to `FALSE`.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_exists_helper]][[src/target/linux_common/code.rs:emit_path_exists]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_exists_helper]][[src/target/linux_common/code.rs:emit_path_exists]]
 
 The final path component is followed when it is a symlink, because `access`
 dereferences the last component: a symlink pointing at an existing target reports
@@ -39,7 +39,7 @@ dereferences the last component: a symlink pointing at an existing target report
 A failed check — for example a missing path or an unreadable parent directory — is
 reported as `FALSE` rather than raised as an error. The only failure the call
 itself raises is an allocation failure while preparing the NUL-terminated copy of
-`path`. [[src/target/shared/code/fs_helpers_paths.rs:lower_fs_exists_helper]]
+`path`. [[src/target/shared/code/fs/paths.rs:lower_fs_exists_helper]]
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem; it may be
 absolute or relative to the current working directory, and may contain Unicode

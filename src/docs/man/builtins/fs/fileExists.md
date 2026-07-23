@@ -29,7 +29,7 @@ file; it returns `FALSE` for a missing path, a directory, or any other
 non-regular entry (symlink to a missing target, socket, FIFO, or device node).
 The check masks the entry's mode with the file-type bits (`61440`) and compares
 against the regular-file type (`32768`), so only regular files qualify.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_kind_exists_helper]][[src/target/shared/code/error_constants.rs:FS_MODE_REGULAR]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_kind_exists_helper]][[src/target/shared/code/error_constants.rs:FS_MODE_REGULAR]]
 
 The final path component is followed when it is a symlink, because the host
 `stat` call is used rather than `lstat`: a symlink pointing at a regular file
@@ -39,7 +39,7 @@ reports `TRUE`, and a symlink whose target is missing or non-regular reports
 A failed `stat` — for example a missing path or an unreadable parent directory —
 is reported as `FALSE` rather than raised as an error. The only failure the call
 itself raises is an allocation failure while preparing the NUL-terminated copy of
-`path`. [[src/target/shared/code/fs_helpers_paths.rs:lower_fs_kind_exists_helper]]
+`path`. [[src/target/shared/code/fs/paths.rs:lower_fs_kind_exists_helper]]
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem; it may be
 absolute or relative to the current working directory, and may contain Unicode

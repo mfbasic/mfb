@@ -27,7 +27,7 @@ IMPORT fs
 returns `TRUE` when output buffering is currently enabled for that handle and
 `FALSE` otherwise. It only inspects the handle's state — it writes no data, drains
 nothing, and has no side effect.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_is_buffered_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_is_buffered_helper]]
 
 Buffering is a per-handle flag stored on the `File` resource itself, so this call
 reflects only `file` and no other open handle; each `File` carries its own buffer
@@ -40,7 +40,7 @@ flag clear, so a program that never calls `fs::setBuffered` always observes
 returns to `FALSE` after `fs::setBuffered(file, FALSE)`. Transferring a buffered
 handle to another thread resets it to unbuffered, so the receiving thread again
 observes `FALSE`.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_set_buffered_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_set_buffered_helper]]
 
 ## Parameters
 
@@ -58,7 +58,7 @@ observes `FALSE`.
 
 No errors. `fs::isBuffered` only reads the handle's buffering flag and always
 returns success; it never raises.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_is_buffered_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_is_buffered_helper]]
 
 ## Examples
 

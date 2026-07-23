@@ -151,3 +151,11 @@ pub(super) fn emit_fs_path_errno_error_mapping(
     push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, instructions, relocations);
     instructions.push(abi::branch(done));
 }
+
+mod atomic;
+mod io;
+mod paths;
+
+pub(in crate::target::shared::code) use atomic::*;
+pub(in crate::target::shared::code) use io::*;
+pub(in crate::target::shared::code) use paths::*;

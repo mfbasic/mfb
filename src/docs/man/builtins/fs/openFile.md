@@ -40,29 +40,29 @@ creating it when it does not exist but preserving existing contents. `"append"`
 opens the file for writing with every write directed to the end of the file,
 creating it when it does not exist. The mode string is matched exactly, byte for
 byte, and is case sensitive; any other value is rejected before the file is
-touched. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_open_helper]]
+touched. [[src/target/shared/code/fs/io.rs:lower_fs_open_helper]]
 
 Files created by a `write`, `readWrite`, or `append` open are created with
 owner-only `0600` permission bits (subject to the process umask), not
 world-readable `0666`, matching `fs::createTempFile` and the atomic writers
-(audit-2 OS-01 / bug-184). [[src/target/shared/code/fs_helpers_io.rs:lower_fs_open_helper]]
+(audit-2 OS-01 / bug-184). [[src/target/shared/code/fs/io.rs:lower_fs_open_helper]]
 
 The final path component is followed when it is a symlink, so opening through a
 symlink opens its target. To refuse a symlinked final component, use
 `fs::openFileNoFollow` instead.
-[[src/target/shared/code/fs_helpers_io.rs:open_flag_set]]
+[[src/target/shared/code/fs/io.rs:open_flag_set]]
 
 `path` is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
 absolute or relative to the current working directory and may contain Unicode
 characters when the host filesystem accepts those names. The string must not be
 empty and must not contain an embedded NUL byte, because the host `open` call
 requires a NUL-terminated path.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_open_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_open_helper]]
 
 The returned `File` is closed by lexical drop when the binding that holds it
 leaves scope, or explicitly with `fs::close`. The function reads or writes no
 file contents itself; it only opens the descriptor and wraps it in the `File`
-resource. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_open_helper]]
+resource. [[src/target/shared/code/fs/io.rs:lower_fs_open_helper]]
 
 ## Overloads
 
@@ -82,13 +82,13 @@ Opens `path` using the explicitly named access mode.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `path` | `String` | The filesystem path of the file to open, as UTF-8 bytes; absolute or relative to the current working directory. Must be non-empty and free of embedded NUL bytes. [[src/builtins/fs.rs:OPEN_FILE]] |
-| `mode` | `String` | The access mode. Optional; defaults to `"read"` when omitted. One of `"read"`/`"r"` (read existing file), `"write"`/`"w"` (create or truncate for writing), `"readWrite"`/`"rw"` (create-if-absent for reading and writing, preserving contents), or `"append"`/`"a"` (create-if-absent for writing at end of file). Matched exactly and case sensitively. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_open_helper]] |
+| `mode` | `String` | The access mode. Optional; defaults to `"read"` when omitted. One of `"read"`/`"r"` (read existing file), `"write"`/`"w"` (create or truncate for writing), `"readWrite"`/`"rw"` (create-if-absent for reading and writing, preserving contents), or `"append"`/`"a"` (create-if-absent for writing at end of file). Matched exactly and case sensitively. [[src/target/shared/code/fs/io.rs:lower_fs_open_helper]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `File` | An open `File` resource positioned at the start of the file for `read`, `readWrite`, and `write` modes, and with writes directed to the end of the file for `append` mode. The resource must eventually be closed, by scope drop or by `fs::close`. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_open_helper]] |
+| `File` | An open `File` resource positioned at the start of the file for `read`, `readWrite`, and `write` modes, and with writes directed to the end of the file for `append` mode. The resource must eventually be closed, by scope drop or by `fs::close`. [[src/target/shared/code/fs/io.rs:lower_fs_open_helper]] |
 
 ## Errors
 

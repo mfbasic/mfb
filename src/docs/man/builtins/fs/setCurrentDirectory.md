@@ -49,13 +49,13 @@ not be empty and must not contain an embedded NUL byte, because the host call
 requires a NUL-terminated path; the helper allocates an internal
 NUL-terminated copy of the path for the call and rejects an empty or
 NUL-containing string before making it.
-[[src/target/shared/code/fs_helpers_paths.rs:lower_fs_path_operation_helper]]
+[[src/target/shared/code/fs/paths.rs:lower_fs_path_operation_helper]]
 
 The named entry must exist and must be a directory the process is allowed to
 enter; every component leading to it must itself be a traversable directory.
 When the host refuses the operation for any reason the failure is mapped to the
 matching error below and the working directory is left unchanged.
-[[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]]
+[[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]]
 
 ## Parameters
 
@@ -73,14 +73,14 @@ matching error below and the working directory is left unchanged.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot become a valid NUL-terminated host path. [[src/target/shared/code/fs_helpers_paths.rs:lower_fs_path_operation_helper]] |
+| `77050002` | `ErrInvalidArgument` | `path` is empty or contains an embedded NUL byte, so it cannot become a valid NUL-terminated host path. [[src/target/shared/code/fs/paths.rs:lower_fs_path_operation_helper]] |
 | `77010001` | `ErrOutOfMemory` | The internal NUL-terminated copy of `path` cannot be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
-| `77030001` | `ErrPathNotFound` | `path`, or a component of it, does not exist (host `ENOENT`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77030003` | `ErrAccessDenied` | The host denies permission to enter `path` or a component leading to it (host `EACCES`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77050005` | `ErrAlreadyExists` | The host reports an existing-entry conflict for the operation (host `EEXIST`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77030005` | `ErrDirectoryNotEmpty` | The host reports a non-empty-directory conflict for the operation (host `ENOTEMPTY`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77030002` | `ErrInvalidPath` | `path` is unusable as a directory: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
-| `77020002` | `ErrOutput` | The host refuses the operation for any other reason. [[src/target/shared/code/fs_helpers.rs:emit_fs_path_errno_error_mapping]] |
+| `77030001` | `ErrPathNotFound` | `path`, or a component of it, does not exist (host `ENOENT`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77030003` | `ErrAccessDenied` | The host denies permission to enter `path` or a component leading to it (host `EACCES`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77050005` | `ErrAlreadyExists` | The host reports an existing-entry conflict for the operation (host `EEXIST`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77030005` | `ErrDirectoryNotEmpty` | The host reports a non-empty-directory conflict for the operation (host `ENOTEMPTY`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77030002` | `ErrInvalidPath` | `path` is unusable as a directory: a non-directory used as a directory component, an over-long path, an invalid byte sequence, or a symlink loop (host `ENOTDIR`, `ENAMETOOLONG`, `EILSEQ`, or `ELOOP`). [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
+| `77020002` | `ErrOutput` | The host refuses the operation for any other reason. [[src/target/shared/code/fs/mod.rs:emit_fs_path_errno_error_mapping]] |
 
 ## Examples
 

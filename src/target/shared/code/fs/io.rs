@@ -1,4 +1,4 @@
-use super::*;
+use super::super::*;
 
 /// `EINTR` — a syscall interrupted by a signal handler before it transferred any
 /// bytes. Its numeric value is `4` on both Linux and macOS/BSD (bug-62), so the
@@ -17,7 +17,9 @@ const EINTR_ERRNO: &str = "4";
 /// `linux-x86_64`'s raw-`svc` write still retries via its `-errno` return. Checking
 /// the merged import table keeps that boundary honest: the libc `EINTR` retry is
 /// emitted exactly when `errno` is actually readable at runtime.
-pub(super) fn errno_accessor_available(platform_imports: &HashMap<String, String>) -> bool {
+pub(in crate::target::shared::code) fn errno_accessor_available(
+    platform_imports: &HashMap<String, String>,
+) -> bool {
     platform_imports.contains_key("___error") || platform_imports.contains_key("__errno_location")
 }
 
@@ -29,7 +31,9 @@ pub(super) fn errno_accessor_available(platform_imports: &HashMap<String, String
 /// backend's `write` (and every backend's `read`/`lseek`) goes through libc: a
 /// `-1` return with the real code behind the `errno` accessor. The EINTR guard has
 /// to read the two conventions differently, so the write sites consult this.
-pub(super) fn write_uses_raw_syscall(platform: &dyn CodegenPlatform) -> bool {
+pub(in crate::target::shared::code) fn write_uses_raw_syscall(
+    platform: &dyn CodegenPlatform,
+) -> bool {
     platform.target() == "linux-x86_64"
 }
 
@@ -58,7 +62,7 @@ pub(super) fn write_uses_raw_syscall(platform: &dyn CodegenPlatform) -> bool {
 /// stack slots, so nothing live is read out of a caller-saved register across the
 /// call (see `.ai/compiler.md`, "Native Codegen Register Lifetimes"). `x9` is the
 /// established errno scratch and is dead on the negative-return path.
-pub(super) fn emit_eintr_retry_or_error(
+pub(in crate::target::shared::code) fn emit_eintr_retry_or_error(
     ctx: &mut EmitCtx,
     ret: &str,
     raw_return: bool,
@@ -112,7 +116,7 @@ pub(super) fn emit_eintr_retry_or_error(
 /// `EINTR`-retried at `loop_label` or errored via [`emit_eintr_retry_or_error`].
 /// `raw_return` selects the errno convention (see [`write_uses_raw_syscall`]);
 /// pass `false` for every `read` loop (reads always go through libc).
-pub(super) fn emit_transfer_loop_tail(
+pub(in crate::target::shared::code) fn emit_transfer_loop_tail(
     ctx: &mut EmitCtx,
     ret: &str,
     raw_return: bool,
@@ -168,7 +172,7 @@ pub(super) fn emit_transfer_loop_tail(
 /// re-issues `cmp x0, 0` at `resume_label`; `x0` is untouched on the `>= 0` path
 /// (the guard body is skipped), so the re-comparison is exact and the caller's
 /// branch fuses with it on every backend.
-pub(super) fn emit_single_op_eintr_guard(
+pub(in crate::target::shared::code) fn emit_single_op_eintr_guard(
     ctx: &mut EmitCtx,
     retry_label: &str,
     resume_label: &str,
@@ -206,7 +210,7 @@ pub(super) fn emit_single_op_eintr_guard(
 /// (including the no-op cases) and `x0 = 1` on a write failure — on failure the
 /// buffer is left intact so a later flush can retry. Shared by `fs::flush`, the
 /// buffered-write overflow path, `fs::setBuffered(FALSE)`, and flush-on-close.
-pub(super) fn lower_fs_file_drain(
+pub(in crate::target::shared::code) fn lower_fs_file_drain(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
@@ -485,7 +489,7 @@ fn emit_append_to_file_buffer(
 }
 
 /// `fs::isBuffered(file)` (plan-14-B §4.5): report whether this handle is buffered.
-pub(super) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
+pub(in crate::target::shared::code) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
@@ -508,7 +512,7 @@ pub(super) fn lower_fs_is_buffered_helper(symbol: &str) -> HelperResult {
 
 /// `fs::setBuffered(file, enabled)` (plan-14-B §4.5): turn per-handle buffering on
 /// or off. Disabling drains any pending bytes first, then clears the flag.
-pub(super) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
+pub(in crate::target::shared::code) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
     let enable = format!("{symbol}_enable");
     let done = format!("{symbol}_done");
     // x0 = File*, x1 = enabled (Boolean).
@@ -539,7 +543,7 @@ pub(super) fn lower_fs_set_buffered_helper(symbol: &str) -> HelperResult {
 /// `fs::flush(file)` (plan-14-B §4.5): drain this handle's buffer now. Raises the
 /// write-path ErrOutput on a failing final write; a no-op when the handle is
 /// unbuffered.
-pub(super) fn lower_fs_flush_helper(symbol: &str) -> HelperResult {
+pub(in crate::target::shared::code) fn lower_fs_flush_helper(symbol: &str) -> HelperResult {
     let flush_error = format!("{symbol}_flush_error");
     let done = format!("{symbol}_done");
     // x0 = File*.
@@ -565,7 +569,7 @@ pub(super) fn lower_fs_flush_helper(symbol: &str) -> HelperResult {
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_fs_open_helper(
+pub(in crate::target::shared::code) fn lower_fs_open_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -929,7 +933,7 @@ pub(super) fn lower_fs_open_helper(
 /// canonical root is symlink-free and every component is re-checked at open time,
 /// a post-canonicalization component swap to a symlink is *rejected* rather than
 /// followed — so the open cannot be redirected outside `root`.
-pub(super) fn lower_fs_open_within_helper(
+pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1359,7 +1363,7 @@ pub(super) fn lower_fs_open_within_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_fs_close_helper(
+pub(in crate::target::shared::code) fn lower_fs_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1492,7 +1496,7 @@ pub(super) fn lower_fs_close_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_fs_write_all_helper(
+pub(in crate::target::shared::code) fn lower_fs_write_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1623,7 +1627,7 @@ pub(super) fn lower_fs_write_all_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_fs_read_all_helper(
+pub(in crate::target::shared::code) fn lower_fs_read_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1819,7 +1823,7 @@ pub(super) fn lower_fs_read_all_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_fs_write_all_bytes_helper(
+pub(in crate::target::shared::code) fn lower_fs_write_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -1957,7 +1961,7 @@ pub(super) fn lower_fs_write_all_bytes_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_fs_read_all_bytes_helper(
+pub(in crate::target::shared::code) fn lower_fs_read_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2186,7 +2190,7 @@ pub(super) fn lower_fs_read_all_bytes_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn lower_fs_eof_helper(
+pub(in crate::target::shared::code) fn lower_fs_eof_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2431,7 +2435,7 @@ fn emit_reconcile_read_buffer(
     Ok(())
 }
 
-pub(super) fn lower_fs_read_line_helper(
+pub(in crate::target::shared::code) fn lower_fs_read_line_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -2728,14 +2732,14 @@ pub(super) fn lower_fs_read_line_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) struct OpenFlagSet {
+pub(in crate::target::shared::code) struct OpenFlagSet {
     pub(super) read: &'static str,
     pub(super) write: &'static str,
     pub(super) read_write: &'static str,
     pub(super) append: &'static str,
 }
 
-pub(super) fn open_flag_set(target: &str, no_follow: bool) -> OpenFlagSet {
+pub(in crate::target::shared::code) fn open_flag_set(target: &str, no_follow: bool) -> OpenFlagSet {
     // Linux (any arch) shares one set of O_* bit values; macOS differs. Keying only
     // on "linux-aarch64" gave linux-x86_64 the macOS bits — on Linux those decode
     // WITHOUT O_CREAT (write 1537 = O_WRONLY|O_APPEND|O_TRUNC → ENOENT "path not

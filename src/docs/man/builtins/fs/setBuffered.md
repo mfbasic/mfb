@@ -27,7 +27,7 @@ IMPORT fs
 `File`, then returns nothing. Buffering is a per-handle flag stored on the `File`
 resource itself, so the call affects only `file` and no other open handle; each
 `File` carries its own buffer and its own enabled flag.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_set_buffered_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_set_buffered_helper]]
 
 Buffering is **off by default**: a freshly opened `File` starts with its buffered
 flag clear, so every incremental `fs::writeAll` and `fs::writeAllBytes` reaches
@@ -43,7 +43,7 @@ on an explicit `fs::flush(file)`, and when the handle is closed — whether by
 `fs::setBuffered(file, FALSE)` drains any pending bytes first, on a best-effort
 basis, and then clears the flag, so switching buffering off never strands data in
 the buffer.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_set_buffered_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_set_buffered_helper]]
 
 Only incremental `fs::writeAll` / `fs::writeAllBytes` writes are buffered. The
 whole-file operations (`fs::writeText`, `fs::writeBytes`, and the append and
@@ -76,7 +76,7 @@ No errors. `fs::setBuffered` always returns success; it never raises. When
 disabling buffering, the drain of any pending bytes is best-effort and its result
 is discarded here — a write failure at that point is not reported by this call but
 surfaces from the next `fs::flush`, buffered write, or close of the handle.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_set_buffered_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_set_buffered_helper]]
 
 ## Examples
 

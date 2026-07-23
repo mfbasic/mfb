@@ -28,7 +28,7 @@ file's current write position, and returns nothing. The bytes are taken directly
 from the byte list's packed data region exactly as held, with no encoding,
 decoding, or newline translation, so the function is suitable for binary data as
 well as text. An empty byte list writes no bytes and leaves the file unchanged.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_write_all_bytes_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_write_all_bytes_helper]]
 
 The write is retried until every byte has been written or the host reports an
 output failure, so a short host write that transfers only part of the buffer is
@@ -36,7 +36,7 @@ resumed from the same cursor rather than treated as complete. The file position
 advances by the number of bytes written, so consecutive calls write one after
 another within the open handle, and a following `fs::writeAllBytes` or
 `fs::writeAll` continues from where this call left off.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_write_all_bytes_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_write_all_bytes_helper]]
 
 `file` must be an open `File` resource — such as one returned by `fs::openFile`
 or `fs::open` — opened in a mode that permits writing (`"write"`, `"readWrite"`,
@@ -49,7 +49,7 @@ function only writes to and repositions `file`; it does not close it and has no
 other side effects. Whether the data is forced to disk is governed by the open
 handle, not by this call, which does not flush on its own. To write a whole file
 by path in a single call rather than through an open handle, use `fs::writeBytes`.
-[[src/target/shared/code/fs_helpers_io.rs:lower_fs_write_all_bytes_helper]]
+[[src/target/shared/code/fs/io.rs:lower_fs_write_all_bytes_helper]]
 
 Thread cancellation is cooperative: the runtime does not asynchronously interrupt
 a blocking host file write, so a worker that needs prompt cancellation around a
@@ -72,7 +72,7 @@ blocking descriptor should check `thread::isCancelled` between operations.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/target/shared/code/fs_helpers_io.rs:lower_fs_write_all_bytes_helper]] |
+| `77030004` | `ErrResourceClosed` | `file` has already been closed. [[src/target/shared/code/fs/io.rs:lower_fs_write_all_bytes_helper]] |
 | `77020002` | `ErrOutput` | `file` was not opened for writing, or the host write fails partway through before all of `bytes` has been written. [[src/target/shared/code/error_constants.rs:ERR_OUTPUT_CODE]] |
 
 ## Examples
