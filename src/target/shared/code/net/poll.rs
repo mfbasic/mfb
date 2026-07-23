@@ -6,10 +6,9 @@ use std::collections::HashMap;
 
 use super::*;
 
-/// `EINTR` errno (Linux/macOS both use 4): a `poll` interrupted by a signal
-/// returns `-1`/`EINTR` and must be re-issued rather than reported as a hard
-/// failure (bug-115).
-const EINTR_ERRNO: &str = "4";
+// `EINTR_ERRNO` (bug-115) is defined once in `net/mod.rs` and reaches here via
+// the `use super::*` glob above; this module previously shadowed it with a
+// byte-identical local copy (bug-331 §I).
 
 // ---------------------------------------------------------------------------
 // net.poll

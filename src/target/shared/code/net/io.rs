@@ -9,10 +9,9 @@ use std::collections::HashMap;
 
 use super::*;
 
-/// `EINTR` errno (Linux/macOS both use 4). A blocking socket syscall interrupted
-/// by a signal returns `-1`/`EINTR` (or `-EINTR` on the raw-`svc` backend); the
-/// call must be re-issued rather than misreported as a hard failure (bug-115).
-const EINTR_ERRNO: &str = "4";
+// `EINTR_ERRNO` (bug-115) is defined once in `net/mod.rs` and reaches here via
+// the `use super::*` glob above; this module previously shadowed it with a
+// byte-identical local copy (bug-331 §I).
 
 // ---------------------------------------------------------------------------
 // net.accept
