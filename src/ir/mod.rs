@@ -147,9 +147,11 @@ pub(crate) struct IrFunction {
 mod binary;
 #[cfg(test)]
 mod coverage_tests;
+mod docs;
 mod json;
 mod link;
 mod lower;
+mod lower_link;
 mod op;
 mod package;
 #[cfg(test)]
@@ -159,6 +161,7 @@ mod value;
 pub(crate) mod verify;
 
 pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
+pub(crate) use docs::collect_project_docs;
 pub(crate) use json::visibility_name;
 pub(crate) use link::{
     abi_ctype_valid_as_argument, abi_ctype_valid_as_return, check_buffer_slots, check_cstruct,
@@ -166,7 +169,6 @@ pub(crate) use link::{
     CLayout, IrAbiSlot, IrBindIn, IrBindInField, IrBuffer, IrCStruct, IrCStructField, IrFree,
     IrLinkExpr, IrLinkFunction, IrNativeResource, StructSlotView, BYTE_LIST_TYPE,
 };
-pub(crate) use lower::collect_project_docs;
 pub use lower::{lower_project_with_external_functions, write_ir};
 pub(crate) use op::IrOp;
 pub use package::{
