@@ -1464,6 +1464,19 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// `Fixed ^ Integer-valued Fixed` for the `^` operator: rejects a negative or
+    /// non-whole exponent up front, then runs the bug-61/bug-74 ±1.0 closed form
+    /// and the truncate-to-zero multiply loop.
+    ///
+    /// Shares that fast-path *shape* (and the copied bug-61/bug-74 comments) with
+    /// `builder_fixed_math::emit_fixed_pow_general`'s integer branch (bug-332 E2),
+    /// but the two are deliberately **not** merged: they accept different domains
+    /// (`emit_fixed_pow_general` handles negative exponents via a reciprocal tail
+    /// and fractional exponents via `exp(y·ln x)`), and even the shared multiply
+    /// loop diverges in its emitted instructions — this path multiplies in place
+    /// (`emit_fixed_multiply(dst, dst, base)`) while the general path multiplies
+    /// through a separate `product` register and moves it back. No zero-diff
+    /// extraction spans both, so they stay separate.
     pub(super) fn emit_fixed_pow(
         &mut self,
         dst: &str,

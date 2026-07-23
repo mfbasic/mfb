@@ -771,6 +771,17 @@ impl CodeBuilder<'_> {
     /// use exact repeated multiplication (any base sign, reciprocal for negative
     /// exponents); fractional exponents use `exp(exponent * ln(base))`, which
     /// requires `base > 0`. Overflow fails with `ErrOverflow`.
+    /// `math::pow(Fixed, Fixed)` — the full-domain Fixed power: an exact repeated
+    /// multiply for a whole exponent (with a reciprocal tail for negatives) and
+    /// `exp(exponent·ln base)` for a fractional one.
+    ///
+    /// Its integer branch shares the bug-61/bug-74 ±1.0 closed form and the
+    /// truncate-to-zero multiply loop with `builder_numeric::emit_fixed_pow` (the
+    /// `^`-operator path), but the two are deliberately not merged (bug-332 E2):
+    /// the domains differ (that path rejects negative/fractional exponents this one
+    /// accepts) and the multiply loop itself emits different instructions — here it
+    /// multiplies through a separate `product` register and moves it back, while
+    /// `emit_fixed_pow` multiplies in place. No zero-diff extraction spans both.
     pub(super) fn emit_fixed_pow_general(
         &mut self,
         base: &str,
