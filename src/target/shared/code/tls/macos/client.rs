@@ -592,6 +592,31 @@ pub(in crate::target::shared::code::tls) fn lower_tls_connect_macos(
         FNPTR,
         &load_fail,
     )?;
+    // Drain to the terminal `cancelled` state before returning (bug-380).
+    // `nw_connection_cancel` is asynchronous, and the state-changed handler
+    // (STATE_INVOKE) dereferences the arena-allocated `ctx` on *every* invocation.
+    // Letting the failed-connect helper return before the connection's final
+    // `cancelled` transition lets that handler run against a freed `ctx` after the
+    // program exits → EXC_BAD_ACCESS on the mfb.tls queue (intermittent,
+    // load-dependent). `cancelled` (state 5) is terminal — nothing transitions
+    // after it — so waiting until `ctx->state` reaches it guarantees no handler
+    // runs afterward, no matter how many transitions `cancel` produced or whether
+    // a leftover signal is consumed first. This mirrors the connect wait loop
+    // above and reuses its resolved `dispatch_semaphore_wait` in WAITFN.
+    let cancel_drain = format!("{symbol}_cancel_drain");
+    ins.extend([
+        abi::label(&cancel_drain),
+        abi::load_u64("%v9", abi::stack_pointer(), CTX),
+        abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::bitwise_not(abi::ARG[1], abi::ARG[1]), // DISPATCH_TIME_FOREVER
+        abi::load_u64("%v10", abi::stack_pointer(), WAITFN),
+        abi::branch_link_register("%v10"),
+        abi::load_u64("%v9", abi::stack_pointer(), CTX),
+        abi::load_u32("%v10", "%v9", CTX_STATE),
+        abi::compare_immediate("%v10", "5"), // nw_connection_state_cancelled
+        abi::branch_ne(&cancel_drain),
+    ]);
     emit_fail(
         symbol,
         ERR_TLS_FAILED_CODE,
