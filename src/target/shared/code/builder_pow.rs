@@ -65,7 +65,6 @@ const TINY: f64 = 1.0e-300;
 
 const HIGH32_MASK: &str = "18446744069414584320"; // 0xFFFFFFFF00000000
 const ABS_MASK: &str = "9223372036854775807"; // 0x7FFFFFFFFFFFFFFF
-const SIGN_BIT: &str = "9223372036854775808"; // 0x8000000000000000
 const TWOM54_BITS: &str = "4363988038922010624"; // 2**-54 = 0x3C90000000000000
 
 /// Register homes for the scalar pow kernel — one home per live f64. The five
@@ -272,7 +271,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &result,
             "Integer",
-            "9218868437227405312",
+            F64_POSITIVE_INF_BITS,
         )); // +inf = 0x7FF0000000000000
         self.emit(abi::label(&zero_ypos));
         // Negate the result iff x is -0.0 AND y is an odd integer.
@@ -306,7 +305,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::and_registers(xt, xt, xm));
         self.emit(abi::compare_immediate(xt, "0"));
         self.emit(abi::branch_eq(&zero_ret)); // even -> no flip
-        self.emit(abi::move_immediate(xm, "Integer", SIGN_BIT));
+        self.emit(abi::move_immediate(xm, "Integer", F64_SIGN_BIT));
         self.emit(abi::exclusive_or_registers(&result, &result, xm)); // -0.0 ** odd -> negate
         self.emit(abi::label(&zero_ret));
         self.emit(abi::branch(&end));
@@ -543,7 +542,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::and_registers(xt, xt, xm));
         self.emit(abi::compare_immediate(xt, "0"));
         self.emit(abi::branch_eq(&done)); // even
-        self.emit(abi::move_immediate(smask, "Integer", SIGN_BIT));
+        self.emit(abi::move_immediate(smask, "Integer", F64_SIGN_BIT));
         self.emit(abi::label(&done));
     }
 

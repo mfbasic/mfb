@@ -454,7 +454,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(
                     &bound,
                     "Integer",
-                    "9223372036854775808",
+                    F64_SIGN_BIT,
                 ));
                 self.emit(abi::compare_registers(&value.location, &bound));
                 self.emit(abi::branch_ne(&ok));
@@ -862,7 +862,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&edge_negative));
         self.emit(abi::branch(&overflow));
         self.emit(abi::label(&edge_negative));
-        self.emit(abi::move_immediate(&mask, "Integer", "4503599627370495"));
+        self.emit(abi::move_immediate(&mask, "Integer", F64_MANTISSA_MASK));
         self.emit(abi::and_registers(&mantissa, &bits, &mask));
         self.emit(abi::compare_immediate(&mantissa, "0"));
         self.emit(abi::branch_eq(&ok));
@@ -1227,7 +1227,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &inf_bits,
             "Integer",
-            "9218868437227405312",
+            F64_POSITIVE_INF_BITS,
         ));
         self.emit(abi::float_move_d_from_x(&positive_inf, &inf_bits));
         self.emit(abi::float_abs_d(&magnitude, value));

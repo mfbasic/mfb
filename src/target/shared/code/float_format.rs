@@ -68,7 +68,7 @@ pub(super) fn lower_float_to_string_helper() -> CodeFunction {
         abi::move_immediate(&mask, "Integer", "9223372036854775807"),
         abi::and_registers(&tmp, &bits, &mask), // magnitude bits
         abi::shift_right_immediate(&e2, &tmp, 52), // biased exponent (reuse e2)
-        abi::move_immediate(&mask, "Integer", "4503599627370495"), // 2^52-1
+        abi::move_immediate(&mask, "Integer", F64_MANTISSA_MASK),
         abi::and_registers(&m, &tmp, &mask),
     ]);
     let normal = l("normal");

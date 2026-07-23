@@ -1223,7 +1223,7 @@ impl CodeBuilder<'_> {
         let minus_one = self.allocate_register()?;
         let not_min = self.label("div_not_min");
         let ok = self.label("div_overflow_ok");
-        self.emit(abi::move_immediate(&min, "Integer", "9223372036854775808"));
+        self.emit(abi::move_immediate(&min, "Integer", F64_SIGN_BIT));
         self.emit(abi::compare_registers(left, &min));
         self.emit(abi::branch_ne(&not_min));
         self.emit(abi::move_immediate(
@@ -1246,7 +1246,7 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let min = self.allocate_register()?;
         let ok = self.label(&format!("{label_prefix}_not_min"));
-        self.emit(abi::move_immediate(&min, "Integer", "9223372036854775808"));
+        self.emit(abi::move_immediate(&min, "Integer", F64_SIGN_BIT));
         self.emit(abi::compare_registers(value, &min));
         self.emit(abi::branch_ne(&ok));
         self.emit_overflow_return()?;

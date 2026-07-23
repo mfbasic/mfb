@@ -826,6 +826,13 @@ pub(crate) const COLLECTION_TYPE_FLOAT: usize = 4;
 pub(crate) const COLLECTION_TYPE_FIXED: usize = 5;
 pub(crate) const COLLECTION_TYPE_STRING: usize = 6;
 pub(crate) const COLLECTION_TYPE_BYTE: usize = 7;
+/// IEEE-754 binary64 bit patterns as the unsigned-decimal `move_immediate`
+/// strings the kernels load (bug-332 G3). `F64_SIGN_BIT` doubles as the
+/// `i64::MIN` pattern; `THREAD_RECEIVE_BLOCK_SENTINEL` is the same bits with an
+/// unrelated meaning and is deliberately kept separate.
+pub(crate) const F64_SIGN_BIT: &str = "9223372036854775808";
+pub(crate) const F64_MANTISSA_MASK: &str = "4503599627370495";
+pub(crate) const F64_POSITIVE_INF_BITS: &str = "9218868437227405312";
 /// `Money` collection element (plan-29-C): an 8-byte signed-i64 lane, compared
 /// as a signed integer (same scale ⇒ raw order = value order). Takes the free
 /// tag 8 between `Byte` (7) and `List` (20).

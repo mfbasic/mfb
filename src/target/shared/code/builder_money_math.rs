@@ -206,7 +206,7 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(
                     &min_divisor,
                     "Integer",
-                    "9223372036854775808",
+                    F64_SIGN_BIT,
                 ));
                 let not_min = self.label("money_div_scalar_not_min");
                 let div_done = self.label("money_div_scalar_done");

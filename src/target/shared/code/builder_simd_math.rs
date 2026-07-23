@@ -2,7 +2,6 @@ use super::*;
 
 /// Signed 64-bit minimum, written as its unsigned bit pattern (`abs`/`neg`
 /// overflow sentinel for Integer and Fixed lanes).
-const INT64_MIN_UNSIGNED: &str = "9223372036854775808";
 /// `0x7FFF_FFFF_FFFF_FFFF` — clears the IEEE-754 sign bit (scalar Float `abs`).
 const FLOAT_ABS_MASK: &str = "9223372036854775807";
 /// IEEE-754 maximum biased-exponent field (Inf/NaN) for the float→int range check.
@@ -260,7 +259,7 @@ impl CodeBuilder<'_> {
             SimdUnaryKernel::AbsInteger => {
                 // v6 = broadcast(INT64_MIN) for the per-lane overflow compare.
                 let min = self.allocate_register()?;
-                self.emit(abi::move_immediate(&min, "Integer", INT64_MIN_UNSIGNED));
+                self.emit(abi::move_immediate(&min, "Integer", F64_SIGN_BIT));
                 self.emit(abi::vector_dup_from_x(abi::VEC_SCRATCH[6], &min));
             }
             SimdUnaryKernel::AbsFloat | SimdUnaryKernel::SqrtFloat => {}
@@ -501,7 +500,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&elem, in_data, 0));
         match kernel {
             SimdUnaryKernel::AbsInteger => {
-                self.emit(abi::move_immediate(&tmp, "Integer", INT64_MIN_UNSIGNED));
+                self.emit(abi::move_immediate(&tmp, "Integer", F64_SIGN_BIT));
                 let no_of = self.label("simd_tail_no_overflow");
                 self.emit(abi::compare_registers(&elem, &tmp));
                 self.emit(abi::branch_ne(&no_of));
@@ -603,7 +602,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::shift_right_immediate(&sign, bits, 63));
         self.emit(abi::compare_immediate(&sign, "1"));
         self.emit(abi::branch_ne(&overflow));
-        self.emit(abi::move_immediate(&mask, "Integer", "4503599627370495"));
+        self.emit(abi::move_immediate(&mask, "Integer", F64_MANTISSA_MASK));
         self.emit(abi::and_registers(&mantissa, bits, &mask));
         self.emit(abi::compare_immediate(&mantissa, "0"));
         self.emit(abi::branch_eq(&ok));

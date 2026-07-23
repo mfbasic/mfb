@@ -35,13 +35,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(
             &signmask,
             "Integer",
-            "9223372036854775808",
+            F64_SIGN_BIT,
         )); // 1<<63
         self.emit(abi::move_immediate(&expmask, "Integer", "2047")); // 0x7ff
         self.emit(abi::move_immediate(
             &mantmask,
             "Integer",
-            "4503599627370495",
+            F64_MANTISSA_MASK,
         )); // (1<<52)-1
         self.emit(abi::move_immediate(
             &implicit,

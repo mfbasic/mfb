@@ -145,7 +145,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&edge_sign_ok));
         self.emit(abi::branch(&overflow));
         self.emit(abi::label(&edge_sign_ok));
-        self.emit(abi::move_immediate(mask, "Integer", "4503599627370495"));
+        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
         self.emit(abi::and_registers(mantissa, bits, mask));
         self.emit(abi::compare_immediate(mantissa, "0"));
         self.emit(abi::branch_ne(&overflow));
@@ -1276,7 +1276,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&edge_negative));
         self.emit(abi::branch(&overflow));
         self.emit(abi::label(&edge_negative));
-        self.emit(abi::move_immediate(mask, "Integer", "4503599627370495"));
+        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
         self.emit(abi::and_registers(mantissa, bits, mask));
         self.emit(abi::compare_immediate(mantissa, "0"));
         self.emit(abi::branch_ne(&overflow));

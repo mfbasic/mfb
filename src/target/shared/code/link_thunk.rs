@@ -1178,11 +1178,11 @@ fn lower_link_thunk(
                 let finite = format!("{symbol}_out_float_finite");
                 instructions.extend([
                     abi::load_u64("%v9", abi::stack_pointer(), out_off),
-                    abi::move_immediate("%v10", "Integer", "9218868437227405312"),
+                    abi::move_immediate("%v10", "Integer", F64_POSITIVE_INF_BITS),
                     abi::and_registers("%v11", "%v9", "%v10"),
                     abi::compare_registers("%v11", "%v10"),
                     abi::branch_ne(&finite),
-                    abi::move_immediate("%v12", "Integer", "4503599627370495"),
+                    abi::move_immediate("%v12", "Integer", F64_MANTISSA_MASK),
                     abi::and_registers("%v13", "%v9", "%v12"),
                     abi::compare_immediate("%v13", "0"),
                     abi::branch_eq(&inf_fail),
@@ -1633,11 +1633,11 @@ fn emit_return_passthrough(
             let finite = format!("{symbol}_float_finite");
             instructions.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), m.cretd_off),
-                abi::move_immediate("%v10", "Integer", "9218868437227405312"),
+                abi::move_immediate("%v10", "Integer", F64_POSITIVE_INF_BITS),
                 abi::and_registers("%v11", "%v9", "%v10"),
                 abi::compare_registers("%v11", "%v10"),
                 abi::branch_ne(&finite),
-                abi::move_immediate("%v12", "Integer", "4503599627370495"),
+                abi::move_immediate("%v12", "Integer", F64_MANTISSA_MASK),
                 abi::and_registers("%v13", "%v9", "%v12"),
                 abi::compare_immediate("%v13", "0"),
                 abi::branch_eq(m.inf_fail),
@@ -2381,11 +2381,11 @@ fn marshal_struct_out(
                 // boundary exactly as the CDouble return path does.
                 let finite = format!("{symbol}_sf{rec_idx}_finite");
                 instructions.extend([
-                    abi::move_immediate("%v10", "Integer", "9218868437227405312"),
+                    abi::move_immediate("%v10", "Integer", F64_POSITIVE_INF_BITS),
                     abi::and_registers("%v11", "%v9", "%v10"),
                     abi::compare_registers("%v11", "%v10"),
                     abi::branch_ne(&finite),
-                    abi::move_immediate("%v12", "Integer", "4503599627370495"),
+                    abi::move_immediate("%v12", "Integer", F64_MANTISSA_MASK),
                     abi::and_registers("%v13", "%v9", "%v12"),
                     abi::compare_immediate("%v13", "0"),
                     abi::branch_eq(inf_fail),
