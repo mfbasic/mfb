@@ -35,34 +35,12 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    let alloc_symbol = ERR_ALLOCATION_SYMBOL.to_string();
-    instructions.push(
-        CodeInstruction::new("adrp")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &alloc_symbol),
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
     );
-    instructions.push(
-        CodeInstruction::new("add_pageoff")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("src", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &alloc_symbol),
-    );
-    relocations.extend([
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: alloc_symbol.clone(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        },
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: alloc_symbol,
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        },
-    ]);
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
@@ -152,34 +130,12 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    let alloc_symbol = ERR_ALLOCATION_SYMBOL.to_string();
-    instructions.push(
-        CodeInstruction::new("adrp")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &alloc_symbol),
+    push_error_message_address(
+        symbol,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
     );
-    instructions.push(
-        CodeInstruction::new("add_pageoff")
-            .field("dst", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("src", RESULT_ERROR_MESSAGE_REGISTER)
-            .field("symbol", &alloc_symbol),
-    );
-    relocations.extend([
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: alloc_symbol.clone(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        },
-        CodeRelocation {
-            from: symbol.to_string(),
-            to: alloc_symbol,
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        },
-    ]);
     let len = vregs.next();
     let src = vregs.next();
     let dst = vregs.next();
