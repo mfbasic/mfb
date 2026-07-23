@@ -5,7 +5,7 @@ Effort: huge (>3d — this is a multi-week work order; land it file-by-file, one
 Severity: LOW
 Class: Other (cleanup / file organization)
 
-Status: Open — Phase 0 + 8 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
+Status: Open — Phase 0 + 9 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
 T1-8; Tier 2: T2-6, T2-9), each verified byte-identical (artifact-gate 0 diffs +
 acceptance 1080). Remaining: T1-5/T1-6 blocked on `tests/common/mod.rs`
 (Agent 21 #2); T1-9 blocked on bug-330 (audio dedup); the rest of Tier 2 (T2-1..T2-5,
@@ -743,8 +743,7 @@ Acceptance: as Phase 1.
 
 ### Phase 3 — Tier 2, interleaved with the glob-to-explicit conversion
 
-- [ ] T2-1 **banners first** (13 comment lines, standalone commit), then split
-      `ir/verify/mod.rs`
+- [x] T2-1 `ir/verify/mod.rs` → banners + 8 topic modules (2 commits)
 - [ ] T2-4 `code/fs/` directory — do this **first** among the `shared/code/`
       items; it is the natural anchor for the glob conversion
 - [ ] Convert `src/target/shared/code/mod.rs`'s 18 glob imports (`:3061-3151`)
@@ -752,7 +751,7 @@ Acceptance: as Phase 1.
       exposes (Agent 04 #13)
 - [x] T2-6 `syntaxcheck/link.rs` extracted (commit cb2d3b8ac)
 - [x] T2-9 `testing/desugar.rs` → desugar/ + ast/build.rs (commit 6102f80b3)
-- [ ] T2-5, T2-7, T2-8, T2-10, T2-3, T2-2 remain
+- [ ] T2-5, T2-7, T2-8, T2-10, T2-3, T2-2 remain (+ glob→explicit conversion)
 
 Acceptance: as Phase 1, plus the explicit-`use` conversion compiles with no
 `pub(super)` widened to `pub(crate)`.
