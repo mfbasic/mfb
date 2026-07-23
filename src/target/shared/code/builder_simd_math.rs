@@ -109,6 +109,45 @@ pub(super) enum SimdClampKernel {
 }
 
 impl CodeBuilder<'_> {
+    /// Emit the shared array-kernel allocation driver (bug-332 A1): stage `count`
+    /// and the element `type_code` into the ABI arg registers, call
+    /// `_mfb_simd_alloc_list`, push the internal-call relocation, and branch to the
+    /// allocation-error tail when the arena reports failure in `x1`. Returns the
+    /// freshly-allocated result-list base register. `label_prefix` names the
+    /// per-site `*_alloc_ok` label so the `.ncode`/`.mir` goldens keep their exact
+    /// label strings (e.g. `simd`, `simd_bin`, `pow_arr`).
+    pub(super) fn emit_alloc_result_list(
+        &mut self,
+        count: &str,
+        type_code: &str,
+        label_prefix: &str,
+    ) -> Result<String, String> {
+        // base = _mfb_simd_alloc_list(count, typeCode) → x0 = base, x1 = status.
+        self.emit(abi::move_register(abi::ARG[0], count));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", type_code));
+        self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: SIMD_ALLOC_LIST_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+
+        // Everything below runs after the only call, so registers are free.
+        self.reset_temporary_registers();
+        let result_base = self.allocate_register()?;
+        self.emit(abi::move_register(&result_base, abi::return_register()));
+        let alloc_ok = self.label(&format!("{label_prefix}_alloc_ok"));
+        self.emit(abi::compare_immediate(abi::RET[1], "0"));
+        self.emit(abi::branch_eq(&alloc_ok));
+        // Surface the arena tag (returned in x1) as the allocation error.
+        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        Ok(result_base)
+    }
+
     /// Lower a unary `math::` array overload. Reads the input list's `count`,
     /// allocates a tight result list via `_mfb_simd_alloc_list`, streams the data
     /// region two lanes at a time with the kernel's NEON sequence, processes the
@@ -139,33 +178,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&in_ptr, abi::stack_pointer(), in_slot));
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
-        // base = _mfb_simd_alloc_list(count, typeCode) → x0 = base, x1 = status.
-        self.emit(abi::move_register(abi::ARG[0], &count));
-        self.emit(abi::move_immediate(
-            abi::ARG[1],
-            "Integer",
-            &result_type_code.to_string(),
-        ));
-        self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: SIMD_ALLOC_LIST_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-
-        // Everything below runs after the only call, so registers are free.
-        self.reset_temporary_registers();
-        let result_base = self.allocate_register()?;
-        self.emit(abi::move_register(&result_base, abi::return_register()));
-        let alloc_ok = self.label("simd_alloc_ok");
-        self.emit(abi::compare_immediate(abi::RET[1], "0"));
-        self.emit(abi::branch_eq(&alloc_ok));
-        // Surface the arena tag (returned in x1) as the allocation error.
-        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
+        let result_base =
+            self.emit_alloc_result_list(&count, &result_type_code.to_string(), "simd")?;
 
         let in_ptr = self.allocate_register()?;
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
@@ -633,30 +647,8 @@ impl CodeBuilder<'_> {
         let count_slot = self.allocate_stack_object("simd_bin_count", 8);
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
-        self.emit(abi::move_register(abi::ARG[0], &count));
-        self.emit(abi::move_immediate(
-            abi::ARG[1],
-            "Integer",
-            &result_type_code.to_string(),
-        ));
-        self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: SIMD_ALLOC_LIST_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-
-        self.reset_temporary_registers();
-        let result_base = self.allocate_register()?;
-        self.emit(abi::move_register(&result_base, abi::return_register()));
-        let alloc_ok = self.label("simd_bin_alloc_ok");
-        self.emit(abi::compare_immediate(abi::RET[1], "0"));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
+        let result_base =
+            self.emit_alloc_result_list(&count, &result_type_code.to_string(), "simd_bin")?;
 
         let left_ptr = self.allocate_register()?;
         self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
@@ -854,30 +846,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&count, &in_ptr, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
-        self.emit(abi::move_register(abi::ARG[0], &count));
-        self.emit(abi::move_immediate(
-            abi::ARG[1],
-            "Integer",
-            &result_type_code.to_string(),
-        ));
-        self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: SIMD_ALLOC_LIST_SYMBOL.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-
-        self.reset_temporary_registers();
-        let result_base = self.allocate_register()?;
-        self.emit(abi::move_register(&result_base, abi::return_register()));
-        let alloc_ok = self.label("simd_clamp_alloc_ok");
-        self.emit(abi::compare_immediate(abi::RET[1], "0"));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.emit(abi::move_register(abi::return_register(), abi::RET[1]));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
+        let result_base =
+            self.emit_alloc_result_list(&count, &result_type_code.to_string(), "simd_clamp")?;
 
         let in_ptr = self.allocate_register()?;
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
