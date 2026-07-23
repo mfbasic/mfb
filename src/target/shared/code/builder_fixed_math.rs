@@ -20,6 +20,16 @@ const FIXED_FRACTION_MASK: u64 = 0xFFFF_FFFF;
 /// Number of CORDIC iterations; ~2^-32 precision, far finer than display.
 const CORDIC_ITERATIONS: usize = 31;
 
+/// Which CORDIC micro-rotation the shared [`CodeBuilder::emit_cordic`] loop emits
+/// (bug-332 E1): `Vectoring` drives the `y` coordinate to zero accumulating the
+/// angle into `z` (used by `atan2`); `Rotation` drives the angle residual `z` to
+/// zero rotating the `(cos, sin)` vector (used by `sin`/`cos`).
+#[derive(Clone, Copy)]
+enum CordicMode {
+    Vectoring,
+    Rotation,
+}
+
 impl CodeBuilder<'_> {
     /// Lower `floor`/`ceil`/`round` for a `Fixed` argument to an `Integer`
     /// result using raw Q32.32 arithmetic. The rounded integer always fits in
@@ -217,32 +227,62 @@ impl CodeBuilder<'_> {
     /// Run unrolled CORDIC circular vectoring on `(vx, vy)` accumulating the
     /// rotation angle into `z`. Drives `vy` toward zero so that `z` converges to
     /// `atan(vy0 / vx0)`. Requires `vx > 0`. The registers are updated in place.
-    fn emit_cordic_vectoring(&mut self, vx: &str, vy: &str, z: &str) -> Result<(), String> {
+    /// One CORDIC micro-rotation loop, shared by the vectoring and rotation modes
+    /// (bug-332 E1). The two modes are mirror images: they differ only in the
+    /// label prefix, which register drives the sign decision, and the polarity of
+    /// the three per-iteration updates — vectoring's `driver < 0` arm is rotation's
+    /// `driver >= 0` arm and vice versa. `a`/`b` are the two coordinate registers
+    /// (`vx`/`vy` for vectoring, `cos`/`sin` for rotation) and `z` is the angle
+    /// accumulator/residual.
+    fn emit_cordic(&mut self, mode: CordicMode, a: &str, b: &str, z: &str) -> Result<(), String> {
         let sx = self.allocate_register()?;
         let sy = self.allocate_register()?;
         let konst = self.allocate_register()?;
+        let (prefix, driver) = match mode {
+            CordicMode::Vectoring => ("cordic_vec", b),
+            CordicMode::Rotation => ("cordic_rot", z),
+        };
         for i in 0..CORDIC_ITERATIONS {
-            let negative = self.label("cordic_vec_neg");
-            let done = self.label("cordic_vec_done");
+            let negative = self.label(&format!("{prefix}_neg"));
+            let done = self.label(&format!("{prefix}_done"));
             if i == 0 {
-                self.emit(abi::move_register(&sx, vx));
-                self.emit(abi::move_register(&sy, vy));
+                self.emit(abi::move_register(&sx, a));
+                self.emit(abi::move_register(&sy, b));
             } else {
-                self.emit(abi::arithmetic_shift_right_immediate(&sx, vx, i as u8));
-                self.emit(abi::arithmetic_shift_right_immediate(&sy, vy, i as u8));
+                self.emit(abi::arithmetic_shift_right_immediate(&sx, a, i as u8));
+                self.emit(abi::arithmetic_shift_right_immediate(&sy, b, i as u8));
             }
             self.emit_const_i64(&konst, cordic_atan_raw(i));
-            self.emit(abi::compare_immediate(vy, "0"));
+            self.emit(abi::compare_immediate(driver, "0"));
             self.emit(abi::branch_lt(&negative));
-            // vy >= 0: rotate clockwise to reduce vy.
-            self.emit(abi::add_registers(vx, vx, &sy));
-            self.emit(abi::subtract_registers(vy, vy, &sx));
-            self.emit(abi::add_registers(z, z, &konst));
+            // driver >= 0 arm.
+            match mode {
+                CordicMode::Vectoring => {
+                    self.emit(abi::add_registers(a, a, &sy));
+                    self.emit(abi::subtract_registers(b, b, &sx));
+                    self.emit(abi::add_registers(z, z, &konst));
+                }
+                CordicMode::Rotation => {
+                    self.emit(abi::subtract_registers(a, a, &sy));
+                    self.emit(abi::add_registers(b, b, &sx));
+                    self.emit(abi::subtract_registers(z, z, &konst));
+                }
+            }
             self.emit(abi::branch(&done));
             self.emit(abi::label(&negative));
-            self.emit(abi::subtract_registers(vx, vx, &sy));
-            self.emit(abi::add_registers(vy, vy, &sx));
-            self.emit(abi::subtract_registers(z, z, &konst));
+            // driver < 0 arm (mirror of the arm above).
+            match mode {
+                CordicMode::Vectoring => {
+                    self.emit(abi::subtract_registers(a, a, &sy));
+                    self.emit(abi::add_registers(b, b, &sx));
+                    self.emit(abi::subtract_registers(z, z, &konst));
+                }
+                CordicMode::Rotation => {
+                    self.emit(abi::add_registers(a, a, &sy));
+                    self.emit(abi::subtract_registers(b, b, &sx));
+                    self.emit(abi::add_registers(z, z, &konst));
+                }
+            }
             self.emit(abi::label(&done));
         }
         Ok(())
@@ -350,7 +390,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&setup_done));
 
         self.emit(abi::move_immediate(&z, "Integer", "0"));
-        self.emit_cordic_vectoring(&vx, &vy, &z)?;
+        self.emit_cordic(CordicMode::Vectoring, &vx, &vy, &z)?;
         self.emit(abi::add_registers(&result, &z, &offset));
         self.emit(abi::label(&finish));
         Ok(result)
@@ -360,37 +400,6 @@ impl CodeBuilder<'_> {
     /// by the angle in `z` (which must lie within the CORDIC convergence range,
     /// roughly `[-pi/4, pi/4]` here). On entry `cosr` holds the inverse gain and
     /// `sinr` is zero; on exit `cosr ~= cos(z0)` and `sinr ~= sin(z0)`.
-    fn emit_cordic_rotation(&mut self, cosr: &str, sinr: &str, z: &str) -> Result<(), String> {
-        let sx = self.allocate_register()?;
-        let sy = self.allocate_register()?;
-        let konst = self.allocate_register()?;
-        for i in 0..CORDIC_ITERATIONS {
-            let negative = self.label("cordic_rot_neg");
-            let done = self.label("cordic_rot_done");
-            if i == 0 {
-                self.emit(abi::move_register(&sx, cosr));
-                self.emit(abi::move_register(&sy, sinr));
-            } else {
-                self.emit(abi::arithmetic_shift_right_immediate(&sx, cosr, i as u8));
-                self.emit(abi::arithmetic_shift_right_immediate(&sy, sinr, i as u8));
-            }
-            self.emit_const_i64(&konst, cordic_atan_raw(i));
-            self.emit(abi::compare_immediate(z, "0"));
-            self.emit(abi::branch_lt(&negative));
-            // z >= 0: rotate by +atan(2^-i).
-            self.emit(abi::subtract_registers(cosr, cosr, &sy));
-            self.emit(abi::add_registers(sinr, sinr, &sx));
-            self.emit(abi::subtract_registers(z, z, &konst));
-            self.emit(abi::branch(&done));
-            self.emit(abi::label(&negative));
-            self.emit(abi::add_registers(cosr, cosr, &sy));
-            self.emit(abi::subtract_registers(sinr, sinr, &sx));
-            self.emit(abi::add_registers(z, z, &konst));
-            self.emit(abi::label(&done));
-        }
-        Ok(())
-    }
-
     /// Deterministic Q32.32 `sin` and `cos` of `src`. Returns `(sin, cos)`
     /// registers. Reduces the angle to `[-pi/4, pi/4]` and tracks the quadrant.
     fn emit_fixed_sincos(&mut self, src: &str) -> Result<(String, String), String> {
@@ -422,7 +431,7 @@ impl CodeBuilder<'_> {
         let sinr = self.allocate_register()?;
         self.emit_const_i64(&cosr, cordic_gain_inverse());
         self.emit(abi::move_immediate(&sinr, "Integer", "0"));
-        self.emit_cordic_rotation(&cosr, &sinr, &r)?;
+        self.emit_cordic(CordicMode::Rotation, &cosr, &sinr, &r)?;
 
         // Quadrant selection from k mod 4.
         let kmod = self.allocate_register()?;
