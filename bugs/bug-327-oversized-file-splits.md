@@ -5,7 +5,7 @@ Effort: huge (>3d — this is a multi-week work order; land it file-by-file, one
 Severity: LOW
 Class: Other (cleanup / file organization)
 
-Status: Open — Phase 0 + 12 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
+Status: Open — Phase 0 + 13 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
 T1-8; Tier 2: T2-6, T2-9), each verified byte-identical (artifact-gate 0 diffs +
 acceptance 1080). Remaining: T1-5/T1-6 blocked on `tests/common/mod.rs`
 (Agent 21 #2); T1-9 blocked on bug-330 (audio dedup); the rest of Tier 2 (T2-1..T2-5,
@@ -744,8 +744,7 @@ Acceptance: as Phase 1.
 ### Phase 3 — Tier 2, interleaved with the glob-to-explicit conversion
 
 - [x] T2-1 `ir/verify/mod.rs` → banners + 8 topic modules (2 commits)
-- [ ] T2-4 `code/fs/` directory — do this **first** among the `shared/code/`
-      items; it is the natural anchor for the glob conversion
+- [x] T2-4 `code/fs/` directory created
 - [ ] Convert `src/target/shared/code/mod.rs`'s 18 glob imports (`:3061-3151`)
       to explicit `use` lists; delete the `align`/`data_align` duplicate this
       exposes (Agent 04 #13)
@@ -754,7 +753,8 @@ Acceptance: as Phase 1.
 - [x] T2-3 `builder_codegen_primitives.rs` → 6 modules (commit)
 - [x] T2-8 `io_helpers.rs` → 3 modules (commit)
 - [x] T2-2 `builder_collection_mutate.rs` → 4 modules (commit)
-- [ ] T2-5, T2-7, T2-10 remain (+ glob→explicit conversion, T2-4 fs/)
+- [x] T2-4 `code/fs/` directory created (commit)
+- [ ] T2-5, T2-7, T2-10 remain (+ glob→explicit conversion)
 
 Acceptance: as Phase 1, plus the explicit-`use` conversion compiles with no
 `pub(super)` widened to `pub(crate)`.
