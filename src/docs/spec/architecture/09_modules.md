@@ -16,7 +16,7 @@ A map of the compiler's source modules and their responsibilities.
 | Internal sigil naming[[src/internal_name.rs]] | Compiler-internal sigil symbol naming for injected source packages. |
 | Binary representation[[src/binary_repr/]] | MFPC binary representation lowering, encoding, decoding, package ABI inspection. |
 | Source formatter[[src/fmt.rs]] | Lexical source formatter for `mfb fmt`. |
-| Documentation renderer[[src/doc.rs]] | Documentation model and HTML renderer for `mfb doc` / `mfb pkg doc`. |
+| Documentation renderer[[src/doc/mod.rs]] | Documentation model and HTML renderer for `mfb doc` / `mfb pkg doc`. |
 | Project audit[[src/audit/]] | `mfb audit`: fallible-call/cleanup/permission/dependency reporting (collect/json/text/report). |
 | Built-in dispatch[[src/builtins/mod.rs]] | Built-in package dispatch and parameter name tables. |
 | Filesystem built-ins[[src/builtins/fs.rs]] | Filesystem built-in signatures and validation. |

@@ -2,7 +2,7 @@
 
 `mfb doc` and `mfb pkg doc` render a package's documentation to a single
 self-contained HTML file. Both share one rendering core: a source
-of declarations is normalized into a `DocPage`, and the renderer emits the page.[[src/doc.rs:render_html]]
+of declarations is normalized into a `DocPage`, and the renderer emits the page.[[src/doc/html.rs:render_html]]
 The two commands differ only in where the `DocPage` comes from — parsed `.mfb`
 source vs. a compiled `.mfp` package's `doc` section. This topic specifies the
 `DocPage` assembly rules, the HTML structure, the embedded stylesheet, and the
@@ -23,7 +23,7 @@ mfb pkg doc  → write_package_doc     → doc::from_package(PackageDocs) ┘
 The two builders produce the same `DocPage` shape; the differences are entirely
 in the input and the public/internal partition (below).
 
-[[src/doc.rs:from_source]] [[src/doc.rs:from_package]] [[src/cli/doc.rs:build_source_doc_page]] [[src/cli/pkg.rs:write_package_doc]]
+[[src/doc/mod.rs:from_source]] [[src/doc/mod.rs:from_package]] [[src/cli/doc.rs:build_source_doc_page]] [[src/cli/pkg.rs:write_package_doc]]
 
 | Aspect | `from_source` (source DOC blocks) | `from_package` (compiled `.mfp`) |
 |---|---|---|
@@ -42,7 +42,7 @@ parameter types selects the overload whose normalized param types match;
 otherwise the first overload of the right kind (sub vs. func) is used. A DOC
 block whose declaration cannot be resolved is silently dropped.
 
-[[src/doc.rs:source_decl_meta]]
+[[src/doc/mod.rs:source_decl_meta]]
 
 ## DocPage Shape
 
@@ -59,7 +59,7 @@ DocGroup { title: String, decls: Vec<DocDecl> }
 Prose    { kind: DocProseKind, text: String }
 ```
 
-[[src/doc.rs:DocPage]] [[src/doc.rs:DocGroup]]
+[[src/doc/mod.rs:DocPage]] [[src/doc/mod.rs:DocGroup]]
 
 A `DocDecl` carries everything needed to render one declaration card:
 
@@ -80,7 +80,7 @@ DocDecl
   deprecated    : Option<String>
 ```
 
-[[src/doc.rs:DocDecl]]
+[[src/doc/mod.rs:DocDecl]]
 
 ### Kind-derived labels and the Types group
 
@@ -99,7 +99,7 @@ group by their first `GROUP` line (falling back to `Functions` when absent);
 all type-like kinds collapse into a single `Types` group **regardless** of any
 `GROUP` line.
 
-[[src/doc.rs:kind_label]] [[src/doc.rs:group_title]] [[src/doc.rs:member_label]]
+[[src/doc/mod.rs:kind_label]] [[src/doc/mod.rs:group_title]] [[src/doc/mod.rs:member_label]]
 
 ## Grouping and the Public/Internal Partition
 
@@ -109,7 +109,7 @@ groups. Within each partition, groups appear in **first-appearance order** (the
 order their first member is encountered) and decls keep source order within a
 group. Two decls with the same group title are merged into one `DocGroup`.
 
-[[src/doc.rs:assemble_groups]]
+[[src/doc/mod.rs:assemble_groups]]
 
 A declaration is **internal** when either:
 
@@ -119,7 +119,7 @@ A declaration is **internal** when either:
 - it carries an `INTERNAL` attribute on its DOC block (case-insensitive match in
   `from_source`).
 
-[[src/doc.rs:from_source]]
+[[src/doc/mod.rs:from_source]]
 
 In `from_package`, every decl in the `.mfp` `doc` section is already exported, so
 the internal partition there comes solely from the stored `internal` flag.
@@ -131,7 +131,7 @@ block is a plain `DESC` paragraph, it is removed and becomes `subtitle`; all
 remaining blocks become `intro`. If the first block is a callout (WARN/INFO/SEC),
 `subtitle` is empty and every block stays in `intro`.
 
-[[src/doc.rs:split_subtitle]]
+[[src/doc/mod.rs:split_subtitle]]
 
 ## Anchor Slugging
 
@@ -147,7 +147,7 @@ The dedup counter starts at `2`, so the first duplicate of slug `foo` becomes
 build), so a `Types` member and a function with the same slug still get distinct
 anchors.
 
-[[src/doc.rs:anchor]]
+[[src/doc/mod.rs:anchor]]
 
 ## Inline Markup
 
@@ -159,12 +159,12 @@ inside a pair is wrapped in `<code>…</code>`, text outside is emitted as-is.
 link, or list markup. An unterminated backtick is emitted literally as a `` ` ``
 followed by the escaped remainder.
 
-[[src/doc.rs:inline]] [[src/doc.rs:escape]]
+[[src/doc/html.rs:inline]] [[src/doc/html.rs:escape]]
 
 Signatures and examples are rendered with `escape` only (no backtick handling) —
 they appear inside `<pre><code>` and are taken verbatim.
 
-[[src/doc.rs:render_decl]]
+[[src/doc/html.rs:render_decl]]
 
 ## Callouts
 
@@ -184,7 +184,7 @@ becomes a callout inside the decl card. An empty message falls back to fixed tex
 (`"This package is deprecated."` / `"This declaration is deprecated."`); a
 non-empty message renders as `"Deprecated. <message>"`.
 
-[[src/doc.rs:callout]] [[src/doc.rs:render_prose]] [[src/doc.rs:render_decl]]
+[[src/doc/html.rs:callout]] [[src/doc/html.rs:render_prose]] [[src/doc/html.rs:render_decl]]
 
 ## Page Structure
 
@@ -215,7 +215,7 @@ a two-column `.container` (sidebar + main).
 </body></html>
 ```
 
-[[src/doc.rs:render_html]]
+[[src/doc/html.rs:render_html]]
 
 Notable conditionals:
 
@@ -233,7 +233,7 @@ Notable conditionals:
   table renders its code column in a `.error-code` span; other name columns use
   `<code>`.
 
-[[src/doc.rs:render_decl]] [[src/doc.rs:render_table]] [[src/doc.rs:render_sidebar_groups]]
+[[src/doc/html.rs:render_decl]] [[src/doc/html.rs:render_table]] [[src/doc/html.rs:render_sidebar_groups]]
 
 ## Embedded Stylesheet
 
@@ -247,7 +247,7 @@ a single responsive breakpoint at `max-width: 900px` that stacks the sidebar
 above the content. `html{scroll-behavior:smooth}` and `.section{scroll-margin-top}`
 make anchor navigation smooth.
 
-[[src/doc.rs:STYLE]]
+[[src/doc/html.rs:STYLE]]
 
 ## Empty Package Page
 
@@ -257,7 +257,7 @@ name and otherwise empty fields and renders it — producing the standard chrome
 with the `No documentation is available.` body. This path is unique to
 `pkg doc`; `mfb doc` always has at least the parsed source to work from.
 
-[[src/doc.rs:render_empty_html]] [[src/binary_repr/mod.rs:PackageDocs]]
+[[src/doc/html.rs:render_empty_html]] [[src/binary_repr/mod.rs:PackageDocs]]
 
 ## Command Resolution and Exit Codes
 
