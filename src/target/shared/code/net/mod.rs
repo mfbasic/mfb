@@ -63,6 +63,58 @@ fn emit_fail(
     instructions.push(abi::branch(done));
 }
 
+/// Emit the shared "build a String result" body (bug-331 §H): allocate `N + 9`
+/// bytes, copy the `N` received bytes from `sp + buf_offset` into the new String's
+/// data region, NUL-terminate, and call the UTF-8 validator (branching to
+/// `encoding_error` on failure). The new String pointer is stored at
+/// `sp + str_offset` and left in `%v9`. Offsets and labels are caller-supplied so
+/// the emitted bytes match each call site exactly. Clobbers `x0`/`x1`/`%v9`..`%v15`.
+#[allow(clippy::too_many_arguments)]
+fn emit_string_result_build(
+    symbol: &str,
+    buf_offset: usize,
+    n_offset: usize,
+    str_offset: usize,
+    str_copy: &str,
+    str_done: &str,
+    alloc_fail: &str,
+    encoding_error: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), n_offset),
+        abi::add_immediate(abi::return_register(), "%v10", 9),
+        abi::move_immediate(abi::ARG[1], "Integer", "8"),
+    ]);
+    emit_alloc(symbol, instructions, relocations, alloc_fail);
+    instructions.extend([
+        abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
+        abi::load_u64("%v10", abi::stack_pointer(), n_offset),
+        abi::store_u64("%v10", "%v15", 0),
+        abi::load_u64("%v11", abi::stack_pointer(), buf_offset),
+        abi::add_immediate("%v12", "%v15", 8),
+        abi::move_immediate("%v13", "Integer", "0"),
+        abi::store_u64("%v15", abi::stack_pointer(), str_offset),
+        abi::label(str_copy),
+        abi::compare_registers("%v13", "%v10"),
+        abi::branch_eq(str_done),
+        abi::load_u8("%v14", "%v11", 0),
+        abi::store_u8("%v14", "%v12", 0),
+        abi::add_immediate("%v11", "%v11", 1),
+        abi::add_immediate("%v12", "%v12", 1),
+        abi::add_immediate("%v13", "%v13", 1),
+        abi::branch(str_copy),
+        abi::label(str_done),
+        abi::store_u8(abi::ZERO, "%v12", 0),
+        // validate_utf8(bytes, len)
+        abi::load_u64("%v9", abi::stack_pointer(), str_offset),
+        abi::add_immediate(abi::return_register(), "%v9", 8),
+        abi::load_u64(abi::ARG[1], "%v9", 0),
+    ]);
+    emit_call_validate_utf8(symbol, encoding_error, instructions, relocations);
+}
+
 /// Copy a NUL-free MFBASIC `String` (pointer at `sp + str_off`) into a freshly
 /// allocated NUL-terminated C string, storing the result pointer at
 /// `sp + out_off`. Branches to `alloc_fail` on allocation failure. Clobbers

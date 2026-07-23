@@ -566,37 +566,18 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     ]);
     if text {
         // Build a String: [u64 len][bytes][nul], validate UTF-8.
-        instructions.extend([
-            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::add_immediate(abi::return_register(), "%v10", 9),
-            abi::move_immediate(abi::ARG[1], "Integer", "8"),
-        ]);
-        emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-        instructions.extend([
-            abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
-            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", "%v15", 0),
-            abi::load_u64("%v11", abi::stack_pointer(), BUF_OFFSET),
-            abi::add_immediate("%v12", "%v15", 8),
-            abi::move_immediate("%v13", "Integer", "0"),
-            abi::store_u64("%v15", abi::stack_pointer(), STR_OFFSET),
-            abi::label(&str_copy),
-            abi::compare_registers("%v13", "%v10"),
-            abi::branch_eq(&str_done),
-            abi::load_u8("%v14", "%v11", 0),
-            abi::store_u8("%v14", "%v12", 0),
-            abi::add_immediate("%v11", "%v11", 1),
-            abi::add_immediate("%v12", "%v12", 1),
-            abi::add_immediate("%v13", "%v13", 1),
-            abi::branch(&str_copy),
-            abi::label(&str_done),
-            abi::store_u8(abi::ZERO, "%v12", 0),
-            // validate_utf8(bytes, len)
-            abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
-            abi::add_immediate(abi::return_register(), "%v9", 8),
-            abi::load_u64(abi::ARG[1], "%v9", 0),
-        ]);
-        emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
+        emit_string_result_build(
+            symbol,
+            BUF_OFFSET,
+            N_OFFSET,
+            STR_OFFSET,
+            &str_copy,
+            &str_done,
+            &alloc_fail,
+            &encoding_error,
+            &mut instructions,
+            &mut relocations,
+        );
         instructions.extend([
             abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STR_OFFSET),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1527,37 +1508,18 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     ));
     if text {
         // Build a String: [u64 len][bytes][nul], validate UTF-8.
-        instructions.extend([
-            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::add_immediate(abi::return_register(), "%v10", 9),
-            abi::move_immediate(abi::ARG[1], "Integer", "8"),
-        ]);
-        emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
-        instructions.extend([
-            abi::move_register("%v15", abi::RET[1]), // alloc result -> vreg base (plan-34-B Phase 3)
-            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("%v10", "%v15", 0),
-            abi::load_u64("%v11", abi::stack_pointer(), BUF_OFFSET),
-            abi::add_immediate("%v12", "%v15", 8),
-            abi::move_immediate("%v13", "Integer", "0"),
-            abi::store_u64("%v15", abi::stack_pointer(), STR_OFFSET),
-            abi::label(&str_copy),
-            abi::compare_registers("%v13", "%v10"),
-            abi::branch_eq(&str_done),
-            abi::load_u8("%v14", "%v11", 0),
-            abi::store_u8("%v14", "%v12", 0),
-            abi::add_immediate("%v11", "%v11", 1),
-            abi::add_immediate("%v12", "%v12", 1),
-            abi::add_immediate("%v13", "%v13", 1),
-            abi::branch(&str_copy),
-            abi::label(&str_done),
-            abi::store_u8(abi::ZERO, "%v12", 0),
-            // validate_utf8(bytes, len)
-            abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
-            abi::add_immediate(abi::return_register(), "%v9", 8),
-            abi::load_u64(abi::ARG[1], "%v9", 0),
-        ]);
-        emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
+        emit_string_result_build(
+            symbol,
+            BUF_OFFSET,
+            N_OFFSET,
+            STR_OFFSET,
+            &str_copy,
+            &str_done,
+            &alloc_fail,
+            &encoding_error,
+            &mut instructions,
+            &mut relocations,
+        );
     } else {
         // Build a List OF Byte with N elements.
         instructions.extend([
