@@ -5,9 +5,96 @@ Effort: x-large (1d–3d)
 Severity: LOW
 Class: Other (cleanup) / Dead-code
 
-Status: Open
-Regression Test: existing `src/target/shared/validate.rs` + `src/ir/verify` unit
-suites; new `nir/visit.rs` and `ir/value.rs` visitor unit tests added in Phase 2.
+Status: Fixed — landed 2026-07-23 (three commits on `main`).
+Regression Test: `src/target/shared/nir/visit.rs` (variant-completeness + guard
+reach), `src/ir/value.rs` (`visit_value` MAX_DEPTH cutoff + `visit_value_mut`),
+and `src/target/shared/validate/mod.rs::capability_check_sees_runtime_call_in_match_guard`
+(the guard-divergence repair). Existing `ir/verify` and validate suites unchanged.
+
+## Resolution (2026-07-23)
+
+The codebase had been re-split since this report was written (bug-327):
+`validate.rs` → `validate/*.rs`, so the constfold twins live at
+`validate/capabilities.rs` and `plan/symbols.rs` (verified byte-identical, 114
+lines each). bug-300-E14 (function_builder guard lowering) was **already fixed
+independently** before this work — verified present — so the only *live*
+behavioral defect was the capability collector's missing guard traversal.
+
+Landed:
+
+1. **Constfold dedup (Phase 2).** One `pub(crate)` copy in
+   `src/target/shared/nir/constfold.rs`; both originals deleted, all ten call
+   sites repointed. Pure move, zero artifact-gate delta.
+2. **Traversal seams (Phase 3).** `NirVisitor` + `walk_ops`/`walk_op`/`walk_value`
+   in `nir/visit.rs` (its `Match` arm walks scrutinee, pattern values, **guard**,
+   body); depth-bounded `visit_value` (MAX_DEPTH=256 preserved) and uncapped
+   `visit_value_mut` beside `IrValue` in `ir/value.rs`. Unit-tested.
+3. **Guard-divergence repair (the real defect).**
+   `collect_runtime_calls_from_ops_with_constants` now walks `case.guard`;
+   regression test added. Validation-only (feeds only `validate_capabilities`, not
+   codegen), hence zero artifact-gate delta — it only changes whether a program
+   with a backend-gated call hidden in a `WHEN..WHERE` guard is *rejected*. The
+   false comment at `plan/symbols.rs` about "mirroring the guard traversal
+   validate_nir performs" is now accurate.
+4. **Walker conversions (Phase 4).**
+   - IR value walkers → `visit_value`/`visit_value_mut`: `collect_local_reads_value`,
+     `collect_closures`, `walk_captures` (verify), `rewrite_value_targets` (package).
+   - NIR collectors → `NirVisitor`: `collect_string_literals` (function_builder),
+     `collect_address_taken_locals`, `collect_value_local_reads`,
+     `collect_assigned_locals` (function_lowering), `collect_function_value_refs`
+     (module_analysis), `collect_bind_types` (capabilities),
+     `collect_bind_type_names` (symbols), `collect_type_name_values_from_ops`,
+     `collect_builtin_function_refs_in_ops` (data_objects).
+
+**Validation.** 3201 unit tests pass; `scripts/artifact-gate.sh` = 0 diffs across
+1318 goldens at every step; `scripts/test-accept.sh` green. Converting the
+collectors broadened several to walk guards / OneOf patterns they previously
+skipped (the same class of latent divergence bug-118 fixed) — the artifact gate
+proves this is output-neutral on the whole corpus (no fixture carries a collected
+node only inside a guard or OneOf pattern), so the change is byte-identical in
+practice while closing the divergences.
+
+### Deliberately kept hand-written (scope decision)
+
+The report asked to convert *all* ~59 NIR walkers. The following are kept written
+directly against the enums, by design — each remains **exhaustive** (a new
+variant is still a compile error at that site), so the "one edit per variant"
+safety goal holds without the risk of a mechanical rewrite:
+
+- **Scope-sensitive constants-threaders** — `collect_runtime_calls_from_ops_with_constants`
+  (carries the guard repair), `collect_runtime_symbols_from_ops_with_constants`,
+  `collect_string_values_from_ops_with_constants`, `ops_use_unicode_runtime_tables`,
+  `ops_may_emit_float_arithmetic_error`. They clone a constants map per branch and
+  clear it in loop bodies; the fix design forbids encoding that policy into the
+  shared trait, and a subtle rewrite error would be a miscompile the sampled
+  goldens could miss.
+- **Code-emitting / transforming passes** — `builder_control::lower_ops_inner`
+  (+ `lower_numeric_for`/`lower_for_each`), `function_builder::lower_ops`,
+  `validate/body::validate_ops`. Transformers/emitters (labels, cleanup scopes,
+  per-branch constant save/restore), excluded for the same reason the report
+  excludes `ir/lower.rs`.
+- **Exhaustive boolean predicates** — `ops_use_call`, `ops_use_type_name`,
+  `op_requires_empty_string_constant`, `ops_bind_type_in`,
+  `ops_may_record_cleanup_failure`, `ops_have_thread_owner`, `nir_value_reads_local`,
+  `collect_vector_native_bindings`. Already variant-safe; the seam would only cost
+  their `.any()` short-circuit for no correctness gain.
+- **Deliberately-partial resolvers** — `value_uses_type_name`,
+  `value_may_return_invalid_format`, the `static_*` folders and `infer_type_depth`
+  recurse only one variant path on purpose; a full-recursing seam would change
+  their meaning.
+- **`plan/symbols.rs` platform-imports collector** — order-sensitive op-level
+  side effects (`ExitProgram` adds exit-imports *after* recursing the code) that a
+  pre-order visitor cannot reproduce without a golden delta; already exhaustive
+  and already walks the guard.
+- **Codecs and the Ir→Nir transformer** — `nir/json.rs`, `nir/lower.rs`,
+  `ir/json.rs`, `ir/binary.rs`: exhaustive matching is the right tool (the
+  report's own rejected alternative).
+- **`src/binary_repr/writer.rs`** — out of scope per the original blast radius
+  (separate serialization concerns; two of the three are deliberately partial).
+
+---
+
+_Original report follows._
 
 The target layer and the IR layer each re-implement the same recursive tree walk
 dozens of times, once per analysis. Two concrete consequences are measurable

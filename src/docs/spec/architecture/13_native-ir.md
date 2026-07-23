@@ -114,6 +114,23 @@ string (the IR `Global` is just a name). [[src/target/shared/nir/lower.rs:lower_
 the owning `NirFunction::file`. The `loc` is *not* serialized to JSON.
 [[src/target/shared/nir/mod.rs:NirSourceLoc]]
 
+### Traversal seam
+
+Analyses that recurse over `NirOp`/`NirValue` share one traversal: the
+`NirVisitor` trait and its `walk_ops`/`walk_op`/`walk_value` free functions in
+[[src/target/shared/nir/visit.rs]]. An analysis implements the trait, overrides
+only the nodes it cares about, and inherits complete recursion for the rest;
+adding a `NirOp`/`NirValue` variant is a compile error in the one `walk_*`
+function rather than a silent gap across the many collectors. The `walk_op`
+recursion for `Match` visits the scrutinee, the pattern's values, the
+`WHEN … WHERE` **guard**, and the body — walking the guard is a load-bearing
+invariant (a runtime call or platform import used only in a guard still executes;
+see bug-118, bug-328). The IR value tree has the analogous depth-bounded
+`visit_value`/`visit_value_mut` seam beside `IrValue` in
+[[src/ir/value.rs]]. Scope-sensitive analyses that thread a per-branch constants
+map, and the code-emitting lowering passes, keep that state themselves and are
+written directly against the enums rather than the shared seam.
+
 ## Call routing: native-direct vs runtime-call
 
 The one semantically interesting rewrite happens in `lower_value` for
