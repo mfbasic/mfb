@@ -37,7 +37,7 @@ Seeding is **not required**. Every thread is seeded automatically before it runs
 the main thread from OS entropy at program start, before any user code including
 global initializers, and a thread started with `thread::start` from a draw taken
 on the spawning thread. Call `math::seed` only when reproducible output is
-wanted. [[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
+wanted. [[src/target/shared/code/entry.rs:lower_program_entry]]
 
 `math::seed` affects **only the calling thread**. The generator state lives in the
 calling thread's own arena, so reseeding one thread does not disturb any other.

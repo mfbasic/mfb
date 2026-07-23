@@ -46,7 +46,7 @@ the main thread before any input is read and while the log's lazy setup is still
 single-threaded, so main's cursor starts at offset `0` and it sees the entire
 stream. Subscribing is idempotent per thread, so an explicit call from main is a
 harmless no-op that documents intent.
-[[src/target/shared/code/entry_and_arena.rs:STDIN_SUBSCRIBE_SYMBOL]]
+[[src/target/shared/code/error_constants.rs:STDIN_SUBSCRIBE_SYMBOL]]
 
 A thread that reads stdin (`io::readLine`, `io::input`, `io::readChar`,
 `io::readByte`) without a subscription raises `ErrInvalidContext` (`77050019`)

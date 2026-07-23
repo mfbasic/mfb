@@ -37,7 +37,7 @@ from that thread's stream. Each thread owns an independent generator: the main
 thread is seeded from OS entropy at program start, before any user code runs
 (including global initializers), and a thread started with `thread::start` is
 seeded from a draw taken on the spawning thread.
-[[src/target/shared/code/entry_and_arena.rs:lower_program_entry]] Call
+[[src/target/shared/code/entry.rs:lower_program_entry]] Call
 `math::seed` first to make a thread's subsequent sequence reproducible.
 
 The bounds may be negative, and the range may span the whole signed 64-bit

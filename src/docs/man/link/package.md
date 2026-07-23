@@ -87,7 +87,7 @@ Use `return` as the result slot name for the native return value or for the
 single supported `OUT return` slot. A value-returning wrapper must expose exactly
 one result with `return` or a `RESULT` expression. The current compiler does not
 support multiple `OUT` slots or `RETURN_OUT`; any `OUT` slot other than
-`return` is rejected as an unbound ABI slot. [[src/ast/items.rs:parse_link_function]]
+`return` is rejected as an unbound ABI slot. [[src/ast/link_items.rs:parse_link_function]]
 [[src/syntaxcheck/mod.rs]]
 
 ## Result gates
@@ -107,7 +107,7 @@ When the gate says the call failed, the wrapper fails with
 pins provide fixed ABI slot values without exposing them as wrapper parameters.
 `FREE return` runs a declared native deallocator after a successful copy from a
 caller-owned native pointer into an owned MFBASIC value.
-[[src/ir/lower.rs:lower_link_expr]] [[src/ir/lower.rs:eval_link_const]]
+[[src/ir/lower_link.rs:lower_link_expr]] [[src/ir/lower_link.rs:eval_link_const]]
 
 ## Loading and calls
 
