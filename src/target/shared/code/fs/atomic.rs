@@ -833,15 +833,19 @@ pub(in crate::target::shared::code) fn lower_fs_atomic_write_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(in crate::target::shared::code) fn lower_fs_write_text_path_helper(
+pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     append: bool,
+    bytes: bool,
 ) -> HelperResult {
     // Vreg-allocated (plan-00-G Phase 2). path→C-string, open, write loop, fsync,
     // close. fd (across write/sync/close) and the value (across open) are spilled
-    // vregs; the C-string is consumed at open.
+    // vregs; the C-string is consumed at open. `bytes` selects the source: a
+    // String's inline bytes (`writeText`) or a byte-List's data region
+    // (`writeBytes`) — the only difference is the source-pointer/length setup
+    // (bug-331 §B).
     let alloc_ok = format!("{symbol}_alloc_ok");
     let copy_loop = format!("{symbol}_copy_loop");
     let copy_done = format!("{symbol}_copy_done");
@@ -870,6 +874,9 @@ pub(in crate::target::shared::code) fn lower_fs_write_text_path_helper(
     let dst = vregs.next();
     let index = vregs.next();
     let byte = vregs.next();
+    // `cap` is a byte-List-only scratch; allocate its vreg only in that mode so the
+    // String path keeps its exact vreg numbering (bug-331 §B).
+    let cap = if bytes { vregs.next() } else { String::new() };
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&path, abi::return_register()),
@@ -925,8 +932,26 @@ pub(in crate::target::shared::code) fn lower_fs_write_text_path_helper(
         abi::branch(&open_error),
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
-        abi::load_u64(&remaining, &value, 0),
-        abi::add_immediate(&cursor, &value, 8),
+    ]);
+    if bytes {
+        // Source is a byte-List: length is DATA_LENGTH, the data region starts past
+        // the header, and the cursor skips the (capacity * stride) reserved bytes.
+        instructions.extend([
+            abi::load_u64(&remaining, &value, COLLECTION_OFFSET_DATA_LENGTH),
+            abi::add_immediate(&cursor, &value, COLLECTION_HEADER_SIZE),
+            abi::load_u64(&cap, &value, COLLECTION_OFFSET_CAPACITY),
+            abi::move_immediate(&byte, "Integer", &byte_list_entry_stride().to_string()),
+            abi::multiply_registers(&cap, &cap, &byte),
+            abi::add_registers(&cursor, &cursor, &cap),
+        ]);
+    } else {
+        // Source is a String: length at offset 0, inline bytes at offset 8.
+        instructions.extend([
+            abi::load_u64(&remaining, &value, 0),
+            abi::add_immediate(&cursor, &value, 8),
+        ]);
+    }
+    instructions.extend([
         abi::label(&write_loop),
         abi::compare_immediate(&remaining, "0"),
         abi::branch_eq(&write_done),
@@ -1334,238 +1359,6 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
     push_error_message_address(
         symbol,
         ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
-    Ok((frame, instructions, relocations, stack_slots))
-}
-
-pub(in crate::target::shared::code) fn lower_fs_write_bytes_path_helper(
-    symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    append: bool,
-) -> HelperResult {
-    // Vreg-allocated (plan-00-G Phase 2). Like write_text_path, but the source is a
-    // byte-List's data region. fd / value spill across the calls.
-    let alloc_ok = format!("{symbol}_alloc_ok");
-    let copy_loop = format!("{symbol}_copy_loop");
-    let copy_done = format!("{symbol}_copy_done");
-    let invalid = format!("{symbol}_invalid");
-    let open_ok = format!("{symbol}_open_ok");
-    let open_error = format!("{symbol}_open_error");
-    let write_loop = format!("{symbol}_write_loop");
-    let write_done = format!("{symbol}_write_done");
-    let write_error = format!("{symbol}_write_error");
-    let close_error = format!("{symbol}_close_error");
-    let alloc_error = format!("{symbol}_alloc_error");
-    let done = format!("{symbol}_done");
-
-    let flags = open_flag_set(platform.target(), false);
-    let mode_flags = if append { flags.append } else { flags.write };
-    let mut vregs = Vregs::new();
-    let path = vregs.next();
-    let value = vregs.next();
-    let c_path = vregs.next();
-    let fd = vregs.next();
-    let remaining = vregs.next();
-    let cursor = vregs.next();
-    let len0 = vregs.next();
-    let len = vregs.next();
-    let src = vregs.next();
-    let dst = vregs.next();
-    let index = vregs.next();
-    let byte = vregs.next();
-    let cap = vregs.next();
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::move_register(&path, abi::return_register()),
-        abi::move_register(&value, abi::RET[1]),
-        abi::load_u64(&len0, &path, 0),
-        abi::compare_immediate(&len0, "0"),
-        abi::branch_eq(&invalid),
-        abi::add_immediate(abi::return_register(), &len0, 1),
-        abi::move_immediate(abi::ARG[1], "Integer", "1"),
-        abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ];
-    let mut relocations = vec![internal_branch(symbol, ARENA_ALLOC_SYMBOL)];
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_eq(&alloc_ok),
-        abi::branch(&alloc_error),
-        abi::label(&alloc_ok),
-        abi::move_register(&c_path, abi::RET[1]),
-        abi::load_u64(&len, &path, 0),
-        abi::add_immediate(&src, &path, 8),
-        abi::move_register(&dst, &c_path),
-        abi::move_immediate(&index, "Integer", "0"),
-        abi::label(&copy_loop),
-        abi::compare_registers(&index, &len),
-        abi::branch_eq(&copy_done),
-        abi::load_u8(&byte, &src, 0),
-        abi::compare_immediate(&byte, "0"),
-        abi::branch_eq(&invalid),
-        abi::store_u8(&byte, &dst, 0),
-        abi::add_immediate(&src, &src, 1),
-        abi::add_immediate(&dst, &dst, 1),
-        abi::add_immediate(&index, &index, 1),
-        abi::branch(&copy_loop),
-        abi::label(&copy_done),
-        abi::store_u8(abi::ZERO, &dst, 0),
-        abi::move_register(abi::return_register(), &c_path),
-        abi::move_immediate(abi::ARG[1], "Integer", mode_flags),
-        // Owner-only create mode (0o600 = 384), not world-readable 0o666
-        // (audit-2 OS-01 / bug-184).
-        abi::move_immediate(abi::ARG[2], "Integer", "384"),
-    ]);
-    platform.emit_open_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        // C `int` open fd — sign-extend before the signed compare (bug-04/bug-170).
-        abi::sign_extend_word(abi::return_register(), abi::return_register()),
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ge(&open_ok),
-        abi::branch(&open_error),
-        abi::label(&open_ok),
-        abi::move_register(&fd, abi::return_register()),
-        abi::load_u64(&remaining, &value, COLLECTION_OFFSET_DATA_LENGTH),
-        abi::add_immediate(&cursor, &value, COLLECTION_HEADER_SIZE),
-        abi::load_u64(&cap, &value, COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate(&byte, "Integer", &byte_list_entry_stride().to_string()),
-        abi::multiply_registers(&cap, &cap, &byte),
-        abi::add_registers(&cursor, &cursor, &cap),
-        abi::label(&write_loop),
-        abi::compare_immediate(&remaining, "0"),
-        abi::branch_eq(&write_done),
-        abi::move_register(abi::return_register(), &fd),
-        abi::move_register(abi::ARG[1], &cursor),
-        abi::move_register(abi::ARG[2], &remaining),
-    ]);
-    platform.emit_write(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    // A 0 return moved nothing (hard error); a negative return is EINTR-retried at
-    // write_loop before any byte moved rather than treated as a hard ErrOutput
-    // (bug-62, matching the File-based write loops in fs_helpers_io.rs).
-    emit_transfer_loop_tail(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        abi::return_register(),
-        write_uses_raw_syscall(platform),
-        &cursor,
-        &remaining,
-        &write_loop,
-        &write_error,
-    )?;
-    instructions.extend([
-        abi::label(&write_done),
-        abi::move_register(abi::return_register(), &fd),
-    ]);
-    platform.emit_sync_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    normalize_c_int_result(&mut instructions);
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&write_error),
-        abi::move_register(abi::return_register(), &fd),
-    ]);
-    platform.emit_close_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    normalize_c_int_result(&mut instructions);
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&close_error),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&done),
-        abi::label(&write_error),
-        abi::move_register(abi::return_register(), &fd),
-    ]);
-    platform.emit_close_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([abi::branch(&done), abi::label(&open_error)]);
-    let errno_reg = vregs.next();
-    platform.emit_errno(
-        symbol,
-        &errno_reg,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    emit_errno_error_mapping(
-        symbol,
-        &errno_reg,
-        &mut instructions,
-        &mut relocations,
-        &done,
-    );
-    instructions.extend([
-        abi::label(&invalid),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_INVALID_ARGUMENT_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&alloc_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUT_OF_MEMORY_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_ALLOCATION_SYMBOL,
-        &mut instructions,
-        &mut relocations,
-    );
-    instructions.extend([
-        abi::branch(&done),
-        abi::label(&close_error),
-        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-    ]);
-    push_error_message_address(
-        symbol,
-        ERR_OUTPUT_SYMBOL,
         &mut instructions,
         &mut relocations,
     );

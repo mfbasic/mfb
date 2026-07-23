@@ -2015,7 +2015,7 @@ fn lower_runtime_helper(
         "fs.writeText" | "fs.appendText" => {
             let append = spec.call == "fs.appendText";
             let (frame, instructions, relocations, stack_slots) =
-                lower_fs_write_text_path_helper(symbol, platform_imports, platform, append)?;
+                lower_fs_write_path_helper(symbol, platform_imports, platform, append, false)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -2030,7 +2030,7 @@ fn lower_runtime_helper(
         "fs.writeBytes" | "fs.appendBytes" => {
             let append = spec.call == "fs.appendBytes";
             let (frame, instructions, relocations, stack_slots) =
-                lower_fs_write_bytes_path_helper(symbol, platform_imports, platform, append)?;
+                lower_fs_write_path_helper(symbol, platform_imports, platform, append, true)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
