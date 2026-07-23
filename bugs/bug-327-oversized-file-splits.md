@@ -5,15 +5,43 @@ Effort: huge (>3d — this is a multi-week work order; land it file-by-file, one
 Severity: LOW
 Class: Other (cleanup / file organization)
 
-Status: Open — Phase 0 + 18 splits landed (Tier 1: T1-1, T1-2, T1-3, T1-4, T1-7,
-T1-8; Tier 2: T2-6, T2-9), each verified byte-identical (artifact-gate 0 diffs +
-acceptance 1080). Remaining: T1-5/T1-6 blocked on `tests/common/mod.rs`
-(Agent 21 #2); T1-9 blocked on bug-330 (audio dedup); the rest of Tier 2 (T2-1..T2-5,
-T2-7, T2-8, T2-10 + the glob→explicit conversion) and Tier 3 (T3-1, T3-2) not yet
-started. The `shared/code/` Tier-2 items (T2-3/4/5/8) are intertwined with the
-glob→explicit conversion (a bidirectional-namespace change) — sequence them
-together. T2-7 has a hard blocker (Agent 09 #1 constfold dup, extract to
-`nir/constfold.rs` first). See the Phases checklist.
+Status: Open (all pure file splits landed) — Phase 0 + **18 splits**, each verified
+byte-identical (artifact-gate 0 diffs + acceptance 1080, + per-split unit tests
+and both citation-resolution tests):
+
+- Tier 1: T1-1, T1-2, T1-3, T1-4, T1-5, T1-7, T1-8 (T1-5 also created the shared
+  `tests/common/mod.rs`).
+- Tier 2: T2-1, T2-2, T2-3, T2-4, T2-5, T2-6, T2-7, T2-8, T2-9, T2-10 — **every
+  Tier-2 file split is done**.
+- Tier 3: T3-2 (partial — the `url.rs`/`json_edit.rs` extraction).
+
+Remaining, and why each is NOT a pure file split doable under this bug's non-goals:
+
+- **T1-6** (`repo_acceptance.rs` → 4 test binaries): doable and mechanical (the
+  helpers go to the now-existing `tests/common/mod.rs`), but the tests only run
+  against a live `repository/` server the suite shells out to build — verification
+  is expensive and env-dependent, so it is deferred rather than landed unverified.
+- **T1-9** (`audio/macos.rs`): **blocked on bug-330** (the audio macos/alsa dedup;
+  `audio/common.rs` does not exist yet). Splitting first disentangles the
+  frame-offset const schemes twice — the doc's own ordering forbids it.
+- **T3-1** (`data_objects` ownership): NOT a pure split — reconciling the two
+  inline data-object construction paths is a design decision plus a dedup, which
+  bug-327's non-goals push to a separate bug. The `code/mod.rs` mod-block hoist
+  and the `runtime_symbol_closure.rs` extraction are the only pure-move sub-parts.
+- **glob→explicit conversion**: the doc's own Open Decision. It cannot be
+  mechanized safely: a full symbol-list per module runs to hundreds of entries
+  (e.g. `use fs::*` re-exports all of paths/io/atomic) and buys no navigability,
+  while a used-only list requires resolving the entire transitive namespace of
+  85 `use super::*` files. It is a large open-ended refactor, not a file split.
+- **T3-2's `.mfp`-decode deletion** and **T2-7's `nir/constfold` dedup** are
+  explicitly deletions/dedupes (behavioral), out of scope for a byte-identical
+  split per the non-goals; each is a separate bug's job.
+
+Process notes captured to agent memory: sweep BOTH `src/docs/spec` and
+`src/docs/man` citations per split (man test is symbol-level, spec is file-level);
+`scripts/fix_citations.py` is broken (wrong SPEC_DIR); never name an already-`git
+rm`'d path in `git add` (aborts the whole add; a stray staged `git rm` leaks into
+the next commit — use `git add -A <dir>`).
 Regression Test: artifact gate + acceptance suite per split — `scripts/artifact-gate.sh <exe>` and `scripts/test-accept.sh <exe>`. **Byte-identical generated output is the acceptance criterion**; there is no new behavioral test, because a pure file split emits no new bytes.
 
 The cleanup review measured ~20 files between 1,000 and 5,268 lines whose
