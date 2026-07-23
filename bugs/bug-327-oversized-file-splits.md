@@ -5,7 +5,7 @@ Effort: huge (>3d — this is a multi-week work order; land it file-by-file, one
 Severity: LOW
 Class: Other (cleanup / file organization)
 
-Status: Open (all pure file splits landed) — Phase 0 + **18 splits**, each verified
+Status: Open (all pure file splits landed) — Phase 0 + **19 splits**, each verified
 byte-identical (artifact-gate 0 diffs + acceptance 1080, + per-split unit tests
 and both citation-resolution tests):
 
