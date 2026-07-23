@@ -6,9 +6,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
+mod doc_items;
 mod expr;
 mod items;
 mod lexical;
+mod link_items;
 pub(crate) mod manifest;
 mod parser;
 mod serialize;

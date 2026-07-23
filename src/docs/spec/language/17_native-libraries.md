@@ -293,7 +293,7 @@ LINK "mylib" AS mylib
 END LINK
 ```
 
-> Implementation status: multiple `OUT` slots parse and marshal (each gets its own buffer), but only one can be named by `RETURN`, so the others are unreachable. An earlier design reserved a `RETURN_OUT DivModResult[quotient, remainder]` clause for this; it was **retired** by plan-50-H, whose `RETURN <expr>` covers the single-output case that `RETURN_OUT` was mostly there to spell. Reviving multi-output means extending `RETURN` to construct a record from several slots, not adding a second clause. [[src/ast/items.rs:parse_link_function]]
+> Implementation status: multiple `OUT` slots parse and marshal (each gets its own buffer), but only one can be named by `RETURN`, so the others are unreachable. An earlier design reserved a `RETURN_OUT DivModResult[quotient, remainder]` clause for this; it was **retired** by plan-50-H, whose `RETURN <expr>` covers the single-output case that `RETURN_OUT` was mostly there to spell. Reviving multi-output means extending `RETURN` to construct a record from several slots, not adding a second clause. [[src/ast/link_items.rs:parse_link_function]]
 
 **Freeing a caller-owned return (`FREE`).** A `CPtr` result mapped to an owned MFBASIC value (such as `AS String`) is **copied** out of the native buffer and the source pointer is then left untouched — *copy-and-leave*. That is correct when the native library **owns** the buffer and keeps it valid (a transient or static pointer), as with `sqlite3_column_text`. When the call instead returns a buffer the **caller owns and must release** — `sqlite3_expanded_sql`, `sqlite3_mprintf`, `strdup` — copy-and-leave would leak it. A `FREE` block names the produced slot and the deallocator that releases it:
 
