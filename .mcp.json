@@ -2,7 +2,7 @@
   "mcpServers": {
     "mfbasic": {
       "command": "node",
-      "args": ["/Users/justinzaun/Development/mfb/tools/mcp/index.js"]
+      "args": ["tools/mcp/index.js"]
     }
   }
 }

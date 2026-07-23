@@ -15,7 +15,7 @@ END SUB
 
 ```console
 $ mfb build examples/hello_world
-$ ./examples/hello_world/hello_world.out
+$ ./examples/hello_world/build/hello_world.out   # Linux: build/hello_world-glibc.out (or -musl)
 Hello, world
 ```
 
@@ -62,7 +62,7 @@ Create and build a project:
 ```console
 $ mfb init myapp        # scaffold an executable project
 $ mfb build myapp       # validate and compile to a native executable
-$ ./myapp/myapp.out     # run it
+$ ./myapp/build/myapp.out     # run it (Linux: build/myapp-glibc.out or -musl)
 ```
 
 ## Project layout
@@ -114,11 +114,11 @@ Built-in packages, brought in with `IMPORT` and called with `::`, cover:
 - **Core & data** — `general`, `types`, `collections`, `strings`, `unicode`,
   `math`, `bits`, `filters`, `lambda`
 - **Encoding & data formats** — `encoding`, `json`, `csv`, `regex`
-- **I/O & system** — `io`, `fs`, `term`, `datetime`, `os`
+- **I/O & system** — `io`, `fs`, `term`, `datetime`, `os`, `audio`
 - **Concurrency** — `thread`
 - **Networking** — `net`, `tls`, `http`
 - **Security** — `crypto`
-- **Math** — `vector`
+- **Math** — `vector`, `money`
 - **Testing** — `testing` (with `mfb test`)
 
 Browse them with `mfb man`, or `mfb man <package> <function>` for any built-in.

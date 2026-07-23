@@ -13,7 +13,7 @@
 //! The defect is that the generated code compiles and looks right; only the
 //! narrowing op at the comparison seam distinguishes fixed from broken. A
 //! genuinely failing filesystem is required to observe the runtime difference
-//! (the tmpfs/NFS harness in `planning/bug-44-c-int-return-width-fsync-close.md`),
+//! (the tmpfs/NFS harness in `bugs/completed-bugs/bug-44-c-int-return-width-fsync-close.md`),
 //! which the macOS dev host cannot stage. This test therefore locks the codegen
 //! structure across all four backends instead: every checked `fsync`/`close`
 //! call is immediately followed by a `sxtw`, and never directly by a

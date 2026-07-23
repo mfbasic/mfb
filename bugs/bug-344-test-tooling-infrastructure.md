@@ -422,6 +422,10 @@ There is no orphaned-golden problem in this repository. Do not re-run this scan.
   `money_package.mfb`).
 - Fix: correct the two paths, add the libc-flavor note, add the two packages.
   This is the first file a new user reads.
+- **Fixed 2026-07-22.** `README.md`: both run paths now show `<proj>/build/…` with
+  the Linux libc-flavor note (`-glibc.out`/`-musl.out`); `audio` added to I/O &
+  system and `money` to Math (both verified to ship: `src/builtins/{audio,money}.rs`
+  + `_package.mfb`).
 
 #### F3 — the benchmark suite points at a path the compiler stopped writing, runs two timing engines, and contradicts its own README
 
@@ -485,6 +489,8 @@ There is no orphaned-golden problem in this repository. Do not re-run this scan.
   **portability** — it breaks for any other developer or a relocated clone — not
   silent unavailability here.
 - Fix: make the path repo-relative.
+- **Fixed 2026-07-22.** `.mcp.json` arg is now `tools/mcp/index.js` (resolves from
+  the project root the MCP client launches in). Portable across clones/worktrees.
 
 #### F7 — small stale citations and typos, including two inside a model prompt
 
@@ -500,6 +506,15 @@ There is no orphaned-golden problem in this repository. Do not re-run this scan.
   `io::terminalSize` until plan-01-term Phase 3 removed that builtin; because the
   whole case is GUI-gated it kept being skipped…"). (Cited as `:343-345`; the
   block starts at `:342`.)
+
+- **Fixed 2026-07-22 (the verified subset).** `.ai/remote_systems.md`: "Alipine"
+  → "Alpine" (×4). `tests/fs_atomic_int_return.rs`: the bug-44 citation path
+  corrected from `planning/…` to `bugs/completed-bugs/bug-44-c-int-return-width-
+  fsync-close.md` (the doc lives there, not in `planning/`). **Not changed:** the
+  `update_man.sh` "shuold"/"informaiton" typos are already gone (grep finds
+  neither) — stale finding; and the `test-macapp.sh` narration is **accurate
+  history**, not stale — it correctly explains why the case now calls
+  `term::terminalSize` (and was silently broken while GUI-gated), so it stays.
 
 #### F8 — the `project-entry-*` fixture family
 
