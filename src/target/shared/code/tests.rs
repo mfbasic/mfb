@@ -270,3 +270,65 @@ fn variable_width_element_types_are_not_fixed_width() {
         );
     }
 }
+
+/// bug-352: an allocation-size-overflow guard must NOT raise its error through
+/// `emit_allocation_error_return`. That helper reads the error code out of the
+/// result-tag register (`x0`), which is only valid *after* a failed
+/// `_mfb_arena_alloc` call. An overflow label sits on a *pre-call* edge where the
+/// checked-size helper has just deposited a partially-computed size into that same
+/// register, so the register form would surface that size as the error code. The
+/// correct idiom is `emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, …)`, which
+/// materializes the code into a fresh register first.
+///
+/// This scans the builder source directly (over every current and future
+/// `builder_*.rs`) so a fourth mis-wired site is a compile-time-suite failure, not
+/// a silently-garbage error payload nobody can reach to observe.
+#[test]
+fn no_overflow_label_returns_through_the_result_tag_register() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/target/shared/code");
+    let mut offenders = Vec::new();
+    let mut checked_files = 0usize;
+    let mut overflow_labels = 0usize;
+
+    let mut entries: Vec<_> = std::fs::read_dir(&dir)
+        .expect("read codegen builder dir")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("builder_") && n.ends_with(".rs"))
+        })
+        .collect();
+    entries.sort();
+
+    for path in entries {
+        checked_files += 1;
+        let source = std::fs::read_to_string(&path).expect("read builder source");
+        let lines: Vec<&str> = source.lines().collect();
+        for (index, line) in lines.iter().enumerate() {
+            // Match an emitted label whose name mentions "overflow" — the guard
+            // labels for allocation-size wraps (`overflow`, `size_overflow`,
+            // `ascii_size_overflow`).
+            if line.contains("abi::label(&") && line.contains("overflow") {
+                overflow_labels += 1;
+                // The very next emitted return must not be the register form.
+                if let Some(next) = lines.get(index + 1) {
+                    if next.contains("emit_allocation_error_return") {
+                        let file = path.file_name().unwrap().to_string_lossy();
+                        offenders.push(format!("{file}:{}", index + 2));
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(checked_files > 20, "expected the builder corpus, scanned {checked_files}");
+    assert!(overflow_labels >= 20, "expected the overflow labels, found {overflow_labels}");
+    assert!(
+        offenders.is_empty(),
+        "overflow label(s) return through the result-tag register \
+         (emit_allocation_error_return reads x0, which holds the computed size \
+         here, not an error code — use emit_error_code_return): {offenders:?}"
+    );
+}

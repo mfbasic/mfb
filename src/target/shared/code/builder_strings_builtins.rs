@@ -1413,10 +1413,14 @@ impl CodeBuilder<'_> {
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
-        // A 64-bit wrap in the size computation raises the same catchable
-        // allocation error as an oversized request (defense-in-depth; bug-60).
+        // A size wrap reports the same 77010001 an impossible allocation would
+        // (x0 does not hold an error code before the call, so the register-based
+        // return above cannot be shared). The checked-size helper deposits the
+        // partially-computed size into the return register before branching here,
+        // so `emit_allocation_error_return` would surface that size as the error
+        // code (bug-60 detection, bug-352 code fix).
         self.emit(abi::label(&overflow));
-        self.emit_allocation_error_return()?;
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],

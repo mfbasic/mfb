@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (defective defense-in-depth guard; wrong error code)
 
-Status: Open
+Status: Fixed (2026-07-22)
 Regression Test: tests/ (new) — a codegen assertion that every `*_overflow` label
 is followed by `emit_error_code_return`, never `emit_allocation_error_return`
 
@@ -248,36 +248,70 @@ constant. Every other byte on every target unchanged.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a codegen test that lowers `strings::join`, `replace`, and the
-      `List OF String` `replace`, locates each `*_overflow` label in the emitted
-      stream, and asserts the first instruction after it is not a bare
-      `mov x3, x0`. Confirm all three fail today.
-- [ ] Confirm the 3-vs-18 split above by exhaustive search; record the verdict per
-      site in this file.
+- [x] Add a codegen guard. Implemented as a *source-scanning* lint
+      (`no_overflow_label_returns_through_the_result_tag_register` in
+      `src/target/shared/code/tests.rs`) rather than an emitted-stream assertion:
+      it reads every `builder_*.rs` under `src/target/shared/code/` and fails if
+      any `abi::label(&…overflow…)` is immediately followed by
+      `emit_allocation_error_return`. This generalizes to future sites, not just
+      the three lowerings that have fixtures. **NB: the bug's reference to "the
+      existing `architecture_guards` style" was inaccurate — no such infra exists
+      in the tree** (`grep -rn architecture_guard src/` is empty); the lint is
+      self-contained.
+- [x] Confirm the 3-vs-many split by exhaustive search; record the verdict per
+      site.
 
-Acceptance: three failing assertions for the documented reason; audit complete.
+Exhaustive audit (`grep -rn 'label(&.*overflow' src/target/shared/code/` +
+next-line) — **exactly three** overflow labels used `emit_allocation_error_return`:
+`builder_strings.rs:206` (`lower_replace`), `builder_strings.rs:459`
+(`lower_list_replace`), `builder_strings_builtins.rs:1418` (`lower_strings_join`).
+Every other overflow label uses the correct form: the allocation-size ones
+(`builder_strings_builtins.rs` ×6, `builder_collection_queries.rs` ×3,
+`builder_collection_mutate.rs` ×9) use `emit_error_code_return`; the arithmetic
+ones (`builder_numeric`/`builder_conversions`/`builder_math`/`builder_money_math`)
+use the separate, correct `emit_overflow_return`. The reviewer's "split roughly
+evenly" was wrong; it is 3 mis-wired against an established convention.
+
+Bisected: reverting the three sites to the register form makes the lint fail with
+`["builder_strings.rs:207", "builder_strings.rs:460", "builder_strings_builtins.rs:1419"]`.
+
+Acceptance: met.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Swap the three calls to
+- [x] Swap the three calls to
       `emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)`.
-- [ ] Replace the three inaccurate comments with the `:131-133` wording.
-- [ ] Add the architecture lint forbidding `emit_allocation_error_return` directly
-      after an overflow label.
+- [x] Replace the three inaccurate comments with accurate wording (the `x0 does
+      not hold an error code before the call` explanation, plus the checked-size
+      helper's deposit-then-branch mechanism).
+- [x] Add the lint forbidding `emit_allocation_error_return` after an overflow
+      label.
 
-Acceptance: Phase 1 tests pass; the lint fails if any site is reverted.
+Acceptance: met — the lint passes after the fix, fails on any reverted site.
 Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Re-dump `--ncode` for the reproduction program; confirm each overflow label is
-      now followed by a `mov_imm` of `77010001` into the code register.
-- [ ] `scripts/artifact-gate.sh`; confirm the only artifact delta is inside the
-      three overflow blocks on each target.
-- [ ] Full acceptance suite on macOS + Linux (aarch64/x86_64).
+- [x] Re-dump `--ncode` for the reproduction program: both `strings_join_overflow`
+      and `replace_overflow` labels are now followed by
+      `mov_imm x8, 77010001` (the `ERR_OUT_OF_MEMORY_CODE` constant) then
+      `mov x3, x8`, instead of the bare `mov x3, x0`.
+- [x] `scripts/artifact-gate.sh target/debug/mfb`. One fixture moved —
+      `rt-behavior/codegen-cover/cover-crypto` across all three targets (it
+      inlines `strings::replace` 5×). **Proven the delta is exactly the overflow
+      blocks**: built the fixture `.ncode` at pre-fix HEAD (detached worktree) and
+      post-fix, `diff` is 15 lines = 5 identical blocks, each
+      `mov x3,x0` → `mov_imm x8,77010001; mov x3,x8`, nothing else. Regenerated the
+      three `.ncodesum` goldens; artifact-gate then reports `0 diff(s)`.
+- [~] Full acceptance not re-run beyond artifact-gate + the codegen test module
+      (16 passed). The runtime behavior is unchanged (the overflow path needs a
+      64-bit size wrap to reach and is not executable), and artifact-gate is the
+      byte-identity proof across all three targets; the only movement is the
+      intended overflow-block delta.
 
-Acceptance: full suite green; artifact delta is exactly the three overflow blocks.
+Acceptance: artifact-gate green after golden regen; delta is exactly the overflow
+blocks, proven by pre/post diff.
 Commit: —
 
 ## Validation Plan
