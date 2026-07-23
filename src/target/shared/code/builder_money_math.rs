@@ -5,7 +5,11 @@
 //! `M * Fixed`, `M / Fixed`, and the `toMoney`/`toFixed` conversions). Given a
 //! truncated-toward-zero magnitude quotient/remainder and the divisor magnitude,
 //! it reads the per-arena rounding mode and emits the correct half-adjustment,
-//! then applies the result sign — so the two modes are implemented exactly once.
+//! then applies the result sign. The half-away / half-even *policy* is stated
+//! here once; `emit_round_double_to_money_raw` (the float→Money conversion path)
+//! reaches the same tie-break in the FP domain and so carries its own copy of the
+//! parity test — the two cannot share a single emitter because one works on
+//! integer magnitudes and the other on an `fcmp` against 0.5 (bug-332 C3).
 //!
 //! `toString(Money)` deliberately does **not** call this helper: its presentation
 //! rounding is a fixed half-away-from-zero rule, independent of the mode
