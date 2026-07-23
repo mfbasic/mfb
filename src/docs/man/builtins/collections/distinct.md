@@ -92,14 +92,14 @@ No errors.
 because `distinct` is implemented in terms of `collections::contains`. A call
 whose element type is not comparable is rejected at compile time with
 `TYPE_REQUIRES_COMPARABLE`, reported against the internal `collections.contains`
-call. [[src/ir/verify/mod.rs:check_builtin_call_args]]
+call. [[src/ir/verify/compat.rs:check_builtin_call_args]]
 
 Comparable types are `Integer`, `Float`, `Fixed`, `Money`, `Boolean`, `String`,
 `Byte`, `Scalar`, `Nothing`, the built-in `Error` and `ErrorLoc` record shapes,
 enum types, and records whose fields are all comparable. `List`, `Map`, `UNION`
 types, `Result`, function values, threads, and resource handles are **not**
 comparable, so `distinct` cannot be applied to a `List OF List OF T`, a list of
-maps, or a list of resource handles. [[src/ir/verify/mod.rs:is_comparable_seen]]
+maps, or a list of resource handles. [[src/ir/verify/values.rs:is_comparable_seen]]
 
 ## Examples
 

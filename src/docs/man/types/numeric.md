@@ -135,7 +135,7 @@ already NaN or infinite is rejected at the boundary with `ErrInvalidFormat`. [[s
 is 0.00001, and every decimal amount in the range -92233720368547.75808 through
 92233720368547.75807 is represented exactly. [[src/numeric.rs:MONEY_SCALE]] It is
 a **dimensioned** numeric with a restricted algebra, enforced at compile time as
-`TYPE_MONEY_OPERATION_INVALID`: [[src/ir/verify/mod.rs:check_money_operands]]
+`TYPE_MONEY_OPERATION_INVALID`: [[src/ir/verify/values.rs:check_money_operands]]
 
 - Add or subtract two `Money` amounts (`M + M`, `M - M`), and take a `Money`
   remainder (`M MOD M`) — both operands must be `Money`.

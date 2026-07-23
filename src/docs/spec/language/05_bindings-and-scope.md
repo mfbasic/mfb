@@ -40,7 +40,7 @@ Rules:
   A `MUT` *may* omit its initializer, but only when its declared type has a
   defined default value: `MUT x AS T` (no value) starts at `T`'s default, and a
   non-defaultable `T` is `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` (enforced on the IR
-  by the semantic verifier). [[src/ir/verify/mod.rs:is_defaultable]] `RES` resources are not defaultable and must be bound
+  by the semantic verifier). [[src/ir/verify/resources.rs:is_defaultable]] `RES` resources are not defaultable and must be bound
   to a producing expression.
 - **Lexical, hierarchical scope.** Inner blocks may read and use bindings from
   enclosing scopes, but may **not** re-declare (shadow) a name already in scope —

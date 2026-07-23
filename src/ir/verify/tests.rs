@@ -5589,8 +5589,19 @@ fn native_rule_sets_agree_between_syntaxcheck_and_verify() {
         names
     }
 
-    let syntaxcheck = native_names(include_str!("../../syntaxcheck/mod.rs"));
-    let verify = native_names(include_str!("mod.rs"));
+    // The native-LINK rule emitters live in each layer's `link.rs` topic module
+    // (bug-327 T2-6 / T2-1 extracted them from the module roots); scan both files
+    // per layer so this parity guard covers where the rules now live.
+    let syntaxcheck = native_names(&format!(
+        "{}{}",
+        include_str!("../../syntaxcheck/mod.rs"),
+        include_str!("../../syntaxcheck/link.rs"),
+    ));
+    let verify = native_names(&format!(
+        "{}{}",
+        include_str!("mod.rs"),
+        include_str!("link.rs"),
+    ));
     assert!(
         !syntaxcheck.is_empty() && !verify.is_empty(),
         "extraction found no NATIVE_* names — the test itself is broken, \

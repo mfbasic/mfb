@@ -85,7 +85,7 @@ enqueue success:
   transferred name is a use-after-move. The receiving thread finds the record
   flagged `moved`, and any operation on it there reports `ErrResourceMoved` rather
   than acting on a handle that has left.
-  [[src/ir/verify/mod.rs:check_resource_moves]]
+  [[src/ir/verify/resources.rs:check_resource_moves]]
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal

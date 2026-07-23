@@ -76,14 +76,14 @@ list value and leaves its argument intact.
 the instantiated element type must be one the `<` operator accepts: `Integer`,
 `Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`. `Money` compares only
 against `Money`, and `Scalar` never orders against `String`.
-[[src/ir/verify/mod.rs:check_binary_operands]]
+[[src/ir/verify/values.rs:check_binary_operands]]
 
 The constraint is enforced after monomorphization, when the generic body has
 been instantiated for a concrete `T`. Sorting a list whose element type the `<`
 operator does not accept — a `Boolean`, a record, a nested `List`, or a `Map` —
 is a compile-time `TYPE_BINARY_OPERATOR_MISMATCH` error reported against the
 comparison inside the merge, not a runtime failure.
-[[src/ir/verify/mod.rs:check_binary_operands]]
+[[src/ir/verify/values.rs:check_binary_operands]]
 
 ## Examples
 

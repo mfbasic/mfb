@@ -18,7 +18,7 @@ by `./mfb man money`.
 fixed-point value scaled to **five decimal places**. One raw unit is `0.00001`;
 `1.00000` is the raw integer `100000`, i.e. the scale factor is `10^5`. The
 representable range follows directly from the i64 carrier: `-92233720368547.75808`
-through `92233720368547.75807`. [[src/ir/verify/mod.rs:check_const_literal]]
+through `92233720368547.75807`. [[src/ir/verify/values.rs:check_const_literal]]
 
 Because the scale is a power of **ten**, every decimal amount within range is
 stored with **no representation error**: `0.10`, `0.01`, `0.20` are the exact raw

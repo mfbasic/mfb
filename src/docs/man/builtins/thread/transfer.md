@@ -64,7 +64,7 @@ a bare resource on a stateful plane, and two disagreeing states, all with
 the resource, so — unlike a `RES` parameter, which is an opaque non-escaping alias
 — "bare" does not accept any state here. The `STATE` payload travels with the
 resource and is deep-copied into the receiving thread's arena, so the accepted
-handle owns an independent copy. [[src/ir/verify/mod.rs:check_thread_transfer_state]] [[src/builtins/thread.rs:resolve_call]]
+handle owns an independent copy. [[src/ir/verify/calls.rs:check_thread_transfer_state]] [[src/builtins/thread.rs:resolve_call]]
 
 `timeoutMs` bounds the wait for space on a full destination resource queue and
 defaults to `0`, filled in during lowering. `0` does not wait and fails at once
@@ -122,7 +122,7 @@ equal the plane's `STATE` or IR verification rejects the call with
 `TYPE_STATE_MISMATCH`. A non-resource plane element, a data-only thread handle, or
 a non-sendable resource type is rejected with `TYPE_THREAD_NOT_SENDABLE`.
 `timeoutMs`, when supplied, must be `Integer`. The result is always `Nothing`.
-[[src/ir/verify/mod.rs:check_thread_transfer_state]] [[src/syntaxcheck/resources.rs:require_thread_sendable_type]]
+[[src/ir/verify/calls.rs:check_thread_transfer_state]] [[src/syntaxcheck/resources.rs:require_thread_sendable_type]]
 
 ## Examples
 

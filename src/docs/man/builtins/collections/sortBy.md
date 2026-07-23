@@ -81,13 +81,13 @@ from the arguments. The ordering constraint applies to `U`, **not** to `T`: the
 keys are what `<` is applied to, so `U` must be one of the types the `<` operator
 accepts — `Integer`, `Byte`, `Float`, `Fixed`, `Money`, `String`, or `Scalar`.
 `Money` compares only against `Money`, and `Scalar` never orders against
-`String`. [[src/ir/verify/mod.rs:check_binary_operands]]
+`String`. [[src/ir/verify/values.rs:check_binary_operands]]
 
 `T` carries no ordering requirement. A list of records, of nested lists, or of
 any other unordered element type sorts fine as long as `keyFn` projects it to an
 orderable `U`. A `U` the `<` operator does not accept is a compile-time
 `TYPE_BINARY_OPERATOR_MISMATCH` error, reported after monomorphization against
-the key comparison inside the merge. [[src/ir/verify/mod.rs:check_binary_operands]]
+the key comparison inside the merge. [[src/ir/verify/values.rs:check_binary_operands]]
 
 ## Examples
 
