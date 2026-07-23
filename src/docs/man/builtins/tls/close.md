@@ -27,7 +27,7 @@ On Linux it performs an orderly TLS shutdown and frees the OpenSSL objects
 file descriptor; on macOS it cancels the Network.framework connection. After a
 successful return the socket is marked closed and must not be used again — any
 later `tls::` call that takes the same value raises an error rather than touching
-a stale handle. [[src/target/shared/code/tls/openssl.rs:lower_tls_close_helper]] [[src/target/shared/code/tls/macos.rs:lower_tls_close_macos]]
+a stale handle. [[src/target/shared/code/tls/openssl.rs:lower_tls_close_helper]] [[src/target/shared/code/tls/macos/client.rs:lower_tls_close_macos]]
 
 `close` consumes the `TlsSocket` it is given: the value is moved into the call and
 cannot be referenced afterward. [[src/builtins/tls.rs:consumes_argument]] The call is

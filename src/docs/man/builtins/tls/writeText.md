@@ -33,7 +33,7 @@ The bytes are taken from the string in order, starting at its first byte. An
 empty `value` is a no-op: nothing is sent and the call succeeds without touching
 the TLS layer. The function reads from the existing string buffer and allocates
 nothing of its own; it has no side effects beyond the bytes it sends and does
-not close the socket. [[src/target/shared/code/tls/macos.rs:lower_tls_write_macos]]
+not close the socket. [[src/target/shared/code/tls/macos/client.rs:lower_tls_write_macos]]
 
 `writeText` returns `Nothing`; there is no short-write result to inspect, because
 a partial write that cannot be completed is reported as an error rather than a

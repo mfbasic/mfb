@@ -105,4 +105,4 @@ Two of the codes above are raised only by the Linux (OpenSSL) backend. The macOS
 failure — an unresolvable host included — into `ErrTlsFailed`, so a program that
 branches on `ErrAddressNotFound` or `ErrAddressInvalid` takes a different branch
 there. Branch on `ErrTlsFailed` as well when the behavior must be identical on
-both platforms. [[src/target/shared/code/tls/macos.rs:lower_tls_connect_macos]]
+both platforms. [[src/target/shared/code/tls/macos/client.rs:lower_tls_connect_macos]]

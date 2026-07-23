@@ -67,7 +67,7 @@ certificate or key that cannot be read, does not parse, or does not match its
 partner raises `ErrTlsFailed`, and the listening socket is closed before the
 error is returned.
 [[src/target/shared/code/tls/openssl.rs:lower_tls_listen_helper]]
-[[src/target/shared/code/tls/macos.rs:lower_tls_listen_macos]]
+[[src/target/shared/code/tls/macos/server.rs:lower_tls_listen_macos]]
 
 A single server certificate is presented: there is no SNI multi-certificate
 selection, and the listener does not request or verify a client certificate (no
