@@ -1,87 +1,60 @@
 # bug-331: the fs/io/os/net codegen surface is ~18,400 lines of four parallel, hand-copied implementations of the same six emitters
 
-Last updated: 2026-07-18
+Last updated: 2026-07-23
 Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: In progress (partially landed 2026-07-23)
-Regression Test: `scripts/artifact-gate.sh` + `scripts/test-accept.sh` — **byte-identical
-generated output is the whole guarantee**; no new behavioral test, because a correct fix
-changes no emitted byte.
+Status: Resolved (2026-07-23)
+Regression Test: `scripts/artifact-gate.sh` (byte-identical for every refactor) +
+`scripts/test-accept.sh` + the new `fs-embedded-nul-rt` fixture (the one behavior change).
 
-## Progress (2026-07-23)
+## Resolution (2026-07-23)
 
-The structural groundwork this bug called for has **already landed** under bug-327 and
-later cleanups: `src/target/shared/code/fs/` is now a real directory module
-(`fs/{mod,paths,io,atomic}.rs`), `os.rs` became the `os/` directory module, and
-`io_helpers.rs` was split into `io_stdin.rs`/`io_stdout.rs`/`io_terminal.rs`. Every line
-number in the sections below is against the pre-split `b12213d2` worktree and is stale.
+The structural groundwork had already landed under bug-327 (the `fs/` directory module, the
+`os/` directory, the `io_helpers.rs` → `io_stdin/stdout/terminal` split), so the line
+numbers throughout the sections below are stale. Every item is now resolved. Each landed as
+its own commit; every refactor is `artifact-gate.sh` byte-identical (0 diffs, 1064 tests,
+1321 goldens) and the full `test-accept.sh` suite is green (1081 tests).
 
-Landed this session, each its own commit and each gated byte-identical by
-`scripts/artifact-gate.sh` (0 diffs, 1064 tests). `scripts/test-accept.sh` is green apart
-from one pre-existing **flaky** fixture, `rt-behavior/resources/closed-default-tls-drop-rt`,
-which SIGSEGVs (exit 139) on roughly one run in six and passes on retry (6/6 on re-run
-here) — a TLS-drop-over-socket timing race, provably unrelated to this work.
-
-**Done, byte-identical:**
-
-- **§I** — deleted the shadowing `const EINTR_ERRNO` in `net/io.rs`/`net/poll.rs`.
-- **§D** — the two hand-rolled `push_error_message_address` blocks in `fs/paths.rs` now
-  call the helper (the io-file §D sites were already resolved by the io split).
-- **§C** — `lower_fs_open_helper`'s eight unrolled `emit_branch_if_ascii_literal` calls
-  folded into the `for`-loop form already used next door.
-- **§B** — `lower_fs_write_text_path_helper`/`_bytes_` collapsed into
-  `lower_fs_write_path_helper(bytes)`; `cap` allocated only in byte mode so the String
+- **§A** — extracted `fs::emit_cstring_copy(reject_nul, …)` for the 11 path-marshal copy
+  loops (byte-identical), then flipped `fs::exists`/`fileExists`/`directoryExists` to
+  `reject_nul = true` with an `ErrInvalidArgument` tail so an embedded NUL is rejected
+  rather than silently truncating the path (the quarantined Phase-6 behavior change). New
+  fixture `fs-embedded-nul-rt` proves all three return `77050002` for a NUL path while a
+  NUL-free path still resolves. The `currentDirectory`/`tempDirectory` copy loops are result
+  copies of the OS-returned path, not input marshals, so they keep the check off.
+- **§B** — `lower_fs_write_text/bytes_path_helper` collapsed into
+  `lower_fs_write_path_helper(bytes)`; `cap` is allocated only in byte mode so the String
   path keeps its vreg numbering.
-- **§H** — `emit_string_result_build` extracted, shared by net `read`/`receiveFrom` (the
-  error tails were already shared via `emit_alloc`/`emit_fail`/`emit_call_validate_utf8`).
+- **§C** — the eight unrolled `emit_branch_if_ascii_literal` calls folded into the `for`-loop
+  form already used by the open-within helper.
+- **§D** — the two hand-rolled `push_error_message_address` blocks in `fs/paths.rs` call the
+  helper (the io-file sites were already resolved by the io split).
+- **§E** — extracted `emit_append_to_buffer` behind a `BufferSink` descriptor, shared by the
+  stdout and file append paths (the bug's flagged strongest case: 63 substitutions/side,
+  including the irregular vreg renumbering and the conditional fd/drain-handle emission),
+  byte-identical. The drain and `isBuffered`/`setBuffered` pairs are the bug's own "not for
+  free" tail — structurally divergent (different register roles and load orders, `File*`
+  threading vs arena-state, and an `app_mode` early-out), where a byte-identical shared
+  emitter's conditional-emission overhead approaches the dedup — and are left as documented.
+- **§F** — extracted `emit_utf8_sequence_read` (a `Utf8SeqLabels` struct + offsets + `on_lf`)
+  shared by `readChar`/`readLine`; the two had drifted to different label *names*, so every
+  label is passed explicitly to keep both sites byte-identical.
+- **§G** — collapsed the 35 `fs.*`/`io.*` dispatch arms to the `net.*` shape (one guard, an
+  inner match yielding the 4-tuple, one `CodeFunction` construction). The six
+  `params: Vec::new()` arms the bug flagged had since been reconciled — all constructions
+  now pass `Vec::new()` uniformly — so the collapse is byte-identical with no golden change.
+- **§H** — extracted `emit_string_result_build`, shared by net `read`/`receiveFrom` (the
+  error tails were already shared via `emit_alloc`/`emit_fail`/`emit_call_validate_utf8`;
+  the `List OF Byte` builders genuinely differ and stay per-site).
+- **§I** — deleted the shadowing `const EINTR_ERRNO` in `net/io.rs`/`net/poll.rs`.
 - **§J** — `emit_trailing_slash_trim` extracted (base_name/dir_name); the discarded
-  `platform` param dropped from `lower_fs_path_join_helper`; `VALIDATE_UTF8_SYMBOL`/
-  `SORT_STRING_LIST_SYMBOL` relocated to `codegen_utils.rs`.
+  `platform` param dropped from `lower_fs_path_join_helper`; the generic
+  `VALIDATE_UTF8_SYMBOL`/`SORT_STRING_LIST_SYMBOL` relocated to `codegen_utils.rs`.
 
-**Remaining — deep investigation (2026-07-23) shows each needs a decision, not just typing:**
+## Original analysis (2026-07-18)
 
-- **§A (marshal).** The full unification is NOT a byte-identical refactor. The fs sites are
-  heterogeneous: the plain path marshal (`fs/paths.rs`), the `openFile`/`openFileWithin`
-  variant that carries the embedded-NUL check *inside* the copy loop, and unrelated
-  temp-name synthesis (`fs/atomic.rs`); their alloc/OOM prologues also differ (inline
-  `ErrOutOfMemory`→`done` vs `os::marshal_cstring`'s branch-to-`alloc_fail`). The one part
-  worth unifying — making every marshal reject embedded NUL — is the **Phase-6 behavior
-  change** the doc already quarantines (`fs::exists("a\0b")` would change from `FALSE` to an
-  error). Only the inner copy-and-terminate loop is byte-identically shareable, and even it
-  spans sites with divergent register names; low value for the churn.
-- **§G (dispatch collapse).** Collapsing the ~35 `fs.*`/`io.*` arms to the `net.*` shape is
-  **not byte-identical** while the six `params: Vec::new()` arms exist: a single collapsed
-  construction derives `params` from `spec.abi.params`, which would change the
-  `.nplan`/`.nobj` descriptive model for those six. Per the doc's own Phase 1/5, that needs
-  a deliberate per-arm verdict (a golden change) — which the Non-goals forbid folding into a
-  refactor commit.
-- **§F (UTF-8 decoder).** The two decoders have **drifted apart**: not a clean label infix
-  but different label *names* (`read_second`/`read_third` vs `multi_start`/`line_read_third`)
-  plus `LEN_OFFSET` vs `SEQ_LEN_OFFSET`, `BYTES_OFFSET` 8 vs 48, `got_len` vs `have_sequence`,
-  and the `on_lf` (`trim_cr`) insertion. A byte-identical shared emitter needs ~15
-  per-label/offset params over a ~195-line interleaved block — the indirection approaches
-  the duplication it removes.
-- **§E (buffered output).** The append pair is 40% different (63 substitutions/side): the
-  buffer-block vregs are offset (`%v20`–`%v28` vs `%v30`–`%v39`) while the direct-write
-  vregs (`%v40`/`%v41`) are shared, and the fd source differs in *instruction count*
-  (immediate `1` vs a `FILE_OFFSET_FD` load). A sink-descriptor extraction is achievable but
-  is a large mixed-shared/offset-vreg rewrite; the drain/`isBuffered` pairs the doc itself
-  says "collapse … not for free."
-
-Net: the remaining duplication is entangled with the two behavior/model changes the doc
-quarantines (§A's NUL rejection, §G's six-arm verdict) or has drifted enough that a
-zero-diff shared emitter is unwieldy (§E, §F). Per the doc's Non-goals ("if an item cannot
-be landed with a zero-diff artifact gate, it must be dropped or re-scoped — not landed with
-a golden regeneration"), these await an explicit scope decision.
-- **§G** — the ~35 `fs.*`/`io.*` dispatch arms in `mod.rs` are still un-collapsed (44
-  `Ok(CodeFunction {…})` constructions remain). **Hazard**: the six `params: Vec::new()`
-  arms must be resolved by hand first.
-- **§H** — the duplicated `net/io.rs` result builders.
-- **§J** — `VALIDATE_UTF8_SYMBOL`/`SORT_STRING_LIST_SYMBOL`/`FS_PATH_JOIN_SYMBOL`
-  placement in `fs/paths.rs` and the trailing-slash trim loops in `builder_fs_paths.rs`
-  (low-value tidiness).
 
 `src/target/shared/code/` contains four sibling implementations of the `fs`, `io`, `os`,
 and `net` runtime helpers that were built at different times and never reconciled. They
