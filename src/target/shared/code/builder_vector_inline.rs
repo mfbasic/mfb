@@ -15,6 +15,15 @@
 //! bodies differ). Inlining fires only when every operand is cheap and
 //! side-effect-free to re-evaluate (the field reads duplicate each operand once
 //! per lane); anything else falls back to the FUNC.
+//!
+//! This module also owns the **register-native vector carrier** (bug-332 F3),
+//! which is a codegen-wide escape-boundary hook rather than an inlining detail:
+//! `VECTOR_NATIVE_MARKER` tags a `ValueResult.location` whose lanes live in the
+//! `vector_natives` side-table, and `is_vector_native` / `vector_native_lanes` /
+//! `make_vector_native` / `materialize_value` are the construction and
+//! boundary-materialization API. Every site that stores a small-vector value as 8
+//! bytes or passes it as an argument routes through `materialize_value`, so the
+//! carrier is load-bearing beyond the `vector::`-op inlining above.
 
 use super::*;
 
