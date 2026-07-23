@@ -247,7 +247,7 @@ gathers the syntax-rule diagnostics, IR is lowered, the IR semantic verifier
 gathers the semantic-rule diagnostics, and the two streams are concatenated in
 source order and rendered together. On the package path, package merging runs
 the IR semantic verifier once over the fully merged IR before any code is emitted.
-[[src/cli/build.rs:build_project]] [[src/target/shared/nir/lower.rs:merge_packages]]
+[[src/cli/build/mod.rs:build_project]] [[src/target/shared/nir/lower.rs:merge_packages]]
 
 ## See Also
 

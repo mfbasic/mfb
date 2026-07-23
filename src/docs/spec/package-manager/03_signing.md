@@ -136,7 +136,7 @@ Attestation (server-signed, fetched per build via POST /signing):
 The signed bytes are the exact JSON strings as produced (fixed field order, no
 re-serialization); verifiers compare fields after parsing but verify the
 signature over the raw stored bytes.
-[[src/cli/build.rs:load_build_signing_info]][[repository/src/server.rs:attestation_json]]
+[[src/cli/build/signing.rs:load_build_signing_info]][[repository/src/server.rs:attestation_json]]
 
 ### Registration flow
 
@@ -157,12 +157,12 @@ role's message before recording the owner. [[repository/src/server.rs:register]]
 `mfb build --sign <owner>` assembles the signing bundle through
 `load_build_signing_info`, which is only honored for package and executable
 builds (validate output); other outputs error. The server must be reachable —
-every signed build fetches a fresh attestation. [[src/cli/build.rs:load_build_signing_info]]
+every signed build fetches a fresh attestation. [[src/cli/build/signing.rs:load_build_signing_info]]
 
 1. Fix the signed identity: the manifest `ident` when declared (it must be
    `<owner>#<package>` and belong to the signing owner), else the canonical
    `<owner>#<name>`; the version comes from the validated manifest.
-   [[src/cli/build.rs:signing_ident]]
+   [[src/cli/build/signing.rs:signing_ident]]
 2. Read the local **ident** keypair (`<owner>.ident.{prv,pub}`; register or
    link this machine first) and cross-check the pair.
 3. Generate the **one-off signing keypair** — fresh for this build.
@@ -184,7 +184,7 @@ every signed build fetches a fresh attestation. [[src/cli/build.rs:load_build_si
 For **package** builds the identity fields are stamped into the
 binary-representation metadata via `apply_signing_metadata` (sets `ident`,
 `ident_key`, `ident_fingerprint`, `signing_fingerprint`, `author = owner`) so
-the embedded manifest repeats the header identity. [[src/cli/build.rs:apply_signing_metadata]]
+the embedded manifest repeats the header identity. [[src/cli/build/signing.rs:apply_signing_metadata]]
 For **executable** builds the JSON blob below is embedded instead.
 
 ## Executable signing metadata (`mfb-signing-v1`)
@@ -192,7 +192,7 @@ For **executable** builds the JSON blob below is embedded instead.
 Executable builds embed a single-line JSON object describing the signer,
 including the full proof and attestation so the embedded claim is verifiable.
 Field order and the trailing newline are fixed by the formatter; string values
-are JSON-escaped. [[src/cli/build.rs:executable_signing_metadata_json]]
+are JSON-escaped. [[src/cli/build/signing.rs:executable_signing_metadata_json]]
 
 ```json
 {"format":"mfb-signing-v1","owner":"<owner>","author":"<owner>","identKey":"ed25519:<base64>","identFingerprint":"<hex>","signingKey":"ed25519:<base64>","signingFingerprint":"<hex>","proof":"<proof JSON>","proofSignature":"<base64url>","attestation":"<attestation JSON>","attestationSignature":"<base64url>","signatureType":"Ed25519"}
@@ -213,7 +213,7 @@ are JSON-escaped. [[src/cli/build.rs:executable_signing_metadata_json]]
 | `attestationSignature` | base64url 64-byte server signature over the attestation |
 | `signatureType` | constant `Ed25519` |
 
-The blob is UTF-8 bytes (`.into_bytes()`) and threaded to `target::write_executable` as the executable signing metadata. [[src/cli/build.rs:load_build_signing_info]]
+The blob is UTF-8 bytes (`.into_bytes()`) and threaded to `target::write_executable` as the executable signing metadata. [[src/cli/build/signing.rs:load_build_signing_info]]
 
 ## Trust boundary
 
@@ -222,7 +222,7 @@ time — it only checks header/manifest identity agreement and structural
 sanity. Chain verification (pinned server key → attestation → pinned ident →
 proof → one-off key → bytes) is the package manager's responsibility at
 build/verify time; see `./mfb spec package verifier-rules`.
-[[src/cli/build.rs:classify_installed_package]]
+[[src/cli/build/packages.rs:classify_installed_package]]
 
 ## See Also
 

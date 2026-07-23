@@ -31,7 +31,7 @@ native binding `.mfp`: importers consume the package API and do not repeat the
 ## Debug-dump artifacts
 
 Every intermediate stage can be dumped from the build with a flag. Each row is the
-artifact, the flag that produces it, and the pipeline stage it captures.[[src/cli/build.rs:BuildOutput]]
+artifact, the flag that produces it, and the pipeline stage it captures.[[src/cli/build/mod.rs:BuildOutput]]
 
 | Artifact | Command | Contents |
 | --- | --- | --- |

@@ -15,7 +15,7 @@ Every flag longer than one character is spelled `--flag`. The single-dash
 spellings of the `build`/`test` flags (`-ast`, `-ir`, `-br`, `-nir`, `-nplan`,
 `-nobj`, `-ncode`, `-mir`, `-target`, `-regalloc`, `-app`) predate this and
 remain accepted, undocumented aliases of the `--` forms; they parse identically
-and are not listed below.[[src/cli/build.rs:from_flag]] The single-character
+and are not listed below.[[src/cli/build/mod.rs:from_flag]] The single-character
 flags `-q`/`-v` keep their single dash (with `--quiet`/`--verbose` long forms).
 The diagnostics quoted in this topic name the legacy single-dash spelling
 verbatim, whichever form was typed.
@@ -104,7 +104,7 @@ re-ran rather than the instant of the final link.[[build.rs:watch_build_state]]
 
 ## `build` Flags
 
-`parse_build_options` parses the flags.[[src/cli/build.rs:parse_build_options]] The
+`parse_build_options` parses the flags.[[src/cli/build/options.rs:parse_build_options]] The
 output-mode flags **combine**: any number of distinct output flags may be given
 in one invocation, and every requested artifact file is written from a single
 shared front-end pass, in flag order (repeating the same flag — in either
@@ -147,7 +147,7 @@ repository to be reachable: the build reads the local
 threads the bundle to the package writer; the one-off private key is discarded
 with the build. The signed ident is the manifest `ident` (which must belong to
 `owner`), else `<owner>#<name>`. See `./mfb spec package-manager signing`.
-[[src/cli/build.rs:load_build_signing_info]]
+[[src/cli/build/signing.rs:load_build_signing_info]]
 
 `--unsigned` relaxes exactly one check, and only in one direction. An unsigned
 dependency whose source is local (`file:`/`local:`, or no source at all) is
@@ -157,12 +157,12 @@ source is not local; pass --unsigned to allow it". The flag makes that case
 permitted too. It is the opt-out for the audit-1 PKG-01 supply-chain check, so it
 weakens a security control and nothing else: it does not disable signature
 *verification* of packages that do carry one.
-[[src/cli/build.rs:verify_and_report_packages]]
+[[src/cli/build/packages.rs:verify_and_report_packages]]
 
 `--app` is **executable-only** and requires a native target that supports app mode
 (`macos-aarch64`, `linux-aarch64`, or `linux-x86_64`); otherwise it errors before any lowering
 (`mfb build -app requires an executable project` / `mfb build -app requires a
-macOS or Linux target`).[[src/cli/build.rs:build_project]] A duplicate `--app` yields
+macOS or Linux target`).[[src/cli/build/mod.rs:build_project]] A duplicate `--app` yields
 `mfb build accepts at most one -app option`. App mode selects
 `NativeBuildMode::LinuxApp`/`MacApp`; console builds use `NativeBuildMode::Console`.
 
@@ -198,12 +198,12 @@ package emits only `.mfp`. The `--regalloc` flag requires a value (`mfb build
 
 `build` runs the pipeline parse → resolve → monomorphize → resolve (no DOC
 re-validation) → validate entry point → syntaxcheck before emitting any artifact;
-any stage failure exits `1`.[[src/cli/build.rs:build_project]] Build-mode and
+any stage failure exits `1`.[[src/cli/build/mod.rs:build_project]] Build-mode and
 build-flag *semantics* live in `./mfb spec architecture commands`.
 
 **Verbosity** (`Verbosity`/`Reporter`) is orthogonal to the output mode and
 never reaches codegen, so the emitted artifact bytes are identical at every
-level.[[src/cli/build.rs:Reporter]] The default (`Normal`) prints one
+level.[[src/cli/build/mod.rs:Reporter]] The default (`Normal`) prints one
 deterministic context line to **stderr** before the pipeline runs — `Building
 <name> (<kind>) for <target>` — followed by the `Wrote … to` artifact line on
 **stdout**. `-q`/`--quiet` suppresses the summary, restoring an artifact-line-only

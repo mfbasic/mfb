@@ -233,7 +233,7 @@ The MFPC payload's own `bcMajor` (which must be `2`) is checked separately when 
 
 What the import-time container reader does **not** do:
 
-* It does **not** verify the cryptographic signature, proof, attestation, or `packageBinaryHash`. Trust verification is performed by the package-manager layer at build/install time — the trust verification chain (see `verifier-rules`) — not by the binary-representation reader at import time. The import-time reader treats the signature bytes only as a region to skip over. [[src/cli/build.rs:classify_installed_package]]
+* It does **not** verify the cryptographic signature, proof, attestation, or `packageBinaryHash`. Trust verification is performed by the package-manager layer at build/install time — the trust verification chain (see `verifier-rules`) — not by the binary-representation reader at import time. The import-time reader treats the signature bytes only as a region to skip over. [[src/cli/build/packages.rs:classify_installed_package]]
 * It does **not** validate the container header `binaryReprMajor`/`binaryReprMinor` fields.
 
 Recommended limits (enforced by the header and package readers while reading; `name`, `ident`, and `version` must be non-empty in the repository reader, and every string field must be valid UTF-8): [[src/manifest/package.rs:read_mfp_header]] [[repository/src/package.rs:parse_mfp_package]]

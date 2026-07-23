@@ -49,7 +49,7 @@ package **Tampered** and fails the build:
 
 `signatureType == 0` (Unsigned) remains allowed for local `file://`/`local:`
 dependencies only; a remote unsigned dependency requires the `--unsigned`
-opt-in. [[src/cli/build.rs:classify_installed_package]]
+opt-in. [[src/cli/build/packages.rs:classify_installed_package]]
 
 ### Payload / sections
 

@@ -53,7 +53,7 @@ The manifest repeats the container header identity: `packageName`,
 header no longer carries fingerprint fields). For an unsigned package all five
 identity-chain strings are empty. A signed build stamps these fields from the
 signing bundle (`apply_signing_metadata`); they are never read from the
-project manifest. [[src/binary_repr/reader.rs:validate_container_manifest_identity]][[src/cli/build.rs:apply_signing_metadata]]
+project manifest. [[src/binary_repr/reader.rs:validate_container_manifest_identity]][[src/cli/build/signing.rs:apply_signing_metadata]]
 
 Current compiler values (`encode_manifest`):
 

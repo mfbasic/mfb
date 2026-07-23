@@ -31,7 +31,7 @@ it checkable from a dump. [[src/target.rs:is_app]]
 
 Every build flag also accepts an undocumented single-dash alias (`-ast`,
 `-target`, `-app`, …) for backwards compatibility; the `--` spelling is
-canonical. [[src/cli/build.rs:from_flag]]
+canonical. [[src/cli/build/mod.rs:from_flag]]
 
 The output flags are mutually exclusive. If no output flag is supplied,
 `mfb build` emits:

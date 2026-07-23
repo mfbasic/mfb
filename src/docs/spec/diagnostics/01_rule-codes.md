@@ -527,7 +527,7 @@ Codes `0003`–`0007` are the client verification-chain refusals: each broken
 link of pinned-server-key → attestation → pinned-ident → proof → one-off-key →
 bytes gets its own code, emitted by the build gate after the
 `uses <name> - [Tampered]` line.
-[[src/cli/build.rs:classify_installed_package]]
+[[src/cli/build/packages.rs:classify_installed_package]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |

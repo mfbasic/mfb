@@ -4,7 +4,7 @@ The human-readable JSON dump of the typed IR, emitted by `mfb build --ir`.
 
 `mfb build --ir` lowers the concrete AST to an `IrProject`, then writes
 `<name>.ir` next to the project (the file is named from the project name, not the
-flag).[[src/cli/build.rs:BuildOutput]][[src/ir/lower.rs:write_ir]] The contents are
+flag).[[src/cli/build/mod.rs:BuildOutput]][[src/ir/lower.rs:write_ir]] The contents are
 `IrProject::to_json`, a hand-rolled pretty-printer.[[src/ir/json.rs:to_json]]
 
 This is a DISTINCT, separately versioned debug serialization. It is **not** the

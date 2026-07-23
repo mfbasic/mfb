@@ -433,7 +433,7 @@ the key served by `GET /ident`.[[repository/src/server.rs:signing]][[repository/
 The client verifies the returned signature against its pinned `server.pub`
 before using the attestation, and refuses an attestation that does not pin the
 requested package or that names a different ident key than the machine
-holds.[[repository/src/client.rs:request_attestation]][[src/cli/build.rs:load_build_signing_info]]
+holds.[[repository/src/client.rs:request_attestation]][[src/cli/build/signing.rs:load_build_signing_info]]
 
 ## Transparency Log — `/log/*`
 
