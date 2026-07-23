@@ -357,6 +357,250 @@ pub(super) fn lower_io_read_byte_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
+/// The label set for the shared UTF-8 lead-byte decoder (bug-331 §F). The two
+/// callers (`readChar`/`readLine`) drifted to different label *names*, not just a
+/// prefix, so every label is passed explicitly to keep each site's `.ncode`/`.mir`
+/// goldens byte-identical.
+struct Utf8SeqLabels<'a> {
+    eof: &'a str,
+    read_second: &'a str,
+    read_third: &'a str,
+    read_fourth: &'a str,
+    three_not_e0: &'a str,
+    three_general: &'a str,
+    three_second_ok: &'a str,
+    four_not_f0: &'a str,
+    four_general: &'a str,
+    four_second_ok: &'a str,
+    encoding_error: &'a str,
+    input_error: &'a str,
+    cont: &'a str,
+}
+
+/// Emit the shared 1/2/3/4-byte UTF-8 lead-byte decoder (bug-331 §F): validate the
+/// sequence (overlong/surrogate rejection), read continuation bytes, and store the
+/// sequence length at `sp + len_offset`, ending at the caller's `cont` label. The
+/// sole behavioural delta is `on_lf`: `readLine` passes its `trim_cr` label so a
+/// lone LF short-circuits; `readChar` passes `None`.
+#[allow(clippy::too_many_arguments)]
+fn emit_utf8_sequence_read(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    app_mode: bool,
+    l: &Utf8SeqLabels,
+    bytes_offset: usize,
+    len_offset: usize,
+    on_lf: Option<&str>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    instructions.extend([
+        abi::branch_eq(l.eof),
+        abi::load_u8("%v10", abi::stack_pointer(), bytes_offset),
+    ]);
+    if let Some(lf) = on_lf {
+        instructions.push(abi::compare_immediate("%v10", "10"));
+        instructions.push(abi::branch_eq(lf));
+    }
+    instructions.extend([
+        abi::compare_immediate("%v10", "127"),
+        abi::branch_hi(l.read_second),
+        abi::move_immediate("%v11", "Integer", "1"),
+        abi::store_u64("%v11", abi::stack_pointer(), len_offset),
+        abi::branch(l.cont),
+        abi::label(l.read_second),
+        abi::compare_immediate("%v10", "194"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v10", "223"),
+        abi::branch_hi(l.read_third),
+    ]);
+    emit_continuation_read(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut *instructions,
+            relocations: &mut *relocations,
+        },
+        app_mode,
+        bytes_offset + 1,
+        &format!("{symbol}_cont1_retry"),
+        &format!("{symbol}_cont1_resume"),
+        l.input_error,
+    )?;
+    instructions.extend([
+        abi::branch_eq(l.encoding_error),
+        abi::load_u8("%v11", abi::stack_pointer(), bytes_offset + 1),
+        abi::compare_immediate("%v11", "128"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "191"),
+        abi::branch_hi(l.encoding_error),
+        abi::move_immediate("%v11", "Integer", "2"),
+        abi::store_u64("%v11", abi::stack_pointer(), len_offset),
+        abi::branch(l.cont),
+        abi::label(l.read_third),
+        abi::compare_immediate("%v10", "239"),
+        abi::branch_hi(l.read_fourth),
+    ]);
+    emit_continuation_read(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut *instructions,
+            relocations: &mut *relocations,
+        },
+        app_mode,
+        bytes_offset + 1,
+        &format!("{symbol}_cont2_retry"),
+        &format!("{symbol}_cont2_resume"),
+        l.input_error,
+    )?;
+    instructions.extend([
+        abi::branch_eq(l.encoding_error),
+        abi::load_u8("%v11", abi::stack_pointer(), bytes_offset + 1),
+        abi::compare_immediate("%v10", "224"),
+        abi::branch_ne(l.three_not_e0),
+        abi::compare_immediate("%v11", "160"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "191"),
+        abi::branch_hi(l.encoding_error),
+        abi::branch(l.three_second_ok),
+        abi::label(l.three_not_e0),
+        abi::compare_immediate("%v10", "237"),
+        abi::branch_ne(l.three_general),
+        abi::compare_immediate("%v11", "128"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "159"),
+        abi::branch_hi(l.encoding_error),
+        abi::branch(l.three_second_ok),
+        abi::label(l.three_general),
+        abi::compare_immediate("%v11", "128"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "191"),
+        abi::branch_hi(l.encoding_error),
+        abi::label(l.three_second_ok),
+    ]);
+    emit_continuation_read(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut *instructions,
+            relocations: &mut *relocations,
+        },
+        app_mode,
+        bytes_offset + 2,
+        &format!("{symbol}_cont3_retry"),
+        &format!("{symbol}_cont3_resume"),
+        l.input_error,
+    )?;
+    instructions.extend([
+        abi::branch_eq(l.encoding_error),
+        abi::load_u8("%v11", abi::stack_pointer(), bytes_offset + 2),
+        abi::compare_immediate("%v11", "128"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "191"),
+        abi::branch_hi(l.encoding_error),
+        abi::move_immediate("%v11", "Integer", "3"),
+        abi::store_u64("%v11", abi::stack_pointer(), len_offset),
+        abi::branch(l.cont),
+        abi::label(l.read_fourth),
+        abi::compare_immediate("%v10", "240"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v10", "244"),
+        abi::branch_hi(l.encoding_error),
+    ]);
+    emit_continuation_read(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut *instructions,
+            relocations: &mut *relocations,
+        },
+        app_mode,
+        bytes_offset + 1,
+        &format!("{symbol}_cont4_retry"),
+        &format!("{symbol}_cont4_resume"),
+        l.input_error,
+    )?;
+    instructions.extend([
+        abi::branch_eq(l.encoding_error),
+        abi::load_u8("%v11", abi::stack_pointer(), bytes_offset + 1),
+        abi::compare_immediate("%v10", "240"),
+        abi::branch_ne(l.four_not_f0),
+        abi::compare_immediate("%v11", "144"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "191"),
+        abi::branch_hi(l.encoding_error),
+        abi::branch(l.four_second_ok),
+        abi::label(l.four_not_f0),
+        abi::compare_immediate("%v10", "244"),
+        abi::branch_ne(l.four_general),
+        abi::compare_immediate("%v11", "128"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "143"),
+        abi::branch_hi(l.encoding_error),
+        abi::branch(l.four_second_ok),
+        abi::label(l.four_general),
+        abi::compare_immediate("%v11", "128"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "191"),
+        abi::branch_hi(l.encoding_error),
+        abi::label(l.four_second_ok),
+    ]);
+    emit_continuation_read(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut *instructions,
+            relocations: &mut *relocations,
+        },
+        app_mode,
+        bytes_offset + 2,
+        &format!("{symbol}_cont5_retry"),
+        &format!("{symbol}_cont5_resume"),
+        l.input_error,
+    )?;
+    instructions.extend([
+        abi::branch_eq(l.encoding_error),
+        abi::load_u8("%v11", abi::stack_pointer(), bytes_offset + 2),
+        abi::compare_immediate("%v11", "128"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "191"),
+        abi::branch_hi(l.encoding_error),
+    ]);
+    emit_continuation_read(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut *instructions,
+            relocations: &mut *relocations,
+        },
+        app_mode,
+        bytes_offset + 3,
+        &format!("{symbol}_cont6_retry"),
+        &format!("{symbol}_cont6_resume"),
+        l.input_error,
+    )?;
+    instructions.extend([
+        abi::branch_eq(l.encoding_error),
+        abi::load_u8("%v11", abi::stack_pointer(), bytes_offset + 3),
+        abi::compare_immediate("%v11", "128"),
+        abi::branch_lo(l.encoding_error),
+        abi::compare_immediate("%v11", "191"),
+        abi::branch_hi(l.encoding_error),
+        abi::move_immediate("%v11", "Integer", "4"),
+        abi::store_u64("%v11", abi::stack_pointer(), len_offset),
+        abi::label(l.cont),
+    ]);
+    Ok(())
+}
+
 pub(super) fn lower_io_read_char_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
@@ -440,202 +684,40 @@ pub(super) fn lower_io_read_char_helper(
         &input_error,
         &invalid_context,
     )?;
-    instructions.extend([
-        abi::branch_eq(&eof),
-        abi::load_u8("%v10", abi::stack_pointer(), BYTES_OFFSET),
-        abi::compare_immediate("%v10", "127"),
-        abi::branch_hi(&read_second),
-        abi::move_immediate("%v11", "Integer", "1"),
-        abi::store_u64("%v11", abi::stack_pointer(), LEN_OFFSET),
-        abi::branch(&got_len),
-        abi::label(&read_second),
-        abi::compare_immediate("%v10", "194"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v10", "223"),
-        abi::branch_hi(&read_third),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
+    let three_not_e0 = format!("{symbol}_three_not_e0");
+    let three_general = format!("{symbol}_three_general");
+    let three_second_ok = format!("{symbol}_three_second_ok");
+    let four_not_f0 = format!("{symbol}_four_not_f0");
+    let four_general = format!("{symbol}_four_general");
+    let four_second_ok = format!("{symbol}_four_second_ok");
+    let seq_labels = Utf8SeqLabels {
+        eof: &eof,
+        read_second: &read_second,
+        read_third: &read_third,
+        read_fourth: &read_fourth,
+        three_not_e0: &three_not_e0,
+        three_general: &three_general,
+        three_second_ok: &three_second_ok,
+        four_not_f0: &four_not_f0,
+        four_general: &four_general,
+        four_second_ok: &four_second_ok,
+        encoding_error: &encoding_error,
+        input_error: &input_error,
+        cont: &got_len,
+    };
+    emit_utf8_sequence_read(
+        symbol,
+        platform_imports,
+        platform,
         app_mode,
-        BYTES_OFFSET + 1,
-        &format!("{symbol}_cont1_retry"),
-        &format!("{symbol}_cont1_resume"),
-        &input_error,
+        &seq_labels,
+        BYTES_OFFSET,
+        LEN_OFFSET,
+        None,
+        &mut instructions,
+        &mut relocations,
     )?;
     instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::move_immediate("%v11", "Integer", "2"),
-        abi::store_u64("%v11", abi::stack_pointer(), LEN_OFFSET),
-        abi::branch(&got_len),
-        abi::label(&read_third),
-        abi::compare_immediate("%v10", "239"),
-        abi::branch_hi(&read_fourth),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 1,
-        &format!("{symbol}_cont2_retry"),
-        &format!("{symbol}_cont2_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("%v10", "224"),
-        abi::branch_ne(&format!("{symbol}_three_not_e0")),
-        abi::compare_immediate("%v11", "160"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::branch(&format!("{symbol}_three_second_ok")),
-        abi::label(&format!("{symbol}_three_not_e0")),
-        abi::compare_immediate("%v10", "237"),
-        abi::branch_ne(&format!("{symbol}_three_general")),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "159"),
-        abi::branch_hi(&encoding_error),
-        abi::branch(&format!("{symbol}_three_second_ok")),
-        abi::label(&format!("{symbol}_three_general")),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::label(&format!("{symbol}_three_second_ok")),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 2,
-        &format!("{symbol}_cont3_retry"),
-        &format!("{symbol}_cont3_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::move_immediate("%v11", "Integer", "3"),
-        abi::store_u64("%v11", abi::stack_pointer(), LEN_OFFSET),
-        abi::branch(&got_len),
-        abi::label(&read_fourth),
-        abi::compare_immediate("%v10", "240"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v10", "244"),
-        abi::branch_hi(&encoding_error),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 1,
-        &format!("{symbol}_cont4_retry"),
-        &format!("{symbol}_cont4_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("%v10", "240"),
-        abi::branch_ne(&format!("{symbol}_four_not_f0")),
-        abi::compare_immediate("%v11", "144"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::branch(&format!("{symbol}_four_second_ok")),
-        abi::label(&format!("{symbol}_four_not_f0")),
-        abi::compare_immediate("%v10", "244"),
-        abi::branch_ne(&format!("{symbol}_four_general")),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "143"),
-        abi::branch_hi(&encoding_error),
-        abi::branch(&format!("{symbol}_four_second_ok")),
-        abi::label(&format!("{symbol}_four_general")),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::label(&format!("{symbol}_four_second_ok")),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 2,
-        &format!("{symbol}_cont5_retry"),
-        &format!("{symbol}_cont5_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 3,
-        &format!("{symbol}_cont6_retry"),
-        &format!("{symbol}_cont6_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 3),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::move_immediate("%v11", "Integer", "4"),
-        abi::store_u64("%v11", abi::stack_pointer(), LEN_OFFSET),
-        abi::label(&got_len),
         abi::load_u64("%v10", abi::stack_pointer(), LEN_OFFSET),
         abi::add_immediate(abi::return_register(), "%v10", 9),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
@@ -921,204 +1003,44 @@ pub(super) fn lower_io_read_line_helper(
         &input_error,
         &invalid_context,
     )?;
-    instructions.extend([
-        abi::branch_eq(&format!("{symbol}_read_eof")),
-        abi::load_u8("%v10", abi::stack_pointer(), BYTES_OFFSET),
-        abi::compare_immediate("%v10", "10"),
-        abi::branch_eq(&trim_cr),
-        abi::compare_immediate("%v10", "127"),
-        abi::branch_hi(&format!("{symbol}_multi_start")),
-        abi::move_immediate("%v11", "Integer", "1"),
-        abi::store_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::branch(&have_sequence),
-        abi::label(&format!("{symbol}_multi_start")),
-        abi::compare_immediate("%v10", "194"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v10", "223"),
-        abi::branch_hi(&format!("{symbol}_line_read_third")),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
+    let read_eof = format!("{symbol}_read_eof");
+    let multi_start = format!("{symbol}_multi_start");
+    let line_read_third = format!("{symbol}_line_read_third");
+    let line_read_fourth = format!("{symbol}_line_read_fourth");
+    let line_three_not_e0 = format!("{symbol}_line_three_not_e0");
+    let line_three_general = format!("{symbol}_line_three_general");
+    let line_three_second_ok = format!("{symbol}_line_three_second_ok");
+    let line_four_not_f0 = format!("{symbol}_line_four_not_f0");
+    let line_four_general = format!("{symbol}_line_four_general");
+    let line_four_second_ok = format!("{symbol}_line_four_second_ok");
+    let seq_labels = Utf8SeqLabels {
+        eof: &read_eof,
+        read_second: &multi_start,
+        read_third: &line_read_third,
+        read_fourth: &line_read_fourth,
+        three_not_e0: &line_three_not_e0,
+        three_general: &line_three_general,
+        three_second_ok: &line_three_second_ok,
+        four_not_f0: &line_four_not_f0,
+        four_general: &line_four_general,
+        four_second_ok: &line_four_second_ok,
+        encoding_error: &encoding_error,
+        input_error: &input_error,
+        cont: &have_sequence,
+    };
+    emit_utf8_sequence_read(
+        symbol,
+        platform_imports,
+        platform,
         app_mode,
-        BYTES_OFFSET + 1,
-        &format!("{symbol}_cont1_retry"),
-        &format!("{symbol}_cont1_resume"),
-        &input_error,
+        &seq_labels,
+        BYTES_OFFSET,
+        SEQ_LEN_OFFSET,
+        Some(&trim_cr),
+        &mut instructions,
+        &mut relocations,
     )?;
     instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::move_immediate("%v11", "Integer", "2"),
-        abi::store_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::branch(&have_sequence),
-        abi::label(&format!("{symbol}_line_read_third")),
-        abi::compare_immediate("%v10", "239"),
-        abi::branch_hi(&format!("{symbol}_line_read_fourth")),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 1,
-        &format!("{symbol}_cont2_retry"),
-        &format!("{symbol}_cont2_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("%v10", "224"),
-        abi::branch_ne(&format!("{symbol}_line_three_not_e0")),
-        abi::compare_immediate("%v11", "160"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::branch(&format!("{symbol}_line_three_second_ok")),
-        abi::label(&format!("{symbol}_line_three_not_e0")),
-        abi::compare_immediate("%v10", "237"),
-        abi::branch_ne(&format!("{symbol}_line_three_general")),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "159"),
-        abi::branch_hi(&encoding_error),
-        abi::branch(&format!("{symbol}_line_three_second_ok")),
-        abi::label(&format!("{symbol}_line_three_general")),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::label(&format!("{symbol}_line_three_second_ok")),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 2,
-        &format!("{symbol}_cont3_retry"),
-        &format!("{symbol}_cont3_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::move_immediate("%v11", "Integer", "3"),
-        abi::store_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::branch(&have_sequence),
-        abi::label(&format!("{symbol}_line_read_fourth")),
-        abi::compare_immediate("%v10", "240"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v10", "244"),
-        abi::branch_hi(&encoding_error),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 1,
-        &format!("{symbol}_cont4_retry"),
-        &format!("{symbol}_cont4_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("%v10", "240"),
-        abi::branch_ne(&format!("{symbol}_line_four_not_f0")),
-        abi::compare_immediate("%v11", "144"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::branch(&format!("{symbol}_line_four_second_ok")),
-        abi::label(&format!("{symbol}_line_four_not_f0")),
-        abi::compare_immediate("%v10", "244"),
-        abi::branch_ne(&format!("{symbol}_line_four_general")),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "143"),
-        abi::branch_hi(&encoding_error),
-        abi::branch(&format!("{symbol}_line_four_second_ok")),
-        abi::label(&format!("{symbol}_line_four_general")),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::label(&format!("{symbol}_line_four_second_ok")),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 2,
-        &format!("{symbol}_cont5_retry"),
-        &format!("{symbol}_cont5_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-    ]);
-    emit_continuation_read(
-        &mut EmitCtx {
-            symbol,
-            platform_imports,
-            platform,
-            instructions: &mut instructions,
-            relocations: &mut relocations,
-        },
-        app_mode,
-        BYTES_OFFSET + 3,
-        &format!("{symbol}_cont6_retry"),
-        &format!("{symbol}_cont6_resume"),
-        &input_error,
-    )?;
-    instructions.extend([
-        abi::branch_eq(&encoding_error),
-        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 3),
-        abi::compare_immediate("%v11", "128"),
-        abi::branch_lo(&encoding_error),
-        abi::compare_immediate("%v11", "191"),
-        abi::branch_hi(&encoding_error),
-        abi::move_immediate("%v11", "Integer", "4"),
-        abi::store_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::label(&have_sequence),
         abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
         abi::load_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
         abi::add_registers("%v12", "%v10", "%v11"),
