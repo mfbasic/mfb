@@ -92,11 +92,22 @@ impl CodeBuilder<'_> {
         })
     }
 
-    fn lower_bits_not(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+    /// Lower a single `bits.*` argument and require it to be `Integer`, returning
+    /// the lowered value or the shared `does not accept` diagnostic (bug-332 G5).
+    fn lower_bits_one_integer(
+        &mut self,
+        function: &str,
+        arg: &NirValue,
+    ) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
         if value.type_ != "Integer" {
-            return Err(format!("bits.bnot does not accept {}", value.type_));
+            return Err(format!("bits.{function} does not accept {}", value.type_));
         }
+        Ok(value)
+    }
+
+    fn lower_bits_not(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_bits_one_integer("bnot", arg)?;
         let dst = self.allocate_register()?;
         self.emit(abi::bitwise_not(&dst, &value.location));
         Ok(ValueResult {
@@ -190,10 +201,7 @@ impl CodeBuilder<'_> {
         function: &str,
         arg: &NirValue,
     ) -> Result<ValueResult, String> {
-        let value = self.lower_value(arg)?;
-        if value.type_ != "Integer" {
-            return Err(format!("bits.{function} does not accept {}", value.type_));
-        }
+        let value = self.lower_bits_one_integer(function, arg)?;
         let dst = self.allocate_register()?;
         match function {
             "clz" => self.emit(abi::count_leading_zeros(&dst, &value.location)),
@@ -218,10 +226,7 @@ impl CodeBuilder<'_> {
     /// `popCount` — 64-bit Hamming weight via the standard SWAR sequence (no SIMD,
     /// so it lowers entirely with the integer ALU ops the codegen already owns).
     fn lower_bits_popcount(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
-        let value = self.lower_value(arg)?;
-        if value.type_ != "Integer" {
-            return Err(format!("bits.popCount does not accept {}", value.type_));
-        }
+        let value = self.lower_bits_one_integer("popCount", arg)?;
         let text = format!("bits.popCount({})", value.text);
 
         // plan-39 K2: on AArch64 the 64-bit Hamming weight is a short NEON
@@ -282,10 +287,7 @@ impl CodeBuilder<'_> {
     /// the bits above their width: `REV` on the `W` register zero-extends, and the
     /// 16-bit form additionally shifts the reversed low half into place.
     fn lower_bits_bswap(&mut self, function: &str, arg: &NirValue) -> Result<ValueResult, String> {
-        let value = self.lower_value(arg)?;
-        if value.type_ != "Integer" {
-            return Err(format!("bits.{function} does not accept {}", value.type_));
-        }
+        let value = self.lower_bits_one_integer(function, arg)?;
         let dst = self.allocate_register()?;
         match function {
             "bswap16" => {
