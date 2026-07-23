@@ -109,74 +109,84 @@ pub(super) const MATH_CONST_POOL_SYMBOL: &str = "_mfb_math_const_pool";
 /// broadcast, in a fixed order. Each occupies a 16-byte slot (the value in both
 /// `.2d` lanes), so its byte offset is `index * 16`.
 pub(super) fn math_const_pool_words() -> Vec<u64> {
-    fn add(words: &mut Vec<u64>, bits: u64) {
-        if !words.contains(&bits) {
-            words.push(bits);
+    // Built once and memoized (bug-332 G2): the layout is order-dependent and three
+    // things derive from it (broadcast offsets, the data-object hex, mod.rs's size),
+    // so all three must see the *same* order — memoizing at this level guarantees
+    // that and drops the per-broadcast O(n^2) `contains` dedup rebuild. The
+    // `math_const_pool_layout_is_pinned` test enforces the cross-derivation agreement.
+    use std::sync::OnceLock;
+    static POOL: OnceLock<Vec<u64>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        fn add(words: &mut Vec<u64>, bits: u64) {
+            if !words.contains(&bits) {
+                words.push(bits);
+            }
         }
-    }
-    let mut w: Vec<u64> = Vec::new();
-    for v in [
-        LN2,
-        INV_LN2,
-        LN2_HI,
-        LN2_LO,
-        SQRT_HALF,
-        LN2_DD_LO,
-        LOG10_E,
-        LOG10_E_DD_LO,
-        INV_PIO2,
-        PIO2_1,
-        PIO2_2,
-        PIO2_2T,
-        0.5,
-        1.0,
-        1.5,
-        2.0,
-        3.0,
-        std::f64::consts::FRAC_PI_2,
-        std::f64::consts::PI,
-    ] {
-        add(&mut w, v.to_bits());
-    }
-    for v in ATAN_SEG_THRESH {
-        add(&mut w, v.to_bits());
-    }
-    for v in ATAN_HI {
-        add(&mut w, v.to_bits());
-    }
-    for v in ATAN_LO {
-        add(&mut w, v.to_bits());
-    }
-    for v in ATAN_AT {
-        add(&mut w, v.to_bits());
-    }
-    for v in EXP_COEFFS {
-        add(&mut w, v.to_bits());
-    }
-    for v in LOG_COEFFS {
-        add(&mut w, v.to_bits());
-    }
-    for v in SIN_COEFFS {
-        add(&mut w, v.to_bits());
-    }
-    for v in COS_COEFFS {
-        add(&mut w, v.to_bits());
-    }
-    for v in [
-        1023_i64,
-        -1022,
-        2047,
-        1022,
-        1,
-        3,
-        i64::MIN,
-        i64::MAX,
-        1022_i64 << 52,
-        0x800F_FFFF_FFFF_FFFF_u64 as i64,
-    ] {
-        add(&mut w, v as u64);
-    }
-    w
+        let mut w: Vec<u64> = Vec::new();
+        for v in [
+            LN2,
+            INV_LN2,
+            LN2_HI,
+            LN2_LO,
+            SQRT_HALF,
+            LN2_DD_LO,
+            LOG10_E,
+            LOG10_E_DD_LO,
+            INV_PIO2,
+            PIO2_1,
+            PIO2_2,
+            PIO2_2T,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+            3.0,
+            std::f64::consts::FRAC_PI_2,
+            std::f64::consts::PI,
+        ] {
+            add(&mut w, v.to_bits());
+        }
+        for v in ATAN_SEG_THRESH {
+            add(&mut w, v.to_bits());
+        }
+        for v in ATAN_HI {
+            add(&mut w, v.to_bits());
+        }
+        for v in ATAN_LO {
+            add(&mut w, v.to_bits());
+        }
+        for v in ATAN_AT {
+            add(&mut w, v.to_bits());
+        }
+        for v in EXP_COEFFS {
+            add(&mut w, v.to_bits());
+        }
+        for v in LOG_COEFFS {
+            add(&mut w, v.to_bits());
+        }
+        for v in SIN_COEFFS {
+            add(&mut w, v.to_bits());
+        }
+        for v in COS_COEFFS {
+            add(&mut w, v.to_bits());
+        }
+        for v in [
+            1023_i64,
+            -1022,
+            2047,
+            1022,
+            1,
+            3,
+            i64::MIN,
+            i64::MAX,
+            1022_i64 << 52,
+            0x800F_FFFF_FFFF_FFFF_u64 as i64,
+        ] {
+            add(&mut w, v as u64);
+        }
+        w
+    })
+    .clone()
 }
 
 /// The 16-byte-slot byte offset of `bits` in the pool, or `None` if not pooled.
@@ -2209,5 +2219,55 @@ impl FloatBinaryKernel {
         match self {
             FloatBinaryKernel::Atan2 => &[FloatError::Nan],
         }
+    }
+}
+
+#[cfg(test)]
+mod pool_layout_tests {
+    use super::*;
+
+    /// bug-332 G2 / Phase 1: the kernel constant pool is order-dependent and
+    /// positional — three things derive from `math_const_pool_words()`'s order (the
+    /// immediate offsets baked into every broadcast, the data-object hex, and the
+    /// declared size in `mod.rs`), and nothing else pinned the layout. This test
+    /// enforces that those derivations agree, so memoizing `math_const_pool_words`
+    /// (G2) — or any future coefficient edit — cannot silently make the emitted
+    /// offsets and the emitted data blob disagree.
+    #[test]
+    fn math_const_pool_layout_is_pinned() {
+        let words = math_const_pool_words();
+        assert!(!words.is_empty(), "the constant pool must not be empty");
+
+        // The pool dedups on insertion; a repeat would mean that invariant broke.
+        let mut seen = std::collections::HashSet::new();
+        for &w in &words {
+            assert!(seen.insert(w), "duplicate word {w:#x} in the constant pool");
+        }
+
+        // Every word's byte offset is exactly its index * 16, and the reverse
+        // lookup agrees — this is what the broadcast immediates depend on.
+        for (i, &w) in words.iter().enumerate() {
+            assert_eq!(
+                math_const_pool_offset(w),
+                Some(i * 16),
+                "offset for word[{i}] = {w:#x} disagrees with its position"
+            );
+        }
+
+        // The emitted data object stores two 8-byte lanes per word: 32 hex chars
+        // each. If this and the offsets ever disagree, every transcendental would
+        // read the wrong constant.
+        assert_eq!(
+            math_const_pool_data_value().len(),
+            words.len() * 32,
+            "data-object hex length must equal words.len() * 32 (2 lanes * 8 bytes * 2 hex chars)"
+        );
+
+        // Memoization must not change what a second call returns.
+        assert_eq!(
+            math_const_pool_words(),
+            words,
+            "math_const_pool_words() is not stable across calls"
+        );
     }
 }
