@@ -1186,42 +1186,9 @@ impl CodeBuilder<'_> {
             abi::VEC_SCRATCH[2],
         )); // r2 (Horner var)
             // cos_r = collapse(P_cos(r2)) → v23.
-        self.emit_compensated_horner(
-            abi::VEC_SCRATCH[3],
-            abi::VEC_SCRATCH[4],
-            abi::VEC_SCRATCH[1],
-            &COS_COEFFS,
-            k,
-        );
-        self.emit(abi::vector_fadd(
-            &k.v23,
-            abi::VEC_SCRATCH[3],
-            abi::VEC_SCRATCH[4],
-        ));
+        self.emit_cos_r_into(&k.v23, k);
         // sin_r = r * collapse(P_sin(r2)) → v24 (carry the lo through the multiply).
-        self.emit_compensated_horner(
-            abi::VEC_SCRATCH[3],
-            abi::VEC_SCRATCH[4],
-            abi::VEC_SCRATCH[1],
-            &SIN_COEFFS,
-            k,
-        );
-        self.emit_twoprod(
-            abi::VEC_SCRATCH[6],
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[3],
-        );
-        self.emit(abi::vector_fmla(
-            abi::VEC_SCRATCH[7],
-            abi::VEC_SCRATCH[2],
-            abi::VEC_SCRATCH[4],
-        )); // pe += r*lo
-        self.emit(abi::vector_fadd(
-            &k.v24,
-            abi::VEC_SCRATCH[6],
-            abi::VEC_SCRATCH[7],
-        ));
+        self.emit_sin_r_into(&k.v24, k);
         // Quadrant masks: bit0 (v1) and bit1 (v0) of quad.
         self.emit(abi::vector_shl(
             abi::VEC_SCRATCH[1],
