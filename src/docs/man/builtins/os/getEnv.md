@@ -26,7 +26,7 @@ IMPORT os
 `os::getEnv` returns the value of the environment variable named `name` as it
 appears in the live process environment, including any value written earlier by
 `os::setEnv`. The lookup is the host `getenv` call; the returned bytes are copied
-into a fresh owned `String`. [[src/target/shared/code/os.rs:lower_get_env]]
+into a fresh owned `String`. [[src/target/shared/code/os/env.rs:lower_get_env]]
 
 If the variable is not set, `os::getEnv` raises `ErrNotFound` rather than
 returning an empty string, so a program can distinguish an unset variable from

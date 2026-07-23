@@ -26,7 +26,7 @@ IMPORT os
 `os::arch` returns the CPU architecture of the build target: `"aarch64"`,
 `"x86_64"`, or `"riscv64"`. Like `os::name`, it is a compile-time constant fixed
 at build time and materialized directly into an owned `String`, with no host
-call. [[src/target/shared/code/os.rs:lower_const_string]]
+call. [[src/target/shared/code/os/introspect.rs:lower_const_string]]
 
 ## Parameters
 

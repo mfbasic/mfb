@@ -27,7 +27,7 @@ IMPORT os
 is set, and otherwise returns `fallback`. It never raises for a missing variable,
 mirroring `collections::getOr(map, key, fallback)`. The lookup reflects the live
 environment, including values written earlier by `os::setEnv`.
-[[src/target/shared/code/os.rs:lower_get_env]]
+[[src/target/shared/code/os/env.rs:lower_get_env]]
 
 Both the found value and the fallback are returned as fresh owned `String`
 values. Because absence yields `fallback` rather than a raised error, a variable

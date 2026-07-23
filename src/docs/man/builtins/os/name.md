@@ -26,7 +26,7 @@ IMPORT os
 `os::name` returns the operating-system family of the build target: `"macos"` or
 `"linux"`. It is a compile-time constant — the binary is built for exactly one
 target, so the value is fixed at build time and materialized directly into an
-owned `String`, with no host call. [[src/target/shared/code/os.rs:lower_const_string]]
+owned `String`, with no host call. [[src/target/shared/code/os/introspect.rs:lower_const_string]]
 
 Pair it with `os::arch` to identify the full platform. Because the value is
 fixed per build, it is stable across runs of the same binary.

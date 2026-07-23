@@ -25,7 +25,7 @@ IMPORT os
 
 `os::pid` returns the process id of the running program as an `Integer`, via the
 host `getpid` call. The value is positive and stable for the life of the process.
-[[src/target/shared/code/os.rs:lower_pid]]
+[[src/target/shared/code/os/introspect.rs:lower_pid]]
 
 `os::pid` is **not pure** in the sense that different processes see different
 values, but within one process every call returns the same id. It reads process

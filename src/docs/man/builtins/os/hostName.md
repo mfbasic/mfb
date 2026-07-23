@@ -25,7 +25,7 @@ IMPORT os
 
 `os::hostName` returns the host's network name via the host `gethostname` call,
 copied into an owned `String`. The name is whatever the host is configured to
-report (often the short hostname). [[src/target/shared/code/os.rs:lower_host_name]]
+report (often the short hostname). [[src/target/shared/code/os/introspect.rs:lower_host_name]]
 
 If the host cannot supply the name, `os::hostName` raises `ErrUnsupported`. It
 reads host state only and has no side effects.

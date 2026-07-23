@@ -26,7 +26,7 @@ IMPORT os
 `os::cpuCount` returns the number of online logical CPUs as reported by the host
 `sysconf(_SC_NPROCESSORS_ONLN)`. The result is clamped to a minimum of 1, so a
 caller always gets a usable count even if the host cannot determine the true
-value. [[src/target/shared/code/os.rs:lower_cpu_count]]
+value. [[src/target/shared/code/os/introspect.rs:lower_cpu_count]]
 
 Use it to size a `thread::` worker pool. The value reflects CPUs online at the
 moment of the call and may in principle change over a long-running process on a

@@ -44,13 +44,13 @@ maps a build-relative resource path to its absolute on-disk location for the
 running build shape (console → beside the executable; macOS `--app` →
 `Contents/Resources`; Linux `--app` → `usr/share/<name>`), raising
 `ErrInvalidPath` on a `.`/`..` component and `ErrUnsupported` if the executable
-path cannot be found. [[src/target/shared/code/os.rs:lower_os_helper]]
+path cannot be found. [[src/target/shared/code/os/mod.rs:lower_os_helper]]
 
 Variable names and values are UTF-8 `String` values passed to and from the host
 C library (`getenv`, `setenv`, `unsetenv`, and the platform environ accessor).
 A name must be non-empty and, like a value, may not contain an embedded NUL byte
 or, for a name, an `=` — the host requires NUL-terminated strings and uses `=`
-to separate a name from its value. [[src/target/shared/code/os.rs:lower_os_helper]]
+to separate a name from its value. [[src/target/shared/code/os/mod.rs:lower_os_helper]]
 
 Reads observe the live environment: `os::getEnv`, `os::getEnvOr`, `os::hasEnv`,
 and `os::environ` all reflect both variables inherited from the host and any
@@ -58,13 +58,13 @@ changes a prior `os::setEnv`/`os::unsetEnv` made earlier in the same process. A
 missing variable is a first-class outcome: `os::getEnv` raises `ErrNotFound`,
 while `os::getEnvOr` returns a caller-supplied fallback and `os::hasEnv` reports
 presence as a `Boolean`, so a program can choose whether absence is an error.
-[[src/target/shared/code/os.rs:lower_get_env]]
+[[src/target/shared/code/os/env.rs:lower_get_env]]
 
 `os::environ` returns a `Map OF String TO String` snapshot built by walking the
 process environment array and splitting each `NAME=VALUE` entry at its first `=`;
 an `=` inside a value is preserved as part of the value. The map is an ordinary
 owned value taken at the moment of the call and does not track later mutations.
-[[src/target/shared/code/os.rs:lower_environ]]
+[[src/target/shared/code/os/env.rs:lower_environ]]
 
 `os::setEnv` and `os::unsetEnv` mutate process-global state. They are **not**
 synchronized against a concurrent `os::getEnv`/`os::environ` running in another

@@ -43,7 +43,7 @@ regardless of the working directory — including a macOS `.app` launched from
 Finder or a mounted `.AppImage`. Resolution reads only the executable's own path
 (`/proc/self/exe` on Linux, `_NSGetExecutablePath` on macOS) and never consults
 `$APPDIR` or any other environment variable.
-[[src/target/shared/code/os.rs:lower_resource_path]]
+[[src/target/shared/code/os/paths.rs:lower_resource_path]]
 
 A `relative` containing a `.` or `..` **path component** raises `ErrInvalidPath`
 — a resource path must not navigate out of the base. A dot *inside* a filename

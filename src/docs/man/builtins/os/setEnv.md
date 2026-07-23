@@ -28,7 +28,7 @@ process environment, overwriting any existing value. It is a SUB and returns
 nothing. The change is visible to every later `os::getEnv`, `os::getEnvOr`,
 `os::hasEnv`, and `os::environ` in the same process, and is inherited by child
 processes spawned afterward. It maps to the host `setenv(name, value, 1)`.
-[[src/target/shared/code/os.rs:lower_set_env]]
+[[src/target/shared/code/os/env.rs:lower_set_env]]
 
 `os::setEnv` mutates process-global state and is **not** synchronized against a
 concurrent read in another `thread::` worker; avoid setting a variable while

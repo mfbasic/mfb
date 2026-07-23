@@ -27,7 +27,7 @@ IMPORT os
 **excluding** the program name — element 0 is the first real argument, not the
 executable. (The program name is available through `os::executablePath`.) A
 program invoked with no arguments returns an empty list.
-[[src/target/shared/code/os.rs:lower_args]]
+[[src/target/shared/code/os/introspect.rs:lower_args]]
 
 The arguments are captured at program startup from the values the OS passes in,
 so `os::args` reflects the invocation regardless of where in the program it is

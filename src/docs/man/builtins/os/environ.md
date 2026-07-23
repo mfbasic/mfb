@@ -29,7 +29,7 @@ splitting each `NAME=VALUE` entry at its **first** `=`: the text before it is th
 key and everything after it — including any further `=` — is the value. An entry
 with no `=` maps its whole text to an empty-string value. The snapshot reflects
 variables written earlier by `os::setEnv` and omits those removed by
-`os::unsetEnv`. [[src/target/shared/code/os.rs:lower_environ]]
+`os::unsetEnv`. [[src/target/shared/code/os/env.rs:lower_environ]]
 
 The returned map is an ordinary owned value captured at the moment of the call;
 later `os::setEnv`/`os::unsetEnv` calls do not change it, so re-read the

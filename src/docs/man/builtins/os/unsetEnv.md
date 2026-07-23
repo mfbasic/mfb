@@ -27,7 +27,7 @@ IMPORT os
 process environment. It is a SUB and returns nothing. Removing a variable that is
 not set is a no-op, not an error, so the call is idempotent. After it returns,
 `os::hasEnv(name)` reports `FALSE` and `os::getEnv(name)` raises `ErrNotFound`.
-It maps to the host `unsetenv(name)`. [[src/target/shared/code/os.rs:lower_unset_env]]
+It maps to the host `unsetenv(name)`. [[src/target/shared/code/os/env.rs:lower_unset_env]]
 
 `os::unsetEnv` mutates process-global state and is **not** synchronized against a
 concurrent read in another `thread::` worker.

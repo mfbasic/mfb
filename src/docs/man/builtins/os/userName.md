@@ -26,7 +26,7 @@ IMPORT os
 `os::userName` returns the login name of the effective user, resolved through
 `getpwuid(getuid())` and copied into an owned `String`. Using the passwd database
 rather than the controlling terminal means it works without a login session (for
-example under a service manager). [[src/target/shared/code/os.rs:lower_user_name]]
+example under a service manager). [[src/target/shared/code/os/introspect.rs:lower_user_name]]
 
 If the effective uid has no passwd entry (as on a bare container uid),
 `os::userName` raises `ErrUnsupported`. It reads host state only and has no side

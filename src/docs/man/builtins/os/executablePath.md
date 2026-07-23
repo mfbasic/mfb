@@ -26,7 +26,7 @@ IMPORT os
 `os::executablePath` returns the filesystem path of the running binary as an
 owned `String`. On macOS it uses `_NSGetExecutablePath`; on Linux it reads the
 `/proc/self/exe` symlink with `readlink`, which yields the absolute, symlink-
-resolved path. [[src/target/shared/code/os.rs:lower_executable_path]]
+resolved path. [[src/target/shared/code/os/paths.rs:lower_executable_path]]
 
 Use it to locate resources beside the executable, or to report the program's own
 path. If the host cannot determine the path, `os::executablePath` raises
