@@ -390,4 +390,63 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&done));
         Ok(())
     }
+
+    /// floor/ceil/round of a Money raw to its whole-unit Integer count
+    /// (plan-29-G §4.7). `q = raw / 100000` truncated toward zero, then adjusted:
+    /// floor toward -∞, ceil toward +∞, round half-away-from-zero.
+    pub(super) fn emit_money_rounding_to_integer(
+        &mut self,
+        function: &str,
+        raw: &str,
+        dst: &str,
+    ) -> Result<(), String> {
+        let scale = self.allocate_register()?;
+        let quotient = self.allocate_register()?;
+        let remainder = self.allocate_register()?;
+        self.emit(abi::move_immediate(&scale, "Integer", "100000"));
+        self.emit(abi::signed_divide_registers(&quotient, raw, &scale));
+        self.emit(abi::multiply_subtract_registers(
+            &remainder, &quotient, &scale, raw,
+        ));
+        self.emit(abi::move_register(dst, &quotient));
+        let done = self.label("math_money_round_done");
+        match function {
+            "floor" => {
+                // remainder < 0 (raw negative, non-zero frac) → toward -∞.
+                self.emit(abi::compare_immediate(&remainder, "0"));
+                self.emit(abi::branch_ge(&done));
+                self.emit(abi::subtract_immediate(dst, &quotient, 1));
+            }
+            "ceil" => {
+                // remainder > 0 (raw positive, non-zero frac) → toward +∞.
+                self.emit(abi::compare_immediate(&remainder, "0"));
+                self.emit(abi::branch_le(&done));
+                self.emit(abi::add_immediate(dst, &quotient, 1));
+            }
+            "round" => {
+                // half-away: bump the magnitude when 2*|remainder| >= 100000.
+                let abs_rem = self.allocate_register()?;
+                let bump_pos = self.label("math_money_round_bump_pos");
+                let bump_neg = self.label("math_money_round_bump_neg");
+                let half = self.allocate_register()?;
+                self.emit(abi::move_register(&abs_rem, &remainder));
+                self.emit_abs_i64(&abs_rem)?;
+                // 2*|rem| vs 100000: compare |rem| against 100000 - |rem|.
+                self.emit(abi::move_immediate(&half, "Integer", "100000"));
+                self.emit(abi::subtract_registers(&half, &half, &abs_rem));
+                self.emit(abi::compare_registers(&abs_rem, &half));
+                self.emit(abi::branch_lt(&done)); // below the half → keep quotient
+                self.emit(abi::compare_immediate(&remainder, "0"));
+                self.emit(abi::branch_lt(&bump_neg));
+                self.emit(abi::label(&bump_pos));
+                self.emit(abi::add_immediate(dst, &quotient, 1));
+                self.emit(abi::branch(&done));
+                self.emit(abi::label(&bump_neg));
+                self.emit(abi::subtract_immediate(dst, &quotient, 1));
+            }
+            _ => unreachable!(),
+        }
+        self.emit(abi::label(&done));
+        Ok(())
+    }
 }
