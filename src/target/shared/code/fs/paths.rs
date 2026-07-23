@@ -14,6 +14,7 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
     let alloc_ok = format!("{symbol}_alloc_ok");
     let exists = format!("{symbol}_exists");
     let missing = format!("{symbol}_missing");
+    let invalid = format!("{symbol}_invalid");
     let done = format!("{symbol}_done");
 
     let mut vregs = Vregs::new();
@@ -57,7 +58,7 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
     ]);
     emit_cstring_copy(
         &mut instructions,
-        false,
+        true,
         &len,
         &src,
         &dst,
@@ -65,7 +66,7 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
         &byte,
         &copy_loop,
         &copy_done,
-        &copy_done,
+        &invalid,
     );
     instructions.extend([abi::move_register(abi::return_register(), &alloc)]);
     platform.emit_path_exists(
@@ -84,9 +85,22 @@ pub(in crate::target::shared::code) fn lower_fs_exists_helper(
         abi::label(&exists),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::label(&done),
-        abi::return_(),
+        abi::branch(&done),
+        // Embedded NUL in the path (bug-331 §A / Phase 6): reject as
+        // ErrInvalidArgument rather than silently truncating the path at the NUL —
+        // a confused-deputy hazard where the existence check and the later
+        // operation could disagree about which file is named.
+        abi::label(&invalid),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -110,6 +124,7 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
     let alloc_ok = format!("{symbol}_alloc_ok");
     let found = format!("{symbol}_found");
     let missing = format!("{symbol}_missing");
+    let invalid = format!("{symbol}_invalid");
     let done = format!("{symbol}_done");
 
     let mut vregs = Vregs::new();
@@ -156,7 +171,7 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
     ]);
     emit_cstring_copy(
         &mut instructions,
-        false,
+        true,
         &len,
         &src,
         &dst,
@@ -164,7 +179,7 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
         &byte,
         &copy_loop,
         &copy_done,
-        &copy_done,
+        &invalid,
     );
     instructions.extend([
         abi::move_register(abi::return_register(), &alloc),
@@ -196,9 +211,20 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
         abi::label(&found),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::label(&done),
-        abi::return_(),
+        abi::branch(&done),
+        // Embedded NUL in the path (bug-331 §A / Phase 6): reject as
+        // ErrInvalidArgument rather than silently truncating at the NUL.
+        abi::label(&invalid),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INVALID_ARGUMENT_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
+    push_error_message_address(
+        symbol,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([abi::label(&done), abi::return_()]);
 
     let (frame, stack_slots) =
         finalize_vreg_body_with_locals(&mut instructions, &[], STAT_BUF_SIZE);

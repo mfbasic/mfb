@@ -1,0 +1,110 @@
+{
+  "project": "fs_embedded_nul_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "existsIt",
+      "line": 8,
+      "params": [
+      { "name": "p", "type": "String", "default": null, "line": 8 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "r", "type": "Boolean", "value": { "kind": "call", "callee": "fs.exists", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "fileExistsIt",
+      "line": 12,
+      "params": [
+      { "name": "p", "type": "String", "default": null, "line": 12 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "r", "type": "Boolean", "value": { "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "dirExistsIt",
+      "line": 16,
+      "params": [
+      { "name": "p", "type": "String", "default": null, "line": 16 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "r", "type": "Boolean", "value": { "kind": "call", "callee": "fs.directoryExists", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 22 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 23,
+        "expression": { "kind": "call", "callee": "existsIt", "arguments": [{ "kind": "string", "value": "a\u0000b" }] },
+        "handler": [
+        { "kind": "assignment", "name": "a", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 24 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 25 }
+        ]
+      }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "a" }] }] }, "line": 27 },
+      { "kind": "binding", "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 28 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 29,
+        "expression": { "kind": "call", "callee": "fileExistsIt", "arguments": [{ "kind": "string", "value": "a\u0000b" }] },
+        "handler": [
+        { "kind": "assignment", "name": "b", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 30 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 31 }
+        ]
+      }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 33 },
+      { "kind": "binding", "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 34 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 35,
+        "expression": { "kind": "call", "callee": "dirExistsIt", "arguments": [{ "kind": "string", "value": "a\u0000b" }] },
+        "handler": [
+        { "kind": "assignment", "name": "c", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }, "line": 36 },
+        { "kind": "recover", "value": { "kind": "number", "value": "0" }, "line": 37 }
+        ]
+      }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "c" }] }] }, "line": 39 },
+      { "kind": "binding", "mutable": true, "name": "ok", "type": "Boolean", "value": { "kind": "call", "callee": "fs.exists", "arguments": [{ "kind": "string", "value": "target/fs_embedded_nul_rt_missing.txt" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ok" }] }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
+      ]
+    }
+    ]
+  }
+  ]
+}

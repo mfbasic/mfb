@@ -1,0 +1,44 @@
+IMPORT fs
+IMPORT io
+
+' bug-331 §A / Phase 6: the fs existence checks reject a path containing an
+' embedded NUL byte with ErrInvalidArgument, rather than silently truncating the
+' path at the NUL and answering a question about the wrong file (a confused-deputy
+' hazard). fs::openFile already rejected; this makes the checks consistent.
+FUNC existsIt(p AS String) AS Integer
+  MUT r AS Boolean = fs::exists(p)
+  RETURN 0
+END FUNC
+FUNC fileExistsIt(p AS String) AS Integer
+  MUT r AS Boolean = fs::fileExists(p)
+  RETURN 0
+END FUNC
+FUNC dirExistsIt(p AS String) AS Integer
+  MUT r AS Boolean = fs::directoryExists(p)
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  MUT a AS Integer = 0
+  existsIt("a\0b") TRAP(e)
+    a = e.code
+    RECOVER 0
+  END TRAP
+  io::print(toString(a))
+  MUT b AS Integer = 0
+  fileExistsIt("a\0b") TRAP(e)
+    b = e.code
+    RECOVER 0
+  END TRAP
+  io::print(toString(b))
+  MUT c AS Integer = 0
+  dirExistsIt("a\0b") TRAP(e)
+    c = e.code
+    RECOVER 0
+  END TRAP
+  io::print(toString(c))
+  ' A NUL-free path still works: a missing file simply is not present.
+  MUT ok AS Boolean = fs::exists("target/fs_embedded_nul_rt_missing.txt")
+  io::print(toString(ok))
+  RETURN 0
+END FUNC
