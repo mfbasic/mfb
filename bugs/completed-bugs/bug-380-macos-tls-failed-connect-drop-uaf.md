@@ -5,10 +5,39 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Memory-safety
 
-Status: Open
-Regression Test: `tests/rt-behavior/resources/closed-default-tls-drop-rt` — already
-exists (the plan-38 F7 regression) and **currently flakes**: it SIGSEGVs
-intermittently, so it is both the reproduction and the guard a fix must make solid.
+Status: FIXED
+Regression Test: `tests/rt-behavior/resources/closed-default-tls-drop-rt` (the plan-38 F7
+fixture, previously flaky) — now stress-proven solid (8000/8000 concurrent runs).
+
+## STATUS: FIXED (2026-07-23)
+
+`tls/macos/client.rs:lower_tls_connect_macos` `conn_fail`/`conn_timeout` now **drains to
+the terminal `cancelled` state** before returning: after `nw_connection_cancel`, a loop
+`dispatch_semaphore_wait(ctx->sem, FOREVER)` then re-reads `ctx->state` until it is
+`nw_connection_state_cancelled` (5). Because `cancelled` is terminal (no transition follows
+it), no `state_changed_handler` invocation can run after the helper returns — so the async
+handler can never dereference a freed `ctx`. The loop mirrors the connect wait loop above
+and reuses its resolved `dispatch_semaphore_wait` (`WAITFN`); the semaphore's persistent
+count means it never hangs, whatever the transition count or a leftover signal.
+
+A single un-looped wait was tried first and was **insufficient** (crash rate fell from
+~1/250 to ~1/1000): the handler can fire more than once, or a stale signal can be consumed
+first, so only draining to the terminal state is correct.
+
+Verified: **8000/8000** concurrent runs exit 0 (was ~1/250 SIGSEGV), no new
+`DiagnosticReports/*.ips`, no hang (6000 runs in 8s). The only golden that shifts is
+`cover-tls`'s `macos-aarch64.ncode` (the drain loop in the connect helper); regenerated,
+`artifact-gate.sh` back to 0 diffs. Committed as its own change.
+
+**Deferred (same class, unreproduced):** `lower_tls_close_macos` (`:1302`) cancels and
+returns without the same drain, so a program that *successfully* connects, `close`s, then
+exits immediately has the identical UAF window. It is not fixed here because reproducing it
+needs a live TLS server (the fixture uses a refused connect, which never reaches `close`'s
+cancel — the closed-default record short-circuits at `REC_CLOSED`). The same drain-to-
+`cancelled` applies; file its own repro before landing it.
+
+---
+
 
 On macOS, a `tls::connect` that is **refused/failed** sets up an `nw_connection` with a
 `state_changed_handler` on the `mfb.tls` dispatch queue, then — on the failure path —
