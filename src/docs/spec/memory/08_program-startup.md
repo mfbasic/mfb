@@ -10,7 +10,7 @@ under the app program symbol while `_main` is the toolkit bootstrap — see
 The entry is emitted by `lower_program_entry`; it carries the assembler label
 `entry` and is renamed `_main` at link time (console mode). The macapp variant
 emits the same body under the app program symbol instead.
-[[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
+[[src/target/shared/code/entry.rs:lower_program_entry]]
 
 ## Entry Frame
 
@@ -18,7 +18,7 @@ The entry has no callee-save prologue: it carves its whole frame with one
 `sp -= entry_stack_size`, points `x19` (`ARENA_STATE_REGISTER`) at `sp`, and
 that stack region **is** the main arena-state for the life of the program. `x19`
 and the arena live as long as the process; they are never restored because the
-entry exits rather than returns. [[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
+entry exits rather than returns. [[src/target/shared/code/entry.rs:lower_program_entry]]
 
 Because the arena-state lives on the stack (not zero-filled memory), the shim
 clears it before the first allocation — **the whole range**, in a loop from the
@@ -33,7 +33,7 @@ Growing the arena state — adding quick bins, say — or the globals region can
 never leave a new field as garbage in one path but initialized in the other. A
 spec that named individual offsets here would invite exactly that divergence.
 The full arena-state byte layout is owned by `./mfb spec memory arenas`.
-[[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]] [[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
+[[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]] [[src/target/shared/code/entry.rs:lower_program_entry]]
 
 Slot layout in the entry frame:
 
@@ -89,7 +89,7 @@ teardown and then `_exit(128 + signo)` — exit code `130` for `SIGINT`, `143` f
 locates the arena through `_mfb_shutdown`'s global read rather than the
 interrupted `x19`. Its 16-byte frame keeps `sp` aligned across the `bl`s and parks
 `signo`. App-mode builds skip handler installation but still share `_mfb_shutdown`
-for normal-exit cleanup. [[src/target/shared/code/entry_and_arena.rs:lower_signal_handler]]
+for normal-exit cleanup. [[src/target/shared/code/process_lifecycle.rs:lower_signal_handler]]
 
 ## RNG Seeding and Start Time
 
@@ -127,19 +127,19 @@ fallible result (`x0` tag, `x1` value/code, `x2` message, `x3` source — owned 
    `./mfb spec memory closures`). [[src/target/shared/code/error_constants.rs:CLOSURE_DESC_INIT_SYMBOL]]
 2. **Native `LINK` init.** If the program has `LINK` bindings, call the link-init
    symbol (dlopen/dlsym) first; a non-`RESULT_OK_TAG` result jumps to the error
-   path, so a load failure aborts before `main`. [[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
+   path, so a load failure aborts before `main`. [[src/target/shared/code/entry.rs:lower_program_entry]]
 3. **Global initializer.** If present, call it. A `RESULT_PROGRAM_EXIT_TAG`
    (`2`) routes `x1` to the process exit register and jumps to the exit path; any
    non-`RESULT_OK_TAG` jumps to the error path. [[src/target/shared/code/error_constants.rs:RESULT_PROGRAM_EXIT_TAG]]
 4. **Argument list.** If the language entry accepts args, save argc/argv to their
    slots and materialize the argv strings into an in-arena `List OF String`
    (`emit_entry_args_list_materialization`, via `arena_alloc`); the resulting list
-   pointer is loaded into `x0` as the entry's argument. [[src/target/shared/code/entry_and_arena.rs:emit_entry_args_list_materialization]]
+   pointer is loaded into `x0` as the entry's argument. [[src/target/shared/code/entry.rs:emit_entry_args_list_materialization]]
 5. **Language entry.** Call the language entry FUNC/SUB. The result is routed the
    same way: `RESULT_PROGRAM_EXIT_TAG` → exit with `x1`; non-OK → error path. On
    success, a `Nothing` return exits `0`; an `Integer` return becomes the exit
    code but is range-checked against `255` (`ERR_OVERFLOW` if higher).
-   [[src/target/shared/code/entry_and_arena.rs:lower_program_entry]]
+   [[src/target/shared/code/entry.rs:lower_program_entry]]
 
 ## Error Path
 
@@ -168,7 +168,7 @@ all work if it was already null. It restores the terminal when `term::` was acti
 preserves `x19` and the link register across the call, so the entry's reloaded
 exit code is valid on return. Because the global gate is idempotent, the
 SIGINT/SIGTERM handler racing the normal exit path cannot double-free.
-[[src/target/shared/code/entry_and_arena.rs:lower_shutdown]]
+[[src/target/shared/code/process_lifecycle.rs:lower_shutdown]]
 
 ## See Also
 

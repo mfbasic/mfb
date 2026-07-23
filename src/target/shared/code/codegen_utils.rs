@@ -837,3 +837,21 @@ fn resolve_stack_arg_sentinels(
         }
     }
 }
+
+/// A monotonic virtual-register name generator for a hand-written vreg helper
+/// (plan-00-G Phase 2): each call yields a fresh `%vN` the shared allocator
+/// colors. Lets the PCG64 / arena helpers be written in target-neutral MIR (no
+/// fixed `x9`/`x13`…) so register placement is a per-ISA backend job.
+pub(super) struct Vregs(usize);
+
+impl Vregs {
+    pub(super) fn new() -> Self {
+        Vregs(0)
+    }
+
+    pub(super) fn next(&mut self) -> String {
+        let name = format!("%v{}", self.0);
+        self.0 += 1;
+        name
+    }
+}

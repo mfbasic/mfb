@@ -130,7 +130,7 @@ all placement.
 ## `arena_alloc(size, align)`
 
 `arena_alloc` (symbol `_mfb_arena_alloc`) takes a byte `size` in `x0` and a power-
-of-two `align` in `x1`, and returns a fallible result: [[src/target/shared/code/entry_and_arena.rs:lower_arena_alloc]] `x0` is `0` on success
+of-two `align` in `x1`, and returns a fallible result: [[src/target/shared/code/arena.rs:lower_arena_alloc]] `x0` is `0` on success
 with the aligned pointer in `x1`, or an error code in `x0` with `x1 = 0` on
 failure. Its register contract is the standard runtime-helper one: **all
 caller-saved integer registers (x0–x17) are clobbered**; callee-saved registers
@@ -204,7 +204,7 @@ source as ordinary language-level errors (see the language spec §14.3.1).
 ## `arena_free(ptr, size)`
 
 `arena_free` (symbol `_mfb_arena_free`) takes the chunk pointer in `x0` and its
-byte `size` in `x1` and returns nothing; [[src/target/shared/code/entry_and_arena.rs:lower_arena_free]] like every runtime helper it
+byte `size` in `x1` and returns nothing; [[src/target/shared/code/arena.rs:lower_arena_free]] like every runtime helper it
 clobbers all caller-saved integer registers (it carries a frame, saves the link
 register, and calls `arena_fill_random`). `size` is
 normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
@@ -255,7 +255,7 @@ The fill source is a **dedicated per-arena PCG64** at arena-state offsets 16/24,
 separate from the `math::rand` stream at 88/96 and seeded independently at arena
 init (`arena_fill_seed`): the main thread mixes OS entropy (`getentropy`) with the
 arena address and start time (offset 40); each worker mixes a draw from the
-parent's fill stream with its own arena address. [[src/target/shared/code/entry_and_arena.rs:lower_arena_fill_seed]] Its output is never observable —
+parent's fill stream with its own arena address. [[src/target/shared/code/rng_pcg64.rs:lower_arena_fill_seed]] Its output is never observable —
 filled bytes are always overwritten by a constructor before any read — so the
 stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG words
 (no syscall per fill); `arena_free` calls it after the coalescing insert (over
@@ -265,7 +265,7 @@ the freed payload past the FreeNode words — see `arena_free` above), and
 ## Cleanup and Reclamation
 
 An arena is reclaimed whole. `arena_destroy` (symbol `_mfb_arena_destroy`) walks
-the block chain from `blockHead` through each `prevBlock`, [[src/target/shared/code/entry_and_arena.rs:lower_arena_destroy]] unmapping every block
+the block chain from `blockHead` through each `prevBlock`, [[src/target/shared/code/arena.rs:lower_arena_destroy]] unmapping every block
 with the platform `munmap`/`VirtualFree` hook, then clears **both list heads** —
 `blockHead` and `freeListHead` — plus every quick-bin head and the
 designated-victim words to `0`, leaving the arena fully inert (the heads would

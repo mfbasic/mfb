@@ -36,7 +36,7 @@ state := state * MULT + INC          ; all arithmetic mod 2^128
 
 computed from the two 64-bit limbs `(lo, hi)` held in registers. The product is
 the low 128 bits of `state * MULT`; the increment is added with carry across the
-limbs. [[src/target/shared/code/entry_and_arena.rs:emit_pcg_step]]
+limbs. [[src/target/shared/code/rng_pcg64.rs:emit_pcg_step]]
 
 ```text
 emit_pcg_step(lo, hi):
@@ -59,7 +59,7 @@ scratch. The aarch64 encoders are `mul`, `umulh`, `adds`, `adc`.
 
 After advancing, the 64-bit result is the **XSL-RR** permutation of the new
 128-bit state: XOR the two halves, then rotate right by a count taken from the
-top 6 bits of the high half. [[src/target/shared/code/entry_and_arena.rs:lower_rng_next]]
+top 6 bits of the high half. [[src/target/shared/code/rng_pcg64.rs:lower_rng_next]]
 
 ```text
 rot := hi >> 58                 ; top 6 bits of the high limb (0..63)
@@ -82,7 +82,7 @@ registers, so `math::rand` spills its bounds across the call.
 
 Reseeding from a single 64-bit `seed` follows the canonical PCG initialization:
 zero the state, step once, add the seed, step again. The result is stored to the
-arena RNG words. [[src/target/shared/code/entry_and_arena.rs:lower_rng_seed_at]]
+arena RNG words. [[src/target/shared/code/rng_pcg64.rs:lower_rng_seed_at]]
 
 ```text
 _mfb_rng_seed_at(arena_ptr, seed):
