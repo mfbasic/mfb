@@ -269,7 +269,7 @@ fn patch_relocations(
                 )?;
                 let word = 0x9400_0000
                     | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word);
+                write_u32(text, relocation.offset, word)?;
             }
             "data" if relocation.kind == "page21" => {
                 let target = symbol_vmaddr(
@@ -282,12 +282,12 @@ fn patch_relocations(
                 )?;
                 let pc = text_vmaddr + relocation.offset as u64;
                 let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset) & 0x1f;
+                let rd = read_u32(text, relocation.offset)? & 0x1f;
                 write_u32(
                     text,
                     relocation.offset,
                     0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                );
+                )?;
             }
             "data" if relocation.kind == "pageoff12" => {
                 let target = symbol_vmaddr(
@@ -299,14 +299,14 @@ fn patch_relocations(
                     rodata_size,
                 )?;
                 let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset);
+                let word = read_u32(text, relocation.offset)?;
                 let rd = word & 0x1f;
                 let rn = (word >> 5) & 0x1f;
                 write_u32(
                     text,
                     relocation.offset,
                     0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                );
+                )?;
             }
             "external" if relocation.kind == "branch26" => {
                 let Some(&target) = import_locations.stubs.get(&relocation.target) else {
@@ -318,7 +318,7 @@ fn patch_relocations(
                 };
                 let word = 0x9400_0000
                     | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word);
+                write_u32(text, relocation.offset, word)?;
             }
             "external" if relocation.kind == "page21" => {
                 let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
@@ -330,12 +330,12 @@ fn patch_relocations(
                 };
                 let pc = text_vmaddr + relocation.offset as u64;
                 let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset) & 0x1f;
+                let rd = read_u32(text, relocation.offset)? & 0x1f;
                 write_u32(
                     text,
                     relocation.offset,
                     0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                );
+                )?;
             }
             "external" if relocation.kind == "pageoff12" => {
                 let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
@@ -346,14 +346,14 @@ fn patch_relocations(
                     ));
                 };
                 let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset);
+                let word = read_u32(text, relocation.offset)?;
                 let rd = word & 0x1f;
                 let rn = (word >> 5) & 0x1f;
                 write_u32(
                     text,
                     relocation.offset,
                     0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                );
+                )?;
             }
             _ => {
                 return Err(format!(
@@ -612,12 +612,27 @@ fn adrp_page21(pc: u64, target: u64) -> Result<(u32, u32), String> {
     Ok((encoded & 0b11, (encoded >> 2) & 0x7ffff))
 }
 
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("slice length"))
+// Bounds-checked so an out-of-range relocation offset (an internal codegen
+// defect — offsets are in-bounds by construction, and `EncodedImage` is never
+// deserialized) surfaces as a diagnostic rather than a panic, matching the
+// Linux twin (`src/os/linux/link/mod.rs:read_u32`/`write_u32`, bug-225/bug-351).
+fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let slice = bytes.get(offset..offset + 4).ok_or_else(|| {
+        format!(
+            "macos linker: relocation offset {offset} + 4 exceeds text length {}",
+            bytes.len()
+        )
+    })?;
+    Ok(u32::from_le_bytes(slice.try_into().expect("slice length")))
 }
 
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) -> Result<(), String> {
+    let len = bytes.len();
+    let slice = bytes.get_mut(offset..offset + 4).ok_or_else(|| {
+        format!("macos linker: relocation offset {offset} + 4 exceeds text length {len}")
+    })?;
+    slice.copy_from_slice(&value.to_le_bytes());
+    Ok(())
 }
 
 fn put_u32(bytes: &mut Vec<u8>, value: u32) {

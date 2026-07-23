@@ -620,7 +620,7 @@ fn patches_internal_and_data_relocations() {
     // The internal branch26 kept the bl opcode high byte (0x94) after patching.
     assert_eq!(text[3] & 0xfc, 0x94);
     // The adrp opcode (0x90 family) high bit set.
-    assert_eq!(read_u32(&text, 4) & 0x9f00_0000, 0x9000_0000);
+    assert_eq!(read_u32(&text, 4).unwrap() & 0x9f00_0000, 0x9000_0000);
 }
 
 #[test]
@@ -655,6 +655,53 @@ fn patch_relocations_rejects_unsupported_kind() {
     )
     .expect_err("unsupported reloc");
     assert!(err.contains("does not support relocation"), "{err}");
+}
+
+// bug-351: an out-of-range relocation offset must return a diagnostic, never
+// panic — matching the Linux twin (bug-225). Offsets are in-bounds by
+// construction and `EncodedImage` is never deserialized, so this fires only on
+// an internal codegen defect, which is exactly when a readable message beats a
+// stack trace. Before the fix, the macOS `write_u32` sliced `text[offset..
+// offset + 4]` unchecked and aborted the compiler here.
+#[test]
+fn patch_relocations_rejects_out_of_range_offset() {
+    // text is 8 bytes; offset 6 means offset + 4 = 10 > 8. A `data`/`page21`
+    // relocation reaches the (now bounds-checked) text access — `read_u32` — as
+    // its first indexing of `text`, so the offset error surfaces here. Before
+    // the fix this indexed `text[6..10]` unchecked and panicked.
+    let mut text = vec![0u8; 8];
+    let image = EncodedImage {
+        text: text.clone(),
+        data: vec![0u8; 8],
+        rodata_size: 0,
+        symbols: vec![text_symbol("_main", 0), data_symbol("_g", 0)],
+        relocations: vec![EncodedRelocation {
+            offset: 6,
+            target: "_g".to_string(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        }],
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+        rpaths: Vec::new(),
+    };
+    let err = patch_relocations(
+        &mut text,
+        &image,
+        VM_BASE,
+        VM_BASE,
+        VM_BASE,
+        0,
+        &ImportLocations::default(),
+    )
+    .expect_err("out-of-range relocation offset must be an error, not a panic");
+    assert!(
+        err.contains("relocation offset 6 + 4 exceeds text length 8"),
+        "{err}"
+    );
 }
 
 #[test]
@@ -742,8 +789,8 @@ fn patches_external_got_page_relocations() {
         &locations,
     )
     .expect("external got relocations");
-    assert_eq!(read_u32(&text, 0) & 0x9f00_0000, 0x9000_0000);
-    assert_eq!(read_u32(&text, 4) & 0xff00_0000, 0x9100_0000);
+    assert_eq!(read_u32(&text, 0).unwrap() & 0x9f00_0000, 0x9000_0000);
+    assert_eq!(read_u32(&text, 4).unwrap() & 0xff00_0000, 0x9100_0000);
 }
 
 #[test]

@@ -88,6 +88,15 @@ regression test (an `EncodedImage` whose relocation offset exceeds `text.len()`,
 asserting `Err` on both platforms). File it before or alongside item A4; this cleanup
 must not be the changelog entry for a panic fix.
 
+> **Resolved 2026-07-22 by bug-351**
+> (`bugs/completed-bugs/bug-351-macos-linker-relocation-panic.md`). The macOS
+> `read_u32`/`write_u32` now return `Result` and every `patch_relocations` call
+> site `?`-propagates, matching the Linux shape above. The behavior is guarded by
+> `os::macos::link::tests::patch_relocations_rejects_out_of_range_offset` (bisected:
+> panics pre-fix, diagnoses post-fix). So item A4 may now collapse the two helpers
+> together freely — the contract is test-pinned and the panic fix is already its
+> own changelog entry.
+
 ## Current State
 
 Measured on branch `main`, base `25c38ba1`.

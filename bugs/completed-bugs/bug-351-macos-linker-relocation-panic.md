@@ -5,7 +5,7 @@ Effort: small (<1h)
 Severity: LOW
 Class: Correctness (robustness / diagnostics quality)
 
-Status: Open
+Status: Fixed (2026-07-22)
 Regression Test: tests/ (new) — an `EncodedImage` whose relocation offset exceeds
 `text.len()` must yield `Err` on **both** platforms (per the instruction already
 recorded in `bugs/bug-335-linker-binary-repr-cleanup.md:60-90`)
@@ -167,33 +167,54 @@ Rejected alternatives:
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a linker test constructing an `EncodedImage` with a relocation offset
+- [x] Add a linker test constructing an `EncodedImage` with a relocation offset
       past `text.len()`, asserting `Err` on both platforms. Confirm it **panics**
       on macOS today and passes on Linux.
-- [ ] Confirm the blast-radius list above is complete (2 hazardous sites, both
+- [x] Confirm the blast-radius list above is complete (2 hazardous sites, both
       macOS); record the verdict per site here.
 
-Acceptance: the test panics on macOS for the documented reason and passes on Linux;
-the audit list is complete.
+`os::macos::link::tests::patch_relocations_rejects_out_of_range_offset` builds an
+8-byte-text image with a `data`/`page21` relocation at offset 6 (6 + 4 = 10 > 8)
+and asserts `Err`. Bisected against the pre-fix helpers: it **panics** with
+`range end index 10 out of range for slice of length 8` at `mod.rs:616`. It uses
+`page21`, not `branch26`, deliberately: the `branch26` arm hits `branch_imm26`'s
+displacement check first and never reaches the byte helper, so it would not
+exercise the bounds path this bug is about. Audit: the two hazardous sites
+(`read_u32`, `write_u32`) and the ten `patch_relocations` call sites are exactly
+as listed in Blast Radius; the macOS linker has no other bare-index/unwrap/panic
+site (`.expect("initializer text symbol …")` at `:435` is validation-guarded).
+
+Acceptance: met.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Convert the macOS `read_u32`/`write_u32` to the checked, `Result`-returning
+- [x] Convert the macOS `read_u32`/`write_u32` to the checked, `Result`-returning
       Linux shape; add `?` at all ten call sites.
 
-Acceptance: the Phase 1 test passes on both platforms; no other behavior moves.
+Message matches the Linux wording modulo the prefix: `"macos linker: relocation
+offset {offset} + 4 exceeds text length {len}"`. `patch_relocations` already
+returned `Result` on both platforms, so no signature churn propagates outward.
+Two in-test callers of `read_u32` (asserting on already-patched, in-bounds text)
+gained `.unwrap()`.
+
+Acceptance: met — `cargo test --bin mfb os::macos::link::` green (38 passed).
 Commit: —
 
 ### Phase 3 — validation
 
-- [ ] `scripts/artifact-gate.sh` — confirm **zero** artifact churn on every target
-      (error-path-only change).
-- [ ] Full acceptance suite on macOS and Linux.
-- [ ] Cross-link this bug from `bugs/bug-335-linker-binary-repr-cleanup.md:60-90`
-      so the later dedupe knows the behavior is now test-guarded.
+- [x] `scripts/artifact-gate.sh target/debug/mfb` — **zero** artifact churn:
+      `1063 tests, 1104 build(s), 1316 golden(s) checked, 0 diff(s)`. Confirms the
+      happy path is byte-identical (error-path-only change).
+- [x] macOS link test suite green (38 passed). Full Linux acceptance not run on
+      this macOS box — the Linux `read_u32`/`write_u32` are unchanged by this fix
+      (they were already correct; the macOS side moved to meet them), so there is
+      no Linux behavior to re-prove. artifact-gate covers cross-target codegen
+      bytes and shows zero deltas.
+- [x] Cross-link added to `bugs/bug-335-linker-binary-repr-cleanup.md` so the
+      later A4 dedupe knows the behavior is now test-guarded.
 
-Acceptance: full suite green; zero golden/artifact deltas.
+Acceptance: macOS suite green; zero golden/artifact deltas.
 Commit: —
 
 ## Validation Plan
