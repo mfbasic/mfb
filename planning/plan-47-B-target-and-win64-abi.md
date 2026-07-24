@@ -438,7 +438,7 @@ resolver, builtins and IR.
 Establishes every hook Win64 needs while every caller still takes today's path,
 so this phase is provably byte-neutral on its own.
 
-- [ ] Audit `map_scratch_register` (`src/arch/x86_64/select.rs:36`) against the
+- [x] Audit `map_scratch_register` (`src/arch/x86_64/select.rs:36`) against the
       Win64 argument bank: for each machine-floor helper and trampoline that
       parks a value in low scratch across a call
       (`src/target/shared/code/runtime_helpers.rs`,
@@ -446,18 +446,18 @@ so this phase is provably byte-neutral on its own.
       chosen scratch would be clobbered by `rcx`/`rdx`/`r8`/`r9` argument
       staging. Write the finding as a comment at `select.rs:36`. If a live hazard
       exists, fix it in this phase (AGENTS.md: a bug you find is a bug you fix).
-- [ ] Add `shadow_space_bytes(&self) -> usize { 0 }` and
+- [x] Add `shadow_space_bytes(&self) -> usize { 0 }` and
       `outgoing_args_base_offset(&self) -> usize { 0 }` to `mir::Backend`
       (`src/target/shared/code/mir.rs:533`), each documented with why the default
       reproduces the SysV/AAPCS64 frame exactly.
-- [ ] Consume them in `finalize_frame`
+- [x] Consume them in `finalize_frame`
       (`src/target/shared/code/codegen_utils.rs:407` and the `outgoing_bytes ==
       0 && has_calls` case) and `resolve_stack_arg_sentinels` (`:826`), per §4.3.
-- [ ] Add `enum X86Abi { SysV, Win64 }` to `src/arch/x86_64/select.rs` and thread
+- [x] Add `enum X86Abi { SysV, Win64 }` to `src/arch/x86_64/select.rs` and thread
       it through `select_x86`, `remap_x86_abi` and `map_abi_register` as a
       parameter; every existing caller passes `X86Abi::SysV` and every `SysV`
       arm reads the untouched constants.
-- [ ] Tests: `src/target/shared/code/codegen_utils.rs` unit tests asserting a
+- [x] Tests: `src/target/shared/code/codegen_utils.rs` unit tests asserting a
       frame with `shadow_space_bytes() == 0` computes the pre-change
       `outgoing_bytes` and sentinel offsets for both the tail and no-tail cases;
       `src/arch/x86_64/select.rs` tests asserting `map_abi_register(n,
@@ -473,27 +473,27 @@ Commit: —
 Makes `windows-x86_64` a real, resolvable, deliberately non-executable target.
 Separately valuable and separately reviewable, with a user-visible outcome.
 
-- [ ] New `src/target/win_x86_64/mod.rs`: `pub(crate) static BACKEND: Backend`
+- [x] New `src/target/win_x86_64/mod.rs`: `pub(crate) static BACKEND: Backend`
       implementing `NativeBackend` (`src/target.rs:102`) with `target()` =
       `{os:"windows", arch:"x86_64"}`, `capabilities()` = all `false` /
       `runtime_calls: &[]`, `supports_app_mode()` = `false`, and every
       `write_*` method returning an explicit
       "not yet supported on windows-x86_64" error naming 47-C/47-D. Mirror the
       shape of `src/target/linux_x86_64/mod.rs:15`.
-- [ ] Register it in `NATIVE_BACKENDS` (`src/target.rs:197`) and declare the
+- [x] Register it in `NATIVE_BACKENDS` (`src/target.rs:197`) and declare the
       module.
-- [ ] Update the three `supported_target_slots()` tests
+- [x] Update the three `supported_target_slots()` tests
       (`src/manifest/libraries.rs:609`, `:656`, `:671`) for the 8th slot, and the
       `parse_accepts_every_registered_target` /
       `backend_for_resolves_every_registered_target` tests (`src/target.rs:480`,
       `:530`) which iterate the registry and need no edit if written generically
       — verify, don't assume.
-- [ ] Doc sync: `src/docs/spec/package/10_native-bindings.md:55` (7 → 8 slots);
+- [x] Doc sync: `src/docs/spec/package/10_native-bindings.md:55` (7 → 8 slots);
       `src/docs/spec/tooling/01_project-manifest.md:167` (`os` value set gains
       `windows`); any target enumeration in
       `src/docs/spec/tooling/07_cli-reference.md`,
       `src/docs/spec/architecture/01_commands.md` and `.ai/compiler.md`.
-- [ ] Tests: a `src/target.rs` test asserting
+- [x] Tests: a `src/target.rs` test asserting
       `BuildTarget::parse("windows-x86_64")` resolves through `backend_for` and
       that `target::write_executable` for it returns the *capability* error
       ("native executable output does not support windows-x86_64 yet"), not the
@@ -510,17 +510,17 @@ Commit: —
 
 A pure data structure with no callers yet, so it lands behind unit tests alone.
 
-- [ ] Add `Win64RegisterModel` to `src/arch/x86_64/regmodel.rs` as a sibling of
+- [x] Add `Win64RegisterModel` to `src/arch/x86_64/regmodel.rs` as a sibling of
       `X86_64RegisterModel` (`:82`) — do not edit the SysV model. Diverge in
       `allocatable(Int)` (§4.2), `is_callee_saved` (the Win64 bank incl.
       `xmm6`–`xmm15`), `caller_saved(Fp)`, and
       `external_int_argument_registers()` → 4. Keep `arena_base` = `r15`,
       `current_thread` = `rbx`, `closure_env` = `r13`, `spill_slot_bytes` = 16,
       and the spill/reload/move emitters identical.
-- [ ] Document on the struct why the *clobber* masks are unchanged (§4.4:
+- [x] Document on the struct why the *clobber* masks are unchanged (§4.4:
       Win64's preserved set is a superset of SysV's), and the reverse obligation
       inherited by 47-D/47-H.
-- [ ] Tests: in `src/arch/x86_64/regmodel.rs` — no allocatable register is a
+- [x] Tests: in `src/arch/x86_64/regmodel.rs` — no allocatable register is a
       Win64 argument register or a pinned register; `rdi`/`rsi`/`xmm6`–`xmm15`
       are callee-saved; `external_int_argument_registers() == 4`; and a test
       asserting `X86_64RegisterModel`'s every answer is byte-for-byte what it was
@@ -534,24 +534,24 @@ Commit: —
 
 The table swap. Behind Phase 1's parameter, so SysV cannot be affected.
 
-- [ ] Add `CALL_ARGS_WIN64` and `RETS_WIN64` to `src/arch/x86_64/select.rs`
+- [x] Add `CALL_ARGS_WIN64` and `RETS_WIN64` to `src/arch/x86_64/select.rs`
       (§4.1/§4.2), each with a comment naming which entries are the Win64 ABI and
       which are the internal extension (mirroring the `:59`–`:66` precedent).
-- [ ] Implement the `X86Abi::Win64` arms of `map_abi_register` (`:80`) and
+- [x] Implement the `X86Abi::Win64` arms of `map_abi_register` (`:80`) and
       `remap_x86_abi` (`:107`), including a hard `Err`/`panic!` with a clear
       message on `AbiBoundary::Syscall` — Windows has no syscall ABI, so reaching
       that arm is a compiler bug (§1).
-- [ ] Add `Win64Backend` to `src/arch/x86_64/backend.rs` mirroring
+- [x] Add `Win64Backend` to `src/arch/x86_64/backend.rs` mirroring
       `X86_64Backend` (`:17`): `select` → `select_x86(neutral, X86Abi::Win64)`,
       `register_model` → `Win64RegisterModel`, `frame_call_padding` → 8,
       `shadow_space_bytes` → 32, `outgoing_args_base_offset` → 32.
-- [ ] New `src/target/win_x86_64/code.rs`: a minimal `CodegenPlatform`
+- [x] New `src/target/win_x86_64/code.rs`: a minimal `CodegenPlatform`
       (`src/target/shared/code/types.rs:212`) returning `Win64Backend` from
       `backend()`, `target()` = `"windows-x86_64"`, `arch()` = `"x86_64"` — only
       enough to make Win64 lowering reachable from a test. Every OS-call method
       is 47-D's; leave the trait's own defaults or an explicit
       "47-D" error, never a silent stub.
-- [ ] Tests: `src/arch/x86_64/select.rs` — a call staging `%arg0`–`%arg3`
+- [x] Tests: `src/arch/x86_64/select.rs` — a call staging `%arg0`–`%arg3`
       realizes `rcx`/`rdx`/`r8`/`r9`; a result bank realizes `rax`/`rdx`/`r8`/`r9`
       with no `rcx` aliasing; a `svc` under `X86Abi::Win64` errors; and a
       paired assertion that the same input under `X86Abi::SysV` still realizes
@@ -566,17 +566,17 @@ Commit: —
 The silent-corruption surface (§4.3), landed last and pinned by an exact-offset
 test rather than a shape assertion.
 
-- [ ] Verify end-to-end through the Win64 platform that a function containing any
+- [x] Verify end-to-end through the Win64 platform that a function containing any
       call reserves ≥ 32 bytes at its frame bottom, that outgoing stack argument
       `k` resolves to `[rsp + 32 + k*8]`, and that `body_shift`
       (`codegen_utils.rs:421`) carries locals and the callee-saved area above it.
-- [ ] Raise the LINK-thunk external-argument cap for Win64 by staging arguments
+- [x] Raise the LINK-thunk external-argument cap for Win64 by staging arguments
       ≥ 4 into the outgoing tail in `src/target/shared/code/link_thunk.rs:661`,
       or — if that staging is larger than this sub-plan — leave the existing
       explicit refusal (`:667`) in place for the Windows target and record it as
       47-D's precondition. Decide against §4.2's `WriteFile` finding, and state
       the decision in the commit; do not leave it implicit.
-- [ ] Tests: a lowering test through the Win64 platform asserting the exact
+- [x] Tests: a lowering test through the Win64 platform asserting the exact
       resolved offsets for a 6-integer-argument external call — `rcx`, `rdx`,
       `r8`, `r9`, `[rsp+32]`, `[rsp+40]` — and a total frame ≥ 48 bytes,
       16-aligned; a leaf-calling function (no stack args) still reserving 32; and
