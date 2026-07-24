@@ -32,12 +32,13 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.exists",
     "fs.fileExists",
     "fs.directoryExists",
-    // fs.readText and the rest of file I/O are implemented (emit_open_file/read/
-    // close/seek/sync, open_flag_set's Windows arm, the fs error mapping) and the
-    // read path is byte-correct on the box, but a CloseHandle in the fs close path
-    // invalidates the subsequent stdout drain (read-alone and print-alone both
-    // work; read+print hangs; skipping CloseHandle fixes it — a double-close /
-    // handle-reuse hazard). Left unadvertised until that is fixed.
+    // File reads (emit_open_file/read/close/seek over CreateFileW/ReadFile/
+    // CloseHandle/SetFilePointerEx, open_flag_set's Windows arm, the GetLastError
+    // fs error mapping). Box-verified: readText round-trips a file's exact bytes
+    // and interleaves with io::print. (The read/write byte-count out-params are
+    // DWORDs — emit_write/emit_read_file must zero the slot before the call.)
+    "fs.readText",
+    "fs.readBytes",
 ];
 
 impl NativeBackend for Backend {

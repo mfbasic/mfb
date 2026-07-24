@@ -86,15 +86,20 @@ fn emit_marshal_path(
         abi::store_u64(abi::RET[1], abi::stack_pointer(), MARSHAL_WBUF_SLOT), // save wbuf
         abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
         abi::move_immediate(abi::ARG[1], "Integer", "0"), // dwFlags
+        // Stage the two stack args using ARG[2] as a scratch BEFORE it is set to its
+        // real register value (the path). ARG[2] (rdx→r8) is caller-saved; the
+        // machine-floor SCRATCH pool must NOT be used here — on Win64 its low slots
+        // realize to callee-saved rbx/rsi/rdi, so writing them corrupts registers
+        // the caller keeps live (map_scratch_register's documented Win64 hazard).
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), MARSHAL_WBUF_SLOT), // wbuf (temp)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20), // lpWideCharStr (5th)
+        abi::move_immediate(abi::ARG[2], "Integer", "32768"),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // cchWideChar (6th)
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x30), // lpMultiByteStr = path
         // cbMultiByte = -1 (the input is NUL-terminated); the encoder rejects a
         // negative immediate, so build it as 0 - 1.
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
         abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1),
-        abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), MARSHAL_WBUF_SLOT),
-        abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0x20), // lpWideCharStr (5th)
-        abi::move_immediate(abi::SCRATCH[0], "Integer", "32768"),
-        abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0x28), // cchWideChar (6th)
     ]);
     call_external(from, "MultiByteToWideChar", KERNEL32, instructions, relocations);
 }
@@ -230,9 +235,12 @@ impl code::CodegenPlatform for Platform {
             relocations,
         );
         instructions.extend([
-            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 0),
+            // ARG[0] (rcx) is a free caller-saved temp here (the void
+            // GetSystemTimePreciseAsFileTime clobbered it); the SCRATCH pool must
+            // not be used — its Win64 realizations are callee-saved.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0),
             abi::store_u64(
-                abi::SCRATCH[0],
+                abi::ARG[0],
                 code::ARENA_STATE_REGISTER,
                 code::ARENA_START_TIME_OFFSET,
             ),
@@ -359,9 +367,12 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x38), // save len
             // nStdHandle = -(fd + 10), computed without a negative immediate (the
             // encoder rejects those). fd is still live in the x0 slot (ARG[0]).
-            abi::add_immediate(abi::SCRATCH[0], abi::ARG[0], 10), // fd + 10
+            // ARG[1] (rdx) is a free caller-saved temp now that buf is saved; the
+            // SCRATCH pool must not be used — its Win64 realizations (rbx/rsi/rdi)
+            // are callee-saved and would corrupt registers the drain keeps live.
+            abi::add_immediate(abi::ARG[1], abi::ARG[0], 10), // fd + 10
             abi::move_immediate(abi::ARG[0], "Integer", "0"),
-            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::SCRATCH[0]), // -(fd+10)
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]), // -(fd+10)
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
@@ -370,6 +381,13 @@ impl code::CodegenPlatform for Platform {
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x30),  // lpBuffer
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x38),  // nNumberOfBytesToWrite
             abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0x28), // &lpBytesWritten
+            // Zero the whole 8-byte slot first: lpNumberOfBytesWritten is a DWORD
+            // (32-bit) out-param, so WriteFile writes only the low 32 bits. Without
+            // this, the load_u64 below picks up uninitialized garbage in the high
+            // 32 bits and returns a huge count — the caller's write loop then does
+            // `remaining -= huge`, underflows, and spins forever (this manifested
+            // only when prior stack use left non-zero garbage there).
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28),
         ]);
         call_external(from, "WriteFile", KERNEL32, instructions, relocations);
         instructions.extend([
@@ -474,8 +492,11 @@ impl code::CodegenPlatform for Platform {
         ));
         call_external(from, "GetFileAttributesW", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), STATBUF_SLOT),
-            abi::store_u64(abi::return_register(), abi::SCRATCH[0], 0),
+            // ARG[1] (rdx) is a free caller-saved temp for the buffer pointer, and
+            // is distinct from the return register (rax) that holds the attributes.
+            // The SCRATCH pool must not be used — callee-saved on Win64.
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), STATBUF_SLOT),
+            abi::store_u64(abi::return_register(), abi::ARG[1], 0),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::add_stack(FRAME),
         ]);
@@ -562,17 +583,20 @@ impl code::CodegenPlatform for Platform {
         instructions.extend([
             abi::load_u64(abi::ARG[0], abi::stack_pointer(), MARSHAL_WBUF_SLOT), // lpFileName
             abi::load_u64(abi::ARG[1], abi::stack_pointer(), PACKED_SLOT),
+            // Stage the three stack args using ARG[2] as a caller-saved scratch,
+            // BEFORE it is set to its register value (dwShareMode=7). The SCRATCH
+            // pool must not be used — its Win64 realizations are callee-saved.
+            // dwCreationDisposition (5th, stack) = packed >> 32.
+            abi::shift_right_immediate(abi::ARG[2], abi::ARG[1], 32),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::ARG[2], "Integer", "128"), // FILE_ATTRIBUTE_NORMAL
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // 6th (stack)
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),   // 7th hTemplateFile = NULL
             // dwDesiredAccess: CreateFileW reads it as the low 32 bits of rdx, so
-            // the packed value goes straight in — the disposition in the high half
-            // is ignored by the DWORD parameter.
+            // the packed value in ARG[1] goes straight in — the disposition in the
+            // high half is ignored by the DWORD parameter.
             abi::move_immediate(abi::ARG[2], "Integer", "7"), // FILE_SHARE_READ|WRITE|DELETE
             abi::move_immediate(abi::ARG[3], "Integer", "0"), // lpSecurityAttributes = NULL
-            // dwCreationDisposition (5th, stack) = packed >> 32.
-            abi::shift_right_immediate(abi::SCRATCH[0], abi::ARG[1], 32),
-            abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0x20),
-            abi::move_immediate(abi::SCRATCH[0], "Integer", "128"), // FILE_ATTRIBUTE_NORMAL
-            abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0x28), // 6th (stack)
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),       // 7th hTemplateFile = NULL
         ]);
         call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
         instructions.push(abi::add_stack(FRAME));
@@ -598,6 +622,10 @@ impl code::CodegenPlatform for Platform {
         instructions.extend([
             abi::subtract_stack(0x40),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpOverlapped = NULL (5th)
+            // Zero the nRead slot first — it is a DWORD (32-bit) out-param, so
+            // ReadFile writes only the low 32 bits; the load_u64 below would
+            // otherwise return garbage in the high 32 bits (see emit_write).
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28),
             abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0x28), // &nRead (4th)
         ]);
         call_external(from, "ReadFile", KERNEL32, instructions, relocations);
@@ -744,11 +772,13 @@ impl code::CodegenPlatform for Platform {
         const BCRYPT: &str = "bcrypt.dll";
         const BCRYPT_USE_SYSTEM_PREFERRED_RNG: &str = "2";
         instructions.extend([
-            abi::move_register(abi::SCRATCH[0], abi::ARG[0]), // save buf (x0)
-            abi::move_register(abi::SCRATCH[1], abi::ARG[1]), // save len (x1)
+            // Shuffle (buf x0→pbBuffer, len x1→cbBuffer) in an order that needs no
+            // scratch: copy len up to ARG[2] before ARG[1] is overwritten, then buf
+            // into ARG[1], then NULL into ARG[0]. The SCRATCH pool must not be used —
+            // callee-saved on Win64.
+            abi::move_register(abi::ARG[2], abi::ARG[1]), // cbBuffer = len
+            abi::move_register(abi::ARG[1], abi::ARG[0]), // pbBuffer = buf
             abi::move_immediate(abi::ARG[0], "Integer", "0"), // hAlgorithm = NULL
-            abi::move_register(abi::ARG[1], abi::SCRATCH[0]), // pbBuffer
-            abi::move_register(abi::ARG[2], abi::SCRATCH[1]), // cbBuffer
             abi::move_immediate(abi::ARG[3], "Integer", BCRYPT_USE_SYSTEM_PREFERRED_RNG),
         ]);
         call_external(from, "BCryptGenRandom", BCRYPT, instructions, relocations);
