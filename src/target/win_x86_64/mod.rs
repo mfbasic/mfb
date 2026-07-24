@@ -41,6 +41,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.readBytes",
     "fs.writeText",
     "fs.writeBytes",
+    "fs.appendText",
+    "fs.appendBytes",
     "fs.deleteFile",
     "fs.createDirectory",
     "fs.setCurrentDirectory",
