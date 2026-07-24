@@ -355,31 +355,44 @@ impl code::CodegenPlatform for Platform {
         //   [sp+0x28]          lpNumberOfBytesWritten (out) (WriteFile's 4th arg target)
         //   [sp+0x30]          saved buf   (survives the GetStdHandle call)
         //   [sp+0x38]          saved len
+        //   [sp+0x40]          resolved hFile (console handle or a file handle)
         // `emit_write` can be lowered more than once into a single function (e.g.
         // the entry's error tail alongside a buffered drain), so disambiguate the
         // branch labels by the current instruction offset — unique per call site.
         let n = instructions.len();
         let ok = format!("{from}_win_write_ok_{n}");
         let done = format!("{from}_win_write_done_{n}");
+        let file_handle = format!("{from}_win_write_fileh_{n}");
+        let have_handle = format!("{from}_win_write_haveh_{n}");
         instructions.extend([
-            abi::subtract_stack(0x40),
+            abi::subtract_stack(0x50),
             abi::store_u64(abi::ARG[1], abi::stack_pointer(), 0x30), // save buf
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x38), // save len
-            // nStdHandle = -(fd + 10), computed without a negative immediate (the
-            // encoder rejects those). fd is still live in the x0 slot (ARG[0]).
+            // Resolve the destination handle. fd 1 (stdout) and 2 (stderr) are the
+            // console POSIX fds and resolve via GetStdHandle(-(fd+10)); any larger
+            // value is already a Win32 file HANDLE (CreateFileW) — fs writes pass
+            // the handle straight through here (CreateFileW never returns 1/2).
+            abi::compare_immediate(abi::ARG[0], "2"),
+            abi::branch_gt(&file_handle),
+            // console: nStdHandle = -(fd + 10), built without a negative immediate.
             // ARG[1] (rdx) is a free caller-saved temp now that buf is saved; the
             // SCRATCH pool must not be used — its Win64 realizations (rbx/rsi/rdi)
-            // are callee-saved and would corrupt registers the drain keeps live.
+            // are callee-saved and would corrupt registers the caller keeps live.
             abi::add_immediate(abi::ARG[1], abi::ARG[0], 10), // fd + 10
             abi::move_immediate(abi::ARG[0], "Integer", "0"),
             abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]), // -(fd+10)
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x40), // hFile
+            abi::branch(&have_handle),
+            abi::label(&file_handle),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // hFile = handle directly
+            abi::label(&have_handle),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpOverlapped = NULL
-            abi::move_register(abi::ARG[0], abi::return_register()), // hFile = handle
-            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x30),  // lpBuffer
-            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x38),  // nNumberOfBytesToWrite
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // hFile
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x30), // lpBuffer
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x38), // nNumberOfBytesToWrite
             abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0x28), // &lpBytesWritten
             // Zero the whole 8-byte slot first: lpNumberOfBytesWritten is a DWORD
             // (32-bit) out-param, so WriteFile writes only the low 32 bits. Without
@@ -401,7 +414,7 @@ impl code::CodegenPlatform for Platform {
             abi::label(&ok),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), 0x28), // bytes written
             abi::label(&done),
-            abi::add_stack(0x40),
+            abi::add_stack(0x50),
         ]);
         Ok(())
     }
@@ -525,13 +538,47 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_fs_path_operation(
         &self,
-        _from: &str,
-        _operation: FsPathOperation,
+        from: &str,
+        operation: FsPathOperation,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // Contract (shared fs): the arena UTF-8 path is in ARG[0]; return 0 on
+        // success (any nonzero routes the caller to its error tail). Each Win32
+        // call returns BOOL (nonzero = success), so the result is inverted.
+        let (symbol, is_mkdir) = match operation {
+            FsPathOperation::Chdir => ("SetCurrentDirectoryW", false),
+            FsPathOperation::Unlink => ("DeleteFileW", false),
+            FsPathOperation::Mkdir => ("CreateDirectoryW", true),
+            FsPathOperation::Rmdir => ("RemoveDirectoryW", false),
+        };
+        let n = instructions.len();
+        let ok = format!("{from}_fsop_ok_{n}");
+        let done = format!("{from}_fsop_done_{n}");
+        instructions.push(abi::subtract_stack(MARSHAL_FRAME));
+        emit_marshal_path(from, instructions, relocations);
+        instructions.push(abi::load_u64(
+            abi::ARG[0],
+            abi::stack_pointer(),
+            MARSHAL_WBUF_SLOT,
+        ));
+        if is_mkdir {
+            // CreateDirectoryW(path, lpSecurityAttributes = NULL).
+            instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+        }
+        call_external(from, symbol, KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
+            abi::branch(&done),
+            abi::label(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"), // success
+            abi::label(&done),
+            abi::add_stack(MARSHAL_FRAME),
+        ]);
+        Ok(())
     }
 
     fn emit_errno(

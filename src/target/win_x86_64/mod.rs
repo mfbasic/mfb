@@ -39,6 +39,11 @@ const RUNTIME_CALLS: &[&str] = &[
     // DWORDs — emit_write/emit_read_file must zero the slot before the call.)
     "fs.readText",
     "fs.readBytes",
+    "fs.writeText",
+    "fs.writeBytes",
+    "fs.deleteFile",
+    "fs.createDirectory",
+    "fs.setCurrentDirectory",
 ];
 
 impl NativeBackend for Backend {

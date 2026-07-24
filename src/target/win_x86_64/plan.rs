@@ -80,6 +80,36 @@ impl NativePlanPlatform for Platform {
                 import("CloseHandle", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
+            "fs.writeText" | "fs.writeBytes" | "fs.appendText" | "fs.appendBytes" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("SetFilePointerEx", KERNEL32, required_by),
+                import("FlushFileBuffers", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            // emit_fs_path_operation: one Win32 BOOL call each, over a marshaled path.
+            "fs.deleteFile" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("DeleteFileW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            "fs.createDirectory" | "fs.createDirectories" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateDirectoryW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            "fs.deleteDirectory" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("RemoveDirectoryW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            "fs.setCurrentDirectory" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("SetCurrentDirectoryW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             _ => Vec::new(),
         }
     }
