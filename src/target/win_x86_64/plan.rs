@@ -174,6 +174,25 @@ impl NativePlanPlatform for Platform {
                 import("SetConsoleMode", KERNEL32, required_by),
                 import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
             ],
+            // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
+            // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
+            // sync primitives (they share the queue/broadcast machinery), so the
+            // whole kernel32 set is declared; the merged import table dedups.
+            call if call.starts_with("thread.") => {
+                vec![
+                    import("CreateThread", KERNEL32, required_by),
+                    import("CloseHandle", KERNEL32, required_by),
+                    import("WaitForSingleObject", KERNEL32, required_by),
+                    import("InitializeSRWLock", KERNEL32, required_by),
+                    import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                    import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                    import("InitializeConditionVariable", KERNEL32, required_by),
+                    import("WakeConditionVariable", KERNEL32, required_by),
+                    import("WakeAllConditionVariable", KERNEL32, required_by),
+                    import("SleepConditionVariableSRW", KERNEL32, required_by),
+                    import("SwitchToThread", KERNEL32, required_by),
+                ]
+            }
             _ => Vec::new(),
         }
     }

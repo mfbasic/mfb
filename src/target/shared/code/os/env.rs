@@ -24,8 +24,10 @@ pub(crate) fn os_env_lock_init_hex(family: PlatformFamily) -> String {
         PlatformFamily::MacOS => bytes[0..4].copy_from_slice(&0x32AA_ABA7u32.to_le_bytes()),
         // Linux `PTHREAD_MUTEX_INITIALIZER` is an all-zero `pthread_mutex_t`.
         PlatformFamily::Linux => {}
-        // 47-H owns the Windows env/pwd lock (SRWLOCK), not a pthread mutex.
-        PlatformFamily::Windows => unreachable!("47-H owns the Windows env lock init bytes"),
+        // The Windows env/pwd lock is an SRWLOCK, whose valid initial value
+        // (`SRWLOCK_INIT`) is all zero — exactly like PTHREAD_MUTEX_INITIALIZER; the
+        // Acquire/Release SRW calls the lock/unlock arms emit need no separate init.
+        PlatformFamily::Windows => {}
     }
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

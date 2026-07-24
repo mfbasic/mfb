@@ -74,12 +74,140 @@ pub(super) fn emit_thread_external_call(ctx: &mut EmitCtx, name: &str) -> Result
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
+    // Windows has no pthreads: translate each POSIX threading primitive to its
+    // Win32 equivalent (plan-47-H). SRWLOCK and CONDITION_VARIABLE are pointer-
+    // sized and zero-initialised (a zeroed value is a valid unlocked lock / fresh
+    // condvar), so they fit the pthread-sized slots the shared code zeroes.
+    if platform.family() == PlatformFamily::Windows {
+        return emit_windows_thread_call(ctx, name);
+    }
+
     // `ctx.symbol` is the emitting symbol, which is exactly what the old `from`
     // parameter carried — the two were always passed the same value.
     let symbol = thread_symbol(platform, name);
     ctx.instructions.push(abi::branch_link(&symbol));
     ctx.relocations
         .push(external_branch(ctx.symbol, &symbol, platform_imports)?);
+    Ok(())
+}
+
+/// Emit the Win32 realization of a POSIX threading primitive (plan-47-H). The
+/// shared callers set arguments in the pthread convention (`x0..`); each arm
+/// re-uses or lightly adjusts them for the matching kernel32 call and leaves the
+/// POSIX return contract in the return register (0 = success).
+fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String> {
+    let from = ctx.symbol;
+    let pi = ctx.platform_imports;
+    // Emit a `bl <win32>` + external reloc.
+    fn call(ctx: &mut EmitCtx, from: &str, sym: &str) -> Result<(), String> {
+        ctx.instructions.push(abi::branch_link(sym));
+        ctx.relocations
+            .push(external_branch(from, sym, ctx.platform_imports)?);
+        Ok(())
+    }
+    match name {
+        // Mutex → SRWLOCK (exclusive). All take the lock pointer in x0 and return
+        // void; the POSIX callers expect 0.
+        "pthread_mutex_init" => {
+            call(ctx, from, "InitializeSRWLock")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        "pthread_mutex_lock" => {
+            call(ctx, from, "AcquireSRWLockExclusive")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        "pthread_mutex_unlock" => {
+            call(ctx, from, "ReleaseSRWLockExclusive")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        // Condition variable → CONDITION_VARIABLE.
+        "pthread_cond_init" => {
+            call(ctx, from, "InitializeConditionVariable")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        "pthread_cond_signal" => {
+            call(ctx, from, "WakeConditionVariable")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        "pthread_cond_broadcast" => {
+            call(ctx, from, "WakeAllConditionVariable")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        // pthread_cond_wait(cond=x0, mutex=x1) → SleepConditionVariableSRW(cond,
+        // lock, dwMilliseconds=INFINITE, Flags=0). Returns BOOL; POSIX wants 0.
+        "pthread_cond_wait" => {
+            ctx.instructions.extend([
+                abi::move_immediate(abi::ARG[2], "Integer", "0"),
+                abi::subtract_immediate(abi::ARG[2], abi::ARG[2], 1), // INFINITE = (DWORD)-1
+                abi::move_immediate(abi::ARG[3], "Integer", "0"),     // Flags (exclusive)
+            ]);
+            call(ctx, from, "SleepConditionVariableSRW")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        // pthread_cond_timedwait(cond=x0, mutex=x1, &abstime=x2). The shared
+        // callers loop on their own deadline (emit_thread_deadline), re-checking
+        // the predicate after each wake, so a fixed short poll interval preserves
+        // correctness (it just wakes more often); a precise abstime→relative-ms
+        // conversion is unnecessary. Return ETIMEDOUT (110) on a timeout wake so
+        // the caller's deadline logic advances, 0 on a genuine wake.
+        "pthread_cond_timedwait" => {
+            let n = ctx.instructions.len();
+            let timed = format!("{from}_ctw_timeout_{n}");
+            let done = format!("{from}_ctw_done_{n}");
+            ctx.instructions.extend([
+                abi::move_immediate(abi::ARG[2], "Integer", "20"), // poll every 20ms
+                abi::move_immediate(abi::ARG[3], "Integer", "0"),
+            ]);
+            call(ctx, from, "SleepConditionVariableSRW")?;
+            ctx.instructions.extend([
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_eq(&timed), // BOOL 0 → timed out (or error)
+                abi::move_immediate(abi::return_register(), "Integer", "0"),
+                abi::branch(&done),
+                abi::label(&timed),
+                abi::move_immediate(abi::return_register(), "Integer", "110"), // ETIMEDOUT
+                abi::label(&done),
+            ]);
+        }
+        // pthread_detach(handle=x0): release our reference; the thread runs on.
+        "pthread_detach" => {
+            call(ctx, from, "CloseHandle")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        // Stack-size attr is set directly on CreateThread (see the spawn helper);
+        // these are inert on Windows.
+        "pthread_attr_init" | "pthread_attr_setstacksize" | "pthread_attr_destroy" => {
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        "sched_yield" => {
+            call(ctx, from, "SwitchToThread")?;
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        // clock_gettime(clk, &ts) is used only to build the absolute deadline that
+        // pthread_cond_timedwait consumes; the Windows timedwait arm ignores the
+        // abstime (it polls on a fixed interval), so filling the timespec is
+        // unnecessary. A no-op returning 0 keeps the caller's control flow intact.
+        "clock_gettime" => {
+            ctx.instructions
+                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+        }
+        other => {
+            return Err(format!(
+                "windows-x86_64: no Win32 translation for thread primitive '{other}'"
+            ));
+        }
+    }
+    let _ = pi;
     Ok(())
 }
 
@@ -633,86 +761,144 @@ fn lower_thread_start_helper(
         &parent_done,
     )?;
 
-    let pthread_create_symbol = match platform.family() {
-        PlatformFamily::MacOS => "_pthread_create",
-        PlatformFamily::Linux => "pthread_create",
-        PlatformFamily::Windows => unreachable!("47-H owns Windows thread creation (CreateThread)"),
-    };
-    let (attr_init_symbol, attr_setstacksize_symbol) = match platform.family() {
-        PlatformFamily::MacOS => ("_pthread_attr_init", "_pthread_attr_setstacksize"),
-        PlatformFamily::Linux => ("pthread_attr_init", "pthread_attr_setstacksize"),
-        PlatformFamily::Windows => unreachable!("47-H owns Windows thread creation (CreateThread)"),
-    };
-    // Give the worker an explicit 8 MiB stack. musl's default pthread stack is
-    // 128 KiB — far below what the main thread gets (typically 8 MiB via
-    // RLIMIT_STACK) — so worker code with large frames (the regex engine has a
-    // ~230 KiB frame) overflowed the stack on Linux/musl while passing on
-    // macOS (512 KiB default). The memory is reserved lazily (virtual), so the
-    // cost per thread is address space, not RSS. The attr is stack scratch;
-    // pthread_attr_destroy is a no-op for a stacksize-only attr on musl,
-    // glibc, and macOS, so it is not called.
-    instructions.push(abi::add_immediate(
-        abi::ARG[0],
-        abi::stack_pointer(),
-        ATTR_OFFSET,
-    ));
-    instructions.push(abi::branch_link(attr_init_symbol));
-    relocations.push(external_branch(symbol, attr_init_symbol, platform_imports)?);
-    instructions.extend([
-        abi::add_immediate(abi::ARG[0], abi::stack_pointer(), ATTR_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", &(8 * 1024 * 1024).to_string()),
-    ]);
-    instructions.push(abi::branch_link(attr_setstacksize_symbol));
-    relocations.push(external_branch(
-        symbol,
-        attr_setstacksize_symbol,
-        platform_imports,
-    )?);
-    instructions.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        abi::add_immediate(abi::ARG[0], "%v9", THREAD_OFFSET_OS_HANDLE),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ATTR_OFFSET),
-    ]);
-    instructions.push(abi::load_page_address(
-        abi::ARG[2],
-        THREAD_TRAMPOLINE_SYMBOL,
-    ));
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
-        kind: RelocIntent::DataAddrHi,
-        binding: "data".to_string(),
-        library: None,
-    });
-    instructions.push(abi::add_page_offset(
-        abi::ARG[2],
-        abi::ARG[2],
-        THREAD_TRAMPOLINE_SYMBOL,
-    ));
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
-        kind: RelocIntent::DataAddrLo,
-        binding: "data".to_string(),
-        library: None,
-    });
-    instructions.extend([
-        abi::move_register(abi::ARG[3], "%v9"),
-        abi::branch_link(pthread_create_symbol),
-    ]);
-    relocations.push(external_branch(
-        symbol,
-        pthread_create_symbol,
-        platform_imports,
-    )?);
-    instructions.extend([
-        abi::compare_immediate(abi::RET[0], "0"),
-        abi::branch_ne(&spawn_error),
-        abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
-        abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
-        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::branch(&parent_done),
-    ]);
+    if platform.family() == PlatformFamily::Windows {
+        // CreateThread(NULL, 8 MiB, trampoline, cb, 0, NULL). lpStartAddress and
+        // lpParameter land in r8/r9 exactly where the POSIX ARG[2]/ARG[3] would;
+        // the two remaining stack args (dwCreationFlags, lpThreadId) plus the
+        // 32-byte shadow ride a self-contained 0x40 frame. CreateThread returns the
+        // OS HANDLE (NULL on failure) — the same slot the pthread path fills via its
+        // `&os_handle` out-param. There is no attr object: the 8 MiB worker stack is
+        // a direct CreateThread argument.
+        // Load lpParameter (cb) BEFORE the stack adjustment — CB_OFFSET is relative
+        // to the function frame, so reading it after subtract_stack would be off by
+        // 0x40. ARG[3] (r9) is not touched by the trampoline-address load below, so
+        // it survives to the CreateThread call.
+        instructions.push(abi::load_u64(abi::ARG[3], abi::stack_pointer(), CB_OFFSET));
+        instructions.push(abi::subtract_stack(0x40));
+        instructions.push(abi::load_page_address(abi::ARG[2], THREAD_TRAMPOLINE_SYMBOL));
+        relocations.push(CodeRelocation {
+            from: symbol.to_string(),
+            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
+            kind: RelocIntent::DataAddrHi,
+            binding: "data".to_string(),
+            library: None,
+        });
+        instructions.push(abi::add_page_offset(
+            abi::ARG[2],
+            abi::ARG[2],
+            THREAD_TRAMPOLINE_SYMBOL,
+        ));
+        relocations.push(CodeRelocation {
+            from: symbol.to_string(),
+            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
+            kind: RelocIntent::DataAddrLo,
+            binding: "data".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            // ARG[3] (cb) was loaded before subtract_stack and is still live.
+            abi::move_immediate(abi::ARG[0], "Integer", "0"), // lpThreadAttributes
+            abi::move_immediate(abi::ARG[1], "Integer", &(8 * 1024 * 1024).to_string()),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // dwCreationFlags = 0
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28), // lpThreadId = NULL
+            abi::branch_link("CreateThread"),
+        ]);
+        relocations.push(external_branch(symbol, "CreateThread", platform_imports)?);
+        instructions.extend([
+            abi::add_stack(0x40),
+            abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
+            abi::store_u64(abi::RET[0], "%v9", THREAD_OFFSET_OS_HANDLE), // cb.os_handle = HANDLE
+            abi::compare_immediate(abi::RET[0], "0"),
+            abi::branch_eq(&spawn_error), // NULL = failure
+            abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::branch(&parent_done),
+        ]);
+    } else {
+        let (pthread_create_symbol, attr_init_symbol, attr_setstacksize_symbol) =
+            match platform.family() {
+                PlatformFamily::MacOS => (
+                    "_pthread_create",
+                    "_pthread_attr_init",
+                    "_pthread_attr_setstacksize",
+                ),
+                _ => (
+                    "pthread_create",
+                    "pthread_attr_init",
+                    "pthread_attr_setstacksize",
+                ),
+            };
+        // Give the worker an explicit 8 MiB stack. musl's default pthread stack is
+        // 128 KiB — far below what the main thread gets (typically 8 MiB via
+        // RLIMIT_STACK) — so worker code with large frames (the regex engine has a
+        // ~230 KiB frame) overflowed the stack on Linux/musl while passing on
+        // macOS (512 KiB default). The memory is reserved lazily (virtual), so the
+        // cost per thread is address space, not RSS. The attr is stack scratch;
+        // pthread_attr_destroy is a no-op for a stacksize-only attr on musl,
+        // glibc, and macOS, so it is not called.
+        instructions.push(abi::add_immediate(
+            abi::ARG[0],
+            abi::stack_pointer(),
+            ATTR_OFFSET,
+        ));
+        instructions.push(abi::branch_link(attr_init_symbol));
+        relocations.push(external_branch(symbol, attr_init_symbol, platform_imports)?);
+        instructions.extend([
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), ATTR_OFFSET),
+            abi::move_immediate(abi::ARG[1], "Integer", &(8 * 1024 * 1024).to_string()),
+        ]);
+        instructions.push(abi::branch_link(attr_setstacksize_symbol));
+        relocations.push(external_branch(
+            symbol,
+            attr_setstacksize_symbol,
+            platform_imports,
+        )?);
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
+            abi::add_immediate(abi::ARG[0], "%v9", THREAD_OFFSET_OS_HANDLE),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ATTR_OFFSET),
+        ]);
+        instructions.push(abi::load_page_address(
+            abi::ARG[2],
+            THREAD_TRAMPOLINE_SYMBOL,
+        ));
+        relocations.push(CodeRelocation {
+            from: symbol.to_string(),
+            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
+            kind: RelocIntent::DataAddrHi,
+            binding: "data".to_string(),
+            library: None,
+        });
+        instructions.push(abi::add_page_offset(
+            abi::ARG[2],
+            abi::ARG[2],
+            THREAD_TRAMPOLINE_SYMBOL,
+        ));
+        relocations.push(CodeRelocation {
+            from: symbol.to_string(),
+            to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
+            kind: RelocIntent::DataAddrLo,
+            binding: "data".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::move_register(abi::ARG[3], "%v9"),
+            abi::branch_link(pthread_create_symbol),
+        ]);
+        relocations.push(external_branch(
+            symbol,
+            pthread_create_symbol,
+            platform_imports,
+        )?);
+        instructions.extend([
+            abi::compare_immediate(abi::RET[0], "0"),
+            abi::branch_ne(&spawn_error),
+            abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
+            abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::branch(&parent_done),
+        ]);
+    }
 
     instructions.extend([
         abi::label(&invalid_limit),

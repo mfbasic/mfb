@@ -66,6 +66,15 @@ const RUNTIME_CALLS: &[&str] = &[
     "io.isOutputTerminal",
     "io.isErrorTerminal",
     "term.terminalSize",
+    "thread.start",
+    "thread.waitFor",
+    "thread.send",
+    "thread.receive",
+    "thread.poll",
+    "thread.isRunning",
+    "thread.drop",
+    "thread.cancel",
+    "thread.isCancelled",
 ];
 
 impl NativeBackend for Backend {

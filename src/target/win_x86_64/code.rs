@@ -1553,11 +1553,13 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_thread_trampoline(
         &self,
-        _platform_imports: &HashMap<String, String>,
-        _uses_stdin: bool,
-        _arena_init: code::ArenaInitSymbols,
+        platform_imports: &HashMap<String, String>,
+        uses_stdin: bool,
+        arena_init: code::ArenaInitSymbols,
     ) -> Result<CodeFunction, String> {
-        Err(unsupported("threads (CreateThread)"))
+        // The shared trampoline; its pthread_* calls route through this platform's
+        // emit_thread_external_call Windows arms (CreateThread/SRWLOCK/condvar).
+        code::lower_thread_trampoline(platform_imports, self, uses_stdin, arena_init)
     }
 
     fn app_mode_data_objects(&self, _project_name: &str) -> Vec<CodeDataObject> {
