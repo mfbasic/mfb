@@ -509,6 +509,22 @@ imports on the same mechanism.
 
 <!-- Filled in during execution. -->
 
+- 2026-07-23 — **Execution progress (this session).** Landed and committed, in
+  dependency order: the riscv64 golden prereq (`bb3ba1c5f`); **47-A** — the
+  exhaustive `PlatformFamily` match, byte-neutral, 27 sites + 5 helpers
+  (`2366793a9`); **47-C C1** — the complete standalone PE writer, Phases 1–3
+  (object plan `f0e725ad2`, PE32+ header writer `f7c4521d8`, `.idata`/IAT/thunks
+  + relocation patcher with a hand-built `ExitProcess(42)` image `bcf53db02`), 25
+  unit tests. Two bugs surfaced and handled: **bug-381** (riscv64 codegen panic on
+  string-list sort — OPEN, filed) and **bug-382** (2 pre-existing red tests —
+  FIXED). All green: `cargo test` 3228/0, `artifact-gate` 1329 goldens/0 diffs,
+  `check-generated` ok (CI Python pinned to 3.14). **Next unit: 47-B** — prereqs
+  re-verified MET (`PlatformFamily` exists; riscv64 goldens seeded). 47-B is
+  `large` and splits into A1 (ABI realization: rcx/rdx/r8/r9 + 32-byte shadow
+  space + external stack tail from index 4) / A2 (54-method `CodegenPlatform` stub
+  wall) / A3 (registration + manifest widening). Its correctness risk concentrates
+  in the shadow space (a silent no-diagnostic caller-frame corruption), so it must
+  be pinned by a selection/encoder unit test, per 47-B §4.3.
 - 2026-07-23 — **Prereq rows re-verified before execution.** Row 1 MET; row 2 MET
   (Windows box live over ssh port 2230, confirmed this session); row 4 **now MET
   and no longer a straddle risk** — `MFB_KIND2` is gone from `src/` and
