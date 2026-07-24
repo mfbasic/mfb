@@ -304,6 +304,7 @@ pub(super) fn emit_set_sock_timeouts(
 }
 
 pub(crate) mod macos;
+pub(crate) mod schannel;
 mod openssl;
 
 // Per-helper platform dispatch, done once here in the package parent — mirroring
@@ -320,7 +321,7 @@ pub(super) fn lower_tls_connect_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_connect_openssl(symbol, platform_imports, platform)
         }
-        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
+        PlatformFamily::Windows => schannel::lower_tls_connect(symbol, platform_imports, platform),
     }
 }
 
@@ -365,7 +366,7 @@ pub(super) fn lower_tls_read_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_read_openssl(symbol, platform_imports, platform, text)
         }
-        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
+        PlatformFamily::Windows => schannel::lower_tls_read(symbol, platform_imports, platform, text),
     }
 }
 
@@ -382,7 +383,7 @@ pub(super) fn lower_tls_write_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_write_openssl(symbol, platform_imports, platform, text)
         }
-        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
+        PlatformFamily::Windows => schannel::lower_tls_write(symbol, platform_imports, platform, text),
     }
 }
 
@@ -396,7 +397,7 @@ pub(super) fn lower_tls_close_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_close_openssl(symbol, platform_imports, platform)
         }
-        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
+        PlatformFamily::Windows => schannel::lower_tls_close(symbol, platform_imports, platform),
     }
 }
 

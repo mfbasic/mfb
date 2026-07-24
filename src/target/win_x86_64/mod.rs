@@ -115,6 +115,14 @@ const RUNTIME_CALLS: &[&str] = &[
     "crypto.p256Verify",
     "crypto.p384Verify",
     "crypto.p521Verify",
+    // TLS client over Schannel (plan-47-J). Server (listen/accept) is not yet
+    // advertised on Windows.
+    "tls.connect",
+    "tls.read",
+    "tls.readText",
+    "tls.write",
+    "tls.writeText",
+    "tls.close",
 ];
 
 impl NativeBackend for Backend {

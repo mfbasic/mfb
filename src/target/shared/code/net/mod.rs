@@ -165,7 +165,7 @@ fn emit_fail(
 /// `sp + str_offset` and left in `%v9`. Offsets and labels are caller-supplied so
 /// the emitted bytes match each call site exactly. Clobbers `x0`/`x1`/`%v9`..`%v15`.
 #[allow(clippy::too_many_arguments)]
-fn emit_string_result_build(
+pub(in crate::target::shared::code) fn emit_string_result_build(
     symbol: &str,
     buf_offset: usize,
     n_offset: usize,

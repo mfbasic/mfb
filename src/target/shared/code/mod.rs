@@ -731,9 +731,11 @@ pub(crate) fn lower_module_for_platform(
             PlatformFamily::Linux => {
                 data_objects.extend(tls::tls_cstring_data_objects(tls_server));
             }
-            // 47-J owns the Windows TLS data objects (Schannel); the OpenSSL arm
-            // would bake OpenSSL sonames into a Windows binary (§3.2).
-            PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS data objects"),
+            // The Windows TLS data objects are the Schannel package-name wide
+            // string (plan-47-J).
+            PlatformFamily::Windows => {
+                data_objects.extend(tls::schannel::data_objects());
+            }
         }
     }
     // The audio backend's read-only data objects (the Linux libasound soname +
@@ -826,12 +828,14 @@ pub(crate) fn lower_module_for_platform(
     let uses_term = runtime_symbols
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_term_"));
-    // Whether the program reaches any `net::` socket helper. Windows needs
-    // WSAStartup/WSACleanup in the entry only then (plan-47-I §3.2); every other
-    // platform ignores the flag, so a socket-free program stays byte-identical.
+    // Whether the program reaches any `net::` socket helper — or a `tls::` helper,
+    // whose Schannel client opens its own raw Winsock socket (getaddrinfo/socket/
+    // connect/send/recv). Windows needs WSAStartup/WSACleanup in the entry only
+    // then (plan-47-I §3.2); every other platform ignores the flag, so a
+    // socket-free program stays byte-identical.
     let uses_net = runtime_symbols
         .iter()
-        .any(|symbol| symbol.starts_with("_mfb_rt_net_"));
+        .any(|symbol| symbol.starts_with("_mfb_rt_net_") || symbol.starts_with("_mfb_rt_tls_"));
     // Whether the program uses the `math::` random generator. When it does we
     // emit the PCG64 helpers, seed each thread's arena, and draw a fresh
     // per-thread stream on spawn.

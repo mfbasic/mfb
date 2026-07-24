@@ -15,6 +15,8 @@ use crate::target::shared::runtime::RuntimeHelperSpec;
 const KERNEL32: &str = "kernel32.dll";
 const WS2_32: &str = "ws2_32.dll";
 const BCRYPT: &str = "bcrypt.dll";
+const SECUR32: &str = "secur32.dll";
+const CRYPT32: &str = "crypt32.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -251,6 +253,38 @@ impl NativePlanPlatform for Platform {
                 import("BCryptVerifySignature", BCRYPT, required_by),
             ],
             "crypto.randomBytes" => vec![import("BCryptGenRandom", BCRYPT, required_by)],
+            // TLS client over Schannel (plan-47-J): SSPI (secur32), the cert-chain
+            // policy check (crypt32), the socket layer (ws2_32), and the wide-string
+            // marshal for the SNI/target name (kernel32). Any tls.* call declares
+            // the whole set; the merged IAT dedups.
+            call if call.starts_with("tls.") => vec![
+                // WSAStartup/WSACleanup ride the entry (needs_winsock is set for
+                // tls too, since the Schannel client opens its own raw socket).
+                import("WSAStartup", WS2_32, required_by),
+                import("WSACleanup", WS2_32, required_by),
+                import("AcquireCredentialsHandleW", SECUR32, required_by),
+                import("FreeCredentialsHandle", SECUR32, required_by),
+                import("InitializeSecurityContextW", SECUR32, required_by),
+                import("DeleteSecurityContext", SECUR32, required_by),
+                import("FreeContextBuffer", SECUR32, required_by),
+                import("QueryContextAttributesW", SECUR32, required_by),
+                import("ApplyControlToken", SECUR32, required_by),
+                import("EncryptMessage", SECUR32, required_by),
+                import("DecryptMessage", SECUR32, required_by),
+                import("CertGetCertificateChain", CRYPT32, required_by),
+                import("CertVerifyCertificateChainPolicy", CRYPT32, required_by),
+                import("CertFreeCertificateChain", CRYPT32, required_by),
+                import("CertFreeCertificateContext", CRYPT32, required_by),
+                import("getaddrinfo", WS2_32, required_by),
+                import("freeaddrinfo", WS2_32, required_by),
+                import("socket", WS2_32, required_by),
+                import("connect", WS2_32, required_by),
+                import("send", WS2_32, required_by),
+                import("recv", WS2_32, required_by),
+                import("closesocket", WS2_32, required_by),
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             _ => Vec::new(),
         }
     }
