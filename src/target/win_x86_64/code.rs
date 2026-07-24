@@ -515,63 +515,196 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_errno(
         &self,
-        _from: &str,
-        _dst: &str,
+        from: &str,
+        dst: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("errno (GetLastError)"))
+        // Windows has no `errno`; the last error code comes from GetLastError().
+        // The POSIX callers use this to detect EINTR (and retry) — a code Windows
+        // never reports, so the retry never fires and the value flows to the
+        // generic-failure path, which is correct (plan-47-F §3.3). GetLastError
+        // takes no args and returns the DWORD in the return register.
+        instructions.push(abi::subtract_stack(0x20)); // shadow space
+        call_external(from, "GetLastError", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::add_stack(0x20),
+            abi::move_register(dst, abi::return_register()),
+        ]);
+        Ok(())
     }
 
     fn emit_open_file(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // Contract (shared fs/io.rs openFile helper): the arena UTF-8 path is in
+        // ARG[0], the packed open flags (`open_flag_set`'s Windows arm:
+        // (disposition<<32)|access) in ARG[1], the POSIX mode in ARG[2] (ignored).
+        // Return the file HANDLE in the return register; the helper sign-extends
+        // its low 32 bits and treats < 0 as failure — CreateFileW returns small
+        // positive kernel handles and INVALID_HANDLE_VALUE (-1) on error, so that
+        // check is correct. CreateFileW(lpFileName, dwDesiredAccess, dwShareMode,
+        // NULL, dwCreationDisposition, dwFlagsAndAttributes, NULL) — three of its
+        // seven args are on the stack (above the shadow), reusing the marshal
+        // frame's now-dead path slot at 0x30 for the last one.
+        const FRAME: usize = 0x50;
+        const PACKED_SLOT: usize = 0x48;
+        instructions.extend([
+            abi::subtract_stack(FRAME),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), PACKED_SLOT), // save packed flags
+        ]);
+        emit_marshal_path(from, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), MARSHAL_WBUF_SLOT), // lpFileName
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), PACKED_SLOT),
+            // dwDesiredAccess: CreateFileW reads it as the low 32 bits of rdx, so
+            // the packed value goes straight in — the disposition in the high half
+            // is ignored by the DWORD parameter.
+            abi::move_immediate(abi::ARG[2], "Integer", "7"), // FILE_SHARE_READ|WRITE|DELETE
+            abi::move_immediate(abi::ARG[3], "Integer", "0"), // lpSecurityAttributes = NULL
+            // dwCreationDisposition (5th, stack) = packed >> 32.
+            abi::shift_right_immediate(abi::SCRATCH[0], abi::ARG[1], 32),
+            abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::SCRATCH[0], "Integer", "128"), // FILE_ATTRIBUTE_NORMAL
+            abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0x28), // 6th (stack)
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),       // 7th hTemplateFile = NULL
+        ]);
+        call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
+        instructions.push(abi::add_stack(FRAME));
+        Ok(())
     }
 
     fn emit_read_file(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // read(fd, buf, len): HANDLE in ARG[0], buffer in ARG[1], length in ARG[2];
+        // return the byte count (0 = EOF, negative = error). ReadFile(hFile,
+        // lpBuffer, nToRead, &nRead, NULL) — the 5th arg (lpOverlapped) is a stack
+        // arg that MUST be NULL; the bytes-read out-param and the NULL live in the
+        // outgoing frame. On BOOL failure return -1; otherwise return nRead (which
+        // is 0 at end of file, exactly the read() contract).
+        let n = instructions.len();
+        let ok = format!("{from}_read_ok_{n}");
+        let done = format!("{from}_read_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x40),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpOverlapped = NULL (5th)
+            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0x28), // &nRead (4th)
+        ]);
+        call_external(from, "ReadFile", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
+            abi::branch(&done),
+            abi::label(&ok),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), 0x28), // nRead
+            abi::label(&done),
+            abi::add_stack(0x40),
+        ]);
+        Ok(())
     }
 
     fn emit_close_file(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // close(fd): HANDLE in ARG[0], return 0 on success. CloseHandle returns
+        // BOOL (nonzero = success), so map nonzero → 0 and zero → -1.
+        let n = instructions.len();
+        let ok = format!("{from}_close_ok_{n}");
+        let done = format!("{from}_close_done_{n}");
+        instructions.push(abi::subtract_stack(0x20)); // shadow only
+        call_external(from, "CloseHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
+            abi::branch(&done),
+            abi::label(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(0x20),
+        ]);
+        Ok(())
     }
 
     fn emit_sync_file(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // fsync(fd): HANDLE in ARG[0], return 0 on success. FlushFileBuffers
+        // returns BOOL.
+        let n = instructions.len();
+        let ok = format!("{from}_sync_ok_{n}");
+        let done = format!("{from}_sync_done_{n}");
+        instructions.push(abi::subtract_stack(0x20));
+        call_external(from, "FlushFileBuffers", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
+            abi::branch(&done),
+            abi::label(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(0x20),
+        ]);
+        Ok(())
     }
 
     fn emit_seek_file(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // lseek(fd, offset, whence): HANDLE in ARG[0], offset in ARG[1], whence in
+        // ARG[2] (0=SET, 1=CUR, 2=END — the same values as FILE_BEGIN/CURRENT/END).
+        // Return the new absolute position, or -1 on error. SetFilePointerEx(hFile,
+        // liDistanceToMove, &liNewFilePointer, dwMoveMethod) — hFile and the 64-bit
+        // distance are already in ARG[0]/ARG[1]; move whence into r9 and point r8 at
+        // an output slot before the call, then read the new position back.
+        let n = instructions.len();
+        let ok = format!("{from}_seek_ok_{n}");
+        let done = format!("{from}_seek_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::move_register(abi::ARG[3], abi::ARG[2]), // dwMoveMethod = whence
+            abi::add_immediate(abi::ARG[2], abi::stack_pointer(), 0x28), // &liNewFilePointer
+        ]);
+        call_external(from, "SetFilePointerEx", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
+            abi::branch(&done),
+            abi::label(&ok),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), 0x28), // new position
+            abi::label(&done),
+            abi::add_stack(0x30),
+        ]);
+        Ok(())
     }
 
     fn emit_rename_path(

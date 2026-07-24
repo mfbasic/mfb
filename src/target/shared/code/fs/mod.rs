@@ -104,17 +104,7 @@ pub(super) fn emit_fs_path_errno_error_mapping(
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
 ) {
-    // errno values are per-OS, not per-arch.
-    let linux = match family {
-        PlatformFamily::Linux => true,
-        PlatformFamily::MacOS => false,
-        PlatformFamily::Windows => unreachable!("47-F owns the Windows fs error mapping"),
-    };
-    let eloop = if linux { "40" } else { "62" };
-    let enametoolong = if linux { "36" } else { "63" };
-    let eilseq = if linux { "84" } else { "92" };
-    let enotempty = if linux { "39" } else { "66" };
-
+    // Shared error labels (family-independent).
     let err_path_not_found = format!("{symbol}_errno_path_not_found");
     let err_access_denied = format!("{symbol}_errno_access_denied");
     let err_already_exists = format!("{symbol}_errno_already_exists");
@@ -127,24 +117,59 @@ pub(super) fn emit_fs_path_errno_error_mapping(
         err_invalid_path.clone()
     };
 
+    // Dispatch the host error code to a shared label. POSIX errnos are per-OS (not
+    // per-arch); Windows reports a different set through GetLastError.
+    match family {
+        PlatformFamily::Windows => {
+            instructions.extend([
+                abi::compare_immediate(errno_reg, "2"), // ERROR_FILE_NOT_FOUND
+                abi::branch_eq(&err_path_not_found),
+                abi::compare_immediate(errno_reg, "3"), // ERROR_PATH_NOT_FOUND
+                abi::branch_eq(&err_path_not_found),
+                abi::compare_immediate(errno_reg, "5"), // ERROR_ACCESS_DENIED
+                abi::branch_eq(&err_access_denied),
+                abi::compare_immediate(errno_reg, "80"), // ERROR_FILE_EXISTS
+                abi::branch_eq(&err_already_exists),
+                abi::compare_immediate(errno_reg, "183"), // ERROR_ALREADY_EXISTS
+                abi::branch_eq(&err_already_exists),
+                abi::compare_immediate(errno_reg, "145"), // ERROR_DIR_NOT_EMPTY
+                abi::branch_eq(&err_not_empty),
+                abi::compare_immediate(errno_reg, "123"), // ERROR_INVALID_NAME
+                abi::branch_eq(&err_invalid_path),
+                abi::compare_immediate(errno_reg, "206"), // ERROR_FILENAME_EXCED_RANGE
+                abi::branch_eq(&err_invalid_path),
+                abi::branch(&err_output),
+            ]);
+        }
+        _ => {
+            // errno values are per-OS, not per-arch.
+            let linux = matches!(family, PlatformFamily::Linux);
+            let eloop = if linux { "40" } else { "62" };
+            let enametoolong = if linux { "36" } else { "63" };
+            let eilseq = if linux { "84" } else { "92" };
+            let enotempty = if linux { "39" } else { "66" };
+            instructions.extend([
+                abi::compare_immediate(errno_reg, "2"),
+                abi::branch_eq(&err_path_not_found),
+                abi::compare_immediate(errno_reg, "13"),
+                abi::branch_eq(&err_access_denied),
+                abi::compare_immediate(errno_reg, "17"),
+                abi::branch_eq(&err_already_exists),
+                abi::compare_immediate(errno_reg, enotempty),
+                abi::branch_eq(&err_not_empty),
+                abi::compare_immediate(errno_reg, "20"),
+                abi::branch_eq(&err_invalid_path),
+                abi::compare_immediate(errno_reg, enametoolong),
+                abi::branch_eq(&err_invalid_path),
+                abi::compare_immediate(errno_reg, eilseq),
+                abi::branch_eq(&err_invalid_path),
+                abi::compare_immediate(errno_reg, eloop),
+                abi::branch_eq(&eloop_target),
+                abi::branch(&err_output),
+            ]);
+        }
+    }
     instructions.extend([
-        abi::compare_immediate(errno_reg, "2"),
-        abi::branch_eq(&err_path_not_found),
-        abi::compare_immediate(errno_reg, "13"),
-        abi::branch_eq(&err_access_denied),
-        abi::compare_immediate(errno_reg, "17"),
-        abi::branch_eq(&err_already_exists),
-        abi::compare_immediate(errno_reg, enotempty),
-        abi::branch_eq(&err_not_empty),
-        abi::compare_immediate(errno_reg, "20"),
-        abi::branch_eq(&err_invalid_path),
-        abi::compare_immediate(errno_reg, enametoolong),
-        abi::branch_eq(&err_invalid_path),
-        abi::compare_immediate(errno_reg, eilseq),
-        abi::branch_eq(&err_invalid_path),
-        abi::compare_immediate(errno_reg, eloop),
-        abi::branch_eq(&eloop_target),
-        abi::branch(&err_output),
         abi::label(&err_path_not_found),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_PATH_NOT_FOUND_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),

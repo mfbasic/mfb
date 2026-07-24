@@ -72,6 +72,14 @@ impl NativePlanPlatform for Platform {
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetFileAttributesW", KERNEL32, required_by),
             ],
+            "fs.readText" | "fs.readBytes" | "fs.readAll" | "fs.readAllBytes" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("ReadFile", KERNEL32, required_by),
+                import("SetFilePointerEx", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             _ => Vec::new(),
         }
     }

@@ -2606,11 +2606,23 @@ pub(in crate::target::shared::code) fn open_flag_set(
             read_write: "536871426",
             append: "536871433",
         },
-        // 47-F owns the Windows open path (CreateFileW / dwDesiredAccess +
-        // dwCreationDisposition, not POSIX O_* bits).
-        (PlatformFamily::Windows, _) => {
-            unreachable!("47-F owns the Windows fs open flags")
-        }
+        // Windows `CreateFileW` takes three separate parameters where POSIX packs
+        // one `O_*` bitmask (plan-47-F §3.1): `dwDesiredAccess` +
+        // `dwCreationDisposition`. Rather than reshape `OpenFlagSet` (and every
+        // POSIX arm with it), each Windows mode packs both into the single value
+        // the shared helper already threads: `(disposition << 32) | access`.
+        // `emit_open_file` passes the whole value in `rdx`; the callee reads
+        // `dwDesiredAccess` as the low 32 bits (`edx`) and the emitter shifts the
+        // high half out for `dwCreationDisposition`. Access bits: GENERIC_READ
+        // 0x80000000, GENERIC_WRITE 0x40000000, FILE_APPEND_DATA 0x4; dispositions:
+        // OPEN_EXISTING 3, CREATE_ALWAYS 2, OPEN_ALWAYS 4. (Symlink nofollow is
+        // 47-F §3.2's open decision; the two arms are identical until then.)
+        (PlatformFamily::Windows, _) => OpenFlagSet {
+            read: "15032385536",       // (3 << 32) | 0x80000000
+            write: "9663676416",       // (2 << 32) | 0x40000000
+            read_write: "20401094656", // (4 << 32) | 0xC0000000
+            append: "17179869188",     // (4 << 32) | 0x00000004
+        },
     }
 }
 
