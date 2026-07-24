@@ -58,6 +58,9 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.readAllBytes",
     "fs.readLine",
     "fs.eof",
+    "fs.writeAll",
+    "fs.writeAllBytes",
+    "fs.flush",
 ];
 
 impl NativeBackend for Backend {
