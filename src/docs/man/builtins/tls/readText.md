@@ -37,7 +37,7 @@ Unlike a plain stream read that signals end of stream with a zero-length result,
 `readText` raises an error when the peer has closed the connection: there is no
 empty-`String` sentinel. To consume a whole response, call `readText` in a loop,
 appending each result, and stop when an `ErrConnectionClosed` error is raised.
-[[src/target/shared/code/tls/openssl.rs:lower_tls_read_helper]]
+[[src/target/shared/code/tls/mod.rs:lower_tls_read_helper]]
 
 The decrypted bytes are validated as UTF-8 before being returned; invalid UTF-8
 raises an `ErrEncoding` error. Because a single TLS read may split a multi-byte

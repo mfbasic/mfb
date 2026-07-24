@@ -27,7 +27,7 @@ On Linux it performs an orderly TLS shutdown and frees the OpenSSL objects
 file descriptor; on macOS it cancels the Network.framework connection. After a
 successful return the socket is marked closed and must not be used again — any
 later `tls::` call that takes the same value raises an error rather than touching
-a stale handle. [[src/target/shared/code/tls/openssl.rs:lower_tls_close_helper]] [[src/target/shared/code/tls/macos/client.rs:lower_tls_close_macos]]
+a stale handle. [[src/target/shared/code/tls/mod.rs:lower_tls_close_helper]] [[src/target/shared/code/tls/macos/client.rs:lower_tls_close_macos]]
 
 `close` consumes the `TlsSocket` it is given: the value is moved into the call and
 cannot be referenced afterward. [[src/builtins/tls.rs:consumes_argument]] The call is
@@ -36,7 +36,7 @@ whose closed flag is already set does nothing and returns successfully — so
 closing a socket and then letting it drop is safe, and a socket closed by an
 earlier scope-drop reports success rather than an error. This differs from
 `net::close`, which treats an already-closed resource as an error.
-[[src/target/shared/code/tls/openssl.rs:lower_tls_close_helper]]
+[[src/target/shared/code/tls/mod.rs:lower_tls_close_helper]]
 
 `close` also closes a `TlsListener` from `tls::listen`. The same name spans both
 handle types: given a listener it closes the listening socket and frees the
@@ -45,7 +45,7 @@ server TLS context the listener owns. Because every accepted `TlsSocket` only
 sockets are still open — the context is freed exactly once, when the listener
 closes, and an accepted socket's own close never touches it. The listener close
 is likewise idempotent and consumes its handle.
-[[src/target/shared/code/tls/openssl.rs:lower_tls_close_listener_helper]]
+[[src/target/shared/code/tls/mod.rs:lower_tls_close_listener_helper]]
 
 Closing is otherwise automatic. Every `TlsSocket` and `TlsListener` is closed by
 lexical drop when the binding that holds it leaves scope.
@@ -59,7 +59,7 @@ falling back to `libssl.so.1.1`) so a single binary spans OpenSSL 1.1.1 and 3.x;
 the macOS backend drives Network.framework through a synchronous bridge. If
 neither library can be loaded, or a required symbol is missing while tearing down
 the session, `close` raises `ErrTlsFailed`; the underlying socket file descriptor
-is still closed in that case. [[src/target/shared/code/tls/openssl.rs:lower_tls_close_helper]]
+is still closed in that case. [[src/target/shared/code/tls/mod.rs:lower_tls_close_helper]]
 
 ## Parameters
 

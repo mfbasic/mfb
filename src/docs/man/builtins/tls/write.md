@@ -25,7 +25,7 @@ IMPORT tls
 whole list: the call loops over the underlying TLS write until every byte has
 been accepted, so a successful return means all of `bytes` was handed to the TLS
 layer, not merely the first chunk. The socket must still be open.
-[[src/target/shared/code/tls/openssl.rs:lower_tls_write_helper]]
+[[src/target/shared/code/tls/mod.rs:lower_tls_write_helper]]
 
 The bytes are taken from the list in order, starting at its first element. An
 empty `bytes` list is a no-op: nothing is sent and the call succeeds without

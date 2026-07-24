@@ -122,7 +122,7 @@ and handlers are interchangeable between the two.
 | --- | --- | --- |
 | `77030004` | `ErrResourceClosed` | `listener` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 | `77070003` | `ErrNetworkFailed` | The `accept` call on `listener` fails for a reason other than an interrupting signal (`EINTR` is retried). [[src/target/shared/code/net/io.rs:lower_net_accept_helper]] |
-| `77070008` | `ErrTlsFailed` | TLS overload only: the server-side handshake, or the per-connection TLS setup, fails. [[src/target/shared/code/tls/openssl.rs:lower_tls_accept_helper]] |
+| `77070008` | `ErrTlsFailed` | TLS overload only: the server-side handshake, or the per-connection TLS setup, fails. [[src/target/shared/code/tls/mod.rs:lower_tls_accept_helper]] |
 | `77010001` | `ErrOutOfMemory` | An arena allocation for the accepted socket handle, the request buffer, or the response text fails. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
 
 Malformed, oversized, unmatched, and handler-failing requests are **not** errors:

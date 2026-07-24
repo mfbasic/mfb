@@ -53,7 +53,7 @@ closes. Accepted sockets may therefore be closed in any order, and the listener
 may be closed while accepted sockets are still live. The server presents its
 certificate but does not request or verify a client certificate — there is no
 mutual TLS, session resumption, ALPN, or SNI-based certificate selection in this
-version. [[src/target/shared/code/tls/openssl.rs:lower_tls_close_helper]]
+version. [[src/target/shared/code/tls/mod.rs:lower_tls_close_helper]]
 
 Hosts are UTF-8 `String` values naming either a textual IP address or a name
 passed to the system host resolver, which connects to the first resolved IPv4
@@ -83,7 +83,7 @@ TLS layer cannot be initialized — neither library can be loaded, or a required
 symbol is missing — the call fails. Unlike `net`, the `tls` functions map every
 underlying read or write failure — a closed peer, a reset connection, or any
 other SSL error during transfer — to a single TLS error rather than
-distinguishing timeouts and closes. [[src/target/shared/code/tls/openssl.rs:lower_tls_read_helper]]
+distinguishing timeouts and closes. [[src/target/shared/code/tls/mod.rs:lower_tls_read_helper]]
 
 ## Errors
 

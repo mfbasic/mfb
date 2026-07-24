@@ -49,7 +49,7 @@ node and binds every IPv4 interface, which is equivalent to the `"0.0.0.0"`
 default. Only the low 16 bits of `port` reach the socket: the value is written
 into the two `sin_port` bytes of the resolved address, so a `port` outside
 `0..65535` is truncated modulo 65536 rather than rejected.
-[[src/target/shared/code/tls/openssl.rs:lower_tls_listen_helper]]
+[[src/target/shared/code/tls/mod.rs:lower_tls_listen_helper]]
 [[src/target/shared/code/tls/mod.rs:HINTS_FAMILY_WORD_PASSIVE]]
 
 `certPath` and `keyPath` are filesystem paths to PEM files: the certificate
@@ -66,7 +66,7 @@ accepted but ignored because Network.framework manages its own accept queue. A
 certificate or key that cannot be read, does not parse, or does not match its
 partner raises `ErrTlsFailed`, and the listening socket is closed before the
 error is returned.
-[[src/target/shared/code/tls/openssl.rs:lower_tls_listen_helper]]
+[[src/target/shared/code/tls/mod.rs:lower_tls_listen_helper]]
 [[src/target/shared/code/tls/macos/server.rs:lower_tls_listen_macos]]
 
 A single server certificate is presented: there is no SNI multi-certificate

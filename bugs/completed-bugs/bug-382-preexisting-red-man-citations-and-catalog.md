@@ -5,8 +5,28 @@ Effort: medium (1h–2h)
 Severity: LOW (test-suite red; no shipped-artifact impact — both are metadata/doc consistency checks)
 Class: Correctness (documentation/catalog metadata out of sync with code)
 
-Status: Open
+Status: Closed
 Regression Test: `docs::man::tests::man_citations_resolve`, `target::shared::runtime::catalog::tests::catalog_is_consistent`
+
+## STATUS: FIXED (2026-07-23)
+
+Both landed together. `cargo test --release` is green (3228 passed, 0 failed).
+
+- **man_citations_resolve** — repointed 15 stale citations across 9 man files to
+  the symbols' current homes: `tls/openssl.rs:lower_tls_*_helper` →
+  `tls/mod.rs:...` (the dispatch helpers bug-330 moved), and
+  `audio/{alsa,macos}.rs:{SR_MIN,BUF_MIN}` → `audio/common.rs:...`. Symbol names
+  unchanged; only the file path. The test was not weakened.
+- **catalog_is_consistent** — root cause was NOT a duplicate (confirmed by a
+  throwaway diagnostic: the slice was pointer-stable and had no duplicate calls,
+  yet `spec_for_call(spec.call)` returned a *different* address for the same
+  spec). `supported_helper_specs()` returned a `const`-promoted `&[...]` array,
+  and the promoted allocation is **duplicated across call sites** (inlining), so
+  the `ptr::eq` identity the test (and only the test — production callers read
+  spec *fields*, not identity) relies on was unstable. Fixed by moving the specs
+  into a single named `static SUPPORTED_HELPER_SPECS`, which has exactly one
+  address. The `ptr::eq` round-trip is now stable (verified). No production
+  behavior change.
 
 `cargo test --release` on main fails **exactly two** tests (3201 passed, 2 failed):
 `man_citations_resolve` and `catalog_is_consistent`. Both are metadata-consistency

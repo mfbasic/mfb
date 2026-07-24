@@ -35,7 +35,7 @@ one frame is `channels * 2` bytes. `sampleRate` is the capture rate in Hz and
 must be in `8000..=192000`; `channels` must be `1` (mono) or `2` (stereo);
 `bufferFrames` is the frames per OS buffer and must be in `64..=8192`. Any value
 outside these bounds raises `ErrInvalidArgument` before the device is touched.
-[[src/target/shared/code/audio/macos.rs:emit_validate_open]][[src/target/shared/code/audio/alsa.rs:SR_MIN]]
+[[src/target/shared/code/audio/macos.rs:emit_validate_open]][[src/target/shared/code/audio/common.rs:SR_MIN]]
 
 The returned `AudioInput` is a move-only, non-sendable resource: it cannot be
 copied or transferred to another thread. Bind it with `RES`; it is closed
@@ -76,9 +76,9 @@ using the same `sampleRate`/`channels`/`bufferFrames`.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `device` | `AudioDevice` | The device to open, from `audio::devices()` (four-argument form only). A device whose `id` no longer exists raises `ErrAudioDevice`. |
-| `sampleRate` | `Integer` | Capture rate in Hz. Must be in `8000..=192000`. [[src/target/shared/code/audio/macos.rs:SR_MIN]] |
+| `sampleRate` | `Integer` | Capture rate in Hz. Must be in `8000..=192000`. [[src/target/shared/code/audio/common.rs:SR_MIN]] |
 | `channels` | `Integer` | Channel count: `1` (mono) or `2` (stereo). [[src/target/shared/code/audio/macos.rs:emit_validate_open]] |
-| `bufferFrames` | `Integer` | Frames per OS buffer. Must be in `64..=8192`. [[src/target/shared/code/audio/macos.rs:BUF_MIN]] |
+| `bufferFrames` | `Integer` | Frames per OS buffer. Must be in `64..=8192`. [[src/target/shared/code/audio/common.rs:BUF_MIN]] |
 
 ## Return value
 
