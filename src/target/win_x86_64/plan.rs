@@ -122,6 +122,17 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
+            // Directory iteration: FindFirstFileW returns the first entry with the
+            // handle; FindNextFileW walks the rest; each cFileName is UTF-16 →
+            // UTF-8 (WideCharToMultiByte).
+            "fs.listDirectory" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("FindFirstFileW", KERNEL32, required_by),
+                import("FindNextFileW", KERNEL32, required_by),
+                import("FindClose", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             _ => Vec::new(),
         }
     }

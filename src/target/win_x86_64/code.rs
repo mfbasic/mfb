@@ -121,6 +121,24 @@ const RMARSHAL_DST_SLOT: usize = 0x40;
 const RMARSHAL_CAP_SLOT: usize = 0x48;
 const RMARSHAL_WBUF_SLOT: usize = 0x50;
 
+/// Windows directory-iteration "DIR" structure (arena-allocated by emit_opendir).
+/// POSIX `opendir` yields a handle and the first `readdir` fetches the first
+/// entry, but `FindFirstFileW` RETURNS the first entry along with the search
+/// handle (plan-47-F §risk). So the DIR carries a `first-pending` flag: the first
+/// `readdir` consumes the already-fetched entry, later ones call `FindNextFileW`.
+/// Layout:
+///   [0x00]  FindFirstFileW search HANDLE
+///   [0x08]  first-entry-pending flag (1 after opendir, 0 after the first readdir)
+///   [0x10]  WIN32_FIND_DATAW (592 bytes); cFileName (WCHAR[260]) at +44 = 0x2c
+///   [0x260] UTF-8 name buffer (the converted cFileName; read_dir_entry reads here)
+const DIR_HANDLE_OFF: usize = 0x00;
+const DIR_FIRST_OFF: usize = 0x08;
+const DIR_FINDDATA_OFF: usize = 0x10;
+const DIR_CFILENAME_OFF: usize = DIR_FINDDATA_OFF + 0x2c; // 0x3c
+const DIR_NAME_OFF: usize = 0x260; // after 0x10 + 592 (0x250), rounded to 0x260
+const DIR_SIZE: &str = "2144"; // 0x260 + 1024 name buffer, rounded
+const DIR_NAME_CAP: &str = "1024";
+
 /// Emit `WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, dst, capacity, NULL, NULL)`,
 /// converting the UTF-16 buffer at `sp + RMARSHAL_WBUF_SLOT` into the UTF-8 dest
 /// at `sp + RMARSHAL_DST_SLOT` (capacity at `sp + RMARSHAL_CAP_SLOT`). Returns the
@@ -998,32 +1016,165 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_opendir(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("directory iteration"))
+        // opendir(path): the arena UTF-8 dir path is in ARG[0]; return a DIR*
+        // (> 0) on success, 0 on error. Marshal the path to UTF-16, append the
+        // L"\*" search wildcard (FindFirstFileW lists a directory's contents only
+        // with a wildcard), allocate the DIR struct, and FindFirstFileW into it.
+        const FRAME: usize = 0x50;
+        const DIR_SLOT: usize = 0x48;
+        let n = instructions.len();
+        let scan = format!("{from}_od_scan_{n}");
+        let scan_done = format!("{from}_od_scandone_{n}");
+        let fail = format!("{from}_od_fail_{n}");
+        let done = format!("{from}_od_done_{n}");
+        instructions.push(abi::subtract_stack(FRAME));
+        emit_marshal_path(from, instructions, relocations); // wide path at [sp+MARSHAL_WBUF_SLOT]
+        instructions.extend([
+            // Find the NUL wchar terminating the wide path, then overwrite it with
+            // L'\' L'*' L'\0'. ARG[0]=wide base, ARG[1]=byte index.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), MARSHAL_WBUF_SLOT),
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),
+            abi::label(&scan),
+            abi::add_registers(abi::ARG[2], abi::ARG[0], abi::ARG[1]),
+            abi::load_u16(abi::ARG[3], abi::ARG[2], 0),
+            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::branch_eq(&scan_done),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], 2),
+            abi::branch(&scan),
+            abi::label(&scan_done),
+            // ARG[2] = &NUL wchar. Write the wildcard suffix.
+            abi::move_immediate(abi::ARG[3], "Integer", "92"), // L'\'
+            abi::store_u16(abi::ARG[3], abi::ARG[2], 0),
+            abi::move_immediate(abi::ARG[3], "Integer", "42"), // L'*'
+            abi::store_u16(abi::ARG[3], abi::ARG[2], 2),
+            abi::move_immediate(abi::ARG[3], "Integer", "0"), // L'\0'
+            abi::store_u16(abi::ARG[3], abi::ARG[2], 4),
+            // Allocate the DIR struct.
+            abi::move_immediate(abi::return_register(), "Integer", DIR_SIZE),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::store_u64(abi::RET[1], abi::stack_pointer(), DIR_SLOT),
+            // FindFirstFileW(lpFileName = wide pattern, lpFindFileData = &DIR.findData)
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), MARSHAL_WBUF_SLOT),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), DIR_SLOT),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], DIR_FINDDATA_OFF),
+        ]);
+        call_external(from, "FindFirstFileW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            // INVALID_HANDLE_VALUE is (HANDLE)-1; a valid search handle is a small
+            // positive value, so `<= 0` means failure.
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_le(&fail),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), DIR_SLOT),
+            abi::store_u64(abi::return_register(), abi::ARG[1], DIR_HANDLE_OFF),
+            abi::move_immediate(abi::ARG[2], "Integer", "1"),
+            abi::store_u64(abi::ARG[2], abi::ARG[1], DIR_FIRST_OFF), // first pending
+            abi::move_register(abi::return_register(), abi::ARG[1]), // return DIR*
+            abi::branch(&done),
+            abi::label(&fail),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(FRAME),
+        ]);
+        Ok(())
     }
 
     fn emit_readdir(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("directory iteration"))
+        // readdir(DIR*): DIR* in ARG[0]; return the DIR* (nonzero) when an entry is
+        // available (its UTF-8 name is left in DIR+DIR_NAME_OFF), or 0 at the end.
+        // The first call consumes FindFirstFileW's entry; later calls FindNextFileW.
+        const FRAME: usize = 0x60;
+        const DIR_SLOT: usize = 0x50;
+        let n = instructions.len();
+        let have = format!("{from}_rd_have_{n}");
+        let convert = format!("{from}_rd_conv_{n}");
+        let end = format!("{from}_rd_end_{n}");
+        let done = format!("{from}_rd_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(FRAME),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), DIR_SLOT),
+            abi::load_u64(abi::ARG[1], abi::ARG[0], DIR_FIRST_OFF),
+            abi::compare_immediate(abi::ARG[1], "0"),
+            abi::branch_ne(&have), // first entry already in findData
+            // FindNextFileW(handle, &findData)
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), DIR_SLOT),
+            abi::add_immediate(abi::ARG[1], abi::ARG[0], DIR_FINDDATA_OFF),
+            abi::load_u64(abi::ARG[0], abi::ARG[0], DIR_HANDLE_OFF),
+        ]);
+        call_external(from, "FindNextFileW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&end), // BOOL 0 → no more entries
+            abi::branch(&convert),
+            abi::label(&have),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), DIR_SLOT),
+            abi::store_u64(abi::ZERO, abi::ARG[0], DIR_FIRST_OFF), // consume the first entry
+            abi::label(&convert),
+            // WideCharToMultiByte(CP_UTF8, 0, DIR+cFileName, -1, DIR+name, cap, NULL, NULL)
+            abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), DIR_SLOT),
+            abi::add_immediate(abi::ARG[2], abi::ARG[2], DIR_NAME_OFF),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20), // lpMultiByteStr (5th)
+            abi::move_immediate(abi::ARG[2], "Integer", DIR_NAME_CAP),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // cbMultiByte (6th)
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // 7th NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // 8th NULL
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), DIR_SLOT),
+            abi::add_immediate(abi::ARG[2], abi::ARG[2], DIR_CFILENAME_OFF), // lpWideCharStr
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
+        ]);
+        call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), DIR_SLOT), // DIR*
+            abi::branch(&done),
+            abi::label(&end),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(FRAME),
+        ]);
+        Ok(())
     }
 
     fn emit_closedir(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("directory iteration"))
+        // closedir(DIR*): DIR* in ARG[0]. FindClose(handle); return 0.
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::ARG[0], DIR_HANDLE_OFF),
+            abi::subtract_stack(0x20),
+        ]);
+        call_external(from, "FindClose", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::add_stack(0x20),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+        ]);
+        Ok(())
     }
 
     fn emit_realpath(
@@ -1089,16 +1240,37 @@ impl code::CodegenPlatform for Platform {
     }
     fn emit_read_dir_entry(
         &self,
-        _prefix: &str,
-        _nameptr: &str,
-        _namelen: &str,
-        _byte: &str,
-        _scratch: &str,
-        _instructions: &mut Vec<CodeInstruction>,
+        prefix: &str,
+        nameptr: &str,
+        namelen: &str,
+        byte: &str,
+        scratch: &str,
+        instructions: &mut Vec<CodeInstruction>,
     ) {
-        // 47-F owns Windows directory iteration (FindFirstFileW /
-        // WIN32_FIND_DATAW), which has no `struct dirent`.
-        unreachable!("47-F owns the Windows directory-entry read")
+        // `emit_readdir` returns the DIR* (or 0 at end) and leaves the entry's
+        // UTF-8 name at DIR + DIR_NAME_OFF. Read it here: nameptr = DIR + NAME_OFF,
+        // namelen = strlen (the name buffer is NUL-terminated by WideCharToMultiByte).
+        let name_len_loop = format!("{prefix}_name_len_loop");
+        let name_len_done = format!("{prefix}_name_len_done");
+        let done = format!("{prefix}_done");
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&done),
+            abi::add_immediate(nameptr, abi::return_register(), DIR_NAME_OFF),
+            abi::move_register(scratch, nameptr),
+            abi::move_immediate(namelen, "Integer", "0"),
+            abi::label(&name_len_loop),
+            abi::load_u8(byte, scratch, 0),
+            abi::compare_immediate(byte, "0"),
+            abi::branch_eq(&name_len_done),
+            abi::add_immediate(namelen, namelen, 1),
+            abi::add_immediate(scratch, scratch, 1),
+            abi::branch(&name_len_loop),
+            abi::label(&name_len_done),
+        ]);
+        // `done` is defined by the shared caller (the readdir loop's exit label);
+        // the early `branch_eq(&done)` above jumps into it. Do not re-emit it.
+        let _ = &done;
     }
     fn addrinfo_addr_offset(&self) -> usize {
         0
