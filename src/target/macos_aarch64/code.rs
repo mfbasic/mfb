@@ -800,20 +800,37 @@ impl code::CodegenPlatform for Platform {
         "4101" // SO_SNDTIMEO (0x1005) on Darwin
     }
 
-    fn eagain(&self) -> &'static str {
+    fn socket_would_block_code(&self) -> &'static str {
         "35" // EAGAIN on Darwin
     }
 
-    fn emsgsize(&self) -> &'static str {
+    fn socket_message_size_code(&self) -> &'static str {
         "40" // EMSGSIZE on Darwin
     }
 
-    fn o_nonblock(&self) -> &'static str {
-        "4" // O_NONBLOCK (0x0004) on Darwin
+    fn socket_in_progress_code(&self) -> &'static str {
+        "36" // EINPROGRESS on Darwin
     }
 
-    fn einprogress(&self) -> &'static str {
-        "36" // EINPROGRESS on Darwin
+    fn emit_set_nonblocking(
+        &self,
+        fd_offset: usize,
+        flags_offset: usize,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // fcntl(fd, F_SETFL, flags | O_NONBLOCK). O_NONBLOCK is 0x0004 = 4 on
+        // Darwin; the caller has already stashed the F_GETFL result at flags_offset.
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_offset),
+            abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), flags_offset),
+            abi::move_immediate("%v9", "Integer", "4"),
+            abi::or_registers(abi::ARG[2], abi::ARG[2], "%v9"),
+        ]);
+        self.emit_variadic_call("fcntl", from, platform_imports, instructions, relocations)
     }
 
     fn so_error(&self) -> &'static str {

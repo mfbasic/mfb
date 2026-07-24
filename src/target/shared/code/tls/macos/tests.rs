@@ -213,10 +213,10 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn so_reuseaddr(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_reuseaddr") }
     fn so_rcvtimeo(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_rcvtimeo") }
     fn so_sndtimeo(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_sndtimeo") }
-    fn eagain(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::eagain") }
-    fn emsgsize(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::emsgsize") }
-    fn o_nonblock(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::o_nonblock") }
-    fn einprogress(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::einprogress") }
+    fn socket_would_block_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_would_block_code") }
+    fn socket_message_size_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_message_size_code") }
+    fn socket_in_progress_code(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::socket_in_progress_code") }
+    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_set_nonblocking") }
     fn so_error(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::so_error") }
     fn emit_variadic_call(
     &self,

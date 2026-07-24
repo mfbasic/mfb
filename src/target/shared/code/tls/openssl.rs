@@ -158,17 +158,15 @@ pub(super) fn lower_tls_connect_openssl(
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), FLAGS_OFFSET),
-        // fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::move_immediate(abi::ARG[1], "Integer", "4"),
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), FLAGS_OFFSET),
-        abi::move_immediate("%v9", "Integer", platform.o_nonblock()),
-        abi::or_registers(abi::ARG[2], abi::ARG[2], "%v9"),
-    ]);
-    platform.emit_variadic_call(
-        "fcntl",
+    instructions.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FLAGS_OFFSET,
+    ));
+    // fcntl(fd, F_SETFL, flags | O_NONBLOCK) — Windows: ioctlsocket(fd, FIONBIO, &1)
+    platform.emit_set_nonblocking(
+        FD_OFFSET,
+        FLAGS_OFFSET,
         symbol,
         platform_imports,
         &mut instructions,
@@ -201,7 +199,7 @@ pub(super) fn lower_tls_connect_openssl(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", platform.einprogress()),
+        abi::compare_immediate("%v9", platform.socket_in_progress_code()),
         abi::branch_ne(&net_fail_fd),
         // poll(&pollfd { fd, POLLOUT }, 1, timeoutMs)
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),

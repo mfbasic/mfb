@@ -627,17 +627,29 @@ impl code::CodegenPlatform for Platform {
     fn so_sndtimeo(&self) -> &'static str {
         "0"
     }
-    fn eagain(&self) -> &'static str {
-        "0"
+    fn socket_would_block_code(&self) -> &'static str {
+        "10035" // WSAEWOULDBLOCK
     }
-    fn emsgsize(&self) -> &'static str {
-        "0"
+    fn socket_message_size_code(&self) -> &'static str {
+        "10040" // WSAEMSGSIZE
     }
-    fn o_nonblock(&self) -> &'static str {
-        "0"
+    fn socket_in_progress_code(&self) -> &'static str {
+        // A non-blocking Winsock connect reports WSAEWOULDBLOCK (not WSAEINPROGRESS,
+        // which is a legacy 1.1 code); 47-I wires the actual connect/poll path.
+        "10035" // WSAEWOULDBLOCK
     }
-    fn einprogress(&self) -> &'static str {
-        "0"
+    fn emit_set_nonblocking(
+        &self,
+        _fd_offset: usize,
+        _flags_offset: usize,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // 47-I owns Windows non-blocking sockets: ioctlsocket(fd, FIONBIO, &1),
+        // which has no fcntl / F_SETFL.
+        unreachable!("47-I owns the Windows non-blocking-socket toggle")
     }
     fn so_error(&self) -> &'static str {
         "0"

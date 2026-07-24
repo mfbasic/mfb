@@ -1050,20 +1050,37 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         "21" // SO_SNDTIMEO on Linux
     }
 
-    fn eagain(&self) -> &'static str {
+    fn socket_would_block_code(&self) -> &'static str {
         "11" // EAGAIN on Linux
     }
 
-    fn emsgsize(&self) -> &'static str {
+    fn socket_message_size_code(&self) -> &'static str {
         "90" // EMSGSIZE on Linux
     }
 
-    fn o_nonblock(&self) -> &'static str {
-        "2048" // O_NONBLOCK (0o4000 = 0x800) on Linux
+    fn socket_in_progress_code(&self) -> &'static str {
+        "115" // EINPROGRESS on Linux
     }
 
-    fn einprogress(&self) -> &'static str {
-        "115" // EINPROGRESS on Linux
+    fn emit_set_nonblocking(
+        &self,
+        fd_offset: usize,
+        flags_offset: usize,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // fcntl(fd, F_SETFL, flags | O_NONBLOCK). O_NONBLOCK is 0o4000 = 2048 on
+        // Linux; the caller has already stashed the F_GETFL result at flags_offset.
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_offset),
+            abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), flags_offset),
+            abi::move_immediate("%v9", "Integer", "2048"),
+            abi::or_registers(abi::ARG[2], abi::ARG[2], "%v9"),
+        ]);
+        self.emit_variadic_call("fcntl", from, platform_imports, instructions, relocations)
     }
 
     fn so_error(&self) -> &'static str {
@@ -1183,10 +1200,9 @@ mod tests {
             &x86_64() as &dyn CodegenPlatform,
         ] {
             assert_eq!(platform.addrinfo_addr_offset(), 24);
-            assert_eq!(platform.eagain(), "11");
-            assert_eq!(platform.emsgsize(), "90");
-            assert_eq!(platform.o_nonblock(), "2048");
-            assert_eq!(platform.einprogress(), "115");
+            assert_eq!(platform.socket_would_block_code(), "11");
+            assert_eq!(platform.socket_message_size_code(), "90");
+            assert_eq!(platform.socket_in_progress_code(), "115");
             assert_eq!(platform.so_error(), "4");
             assert!(!platform.entry_args_in_registers());
         }

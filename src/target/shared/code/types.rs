@@ -591,17 +591,37 @@ pub(crate) trait CodegenPlatform {
     fn so_reuseaddr(&self) -> &'static str;
     fn so_rcvtimeo(&self) -> &'static str;
     fn so_sndtimeo(&self) -> &'static str;
-    /// `EAGAIN`/`EWOULDBLOCK` errno value, used to distinguish a socket
-    /// read/write timeout from a connection failure.
-    fn eagain(&self) -> &'static str;
-    /// `EMSGSIZE` errno value, used to map an oversized datagram `sendto`
-    /// failure to `ErrMessageTooLarge`.
-    fn emsgsize(&self) -> &'static str;
-    /// `O_NONBLOCK` open/`fcntl` flag, `EINPROGRESS` errno, and `SO_ERROR`
-    /// socket option, used by the non-blocking `connect` + `poll` timeout path.
-    fn o_nonblock(&self) -> &'static str;
-    fn einprogress(&self) -> &'static str;
+    /// The platform's "operation would block" socket error code, used to
+    /// distinguish a non-blocking read/write/accept timeout from a real failure.
+    /// POSIX reports `EAGAIN`/`EWOULDBLOCK` via `errno`; Winsock reports
+    /// `WSAEWOULDBLOCK` via `WSAGetLastError`. The *value* is a per-platform
+    /// number (how the code reaches the compared register is `emit_errno`'s job,
+    /// 47-I), so this stays a numeric getter rather than lifting to a monolithic
+    /// classifier — the compare sites use it in three different shapes (a direct
+    /// compare, a `-errno` numeric add on the linux-x86_64 raw path, and a
+    /// compare-with-reload) that no single emit method reproduces byte-for-byte.
+    fn socket_would_block_code(&self) -> &'static str;
+    /// The platform's "message too large" socket error code (`EMSGSIZE` /
+    /// `WSAEMSGSIZE`), mapping an oversized datagram `sendto` to `ErrMessageTooLarge`.
+    fn socket_message_size_code(&self) -> &'static str;
+    /// The platform's "connect in progress" socket error code (`EINPROGRESS` /
+    /// `WSAEWOULDBLOCK`), used by the non-blocking `connect` + `poll` timeout path.
+    fn socket_in_progress_code(&self) -> &'static str;
     fn so_error(&self) -> &'static str;
+    /// Put socket `fd` (loaded from `sp + fd_offset`) into non-blocking mode; the
+    /// current flags snapshot (POSIX `F_GETFL`) is at `sp + flags_offset`. POSIX
+    /// does `fcntl(fd, F_SETFL, flags | O_NONBLOCK)`; Windows does
+    /// `ioctlsocket(fd, FIONBIO, &1)` — a different *call*, not just a different
+    /// constant (47-E §3.1), which is why `O_NONBLOCK` cannot stay a constant.
+    fn emit_set_nonblocking(
+        &self,
+        fd_offset: usize,
+        flags_offset: usize,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String>;
     /// Emit a `bl` to a libc function that takes a single trailing variadic
     /// argument in `x2` (e.g. `open(path, flags, mode)`, `fcntl(fd, cmd, arg)`).
     /// On the Darwin AArch64 ABI variadic arguments are passed on the stack, so

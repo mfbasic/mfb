@@ -134,20 +134,15 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    instructions.extend([
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), FLAGS_OFFSET),
-        abi::load_u64(
-            abi::return_register(),
-            abi::stack_pointer(),
-            LISTENER_FD_OFFSET,
-        ),
-        abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), FLAGS_OFFSET),
-        abi::move_immediate("%v9", "Integer", platform.o_nonblock()),
-        abi::or_registers(abi::ARG[2], abi::ARG[2], "%v9"),
-    ]);
-    platform.emit_variadic_call(
-        "fcntl",
+    instructions.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FLAGS_OFFSET,
+    ));
+    // fcntl(fd, F_SETFL, flags | O_NONBLOCK) — Windows: ioctlsocket(fd, FIONBIO, &1)
+    platform.emit_set_nonblocking(
+        LISTENER_FD_OFFSET,
+        FLAGS_OFFSET,
         symbol,
         platform_imports,
         &mut instructions,
@@ -268,7 +263,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         // original timeout rather than the remainder, so a stream of racing aborts
         // can extend the wait; bounding the pathological case is what matters, and
         // each extension costs the peer another abort.
-        abi::compare_immediate("%v9", platform.eagain()),
+        abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_eq(&accept_poll_retry),
     ]);
     emit_listener_flags_restore(
@@ -683,7 +678,7 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::compare_immediate("%v9", platform.eagain()),
+        abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_eq(&timeout),
         // bug-115: a signal that interrupts the blocking read returns -1/EINTR;
         // re-issue rather than misreporting it as a closed connection.
@@ -840,7 +835,7 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         // `ret == -EAGAIN`, i.e. `ret + EAGAIN == 0` — mirroring the fs/io raw
         // branch (bug-62).
         let eagain = platform
-            .eagain()
+            .socket_would_block_code()
             .parse::<usize>()
             .expect("eagain is numeric");
         let eintr = EINTR_ERRNO.parse::<usize>().expect("eintr is numeric");
@@ -865,7 +860,7 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
             &mut relocations,
         )?;
         instructions.extend([
-            abi::compare_immediate("%v9", platform.eagain()),
+            abi::compare_immediate("%v9", platform.socket_would_block_code()),
             abi::branch_eq(&timeout),
             // bug-115: a signal that interrupts the blocking write returns
             // -1/EINTR; re-issue from write_loop rather than reporting a closed
@@ -1617,7 +1612,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         // network failure.
         abi::compare_immediate("%v9", EINTR_ERRNO),
         abi::branch_eq(&recv_retry),
-        abi::compare_immediate("%v9", platform.eagain()),
+        abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_eq(&timeout),
     ]);
     emit_fail(
@@ -1882,10 +1877,10 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     instructions.extend([
         abi::label(&send_fail),
         abi::load_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET),
-        abi::compare_immediate("%v9", platform.eagain()),
+        abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_eq(&timeout),
         abi::load_u64("%v9", abi::stack_pointer(), ERRNO_OFFSET),
-        abi::compare_immediate("%v9", platform.emsgsize()),
+        abi::compare_immediate("%v9", platform.socket_message_size_code()),
         abi::branch_eq(&too_large),
     ]);
     emit_fail(

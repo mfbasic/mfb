@@ -71,10 +71,10 @@ impl CodegenPlatform for TestPlatform {
     fn so_reuseaddr(&self) -> &'static str { "2" }
     fn so_rcvtimeo(&self) -> &'static str { "20" }
     fn so_sndtimeo(&self) -> &'static str { "21" }
-    fn eagain(&self) -> &'static str { "11" }
-    fn emsgsize(&self) -> &'static str { "90" }
-    fn o_nonblock(&self) -> &'static str { "2048" }
-    fn einprogress(&self) -> &'static str { "115" }
+    fn socket_would_block_code(&self) -> &'static str { "11" }
+    fn socket_message_size_code(&self) -> &'static str { "90" }
+    fn socket_in_progress_code(&self) -> &'static str { "115" }
+    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_set_nonblocking") }
     fn so_error(&self) -> &'static str { "4" }
     fn emit_variadic_call(&self, base: &str, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         instructions.push(abi::branch_link(&format!("_{base}")));
