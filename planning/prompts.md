@@ -160,3 +160,8 @@ In this work tree I want you to review the code and create bugs specifically for
 
 You need to take your time and review everything closely.
 
+---
+
+Make no changes - there is another agent working in tree.
+
+I would like you to review the **runtime** code looking for buffer overruns, use after free, and other vulnerabilities that need closed so apps compiled with this compiler (using the runtime) are secure. Any vulnerabilities should be logged as bugs/sec-NN using the existing bug template.
