@@ -133,6 +133,12 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
+            "fs.canonicalPath" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("GetFullPathNameW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             _ => Vec::new(),
         }
     }

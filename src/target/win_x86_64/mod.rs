@@ -50,6 +50,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.tempDirectory",
     "fs.deleteDirectory",
     "fs.listDirectory",
+    "fs.canonicalPath",
 ];
 
 impl NativeBackend for Backend {

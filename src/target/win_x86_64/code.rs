@@ -1179,12 +1179,62 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_realpath(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // realpath(path, resolved): path (arena UTF-8) in ARG[0], resolved buffer
+        // (PATH_MAX+1 = 4097 bytes) in ARG[1]; return the resolved buffer pointer
+        // (nonzero) on success. Marshal the input, GetFullPathNameW into an arena
+        // UTF-16 scratch, then convert back to UTF-8 into the caller's buffer.
+        let n = instructions.len();
+        let fail = format!("{from}_rp_fail_{n}");
+        let done = format!("{from}_rp_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(RMARSHAL_FRAME),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), RMARSHAL_DST_SLOT), // resolved dst
+            abi::move_immediate(abi::ARG[2], "Integer", "4097"),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), RMARSHAL_CAP_SLOT), // capacity
+        ]);
+        emit_marshal_path(from, instructions, relocations); // input → wide at [MARSHAL_WBUF_SLOT]
+        instructions.extend([
+            // arena UTF-16 output scratch.
+            abi::move_immediate(abi::return_register(), "Integer", "65536"),
+            abi::move_immediate(abi::ARG[1], "Integer", "2"),
+            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::store_u64(abi::RET[1], abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            // GetFullPathNameW(lpFileName=wide_in, nBufferLength=32768,
+            //                  lpBuffer=wide_out, lpFilePart=NULL)
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), MARSHAL_WBUF_SLOT),
+            abi::move_immediate(abi::ARG[1], "Integer", "32768"),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        ]);
+        call_external(from, "GetFullPathNameW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&fail),
+        ]);
+        emit_wide_to_utf8(from, instructions, relocations); // wide_out → resolved dst
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), RMARSHAL_DST_SLOT),
+            abi::branch(&done),
+            abi::label(&fail),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(RMARSHAL_FRAME),
+        ]);
+        Ok(())
     }
 
     // --- POSIX-struct constant accessors ----------------------------------
