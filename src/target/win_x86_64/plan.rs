@@ -68,7 +68,7 @@ impl NativePlanPlatform for Platform {
         // Every path-taking fs helper marshals UTF-8 → UTF-16 (MultiByteToWideChar)
         // before its `*W` Win32 call (plan-47-F §3.4).
         match spec.call {
-            "fs.exists" => vec![
+            "fs.exists" | "fs.fileExists" | "fs.directoryExists" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetFileAttributesW", KERNEL32, required_by),
             ],

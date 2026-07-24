@@ -449,12 +449,37 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_path_stat(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // Contract (shared fs/paths.rs kind helper): the UTF-8 path C-string is in
+        // ARG[0] and a stat buffer pointer is in ARG[1]. Windows has no `struct
+        // stat`; store the `GetFileAttributesW` DWORD (the attribute bitmask, or
+        // INVALID_FILE_ATTRIBUTES when the path is missing) into the buffer, which
+        // `emit_stat_is_kind` then interprets. Frame is MARSHAL_FRAME + one extra
+        // slot at 0x48 to preserve the buffer pointer across the arena/convert calls.
+        const FRAME: usize = 0x50;
+        const STATBUF_SLOT: usize = 0x48;
+        instructions.extend([
+            abi::subtract_stack(FRAME),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), STATBUF_SLOT),
+        ]);
+        emit_marshal_path(from, instructions, relocations);
+        instructions.push(abi::load_u64(
+            abi::ARG[0],
+            abi::stack_pointer(),
+            MARSHAL_WBUF_SLOT,
+        ));
+        call_external(from, "GetFileAttributesW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), STATBUF_SLOT),
+            abi::store_u64(abi::return_register(), abi::SCRATCH[0], 0),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::add_stack(FRAME),
+        ]);
+        Ok(())
     }
 
     fn emit_current_directory(
@@ -667,18 +692,36 @@ impl code::CodegenPlatform for Platform {
     }
     fn emit_stat_is_kind(
         &self,
-        _stat_offset: usize,
-        _expected_kind: &str,
-        _mode: &str,
-        _mask: &str,
+        stat_offset: usize,
+        expected_kind: &str,
+        mode: &str,
+        mask: &str,
         _expected: &str,
-        _found: &str,
-        _missing: &str,
-        _instructions: &mut Vec<CodeInstruction>,
+        found: &str,
+        missing: &str,
+        instructions: &mut Vec<CodeInstruction>,
     ) {
-        // 47-F owns the Windows file-kind check (GetFileAttributesExW /
-        // FILE_ATTRIBUTE_DIRECTORY), which has no `struct stat`.
-        unreachable!("47-F owns the Windows stat-kind check")
+        // `emit_path_stat` stored the GetFileAttributesW DWORD at sp+stat_offset.
+        // INVALID_FILE_ATTRIBUTES (bit 31 set) => the path is missing. Otherwise
+        // the FILE_ATTRIBUTE_DIRECTORY (0x10) bit distinguishes a directory from a
+        // regular file. `expected_kind` is the POSIX mode literal the shared caller
+        // passes (FS_MODE_DIRECTORY / FS_MODE_REGULAR); map it to the directory-bit
+        // test here.
+        instructions.extend([
+            abi::load_u32(mode, abi::stack_pointer(), stat_offset),
+            abi::shift_right_immediate(mask, mode, 31), // 1 iff INVALID (missing)
+            abi::compare_immediate(mask, "0"),
+            abi::branch_ne(missing),
+            abi::move_immediate(mask, "Integer", "16"), // FILE_ATTRIBUTE_DIRECTORY
+            abi::and_registers(mode, mode, mask),        // 0x10 iff a directory
+            abi::compare_immediate(mode, "0"),
+        ]);
+        if expected_kind == code::FS_MODE_DIRECTORY {
+            instructions.push(abi::branch_ne(found)); // directory bit set => is a dir
+        } else {
+            instructions.push(abi::branch_eq(found)); // bit clear => a regular file
+        }
+        instructions.push(abi::branch(missing));
     }
     fn emit_read_dir_entry(
         &self,

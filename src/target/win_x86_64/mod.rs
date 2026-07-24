@@ -30,6 +30,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "io.printError",
     "io.writeError",
     "fs.exists",
+    "fs.fileExists",
+    "fs.directoryExists",
 ];
 
 impl NativeBackend for Backend {
