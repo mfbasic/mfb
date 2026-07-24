@@ -7,4 +7,8 @@ $ mfb build tests/syntax/native/native-library-vendor-missing-invalid
      | ^
 tests/syntax/native/native-library-vendor-missing-invalid/project.json:1 error[2-203-0116 NATIVE_LIBRARY_SOURCE_UNREADABLE]: a `vendor` locator's file under the project's `vendor/` directory is missing or cannot be read to hash it
                `libraries.demolib` declares vendor library "libabsent.so", but tests/syntax/native/native-library-vendor-missing-invalid/vendor/libabsent.so could not be read to hash it: No such file or directory (os error 2). Place the file there, or declare the locator as `"type": "system"` if the loader should find it.
+   1 | {
+     | ^
+tests/syntax/native/native-library-vendor-missing-invalid/project.json:1 warn[2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED]: a supported build target has no `libraries` locator for a linked native library
+               `libraries.demolib` has no locator covering windows/x86_64. An executable built for that target will fail to resolve the library.
 [exit 1]

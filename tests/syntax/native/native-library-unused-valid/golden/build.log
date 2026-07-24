@@ -5,6 +5,10 @@ Wrote IR to tests/syntax/native/native-library-unused-valid/native_library_unuse
 $ mfb build tests/syntax/native/native-library-unused-valid
    1 | {
      | ^
+tests/syntax/native/native-library-unused-valid/project.json:1 warn[2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED]: a supported build target has no `libraries` locator for a linked native library
+               `libraries.demolib` has no locator covering windows/x86_64. An executable built for that target will fail to resolve the library.
+   1 | {
+     | ^
 tests/syntax/native/native-library-unused-valid/project.json:1 warn[2-203-0117 NATIVE_LIBRARY_UNUSED]: a project.json `libraries` entry has no matching LINK block in code
                `libraries.ghostlib` has no matching `LINK "ghostlib"` in this package's code, so it is ignored. Remove it, or correct the name to match the LINK block.
 Wrote package to tests/syntax/native/native-library-unused-valid/native_library_unused_valid.mfp

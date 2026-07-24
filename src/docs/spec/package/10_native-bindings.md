@@ -52,7 +52,7 @@ A `.mfp` is an **untrusted input** on the consumer side, and a locator's `source
 | `2-203-0116` | `NATIVE_LIBRARY_SOURCE_UNREADABLE` | error | a `vendor` locator's file is missing or unreadable |
 | `2-203-0117` | `NATIVE_LIBRARY_UNUSED` | warn | a `libraries` entry has no matching `LINK` |
 
-The coverage check tests each library's locators against every `(os, arch, libc)` the compiler supports — the backend registry crossed with the libc axis (Linux only), currently **7 slots**. It is derived from the registry, not hardcoded, so registering a backend widens the matrix automatically. Because `arch: None` and `libc: None` are symmetric wildcards, one `{ "os": "linux", "type": "system", "source": "…" }` entry covers all six Linux slots. [[src/manifest/libraries.rs:supported_target_slots]] [[src/manifest/libraries.rs:build_native_library_table]]
+The coverage check tests each library's locators against every `(os, arch, libc)` the compiler supports — the backend registry crossed with the libc axis (Linux only), currently **8 slots** (macos-aarch64, three Linux arches × 2 libc, and windows-x86_64). It is derived from the registry, not hardcoded, so registering a backend widens the matrix automatically. Because `arch: None` and `libc: None` are symmetric wildcards, one `{ "os": "linux", "type": "system", "source": "…" }` entry covers all six Linux slots. [[src/manifest/libraries.rs:supported_target_slots]] [[src/manifest/libraries.rs:build_native_library_table]]
 
 ## The interface trailer
 

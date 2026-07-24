@@ -14,6 +14,7 @@ pub(crate) mod linux_gtk;
 pub mod linux_riscv64;
 pub mod linux_x86_64;
 pub mod macos_aarch64;
+pub mod win_x86_64;
 pub mod package_mfp;
 pub(crate) mod shared;
 
@@ -199,6 +200,8 @@ static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[
     &linux_aarch64::BACKEND,
     &linux_x86_64::BACKEND,
     &linux_riscv64::BACKEND,
+    // plan-47-B: resolvable but non-executable (all capabilities false) until 47-C/47-D.
+    &win_x86_64::BACKEND,
 ];
 
 /// The `os` token of every registered native backend, deduplicated, in registry
@@ -434,6 +437,8 @@ mod tests {
         // rv64 is console-only: the GTK4 toolkit (`target::linux_gtk`) has not
         // been ported, so `-app` is rejected at the CLI (plan-99).
         ("linux-riscv64", false),
+        // windows is console-subsystem only — no GUI/app mode (plan-47 non-goal).
+        ("windows-x86_64", false),
     ];
 
     #[test]
@@ -534,6 +539,27 @@ mod tests {
                 Err(err) => panic!("expected a backend for {}: {err}", target.name()),
             }
         }
+    }
+
+    /// plan-47-B Phase 2: `windows-x86_64` is a registered, resolvable target —
+    /// so it takes the *capability* path (non-executable), not `backend_for`'s
+    /// unknown-target error.
+    #[test]
+    fn windows_x86_64_resolves_but_is_not_executable() {
+        let target = BuildTarget::parse("windows-x86_64").expect("windows-x86_64 parses");
+        let backend = backend_for(&target).expect("windows-x86_64 resolves (not unknown-target)");
+        assert_eq!(backend.target(), target);
+        // Registered but deliberately non-executable until 47-C/47-D: every
+        // capability is false, so each dispatch entry point rejects at its gate
+        // (e.g. write_executable → "native executable output does not support
+        // windows-x86_64 yet") rather than erroring "native output does not
+        // support windows-x86_64 yet" (the unknown-target message).
+        let caps = backend.capabilities();
+        assert!(!caps.executable);
+        assert!(!caps.native_ir && !caps.native_plan);
+        assert!(!caps.native_object_plan && !caps.native_code_plan);
+        assert!(caps.runtime_calls.is_empty());
+        assert!(!target_supports_app_mode(&target));
     }
 
     #[test]

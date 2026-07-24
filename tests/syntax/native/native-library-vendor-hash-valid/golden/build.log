@@ -3,5 +3,9 @@ Wrote AST to tests/syntax/native/native-library-vendor-hash-valid/native_library
 Wrote IR to tests/syntax/native/native-library-vendor-hash-valid/native_library_vendor_hash_valid.ir
 [exit 0]
 $ mfb build tests/syntax/native/native-library-vendor-hash-valid
+   1 | {
+     | ^
+tests/syntax/native/native-library-vendor-hash-valid/project.json:1 warn[2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED]: a supported build target has no `libraries` locator for a linked native library
+               `libraries.demolib` has no locator covering windows/x86_64. An executable built for that target will fail to resolve the library.
 Wrote package to tests/syntax/native/native-library-vendor-hash-valid/native_library_vendor_hash_valid.mfp
 [exit 0]

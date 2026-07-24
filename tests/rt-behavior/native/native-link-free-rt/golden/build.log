@@ -3,6 +3,10 @@ Wrote AST to tests/rt-behavior/native/native-link-free-rt/native_link_free_rt.as
 Wrote IR to tests/rt-behavior/native/native-link-free-rt/native_link_free_rt.ir
 [exit 0]
 $ mfb build tests/rt-behavior/native/native-link-free-rt
+   1 | {
+     | ^
+tests/rt-behavior/native/native-link-free-rt/project.json:1 warn[2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED]: a supported build target has no `libraries` locator for a linked native library
+               `libraries.sqlite3` has no locator covering windows/x86_64. An executable built for that target will fail to resolve the library.
 Wrote executable to tests/rt-behavior/native/native-link-free-rt/build/native_link_free_rt.out
 [exit 0]
 $ tests/rt-behavior/native/native-link-free-rt/build/native_link_free_rt.out

@@ -192,7 +192,7 @@ from `<project root>/vendor/`.
 
 | field | type | default | meaning |
 | --- | --- | --- | --- |
-| `os` | string | — (required) | `macos` or `linux`; the canonical `BuildTarget.os` token of a registered backend |
+| `os` | string | — (required) | `macos`, `linux`, or `windows`; the canonical `BuildTarget.os` token of a registered backend |
 | `arch` | string | *any arch* | `aarch64`, `x86_64`, or `riscv64`; omitted = wildcard |
 | `libc` | string | *any libc* | `glibc` or `musl`; omitted = wildcard. Linux only — macOS has no libc axis |
 | `type` | string | `vendor` | `system` (found by the dynamic loader) or `vendor` (a file shipped in `vendor/`) |

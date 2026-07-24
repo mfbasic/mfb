@@ -607,10 +607,16 @@ mod tests {
     #[test]
     fn the_supported_matrix_is_the_registry_crossed_with_libc() {
         let slots = supported_target_slots();
-        // macOS has no libc axis; every Linux backend contributes both flavors.
+        // macOS and Windows have no libc axis; every Linux backend contributes
+        // both flavors.
         assert!(slots
             .iter()
             .any(|s| s.os == "macos" && s.arch == "aarch64" && s.libc.is_none()));
+        // plan-47-B: windows-x86_64 is registered (non-executable), so it appears
+        // as a single libc-less slot.
+        assert!(slots
+            .iter()
+            .any(|s| s.os == "windows" && s.arch == "x86_64" && s.libc.is_none()));
         for arch in ["aarch64", "x86_64", "riscv64"] {
             for libc in [Libc::Glibc, Libc::Musl] {
                 assert!(
@@ -626,8 +632,9 @@ mod tests {
             slots.iter().all(|s| s.os != "macos" || s.libc.is_none()),
             "macOS slots must carry no libc"
         );
-        // Four registered backends: macos-aarch64 + three Linux arches × 2 libc.
-        assert_eq!(slots.len(), 7, "the plan-46-B §4.2 matrix is 7 slots");
+        // Five registered backends: macos-aarch64 + three Linux arches × 2 libc +
+        // windows-x86_64 (plan-47-B, libc-less).
+        assert_eq!(slots.len(), 8, "the matrix is 8 slots (7 + windows-x86_64)");
     }
 
     /// The regression the old "libc defaults to glibc" semantics would have caused:
@@ -712,7 +719,8 @@ mod tests {
         "libraries": {
             "sqlite3": [
                 { "os": "macos", "type": "system", "source": "libsqlite3.dylib" },
-                { "os": "linux", "type": "system", "source": "libsqlite3.so.0" }
+                { "os": "linux", "type": "system", "source": "libsqlite3.so.0" },
+                { "os": "windows", "type": "system", "source": "sqlite3.dll" }
             ]
         }
     }"#;
@@ -733,7 +741,8 @@ mod tests {
         assert!(findings.is_empty(), "unexpected findings: {findings:#?}");
         assert_eq!(table.entries.len(), 1);
         assert_eq!(table.entries[0].logical, "sqlite3");
-        assert_eq!(table.entries[0].locators.len(), 2);
+        // macos + linux + windows locators (plan-47-B added the windows slot).
+        assert_eq!(table.entries[0].locators.len(), 3);
         // Every locator is `system`, so none carries a hash.
         assert!(table.entries[0].locators.iter().all(|l| l.hash.is_none()));
     }
@@ -787,10 +796,17 @@ mod tests {
             .iter()
             .filter(|f| f.rule == "NATIVE_LIBRARY_TARGET_UNCOVERED")
             .collect();
-        assert_eq!(uncovered.len(), 6, "the six Linux slots: {findings:#?}");
+        // Six Linux slots + windows-x86_64 (plan-47-B): the macOS slot is the only
+        // one this manifest covers.
+        assert_eq!(
+            uncovered.len(),
+            7,
+            "the six Linux slots + windows-x86_64: {findings:#?}"
+        );
         assert!(uncovered
             .iter()
             .any(|f| f.message.contains("linux/riscv64/musl")));
+        assert!(uncovered.iter().any(|f| f.message.contains("windows/x86_64")));
         assert!(uncovered.iter().all(|f| !f.message.contains("macos")));
     }
 
