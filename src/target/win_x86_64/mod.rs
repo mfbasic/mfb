@@ -44,6 +44,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.deleteFile",
     "fs.createDirectory",
     "fs.setCurrentDirectory",
+    "fs.currentDirectory",
+    "fs.tempDirectory",
 ];
 
 impl NativeBackend for Backend {

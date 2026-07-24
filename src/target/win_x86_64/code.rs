@@ -104,6 +104,118 @@ fn emit_marshal_path(
     call_external(from, "MultiByteToWideChar", KERNEL32, instructions, relocations);
 }
 
+/// A reverse-marshaling frame for a Win32 `*W` call that PRODUCES a UTF-16 path
+/// (GetCurrentDirectoryW / GetTempPathW / GetFullPathNameW). The wide result is
+/// converted back to UTF-8 into the caller's arena buffer via WideCharToMultiByte.
+/// Layout relative to `sp` after `subtract_stack(RMARSHAL_FRAME)`:
+///   [0x00 .. 0x20)  shadow space
+///   [0x20]          WideCharToMultiByte 5th arg (lpMultiByteStr = UTF-8 dst)
+///   [0x28]          WideCharToMultiByte 6th arg (cbMultiByte    = capacity)
+///   [0x30]          WideCharToMultiByte 7th arg (lpDefaultChar  = NULL)
+///   [0x38]          WideCharToMultiByte 8th arg (lpUsedDefault  = NULL)
+///   [0x40]          saved UTF-8 destination buffer pointer
+///   [0x48]          saved destination capacity (bytes)
+///   [0x50]          the arena UTF-16 scratch buffer pointer
+const RMARSHAL_FRAME: usize = 0x60;
+const RMARSHAL_DST_SLOT: usize = 0x40;
+const RMARSHAL_CAP_SLOT: usize = 0x48;
+const RMARSHAL_WBUF_SLOT: usize = 0x50;
+
+/// Emit `WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, dst, capacity, NULL, NULL)`,
+/// converting the UTF-16 buffer at `sp + RMARSHAL_WBUF_SLOT` into the UTF-8 dest
+/// at `sp + RMARSHAL_DST_SLOT` (capacity at `sp + RMARSHAL_CAP_SLOT`). Returns the
+/// byte count in the return register (0 on failure).
+fn emit_wide_to_utf8(
+    from: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"), // dwFlags
+        // Stage the four stack args using ARG[2] as a caller-saved scratch before
+        // it is set to its register value (lpWideCharStr).
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), RMARSHAL_DST_SLOT),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20), // lpMultiByteStr (5th)
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), RMARSHAL_CAP_SLOT),
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // cbMultiByte (6th)
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),   // lpDefaultChar (7th)
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),   // lpUsedDefaultChar (8th)
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), RMARSHAL_WBUF_SLOT), // lpWideCharStr
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
+    ]);
+    call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+}
+
+/// Emit a directory-path query (GetCurrentDirectoryW / GetTempPathW), both of
+/// which take `(nBufferLength: DWORD, lpBuffer)` and write a UTF-16 path. The
+/// arena UTF-8 destination buffer is in ARG[0] and its capacity in ARG[1]. The
+/// two shared callers differ in what they expect back: `currentDirectory`
+/// strlen's a returned BUFFER POINTER, while `tempDirectory` copies `return`
+/// bytes from a pre-parked buffer — so `return_length` selects the UTF-8 byte
+/// length (excluding the NUL) instead of the pointer. 0 on failure either way.
+fn emit_dir_path_query(
+    from: &str,
+    symbol: &str,
+    return_length: bool,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let n = instructions.len();
+    let fail = format!("{from}_dirq_fail_{n}");
+    let done = format!("{from}_dirq_done_{n}");
+    instructions.extend([
+        abi::subtract_stack(RMARSHAL_FRAME),
+        abi::store_u64(abi::ARG[0], abi::stack_pointer(), RMARSHAL_DST_SLOT), // dst
+        abi::store_u64(abi::ARG[1], abi::stack_pointer(), RMARSHAL_CAP_SLOT), // capacity
+        // arena UTF-16 scratch (64 KiB, 32767 wchars = Windows max path).
+        abi::move_immediate(abi::return_register(), "Integer", "65536"),
+        abi::move_immediate(abi::ARG[1], "Integer", "2"),
+        abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(CodeRelocation {
+        from: from.to_string(),
+        to: code::ARENA_ALLOC_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+    instructions.extend([
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
+        abi::move_immediate(abi::ARG[0], "Integer", "32768"), // nBufferLength (wchars)
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), RMARSHAL_WBUF_SLOT), // lpBuffer
+    ]);
+    call_external(from, symbol, KERNEL32, instructions, relocations);
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&fail), // 0 chars written → failure
+    ]);
+    emit_wide_to_utf8(from, instructions, relocations);
+    // On success WideCharToMultiByte left the UTF-8 byte count (including the NUL)
+    // in the return register.
+    if return_length {
+        instructions.push(abi::subtract_immediate(
+            abi::return_register(),
+            abi::return_register(),
+            1, // exclude the NUL — the caller copies exactly this many bytes
+        ));
+    } else {
+        instructions.push(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            RMARSHAL_DST_SLOT, // the buffer pointer
+        ));
+    }
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&fail),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::label(&done),
+        abi::add_stack(RMARSHAL_FRAME),
+    ]);
+}
+
 pub(crate) fn lower_module(
     module: &NirModule,
     native_plan: &NativePlan,
@@ -518,12 +630,13 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_current_directory(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        emit_dir_path_query(from, "GetCurrentDirectoryW", false, instructions, relocations);
+        Ok(())
     }
 
     fn emit_environ_pointer(
@@ -784,12 +897,50 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_rename_path(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // rename(old, new): old (arena UTF-8) in ARG[0], new in ARG[1]; return 0 on
+        // success. Marshal BOTH paths to UTF-16, then MoveFileExW(old, new,
+        // MOVEFILE_REPLACE_EXISTING). The marshal helper works on one path at a
+        // time via [0x20..0x38], so the frame adds slots at 0x48 (saved new path)
+        // and 0x50 (first wide buffer) that survive the second marshal.
+        const FRAME: usize = 0x60;
+        const NEW_PATH_SLOT: usize = 0x48;
+        const WBUF_OLD_SLOT: usize = 0x50;
+        let n = instructions.len();
+        let ok = format!("{from}_rename_ok_{n}");
+        let done = format!("{from}_rename_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(FRAME),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), NEW_PATH_SLOT), // save new path
+        ]);
+        emit_marshal_path(from, instructions, relocations); // old → [MARSHAL_WBUF_SLOT]
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), MARSHAL_WBUF_SLOT),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), WBUF_OLD_SLOT), // save wide old
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), NEW_PATH_SLOT),  // new path
+        ]);
+        emit_marshal_path(from, instructions, relocations); // new → [MARSHAL_WBUF_SLOT]
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WBUF_OLD_SLOT), // lpExistingFileName
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), MARSHAL_WBUF_SLOT), // lpNewFileName
+            abi::move_immediate(abi::ARG[2], "Integer", "1"), // MOVEFILE_REPLACE_EXISTING
+        ]);
+        call_external(from, "MoveFileExW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
+            abi::branch(&done),
+            abi::label(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"), // success
+            abi::label(&done),
+            abi::add_stack(FRAME),
+        ]);
+        Ok(())
     }
 
     fn emit_mkstemps(
@@ -834,12 +985,15 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_temp_directory(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // GetTempPathW(nBufferLength, lpBuffer) — same 2-arg shape as
+        // GetCurrentDirectoryW, returns the UTF-16 temp dir (with trailing '\').
+        emit_dir_path_query(from, "GetTempPathW", true, instructions, relocations);
+        Ok(())
     }
 
     fn emit_opendir(

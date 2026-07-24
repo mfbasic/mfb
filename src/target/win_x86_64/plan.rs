@@ -110,6 +110,18 @@ impl NativePlanPlatform for Platform {
                 import("SetCurrentDirectoryW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
+            // Path-producing queries: convert the UTF-16 result back to UTF-8
+            // (WideCharToMultiByte). No input path to marshal.
+            "fs.currentDirectory" => vec![
+                import("GetCurrentDirectoryW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            "fs.tempDirectory" => vec![
+                import("GetTempPathW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             _ => Vec::new(),
         }
     }
