@@ -53,11 +53,9 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
         // pollfd { int fd; short events = POLLIN; short revents; }
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate("%v10", "Integer", POLLIN),
-        abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
-        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
-        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
-        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
+    ]);
+    emit_pollfd_events(platform, POLLFD_OFFSET, &mut instructions);
+    instructions.extend([
         // poll(&pollfd, 1, timeoutMs); poll_retry re-issues the call (the pollfd is
         // already on the stack and %v12 holds the timeout) on an EINTR (bug-115).
         abi::label(&poll_retry),

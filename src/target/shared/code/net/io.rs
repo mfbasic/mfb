@@ -176,11 +176,9 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::label(&accept_poll_retry),
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate("%v10", "Integer", POLLIN),
-        abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
-        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 5),
-        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 6),
-        abi::store_u8(abi::ZERO, abi::stack_pointer(), POLLFD_OFFSET + 7),
+    ]);
+    emit_pollfd_events(platform, POLLFD_OFFSET, &mut instructions);
+    instructions.extend([
         abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
         abi::move_immediate(abi::ARG[1], "Integer", "1"),
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),

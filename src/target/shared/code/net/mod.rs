@@ -90,6 +90,37 @@ pub(in crate::target::shared::code) fn net_symbol(
     }
 }
 
+/// Write the `events = POLLIN` and zeroed `revents` fields of a pollfd whose fd
+/// (8 bytes) has already been stored at `sp + pollfd_offset`. POSIX `struct pollfd`
+/// is `{ int fd; short events; short revents }` (events at +4, POLLIN = 1); Windows
+/// `WSAPOLLFD` is `{ SOCKET fd; SHORT events; SHORT revents }` — an 8-byte fd, so
+/// events sit at +8 and readability is `POLLRDNORM` (0x0100), not POSIX `POLLIN`
+/// (plan-47-I). The POSIX arm is byte-identical to the pre-seam inline sequence.
+pub(in crate::target::shared::code) fn emit_pollfd_events(
+    platform: &dyn CodegenPlatform,
+    pollfd_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    if platform.family() == PlatformFamily::Windows {
+        instructions.extend([
+            // events (SHORT) @ +8 = POLLRDNORM (0x0100).
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 8),
+            abi::move_immediate("%v10", "Integer", "1"),
+            abi::store_u8("%v10", abi::stack_pointer(), pollfd_offset + 9),
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 10),
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 11),
+        ]);
+    } else {
+        instructions.extend([
+            abi::move_immediate("%v10", "Integer", POLLIN),
+            abi::store_u8("%v10", abi::stack_pointer(), pollfd_offset + 4),
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 5),
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 6),
+            abi::store_u8(abi::ZERO, abi::stack_pointer(), pollfd_offset + 7),
+        ]);
+    }
+}
+
 const AF_INET: &str = "2";
 const SOCK_STREAM: &str = "1";
 const SOCK_DGRAM: &str = "2";
