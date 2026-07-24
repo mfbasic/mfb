@@ -26,6 +26,59 @@ use std::collections::HashMap;
 use super::*;
 use crate::target::shared::abi;
 
+/// The socket-call symbols the shared `net` lowering issues. Every hardcoded
+/// libc symbol literal routes through [`net_symbol`] so a platform whose socket
+/// ABI diverges from POSIX (Windows/Winsock) can rename it in one place instead
+/// of at 35 call sites. Names mirror the POSIX symbol they map to on every
+/// non-Windows target (plan-47-I I1).
+#[derive(Clone, Copy)]
+pub(in crate::target::shared::code) enum NetSymbol {
+    Socket,
+    Connect,
+    Bind,
+    Listen,
+    Accept,
+    Recv,
+    RecvFrom,
+    SendTo,
+    Close,
+    Fcntl,
+    Poll,
+    GetAddrInfo,
+    FreeAddrInfo,
+    SetSockOpt,
+    GetSockOpt,
+}
+
+/// Map a [`NetSymbol`] intent to the concrete libc/Winsock symbol for `platform`.
+/// On every non-Windows target this returns the POSIX name unchanged, so the
+/// four existing backends stay byte-identical (I1's proof). Winsock's three
+/// renames (`close`→`closesocket`, `poll`→`WSAPoll`, and the `fcntl` non-blocking
+/// toggle, which is rewritten to `ioctlsocket` at the call site) land in I2.
+pub(in crate::target::shared::code) fn net_symbol(
+    platform: &dyn CodegenPlatform,
+    intent: NetSymbol,
+) -> &'static str {
+    let _ = platform; // Windows arm added in 47-I I2
+    match intent {
+        NetSymbol::Socket => "socket",
+        NetSymbol::Connect => "connect",
+        NetSymbol::Bind => "bind",
+        NetSymbol::Listen => "listen",
+        NetSymbol::Accept => "accept",
+        NetSymbol::Recv => "recv",
+        NetSymbol::RecvFrom => "recvfrom",
+        NetSymbol::SendTo => "sendto",
+        NetSymbol::Close => "close",
+        NetSymbol::Fcntl => "fcntl",
+        NetSymbol::Poll => "poll",
+        NetSymbol::GetAddrInfo => "getaddrinfo",
+        NetSymbol::FreeAddrInfo => "freeaddrinfo",
+        NetSymbol::SetSockOpt => "setsockopt",
+        NetSymbol::GetSockOpt => "getsockopt",
+    }
+}
+
 const AF_INET: &str = "2";
 const SOCK_STREAM: &str = "1";
 const SOCK_DGRAM: &str = "2";
@@ -443,7 +496,7 @@ fn lower_net_endpoint_helper(
         abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
-        "getaddrinfo",
+        net_symbol(platform, NetSymbol::GetAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -459,7 +512,7 @@ fn lower_net_endpoint_helper(
         abi::load_u32(abi::ARG[2], "%v9", 12),
     ]);
     platform.emit_libc_call(
-        "socket",
+        net_symbol(platform, NetSymbol::Socket),
         symbol,
         platform_imports,
         &mut instructions,
@@ -493,7 +546,7 @@ fn lower_net_endpoint_helper(
             abi::move_immediate(abi::ARG[4], "Integer", "4"),
         ]);
         platform.emit_libc_call(
-            "setsockopt",
+            net_symbol(platform, NetSymbol::SetSockOpt),
             symbol,
             platform_imports,
             &mut instructions,
@@ -507,7 +560,7 @@ fn lower_net_endpoint_helper(
             abi::load_u32(abi::ARG[2], "%v9", 16),
         ]);
         platform.emit_libc_call(
-            "bind",
+            net_symbol(platform, NetSymbol::Bind),
             symbol,
             platform_imports,
             &mut instructions,
@@ -531,7 +584,7 @@ fn lower_net_endpoint_helper(
             abi::label(&listen_backlog_ok),
         ]);
         platform.emit_libc_call(
-            "listen",
+            net_symbol(platform, NetSymbol::Listen),
             symbol,
             platform_imports,
             &mut instructions,
@@ -564,7 +617,7 @@ fn lower_net_endpoint_helper(
             abi::move_immediate(abi::ARG[2], "Integer", "0"),
         ]);
         platform.emit_variadic_call(
-            "fcntl",
+            net_symbol(platform, NetSymbol::Fcntl),
             symbol,
             platform_imports,
             &mut instructions,
@@ -592,7 +645,7 @@ fn lower_net_endpoint_helper(
             abi::load_u32(abi::ARG[2], "%v9", 16),
         ]);
         platform.emit_libc_call(
-            "connect",
+            net_symbol(platform, NetSymbol::Connect),
             symbol,
             platform_imports,
             &mut instructions,
@@ -638,7 +691,7 @@ fn lower_net_endpoint_helper(
             abi::label(&connect_timeout_ok),
         ]);
         platform.emit_libc_call(
-            "poll",
+            net_symbol(platform, NetSymbol::Poll),
             symbol,
             platform_imports,
             &mut instructions,
@@ -678,7 +731,7 @@ fn lower_net_endpoint_helper(
             abi::add_immediate(abi::ARG[4], abi::stack_pointer(), SOLEN_OFFSET),
         ]);
         platform.emit_libc_call(
-            "getsockopt",
+            net_symbol(platform, NetSymbol::GetSockOpt),
             symbol,
             platform_imports,
             &mut instructions,
@@ -700,7 +753,7 @@ fn lower_net_endpoint_helper(
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), FLAGS_OFFSET),
         ]);
         platform.emit_variadic_call(
-            "fcntl",
+            net_symbol(platform, NetSymbol::Fcntl),
             symbol,
             platform_imports,
             &mut instructions,
@@ -719,7 +772,7 @@ fn lower_net_endpoint_helper(
         RES_OFFSET,
     ));
     platform.emit_libc_call(
-        "freeaddrinfo",
+        net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -747,7 +800,7 @@ fn lower_net_endpoint_helper(
         FD_OFFSET,
     ));
     platform.emit_libc_call(
-        "close",
+        net_symbol(platform, NetSymbol::Close),
         symbol,
         platform_imports,
         &mut instructions,
@@ -760,7 +813,7 @@ fn lower_net_endpoint_helper(
         RES_OFFSET,
     ));
     platform.emit_libc_call(
-        "freeaddrinfo",
+        net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -783,7 +836,7 @@ fn lower_net_endpoint_helper(
         FD_OFFSET,
     ));
     platform.emit_libc_call(
-        "close",
+        net_symbol(platform, NetSymbol::Close),
         symbol,
         platform_imports,
         &mut instructions,
@@ -795,7 +848,7 @@ fn lower_net_endpoint_helper(
         RES_OFFSET,
     ));
     platform.emit_libc_call(
-        "freeaddrinfo",
+        net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,

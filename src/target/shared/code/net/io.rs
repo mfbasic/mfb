@@ -54,7 +54,7 @@ fn emit_listener_flags_restore(
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), flags_offset),
     ]);
     platform.emit_variadic_call(
-        "fcntl",
+        net_symbol(platform, NetSymbol::Fcntl),
         symbol,
         platform_imports,
         ctx.instructions,
@@ -128,7 +128,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
     platform.emit_variadic_call(
-        "fcntl",
+        net_symbol(platform, NetSymbol::Fcntl),
         symbol,
         platform_imports,
         &mut instructions,
@@ -166,7 +166,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
     platform.emit_libc_call(
-        "poll",
+        net_symbol(platform, NetSymbol::Poll),
         symbol,
         platform_imports,
         &mut instructions,
@@ -201,7 +201,7 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
     platform.emit_libc_call(
-        "accept",
+        net_symbol(platform, NetSymbol::Accept),
         symbol,
         platform_imports,
         &mut instructions,
@@ -964,7 +964,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
-        "getaddrinfo",
+        net_symbol(platform, NetSymbol::GetAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1100,7 +1100,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
-        "freeaddrinfo",
+        net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1131,7 +1131,7 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         RES_OFFSET,
     ));
     platform.emit_libc_call(
-        "freeaddrinfo",
+        net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1244,7 +1244,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
-        "getaddrinfo",
+        net_symbol(platform, NetSymbol::GetAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1260,7 +1260,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         abi::load_u32(abi::ARG[2], "%v9", 12),
     ]);
     platform.emit_libc_call(
-        "socket",
+        net_symbol(platform, NetSymbol::Socket),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1287,7 +1287,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         abi::load_u32(abi::ARG[2], "%v9", 16),
     ]);
     platform.emit_libc_call(
-        "bind",
+        net_symbol(platform, NetSymbol::Bind),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1303,7 +1303,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
-        "freeaddrinfo",
+        net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1328,7 +1328,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         FD_OFFSET,
     ));
     platform.emit_libc_call(
-        "close",
+        net_symbol(platform, NetSymbol::Close),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1341,7 +1341,7 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         RES_OFFSET,
     ));
     platform.emit_libc_call(
-        "freeaddrinfo",
+        net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1461,7 +1461,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         abi::add_immediate(abi::ARG[5], abi::stack_pointer(), ADDRLEN_OFFSET),
     ]);
     platform.emit_libc_call(
-        "recvfrom",
+        net_symbol(platform, NetSymbol::RecvFrom),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1488,7 +1488,7 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
             instructions: &mut instructions,
             relocations: &mut relocations,
         },
-        "recv",
+        net_symbol(platform, NetSymbol::Recv),
         SADDR_PTR_OFFSET,
         HOSTLEN_OFFSET,
         DST_OFFSET,
@@ -1791,7 +1791,7 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         abi::add_immediate(abi::ARG[3], abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call(
-        "getaddrinfo",
+        net_symbol(platform, NetSymbol::GetAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1821,7 +1821,7 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
     platform.emit_libc_call(
-        "sendto",
+        net_symbol(platform, NetSymbol::SendTo),
         symbol,
         platform_imports,
         &mut instructions,
@@ -1860,7 +1860,7 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         RES_OFFSET,
     ));
     platform.emit_libc_call(
-        "freeaddrinfo",
+        net_symbol(platform, NetSymbol::FreeAddrInfo),
         symbol,
         platform_imports,
         &mut instructions,

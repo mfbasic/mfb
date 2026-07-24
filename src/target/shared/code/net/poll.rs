@@ -66,7 +66,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         abi::move_register(abi::ARG[2], "%v12"),
     ]);
     platform.emit_libc_call(
-        "poll",
+        net_symbol(platform, NetSymbol::Poll),
         symbol,
         platform_imports,
         &mut instructions,
@@ -193,7 +193,7 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         abi::move_immediate(abi::ARG[4], "Integer", "16"),
     ]);
     platform.emit_libc_call(
-        "setsockopt",
+        net_symbol(platform, NetSymbol::SetSockOpt),
         symbol,
         platform_imports,
         &mut instructions,
