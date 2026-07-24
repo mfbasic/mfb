@@ -439,6 +439,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
             spec.capture_args,
             spec.subscribe_stdin,
             spec.entry_called_as_function,
+            spec.needs_winsock,
         )
     }
 

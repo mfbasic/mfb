@@ -19,6 +19,7 @@ pub(crate) fn lower_program_entry(
     capture_args: bool,
     subscribe_stdin: bool,
     entry_called_as_function: bool,
+    needs_winsock: bool,
 ) -> Result<CodeFunction, String> {
     // bug-175 I: the `entry_exit_range_error` handler (and its label) is emitted
     // only for an `Integer` entry, but the range-check branch to it is emitted for
@@ -276,6 +277,12 @@ pub(crate) fn lower_program_entry(
     // plan-47-D §3.1) — `emit_arena_start_time`'s default reproduces the POSIX
     // sequence, so every existing target's entry is byte-identical.
     platform.emit_arena_start_time(entry_symbol, platform_imports, &mut instructions, &mut relocations)?;
+    // Initialize the platform network stack before any initializer or the language
+    // entry can issue a socket call (plan-47-I §3.2). No-op on POSIX; Windows emits
+    // WSAStartup. Gated on `net.*` usage, so a socket-free program is byte-identical.
+    if needs_winsock {
+        platform.emit_net_startup(entry_symbol, platform_imports, &mut instructions, &mut relocations)?;
+    }
     instructions.extend([
         // Pre-fill the seed scratch with the arena address (getentropy fallback).
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
@@ -524,6 +531,12 @@ pub(crate) fn lower_program_entry(
         ARENA_STATE_REGISTER,
         32,
     ));
+    // Tear down the network stack (WSACleanup on Windows; no-op on POSIX) after the
+    // exit code is safely parked in the arena scratch slot — WSACleanup clobbers the
+    // return register but preserves the callee-saved arena register.
+    if needs_winsock {
+        platform.emit_net_shutdown(entry_symbol, platform_imports, &mut instructions, &mut relocations)?;
+    }
     instructions.push(abi::branch_link(SHUTDOWN_SYMBOL));
     relocations.push(internal_branch(entry_symbol, SHUTDOWN_SYMBOL));
     instructions.push(abi::load_u64(

@@ -45,21 +45,35 @@ fn emit_listener_flags_restore(
         abi::load_u64("%v9", abi::stack_pointer(), restore_flag_offset),
         abi::compare_immediate("%v9", "0"),
         abi::branch_eq(&skip),
-        abi::load_u64(
-            abi::return_register(),
-            abi::stack_pointer(),
-            listener_fd_offset,
-        ),
-        abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), flags_offset),
     ]);
-    platform.emit_variadic_call(
-        net_symbol(platform, NetSymbol::Fcntl),
-        symbol,
-        platform_imports,
-        ctx.instructions,
-        ctx.relocations,
-    )?;
+    if platform.family() == PlatformFamily::Windows {
+        // Winsock: ioctlsocket(listener, FIONBIO, &0). No flags word to restore.
+        platform.emit_restore_blocking(
+            listener_fd_offset,
+            flags_offset,
+            symbol,
+            platform_imports,
+            ctx.instructions,
+            ctx.relocations,
+        )?;
+    } else {
+        ctx.instructions.extend([
+            abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                listener_fd_offset,
+            ),
+            abi::move_immediate(abi::ARG[1], "Integer", "4"), // F_SETFL
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), flags_offset),
+        ]);
+        platform.emit_variadic_call(
+            net_symbol(platform, NetSymbol::Fcntl),
+            symbol,
+            platform_imports,
+            ctx.instructions,
+            ctx.relocations,
+        )?;
+    }
     ctx.instructions.extend([
         abi::store_u64(abi::ZERO, abi::stack_pointer(), restore_flag_offset),
         abi::label(&skip),
@@ -123,22 +137,28 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
         abi::store_u64("%v9", abi::stack_pointer(), LISTENER_FD_OFFSET),
-        abi::move_register(abi::return_register(), "%v9"),
-        abi::move_immediate(abi::ARG[1], "Integer", "3"), // F_GETFL
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
     ]);
-    platform.emit_variadic_call(
-        net_symbol(platform, NetSymbol::Fcntl),
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.push(abi::store_u64(
-        abi::return_register(),
-        abi::stack_pointer(),
-        FLAGS_OFFSET,
-    ));
+    if platform.family() != PlatformFamily::Windows {
+        // fcntl(fd, F_GETFL, 0) — read the flags emit_set_nonblocking OR-s below.
+        // Winsock's ioctlsocket(FIONBIO) is stateless, so Windows skips the read.
+        instructions.extend([
+            abi::move_register(abi::return_register(), "%v9"),
+            abi::move_immediate(abi::ARG[1], "Integer", "3"), // F_GETFL
+            abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        ]);
+        platform.emit_variadic_call(
+            net_symbol(platform, NetSymbol::Fcntl),
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::store_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            FLAGS_OFFSET,
+        ));
+    }
     // fcntl(fd, F_SETFL, flags | O_NONBLOCK) — Windows: ioctlsocket(fd, FIONBIO, &1)
     platform.emit_set_nonblocking(
         LISTENER_FD_OFFSET,
@@ -547,12 +567,31 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         abi::load_u64(abi::ARG[1], abi::stack_pointer(), BUF_OFFSET),
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), MAX_OFFSET),
     ]);
-    platform.emit_read_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    if platform.family() == PlatformFamily::Windows {
+        // recv(s, buf, len, 0). ReadFile does not work on a default (overlapped)
+        // Winsock socket; recv is the socket read primitive. Same (fd, buf, len)
+        // arg layout, so only the flags word is added. The C `int` return is
+        // sign-extended before the 0 (peer-closed) / <0 (error) compares below.
+        instructions.push(abi::move_immediate(abi::ARG[3], "Integer", "0"));
+        platform.emit_libc_call(
+            net_symbol(platform, NetSymbol::Recv),
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::sign_extend_word(
+            abi::return_register(),
+            abi::return_register(),
+        ));
+    } else {
+        platform.emit_read_file(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
@@ -805,12 +844,30 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         abi::load_u64(abi::ARG[1], abi::stack_pointer(), SRC_OFFSET),
         abi::move_register(abi::ARG[2], "%v10"),
     ]);
-    platform.emit_write(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    if platform.family() == PlatformFamily::Windows {
+        // send(s, buf, len, 0). WriteFile does not work on a default (overlapped)
+        // Winsock socket; send is the socket write primitive. The C `int` return is
+        // sign-extended before the <= 0 (error) compare below.
+        instructions.push(abi::move_immediate(abi::ARG[3], "Integer", "0"));
+        platform.emit_libc_call(
+            net_symbol(platform, NetSymbol::Send),
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.push(abi::sign_extend_word(
+            abi::return_register(),
+            abi::return_register(),
+        ));
+    } else {
+        platform.emit_write(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&write_fail),

@@ -83,6 +83,27 @@ const RUNTIME_CALLS: &[&str] = &[
     "thread.acceptResource",
     "thread.emitResource",
     "thread.readResource",
+    // Networking (plan-47-I): the full net:: surface over Winsock2.
+    "net.lookup",
+    "net.connectTcp",
+    "net.connectTcpAddr",
+    "net.listenTcp",
+    "net.accept",
+    "net.bindUdp",
+    "net.close",
+    "net.read",
+    "net.readText",
+    "net.write",
+    "net.writeText",
+    "net.sendTo",
+    "net.sendTextTo",
+    "net.receiveFrom",
+    "net.receiveTextFrom",
+    "net.poll",
+    "net.localAddress",
+    "net.remoteAddress",
+    "net.setReadTimeout",
+    "net.setWriteTimeout",
 ];
 
 impl NativeBackend for Backend {

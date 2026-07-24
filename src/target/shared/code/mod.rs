@@ -824,6 +824,12 @@ pub(crate) fn lower_module_for_platform(
     let uses_term = runtime_symbols
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_term_"));
+    // Whether the program reaches any `net::` socket helper. Windows needs
+    // WSAStartup/WSACleanup in the entry only then (plan-47-I §3.2); every other
+    // platform ignores the flag, so a socket-free program stays byte-identical.
+    let uses_net = runtime_symbols
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_net_"));
     // Whether the program uses the `math::` random generator. When it does we
     // emit the PCG64 helpers, seed each thread's arena, and draw a fresh
     // per-thread stream on spawn.
@@ -961,6 +967,7 @@ pub(crate) fn lower_module_for_platform(
                     // the worker thread, whose stack has no kernel argv layout
                     // (bug-240).
                     entry_called_as_function: true,
+                    needs_winsock: uses_net,
                 },
                 &platform_imports,
             )?);
@@ -997,6 +1004,7 @@ pub(crate) fn lower_module_for_platform(
                     // `_main` IS the process entry here, so args arrive however
                     // the platform's raw entry delivers them.
                     entry_called_as_function: false,
+                    needs_winsock: uses_net,
                 },
                 &platform_imports,
             )?);

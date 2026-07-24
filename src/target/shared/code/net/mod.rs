@@ -39,6 +39,7 @@ pub(in crate::target::shared::code) enum NetSymbol {
     Listen,
     Accept,
     Recv,
+    Send,
     RecvFrom,
     SendTo,
     Close,
@@ -59,7 +60,16 @@ pub(in crate::target::shared::code) fn net_symbol(
     platform: &dyn CodegenPlatform,
     intent: NetSymbol,
 ) -> &'static str {
-    let _ = platform; // Windows arm added in 47-I I2
+    if platform.family() == PlatformFamily::Windows {
+        match intent {
+            // A SOCKET is not a file descriptor; close() on it is undefined.
+            NetSymbol::Close => return "closesocket",
+            NetSymbol::Poll => return "WSAPoll",
+            // Fcntl never reaches here on Windows: both call sites branch to
+            // ioctlsocket (emit_set_nonblocking / emit_restore_blocking) instead.
+            _ => {}
+        }
+    }
     match intent {
         NetSymbol::Socket => "socket",
         NetSymbol::Connect => "connect",
@@ -67,6 +77,7 @@ pub(in crate::target::shared::code) fn net_symbol(
         NetSymbol::Listen => "listen",
         NetSymbol::Accept => "accept",
         NetSymbol::Recv => "recv",
+        NetSymbol::Send => "send",
         NetSymbol::RecvFrom => "recvfrom",
         NetSymbol::SendTo => "sendto",
         NetSymbol::Close => "close",
@@ -611,23 +622,29 @@ fn lower_net_endpoint_helper(
             abi::move_immediate("%v9", "Integer", DEFAULT_CONNECT_TIMEOUT_MS),
             abi::store_u64("%v9", abi::stack_pointer(), EXTRA_OFFSET),
             abi::label(&connect_use_timeout),
-            // flags = fcntl(fd, F_GETFL, 0)
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-            abi::move_immediate(abi::ARG[1], "Integer", "3"),
-            abi::move_immediate(abi::ARG[2], "Integer", "0"),
         ]);
-        platform.emit_variadic_call(
-            net_symbol(platform, NetSymbol::Fcntl),
-            symbol,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?;
-        instructions.push(abi::store_u64(
-            abi::return_register(),
-            abi::stack_pointer(),
-            FLAGS_OFFSET,
-        ));
+        if platform.family() != PlatformFamily::Windows {
+            // flags = fcntl(fd, F_GETFL, 0). Winsock's ioctlsocket(FIONBIO) is
+            // stateless, so Windows skips the read and emit_set_nonblocking ignores
+            // FLAGS_OFFSET.
+            instructions.extend([
+                abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+                abi::move_immediate(abi::ARG[1], "Integer", "3"),
+                abi::move_immediate(abi::ARG[2], "Integer", "0"),
+            ]);
+            platform.emit_variadic_call(
+                net_symbol(platform, NetSymbol::Fcntl),
+                symbol,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
+            )?;
+            instructions.push(abi::store_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                FLAGS_OFFSET,
+            ));
+        }
         // fcntl(fd, F_SETFL, flags | O_NONBLOCK) — Windows: ioctlsocket(fd, FIONBIO, &1)
         platform.emit_set_nonblocking(
             FD_OFFSET,
@@ -748,17 +765,31 @@ fn lower_net_endpoint_helper(
             abi::branch_ne(&op_fail),
             // Connected: restore blocking mode with fcntl(fd, F_SETFL, flags).
             abi::label(&nb_connected),
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-            abi::move_immediate(abi::ARG[1], "Integer", "4"),
-            abi::load_u64(abi::ARG[2], abi::stack_pointer(), FLAGS_OFFSET),
         ]);
-        platform.emit_variadic_call(
-            net_symbol(platform, NetSymbol::Fcntl),
-            symbol,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?;
+        if platform.family() == PlatformFamily::Windows {
+            // Winsock: ioctlsocket(fd, FIONBIO, &0) — no flags word to restore.
+            platform.emit_restore_blocking(
+                FD_OFFSET,
+                FLAGS_OFFSET,
+                symbol,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
+            )?;
+        } else {
+            instructions.extend([
+                abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+                abi::move_immediate(abi::ARG[1], "Integer", "4"),
+                abi::load_u64(abi::ARG[2], abi::stack_pointer(), FLAGS_OFFSET),
+            ]);
+            platform.emit_variadic_call(
+                net_symbol(platform, NetSymbol::Fcntl),
+                symbol,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
+            )?;
+        }
         // Both the caller-timeout and default-timeout connects converge here after
         // restoring blocking mode; the old unbounded blocking-connect path (taken
         // when timeoutMs <= 0) is gone — that case now uses the bounded default

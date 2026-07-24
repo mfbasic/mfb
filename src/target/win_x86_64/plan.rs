@@ -13,6 +13,7 @@ use crate::target::shared::plan::{self, NativePlan, NativePlanPlatform, Platform
 use crate::target::shared::runtime::RuntimeHelperSpec;
 
 const KERNEL32: &str = "kernel32.dll";
+const WS2_32: &str = "ws2_32.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -194,6 +195,42 @@ impl NativePlanPlatform for Platform {
                     import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
                 ]
             }
+            // Networking (plan-47-I): every `net.*` helper is Winsock2 over
+            // ws2_32.dll. WSAStartup/WSACleanup ride the entry (emit_net_startup),
+            // but they belong to the same import set so the merged IAT carries them
+            // whenever any socket call is reachable. `close`→`closesocket`,
+            // `poll`→`WSAPoll`, the non-blocking toggle→`ioctlsocket`; the error
+            // channel reuses kernel32's GetLastError (== WSAGetLastError on Win32).
+            call if call.starts_with("net.") => vec![
+                import("WSAStartup", WS2_32, required_by),
+                import("WSACleanup", WS2_32, required_by),
+                import("socket", WS2_32, required_by),
+                import("connect", WS2_32, required_by),
+                import("bind", WS2_32, required_by),
+                import("listen", WS2_32, required_by),
+                import("accept", WS2_32, required_by),
+                import("recv", WS2_32, required_by),
+                import("send", WS2_32, required_by),
+                import("recvfrom", WS2_32, required_by),
+                import("sendto", WS2_32, required_by),
+                import("closesocket", WS2_32, required_by),
+                import("WSAPoll", WS2_32, required_by),
+                import("getaddrinfo", WS2_32, required_by),
+                import("freeaddrinfo", WS2_32, required_by),
+                import("setsockopt", WS2_32, required_by),
+                import("getsockopt", WS2_32, required_by),
+                import("getsockname", WS2_32, required_by),
+                import("getpeername", WS2_32, required_by),
+                import("inet_ntop", WS2_32, required_by),
+                import("ioctlsocket", WS2_32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+                // A socket resource shares the File-record scope-drop and stream
+                // read/write glue: close is CloseHandle, and net.read/net.write reuse
+                // ReadFile/WriteFile — all valid on a SOCKET handle on Windows.
+                import("CloseHandle", KERNEL32, required_by),
+                import("ReadFile", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+            ],
             _ => Vec::new(),
         }
     }

@@ -646,6 +646,48 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
+    /// Restore a socket to blocking mode on Windows (plan-47-I): the shared net
+    /// lowering only calls this on the `PlatformFamily::Windows` branch, where the
+    /// POSIX `fcntl(fd, F_SETFL, saved_flags)` restore has no analog. Winsock has no
+    /// flags word, so it issues `ioctlsocket(s, FIONBIO, &0)`, reading the socket
+    /// from `fd_offset` and using `scratch_offset` to hold the `u_long` argp. POSIX
+    /// backends never reach this (they emit the inline `fcntl` restore), so the
+    /// default is an error.
+    fn emit_restore_blocking(
+        &self,
+        _fd_offset: usize,
+        _scratch_offset: usize,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("emit_restore_blocking is Windows-only (plan-47-I)".into())
+    }
+    /// Initialize the platform network stack (plan-47-I §3.2). POSIX needs nothing;
+    /// Windows emits `WSAStartup(MAKEWORD(2,2), &wsadata)`. Called from the program
+    /// entry only when [`ProgramEntrySpec::needs_winsock`] is set.
+    fn emit_net_startup(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    /// Tear down the platform network stack (plan-47-I §3.2). POSIX needs nothing;
+    /// Windows emits `WSACleanup`. Called on the entry teardown path when
+    /// [`ProgramEntrySpec::needs_winsock`] is set.
+    fn emit_net_shutdown(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Emit a `bl` to a libc function that takes a single trailing variadic
     /// argument in `x2` (e.g. `open(path, flags, mode)`, `fcntl(fd, cmd, arg)`).
     /// On the Darwin AArch64 ABI variadic arguments are passed on the stack, so
@@ -888,6 +930,11 @@ pub(crate) struct ProgramEntrySpec<'a> {
     /// stdin with no `thread::openStdIn` call and is byte-identical to a direct
     /// reader; a worker still subscribes explicitly with `thread::openStdIn(worker)`.
     pub(crate) subscribe_stdin: bool,
+    /// Initialize the platform networking stack at entry (plan-47-I §3.2). Set when
+    /// the module uses any `net.*` call. Only Windows acts on it (`WSAStartup`);
+    /// POSIX has no analog and leaves the entry byte-identical, so a program that
+    /// never touches sockets gains no `ws2_32` import.
+    pub(crate) needs_winsock: bool,
 }
 
 #[derive(Clone, Copy)]

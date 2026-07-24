@@ -30,6 +30,11 @@ use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
 const KERNEL32: &str = "kernel32.dll";
+const WS2_32: &str = "ws2_32.dll";
+// ioctlsocket command to toggle blocking mode: FIONBIO = 0x8004667E.
+const FIONBIO: &str = "2147767422";
+// MAKEWORD(2, 2) — the Winsock version WSAStartup requests.
+const WINSOCK_VERSION: &str = "514"; // 0x0202
 // VirtualAlloc flAllocationType = MEM_COMMIT (0x1000) | MEM_RESERVE (0x2000).
 const MEM_COMMIT_RESERVE: &str = "12288";
 // VirtualAlloc flProtect = PAGE_READWRITE (0x04).
@@ -277,6 +282,37 @@ fn call_external(
     });
 }
 
+/// Emit `ioctlsocket(fd, FIONBIO, &argp)` where `argp` is 1 (non-blocking) or 0
+/// (blocking). The socket is loaded from `fd_offset` (relative to the caller's
+/// stack pointer) BEFORE the frame adjust, then the argp `u_long` is staged in a
+/// self-contained frame slot above the shadow space, so the call never disturbs
+/// the caller's frame. `ARG[3]` (r9) is a free scratch — ioctlsocket only reads
+/// rcx/rdx/r8.
+fn emit_ioctl_fionbio(
+    from: &str,
+    fd_offset: usize,
+    nonblocking: bool,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    const FRAME: usize = 0x30;
+    const ARGP_SLOT: usize = 0x28; // above the 0x20 shadow space
+    instructions.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), fd_offset));
+    instructions.push(abi::subtract_stack(FRAME));
+    if nonblocking {
+        instructions.push(abi::move_immediate(abi::ARG[3], "Integer", "1"));
+        instructions.push(abi::store_u64(abi::ARG[3], abi::stack_pointer(), ARGP_SLOT));
+    } else {
+        instructions.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), ARGP_SLOT));
+    }
+    instructions.extend([
+        abi::move_immediate(abi::ARG[1], "Integer", FIONBIO),
+        abi::add_immediate(abi::ARG[2], abi::stack_pointer(), ARGP_SLOT),
+    ]);
+    call_external(from, "ioctlsocket", WS2_32, instructions, relocations);
+    instructions.push(abi::add_stack(FRAME));
+}
+
 /// Every surface this floor does not implement rejects loudly if it is ever
 /// reached — which it cannot be, since the backend does not advertise it.
 fn unsupported(surface: &str) -> String {
@@ -329,6 +365,7 @@ impl code::CodegenPlatform for Platform {
             spec.capture_args,
             spec.subscribe_stdin,
             spec.entry_called_as_function,
+            spec.needs_winsock,
         )
     }
 
@@ -1510,19 +1547,20 @@ impl code::CodegenPlatform for Platform {
         let _ = &done;
     }
     fn addrinfo_addr_offset(&self) -> usize {
-        0
+        // Windows ADDRINFOA orders ai_canonname (24) before ai_addr, like macOS.
+        32
     }
     fn sol_socket(&self) -> &'static str {
-        "0"
+        "65535" // SOL_SOCKET = 0xFFFF on Winsock
     }
     fn so_reuseaddr(&self) -> &'static str {
-        "0"
+        "4" // SO_REUSEADDR = 0x0004 on Winsock
     }
     fn so_rcvtimeo(&self) -> &'static str {
-        "0"
+        "4102" // SO_RCVTIMEO = 0x1006 on Winsock
     }
     fn so_sndtimeo(&self) -> &'static str {
-        "0"
+        "4101" // SO_SNDTIMEO = 0x1005 on Winsock
     }
     fn socket_would_block_code(&self) -> &'static str {
         "10035" // WSAEWOULDBLOCK
@@ -1537,19 +1575,72 @@ impl code::CodegenPlatform for Platform {
     }
     fn emit_set_nonblocking(
         &self,
-        _fd_offset: usize,
+        fd_offset: usize,
         _flags_offset: usize,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // 47-I owns Windows non-blocking sockets: ioctlsocket(fd, FIONBIO, &1),
-        // which has no fcntl / F_SETFL.
-        unreachable!("47-I owns the Windows non-blocking-socket toggle")
+        // Non-blocking: ioctlsocket(fd, FIONBIO, &1). Winsock has no F_GETFL/F_SETFL,
+        // so `flags_offset` is unused (the shared caller skips the F_GETFL read on
+        // Windows). The argp `u_long` lives in a self-contained frame slot, so this
+        // never touches the caller's frame beyond loading the fd.
+        emit_ioctl_fionbio(from, fd_offset, true, instructions, relocations);
+        Ok(())
+    }
+
+    fn emit_restore_blocking(
+        &self,
+        fd_offset: usize,
+        _scratch_offset: usize,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // Blocking: ioctlsocket(fd, FIONBIO, &0).
+        emit_ioctl_fionbio(from, fd_offset, false, instructions, relocations);
+        Ok(())
+    }
+
+    fn emit_net_startup(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // WSAStartup(MAKEWORD(2,2), &wsadata) — mandatory before any ws2_32 call
+        // (plan-47-I §3.2). WSADATA is 408 bytes on x64; park it above the shadow
+        // space in a self-contained frame. The return value (0 on success) is
+        // ignored: a failure leaves every later socket call to fail on its own,
+        // which the net helpers already surface as an error.
+        const FRAME: usize = 0x1c0;
+        instructions.extend([
+            abi::subtract_stack(FRAME),
+            abi::move_immediate(abi::ARG[0], "Integer", WINSOCK_VERSION),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 0x20), // &wsadata
+        ]);
+        call_external(from, "WSAStartup", WS2_32, instructions, relocations);
+        instructions.push(abi::add_stack(FRAME));
+        Ok(())
+    }
+
+    fn emit_net_shutdown(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        instructions.push(abi::subtract_stack(0x20)); // shadow space
+        call_external(from, "WSACleanup", WS2_32, instructions, relocations);
+        instructions.push(abi::add_stack(0x20));
+        Ok(())
     }
     fn so_error(&self) -> &'static str {
-        "0"
+        "4103" // SO_ERROR = 0x1007 on Winsock
     }
 
     // --- threads / TLS (owned by 47-H/47-J) -------------------------------
