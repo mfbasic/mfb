@@ -39,6 +39,7 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
+| **plan-62 (presentation-mode system) is complete** — the `app::` package is registered, `app::Mode`/`getMode`/`setMode` exist, `--app` gating is in place, and `Console`/`None` modes work | `ls planning/plan-62-*` (all archived to `old-plans/`) and `rg -n '"app"' src/builtins/mod.rs` → `is_builtin_import` arm present | **NOT MET (plan-62 pending, added 2026-07-24)** |
 | The spec permits a `RES` parameter to name a resource union | `rg -n 'no generic resource supertype' src/docs/spec/language/15_resource-management.md` → still present at `:30` | **NOT MET — the spec forbids it** |
 | All three checkers accept variant→union widening in a non-owning parameter | `rg -n 'WIDGET_VARIANTS' src/` | **NOT MET** |
 | App mode works on both target platforms | `ls src/target/macos_aarch64/app/ src/target/linux_gtk/` | **MET** |
@@ -233,6 +234,17 @@ how it is *cut*, not what it is. The locked decisions stand:
 - **`get`/`set` naming**, uniform pairs overloaded on handle type.
 - **A `RES app::Widget` argument lowers to the raw handle**, not a tagged union — the
   shadow node already carries its kind byte, so widening is representation-neutral.
+- **GUI is a presentation mode, entered explicitly.** plan-62 makes presentation mode a
+  first-class `app::Mode` enum (`Console`/`None` in plan-62; this plan adds `GUI`). A program
+  enters the widget world with `app::setMode(app::Mode::GUI)` — **not** an implicit "auto-on
+  when `app::window()` is called". `app::window` and every widget call **require** `GUI` mode
+  and raise the `WRONG_MODE` runtime error (plan-62-E) outside it, exactly as `term::` requires
+  `Console`. This removes the undefined `term::`↔widget interaction the pre-plan-62 design left
+  open: the two never share a surface because they are different modes, and `setMode` performs
+  an implicit `term::off()` on every switch. `app::` package registration, the `Mode` enum, the
+  static initial-mode default, the `AppEntrySpec` presentation-mode field, and the per-backend
+  windowless/teardown-rebuild bootstrap all come from plan-62; this plan adds the `GUI` variant
+  and the widget surface that mode presents.
 
 ### 3.1 What this rewrite changes
 
@@ -361,6 +373,20 @@ broken binary.
 
 <!-- Filled in during execution. -->
 
+- 2026-07-24 — **The presentation-mode system was extracted into plan-62 and is now a
+  prerequisite.** The pre-plan-62 design left `term::on()` and `app::window()` sharing one
+  window with undefined interaction (a "UX engine that auto-ons when `app::window()` is
+  called"). plan-62 replaces that with a first-class `app::Mode` enum + `getMode`/`setMode`,
+  `--app` gating of the `app::` package, a static Console/None default, and a per-backend
+  windowless/teardown-rebuild bootstrap. Consequences for this plan: (1) **§2.4 gap (b)** —
+  `app::` package registration and (2) **§2.4 gap (d)** — a bootstrap that can skip the
+  transcript — are **no longer this plan's work**; they are plan-62's. 13-C shrinks from
+  "register the 17-file `app::` package" to "add the widget surface to the package plan-62
+  already registered". (3) **GUI mode is entered via `app::setMode(app::Mode::GUI)`**, and
+  widget calls raise `WRONG_MODE` outside it (plan-62-E), killing the undefined `term::`↔widget
+  interaction. (4) The `AppEntrySpec` field this plan's §2.4 gap (d) wanted already exists as
+  plan-62-B's `initial_mode` (note: plan-13 cites `AppEntrySpec` at `types.rs:636`; it is now at
+  `types.rs:840` — a rotted citation, corrected in plan-62-A).
 - 2026-07-20 — **The language amendment was a phase; it is a gate.** plan-13-C Phase 0
   amends `15_resource-management.md` and three checkers, and every other unit depends on
   it. Promoted to §Prerequisites.

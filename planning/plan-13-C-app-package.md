@@ -30,6 +30,7 @@ References (read first):
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
+| **plan-62 has landed** — the `app::` package is already registered (`getMode`/`setMode`/`Mode` exist, `--app` gating in place) | `rg -n '"app"' src/builtins/mod.rs` → `is_builtin_import` arm present | **NOT MET (plan-62 pending, added 2026-07-24)** |
 | plan-13-A has landed (union params accepted on all three paths) | `rg -n 'resource-union-param-valid' tests/` | **NOT MET** |
 | The high reserved type-ID range is free | `rg -n 'FIRST_TABLE_TYPE_ID' src/binary_repr/` | **MET** |
 
@@ -220,7 +221,17 @@ Commit: —
 
 <!-- Filled in during execution. -->
 
-- 2026-07-20 — **Registering a builtin package touches 16 files**, budgeted in the
+- 2026-07-24 — **The 16/17-file registration sweep is now plan-62's, not this plan's.** plan-62-A
+  registers the `app::` package (name gate, resolver, syntaxcheck, IR, target arms), declares
+  the `app::Mode` enum via a source companion, and adds `getMode`/`setMode` with `--app` gating.
+  This sub-plan is now a **prerequisite-gated extension**: with the package already registered,
+  13-C adds the widget *types* (`Window`/`Container`/`Button`/`Label`/`Input`/`Widget` union,
+  `Size`/`Rect`/`Spacing`, the enums) and their functions to the existing package, plus the §3.2
+  mint-a-`RES`-outside-`LINK` capability and the close-op registrations. The Phase-2 "16-file
+  registration sweep" below collapses accordingly — re-scope it in place to "extend the
+  plan-62 package" before executing (do not re-register from scratch). The §3.2 handle-minting
+  spike and the close-op/`app::destroy` rejection matrix are **unchanged** and remain 13-C's
+  core risk.
   2026-07-09 draft as one checkbox. Full list in §2.1; it is this sub-plan's real bulk.
 - 2026-07-20 — **Resource records with close ops are `LINK`-only today** (§3.2). The draft
   assumes widget handles are resources — right — without noticing the only route to one is
