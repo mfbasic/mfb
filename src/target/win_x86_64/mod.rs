@@ -1,31 +1,30 @@
-//! The `windows-x86_64` native backend (plan-47-B Phase 2).
+//! The `windows-x86_64` native backend (plan-47-B Phase 2 / plan-47-D).
 //!
-//! Registered so `BuildTarget::parse("windows-x86_64")` resolves through
-//! `backend_for` instead of erroring "native output does not support …", but
-//! deliberately **non-executable**: every capability is `false`, so each dispatch
-//! entry point rejects the target at its capability gate with a clear message
-//! before any lowering runs. 47-C wires the PE writer and 47-D the Win32 runtime
-//! floor; the codegen machinery (the Win64 ABI + `Win64Backend`, plan-47-B A1)
-//! is already in place and is activated by the `CodegenPlatform` A2 lands.
+//! Registered and — as of the 47-D machine floor — **executable** for the
+//! console runtime subset it advertises: a program using only integers, strings,
+//! collections (and, as later sub-plans land, `io`/fs/…) builds to a PE32+
+//! `.exe` that runs on Windows. The Win64 ABI + PE writer are plan-47-B/47-C; this
+//! module wires them together and installs the Win32 machine floor
+//! (`code.rs`/`plan.rs`).
 
 use crate::ir::IrProject;
-use crate::target::shared::validate;
+use crate::os;
+use crate::target::shared::{lower, validate};
 use crate::target::{BackendCapabilities, BuildTarget, NativeBackend, NativeBuildMode};
 use std::path::{Path, PathBuf};
+
+pub(crate) mod code;
+pub(crate) mod plan;
 
 pub(crate) static BACKEND: Backend = Backend;
 
 pub(crate) struct Backend;
 
-/// The message every unsupported dispatch reports. The capability gates in
-/// `target::{write_executable,write_nir,…}` fire first with their own per-artifact
-/// message, so these method bodies are unreachable in practice; they name the
-/// owning sub-plans for anyone who reaches them directly.
-fn not_yet() -> String {
-    "windows-x86_64 native output is not yet supported (plan-47-C wires the PE \
-     writer; plan-47-D the Win32 runtime floor)"
-        .to_string()
-}
+/// The runtime-call surface the machine floor supports. Empty: the floor
+/// implements entry/arena/exit only, so a program that uses any `io`/fs/net/…
+/// runtime helper is rejected at `validate_capabilities` rather than building a
+/// broken `.exe`. Each later sub-plan (47-D-full, F, G, …) adds its calls here.
+const RUNTIME_CALLS: &[&str] = &[];
 
 impl NativeBackend for Backend {
     fn target(&self) -> BuildTarget {
@@ -36,93 +35,145 @@ impl NativeBackend for Backend {
     }
 
     fn capabilities(&self) -> BackendCapabilities {
-        // All false: the target is resolvable but produces no artifacts yet.
         BackendCapabilities {
-            executable: false,
-            native_ir: false,
-            native_plan: false,
-            native_object_plan: false,
-            native_code_plan: false,
-            runtime_calls: &[],
+            executable: true,
+            native_ir: true,
+            native_plan: true,
+            native_object_plan: true,
+            native_code_plan: true,
+            runtime_calls: RUNTIME_CALLS,
         }
     }
 
     fn validate(&self, ir: &IrProject, packages: &[PathBuf]) -> Result<(), String> {
-        // Target-neutral project/IR validation (identical to every other backend),
-        // so a *valid* project reaches the capability gate and fails there with the
-        // expected "…does not support windows-x86_64 yet" message rather than a
-        // spurious validation error.
         validate::validate_project(ir, packages)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn write_executable(
-        &self,
-        _project_dir: &Path,
-        _ir: &IrProject,
-        _packages: &[PathBuf],
-        _signing_metadata: Option<&[u8]>,
-        _build_mode: NativeBuildMode,
-        _app_icon: Option<&Path>,
-        _app_version: Option<&str>,
-        _vendors_native_libraries: bool,
-        _stdin_log_cap: Option<u64>,
-    ) -> Result<Vec<PathBuf>, String> {
-        Err(not_yet())
-    }
-
-    fn write_nir(
-        &self,
-        _project_dir: &Path,
-        _ir: &IrProject,
-        _packages: &[PathBuf],
-        _build_mode: NativeBuildMode,
-    ) -> Result<PathBuf, String> {
-        Err(not_yet())
-    }
-
-    fn write_native_plan(
-        &self,
-        _project_dir: &Path,
-        _ir: &IrProject,
-        _packages: &[PathBuf],
-        _build_mode: NativeBuildMode,
-    ) -> Result<PathBuf, String> {
-        Err(not_yet())
-    }
-
-    fn write_native_object_plan(
-        &self,
-        _project_dir: &Path,
-        _ir: &IrProject,
-        _packages: &[PathBuf],
-        _build_mode: NativeBuildMode,
-    ) -> Result<PathBuf, String> {
-        Err(not_yet())
-    }
-
-    fn write_native_code_plan(
-        &self,
-        _project_dir: &Path,
-        _ir: &IrProject,
-        _packages: &[PathBuf],
-        _build_mode: NativeBuildMode,
-    ) -> Result<PathBuf, String> {
-        Err(not_yet())
-    }
-
-    fn write_mir(
-        &self,
-        _project_dir: &Path,
-        _ir: &IrProject,
-        _packages: &[PathBuf],
-        _build_mode: NativeBuildMode,
-    ) -> Result<PathBuf, String> {
-        Err(not_yet())
     }
 
     fn supports_app_mode(&self) -> bool {
         // Console subsystem only — no Windows GUI/app mode (master §Non-goals).
         false
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_executable(
+        &self,
+        project_dir: &Path,
+        ir: &IrProject,
+        packages: &[PathBuf],
+        signing_metadata: Option<&[u8]>,
+        build_mode: NativeBuildMode,
+        _app_icon: Option<&Path>,
+        _app_version: Option<&str>,
+        _vendors_native_libraries: bool,
+        stdin_log_cap: Option<u64>,
+    ) -> Result<Vec<PathBuf>, String> {
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, stdin_log_cap)?;
+        let native_plan = plan::lower_module(&module)?;
+        native_plan.validate()?;
+        os::windows::validate_native_object_plan(&native_plan)?;
+        let native_code = code::lower_module(&module, &native_plan, packages)?;
+        native_code.validate()?;
+        let mut image = crate::arch::x86_64::encode::encode(&native_code)?;
+        image.signing_metadata = signing_metadata.map(|m| m.to_vec());
+        let path = os::windows::write_linked_executable(project_dir, &ir.name, &image)?;
+        Ok(vec![path])
+    }
+
+    fn write_nir(
+        &self,
+        project_dir: &Path,
+        ir: &IrProject,
+        packages: &[PathBuf],
+        build_mode: NativeBuildMode,
+    ) -> Result<PathBuf, String> {
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let path = project_dir.join(format!("{}.nir", ir.name));
+        std::fs::write(&path, module.to_json())
+            .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
+        Ok(path)
+    }
+
+    fn write_native_plan(
+        &self,
+        project_dir: &Path,
+        ir: &IrProject,
+        packages: &[PathBuf],
+        build_mode: NativeBuildMode,
+    ) -> Result<PathBuf, String> {
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let native_plan = plan::lower_module(&module)?;
+        native_plan.validate()?;
+        let path = project_dir.join(format!("{}.nplan", ir.name));
+        std::fs::write(&path, native_plan.to_json())
+            .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
+        Ok(path)
+    }
+
+    fn write_native_object_plan(
+        &self,
+        project_dir: &Path,
+        ir: &IrProject,
+        packages: &[PathBuf],
+        build_mode: NativeBuildMode,
+    ) -> Result<PathBuf, String> {
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let native_plan = plan::lower_module(&module)?;
+        os::windows::write_native_object_plan(project_dir, &ir.name, &native_plan)
+    }
+
+    fn write_native_code_plan(
+        &self,
+        project_dir: &Path,
+        ir: &IrProject,
+        packages: &[PathBuf],
+        build_mode: NativeBuildMode,
+    ) -> Result<PathBuf, String> {
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let native_plan = plan::lower_module(&module)?;
+        native_plan.validate()?;
+        let native_code = code::lower_module(&module, &native_plan, packages)?;
+        native_code.validate()?;
+        let path = project_dir.join(format!("{}.ncode", ir.name));
+        std::fs::write(&path, native_code.to_json())
+            .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
+        Ok(path)
+    }
+
+    fn write_mir(
+        &self,
+        project_dir: &Path,
+        ir: &IrProject,
+        packages: &[PathBuf],
+        build_mode: NativeBuildMode,
+    ) -> Result<PathBuf, String> {
+        let module = lower_validated_module(ir, &self.target(), packages, build_mode, None)?;
+        let native_plan = plan::lower_module(&module)?;
+        native_plan.validate()?;
+        let mir = code::lower_module_mir(&module, &native_plan, packages)?;
+        let path = project_dir.join(format!("{}.mir", ir.name));
+        std::fs::write(&path, mir.to_json())
+            .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
+        Ok(path)
+    }
+}
+
+fn lower_validated_module(
+    ir: &IrProject,
+    target: &BuildTarget,
+    packages: &[PathBuf],
+    build_mode: NativeBuildMode,
+    stdin_log_cap: Option<u64>,
+) -> Result<crate::target::shared::nir::NirModule, String> {
+    validate::validate_target(target)?;
+    validate::validate_project(ir, packages)?;
+    if !matches!(build_mode, NativeBuildMode::Console) {
+        return Err(format!(
+            "windows-x86_64 native targets do not support the {} build mode",
+            build_mode.as_str()
+        ));
+    }
+    let module = lower::lower_project(ir, target.name(), packages, build_mode, stdin_log_cap)?;
+    validate::validate_nir(&module)?;
+    validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    Ok(module)
 }

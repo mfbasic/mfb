@@ -40,3 +40,21 @@ pub(crate) fn write_native_object_plan(
 pub(crate) fn validate_native_object_plan(plan: &NativePlan) -> Result<(), String> {
     object::lower_plan(plan)?.validate()
 }
+
+/// Link `image` into a PE32+ `.exe` and write it as `build/<name>.exe` (plan-47-D).
+/// One file, no flavor suffix — the Windows sibling of
+/// `crate::os::linux::write_linked_executable`.
+pub(crate) fn write_linked_executable(
+    project_dir: &Path,
+    project_name: &str,
+    image: &crate::arch::aarch64::encode::EncodedImage,
+) -> Result<PathBuf, String> {
+    let bytes = link::write_executable(image)?;
+    let build_dir = project_dir.join(crate::os::BUILD_DIR);
+    fs::create_dir_all(&build_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", build_dir.display()))?;
+    let exe_path = build_dir.join(format!("{project_name}.exe"));
+    fs::write(&exe_path, &bytes)
+        .map_err(|err| format!("failed to write '{}': {err}", exe_path.display()))?;
+    Ok(exe_path)
+}

@@ -101,13 +101,17 @@ pub(crate) enum X86Abi {
 }
 
 // Win64 (plan-47-B §4.1/§4.2): int args rcx,rdx,r8,r9; then an INTERNAL extension
-// for arguments 4–7 (rdi,rsi,rax,r10) so the compiler's own 8-parameter calls
+// for arguments 4–7 (rdi,rsi,rax,rbp) so the compiler's own 8-parameter calls
 // keep 8 register homes exactly as SysV does (REGISTER_ARGUMENT_COUNT stays 8).
 // External calls are capped at 4 by `Win64RegisterModel::external_int_argument_registers`
-// and spill the rest to the stack tail above the 32-byte shadow space. rdi/rsi/r10
-// are excluded from the Win64 allocatable pool so the allocator never colors them
-// while they carry an argument.
-const CALL_ARGS_WIN64: &[&str] = &["rcx", "rdx", "r8", "r9", "rdi", "rsi", "rax", "r10"];
+// and spill the rest to the stack tail above the 32-byte shadow space. rdi/rsi are
+// excluded from the Win64 allocatable pool so the allocator never colors them while
+// they carry an argument; rax/rbp are already reserved (result reg / frame pointer),
+// exactly as under SysV. Args 7/8 use rax/rbp (not r10) — mirroring SysV — so `r10`
+// stays allocatable and the Int pool keeps FOUR registers; a 3-register pool cannot
+// even allocate `add_carry` (which needs 4 simultaneously-live), so the plan's
+// "accepted 3-register regression" was in fact a hard failure (§Corrections).
+const CALL_ARGS_WIN64: &[&str] = &["rcx", "rdx", "r8", "r9", "rdi", "rsi", "rax", "rbp"];
 // Win64 result bank: SysV's rcx/rsi (slots 2/3 of the 4-register fallible-result
 // convention) collide with Win64 argument register rcx, so use r8/r9 — caller-saved,
 // unpinned, and consumed by the error/TRAP path with no intervening call (§4.1).
@@ -1011,7 +1015,7 @@ mod tests {
         assert_eq!(map_abi_register(4, call, false, X86Abi::Win64), "rdi");
         assert_eq!(map_abi_register(5, call, false, X86Abi::Win64), "rsi");
         assert_eq!(map_abi_register(6, call, false, X86Abi::Win64), "rax");
-        assert_eq!(map_abi_register(7, call, false, X86Abi::Win64), "r10");
+        assert_eq!(map_abi_register(7, call, false, X86Abi::Win64), "rbp");
         // Result bank — rcx/rsi replaced by r8/r9 so they don't collide with the
         // Win64 argument registers.
         assert_eq!(map_abi_register(0, None, true, X86Abi::Win64), "rax");

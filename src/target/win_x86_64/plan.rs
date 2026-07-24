@@ -1,0 +1,78 @@
+//! Windows x86-64 native-plan platform (plan-47-D, minimal machine floor).
+//!
+//! Windows has no stable syscall ABI, so every OS primitive is an imported-DLL
+//! call: the arena maps memory with `kernel32!VirtualAlloc`/`VirtualFree` and the
+//! program exits with `kernel32!ExitProcess`. This platform declares exactly the
+//! `PlatformImport`s the floor needs; each later surface (47-E–J) adds its own
+//! DLL's worth on the same mechanism. Every import group is gated behind the
+//! `runtime_calls` the backend advertises, so an unimplemented surface is a
+//! compile-time rejection, never a dead IAT entry.
+
+use crate::target::shared::nir::NirModule;
+use crate::target::shared::plan::{self, NativePlan, NativePlanPlatform, PlatformImport};
+use crate::target::shared::runtime::RuntimeHelperSpec;
+
+const KERNEL32: &str = "kernel32.dll";
+
+pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
+    plan::lower_module_for_platform(module, &Platform)
+}
+
+pub(crate) struct Platform;
+
+fn import(symbol: &str, library: &str, required_by: &str) -> PlatformImport {
+    PlatformImport {
+        library: library.to_string(),
+        symbol: symbol.to_string(),
+        required_by: required_by.to_string(),
+    }
+}
+
+impl NativePlanPlatform for Platform {
+    fn target(&self) -> &'static str {
+        "windows-x86_64"
+    }
+
+    fn entry_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {
+        // The entry maps/unmaps the arena (VirtualAlloc/VirtualFree), seeds the
+        // arena start time (GetSystemTimePreciseAsFileTime) and the always-on
+        // memory-fill RNG (BCryptGenRandom, bcrypt.dll).
+        vec![
+            import("VirtualAlloc", KERNEL32, "_start"),
+            import("VirtualFree", KERNEL32, "_start"),
+            import("GetSystemTimePreciseAsFileTime", KERNEL32, "_start"),
+            import("BCryptGenRandom", "bcrypt.dll", "_start"),
+            // The entry's implicit program exit (emit_program_exit) — the NIR of a
+            // plain `RETURN` has no ExitProgram op, so this import rides the entry,
+            // not `program_exit_imports`.
+            import("ExitProcess", KERNEL32, "_start"),
+        ]
+    }
+
+    fn entry_error_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {
+        // The entry's error tail writes a diagnostic via GetStdHandle + WriteFile
+        // (emit_write) before exiting.
+        vec![
+            import("GetStdHandle", KERNEL32, "_start"),
+            import("WriteFile", KERNEL32, "_start"),
+        ]
+    }
+
+    fn program_exit_imports(&self, required_by: &str) -> Vec<PlatformImport> {
+        vec![import("ExitProcess", KERNEL32, required_by)]
+    }
+
+    fn runtime_imports(&self, _spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
+        // No runtime surface in the minimal floor; every helper the backend
+        // advertises in `runtime_calls` will add its imports here in 47-D-full.
+        Vec::new()
+    }
+
+    fn native_call_imports(&self, _target: &str, _required_by: &str) -> Vec<PlatformImport> {
+        Vec::new()
+    }
+
+    fn link_imports(&self, _required_by: &str) -> Vec<PlatformImport> {
+        Vec::new()
+    }
+}

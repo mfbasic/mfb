@@ -34,6 +34,16 @@ pub(crate) fn lower_program_entry(
     }
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    // Realign the stack to the 16-byte ABI boundary the rest of the entry
+    // assumes. A Windows PE entry is `call`-reached by the loader, so it arrives
+    // at `sp % 16 == 8`; one `sub sp, 8` restores `sp % 16 == 0` before any
+    // capture/frame/call runs. The Linux/macOS entries already arrive aligned
+    // and return false, so their entry stays byte-identical. The entry never
+    // returns (it `ExitProcess`/`exit`s), so the lost 8 bytes are never reclaimed
+    // and no incoming stack argument is disturbed (Windows delivers none).
+    if platform.entry_stack_misaligned_on_entry() {
+        instructions.push(abi::subtract_stack(8));
+    }
     // Where argc/argv live on arrival. The platform answer describes the RAW
     // process entry; an entry reached as a call gets them in registers on every
     // platform, from its caller (bug-240).
@@ -123,9 +133,20 @@ pub(crate) fn lower_program_entry(
             abi::move_register(abi::SCRATCH[18], abi::ARG[1]),
         ]);
     }
+    // Reserve the callee's outgoing shadow space at the very bottom of the entry
+    // frame and place the arena state ABOVE it. The entry manages its own stack
+    // (it never passes through `finalize_frame`), so without this the arena state
+    // would sit at `sp` and every call the entry makes — the arena-start-time
+    // seed, the RNG seed, the global/link initializers, `main` — would write its
+    // 32-byte shadow space into `[sp, sp+32)`, corrupting the arena block-list
+    // head at `[arena+0]` (the first field). Win64 requires 32 bytes of shadow;
+    // Linux/macOS return 0 here, so their entry stays byte-identical. Everything
+    // addressed `[arena + X]` keeps its absolute position (arena == sp + shadow);
+    // the sp-relative args region below shifts up by the same `shadow`.
+    let shadow = platform.backend().shadow_space_bytes();
     instructions.extend([
-        abi::subtract_stack(entry_stack_size),
-        abi::add_immediate(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
+        abi::subtract_stack(entry_stack_size + shadow),
+        abi::add_immediate(ARENA_STATE_REGISTER, abi::stack_pointer(), shadow),
         // Zero the whole arena state with a loop (allocator-04): the entry
         // frame is live stack, NOT zero-filled, and this initializer must stay
         // in lockstep with the thread-spawn child-state zeroing
@@ -248,29 +269,14 @@ pub(crate) fn lower_program_entry(
             abi::move_register(abi::SCRATCH[18], abi::ARG[1]),
         ]);
     }
+    // Capture the arena start time into ARENA_START_TIME_OFFSET, using a 16-byte
+    // stack buffer at [sp] that the entropy block below reuses (freed by the
+    // matching `add_stack(16)`). The clock source is platform-abstracted
+    // (`clock_gettime` on POSIX; `GetSystemTimePreciseAsFileTime` on Windows,
+    // plan-47-D §3.1) — `emit_arena_start_time`'s default reproduces the POSIX
+    // sequence, so every existing target's entry is byte-identical.
+    platform.emit_arena_start_time(entry_symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
-        abi::subtract_stack(16),
-        abi::move_immediate(abi::SYSARG[0], "Integer", "0"), // CLOCK_REALTIME
-        abi::add_immediate(abi::SYSARG[1], abi::stack_pointer(), 0),
-    ]);
-    platform.emit_libc_call(
-        "clock_gettime",
-        entry_symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 0), // tv_sec
-        abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 8), // tv_nsec
-        abi::move_immediate(abi::SCRATCH[2], "Integer", "1000000000"),
-        abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[2]),
-        abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]), // ns = sec*1e9 + nsec
-        abi::store_u64(
-            abi::SCRATCH[0],
-            ARENA_STATE_REGISTER,
-            ARENA_START_TIME_OFFSET,
-        ),
         // Pre-fill the seed scratch with the arena address (getentropy fallback).
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
         abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
@@ -366,7 +372,7 @@ pub(crate) fn lower_program_entry(
         // The args region sits at the top of the entry frame (above the
         // globals); `entry_stack_size` includes ENTRY_ARGS_REGION_SIZE for an
         // arg-accepting entry (see the mod.rs sizing).
-        let args_base = entry_stack_size - ENTRY_ARGS_REGION_SIZE;
+        let args_base = entry_stack_size - ENTRY_ARGS_REGION_SIZE + shadow;
         // Source argc/argv from the preserved callee-saved registers rather than
         // x0/x1: a `LINK` initializer or global initializer runs between here and
         // the top-of-entry parking, and those `bl`s clobber x0/x1 (but preserve
@@ -552,6 +558,44 @@ pub(crate) fn lower_program_entry(
         instructions,
         relocations,
     })
+}
+
+/// The POSIX arena-start-time capture (plan-47-D §3.1), extracted so a non-POSIX
+/// OS can override it. `clock_gettime(CLOCK_REALTIME)` into a freshly-allocated
+/// 16-byte stack buffer at `[sp]`, reduced to nanoseconds and stored at
+/// `ARENA_START_TIME_OFFSET`. The buffer is deliberately left allocated: the
+/// entry's entropy block immediately below reuses it and frees it with the
+/// matching `add_stack(16)`. This is `CodegenPlatform::emit_arena_start_time`'s
+/// default, so every existing target's entry is byte-identical; Windows overrides
+/// it (`GetSystemTimePreciseAsFileTime`).
+pub(crate) fn emit_default_arena_start_time<P: super::CodegenPlatform + ?Sized>(
+    platform: &P,
+    entry_symbol: &str,
+    platform_imports: &std::collections::HashMap<String, String>,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    instructions.extend([
+        abi::subtract_stack(16),
+        abi::move_immediate(abi::SYSARG[0], "Integer", "0"), // CLOCK_REALTIME
+        abi::add_immediate(abi::SYSARG[1], abi::stack_pointer(), 0),
+    ]);
+    platform.emit_libc_call(
+        "clock_gettime",
+        entry_symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 0), // tv_sec
+        abi::load_u64(abi::SCRATCH[1], abi::stack_pointer(), 8), // tv_nsec
+        abi::move_immediate(abi::SCRATCH[2], "Integer", "1000000000"),
+        abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[2]),
+        abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]), // ns = sec*1e9 + nsec
+        abi::store_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
+    ]);
+    Ok(())
 }
 
 fn emit_entry_args_list_materialization(

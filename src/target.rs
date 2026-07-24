@@ -541,23 +541,22 @@ mod tests {
         }
     }
 
-    /// plan-47-B Phase 2: `windows-x86_64` is a registered, resolvable target —
-    /// so it takes the *capability* path (non-executable), not `backend_for`'s
-    /// unknown-target error.
+    /// plan-47-D: `windows-x86_64` is a registered, resolvable target whose
+    /// machine floor is live — it now takes the executable/native-plan path
+    /// (a `RETURN 42` program compiles to a PE32+ that exits 42 on the Win11
+    /// box), not the non-executable stub of 47-B Phase 2.
     #[test]
-    fn windows_x86_64_resolves_but_is_not_executable() {
+    fn windows_x86_64_resolves_and_is_executable() {
         let target = BuildTarget::parse("windows-x86_64").expect("windows-x86_64 parses");
         let backend = backend_for(&target).expect("windows-x86_64 resolves (not unknown-target)");
         assert_eq!(backend.target(), target);
-        // Registered but deliberately non-executable until 47-C/47-D: every
-        // capability is false, so each dispatch entry point rejects at its gate
-        // (e.g. write_executable → "native executable output does not support
-        // windows-x86_64 yet") rather than erroring "native output does not
-        // support windows-x86_64 yet" (the unknown-target message).
+        // The 47-D machine floor advertises the executable/native-plan pipeline
+        // (Console-only); the runtime-helper and app-mode surfaces are still off
+        // until their later slices (47-E–J) land.
         let caps = backend.capabilities();
-        assert!(!caps.executable);
-        assert!(!caps.native_ir && !caps.native_plan);
-        assert!(!caps.native_object_plan && !caps.native_code_plan);
+        assert!(caps.executable);
+        assert!(caps.native_ir && caps.native_plan);
+        assert!(caps.native_object_plan && caps.native_code_plan);
         assert!(caps.runtime_calls.is_empty());
         assert!(!target_supports_app_mode(&target));
     }

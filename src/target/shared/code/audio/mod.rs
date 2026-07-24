@@ -151,6 +151,13 @@ fn alsa_data_objects() -> Vec<CodeDataObject> {
 pub(in crate::target::shared::code) enum AudioBackend {
     CoreAudio,
     Alsa,
+    /// Platforms with no audio surface (console Windows — plan-47 non-goal).
+    /// `AudioBackend::select` is called for EVERY build to compute the audio data
+    /// objects, not only audio-using ones, so this must be a real "no audio"
+    /// answer rather than `unreachable!`: it emits no data objects and no
+    /// callbacks. An audio-using Windows program is rejected earlier, at the
+    /// `runtime_calls` capability gate (audio.* is not advertised).
+    NoAudio,
 }
 
 impl AudioBackend {
@@ -160,7 +167,7 @@ impl AudioBackend {
         match platform.family() {
             PlatformFamily::MacOS => AudioBackend::CoreAudio,
             PlatformFamily::Linux => AudioBackend::Alsa,
-            PlatformFamily::Windows => unreachable!("no Windows audio backend (plan-47 non-goal)"),
+            PlatformFamily::Windows => AudioBackend::NoAudio,
         }
     }
 
@@ -172,7 +179,7 @@ impl AudioBackend {
         runtime_symbols: &[String],
     ) -> Vec<CodeDataObject> {
         match self {
-            AudioBackend::CoreAudio => Vec::new(),
+            AudioBackend::CoreAudio | AudioBackend::NoAudio => Vec::new(),
             AudioBackend::Alsa => {
                 if runtime_symbols
                     .iter()

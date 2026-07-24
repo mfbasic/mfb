@@ -189,11 +189,12 @@ impl RegisterModel for X86_64RegisterModel {
 // method delegates to the SysV model, since the ISA (spill widths, mnemonics,
 // pinned `arena_base`/`%thread`/`%closure_env`, `class_of`) is identical.
 
-// `r10` leaves the pool (it is `CALL_ARGS_WIN64`'s arg-7 slot), so Win64 has
-// THREE allocatable ints against SysV's four — an accepted, Windows-only
-// spill-pressure regression (§4.2): correctness first; the pool is a later
-// tuning knob (freeing `arena_base` from r15 would restore a fourth).
-const WIN64_INT_ALLOCATABLE: &[&str] = &["r11", "r12", "r14"];
+// Identical to SysV's four allocatable ints. Win64's internal arg 7/8 use rax/rbp
+// (like SysV), so `r10` stays allocatable — a 3-register pool cannot allocate an
+// instruction that needs 4 simultaneously-live registers (e.g. `add_carry`), so the
+// plan's proposed 3-register Win64 pool was a hard failure, not a perf regression
+// (§Corrections). rdi/rsi (Win64 internal args 4/5) remain excluded.
+const WIN64_INT_ALLOCATABLE: &[&str] = &["r10", "r11", "r12", "r14"];
 // Win64 callee-saved integers: SysV's bank plus `rdi`/`rsi` (caller-saved under
 // SysV). The callee-saved xmm bank (xmm6–xmm15) is handled in `is_callee_saved`.
 const WIN64_INT_CALLEE_SAVED: &[&str] =
@@ -433,8 +434,9 @@ mod tests {
 
         // (1) 4-register external cap.
         assert_eq!(win.external_int_argument_registers(), 4);
-        // (2) three allocatable ints (r10 leaves the pool); FP unchanged.
-        assert_eq!(win.allocatable(RegClass::Int), &["r11", "r12", "r14"]);
+        // (2) four allocatable ints (same as SysV: rax/rbp carry internal args
+        // 7/8, so r10 stays allocatable); FP unchanged.
+        assert_eq!(win.allocatable(RegClass::Int), &["r10", "r11", "r12", "r14"]);
         assert_eq!(win.allocatable(RegClass::Fp), sysv.allocatable(RegClass::Fp));
         // (3) Win64 callee-saved bank: rsi/rdi and xmm6–xmm15 join.
         assert!(win.is_callee_saved("rsi") && win.is_callee_saved("rdi"));

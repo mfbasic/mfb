@@ -779,10 +779,12 @@ pub(crate) fn lower_module_for_platform(
     // silent `false` a raw `starts_with("linux")` would have handed it).
     let family_defers_arena_destroy = match platform.family() {
         PlatformFamily::Linux => true,
-        PlatformFamily::MacOS => false,
-        PlatformFamily::Windows => {
-            unreachable!("47-H owns the Windows arena-destroy-with-live-workers decision")
-        }
+        // macOS destroys the arena at exit; Windows console does the same. This is
+        // computed for EVERY build, so it must be a real answer, not unreachable!.
+        // A threadless program has no live workers, so destroying is safe; 47-H
+        // revisits this when Windows threads (CreateThread) land, exactly as it
+        // will for the Linux `&& has_threads` guard below.
+        PlatformFamily::MacOS | PlatformFamily::Windows => false,
     };
     let skip_entry_arena_destroy = family_defers_arena_destroy
         && runtime_symbols.iter().any(|symbol| {
@@ -899,8 +901,12 @@ pub(crate) fn lower_module_for_platform(
     };
     // Install SIGINT/SIGTERM handlers for console programs only. App-mode builds
     // keep their window-driven finish path (the worker has no Ctrl-C semantics),
-    // but still share `_mfb_shutdown` for their normal-exit cleanup.
-    let register_signal_handlers = module.entry.is_some() && !module.build_mode.is_app();
+    // but still share `_mfb_shutdown` for their normal-exit cleanup. Windows has
+    // no POSIX `signal()` (and this build links only kernel32, no CRT); Ctrl-C
+    // handling there is `SetConsoleCtrlHandler`, deferred past the machine floor.
+    let register_signal_handlers = module.entry.is_some()
+        && !module.build_mode.is_app()
+        && platform.family() != PlatformFamily::Windows;
     if let Some(entry) = &module.entry {
         let language_entry_symbol = nir::function_symbol(&entry.name);
         // An arg-accepting entry appends the args region (argc/argv/list/data

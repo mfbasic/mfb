@@ -260,6 +260,26 @@ pub(crate) trait CodegenPlatform {
     /// no shared-code edit at the selection sites (plan-00-H/I additivity). A
     /// required method, so a new backend cannot be added without supplying one.
     fn backend(&self) -> &'static dyn super::mir::Backend;
+    /// Store the arena start-time nanoseconds at `ARENA_START_TIME_OFFSET`, using a
+    /// freshly-allocated 16-byte stack buffer left allocated for the entry's
+    /// entropy block (plan-47-D §3.1). Defaulted to the POSIX `clock_gettime`
+    /// sequence — so every existing target's entry is byte-identical — and
+    /// overridden by a non-POSIX OS (Windows: `GetSystemTimePreciseAsFileTime`).
+    fn emit_arena_start_time(
+        &self,
+        entry_symbol: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        super::entry::emit_default_arena_start_time(
+            self,
+            entry_symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
     /// Whether the program entry receives `argc`/`argv` in `x0`/`x1` (the C
     /// `main` convention — macOS, where libSystem calls `main` via `LC_MAIN`).
     /// A raw Linux ELF entry is JUMPED to with `argc` at `[sp]` and `argv` at
@@ -267,6 +287,18 @@ pub(crate) trait CodegenPlatform {
     /// false and the shared entry loads them from the initial stack instead.
     fn entry_args_in_registers(&self) -> bool {
         true
+    }
+    /// Whether the raw program entry arrives 8-bytes-misaligned relative to the
+    /// 16-byte ABI stack and needs one `sub sp, 8` before the shared preamble.
+    ///
+    /// The Linux/macOS entries assume `sp % 16 == 0` on arrival (a raw ELF entry
+    /// is JUMPED to on a 16-aligned kernel stack; macOS `main` is reached via a
+    /// balanced `call` from libSystem's already-aligned frame), so they return
+    /// false and stay byte-identical. A Windows PE entry is `call`-reached by the
+    /// loader, so `sp % 16 == 8` on arrival; without the fixup every downstream
+    /// `call` is misaligned and the first callee `movaps` faults (0xC0000005).
+    fn entry_stack_misaligned_on_entry(&self) -> bool {
+        false
     }
     /// The libc flavor this codegen pass is emitting for (plan-46-C §4.3), used
     /// to resolve native `LINK` library locators that differ per flavor.
