@@ -509,6 +509,16 @@ imports on the same mechanism.
 
 <!-- Filled in during execution. -->
 
+- 2026-07-23 — **47-C RUNTIME PROOF landed (`320955782`).** A hand-built
+  `ExitProcess(42)` PE32+ image, emitted by `os::windows::write_executable`, was
+  shipped to the Win11 box (ssh 2230) and **ran, exiting 42** (`cmd !ERRORLEVEL! = 42`).
+  This is 47-C's stated behavioral outcome: the whole PE writer — DOS/COFF/PE32+
+  headers, section table, `.idata` import directory + IAT, the `FF 25` thunk, and
+  external `call_pc32` relocation patching — produces a genuinely loadable,
+  correct Windows executable, and a Win64-shadow-space entry works. The remaining
+  gap to a *compiler-built* `.exe` is the machine floor (47-D: raw entry → call
+  main → ExitProcess, arena over VirtualAlloc) plus wiring `write_executable` to
+  the backend (47-C Phase 4) and A2's CodegenPlatform.
 - 2026-07-23 — **47-B landed A1 + Phases 1–3 (the Windows codegen foundation).**
   A1 (`a5e5ad7de`): the Win64 ABI realization — `X86Abi{SysV,Win64}` threaded
   through `select_x86`, `Win64RegisterModel` (4-reg external cap, 3 allocatable
