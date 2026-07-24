@@ -239,6 +239,9 @@ pub(crate) fn lower_module(
     native_plan: &NativePlan,
     packages: &[PathBuf],
 ) -> Result<NativeCodePlan, String> {
+    // No inline stack probe is needed: the PE header commits 1 MiB of stack up
+    // front (see `os/windows/link/pe.rs`), which covers every real frame, so a
+    // large `sub rsp, N` never skips the guard page.
     code::lower_module_for_platform(module, native_plan, packages, &Platform)
 }
 

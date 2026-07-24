@@ -193,13 +193,32 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
             ctx.instructions
                 .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
         }
-        // clock_gettime(clk, &ts) is used only to build the absolute deadline that
-        // pthread_cond_timedwait consumes; the Windows timedwait arm ignores the
-        // abstime (it polls on a fixed interval), so filling the timespec is
-        // unnecessary. A no-op returning 0 keeps the caller's control flow intact.
+        // clock_gettime(clk=x0, &ts=x1): the deadline helpers compare a stored
+        // `now` against `now + timeout`, so the value must be a real, consistent,
+        // increasing clock even though the timedwait arm polls. Fill the timespec
+        // from GetSystemTimePreciseAsFileTime (100 ns ticks since 1601):
+        // tv_sec = ft / 1e7, tv_nsec = (ft % 1e7) * 100.
         "clock_gettime" => {
-            ctx.instructions
-                .push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+            ctx.instructions.extend([
+                abi::subtract_stack(0x30),
+                abi::store_u64(abi::ARG[1], abi::stack_pointer(), 0x28), // save &ts
+                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0x20), // &ft
+            ]);
+            call(ctx, from, "GetSystemTimePreciseAsFileTime")?;
+            ctx.instructions.extend([
+                abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x20), // ft
+                abi::move_immediate(abi::ARG[1], "Integer", "10000000"),
+                abi::unsigned_divide_registers(abi::ARG[2], abi::ARG[0], abi::ARG[1]), // sec
+                abi::multiply_registers(abi::ARG[3], abi::ARG[2], abi::ARG[1]),        // sec*1e7
+                abi::subtract_registers(abi::ARG[3], abi::ARG[0], abi::ARG[3]),        // ft % 1e7
+                abi::move_immediate(abi::ARG[1], "Integer", "100"),
+                abi::multiply_registers(abi::ARG[3], abi::ARG[3], abi::ARG[1]),        // nsec
+                abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x28),                // &ts
+                abi::store_u64(abi::ARG[2], abi::ARG[0], 0),                           // tv_sec
+                abi::store_u64(abi::ARG[3], abi::ARG[0], 8),                           // tv_nsec
+                abi::move_immediate(abi::return_register(), "Integer", "0"),
+                abi::add_stack(0x30),
+            ]);
         }
         other => {
             return Err(format!(
@@ -958,9 +977,28 @@ pub(crate) fn lower_thread_trampoline(
     let result_closed = format!("{THREAD_TRAMPOLINE_SYMBOL}_result_closed");
     let worker_result = format!("{THREAD_TRAMPOLINE_SYMBOL}_worker_result");
 
+    // Stack-alignment fixup, exactly mirroring the program entry's
+    // `entry_stack_misaligned_on_entry` (`entry.rs`): CreateThread `call`s the
+    // trampoline (via BaseThreadInitThunk), so it arrives at `sp % 16 == 8`, but
+    // the hand-managed frame below — like the entry — assumes `sp % 16 == 0`
+    // before it issues any call. `FRAME_SIZE` is a 16-multiple, so without a
+    // fixup every downstream call (arena-init, the worker body, the `pthread_*`
+    // shims) lands at `sp % 16 == 8`; the callee then sees a 16-misaligned stack.
+    // POSIX callees tolerate it, but a Windows file API reaches ntdll's SwitchBack
+    // (`SbSelectProcedure`), which does `movaps [rbp+0x170], xmm0` on a stack
+    // local and #GPs on the misalignment (surfacing as an AV at address -1).
+    // Folding 8 bytes into the frame realigns to `sp % 16 == 0`; POSIX keeps its
+    // byte-identical 80-byte frame.
+    let win_realign = if platform.family() == PlatformFamily::Windows {
+        8
+    } else {
+        0
+    };
+    let frame = FRAME_SIZE + win_realign;
+
     let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(FRAME_SIZE),
+        abi::subtract_stack(frame),
         abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
         abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ARENA_OFFSET),
         abi::store_u64(abi::CURRENT_THREAD, abi::stack_pointer(), X20_OFFSET),
@@ -1308,7 +1346,7 @@ pub(crate) fn lower_thread_trampoline(
         abi::load_u64(CLOSURE_ENV_REGISTER, abi::stack_pointer(), CLOSURE_OFFSET),
         abi::load_u64(abi::CURRENT_THREAD, abi::stack_pointer(), X20_OFFSET),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
+        abi::add_stack(frame),
         abi::return_(),
     ]);
     // plan-34-D: the trampoline is machine-floor shared lowering that bypasses
@@ -1330,7 +1368,7 @@ pub(crate) fn lower_thread_trampoline(
         }],
         returns: "Nothing".to_string(),
         frame: CodeFrame {
-            stack_size: FRAME_SIZE,
+            stack_size: frame,
             callee_saved: vec![
                 abi::link_register().to_string(),
                 abi::CURRENT_THREAD.to_string(),

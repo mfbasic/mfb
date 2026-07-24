@@ -75,6 +75,14 @@ const RUNTIME_CALLS: &[&str] = &[
     "thread.drop",
     "thread.cancel",
     "thread.isCancelled",
+    "thread.emit",
+    "thread.read",
+    "thread.openStdIn",
+    "thread.closeStdIn",
+    "thread.transferResource",
+    "thread.acceptResource",
+    "thread.emitResource",
+    "thread.readResource",
 ];
 
 impl NativeBackend for Backend {

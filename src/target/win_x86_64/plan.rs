@@ -191,6 +191,7 @@ impl NativePlanPlatform for Platform {
                     import("WakeAllConditionVariable", KERNEL32, required_by),
                     import("SleepConditionVariableSRW", KERNEL32, required_by),
                     import("SwitchToThread", KERNEL32, required_by),
+                    import("GetSystemTimePreciseAsFileTime", KERNEL32, required_by),
                 ]
             }
             _ => Vec::new(),

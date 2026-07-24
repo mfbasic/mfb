@@ -212,8 +212,14 @@ pub(super) fn write_image(
     w.u32(0); // CheckSum (determinism)
     w.u16(3); // Subsystem = WINDOWS_CUI
     w.u16(0x0100 | 0x8000); // DllCharacteristics: NX_COMPAT | TERMINAL_SERVER_AWARE (DYNAMIC_BASE clear)
-    w.u64(0x0010_0000); // SizeOfStackReserve
-    w.u64(0x0000_1000); // SizeOfStackCommit
+    // 8 MiB reserve matching the worker-thread stacks, with 1 MiB committed
+    // up front. Committing a full megabyte (rather than the usual single guard
+    // page) means a function with a large frame — `sub rsp, N` for N up to 1 MiB —
+    // never skips the stack guard page, so this codegen needs no inline __chkstk
+    // probe. Real frames are far smaller (the largest observed is ~9 KiB in `main`);
+    // beyond 1 MiB the OS still grows the stack one guard page at a time.
+    w.u64(0x0080_0000); // SizeOfStackReserve (8 MiB)
+    w.u64(0x0010_0000); // SizeOfStackCommit  (1 MiB)
     w.u64(0x0010_0000); // SizeOfHeapReserve
     w.u64(0x0000_1000); // SizeOfHeapCommit
     w.u32(0); // LoaderFlags
