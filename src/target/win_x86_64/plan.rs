@@ -159,6 +159,16 @@ impl NativePlanPlatform for Platform {
                 import("GetLastError", KERNEL32, required_by),
             ],
             "fs.flush" => vec![import("FlushFileBuffers", KERNEL32, required_by)],
+            // Terminal queries (plan-47-G): GetConsoleMode succeeding IS isatty;
+            // GetConsoleScreenBufferInfo gives the window size.
+            "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => vec![
+                import("GetStdHandle", KERNEL32, required_by),
+                import("GetConsoleMode", KERNEL32, required_by),
+            ],
+            "term.terminalSize" => vec![
+                import("GetStdHandle", KERNEL32, required_by),
+                import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
+            ],
             _ => Vec::new(),
         }
     }

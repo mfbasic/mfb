@@ -561,22 +561,99 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_is_terminal(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("is-terminal"))
+        // isatty(fd): fd in ARG[0]; return nonzero iff fd is a terminal. On Windows
+        // GetConsoleMode succeeds only for a real console handle, so it IS the
+        // isatty test. Resolve fd → std HANDLE (GetStdHandle(-(fd+10))), then
+        // GetConsoleMode(handle, &mode).
+        let n = instructions.len();
+        let yes = format!("{from}_isatty_yes_{n}");
+        let done = format!("{from}_isatty_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x30), // shadow + &mode slot at 0x28
+            abi::add_immediate(abi::ARG[1], abi::ARG[0], 10),
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]), // -(fd+10)
+        ]);
+        call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // hConsole
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 0x28), // &mode
+        ]);
+        call_external(from, "GetConsoleMode", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&yes),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::branch(&done),
+            abi::label(&yes),
+            abi::move_immediate(abi::return_register(), "Integer", "1"),
+            abi::label(&done),
+            abi::add_stack(0x30),
+        ]);
+        Ok(())
     }
 
     fn emit_terminal_size(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("terminal size"))
+        // ioctl(fd, TIOCGWINSZ, &winsize): fd in ARG[0], request in ARG[1]
+        // (ignored), the winsize dst in ARG[2] (ws_row @0, ws_col @2). Return 0 on
+        // success. Windows: GetConsoleScreenBufferInfo → srWindow; the window size
+        // is Right-Left+1 (cols) by Bottom-Top+1 (rows). srWindow.Left@10, Top@12,
+        // Right@14, Bottom@16 within CONSOLE_SCREEN_BUFFER_INFO (SHORTs). NOT dwSize
+        // (the scrollback buffer). Frame: shadow + saved winsize dst (0x28) +
+        // CONSOLE_SCREEN_BUFFER_INFO buffer (0x30, 22 bytes).
+        const FRAME: usize = 0x50;
+        const DST_SLOT: usize = 0x28;
+        const CSBI_OFF: usize = 0x30;
+        let n = instructions.len();
+        let ok = format!("{from}_tsize_ok_{n}");
+        let done = format!("{from}_tsize_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(FRAME),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), DST_SLOT), // save winsize dst
+            abi::add_immediate(abi::ARG[1], abi::ARG[0], 10),
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]), // -(fd+10)
+        ]);
+        call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // hConsole
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CSBI_OFF), // &csbi
+        ]);
+        call_external(from, "GetConsoleScreenBufferInfo", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::move_immediate(abi::return_register(), "Integer", "1"), // failure (nonzero)
+            abi::branch(&done),
+            abi::label(&ok),
+            // rows = Bottom(+16) - Top(+12) + 1; cols = Right(+14) - Left(+10) + 1.
+            abi::load_u16(abi::ARG[0], abi::stack_pointer(), CSBI_OFF + 16), // Bottom
+            abi::load_u16(abi::ARG[1], abi::stack_pointer(), CSBI_OFF + 12), // Top
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+            abi::add_immediate(abi::ARG[0], abi::ARG[0], 1), // rows
+            abi::load_u16(abi::ARG[1], abi::stack_pointer(), CSBI_OFF + 14), // Right
+            abi::load_u16(abi::ARG[2], abi::stack_pointer(), CSBI_OFF + 10), // Left
+            abi::subtract_registers(abi::ARG[1], abi::ARG[1], abi::ARG[2]),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1), // cols
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), DST_SLOT), // winsize dst
+            abi::store_u16(abi::ARG[0], abi::ARG[2], 0), // ws_row
+            abi::store_u16(abi::ARG[1], abi::ARG[2], 2), // ws_col
+            abi::move_immediate(abi::return_register(), "Integer", "0"), // success
+            abi::label(&done),
+            abi::add_stack(FRAME),
+        ]);
+        Ok(())
     }
 
     fn emit_path_exists(

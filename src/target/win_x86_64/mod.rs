@@ -61,6 +61,10 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.writeAll",
     "fs.writeAllBytes",
     "fs.flush",
+    // Terminal queries (47-G).
+    "io.isInputTerminal",
+    "io.isOutputTerminal",
+    "io.isErrorTerminal",
 ];
 
 impl NativeBackend for Backend {

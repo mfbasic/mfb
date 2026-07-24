@@ -233,9 +233,9 @@ pub(super) fn lower_term_helper(
             let request = match platform.family() {
                 PlatformFamily::MacOS => DARWIN_TIOCGWINSZ,
                 PlatformFamily::Linux => LINUX_TIOCGWINSZ,
-                // 47-G owns the Windows console size
-                // (GetConsoleScreenBufferInfo), not an ioctl request value.
-                PlatformFamily::Windows => unreachable!("47-G owns the Windows console size"),
+                // Windows ignores the ioctl request value; emit_terminal_size
+                // uses GetConsoleScreenBufferInfo. A placeholder keeps the match total.
+                PlatformFamily::Windows => "0",
             };
             term_grid::emit_grid_present(
                 symbol,
@@ -318,9 +318,9 @@ fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<()
     let request = match platform.family() {
         PlatformFamily::MacOS => DARWIN_TIOCGWINSZ,
         PlatformFamily::Linux => LINUX_TIOCGWINSZ,
-        // 47-G owns the Windows console size (GetConsoleScreenBufferInfo), not an
-        // ioctl request value.
-        PlatformFamily::Windows => unreachable!("47-G owns the Windows console size"),
+        // Windows ignores the ioctl request value (emit_terminal_size uses
+        // GetConsoleScreenBufferInfo); a placeholder keeps the match total.
+        PlatformFamily::Windows => "0",
     };
     term_grid::emit_grid_alloc(
         symbol,
@@ -804,9 +804,9 @@ fn emit_terminal_size(
     let request = match platform.family() {
         PlatformFamily::MacOS => DARWIN_TIOCGWINSZ,
         PlatformFamily::Linux => LINUX_TIOCGWINSZ,
-        // 47-G owns the Windows console size (GetConsoleScreenBufferInfo), not an
-        // ioctl request value.
-        PlatformFamily::Windows => unreachable!("47-G owns the Windows console size"),
+        // Windows ignores the ioctl request value (emit_terminal_size uses
+        // GetConsoleScreenBufferInfo); a placeholder keeps the match total.
+        PlatformFamily::Windows => "0",
     };
     // Gate: terminalSize is the one read with no inert value; while inactive it
     // returns ERR_UNSUPPORTED_OPERATION (§4.7).
