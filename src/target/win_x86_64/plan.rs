@@ -139,6 +139,26 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
+            // The File-resource surface: openFile yields a resource holding the
+            // CreateFileW handle; the per-resource ops reuse ReadFile / WriteFile /
+            // SetFilePointerEx / FlushFileBuffers / CloseHandle.
+            "fs.openFile" | "fs.open" | "fs.openFileNoFollow" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            "fs.close" => vec![import("CloseHandle", KERNEL32, required_by)],
+            "fs.readLine" | "fs.eof" | "fs.tell" | "fs.seek" | "fs.size" => vec![
+                import("ReadFile", KERNEL32, required_by),
+                import("SetFilePointerEx", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            "fs.writeAll" | "fs.writeLine" | "fs.write" => vec![
+                import("WriteFile", KERNEL32, required_by),
+                import("SetFilePointerEx", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            "fs.flush" => vec![import("FlushFileBuffers", KERNEL32, required_by)],
             _ => Vec::new(),
         }
     }

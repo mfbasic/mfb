@@ -51,6 +51,13 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.deleteDirectory",
     "fs.listDirectory",
     "fs.canonicalPath",
+    // File-resource surface.
+    "fs.openFile",
+    "fs.close",
+    "fs.readAll",
+    "fs.readAllBytes",
+    "fs.readLine",
+    "fs.eof",
 ];
 
 impl NativeBackend for Backend {
