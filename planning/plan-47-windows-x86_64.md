@@ -509,6 +509,19 @@ imports on the same mechanism.
 
 <!-- Filled in during execution. -->
 
+- 2026-07-23 — **47-B landed A1 + Phases 1–3 (the Windows codegen foundation).**
+  A1 (`a5e5ad7de`): the Win64 ABI realization — `X86Abi{SysV,Win64}` threaded
+  through `select_x86`, `Win64RegisterModel` (4-reg external cap, 3 allocatable
+  ints, xmm6–15 callee-saved), `Win64Backend` wiring the 32-byte shadow space
+  through the shared `finalize_frame`/sentinel seams, and the `map_scratch_register`
+  Win64 audit. Byte-neutral (gate 0-diff); SysV and the Win64 tables both unit-tested.
+  Phase 2 (`6bb7083cc`): `windows-x86_64` registered as a resolvable, non-executable
+  target — the registry-derived matrix widened to 8 slots, 23 build.log goldens
+  gained the (correct) `NATIVE_LIBRARY_TARGET_UNCOVERED` windows line, spec/tests
+  updated. Still green: cargo test 3233/0, artifact-gate 1329/0-diff. **Next: A2**
+  — the `win_x86_64` `CodegenPlatform` stub wall (~54 methods) that returns
+  `Win64Backend` (removing A1's dead-code allows) and lets windows emit codegen
+  dumps; then 47-C Phase 4 wires the PE writer and 47-D the Win32 runtime floor.
 - 2026-07-23 — **Execution progress (this session).** Landed and committed, in
   dependency order: the riscv64 golden prereq (`bb3ba1c5f`); **47-A** — the
   exhaustive `PlatformFamily` match, byte-neutral, 27 sites + 5 helpers
