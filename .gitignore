@@ -17,6 +17,10 @@
 # under `build/`, so they stay tracked.
 build/
 
+# Exception: `src/cli/build/` is a Rust source module (the `mfb build` command),
+# not build output. The unanchored `build/` rule above would otherwise ignore it.
+!/src/cli/build/
+
 # Stale pre-plan-46-D artifacts sitting at project roots in existing worktrees.
 *.out
 
