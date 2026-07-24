@@ -56,10 +56,16 @@ pub(super) fn lower_datetime_helper(
         "datetime.nowNanos" | "datetime.monotonicNanos" => {
             let clock_id = if call == "datetime.nowNanos" {
                 CLOCK_REALTIME
-            } else if platform.target().starts_with("macos") {
-                CLOCK_MONOTONIC_DARWIN
             } else {
-                CLOCK_MONOTONIC_LINUX
+                match platform.family() {
+                    PlatformFamily::MacOS => CLOCK_MONOTONIC_DARWIN,
+                    PlatformFamily::Linux => CLOCK_MONOTONIC_LINUX,
+                    // 47-D owns the Windows monotonic clock
+                    // (QueryPerformanceCounter), not clock_gettime.
+                    PlatformFamily::Windows => {
+                        unreachable!("47-D owns the Windows monotonic clock")
+                    }
+                }
             };
             // x0 = clock id, x1 = &timespec.
             instructions.push(abi::move_immediate(abi::ARG[0], "Integer", clock_id));

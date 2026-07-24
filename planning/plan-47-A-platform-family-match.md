@@ -226,9 +226,9 @@ and is non-negotiable: `scripts/artifact-gate.sh` reports 0 diffs on all four ta
 
 ### Phase 1 — the enum and the defaulted `family()`
 
-- [ ] Add `PlatformFamily` and `CodegenPlatform::family()` to
+- [x] Add `PlatformFamily` and `CodegenPlatform::family()` to
       `src/target/shared/code/types.rs`, defaulted from `target()` as in §3.
-- [ ] Tests: `family()` returns the right variant for all four registered targets, and
+- [x] Tests: `family()` returns the right variant for all four registered targets, and
       panics for an unregistered one.
 
 Acceptance: the enum exists and is derivable for every registered backend; no call site
@@ -237,11 +237,11 @@ Commit: —
 
 ### Phase 2 — the 4 helper functions (highest value per line)
 
-- [ ] `open_flag_set` (`fs_helpers_io.rs:2738`) takes `PlatformFamily`; update its 6
+- [x] `open_flag_set` (`fs_helpers_io.rs:2738`) takes `PlatformFamily`; update its 6
       call sites.
-- [ ] `temp_file_open_flags` (`fs_helpers_atomic.rs:247`), `os_family` (`os.rs:188`),
+- [x] `temp_file_open_flags` (`fs_helpers_atomic.rs:247`), `os_family` (`os.rs:188`),
       `os_arch` (`os.rs:197`) likewise.
-- [ ] Each becomes an exhaustive `match` with a `Windows` arm per §4.3.
+- [x] Each becomes an exhaustive `match` with a `Windows` arm per §4.3.
 
 Acceptance: no helper in shared lowering takes a raw target string; 0 diffs on all four
 targets. Watch `open_flag_set` specifically — its wrong arm has shipped before
@@ -250,7 +250,7 @@ Commit: —
 
 ### Phase 3 — the single-branch files
 
-- [ ] `datetime.rs:59` (`CLOCK_MONOTONIC`), `audio/mod.rs:106` (backend selection),
+- [x] `datetime.rs:59` (`CLOCK_MONOTONIC`), `audio/mod.rs:106` (backend selection),
       `crypto_ec.rs:113` (**backend selection — omit the Windows arm entirely per §4.3**).
 
 Acceptance: 0 diffs on all four targets; `crypto_ec.rs` and `audio/mod.rs` fail to
@@ -259,11 +259,11 @@ Commit: —
 
 ### Phase 4 — the small multi-branch files
 
-- [ ] `fs_helpers_paths.rs:922`, `:1039` (dirent shape).
-- [ ] `os.rs:1116`, `:1334` (`_SC_NPROCESSORS_ONLN`, executable path).
-- [ ] `runtime_helpers.rs:63`, `:612`, `:617` (thread symbol + underscore prefix).
-- [ ] `term.rs:233`, `:316`, `:800` (`TIOCGWINSZ`).
-- [ ] `fs_helpers_io.rs:33`, `:599`, `:938`.
+- [x] `fs_helpers_paths.rs:922`, `:1039` (dirent shape).
+- [x] `os.rs:1116`, `:1334` (`_SC_NPROCESSORS_ONLN`, executable path).
+- [x] `runtime_helpers.rs:63`, `:612`, `:617` (thread symbol + underscore prefix).
+- [x] `term.rs:233`, `:316`, `:800` (`TIOCGWINSZ`).
+- [x] `fs_helpers_io.rs:33`, `:599`, `:938`.
 
 Acceptance: 0 diffs on all four targets, after **each** file, not at the end.
 Commit: —
@@ -275,8 +275,8 @@ Commit: —
 flipped condition is least visible, and `mod.rs:688` is a **negated** test
 (`!contains("macos")`) — transcribe it deliberately.
 
-- [ ] `mod.rs:680`, `:688`, `:703`, `:712`, `:1036`, `:1052`.
-- [ ] `tls/openssl.rs:15`, `:924`, `:1453`, `:1814`, `:2069`, `:2215`, `:2380`.
+- [x] `mod.rs:680`, `:688`, `:703`, `:712`, `:1036`, `:1052`.
+- [x] `tls/openssl.rs:15`, `:924`, `:1453`, `:1814`, `:2069`, `:2215`, `:2380`.
 
 Acceptance: 0 diffs on all four targets. Additionally diff the emitted `.rdata` strings
 for a TLS-using and an audio-using fixture explicitly — a flipped arm here changes which
@@ -320,6 +320,47 @@ Commit: —
   (`open_flag_set`, `temp_file_open_flags`, `os_family`, `os_arch`) and were missed by
   every earlier pass, because the call site shows only `platform.target()` being passed
   through. `open_flag_set` has 6 call sites and its wrong arm has already shipped once.
+
+### Execution (2026-07-23)
+
+- **The file layout in this doc is stale (tree reorged after 2026-07-20).** The bug-330
+  audio/tls extraction and the fs/os module splits moved the sites: `tls/openssl.rs` →
+  `tls/mod.rs` (7 dispatch helpers), `fs_helpers_io.rs` → `fs/io.rs`, `fs_helpers_paths.rs`
+  → `fs/paths.rs`, `fs_helpers_atomic.rs` → `fs/atomic.rs`, `os.rs` → `os/{paths,introspect,env,mod}.rs`.
+  The sweep was executed against the current layout, not the doc's paths.
+- **The direct comparison-site count is 27, not 29** (`rg -c 'platform\.target\(\)\s*(==|\.starts_with|\.contains)'`),
+  because the reorg collapsed some sites. All 27 were converted to exhaustive `match platform.family()`
+  except the one below, plus the derivation itself.
+- **`os_arch` is NOT a `PlatformFamily` decision — left unconverted.** It branches on the
+  *arch* suffix (`ends_with("x86_64")`/`"riscv64"`), not the OS, and already returns the
+  correct arch for any new OS (`windows-x86_64` → `"x86_64"`). Converting it to
+  `PlatformFamily` would have been a miscompile. So of the "4 helpers" only 3 make OS
+  decisions (`open_flag_set`, `temp_file_open_flags`, `os_family`).
+- **Two more OS-deciding helpers the doc never listed**, found by a full census:
+  `os_env_lock_init_hex` (`os/env.rs` — the pthread-mutex static init bytes) and
+  `emit_fs_path_errno_error_mapping` (`fs/mod.rs` — per-OS errno values, 5 call sites).
+  Both converted to take `PlatformFamily`. Net helpers converted: **5**.
+- **`write_uses_raw_syscall` (`fs/io.rs:37`) is a backend-capability check, not an OS-family
+  branch — left as `== "linux-x86_64"`.** Only that one backend emits a raw `svc` write;
+  `family()` would wrongly return true for linux-aarch64/riscv64. A new OS correctly gets
+  `false` by construction, so there is no silent-wrong-arm risk. This is the one remaining
+  `platform.target()` comparison in shared lowering (besides the `platform_family` derivation).
+- **Phase 1 folded into Phase 2.** A standalone Phase 1 leaves the enum/method/free-fn
+  unused → three dead-code warnings, and the tree is kept warning-clean. Landed the enum
+  together with its first consumers (the 3 fs/os helpers); the enum emits no bytes, so the
+  0-diff gate still attributes any diff to the site conversions. `platform_family(&str)` was
+  factored out as a free fn so the "all four registered targets" test is clean without
+  constructing the module-private platform structs.
+- **`unreachable!` used everywhere, including the backend-selection sites** (`crypto_ec`,
+  `audio`, `tls`) — Open Decision 1's "omit the Windows arm to force a build break" is not
+  realizable here: `PlatformFamily` already contains `Windows`, so an omitted arm makes the
+  `match` non-exhaustive and breaks the build *now*, not when Windows registers. `unreachable!`
+  with the owning sub-plan named still converts the silent-wrong-arm into a loud panic, which
+  is the core safety goal; 47-J/audio can tighten to a compile error when they own the arm.
+- **riscv64 fs guard gap (bug-381).** cover-fs cannot carry a riscv64 golden, so the fs sweep
+  (`fs/io.rs`, `fs/paths.rs`, `fs/atomic.rs`, `fs/mod.rs`) is riscv64-guarded only transitively:
+  its Windows arms are `unreachable!` and its Linux arm is shared with linux-x86_64 + linux-aarch64,
+  both of which *do* carry cover-fs goldens. Byte-neutral for riscv64 by construction.
 
 ## Summary
 

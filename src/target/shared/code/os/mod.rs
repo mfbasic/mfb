@@ -81,7 +81,7 @@ pub(super) fn lower_os_helper(
         "os.setEnv" => lower_set_env(symbol, platform_imports, platform),
         "os.unsetEnv" => lower_unset_env(symbol, platform_imports, platform),
         "os.environ" => lower_environ(symbol, platform_imports, platform),
-        "os.name" => lower_const_string(symbol, os_family(platform.target())),
+        "os.name" => lower_const_string(symbol, os_family(platform.family())),
         "os.arch" => lower_const_string(symbol, os_arch(platform.target())),
         "os.pid" => lower_pid(symbol, platform_imports, platform),
         "os.cpuCount" => lower_cpu_count(symbol, platform_imports, platform),
@@ -100,11 +100,13 @@ pub(super) fn lower_os_helper(
 
 /// The OS family string for `os::name` — the part of the target triple before
 /// the first `-` (`macos-aarch64` → `macos`).
-fn os_family(target: &str) -> &'static str {
-    if target.starts_with("macos") {
-        "macos"
-    } else {
-        "linux"
+fn os_family(family: PlatformFamily) -> &'static str {
+    match family {
+        PlatformFamily::MacOS => "macos",
+        PlatformFamily::Linux => "linux",
+        // 47-D owns the Windows os.name value; a program can query os::name on any
+        // OS, so this is a real value rather than an `unreachable!`.
+        PlatformFamily::Windows => "windows",
     }
 }
 

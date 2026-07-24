@@ -60,10 +60,13 @@ pub(super) const THREAD_QUEUE_PENDING_FREE_OFFSET: usize = 240;
 pub(super) const THREAD_QUEUE_BLOCK_SIZE: usize = 248;
 
 pub(super) fn thread_symbol(platform: &dyn CodegenPlatform, name: &str) -> String {
-    if platform.target() == "macos-aarch64" {
-        format!("_{name}")
-    } else {
-        name.to_string()
+    match platform.family() {
+        // Mach-O prefixes C symbols with a leading underscore; ELF does not.
+        PlatformFamily::MacOS => format!("_{name}"),
+        PlatformFamily::Linux => name.to_string(),
+        // 47-H owns Windows threading (CreateThread + IAT), so no pthread symbol
+        // is emitted for Windows.
+        PlatformFamily::Windows => unreachable!("47-H owns Windows thread-symbol naming"),
     }
 }
 
@@ -630,15 +633,15 @@ fn lower_thread_start_helper(
         &parent_done,
     )?;
 
-    let pthread_create_symbol = if platform.target() == "macos-aarch64" {
-        "_pthread_create"
-    } else {
-        "pthread_create"
+    let pthread_create_symbol = match platform.family() {
+        PlatformFamily::MacOS => "_pthread_create",
+        PlatformFamily::Linux => "pthread_create",
+        PlatformFamily::Windows => unreachable!("47-H owns Windows thread creation (CreateThread)"),
     };
-    let (attr_init_symbol, attr_setstacksize_symbol) = if platform.target() == "macos-aarch64" {
-        ("_pthread_attr_init", "_pthread_attr_setstacksize")
-    } else {
-        ("pthread_attr_init", "pthread_attr_setstacksize")
+    let (attr_init_symbol, attr_setstacksize_symbol) = match platform.family() {
+        PlatformFamily::MacOS => ("_pthread_attr_init", "_pthread_attr_setstacksize"),
+        PlatformFamily::Linux => ("pthread_attr_init", "pthread_attr_setstacksize"),
+        PlatformFamily::Windows => unreachable!("47-H owns Windows thread creation (CreateThread)"),
     };
     // Give the worker an explicit 8 MiB stack. musl's default pthread stack is
     // 128 KiB — far below what the main thread gets (typically 8 MiB via

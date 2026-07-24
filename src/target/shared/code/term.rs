@@ -230,10 +230,12 @@ pub(super) fn lower_term_helper(
             // plan-35-C: present the frame — diff the back buffer against the
             // last-presented front buffer and emit only the changed cells as one
             // batched write. A no-op while TUI mode is off (grid pointer null).
-            let request = if platform.target() == "macos-aarch64" {
-                DARWIN_TIOCGWINSZ
-            } else {
-                LINUX_TIOCGWINSZ
+            let request = match platform.family() {
+                PlatformFamily::MacOS => DARWIN_TIOCGWINSZ,
+                PlatformFamily::Linux => LINUX_TIOCGWINSZ,
+                // 47-G owns the Windows console size
+                // (GetConsoleScreenBufferInfo), not an ioctl request value.
+                PlatformFamily::Windows => unreachable!("47-G owns the Windows console size"),
             };
             term_grid::emit_grid_present(
                 symbol,
@@ -313,10 +315,12 @@ fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<()
     // `active == 1` with a null grid. On allocation failure surface
     // `ERR_OUT_OF_MEMORY` and leave the terminal untouched.
     let alloc_fail = format!("{symbol}_grid_alloc_fail");
-    let request = if platform.target() == "macos-aarch64" {
-        DARWIN_TIOCGWINSZ
-    } else {
-        LINUX_TIOCGWINSZ
+    let request = match platform.family() {
+        PlatformFamily::MacOS => DARWIN_TIOCGWINSZ,
+        PlatformFamily::Linux => LINUX_TIOCGWINSZ,
+        // 47-G owns the Windows console size (GetConsoleScreenBufferInfo), not an
+        // ioctl request value.
+        PlatformFamily::Windows => unreachable!("47-G owns the Windows console size"),
     };
     term_grid::emit_grid_alloc(
         symbol,
@@ -797,10 +801,12 @@ fn emit_terminal_size(
     let active = format!("{symbol}_active");
     let alloc_ok = format!("{symbol}_alloc_ok");
     let alloc_error = format!("{symbol}_alloc_error");
-    let request = if platform.target() == "macos-aarch64" {
-        DARWIN_TIOCGWINSZ
-    } else {
-        LINUX_TIOCGWINSZ
+    let request = match platform.family() {
+        PlatformFamily::MacOS => DARWIN_TIOCGWINSZ,
+        PlatformFamily::Linux => LINUX_TIOCGWINSZ,
+        // 47-G owns the Windows console size (GetConsoleScreenBufferInfo), not an
+        // ioctl request value.
+        PlatformFamily::Windows => unreachable!("47-G owns the Windows console size"),
     };
     // Gate: terminalSize is the one read with no inert value; while inactive it
     // returns ERR_UNSUPPORTED_OPERATION (§4.7).

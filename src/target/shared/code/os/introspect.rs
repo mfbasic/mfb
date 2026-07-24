@@ -82,10 +82,11 @@ pub(super) fn lower_cpu_count(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    let sc_nprocessors_onln = if platform.target().starts_with("macos") {
-        "58"
-    } else {
-        "84"
+    let sc_nprocessors_onln = match platform.family() {
+        PlatformFamily::MacOS => "58",
+        PlatformFamily::Linux => "84",
+        // 47-D owns the Windows CPU count (GetSystemInfo), not sysconf.
+        PlatformFamily::Windows => unreachable!("47-D owns the Windows processor count"),
     };
     let positive = format!("{symbol}_positive");
     let mut vregs = Vregs::new();

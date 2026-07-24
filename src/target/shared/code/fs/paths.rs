@@ -553,7 +553,7 @@ pub(in crate::target::shared::code) fn lower_fs_path_operation_helper(
     emit_fs_path_errno_error_mapping(
         symbol,
         &errno_reg,
-        platform.target(),
+        platform.family(),
         false,
         &mut instructions,
         &mut relocations,
@@ -911,31 +911,39 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    if platform.target().starts_with("linux") {
-        let name_len_loop = format!("{symbol}_count_name_len_loop");
-        let name_len_done = format!("{symbol}_count_name_len_done");
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_eq(&count_done),
-            abi::add_immediate(&nameptr, abi::return_register(), name_offset),
-            abi::move_register(&scratch, &nameptr),
-            abi::move_immediate(&namelen, "Integer", "0"),
-            abi::label(&name_len_loop),
-            abi::load_u8(&byte, &scratch, 0),
-            abi::compare_immediate(&byte, "0"),
-            abi::branch_eq(&name_len_done),
-            abi::add_immediate(&namelen, &namelen, 1),
-            abi::add_immediate(&scratch, &scratch, 1),
-            abi::branch(&name_len_loop),
-            abi::label(&name_len_done),
-        ]);
-    } else {
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_eq(&count_done),
-            abi::load_u16(&namelen, abi::return_register(), namlen_offset),
-            abi::add_immediate(&nameptr, abi::return_register(), name_offset),
-        ]);
+    match platform.family() {
+        PlatformFamily::Linux => {
+            let name_len_loop = format!("{symbol}_count_name_len_loop");
+            let name_len_done = format!("{symbol}_count_name_len_done");
+            instructions.extend([
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_eq(&count_done),
+                abi::add_immediate(&nameptr, abi::return_register(), name_offset),
+                abi::move_register(&scratch, &nameptr),
+                abi::move_immediate(&namelen, "Integer", "0"),
+                abi::label(&name_len_loop),
+                abi::load_u8(&byte, &scratch, 0),
+                abi::compare_immediate(&byte, "0"),
+                abi::branch_eq(&name_len_done),
+                abi::add_immediate(&namelen, &namelen, 1),
+                abi::add_immediate(&scratch, &scratch, 1),
+                abi::branch(&name_len_loop),
+                abi::label(&name_len_done),
+            ]);
+        }
+        PlatformFamily::MacOS => {
+            instructions.extend([
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_eq(&count_done),
+                abi::load_u16(&namelen, abi::return_register(), namlen_offset),
+                abi::add_immediate(&nameptr, abi::return_register(), name_offset),
+            ]);
+        }
+        // 47-F owns Windows directory iteration (FindFirstFileW /
+        // WIN32_FIND_DATAW), which has no `struct dirent`.
+        PlatformFamily::Windows => {
+            unreachable!("47-F owns the Windows directory-entry read")
+        }
     }
     let count_keep = count_skip.replace("skip", "keep");
     instructions.extend([
@@ -1028,31 +1036,39 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    if platform.target().starts_with("linux") {
-        let name_len_loop = format!("{symbol}_fill_name_len_loop");
-        let name_len_done = format!("{symbol}_fill_name_len_done");
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_eq(&fill_done),
-            abi::add_immediate(&nameptr, abi::return_register(), name_offset),
-            abi::move_register(&scratch, &nameptr),
-            abi::move_immediate(&namelen, "Integer", "0"),
-            abi::label(&name_len_loop),
-            abi::load_u8(&byte, &scratch, 0),
-            abi::compare_immediate(&byte, "0"),
-            abi::branch_eq(&name_len_done),
-            abi::add_immediate(&namelen, &namelen, 1),
-            abi::add_immediate(&scratch, &scratch, 1),
-            abi::branch(&name_len_loop),
-            abi::label(&name_len_done),
-        ]);
-    } else {
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_eq(&fill_done),
-            abi::load_u16(&namelen, abi::return_register(), namlen_offset),
-            abi::add_immediate(&nameptr, abi::return_register(), name_offset),
-        ]);
+    match platform.family() {
+        PlatformFamily::Linux => {
+            let name_len_loop = format!("{symbol}_fill_name_len_loop");
+            let name_len_done = format!("{symbol}_fill_name_len_done");
+            instructions.extend([
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_eq(&fill_done),
+                abi::add_immediate(&nameptr, abi::return_register(), name_offset),
+                abi::move_register(&scratch, &nameptr),
+                abi::move_immediate(&namelen, "Integer", "0"),
+                abi::label(&name_len_loop),
+                abi::load_u8(&byte, &scratch, 0),
+                abi::compare_immediate(&byte, "0"),
+                abi::branch_eq(&name_len_done),
+                abi::add_immediate(&namelen, &namelen, 1),
+                abi::add_immediate(&scratch, &scratch, 1),
+                abi::branch(&name_len_loop),
+                abi::label(&name_len_done),
+            ]);
+        }
+        PlatformFamily::MacOS => {
+            instructions.extend([
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_eq(&fill_done),
+                abi::load_u16(&namelen, abi::return_register(), namlen_offset),
+                abi::add_immediate(&nameptr, abi::return_register(), name_offset),
+            ]);
+        }
+        // 47-F owns Windows directory iteration (FindFirstFileW /
+        // WIN32_FIND_DATAW), which has no `struct dirent`.
+        PlatformFamily::Windows => {
+            unreachable!("47-F owns the Windows directory-entry read")
+        }
     }
     let fill_keep = fill_skip.replace("skip", "keep");
     instructions.extend([

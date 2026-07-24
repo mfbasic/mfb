@@ -657,7 +657,7 @@ pub(crate) fn lower_module_for_platform(
             layout: "mfb.runtime.os_env_lock.v1 { u8 pthread_mutex[64] }".to_string(),
             align: 8,
             size: os::OS_ENV_LOCK_SIZE,
-            value: os::os_env_lock_init_hex(platform.target()),
+            value: os::os_env_lock_init_hex(platform.family()),
         });
     }
     // Process-global stdin broadcast log (plan-15): one zero-initialized writable
@@ -724,10 +724,16 @@ pub(crate) fn lower_module_for_platform(
             .runtime_symbols
             .iter()
             .any(|symbol| is_tls_server_symbol(symbol));
-        if platform.target().contains("macos") {
-            data_objects.extend(tls::macos_tls_data_objects(tls_server));
-        } else {
-            data_objects.extend(tls::tls_cstring_data_objects(tls_server));
+        match platform.family() {
+            PlatformFamily::MacOS => {
+                data_objects.extend(tls::macos_tls_data_objects(tls_server));
+            }
+            PlatformFamily::Linux => {
+                data_objects.extend(tls::tls_cstring_data_objects(tls_server));
+            }
+            // 47-J owns the Windows TLS data objects (Schannel); the OpenSSL arm
+            // would bake OpenSSL sonames into a Windows binary (§3.2).
+            PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS data objects"),
         }
     }
     // The audio backend's read-only data objects (the Linux libasound soname +
@@ -742,10 +748,16 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| crypto_ec::is_ec_symbol(symbol))
     {
-        if platform.target().contains("macos") {
-            data_objects.extend(crypto_ec::macos::data_objects());
-        } else {
-            data_objects.extend(crypto_ec::openssl::data_objects());
+        match platform.family() {
+            PlatformFamily::MacOS => {
+                data_objects.extend(crypto_ec::macos::data_objects());
+            }
+            PlatformFamily::Linux => {
+                data_objects.extend(crypto_ec::openssl::data_objects());
+            }
+            // 47-J owns the Windows EC data objects (CNG/BCrypt); the OpenSSL arm
+            // would bake OpenSSL sonames into a Windows binary (§3.2).
+            PlatformFamily::Windows => unreachable!("47-J owns the Windows EC data objects"),
         }
     }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
@@ -762,7 +774,17 @@ pub(crate) fn lower_module_for_platform(
         .collect();
     let mut code_functions = Vec::new();
     let mut runtime_symbols = native_plan.runtime_symbols.clone();
-    let skip_entry_arena_destroy = platform.target().starts_with("linux")
+    // Linux defers arena teardown while worker threads may still be live; macOS
+    // does not. 47-H must deliberately decide this for Windows (§3.2 flags the
+    // silent `false` a raw `starts_with("linux")` would have handed it).
+    let family_defers_arena_destroy = match platform.family() {
+        PlatformFamily::Linux => true,
+        PlatformFamily::MacOS => false,
+        PlatformFamily::Windows => {
+            unreachable!("47-H owns the Windows arena-destroy-with-live-workers decision")
+        }
+    };
+    let skip_entry_arena_destroy = family_defers_arena_destroy
         && runtime_symbols.iter().any(|symbol| {
             runtime::spec_for_symbol(symbol)
                 .map(|spec| spec.call.starts_with("thread."))

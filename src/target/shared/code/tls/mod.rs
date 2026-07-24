@@ -315,10 +315,13 @@ pub(super) fn lower_tls_connect_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_connect_macos(symbol, platform_imports, platform);
+    match platform.family() {
+        PlatformFamily::MacOS => macos::lower_tls_connect_macos(symbol, platform_imports, platform),
+        PlatformFamily::Linux => {
+            openssl::lower_tls_connect_openssl(symbol, platform_imports, platform)
+        }
+        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
     }
-    openssl::lower_tls_connect_openssl(symbol, platform_imports, platform)
 }
 
 pub(super) fn lower_tls_listen_helper(
@@ -326,10 +329,13 @@ pub(super) fn lower_tls_listen_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_listen_macos(symbol, platform_imports, platform);
+    match platform.family() {
+        PlatformFamily::MacOS => macos::lower_tls_listen_macos(symbol, platform_imports, platform),
+        PlatformFamily::Linux => {
+            openssl::lower_tls_listen_openssl(symbol, platform_imports, platform)
+        }
+        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
     }
-    openssl::lower_tls_listen_openssl(symbol, platform_imports, platform)
 }
 
 pub(super) fn lower_tls_accept_helper(
@@ -337,10 +343,13 @@ pub(super) fn lower_tls_accept_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_accept_macos(symbol, platform_imports, platform);
+    match platform.family() {
+        PlatformFamily::MacOS => macos::lower_tls_accept_macos(symbol, platform_imports, platform),
+        PlatformFamily::Linux => {
+            openssl::lower_tls_accept_openssl(symbol, platform_imports, platform)
+        }
+        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
     }
-    openssl::lower_tls_accept_openssl(symbol, platform_imports, platform)
 }
 
 pub(super) fn lower_tls_read_helper(
@@ -349,10 +358,15 @@ pub(super) fn lower_tls_read_helper(
     platform: &dyn CodegenPlatform,
     text: bool,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_read_macos(symbol, platform_imports, platform, text);
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            macos::lower_tls_read_macos(symbol, platform_imports, platform, text)
+        }
+        PlatformFamily::Linux => {
+            openssl::lower_tls_read_openssl(symbol, platform_imports, platform, text)
+        }
+        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
     }
-    openssl::lower_tls_read_openssl(symbol, platform_imports, platform, text)
 }
 
 pub(super) fn lower_tls_write_helper(
@@ -361,10 +375,15 @@ pub(super) fn lower_tls_write_helper(
     platform: &dyn CodegenPlatform,
     text: bool,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_write_macos(symbol, platform_imports, platform, text);
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            macos::lower_tls_write_macos(symbol, platform_imports, platform, text)
+        }
+        PlatformFamily::Linux => {
+            openssl::lower_tls_write_openssl(symbol, platform_imports, platform, text)
+        }
+        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
     }
-    openssl::lower_tls_write_openssl(symbol, platform_imports, platform, text)
 }
 
 pub(super) fn lower_tls_close_helper(
@@ -372,10 +391,13 @@ pub(super) fn lower_tls_close_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_close_macos(symbol, platform_imports, platform);
+    match platform.family() {
+        PlatformFamily::MacOS => macos::lower_tls_close_macos(symbol, platform_imports, platform),
+        PlatformFamily::Linux => {
+            openssl::lower_tls_close_openssl(symbol, platform_imports, platform)
+        }
+        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
     }
-    openssl::lower_tls_close_openssl(symbol, platform_imports, platform)
 }
 
 pub(super) fn lower_tls_close_listener_helper(
@@ -383,10 +405,15 @@ pub(super) fn lower_tls_close_listener_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_tls_close_listener_macos(symbol, platform_imports, platform);
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            macos::lower_tls_close_listener_macos(symbol, platform_imports, platform)
+        }
+        PlatformFamily::Linux => {
+            openssl::lower_tls_close_listener_openssl(symbol, platform_imports, platform)
+        }
+        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
     }
-    openssl::lower_tls_close_listener_openssl(symbol, platform_imports, platform)
 }
 
 // ===========================================================================

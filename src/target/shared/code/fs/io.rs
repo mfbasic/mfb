@@ -465,13 +465,18 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     let open_error = format!("{symbol}_open_error");
     let done = format!("{symbol}_done");
 
-    let flags = open_flag_set(platform.target(), no_follow);
+    let flags = open_flag_set(platform.family(), no_follow);
     // bug-260 / OS-04: on Linux, `openFileNoFollow` resolves the path with
     // `openat2(RESOLVE_NO_SYMLINKS)` so a symlink at ANY component (not just the
     // terminal one that `O_NOFOLLOW` guards) is refused. macOS gets the same
     // whole-path guarantee from `O_NOFOLLOW_ANY` in `open_flag_set`, so only Linux
     // needs the extra syscall path.
-    let linux_nofollow = platform.target().starts_with("linux") && no_follow;
+    let linux_nofollow = no_follow
+        && match platform.family() {
+            PlatformFamily::Linux => true,
+            PlatformFamily::MacOS => false,
+            PlatformFamily::Windows => unreachable!("47-F owns the Windows openFileNoFollow path"),
+        };
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let mode = vregs.next();
@@ -722,7 +727,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
     emit_fs_path_errno_error_mapping(
         symbol,
         &errno_reg,
-        platform.target(),
+        platform.family(),
         no_follow,
         &mut instructions,
         &mut relocations,
@@ -757,11 +762,15 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     const PATH_MAX_PLUS_NUL: usize = 4097;
-    let linux = platform.target().starts_with("linux");
+    let linux = match platform.family() {
+        PlatformFamily::Linux => true,
+        PlatformFamily::MacOS => false,
+        PlatformFamily::Windows => unreachable!("47-F owns the Windows realpath/no-symlink path"),
+    };
     // Whole-path no-symlink flags — the same set `openFileNoFollow` uses (macOS
     // carries O_NOFOLLOW_ANY here; Linux carries O_NOFOLLOW and adds
     // RESOLVE_NO_SYMLINKS via openat2 below).
-    let flags = open_flag_set(platform.target(), true);
+    let flags = open_flag_set(platform.family(), true);
 
     let root_alloc_ok = format!("{symbol}_root_alloc_ok");
     let root_copy_loop = format!("{symbol}_root_copy_loop");
@@ -1166,7 +1175,7 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     emit_fs_path_errno_error_mapping(
         symbol,
         &errno_reg,
-        platform.target(),
+        platform.family(),
         true,
         &mut instructions,
         &mut relocations,
@@ -2557,26 +2566,29 @@ pub(in crate::target::shared::code) struct OpenFlagSet {
     pub(super) append: &'static str,
 }
 
-pub(in crate::target::shared::code) fn open_flag_set(target: &str, no_follow: bool) -> OpenFlagSet {
+pub(in crate::target::shared::code) fn open_flag_set(
+    family: PlatformFamily,
+    no_follow: bool,
+) -> OpenFlagSet {
     // Linux (any arch) shares one set of O_* bit values; macOS differs. Keying only
     // on "linux-aarch64" gave linux-x86_64 the macOS bits — on Linux those decode
     // WITHOUT O_CREAT (write 1537 = O_WRONLY|O_APPEND|O_TRUNC → ENOENT "path not
     // found"; append 521 → EINVAL "invalid argument"), breaking openFile "w" /
     // appendText / createTempFile. Match the OS, not the arch.
-    match (target.starts_with("linux"), no_follow) {
-        (true, false) => OpenFlagSet {
+    match (family, no_follow) {
+        (PlatformFamily::Linux, false) => OpenFlagSet {
             read: "0",
             write: "577",
             read_write: "66",
             append: "1089",
         },
-        (true, true) => OpenFlagSet {
+        (PlatformFamily::Linux, true) => OpenFlagSet {
             read: "32768",
             write: "33345",
             read_write: "32834",
             append: "33857",
         },
-        (false, false) => OpenFlagSet {
+        (PlatformFamily::MacOS, false) => OpenFlagSet {
             read: "0",
             write: "1537",
             read_write: "514",
@@ -2588,12 +2600,17 @@ pub(in crate::target::shared::code) fn open_flag_set(target: &str, no_follow: bo
         // encountered at *any* path component, closing the intermediate-symlink
         // gap in one open() with no component walk (bug-260 / OS-04). The base
         // read/write/rw/append flags are unchanged.
-        (false, true) => OpenFlagSet {
+        (PlatformFamily::MacOS, true) => OpenFlagSet {
             read: "536870912",
             write: "536872449",
             read_write: "536871426",
             append: "536871433",
         },
+        // 47-F owns the Windows open path (CreateFileW / dwDesiredAccess +
+        // dwCreationDisposition, not POSIX O_* bits).
+        (PlatformFamily::Windows, _) => {
+            unreachable!("47-F owns the Windows fs open flags")
+        }
     }
 }
 

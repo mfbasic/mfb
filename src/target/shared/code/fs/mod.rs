@@ -98,13 +98,18 @@ pub(super) fn emit_errno_error_mapping(
 pub(super) fn emit_fs_path_errno_error_mapping(
     symbol: &str,
     errno_reg: &str,
-    target: &str,
+    family: PlatformFamily,
     no_follow: bool,
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
 ) {
-    let linux = target.starts_with("linux"); // errno values are per-OS, not per-arch
+    // errno values are per-OS, not per-arch.
+    let linux = match family {
+        PlatformFamily::Linux => true,
+        PlatformFamily::MacOS => false,
+        PlatformFamily::Windows => unreachable!("47-F owns the Windows fs error mapping"),
+    };
     let eloop = if linux { "40" } else { "62" };
     let enametoolong = if linux { "36" } else { "63" };
     let eilseq = if linux { "84" } else { "92" };

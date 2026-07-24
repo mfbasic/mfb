@@ -25,62 +25,69 @@ pub(super) fn emit_executable_path_into(
 
     let ok = format!("{symbol}_ok");
     let buf = vregs.next();
-    if platform.target().starts_with("macos") {
-        // Frame: [0..BUF) path buffer, [BUF..BUF+8) uint32 size word (=BUF).
-        let size_word = vregs.next();
-        ctx.instructions.extend([
-            abi::move_immediate(&size_word, "Integer", &EXE_PATH_BUF.to_string()),
-            abi::store_u32(&size_word, abi::stack_pointer(), EXE_PATH_BUF),
-            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
-            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), EXE_PATH_BUF),
-        ]);
-        platform.emit_libc_call(
-            "_NSGetExecutablePath",
-            symbol,
-            platform_imports,
-            ctx.instructions,
-            ctx.relocations,
-        )?;
-        ctx.instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_eq(&ok),
-            abi::branch(fail),
-            abi::label(&ok),
-            abi::add_immediate(&buf, abi::stack_pointer(), 0),
-        ]);
-        Ok((buf, None))
-    } else {
-        // Frame: [0..16) "/proc/self/exe\0" path, [16..16+BUF) readlink buffer.
-        let path = b"/proc/self/exe\0";
-        for (i, b) in path.iter().enumerate() {
-            let byte = vregs.next();
-            ctx.instructions
-                .push(abi::move_immediate(&byte, "Byte", &b.to_string()));
-            ctx.instructions
-                .push(abi::store_u8(&byte, abi::stack_pointer(), i));
+    match platform.family() {
+        PlatformFamily::MacOS => {
+            // Frame: [0..BUF) path buffer, [BUF..BUF+8) uint32 size word (=BUF).
+            let size_word = vregs.next();
+            ctx.instructions.extend([
+                abi::move_immediate(&size_word, "Integer", &EXE_PATH_BUF.to_string()),
+                abi::store_u32(&size_word, abi::stack_pointer(), EXE_PATH_BUF),
+                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
+                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), EXE_PATH_BUF),
+            ]);
+            platform.emit_libc_call(
+                "_NSGetExecutablePath",
+                symbol,
+                platform_imports,
+                ctx.instructions,
+                ctx.relocations,
+            )?;
+            ctx.instructions.extend([
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_eq(&ok),
+                abi::branch(fail),
+                abi::label(&ok),
+                abi::add_immediate(&buf, abi::stack_pointer(), 0),
+            ]);
+            Ok((buf, None))
         }
-        let count = vregs.next();
-        ctx.instructions.extend([
-            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
-            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 16),
-            abi::move_immediate(abi::ARG[2], "Integer", &EXE_PATH_BUF.to_string()),
-        ]);
-        platform.emit_libc_call(
-            "readlink",
-            symbol,
-            platform_imports,
-            ctx.instructions,
-            ctx.relocations,
-        )?;
-        ctx.instructions.extend([
-            abi::move_register(&count, abi::return_register()),
-            abi::compare_immediate(&count, "0"),
-            abi::branch_gt(&ok),
-            abi::branch(fail),
-            abi::label(&ok),
-            abi::add_immediate(&buf, abi::stack_pointer(), 16),
-        ]);
-        Ok((buf, Some(count)))
+        PlatformFamily::Linux => {
+            // Frame: [0..16) "/proc/self/exe\0" path, [16..16+BUF) readlink buffer.
+            let path = b"/proc/self/exe\0";
+            for (i, b) in path.iter().enumerate() {
+                let byte = vregs.next();
+                ctx.instructions
+                    .push(abi::move_immediate(&byte, "Byte", &b.to_string()));
+                ctx.instructions
+                    .push(abi::store_u8(&byte, abi::stack_pointer(), i));
+            }
+            let count = vregs.next();
+            ctx.instructions.extend([
+                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0),
+                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 16),
+                abi::move_immediate(abi::ARG[2], "Integer", &EXE_PATH_BUF.to_string()),
+            ]);
+            platform.emit_libc_call(
+                "readlink",
+                symbol,
+                platform_imports,
+                ctx.instructions,
+                ctx.relocations,
+            )?;
+            ctx.instructions.extend([
+                abi::move_register(&count, abi::return_register()),
+                abi::compare_immediate(&count, "0"),
+                abi::branch_gt(&ok),
+                abi::branch(fail),
+                abi::label(&ok),
+                abi::add_immediate(&buf, abi::stack_pointer(), 16),
+            ]);
+            Ok((buf, Some(count)))
+        }
+        // 47-D owns the Windows executable path (GetModuleFileNameW).
+        PlatformFamily::Windows => {
+            unreachable!("47-D owns the Windows executable path")
+        }
     }
 }
 

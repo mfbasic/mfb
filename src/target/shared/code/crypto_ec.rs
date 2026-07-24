@@ -97,10 +97,13 @@ pub(super) fn lower_crypto_ec_helper(
 ) -> HelperResult {
     let (op, curve) =
         ec_call(call).ok_or_else(|| format!("crypto EC helper: unknown call {call}"))?;
-    if platform.target().contains("macos") {
-        macos::lower(op, curve, symbol, platform_imports, platform)
-    } else {
-        openssl::lower(op, curve, symbol, platform_imports, platform)
+    match platform.family() {
+        PlatformFamily::MacOS => macos::lower(op, curve, symbol, platform_imports, platform),
+        PlatformFamily::Linux => openssl::lower(op, curve, symbol, platform_imports, platform),
+        // 47-J owns the Windows EC backend (CNG/BCrypt). Falling through to the
+        // OpenSSL arm would bake OpenSSL sonames into a Windows binary (§3.2), so
+        // reject loudly until 47-J decides.
+        PlatformFamily::Windows => unreachable!("47-J owns the Windows crypto EC backend"),
     }
 }
 

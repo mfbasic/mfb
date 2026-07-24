@@ -140,7 +140,7 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
         abi::move_immediate(
             abi::ARG[1],
             "Integer",
-            temp_file_open_flags(platform.target()),
+            temp_file_open_flags(platform.family()),
         ),
         abi::move_immediate(abi::ARG[2], "Integer", "384"),
     ]);
@@ -244,24 +244,27 @@ pub(in crate::target::shared::code) fn lower_fs_create_temp_file_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-fn temp_file_open_flags(target: &str) -> &'static str {
+fn temp_file_open_flags(family: PlatformFamily) -> &'static str {
     // Linux (any arch) vs macOS — the O_* bit values differ (Linux O_CREAT=0x40,
     // O_EXCL=0x80, O_CLOEXEC=0x80000; macOS O_CREAT=0x200, O_EXCL=0x800,
     // O_CLOEXEC=0x1000000). Matching only "linux-aarch64" gave linux-x86_64 the
     // macOS bits → a wrong open.
-    if target.starts_with("linux") {
-        "524482"
-    } else {
-        // O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC = 0x2|0x200|0x800|0x1000000 = 16779778.
-        // The temp fd was previously opened without O_CLOEXEC (bug-102).
-        //
-        // This decimal was 16779266 — the same OR expression, but evaluated
-        // without O_CREAT (0x200 = 512), which the comment above already spelled
-        // out correctly (bug-309). Opening a freshly generated, non-existent UUID
-        // name with O_EXCL and no O_CREAT is an unconditional ENOENT, so
-        // `fs::createTempFile()` failed on every macOS build with
-        // ERR_PATH_NOT_FOUND. Linux's 524482 was always right.
-        "16779778"
+    match family {
+        PlatformFamily::Linux => "524482",
+        // 47-F owns the Windows temp-file path.
+        PlatformFamily::Windows => unreachable!("47-F owns the Windows temp-file open flags"),
+        PlatformFamily::MacOS => {
+            // O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC = 0x2|0x200|0x800|0x1000000 = 16779778.
+            // The temp fd was previously opened without O_CLOEXEC (bug-102).
+            //
+            // This decimal was 16779266 — the same OR expression, but evaluated
+            // without O_CREAT (0x200 = 512), which the comment above already spelled
+            // out correctly (bug-309). Opening a freshly generated, non-existent UUID
+            // name with O_EXCL and no O_CREAT is an unconditional ENOENT, so
+            // `fs::createTempFile()` failed on every macOS build with
+            // ERR_PATH_NOT_FOUND. Linux's 524482 was always right.
+            "16779778"
+        }
     }
 }
 
@@ -859,7 +862,7 @@ pub(in crate::target::shared::code) fn lower_fs_write_path_helper(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
-    let flags = open_flag_set(platform.target(), false);
+    let flags = open_flag_set(platform.family(), false);
     let mode_flags = if append { flags.append } else { flags.write };
     let mut vregs = Vregs::new();
     let path = vregs.next();
@@ -1110,7 +1113,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
     let close_and_read_error = format!("{symbol}_close_and_read_error");
     let done = format!("{symbol}_done");
 
-    let flags = open_flag_set(platform.target(), false);
+    let flags = open_flag_set(platform.family(), false);
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let c_path = vregs.next();
@@ -1331,7 +1334,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_text_path_helper(
     emit_fs_path_errno_error_mapping(
         symbol,
         &errno_reg,
-        platform.target(),
+        platform.family(),
         false,
         &mut instructions,
         &mut relocations,
@@ -1387,7 +1390,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
-    let flags = open_flag_set(platform.target(), false);
+    let flags = open_flag_set(platform.family(), false);
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let c_path = vregs.next();
@@ -1529,7 +1532,7 @@ pub(in crate::target::shared::code) fn lower_fs_read_bytes_path_helper(
     emit_fs_path_errno_error_mapping(
         symbol,
         &errno_reg,
-        platform.target(),
+        platform.family(),
         false,
         &mut instructions,
         &mut relocations,

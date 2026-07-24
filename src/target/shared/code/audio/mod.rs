@@ -128,10 +128,14 @@ pub(in crate::target::shared::code) fn lower_audio_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
-    if platform.target().contains("macos") {
-        return macos::lower_audio_macos(call, symbol, platform_imports, platform);
+    match platform.family() {
+        PlatformFamily::MacOS => macos::lower_audio_macos(call, symbol, platform_imports, platform),
+        PlatformFamily::Linux => alsa::lower_audio_alsa(call, symbol, platform_imports, platform),
+        // No Windows audio backend is in plan-47's scope. Falling through to ALSA
+        // would bake libasound sonames into a Windows binary (§3.2), so reject
+        // loudly until a Windows audio sub-plan owns this.
+        PlatformFamily::Windows => unreachable!("no Windows audio backend (plan-47 non-goal)"),
     }
-    alsa::lower_audio_alsa(call, symbol, platform_imports, platform)
 }
 
 /// C-string data objects (the `libasound.so.2` soname + ALSA symbol names) the
@@ -153,10 +157,10 @@ impl AudioBackend {
     /// Select the backend for `platform`. The single place the audio macOS/Linux
     /// decision is made.
     pub(in crate::target::shared::code) fn select(platform: &dyn CodegenPlatform) -> Self {
-        if platform.target().contains("macos") {
-            AudioBackend::CoreAudio
-        } else {
-            AudioBackend::Alsa
+        match platform.family() {
+            PlatformFamily::MacOS => AudioBackend::CoreAudio,
+            PlatformFamily::Linux => AudioBackend::Alsa,
+            PlatformFamily::Windows => unreachable!("no Windows audio backend (plan-47 non-goal)"),
         }
     }
 

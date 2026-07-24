@@ -17,11 +17,15 @@ pub(crate) fn module_uses_env_lock(module: &NirModule) -> bool {
 /// 8-byte `__sig` word with the rest zero, which libc lazily first-use-initializes
 /// on the first `pthread_mutex_lock` (exactly as a static `PTHREAD_MUTEX_INITIALIZER`
 /// does).
-pub(crate) fn os_env_lock_init_hex(target: &str) -> String {
+pub(crate) fn os_env_lock_init_hex(family: PlatformFamily) -> String {
     let mut bytes = [0u8; OS_ENV_LOCK_SIZE];
-    if target.starts_with("macos") {
+    match family {
         // `_PTHREAD_MUTEX_SIG_init` = 0x32AAABA7, little-endian in the `long __sig`.
-        bytes[0..4].copy_from_slice(&0x32AA_ABA7u32.to_le_bytes());
+        PlatformFamily::MacOS => bytes[0..4].copy_from_slice(&0x32AA_ABA7u32.to_le_bytes()),
+        // Linux `PTHREAD_MUTEX_INITIALIZER` is an all-zero `pthread_mutex_t`.
+        PlatformFamily::Linux => {}
+        // 47-H owns the Windows env/pwd lock (SRWLOCK), not a pthread mutex.
+        PlatformFamily::Windows => unreachable!("47-H owns the Windows env lock init bytes"),
     }
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

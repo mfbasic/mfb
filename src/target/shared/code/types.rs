@@ -209,8 +209,49 @@ fn data_hex_digit(value: u8) -> Result<u8, String> {
     }
 }
 
+/// The operating-system family a codegen decision branches on (plan-47-A).
+///
+/// Shared lowering historically compared `platform.target()` against string
+/// literals (`== "macos-aarch64"`, `.starts_with("linux")`, …). Every such
+/// comparison is binary, so a newly registered OS silently inherits whichever
+/// arm the author wrote last. Branching on this enum instead makes every OS
+/// decision an exhaustive `match`: adding a variant is a compile error at every
+/// site that must decide, rather than a silent wrong arm. It is a *codegen*
+/// concept (which lowering arm to emit), deliberately distinct from
+/// `crate::target::BuildTarget`, which is parsed from user input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlatformFamily {
+    Linux,
+    MacOS,
+    Windows,
+}
+
+/// Derive the [`PlatformFamily`] from a registered target string (`os-arch`).
+/// Shared by [`CodegenPlatform::family`] and its tests; panics on an
+/// unregistered target, matching the exhaustiveness guarantee the enum exists to
+/// provide.
+pub(crate) fn platform_family(target: &str) -> PlatformFamily {
+    if target.starts_with("linux") {
+        PlatformFamily::Linux
+    } else if target.starts_with("macos") {
+        PlatformFamily::MacOS
+    } else if target.starts_with("windows") {
+        PlatformFamily::Windows
+    } else {
+        unreachable!("platform_family: unregistered target {target}")
+    }
+}
+
 pub(crate) trait CodegenPlatform {
     fn target(&self) -> &'static str;
+    /// The OS family this platform belongs to, for exhaustive-`match` OS
+    /// decisions in shared lowering (plan-47-A). Defaulted from `target()` so no
+    /// backend is forced to override it; the derivation is correct by
+    /// construction because it reads the same registered target string the
+    /// binary comparisons it replaces read.
+    fn family(&self) -> PlatformFamily {
+        platform_family(self.target())
+    }
     fn arch(&self) -> &'static str;
     /// The code-generation backend (MIR selection + register model) for this
     /// platform's ISA. The shared lowering installs it as the active backend and
@@ -799,5 +840,29 @@ mod data_layout_tests {
         // And a data object with align 0 lays out without panicking.
         let objects = vec![obj("_x", "raw", 0, "ff")];
         assert!(layout_data_objects(&objects).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod platform_family_tests {
+    use super::*;
+
+    #[test]
+    fn derives_family_for_every_registered_target() {
+        // The four strings in `crate::target::NATIVE_BACKENDS`. If a backend is
+        // added, its target must gain an arm here (and in `platform_family`).
+        assert_eq!(platform_family("linux-x86_64"), PlatformFamily::Linux);
+        assert_eq!(platform_family("linux-aarch64"), PlatformFamily::Linux);
+        assert_eq!(platform_family("linux-riscv64"), PlatformFamily::Linux);
+        assert_eq!(platform_family("macos-aarch64"), PlatformFamily::MacOS);
+        // Not yet registered, but the derivation already recognizes it so 47-B
+        // can register `windows-x86_64` without touching this function.
+        assert_eq!(platform_family("windows-x86_64"), PlatformFamily::Windows);
+    }
+
+    #[test]
+    #[should_panic(expected = "unregistered target")]
+    fn panics_on_unregistered_target() {
+        let _ = platform_family("plan9-riscv64");
     }
 }
