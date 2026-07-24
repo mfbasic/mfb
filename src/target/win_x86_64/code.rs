@@ -257,8 +257,6 @@ impl code::CodegenPlatform for Platform {
         self.emit_libc_call(base, from, platform_imports, instructions, relocations)
     }
 
-    // --- surfaces owned by later sub-plans (unreachable stubs) -------------
-
     fn emit_write(
         &self,
         from: &str,
@@ -266,35 +264,65 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // write(fd, buf, len): fd in x0, buf in x1, len in x2. Windows has no fd —
+        // The shared `write(fd, buf, len)` seam: fd in the x0 slot, buf in x1
+        // (string_data_register), len in x2 (string_length_register); the contract
+        // returns the byte count in the return register, negative on failure (like
+        // the POSIX `write` every other backend calls). Windows has no fd, so
         // resolve the POSIX fd to a console HANDLE via GetStdHandle, then WriteFile.
         //   fd 1 (stdout) → STD_OUTPUT_HANDLE (-11); fd 2 (stderr) → STD_ERROR_HANDLE
-        //   (-12); i.e. nStdHandle = -10 - fd.
+        //   (-12); i.e. nStdHandle = -(fd + 10).
         //
-        // NOTE (plan-47-D machine floor): this emits the 4-register-arg form
-        // (handle, buf, len, lpNumberOfBytesWritten=NULL) and omits WriteFile's 5th
-        // (stack) argument lpOverlapped. That is correct for the only path that
-        // *reaches* this in the minimal floor — the entry's dead error tail, which
-        // an integer-returning program never executes. `io.print`'s fully-correct
-        // write (a bytesWritten slot + the lpOverlapped stack arg via the outgoing
-        // tail) lands with the console surface, tested on the Win11 box.
+        // WriteFile is `BOOL WriteFile(hFile, lpBuffer, nBytes, lpBytesWritten,
+        // lpOverlapped)` — five arguments. The fifth (lpOverlapped) is a Win64
+        // STACK argument at [sp+0x20], above the 32-byte shadow space, and MUST be
+        // NULL for a synchronous console handle (a garbage slot makes WriteFile
+        // fail). We carve a self-contained outgoing frame and drive both calls'
+        // shadow space through it, so this composes with the caller's own frame
+        // regardless of its shadow accounting.
+        //
+        //   [sp+0x00 .. 0x20)  shadow space for the callee (32 bytes)
+        //   [sp+0x20]          lpOverlapped = NULL          (WriteFile's 5th arg)
+        //   [sp+0x28]          lpNumberOfBytesWritten (out) (WriteFile's 4th arg target)
+        //   [sp+0x30]          saved buf   (survives the GetStdHandle call)
+        //   [sp+0x38]          saved len
+        // `emit_write` can be lowered more than once into a single function (e.g.
+        // the entry's error tail alongside a buffered drain), so disambiguate the
+        // branch labels by the current instruction offset — unique per call site.
+        let n = instructions.len();
+        let ok = format!("{from}_win_write_ok_{n}");
+        let done = format!("{from}_win_write_done_{n}");
         instructions.extend([
-            abi::move_register(abi::SCRATCH[0], abi::ARG[1]), // save buf
-            abi::move_register(abi::SCRATCH[1], abi::ARG[2]), // save len
-            // nStdHandle = -(fd + 10)  (fd 1 → -11 STD_OUTPUT, fd 2 → -12 STD_ERROR);
-            // computed without a negative immediate (the encoder rejects those).
-            abi::add_immediate(abi::SCRATCH[2], abi::ARG[0], 10), // fd + 10
+            abi::subtract_stack(0x40),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), 0x30), // save buf
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x38), // save len
+            // nStdHandle = -(fd + 10), computed without a negative immediate (the
+            // encoder rejects those). fd is still live in the x0 slot (ARG[0]).
+            abi::add_immediate(abi::SCRATCH[0], abi::ARG[0], 10), // fd + 10
             abi::move_immediate(abi::ARG[0], "Integer", "0"),
-            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::SCRATCH[2]), // -(fd+10)
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::SCRATCH[0]), // -(fd+10)
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpOverlapped = NULL
             abi::move_register(abi::ARG[0], abi::return_register()), // hFile = handle
-            abi::move_register(abi::ARG[1], abi::SCRATCH[0]),        // lpBuffer
-            abi::move_register(abi::ARG[2], abi::SCRATCH[1]),        // nNumberOfBytesToWrite
-            abi::move_immediate(abi::ARG[3], "Integer", "0"),        // lpNumberOfBytesWritten
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x30),  // lpBuffer
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x38),  // nNumberOfBytesToWrite
+            abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0x28), // &lpBytesWritten
         ]);
         call_external(from, "WriteFile", KERNEL32, instructions, relocations);
+        instructions.extend([
+            // WriteFile returns BOOL: nonzero = success (return the bytes written),
+            // zero = failure (return -1, routing the caller to its error/retry tail).
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
+            abi::branch(&done),
+            abi::label(&ok),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), 0x28), // bytes written
+            abi::label(&done),
+            abi::add_stack(0x40),
+        ]);
         Ok(())
     }
 

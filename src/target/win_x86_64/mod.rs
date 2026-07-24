@@ -20,11 +20,11 @@ pub(crate) static BACKEND: Backend = Backend;
 
 pub(crate) struct Backend;
 
-/// The runtime-call surface the machine floor supports. Empty: the floor
-/// implements entry/arena/exit only, so a program that uses any `io`/fs/net/…
-/// runtime helper is rejected at `validate_capabilities` rather than building a
-/// broken `.exe`. Each later sub-plan (47-D-full, F, G, …) adds its calls here.
-const RUNTIME_CALLS: &[&str] = &[];
+/// The runtime-call surface this backend supports. The console-output family
+/// (47-D-full) rides `emit_write` (GetStdHandle + WriteFile). Any not-yet-listed
+/// `io`/fs/net/… helper is rejected at `validate_capabilities` rather than
+/// building a broken `.exe`; each later sub-plan (F, G, …) adds its calls here.
+const RUNTIME_CALLS: &[&str] = &["io.print", "io.write", "io.printError", "io.writeError"];
 
 impl NativeBackend for Backend {
     fn target(&self) -> BuildTarget {
