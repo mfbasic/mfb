@@ -1517,6 +1517,18 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         abi::add_immediate(abi::ARG[4], abi::stack_pointer(), ADDR_STORAGE_OFFSET),
         abi::add_immediate(abi::ARG[5], abi::stack_pointer(), ADDRLEN_OFFSET),
     ]);
+    // recvfrom takes SIX args. On Win64 args 5+ are STACK arguments above the
+    // 32-byte shadow space, but ARG[4]/ARG[5] realize to rdi/rsi (the internal
+    // 8-register model) which the IAT callee ignores — so place `from`/`fromlen`
+    // explicitly (bug-384). POSIX passes all six in registers, unchanged.
+    let win64_six_args = platform.family() == PlatformFamily::Windows;
+    if win64_six_args {
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x20),
+            abi::store_u64(abi::ARG[5], abi::stack_pointer(), 0x28),
+        ]);
+    }
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::RecvFrom),
         symbol,
@@ -1524,6 +1536,17 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    if win64_six_args {
+        instructions.push(abi::add_stack(0x30));
+        // ws2_32 recvfrom returns a C `int` with unspecified upper 32 bits; POSIX
+        // recvfrom returns a full 64-bit ssize_t. Without this, garbage high bits
+        // make `n` read as a huge value and the `n > maxBytes` truncation check
+        // below falsely fires ErrMessageTooLarge for a normal datagram.
+        instructions.push(abi::sign_extend_word(
+            abi::return_register(),
+            abi::return_register(),
+        ));
+    }
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&recv_fail),
@@ -1672,6 +1695,16 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_eq(&timeout),
     ]);
+    if platform.family() == PlatformFamily::Windows {
+        // Winsock recvfrom on an oversized datagram truncates and returns
+        // WSAEMSGSIZE via the error channel (POSIX instead returns the filled
+        // count, caught by the `n > maxBytes` check above). Map it to the same
+        // ErrMessageTooLarge (bug-384).
+        instructions.extend([
+            abi::compare_immediate("%v9", platform.socket_message_size_code()),
+            abi::branch_eq(&too_large),
+        ]);
+    }
     emit_fail(
         symbol,
         ERR_NETWORK_FAILED_CODE,
@@ -1877,6 +1910,16 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), DLEN_OFFSET),
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
+    // sendto takes SIX args; on Win64 args 5+ (ai_addr, ai_addrlen) are STACK
+    // arguments above the shadow space, not rdi/rsi (bug-384). POSIX unchanged.
+    let win64_sendto = platform.family() == PlatformFamily::Windows;
+    if win64_sendto {
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x20),
+            abi::store_u64(abi::ARG[5], abi::stack_pointer(), 0x28),
+        ]);
+    }
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::SendTo),
         symbol,
@@ -1884,6 +1927,13 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    if win64_sendto {
+        instructions.push(abi::add_stack(0x30));
+        instructions.push(abi::sign_extend_word(
+            abi::return_register(),
+            abi::return_register(),
+        ));
+    }
     instructions.push(abi::store_u64(
         abi::return_register(),
         abi::stack_pointer(),
