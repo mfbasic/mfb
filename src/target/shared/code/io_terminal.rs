@@ -35,8 +35,8 @@ pub(super) fn emit_configure_stdin_terminal(
         abi::store_u64(abi::ZERO, base_register, slots.active),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
     ]);
-    platform.emit_libc_call(
-        "isatty",
+    platform.emit_terminal_control_call(
+        TerminalControlCall::IsATty,
         symbol,
         platform_imports,
         ctx.instructions,
@@ -48,8 +48,8 @@ pub(super) fn emit_configure_stdin_terminal(
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate(abi::ARG[1], base_register, slots.original),
     ]);
-    platform.emit_libc_call(
-        "tcgetattr",
+    platform.emit_terminal_control_call(
+        TerminalControlCall::GetAttrs,
         symbol,
         platform_imports,
         ctx.instructions,
@@ -76,8 +76,8 @@ pub(super) fn emit_configure_stdin_terminal(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::add_immediate(abi::ARG[2], base_register, slots.modified),
     ]);
-    platform.emit_libc_call(
-        "tcsetattr",
+    platform.emit_terminal_control_call(
+        TerminalControlCall::SetAttrs,
         symbol,
         platform_imports,
         ctx.instructions,
@@ -120,8 +120,8 @@ pub(super) fn emit_restore_stdin_terminal(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::add_immediate(abi::ARG[2], abi::stack_pointer(), slots.original),
     ]);
-    platform.emit_libc_call(
-        "tcsetattr",
+    platform.emit_terminal_control_call(
+        TerminalControlCall::SetAttrs,
         symbol,
         platform_imports,
         ctx.instructions,
@@ -202,8 +202,8 @@ pub(super) fn emit_console_raw_line_mode(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
         abi::add_immediate(abi::ARG[2], ARENA_STATE_REGISTER, buffer_offset),
     ]);
-    platform.emit_libc_call(
-        "tcsetattr",
+    platform.emit_terminal_control_call(
+        TerminalControlCall::SetAttrs,
         symbol,
         platform_imports,
         ctx.instructions,

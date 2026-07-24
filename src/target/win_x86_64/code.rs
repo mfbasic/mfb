@@ -1321,16 +1321,123 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_apply_raw_mode(
         &self,
-        _base_register: &str,
-        _original_offset: usize,
-        _modified_offset: usize,
-        _disable_echo: bool,
-        _disable_canonical: bool,
-        _instructions: &mut Vec<CodeInstruction>,
+        base_register: &str,
+        original_offset: usize,
+        modified_offset: usize,
+        disable_echo: bool,
+        disable_canonical: bool,
+        instructions: &mut Vec<CodeInstruction>,
     ) {
-        // 47-G owns Windows raw mode (GetConsoleMode/SetConsoleMode — a DWORD
-        // bitmask on a handle), which has no `struct termios`.
-        unreachable!("47-G owns the Windows raw-mode toggle")
+        // Windows has no `struct termios`: emit_terminal_control_call(GetAttrs)
+        // stored the console-input mode DWORD at base+original. Compute the raw
+        // mode by masking: clear ENABLE_ECHO_INPUT (0x04) and/or ENABLE_LINE_INPUT
+        // (0x02); keep ENABLE_PROCESSED_INPUT (0x01) so Ctrl-C still raises (matching
+        // the POSIX path, which leaves ISIG on — plan-47-G Open Decision 3); and for
+        // full raw (canonical off) set ENABLE_VIRTUAL_TERMINAL_INPUT (0x200) so VT
+        // key sequences arrive. Store the result at base+modified for SetAttrs.
+        let clear = if disable_echo { 4 } else { 0 } + if disable_canonical { 2 } else { 0 };
+        instructions.extend([
+            abi::load_u32(abi::ARG[0], base_register, original_offset),
+            // Build a 32-bit all-ones mask, then clear the target bits: mask =
+            // 0xFFFFFFFF - clear (the bits are distinct powers of two, so a subtract
+            // clears exactly them).
+            abi::move_immediate(abi::ARG[1], "Integer", "1"),
+            abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 32),
+            abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 1), // 0xFFFFFFFF
+            abi::subtract_immediate(abi::ARG[1], abi::ARG[1], clear),
+            abi::and_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+        ]);
+        if disable_canonical {
+            instructions.extend([
+                abi::move_immediate(abi::ARG[1], "Integer", "512"), // ENABLE_VIRTUAL_TERMINAL_INPUT
+                abi::or_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+            ]);
+        }
+        instructions.push(abi::store_u32(abi::ARG[0], base_register, modified_offset));
+    }
+
+    fn emit_terminal_control_call(
+        &self,
+        call: crate::target::shared::code::TerminalControlCall,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        use crate::target::shared::code::TerminalControlCall;
+        // Windows realizes the three POSIX terminal-control calls over the Console
+        // API. The fd is in ARG[0]; resolve it to a std HANDLE the same way as
+        // emit_write (GetStdHandle(-(fd+10)) — fd 0 → STD_INPUT).
+        match call {
+            // isatty(fd): GetConsoleMode succeeding IS the tty test.
+            TerminalControlCall::IsATty => {
+                self.emit_is_terminal(from, platform_imports, instructions, relocations)
+            }
+            // tcgetattr(fd, &out): GetConsoleMode(handle, &out) — store the mode
+            // DWORD at [ARG[1]]. Return 0 on success, -1 on error (POSIX contract).
+            TerminalControlCall::GetAttrs => {
+                let n = instructions.len();
+                let ok = format!("{from}_tga_ok_{n}");
+                let done = format!("{from}_tga_done_{n}");
+                instructions.extend([
+                    abi::subtract_stack(0x30),
+                    abi::store_u64(abi::ARG[1], abi::stack_pointer(), 0x28), // save &out
+                    abi::add_immediate(abi::ARG[1], abi::ARG[0], 10),
+                    abi::move_immediate(abi::ARG[0], "Integer", "0"),
+                    abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]), // -(fd+10)
+                ]);
+                call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+                instructions.extend([
+                    abi::move_register(abi::ARG[0], abi::return_register()), // handle
+                    abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x28),  // lpMode = &out
+                ]);
+                call_external(from, "GetConsoleMode", KERNEL32, instructions, relocations);
+                instructions.extend([
+                    abi::compare_immediate(abi::return_register(), "0"),
+                    abi::branch_ne(&ok),
+                    abi::move_immediate(abi::return_register(), "Integer", "0"),
+                    abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
+                    abi::branch(&done),
+                    abi::label(&ok),
+                    abi::move_immediate(abi::return_register(), "Integer", "0"),
+                    abi::label(&done),
+                    abi::add_stack(0x30),
+                ]);
+                Ok(())
+            }
+            // tcsetattr(fd, TCSANOW, &in): SetConsoleMode(handle, *(DWORD*)&in).
+            TerminalControlCall::SetAttrs => {
+                let n = instructions.len();
+                let ok = format!("{from}_tsa_ok_{n}");
+                let done = format!("{from}_tsa_done_{n}");
+                instructions.extend([
+                    abi::subtract_stack(0x30),
+                    abi::load_u32(abi::ARG[1], abi::ARG[2], 0), // dwMode from [&in]
+                    abi::store_u64(abi::ARG[1], abi::stack_pointer(), 0x28), // save mode
+                    abi::add_immediate(abi::ARG[1], abi::ARG[0], 10),
+                    abi::move_immediate(abi::ARG[0], "Integer", "0"),
+                    abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]), // -(fd+10)
+                ]);
+                call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+                instructions.extend([
+                    abi::move_register(abi::ARG[0], abi::return_register()), // handle
+                    abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x28),  // dwMode
+                ]);
+                call_external(from, "SetConsoleMode", KERNEL32, instructions, relocations);
+                instructions.extend([
+                    abi::compare_immediate(abi::return_register(), "0"),
+                    abi::branch_ne(&ok),
+                    abi::move_immediate(abi::return_register(), "Integer", "0"),
+                    abi::subtract_immediate(abi::return_register(), abi::return_register(), 1),
+                    abi::branch(&done),
+                    abi::label(&ok),
+                    abi::move_immediate(abi::return_register(), "Integer", "0"),
+                    abi::label(&done),
+                    abi::add_stack(0x30),
+                ]);
+                Ok(())
+            }
+        }
     }
     fn emit_stat_is_kind(
         &self,

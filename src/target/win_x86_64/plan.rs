@@ -165,8 +165,13 @@ impl NativePlanPlatform for Platform {
                 import("GetStdHandle", KERNEL32, required_by),
                 import("GetConsoleMode", KERNEL32, required_by),
             ],
-            "term.terminalSize" => vec![
+            // Terminal size AND the raw-mode line-discipline seam (the term module
+            // links the raw-mode helper, whose isatty/tcgetattr/tcsetattr now route
+            // to GetConsoleMode/SetConsoleMode via emit_terminal_control_call).
+            "term.terminalSize" | "term.on" | "term.off" | "term.isOn" => vec![
                 import("GetStdHandle", KERNEL32, required_by),
+                import("GetConsoleMode", KERNEL32, required_by),
+                import("SetConsoleMode", KERNEL32, required_by),
                 import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
             ],
             _ => Vec::new(),

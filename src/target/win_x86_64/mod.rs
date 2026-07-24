@@ -65,6 +65,7 @@ const RUNTIME_CALLS: &[&str] = &[
     "io.isInputTerminal",
     "io.isOutputTerminal",
     "io.isErrorTerminal",
+    "term.terminalSize",
 ];
 
 impl NativeBackend for Backend {

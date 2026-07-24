@@ -329,6 +329,30 @@ pub(crate) trait CodegenPlatform {
         disable_canonical: bool,
         instructions: &mut Vec<CodeInstruction>,
     );
+    /// A terminal line-discipline control call (plan-47-G G1 chokepoint). The
+    /// default is the POSIX libc call named by the intent, so every existing
+    /// backend keeps byte-identical emission; Windows overrides it with the
+    /// Console API (`GetConsoleMode`/`SetConsoleMode`). Register contract matches
+    /// the POSIX call the intent stands for: `IsATty`/`GetAttrs`/`SetAttrs` read
+    /// `fd` in `ARG[0]` (and the buffer pointer in `ARG[1]`/`ARG[2]`), and return
+    /// the POSIX status in the return register (isatty: nonzero = tty; get/set: 0
+    /// = success, negative = error).
+    fn emit_terminal_control_call(
+        &self,
+        call: TerminalControlCall,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.emit_libc_call(
+            call.posix_symbol(),
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )
+    }
     fn emit_program_exit(
         &self,
         from: &str,
@@ -872,6 +896,31 @@ pub(crate) enum FsPathOperation {
     Unlink,
     Mkdir,
     Rmdir,
+}
+
+/// The three terminal line-discipline control calls the raw-mode helpers make
+/// (plan-47-G G1 chokepoint). POSIX realizes each as a libc call; Windows
+/// realizes them over the Console API. Routing through this one intent enum keeps
+/// the six former `"isatty"`/`"tcgetattr"`/`"tcsetattr"` literals out of shared
+/// lowering so a non-POSIX target can answer them without editing the callers.
+#[derive(Clone, Copy)]
+pub(crate) enum TerminalControlCall {
+    /// `isatty(fd)` — is the fd a terminal (return nonzero if so).
+    IsATty,
+    /// `tcgetattr(fd, &out)` — snapshot the current line discipline.
+    GetAttrs,
+    /// `tcsetattr(fd, TCSANOW, &in)` — install a line discipline.
+    SetAttrs,
+}
+
+impl TerminalControlCall {
+    pub(crate) fn posix_symbol(self) -> &'static str {
+        match self {
+            TerminalControlCall::IsATty => "isatty",
+            TerminalControlCall::GetAttrs => "tcgetattr",
+            TerminalControlCall::SetAttrs => "tcsetattr",
+        }
+    }
 }
 
 pub(crate) struct CodeStackSlot {

@@ -470,8 +470,8 @@ fn emit_off(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<(
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_COOKED_TERMIOS_OFFSET,
     ));
-    platform.emit_libc_call(
-        "tcsetattr",
+    platform.emit_terminal_control_call(
+        TerminalControlCall::SetAttrs,
         symbol,
         platform_imports,
         ctx.instructions,
