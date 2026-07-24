@@ -323,8 +323,14 @@ fn no_overflow_label_returns_through_the_result_tag_register() {
         }
     }
 
-    assert!(checked_files > 20, "expected the builder corpus, scanned {checked_files}");
-    assert!(overflow_labels >= 20, "expected the overflow labels, found {overflow_labels}");
+    assert!(
+        checked_files > 20,
+        "expected the builder corpus, scanned {checked_files}"
+    );
+    assert!(
+        overflow_labels >= 20,
+        "expected the overflow labels, found {overflow_labels}"
+    );
     assert!(
         offenders.is_empty(),
         "overflow label(s) return through the result-tag register \

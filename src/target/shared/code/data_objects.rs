@@ -1243,7 +1243,10 @@ mod tests {
             // collections.* predicate/search returns.
             ("collections.find", &["List OF String", "String"]),
             ("collections.contains", &["List OF String", "String"]),
-            ("collections.hasKey", &["Map OF String TO Integer", "String"]),
+            (
+                "collections.hasKey",
+                &["Map OF String TO Integer", "String"],
+            ),
             // general.* contrast cases (already resolved before the fix).
             ("toString", &["Integer"]),
             ("toInt", &["String"]),
@@ -1256,7 +1259,8 @@ mod tests {
                 target,
                 &arg_types.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
             );
-            let got = static_type_name_for_fold_with_types(&call(target, arg_types), &types, &fields);
+            let got =
+                static_type_name_for_fold_with_types(&call(target, arg_types), &types, &fields);
             assert_eq!(
                 got, want,
                 "`{target}` folds to {got:?} in the pre-pass but the authoritative \

@@ -385,7 +385,11 @@ mod tests {
         // `Local`s (each composite carries one, plus the extra WithUpdate,
         // MapLiteral, and Binary children) plus the one standalone `plain`
         // Local at top level = 20.
-        let local_count = collector.value_tags.iter().filter(|t| **t == "Local").count();
+        let local_count = collector
+            .value_tags
+            .iter()
+            .filter(|t| **t == "Local")
+            .count();
         assert_eq!(
             local_count, 20,
             "walk_value did not descend into every composite variant's children"
@@ -423,7 +427,11 @@ mod tests {
         );
         // Scrutinee, pattern value, and body value are all reached too.
         assert_eq!(
-            collector.value_tags.iter().filter(|t| **t == "Local").count(),
+            collector
+                .value_tags
+                .iter()
+                .filter(|t| **t == "Local")
+                .count(),
             3,
             "walk_op did not reach the scrutinee, pattern, and body values"
         );
@@ -475,6 +483,9 @@ mod tests {
         assert_eq!(collector.binds, vec!["x".to_string()]);
         // The Bind's init value, the If condition, and the then-body value were
         // all still reached through the default `walk_op` recursion.
-        assert_eq!(collector.values.iter().filter(|t| **t == "Local").count(), 3);
+        assert_eq!(
+            collector.values.iter().filter(|t| **t == "Local").count(),
+            3
+        );
     }
 }
