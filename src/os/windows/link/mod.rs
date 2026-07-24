@@ -168,12 +168,9 @@ fn append_thunks(
             continue;
         }
         let thunk_rva = text_rva + text.len() as u32;
-        let slot = *slot_rva.get(&import.symbol).ok_or_else(|| {
-            format!(
-                "windows linker: import '{}' has no IAT slot",
-                import.symbol
-            )
-        })?;
+        let slot = *slot_rva
+            .get(&import.symbol)
+            .ok_or_else(|| format!("windows linker: import '{}' has no IAT slot", import.symbol))?;
         // FF 25 disp32: jmp [rip + disp32]; disp32 relative to the next
         // instruction (thunk + 6). Padded to 12 bytes with int3 (0xCC).
         text.push(0xff);
@@ -423,9 +420,16 @@ fn write_u64(buf: &mut [u8], offset: usize, value: u64) {
 
 /// Patch a RIP-relative `rel32` at `offset` (the disp32 field): the next
 /// instruction is `site_rva + 4`, so `rel32 = target_rva − (site_rva + 4)`.
-fn write_rel32(text: &mut [u8], offset: usize, target_rva: u32, site_rva: u32) -> Result<(), String> {
+fn write_rel32(
+    text: &mut [u8],
+    offset: usize,
+    target_rva: u32,
+    site_rva: u32,
+) -> Result<(), String> {
     if offset + 4 > text.len() {
-        return Err(format!("windows linker: relocation offset {offset} out of range"));
+        return Err(format!(
+            "windows linker: relocation offset {offset} out of range"
+        ));
     }
     let rel = target_rva as i64 - (site_rva as i64 + 4);
     let rel = i32::try_from(rel)
@@ -533,7 +537,10 @@ mod tests {
         let bytes = write_executable(&img).expect("link");
         let text_rva = le_u32(&bytes, le_u32(&bytes, 0x3C) as usize + 4 + 20 + 20 + 12); // .text vaddr
         let patched = read_at_rva(&bytes, text_rva + 1, 4);
-        assert_eq!(i32::from_le_bytes([patched[0], patched[1], patched[2], patched[3]]), 3);
+        assert_eq!(
+            i32::from_le_bytes([patched[0], patched[1], patched[2], patched[3]]),
+            3
+        );
     }
 
     /// The plan's behavioral outcome (§1): an `ExitProcess(42)` image through a

@@ -525,7 +525,9 @@ fn reject_duplicates(label: &str, values: &[String]) -> Result<(), String> {
     let mut seen = HashSet::new();
     for value in values {
         if !seen.insert(value) {
-            return Err(format!("native object plan has duplicate {label} '{value}'"));
+            return Err(format!(
+                "native object plan has duplicate {label} '{value}'"
+            ));
         }
     }
     Ok(())
@@ -798,7 +800,10 @@ mod tests {
         let object = lower_plan(&full_plan("windows-x86_64")).expect("full object plan");
         // Two imports from one DLL collapse to a single, first-seen DLL entry.
         assert_eq!(object.dlls, vec!["kernel32.dll".to_string()]);
-        assert!(object.imported_symbols.iter().any(|s| s.symbol == "WriteFile"));
+        assert!(object
+            .imported_symbols
+            .iter()
+            .any(|s| s.symbol == "WriteFile"));
         assert!(object
             .imported_symbols
             .iter()

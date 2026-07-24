@@ -79,7 +79,10 @@ pub(super) fn align_up(value: u32, alignment: u32) -> u32 {
 /// The RVA of the first section: `SizeOfHeaders`, `SectionAlignment`-aligned.
 /// `SizeOfHeaders` itself is `FileAlignment`-aligned (§4.3).
 pub(super) fn size_of_headers(section_count: usize) -> u32 {
-    let raw = DOS_HEADER_AND_STUB + 4 + COFF_HEADER_SIZE + OPTIONAL_HEADER_SIZE
+    let raw = DOS_HEADER_AND_STUB
+        + 4
+        + COFF_HEADER_SIZE
+        + OPTIONAL_HEADER_SIZE
         + section_count * SECTION_HEADER_SIZE;
     align_up(raw as u32, FILE_ALIGNMENT)
 }
@@ -179,7 +182,9 @@ pub(super) fn write_image(
     w.u32(0); // PointerToSymbolTable
     w.u32(0); // NumberOfSymbols
     w.u16(OPTIONAL_HEADER_SIZE as u16); // SizeOfOptionalHeader = 0xF0
-    w.u16(IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE | IMAGE_FILE_RELOCS_STRIPPED);
+    w.u16(
+        IMAGE_FILE_EXECUTABLE_IMAGE | IMAGE_FILE_LARGE_ADDRESS_AWARE | IMAGE_FILE_RELOCS_STRIPPED,
+    );
 
     // --- PE32+ optional header (§4.3) ---
     let opt_start = w.buf.len();
@@ -191,7 +196,7 @@ pub(super) fn write_image(
     w.u32(0); // SizeOfUninitializedData
     w.u32(entry_rva); // AddressOfEntryPoint
     w.u32(base_of_code); // BaseOfCode
-    // PE32+ omits BaseOfData.
+                         // PE32+ omits BaseOfData.
     w.u64(IMAGE_BASE);
     w.u32(SECTION_ALIGNMENT);
     w.u32(FILE_ALIGNMENT);
@@ -310,8 +315,16 @@ mod tests {
         let coff = 0x80 + 4;
         assert_eq!(le_u16(&image, coff), 0x8664, "Machine = AMD64");
         assert_eq!(le_u16(&image, coff + 2), 1, "NumberOfSections");
-        assert_eq!(le_u32(&image, coff + 4), 0, "TimeDateStamp = 0 (determinism)");
-        assert_eq!(le_u16(&image, coff + 16), 0xF0, "SizeOfOptionalHeader = 240");
+        assert_eq!(
+            le_u32(&image, coff + 4),
+            0,
+            "TimeDateStamp = 0 (determinism)"
+        );
+        assert_eq!(
+            le_u16(&image, coff + 16),
+            0xF0,
+            "SizeOfOptionalHeader = 240"
+        );
         // EXECUTABLE_IMAGE | LARGE_ADDRESS_AWARE | RELOCS_STRIPPED = 0x0023.
         assert_eq!(le_u16(&image, coff + 18), 0x0023, "Characteristics");
     }
@@ -326,7 +339,11 @@ mod tests {
         assert_eq!(le_u32(&image, opt + 36), FILE_ALIGNMENT);
         // Subsystem at optional-header offset 68 (24 std + 44 into windows-specific).
         assert_eq!(le_u16(&image, opt + 68), 3, "Subsystem = WINDOWS_CUI");
-        assert_eq!(le_u16(&image, opt + 70), 0x8100, "DllCharacteristics (no DYNAMIC_BASE)");
+        assert_eq!(
+            le_u16(&image, opt + 70),
+            0x8100,
+            "DllCharacteristics (no DYNAMIC_BASE)"
+        );
         assert_eq!(le_u32(&image, opt + 108), 16, "NumberOfRvaAndSizes");
     }
 
@@ -350,7 +367,10 @@ mod tests {
         let vaddr = le_u32(&image, sect + 12);
         assert_eq!(vaddr % SECTION_ALIGNMENT, 0, "VirtualAddress page-aligned");
         let raw_size = le_u32(&image, sect + 16);
-        assert_eq!(raw_size, FILE_ALIGNMENT, "SizeOfRawData FileAlignment-rounded");
+        assert_eq!(
+            raw_size, FILE_ALIGNMENT,
+            "SizeOfRawData FileAlignment-rounded"
+        );
         let raw_ptr = le_u32(&image, sect + 20);
         assert_eq!(raw_ptr % FILE_ALIGNMENT, 0, "PointerToRawData file-aligned");
         assert_eq!(le_u32(&image, sect + 36), SCN_TEXT, "characteristics");
