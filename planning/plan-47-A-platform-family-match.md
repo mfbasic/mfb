@@ -37,7 +37,7 @@ own, because it edits code every backend compiles:
 
 | Must be true | Command | Status 2026-07-20 |
 |---|---|---|
-| Byte-identity goldens exist for all four existing targets | `find tests -path '*/golden/*' -name '*.ncode*' \| while read f; do b="${f##*/}"; b="${b%.*}"; echo "${b##*.}"; done \| sort -u` | **NOT MET — `linux-riscv64` has 0** |
+| Byte-identity goldens exist for all four existing targets | `find tests -path '*/golden/*' -name '*.ncode*' \| while read f; do b="${f##*/}"; b="${b%.*}"; echo "${b##*.}"; done \| sort -u` | **MET 2026-07-23 (`bb3ba1c5f`) for 6/7 cover surfaces** — `linux-riscv64` `.ncodesum` seeded for audio/tls/os/crypto/net + crypto-ec-valid. **fs excluded (bug-381).** Phase 2 (`open_flag_set`) and Phase 4 (`fs_helpers_paths`/`fs_helpers_io`) fs edits select the shared Linux arm, guarded by linux-x86_64 + linux-aarch64 cover-fs goldens — riscv64-neutral by construction. |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run it
 > before you continue and again before you decide to stop. If you stop, report the

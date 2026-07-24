@@ -50,7 +50,7 @@ does not finish, port, or work around any of them.
 |---|---|---|
 | An x86-64 backend + a shipping x86-64 OS target exist to mirror | `ls src/arch/x86_64/ src/target/linux_x86_64/` | **MET** |
 | A Windows x86-64 machine is reachable for runtime proof | `grep -n 'Win11' .ai/remote_systems.md` → `:11`, ssh port 2230 | **MET** |
-| Byte-identity goldens exist for **every** target whose bytes must not change (§1 non-goal 1) | see the §2.1 census row | **PARTIAL — `linux-riscv64` has 0** |
+| Byte-identity goldens exist for **every** target whose bytes must not change (§1 non-goal 1) | see the §2.1 census row | **MET for 6/7 cover surfaces (2026-07-23, `bb3ba1c5f`)** — riscv64 `.ncodesum` seeded for audio/tls/os/crypto/net + crypto-ec-valid; **cover-fs excluded: riscv64 cannot build it (bug-381)** |
 | plan-57's `kind = 2` flip has either not happened or has already rebaselined — never straddle it | `rg -n 'MFB_KIND2' src/` → gate still live at `builder_collection_layout.rs:2196` | **MET (not yet flipped)** — but see the note below |
 
 > **NOTE — the Status column is a 2026-07-20 snapshot; the Command column is the truth.**
@@ -509,6 +509,24 @@ imports on the same mechanism.
 
 <!-- Filled in during execution. -->
 
+- 2026-07-23 — **Prereq rows re-verified before execution.** Row 1 MET; row 2 MET
+  (Windows box live over ssh port 2230, confirmed this session); row 4 **now MET
+  and no longer a straddle risk** — `MFB_KIND2` is gone from `src/` and
+  `kind2_payload_size` is unconditional, i.e. plan-57's flip has already landed and
+  rebaselined, so plan-47 lands cleanly *after* it. Row 3 was the one live blocker;
+  see the next entry.
+- 2026-07-23 — **Seeding riscv64 goldens (prereq row 3) surfaced bug-381.** 6 of the
+  7 cover fixtures build byte-stably for `linux-riscv64` and their `.ncodesum`
+  goldens are now committed (`bb3ba1c5f`); `scripts/artifact-gate.sh` verifies 1329
+  goldens at 0 diffs. **cover-fs cannot be captured: `linux-riscv64` codegen panics
+  compiling `_mfb_rt_sort_string_list`** (a spilled compare operand stranded across
+  its flag-reading branch — filed as **bug-381**, `c0679843c`). Consequence for
+  47-A/E/F/G: the fs surface has no riscv64 byte-identity guard until bug-381 lands.
+  This is acceptable — the fs `platform.target()` sites 47-A converts select the
+  shared **Linux** family arm, which `linux-x86_64` and `linux-aarch64` cover-fs
+  goldens *do* guard, so the conversion stays byte-neutral for riscv64 by
+  construction (same arm). Do **not** treat the missing riscv64-fs golden as license
+  to skip the 0-diff gate on the three targets that can build it.
 - 2026-07-20 — **"70 methods" was wrong: the trait has 65**, the Linux impl 64, the
   macOS impl 63 (§2.1). More usefully, the draft never split them by kind — 8 are
   app-mode (an explicit non-goal) and 21 are POSIX constants (§3.1).
