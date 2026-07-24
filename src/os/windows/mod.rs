@@ -13,6 +13,7 @@
 //! into the linker seam.
 #![allow(dead_code)]
 
+mod link;
 mod object;
 
 use crate::target::shared::plan::NativePlan;
