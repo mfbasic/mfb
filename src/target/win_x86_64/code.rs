@@ -595,14 +595,33 @@ impl code::CodegenPlatform for Platform {
     fn termios_vtime_index(&self) -> usize {
         0
     }
-    fn stat_mode_offset(&self) -> usize {
-        0
+    fn emit_stat_is_kind(
+        &self,
+        _stat_offset: usize,
+        _expected_kind: &str,
+        _mode: &str,
+        _mask: &str,
+        _expected: &str,
+        _found: &str,
+        _missing: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+    ) {
+        // 47-F owns the Windows file-kind check (GetFileAttributesExW /
+        // FILE_ATTRIBUTE_DIRECTORY), which has no `struct stat`.
+        unreachable!("47-F owns the Windows stat-kind check")
     }
-    fn dirent_name_offset(&self) -> usize {
-        0
-    }
-    fn dirent_name_length_offset(&self) -> usize {
-        0
+    fn emit_read_dir_entry(
+        &self,
+        _prefix: &str,
+        _nameptr: &str,
+        _namelen: &str,
+        _byte: &str,
+        _scratch: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+    ) {
+        // 47-F owns Windows directory iteration (FindFirstFileW /
+        // WIN32_FIND_DATAW), which has no `struct dirent`.
+        unreachable!("47-F owns the Windows directory-entry read")
     }
     fn addrinfo_addr_offset(&self) -> usize {
         0

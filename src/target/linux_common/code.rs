@@ -590,10 +590,34 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         emit_linux_c_call(from, "stat", platform_imports, instructions, relocations)
     }
 
-    fn stat_mode_offset(&self) -> usize {
-        // Per-arch on purpose — see `LinuxArch::stat_mode_offset`. This is the
-        // one value in the surrounding run of Linux constants that is NOT shared.
-        self.arch.stat_mode_offset()
+    fn emit_stat_is_kind(
+        &self,
+        stat_offset: usize,
+        expected_kind: &str,
+        mode: &str,
+        mask: &str,
+        expected: &str,
+        found: &str,
+        missing: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) {
+        // POSIX `struct stat`: the syscall returns 0 on success, and the file
+        // type is `st_mode & S_IFMT` at a per-arch offset (`st_mode` is at 16 on
+        // aarch64/riscv64 but 24 on x86-64 — see `LinuxArch::stat_mode_offset`).
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(missing),
+            abi::load_u16(
+                mode,
+                abi::stack_pointer(),
+                stat_offset + self.arch.stat_mode_offset(),
+            ),
+            abi::move_immediate(mask, "Integer", code::FS_MODE_TYPE_MASK),
+            abi::and_registers(mode, mode, mask),
+            abi::move_immediate(expected, "Integer", expected_kind),
+            abi::compare_registers(mode, expected),
+            abi::branch_eq(found),
+        ]);
     }
 
     fn emit_current_directory(
@@ -928,13 +952,35 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         )
     }
 
-    fn dirent_name_offset(&self) -> usize {
-        // Linux `struct dirent`: d_name at offset 19.
-        19
-    }
-
-    fn dirent_name_length_offset(&self) -> usize {
-        0
+    fn emit_read_dir_entry(
+        &self,
+        prefix: &str,
+        nameptr: &str,
+        namelen: &str,
+        byte: &str,
+        scratch: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) {
+        // Linux `struct dirent`: `d_name` at offset 19, NUL-terminated with no
+        // length field, so the name length is a `strlen` scan.
+        let name_len_loop = format!("{prefix}_name_len_loop");
+        let name_len_done = format!("{prefix}_name_len_done");
+        let done = format!("{prefix}_done");
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&done),
+            abi::add_immediate(nameptr, abi::return_register(), 19),
+            abi::move_register(scratch, nameptr),
+            abi::move_immediate(namelen, "Integer", "0"),
+            abi::label(&name_len_loop),
+            abi::load_u8(byte, scratch, 0),
+            abi::compare_immediate(byte, "0"),
+            abi::branch_eq(&name_len_done),
+            abi::add_immediate(namelen, namelen, 1),
+            abi::add_immediate(scratch, scratch, 1),
+            abi::branch(&name_len_loop),
+            abi::label(&name_len_done),
+        ]);
     }
 
     fn emit_realpath(
@@ -1047,9 +1093,12 @@ mod tests {
     /// ~21 neighbours that genuinely ARE identical on all three targets.
     #[test]
     fn stat_mode_offset_stays_per_arch() {
-        assert_eq!(aarch64().stat_mode_offset(), 16);
-        assert_eq!(riscv64().stat_mode_offset(), 16);
-        assert_eq!(x86_64().stat_mode_offset(), 24, "x86-64 st_mode is at 24");
+        // The per-arch offset now lives on `LinuxArch` (the CodegenPlatform
+        // accessor was folded into `emit_stat_is_kind` in 47-E), so reach it
+        // through the arch directly.
+        assert_eq!(aarch64().arch.stat_mode_offset(), 16);
+        assert_eq!(riscv64().arch.stat_mode_offset(), 16);
+        assert_eq!(x86_64().arch.stat_mode_offset(), 24, "x86-64 st_mode is at 24");
     }
 
     /// bug-360: `emit_temp_directory` parks the buffer pointer and capacity on
@@ -1123,7 +1172,6 @@ mod tests {
             assert_eq!(platform.termios_size(), 60);
             assert_eq!(platform.termios_lflag_offset(), 12);
             assert_eq!(platform.termios_cc_offset(), 17);
-            assert_eq!(platform.dirent_name_offset(), 19);
             assert_eq!(platform.addrinfo_addr_offset(), 24);
             assert_eq!(platform.eagain(), "11");
             assert_eq!(platform.emsgsize(), "90");

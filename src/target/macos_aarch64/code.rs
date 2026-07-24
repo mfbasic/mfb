@@ -348,8 +348,29 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
-    fn stat_mode_offset(&self) -> usize {
-        4
+    fn emit_stat_is_kind(
+        &self,
+        stat_offset: usize,
+        expected_kind: &str,
+        mode: &str,
+        mask: &str,
+        expected: &str,
+        found: &str,
+        missing: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) {
+        // macOS `struct stat`: `stat` returns 0 on success; `st_mode` sits at
+        // offset 4, and the file type is `st_mode & S_IFMT`.
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(missing),
+            abi::load_u16(mode, abi::stack_pointer(), stat_offset + 4),
+            abi::move_immediate(mask, "Integer", code::FS_MODE_TYPE_MASK),
+            abi::and_registers(mode, mode, mask),
+            abi::move_immediate(expected, "Integer", expected_kind),
+            abi::compare_registers(mode, expected),
+            abi::branch_eq(found),
+        ]);
     }
 
     fn emit_current_directory(
@@ -671,12 +692,24 @@ impl code::CodegenPlatform for Platform {
         )
     }
 
-    fn dirent_name_offset(&self) -> usize {
-        21
-    }
-
-    fn dirent_name_length_offset(&self) -> usize {
-        18
+    fn emit_read_dir_entry(
+        &self,
+        prefix: &str,
+        nameptr: &str,
+        namelen: &str,
+        _byte: &str,
+        _scratch: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) {
+        // macOS `struct dirent`: `d_namlen` (a real length field) at offset 18,
+        // `d_name` at offset 21 — so no strlen scan is needed.
+        let done = format!("{prefix}_done");
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&done),
+            abi::load_u16(namelen, abi::return_register(), 18),
+            abi::add_immediate(nameptr, abi::return_register(), 21),
+        ]);
     }
 
     fn emit_realpath(

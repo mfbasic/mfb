@@ -367,7 +367,26 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
-    fn stat_mode_offset(&self) -> usize;
+    /// Given the stat buffer `emit_path_stat` filled (at `sp + stat_offset`) and
+    /// a POSIX mode-type value `expected_kind` (e.g. `FS_MODE_DIRECTORY`), branch
+    /// to `found` when the entry exists and matches that kind, and to `missing`
+    /// otherwise. `mode`/`mask`/`expected` are caller-owned scratch registers.
+    /// The seam is intent-level (47-E §4.2): POSIX interprets `st_mode & S_IFMT`
+    /// at a per-arch offset, while Windows will classify `GetFileAttributesExW`
+    /// results — there is no offset a Windows platform could return that makes
+    /// the shared struct read correct.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_stat_is_kind(
+        &self,
+        stat_offset: usize,
+        expected_kind: &str,
+        mode: &str,
+        mask: &str,
+        expected: &str,
+        found: &str,
+        missing: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    );
     fn emit_current_directory(
         &self,
         from: &str,
@@ -517,8 +536,24 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
-    fn dirent_name_offset(&self) -> usize;
-    fn dirent_name_length_offset(&self) -> usize;
+    /// Decode the directory entry `emit_readdir` just returned in the return
+    /// register (0 = end of stream): branch to `{prefix}_done` if null, else
+    /// write the entry's name pointer into `nameptr` and its length into
+    /// `namelen`. `byte`/`scratch` are caller-owned scratch for the POSIX
+    /// name-length scan. The seam is intent-level, not offset-level, because a
+    /// Windows `WIN32_FIND_DATAW` has no `struct dirent` shape (47-E §4.2): each
+    /// OS reads its own entry layout. Internal labels are derived from `prefix`
+    /// (`{prefix}_name_len_loop`/`_done`), so the two call sites (count, fill)
+    /// pass distinct prefixes.
+    fn emit_read_dir_entry(
+        &self,
+        prefix: &str,
+        nameptr: &str,
+        namelen: &str,
+        byte: &str,
+        scratch: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    );
     fn emit_realpath(
         &self,
         from: &str,

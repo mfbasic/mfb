@@ -191,19 +191,17 @@ pub(in crate::target::shared::code) fn lower_fs_kind_exists_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    platform.emit_stat_is_kind(
+        STAT_OFFSET,
+        expected_kind,
+        &mode,
+        &mask,
+        &expected,
+        &found,
+        &missing,
+        &mut instructions,
+    );
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ne(&missing),
-        abi::load_u16(
-            &mode,
-            abi::stack_pointer(),
-            STAT_OFFSET + platform.stat_mode_offset(),
-        ),
-        abi::move_immediate(&mask, "Integer", FS_MODE_TYPE_MASK),
-        abi::and_registers(&mode, &mode, &mask),
-        abi::move_immediate(&expected, "Integer", expected_kind),
-        abi::compare_registers(&mode, &expected),
-        abi::branch_eq(&found),
         abi::label(&missing),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -818,9 +816,6 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
-    let name_offset = platform.dirent_name_offset();
-    let namlen_offset = platform.dirent_name_length_offset();
-
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let c_path = vregs.next();
@@ -911,40 +906,14 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    match platform.family() {
-        PlatformFamily::Linux => {
-            let name_len_loop = format!("{symbol}_count_name_len_loop");
-            let name_len_done = format!("{symbol}_count_name_len_done");
-            instructions.extend([
-                abi::compare_immediate(abi::return_register(), "0"),
-                abi::branch_eq(&count_done),
-                abi::add_immediate(&nameptr, abi::return_register(), name_offset),
-                abi::move_register(&scratch, &nameptr),
-                abi::move_immediate(&namelen, "Integer", "0"),
-                abi::label(&name_len_loop),
-                abi::load_u8(&byte, &scratch, 0),
-                abi::compare_immediate(&byte, "0"),
-                abi::branch_eq(&name_len_done),
-                abi::add_immediate(&namelen, &namelen, 1),
-                abi::add_immediate(&scratch, &scratch, 1),
-                abi::branch(&name_len_loop),
-                abi::label(&name_len_done),
-            ]);
-        }
-        PlatformFamily::MacOS => {
-            instructions.extend([
-                abi::compare_immediate(abi::return_register(), "0"),
-                abi::branch_eq(&count_done),
-                abi::load_u16(&namelen, abi::return_register(), namlen_offset),
-                abi::add_immediate(&nameptr, abi::return_register(), name_offset),
-            ]);
-        }
-        // 47-F owns Windows directory iteration (FindFirstFileW /
-        // WIN32_FIND_DATAW), which has no `struct dirent`.
-        PlatformFamily::Windows => {
-            unreachable!("47-F owns the Windows directory-entry read")
-        }
-    }
+    platform.emit_read_dir_entry(
+        &format!("{symbol}_count"),
+        &nameptr,
+        &namelen,
+        &byte,
+        &scratch,
+        &mut instructions,
+    );
     let count_keep = count_skip.replace("skip", "keep");
     instructions.extend([
         abi::compare_immediate(&namelen, "1"),
@@ -1036,40 +1005,14 @@ pub(in crate::target::shared::code) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    match platform.family() {
-        PlatformFamily::Linux => {
-            let name_len_loop = format!("{symbol}_fill_name_len_loop");
-            let name_len_done = format!("{symbol}_fill_name_len_done");
-            instructions.extend([
-                abi::compare_immediate(abi::return_register(), "0"),
-                abi::branch_eq(&fill_done),
-                abi::add_immediate(&nameptr, abi::return_register(), name_offset),
-                abi::move_register(&scratch, &nameptr),
-                abi::move_immediate(&namelen, "Integer", "0"),
-                abi::label(&name_len_loop),
-                abi::load_u8(&byte, &scratch, 0),
-                abi::compare_immediate(&byte, "0"),
-                abi::branch_eq(&name_len_done),
-                abi::add_immediate(&namelen, &namelen, 1),
-                abi::add_immediate(&scratch, &scratch, 1),
-                abi::branch(&name_len_loop),
-                abi::label(&name_len_done),
-            ]);
-        }
-        PlatformFamily::MacOS => {
-            instructions.extend([
-                abi::compare_immediate(abi::return_register(), "0"),
-                abi::branch_eq(&fill_done),
-                abi::load_u16(&namelen, abi::return_register(), namlen_offset),
-                abi::add_immediate(&nameptr, abi::return_register(), name_offset),
-            ]);
-        }
-        // 47-F owns Windows directory iteration (FindFirstFileW /
-        // WIN32_FIND_DATAW), which has no `struct dirent`.
-        PlatformFamily::Windows => {
-            unreachable!("47-F owns the Windows directory-entry read")
-        }
-    }
+    platform.emit_read_dir_entry(
+        &format!("{symbol}_fill"),
+        &nameptr,
+        &namelen,
+        &byte,
+        &scratch,
+        &mut instructions,
+    );
     let fill_keep = fill_skip.replace("skip", "keep");
     instructions.extend([
         abi::compare_immediate(&namelen, "1"),

@@ -72,7 +72,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
     _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_path_stat") }
-    fn stat_mode_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::stat_mode_offset") }
+    fn emit_stat_is_kind(&self, _so: usize, _ek: &str, _m: &str, _mk: &str, _e: &str, _f: &str, _mi: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_stat_is_kind") }
     fn emit_current_directory(
     &self,
     _from: &str,
@@ -201,8 +201,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     _instructions: &mut Vec<crate::target::shared::code::CodeInstruction>,
     _relocations: &mut Vec<crate::target::shared::code::CodeRelocation>,
 ) -> Result<(), String> { unimplemented!("TlsReadTestPlatform::emit_closedir") }
-    fn dirent_name_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::dirent_name_offset") }
-    fn dirent_name_length_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::dirent_name_length_offset") }
+    fn emit_read_dir_entry(&self, _p: &str, _np: &str, _nl: &str, _b: &str, _s: &str, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_read_dir_entry") }
     fn emit_realpath(
     &self,
     _from: &str,
