@@ -167,15 +167,29 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         abi::branch_ne(&closed),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
-        abi::move_immediate("%v10", "Integer", "1000"),
-        abi::unsigned_divide_registers("%v11", "%v14", "%v10"),
-        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
-        abi::move_immediate("%v13", "Integer", "1000"),
-        abi::multiply_registers("%v12", "%v12", "%v13"),
-        abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
-        abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
-        // setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO/SO_SNDTIMEO, &tv, 16)
+    ]);
+    // Winsock SO_RCVTIMEO/SO_SNDTIMEO optval is a DWORD of milliseconds, not a
+    // struct timeval; store the raw ms and pass 4 bytes (plan-47-I). POSIX builds
+    // the timeval, byte-identical to the pre-seam sequence.
+    let win_timeout = platform.family() == PlatformFamily::Windows;
+    let optval_len = if win_timeout {
+        instructions.push(abi::store_u64("%v14", abi::stack_pointer(), TIMEVAL_OFFSET));
+        "4"
+    } else {
+        instructions.extend([
+            // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
+            abi::move_immediate("%v10", "Integer", "1000"),
+            abi::unsigned_divide_registers("%v11", "%v14", "%v10"),
+            abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
+            abi::move_immediate("%v13", "Integer", "1000"),
+            abi::multiply_registers("%v12", "%v12", "%v13"),
+            abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
+            abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+        ]);
+        "16"
+    };
+    instructions.extend([
+        // setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO/SO_SNDTIMEO, &optval, optval_len)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate(abi::ARG[1], "Integer", platform.sol_socket()),
         abi::move_immediate(
@@ -188,8 +202,18 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
             },
         ),
         abi::add_immediate(abi::ARG[3], abi::stack_pointer(), TIMEVAL_OFFSET),
-        abi::move_immediate(abi::ARG[4], "Integer", "16"),
+        abi::move_immediate(abi::ARG[4], "Integer", optval_len),
     ]);
+    if win_timeout {
+        // setsockopt has FIVE args; on Win64 optlen (the 5th) is a stack argument
+        // above the shadow space, not rdi (bug-384). Without this, a garbage optlen
+        // makes SO_RCVTIMEO/SNDTIMEO setsockopt fail (SO_REUSEADDR tolerates it, so
+        // TCP was unaffected).
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x20),
+        ]);
+    }
     platform.emit_libc_call(
         net_symbol(platform, NetSymbol::SetSockOpt),
         symbol,
@@ -197,6 +221,9 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    if win_timeout {
+        instructions.push(abi::add_stack(0x30));
+    }
     instructions.extend([
         // `setsockopt` returns a C `int`, and both AAPCS and SysV leave the upper
         // 32 bits of the return register unspecified (bug-310, the bug-170 class).

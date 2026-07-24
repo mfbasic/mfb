@@ -9,6 +9,11 @@ use std::collections::HashMap;
 
 use super::*;
 
+/// Winsock `WSAETIMEDOUT`: a blocking socket op that hits SO_RCVTIMEO/SO_SNDTIMEO
+/// reports this on Windows, where POSIX reports EAGAIN/EWOULDBLOCK (plan-47-I,
+/// bug-109). Used only on the `PlatformFamily::Windows` timeout arms.
+const WSAETIMEDOUT: &str = "10060";
+
 // `EINTR_ERRNO` (bug-115) is defined once in `net/mod.rs` and reaches here via
 // the `use super::*` glob above; this module previously shadowed it with a
 // byte-identical local copy (bug-331 §I).
@@ -717,6 +722,15 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     instructions.extend([
         abi::compare_immediate("%v9", platform.socket_would_block_code()),
         abi::branch_eq(&timeout),
+    ]);
+    if platform.family() == PlatformFamily::Windows {
+        // SO_RCVTIMEO timeout is WSAETIMEDOUT on Winsock, not EWOULDBLOCK (bug-109).
+        instructions.extend([
+            abi::compare_immediate("%v9", WSAETIMEDOUT),
+            abi::branch_eq(&timeout),
+        ]);
+    }
+    instructions.extend([
         // bug-115: a signal that interrupts the blocking read returns -1/EINTR;
         // re-issue rather than misreporting it as a closed connection.
         abi::compare_immediate("%v9", EINTR_ERRNO),
@@ -917,6 +931,16 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         instructions.extend([
             abi::compare_immediate("%v9", platform.socket_would_block_code()),
             abi::branch_eq(&timeout),
+        ]);
+        if platform.family() == PlatformFamily::Windows {
+            // A blocking send that hits SO_SNDTIMEO returns WSAETIMEDOUT (10060) on
+            // Winsock, not WSAEWOULDBLOCK — map it to the same write timeout (bug-109).
+            instructions.extend([
+                abi::compare_immediate("%v9", WSAETIMEDOUT),
+                abi::branch_eq(&timeout),
+            ]);
+        }
+        instructions.extend([
             // bug-115: a signal that interrupts the blocking write returns
             // -1/EINTR; re-issue from write_loop rather than reporting a closed
             // connection.
@@ -1701,6 +1725,9 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         instructions.extend([
             abi::compare_immediate("%v9", platform.socket_message_size_code()),
             abi::branch_eq(&too_large),
+            // SO_RCVTIMEO timeout is WSAETIMEDOUT on Winsock (bug-109).
+            abi::compare_immediate("%v9", WSAETIMEDOUT),
+            abi::branch_eq(&timeout),
         ]);
     }
     emit_fail(
