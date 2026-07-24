@@ -755,9 +755,11 @@ pub(crate) fn lower_module_for_platform(
             PlatformFamily::Linux => {
                 data_objects.extend(crypto_ec::openssl::data_objects());
             }
-            // 47-J owns the Windows EC data objects (CNG/BCrypt); the OpenSSL arm
-            // would bake OpenSSL sonames into a Windows binary (§3.2).
-            PlatformFamily::Windows => unreachable!("47-J owns the Windows EC data objects"),
+            // The Windows EC data objects are the CNG algorithm/blob id wide
+            // strings (plan-47-J).
+            PlatformFamily::Windows => {
+                data_objects.extend(crypto_ec::cng::data_objects());
+            }
         }
     }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;

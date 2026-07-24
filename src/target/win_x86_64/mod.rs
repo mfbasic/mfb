@@ -104,6 +104,17 @@ const RUNTIME_CALLS: &[&str] = &[
     "net.remoteAddress",
     "net.setReadTimeout",
     "net.setWriteTimeout",
+    // Crypto (plan-47-J): randomBytes over BCryptGenRandom, NIST-EC over CNG.
+    "crypto.randomBytes",
+    "crypto.generateP256Raw",
+    "crypto.generateP384Raw",
+    "crypto.generateP521Raw",
+    "crypto.p256Sign",
+    "crypto.p384Sign",
+    "crypto.p521Sign",
+    "crypto.p256Verify",
+    "crypto.p384Verify",
+    "crypto.p521Verify",
 ];
 
 impl NativeBackend for Backend {

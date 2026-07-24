@@ -87,13 +87,27 @@ pub(super) fn lower_crypto_random_bytes_helper(
         abi::add_registers(abi::return_register(), "%v13", "%v9"),
         abi::move_register(abi::ARG[1], "%v11"),
     ]);
-    platform.emit_libc_call(
-        "getentropy",
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    if platform.family() == PlatformFamily::Windows {
+        // Windows has no getentropy: BCryptGenRandom(NULL, buf+off, chunk,
+        // BCRYPT_USE_SYSTEM_PREFERRED_RNG) fills the same buffer and returns 0
+        // (STATUS_SUCCESS) on success, matching the getentropy contract the loop
+        // and the `!= 0` check below expect.
+        instructions.extend([
+            abi::move_register(abi::ARG[2], abi::ARG[1]),          // chunk  -> r8
+            abi::move_register(abi::ARG[1], abi::return_register()), // buf+off -> rdx
+            abi::move_immediate(abi::return_register(), "Integer", "0"), // hAlg = NULL
+            abi::move_immediate(abi::ARG[3], "Integer", "2"), // BCRYPT_USE_SYSTEM_PREFERRED_RNG
+        ]);
+        platform.emit_libc_call("BCryptGenRandom", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    } else {
+        platform.emit_libc_call(
+            "getentropy",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&entropy_fail),

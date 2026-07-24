@@ -100,10 +100,8 @@ pub(super) fn lower_crypto_ec_helper(
     match platform.family() {
         PlatformFamily::MacOS => macos::lower(op, curve, symbol, platform_imports, platform),
         PlatformFamily::Linux => openssl::lower(op, curve, symbol, platform_imports, platform),
-        // 47-J owns the Windows EC backend (CNG/BCrypt). Falling through to the
-        // OpenSSL arm would bake OpenSSL sonames into a Windows binary (§3.2), so
-        // reject loudly until 47-J decides.
-        PlatformFamily::Windows => unreachable!("47-J owns the Windows crypto EC backend"),
+        // The Windows EC backend is CNG/BCrypt (plan-47-J), linked through the IAT.
+        PlatformFamily::Windows => cng::lower(op, curve, symbol, platform_imports, platform),
     }
 }
 
@@ -124,5 +122,6 @@ pub(super) fn call_fn(fn_off: usize, ins: &mut Vec<CodeInstruction>) {
     ]);
 }
 
+pub(super) mod cng;
 pub(super) mod macos;
 pub(super) mod openssl;

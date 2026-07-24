@@ -14,6 +14,7 @@ use crate::target::shared::runtime::RuntimeHelperSpec;
 
 const KERNEL32: &str = "kernel32.dll";
 const WS2_32: &str = "ws2_32.dll";
+const BCRYPT: &str = "bcrypt.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -231,6 +232,25 @@ impl NativePlanPlatform for Platform {
                 import("ReadFile", KERNEL32, required_by),
                 import("WriteFile", KERNEL32, required_by),
             ],
+            // crypto:: NIST-EC over CNG/BCrypt (plan-47-J). randomBytes already
+            // rides BCryptGenRandom in the entry floor; the EC ops pull the key/
+            // hash/sign surface. Any crypto.* EC call declares the whole set; the
+            // merged IAT dedups.
+            "crypto.generateP256Raw" | "crypto.generateP384Raw" | "crypto.generateP521Raw"
+            | "crypto.p256Sign" | "crypto.p384Sign" | "crypto.p521Sign"
+            | "crypto.p256Verify" | "crypto.p384Verify" | "crypto.p521Verify" => vec![
+                import("BCryptOpenAlgorithmProvider", BCRYPT, required_by),
+                import("BCryptCloseAlgorithmProvider", BCRYPT, required_by),
+                import("BCryptGenerateKeyPair", BCRYPT, required_by),
+                import("BCryptFinalizeKeyPair", BCRYPT, required_by),
+                import("BCryptExportKey", BCRYPT, required_by),
+                import("BCryptImportKeyPair", BCRYPT, required_by),
+                import("BCryptDestroyKey", BCRYPT, required_by),
+                import("BCryptHash", BCRYPT, required_by),
+                import("BCryptSignHash", BCRYPT, required_by),
+                import("BCryptVerifySignature", BCRYPT, required_by),
+            ],
+            "crypto.randomBytes" => vec![import("BCryptGenRandom", BCRYPT, required_by)],
             _ => Vec::new(),
         }
     }
