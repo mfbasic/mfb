@@ -36,6 +36,68 @@ const MEM_COMMIT_RESERVE: &str = "12288";
 const PAGE_READWRITE: &str = "4";
 // VirtualFree dwFreeType = MEM_RELEASE (0x8000).
 const MEM_RELEASE: &str = "32768";
+// MultiByteToWideChar CodePage = CP_UTF8 (65001).
+const CP_UTF8: &str = "65001";
+
+/// A UTF-16 path-marshaling frame for a Win32 `*W` filesystem call. The path
+/// arrives as a NUL-terminated UTF-8 C-string; every path-taking Win32 API is the
+/// wide (`W`) variant, so each call converts UTF-8 → UTF-16 via
+/// `MultiByteToWideChar` first (plan-47-F §3.4). The 64 KiB (32767-wchar, Windows'
+/// own max path length) buffer is allocated from the ARENA, not the stack: a large
+/// `sub rsp` would skip the Windows stack guard page and fault on first write
+/// (there is no inline `__chkstk` in this codegen). Only a tiny outgoing frame is
+/// reserved on the stack — layout relative to `sp` after `subtract_stack`:
+///   [0x00 .. 0x20)  shadow space for the callee
+///   [0x20]          MultiByteToWideChar 5th arg (lpWideCharStr) — a stack arg
+///   [0x28]          MultiByteToWideChar 6th arg (cchWideChar)   — a stack arg
+///   [0x30]          saved UTF-8 path pointer (survives the arena/convert calls)
+///   [0x38]          the arena UTF-16 buffer pointer (the caller reads this)
+const MARSHAL_FRAME: usize = 0x40;
+const MARSHAL_WBUF_SLOT: usize = 0x38;
+
+/// Emit an arena allocation of the UTF-16 buffer and
+/// `MultiByteToWideChar(CP_UTF8, 0, path, -1, wbuf, 32768)` into a
+/// [`MARSHAL_FRAME`] the caller has already reserved with `subtract_stack`. On
+/// entry the UTF-8 path pointer is in `ARG[0]`; on return the wide string's arena
+/// pointer is at `sp + MARSHAL_WBUF_SLOT` (and also live in `ARG[0]`... clobbered —
+/// the caller reloads from the slot).
+fn emit_marshal_path(
+    from: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x30), // save path
+        // _mfb_arena_alloc(size = 65536, align = 2) -> RET[1] = buffer pointer.
+        // A 64 KiB request never OOMs in practice (the arena maps fresh 1 MiB+
+        // blocks via VirtualAlloc), so the Result tag is not checked here.
+        abi::move_immediate(abi::return_register(), "Integer", "65536"),
+        abi::move_immediate(abi::ARG[1], "Integer", "2"),
+        abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(CodeRelocation {
+        from: from.to_string(),
+        to: code::ARENA_ALLOC_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+    instructions.extend([
+        abi::store_u64(abi::RET[1], abi::stack_pointer(), MARSHAL_WBUF_SLOT), // save wbuf
+        abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"), // dwFlags
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x30), // lpMultiByteStr = path
+        // cbMultiByte = -1 (the input is NUL-terminated); the encoder rejects a
+        // negative immediate, so build it as 0 - 1.
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1),
+        abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), MARSHAL_WBUF_SLOT),
+        abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0x20), // lpWideCharStr (5th)
+        abi::move_immediate(abi::SCRATCH[0], "Integer", "32768"),
+        abi::store_u64(abi::SCRATCH[0], abi::stack_pointer(), 0x28), // cchWideChar (6th)
+    ]);
+    call_external(from, "MultiByteToWideChar", KERNEL32, instructions, relocations);
+}
 
 pub(crate) fn lower_module(
     module: &NirModule,
@@ -358,12 +420,31 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_path_exists(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // Contract (shared fs/paths.rs): the UTF-8 path C-string is in ARG[0];
+        // return 0 in the return register iff the path exists. Windows:
+        // GetFileAttributesW(wpath) returns INVALID_FILE_ATTRIBUTES ((DWORD)-1 =
+        // 0xFFFFFFFF, bit 31 set) when the path does not exist, and a small
+        // FILE_ATTRIBUTE_* bitmask (always < 0x80000000, bit 31 clear) when it
+        // does. So `result >> 31` is exactly the contract: 1 (nonzero) for
+        // missing, 0 for exists — no branch and no oversized-immediate compare.
+        instructions.push(abi::subtract_stack(MARSHAL_FRAME));
+        emit_marshal_path(from, instructions, relocations);
+        instructions.push(abi::load_u64(
+            abi::ARG[0],
+            abi::stack_pointer(),
+            MARSHAL_WBUF_SLOT,
+        ));
+        call_external(from, "GetFileAttributesW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::shift_right_immediate(abi::return_register(), abi::return_register(), 31),
+            abi::add_stack(MARSHAL_FRAME),
+        ]);
+        Ok(())
     }
 
     fn emit_path_stat(

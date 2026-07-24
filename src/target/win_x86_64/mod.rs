@@ -24,7 +24,13 @@ pub(crate) struct Backend;
 /// (47-D-full) rides `emit_write` (GetStdHandle + WriteFile). Any not-yet-listed
 /// `io`/fs/net/… helper is rejected at `validate_capabilities` rather than
 /// building a broken `.exe`; each later sub-plan (F, G, …) adds its calls here.
-const RUNTIME_CALLS: &[&str] = &["io.print", "io.write", "io.printError", "io.writeError"];
+const RUNTIME_CALLS: &[&str] = &[
+    "io.print",
+    "io.write",
+    "io.printError",
+    "io.writeError",
+    "fs.exists",
+];
 
 impl NativeBackend for Backend {
     fn target(&self) -> BuildTarget {

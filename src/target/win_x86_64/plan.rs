@@ -62,10 +62,18 @@ impl NativePlanPlatform for Platform {
         vec![import("ExitProcess", KERNEL32, required_by)]
     }
 
-    fn runtime_imports(&self, _spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
-        // No runtime surface in the minimal floor; every helper the backend
-        // advertises in `runtime_calls` will add its imports here in 47-D-full.
-        Vec::new()
+    fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
+        let required_by = crate::target::shared::runtime::symbol_for_call(spec.helper, spec.call);
+        let required_by = required_by.as_str();
+        // Every path-taking fs helper marshals UTF-8 → UTF-16 (MultiByteToWideChar)
+        // before its `*W` Win32 call (plan-47-F §3.4).
+        match spec.call {
+            "fs.exists" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("GetFileAttributesW", KERNEL32, required_by),
+            ],
+            _ => Vec::new(),
+        }
     }
 
     fn native_call_imports(&self, _target: &str, _required_by: &str) -> Vec<PlatformImport> {
