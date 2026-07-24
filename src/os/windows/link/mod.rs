@@ -464,6 +464,63 @@ mod tests {
         }
     }
 
+    /// A genuinely *runnable* `ExitProcess(42)` console program (the plan's 47-C
+    /// runtime proof). Unlike `exit_process_42_image` (a structural fixture), the
+    /// entry is Win64-ABI-correct: it reserves the 32-byte shadow space (+8 for
+    /// 16-alignment at the call) before invoking `kernel32!ExitProcess`.
+    ///
+    ///   _start:
+    ///     48 83 EC 28        sub  rsp, 0x28        ; 32 shadow + 8 align
+    ///     B9 2A 00 00 00     mov  ecx, 42          ; uExitCode (arg0 in ecx)
+    ///     E8 <rel32>         call ExitProcess      ; via the FF25 IAT thunk
+    ///     CC                 int3                  ; never reached
+    fn runnable_exit42_image() -> EncodedImage {
+        let mut text = vec![0x48, 0x83, 0xEC, 0x28, 0xB9, 0x2A, 0x00, 0x00, 0x00, 0xE8];
+        text.extend_from_slice(&[0, 0, 0, 0]); // rel32 (disp field at offset 10)
+        text.push(0xCC);
+        EncodedImage {
+            text,
+            data: Vec::new(),
+            rodata_size: 0,
+            symbols: vec![EncodedSymbol {
+                name: "_start".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: vec![EncodedRelocation {
+                offset: 10,
+                target: "ExitProcess".to_string(),
+                kind: "call_pc32".to_string(),
+                binding: "external".to_string(),
+                library: Some("kernel32.dll".to_string()),
+            }],
+            imports: vec![EncodedImport {
+                library: "kernel32.dll".to_string(),
+                symbol: "ExitProcess".to_string(),
+                kind: ImportKind::Function,
+                version: None,
+            }],
+            entry: "_start".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: None,
+            rpaths: Vec::new(),
+        }
+    }
+
+    /// Dev harness (not a CI assertion): when `MFB_EXIT42_OUT` is set, write the
+    /// runnable `ExitProcess(42)` `.exe` there so it can be run on a real Windows
+    /// host (the 47-C runtime proof). A no-op otherwise, so `cargo test` is
+    /// unaffected.
+    #[test]
+    fn writes_runnable_exit42_exe_when_env_set() {
+        let Ok(path) = std::env::var("MFB_EXIT42_OUT") else {
+            return;
+        };
+        let bytes = write_executable(&runnable_exit42_image()).expect("link exit42");
+        std::fs::write(&path, &bytes).expect("write exit42.exe");
+        eprintln!("wrote {} bytes to {path}", bytes.len());
+    }
+
     fn le_u16(b: &[u8], o: usize) -> u16 {
         u16::from_le_bytes([b[o], b[o + 1]])
     }
