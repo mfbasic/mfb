@@ -25,14 +25,7 @@ impl CodegenPlatform for TestPlatform {
     fn target(&self) -> &'static str { "linux_aarch64" }
     fn arch(&self) -> &'static str { "aarch64" }
     fn backend(&self) -> &'static dyn super::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
-    fn termios_size(&self) -> usize { 0 }
-    fn termios_lflag_offset(&self) -> usize { 0 }
-    fn termios_lflag_width(&self) -> usize { 0 }
-    fn termios_cc_offset(&self) -> usize { 0 }
-    fn termios_echo_flag(&self) -> u64 { 0 }
-    fn termios_icanon_flag(&self) -> u64 { 0 }
-    fn termios_vmin_index(&self) -> usize { 0 }
-    fn termios_vtime_index(&self) -> usize { 0 }
+    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _i: &mut Vec<CodeInstruction>) { unimplemented!("TestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(&self, _from: &str, _instructions: &mut Vec<CodeInstruction>, _relocations: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_program_exit") }
     fn emit_write(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_write") }
     fn emit_poll_input(&self, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_poll_input") }

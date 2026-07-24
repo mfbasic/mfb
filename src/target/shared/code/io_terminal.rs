@@ -1,9 +1,5 @@
 use super::*;
 
-fn termios_storage_size(platform: &dyn CodegenPlatform) -> usize {
-    platform.termios_size().next_multiple_of(8)
-}
-
 pub(super) struct TerminalModeSlots {
     pub(super) active: usize,
     pub(super) saved_tag: usize,
@@ -66,59 +62,14 @@ pub(super) fn emit_configure_stdin_terminal(
         abi::store_u64("%v9", base_register, slots.active),
     ]);
 
-    for offset in (0..termios_storage_size(platform)).step_by(8) {
-        ctx.instructions.extend([
-            abi::load_u64("%v9", base_register, slots.original + offset),
-            abi::store_u64("%v9", base_register, slots.modified + offset),
-        ]);
-    }
-
-    let mut clear_flags = 0;
-    if disable_echo {
-        clear_flags |= platform.termios_echo_flag();
-    }
-    if disable_canonical {
-        clear_flags |= platform.termios_icanon_flag();
-    }
-    if clear_flags != 0 {
-        let lflag_offset = slots.modified + platform.termios_lflag_offset();
-        if platform.termios_lflag_width() == 4 {
-            ctx.instructions
-                .push(abi::load_u32("%v9", base_register, lflag_offset));
-        } else {
-            ctx.instructions
-                .push(abi::load_u64("%v9", base_register, lflag_offset));
-        }
-        ctx.instructions.extend([
-            abi::move_immediate("%v10", "Integer", &clear_flags.to_string()),
-            abi::bitwise_not("%v10", "%v10"),
-            abi::and_registers("%v9", "%v9", "%v10"),
-        ]);
-        if platform.termios_lflag_width() == 4 {
-            ctx.instructions
-                .push(abi::store_u32("%v9", base_register, lflag_offset));
-        } else {
-            ctx.instructions
-                .push(abi::store_u64("%v9", base_register, lflag_offset));
-        }
-    }
-
-    if disable_canonical {
-        let cc_offset = slots.modified + platform.termios_cc_offset();
-        ctx.instructions.extend([
-            abi::move_immediate("%v9", "Integer", "1"),
-            abi::store_u8(
-                "%v9",
-                base_register,
-                cc_offset + platform.termios_vmin_index(),
-            ),
-            abi::store_u8(
-                abi::ZERO,
-                base_register,
-                cc_offset + platform.termios_vtime_index(),
-            ),
-        ]);
-    }
+    platform.emit_apply_raw_mode(
+        base_register,
+        slots.original,
+        slots.modified,
+        disable_echo,
+        disable_canonical,
+        ctx.instructions,
+    );
 
     ctx.instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),

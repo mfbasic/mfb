@@ -571,29 +571,18 @@ impl code::CodegenPlatform for Platform {
     // to intent-level methods. Unreachable until a later sub-plan advertises the
     // surface, so a placeholder 0 is safe (and never read).
 
-    fn termios_size(&self) -> usize {
-        0
-    }
-    fn termios_lflag_offset(&self) -> usize {
-        0
-    }
-    fn termios_lflag_width(&self) -> usize {
-        0
-    }
-    fn termios_cc_offset(&self) -> usize {
-        0
-    }
-    fn termios_echo_flag(&self) -> u64 {
-        0
-    }
-    fn termios_icanon_flag(&self) -> u64 {
-        0
-    }
-    fn termios_vmin_index(&self) -> usize {
-        0
-    }
-    fn termios_vtime_index(&self) -> usize {
-        0
+    fn emit_apply_raw_mode(
+        &self,
+        _base_register: &str,
+        _original_offset: usize,
+        _modified_offset: usize,
+        _disable_echo: bool,
+        _disable_canonical: bool,
+        _instructions: &mut Vec<CodeInstruction>,
+    ) {
+        // 47-G owns Windows raw mode (GetConsoleMode/SetConsoleMode — a DWORD
+        // bitmask on a handle), which has no `struct termios`.
+        unreachable!("47-G owns the Windows raw-mode toggle")
     }
     fn emit_stat_is_kind(
         &self,

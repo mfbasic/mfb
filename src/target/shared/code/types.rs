@@ -311,14 +311,24 @@ pub(crate) trait CodegenPlatform {
     fn libc(&self) -> Option<crate::manifest::libraries::Libc> {
         None
     }
-    fn termios_size(&self) -> usize;
-    fn termios_lflag_offset(&self) -> usize;
-    fn termios_lflag_width(&self) -> usize;
-    fn termios_cc_offset(&self) -> usize;
-    fn termios_echo_flag(&self) -> u64;
-    fn termios_icanon_flag(&self) -> u64;
-    fn termios_vmin_index(&self) -> usize;
-    fn termios_vtime_index(&self) -> usize;
+    /// Copy the saved terminal state at `base + original_offset` to
+    /// `base + modified_offset`, then edit the copy into single-key raw mode:
+    /// clear `ECHO`/`ICANON` in the local-flags field when requested and set
+    /// `VMIN=1`/`VTIME=0`. The caller has already snapshotted the original state
+    /// (`tcgetattr` on POSIX) and applies the modified copy afterwards
+    /// (`tcsetattr`); this method owns only the layout-specific edit. The seam is
+    /// intent-level (47-E §4.1) because a `struct termios` and its per-field
+    /// offsets/flag bits are POSIX-only — Windows raw mode is a `SetConsoleMode`
+    /// bitmask on a handle, with no struct to edit.
+    fn emit_apply_raw_mode(
+        &self,
+        base_register: &str,
+        original_offset: usize,
+        modified_offset: usize,
+        disable_echo: bool,
+        disable_canonical: bool,
+        instructions: &mut Vec<CodeInstruction>,
+    );
     fn emit_program_exit(
         &self,
         from: &str,

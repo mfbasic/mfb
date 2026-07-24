@@ -16,14 +16,7 @@ impl CodegenPlatform for TlsReadTestPlatform {
     fn target(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::target") }
     fn arch(&self) -> &'static str { unimplemented!("TlsReadTestPlatform::arch") }
     fn backend(&self) -> &'static dyn crate::target::shared::code::mir::Backend { &crate::arch::aarch64::backend::AARCH64_BACKEND }
-    fn termios_size(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_size") }
-    fn termios_lflag_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_lflag_offset") }
-    fn termios_lflag_width(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_lflag_width") }
-    fn termios_cc_offset(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_cc_offset") }
-    fn termios_echo_flag(&self) -> u64 { unimplemented!("TlsReadTestPlatform::termios_echo_flag") }
-    fn termios_icanon_flag(&self) -> u64 { unimplemented!("TlsReadTestPlatform::termios_icanon_flag") }
-    fn termios_vmin_index(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_vmin_index") }
-    fn termios_vtime_index(&self) -> usize { unimplemented!("TlsReadTestPlatform::termios_vtime_index") }
+    fn emit_apply_raw_mode(&self, _b: &str, _o: usize, _m: usize, _de: bool, _dc: bool, _i: &mut Vec<CodeInstruction>) { unimplemented!("TlsReadTestPlatform::emit_apply_raw_mode") }
     fn emit_program_exit(
     &self,
     _from: &str,

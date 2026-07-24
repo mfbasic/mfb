@@ -48,36 +48,49 @@ impl code::CodegenPlatform for Platform {
         &crate::arch::aarch64::backend::AARCH64_BACKEND
     }
 
-    fn termios_size(&self) -> usize {
-        72
-    }
-
-    fn termios_lflag_offset(&self) -> usize {
-        24
-    }
-
-    fn termios_lflag_width(&self) -> usize {
-        8
-    }
-
-    fn termios_cc_offset(&self) -> usize {
-        32
-    }
-
-    fn termios_echo_flag(&self) -> u64 {
-        8
-    }
-
-    fn termios_icanon_flag(&self) -> u64 {
-        256
-    }
-
-    fn termios_vmin_index(&self) -> usize {
-        16
-    }
-
-    fn termios_vtime_index(&self) -> usize {
-        17
+    fn emit_apply_raw_mode(
+        &self,
+        base_register: &str,
+        original_offset: usize,
+        modified_offset: usize,
+        disable_echo: bool,
+        disable_canonical: bool,
+        instructions: &mut Vec<CodeInstruction>,
+    ) {
+        // macOS `struct termios`: 72 bytes, `c_lflag` an 8-byte field at offset
+        // 24 (`ECHO`=8, `ICANON`=0x100=256), `c_cc` at offset 32 with `VMIN` at
+        // index 16 and `VTIME` at index 17.
+        for offset in (0..72usize.next_multiple_of(8)).step_by(8) {
+            instructions.extend([
+                abi::load_u64("%v9", base_register, original_offset + offset),
+                abi::store_u64("%v9", base_register, modified_offset + offset),
+            ]);
+        }
+        let mut clear_flags = 0u64;
+        if disable_echo {
+            clear_flags |= 8;
+        }
+        if disable_canonical {
+            clear_flags |= 256;
+        }
+        if clear_flags != 0 {
+            let lflag_offset = modified_offset + 24;
+            instructions.push(abi::load_u64("%v9", base_register, lflag_offset));
+            instructions.extend([
+                abi::move_immediate("%v10", "Integer", &clear_flags.to_string()),
+                abi::bitwise_not("%v10", "%v10"),
+                abi::and_registers("%v9", "%v9", "%v10"),
+            ]);
+            instructions.push(abi::store_u64("%v9", base_register, lflag_offset));
+        }
+        if disable_canonical {
+            let cc_offset = modified_offset + 32;
+            instructions.extend([
+                abi::move_immediate("%v9", "Integer", "1"),
+                abi::store_u8("%v9", base_register, cc_offset + 16),
+                abi::store_u8(abi::ZERO, base_register, cc_offset + 17),
+            ]);
+        }
     }
 
     fn emit_app_program_entry(
