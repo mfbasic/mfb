@@ -413,8 +413,19 @@ pub(super) fn finalize_frame(
     // alignment and the stack pointer 16-aligned at call sites. Zero — and the
     // whole frame byte-identical to the register-only convention — when no call
     // passes stack arguments.
+    // Win64 (plan-47-B §4.3): a callee may spill its four register arguments into
+    // a 32-byte "shadow" region the caller reserves below the first stack
+    // argument, so a calling frame owes those bytes even with no stack tail.
+    // `shadow_space_bytes()` defaults to 0, so SysV/AAPCS64 frames are unchanged.
+    let shadow = if has_calls {
+        super::mir::active_backend().shadow_space_bytes()
+    } else {
+        0
+    };
     let outgoing_bytes = match max_outgoing_arg_offset(instructions) {
-        Some(max_offset) => align(max_offset + 8, 16),
+        Some(max_offset) => align(shadow + max_offset + 8, 16),
+        // A leaf-calling Win64 frame with no stack tail still owes the shadow space.
+        None if shadow > 0 => shadow,
         None => 0,
     };
     let total_stack_size = outgoing_bytes + align(save_size + local_stack_size, 16) + call_padding;
@@ -835,7 +846,10 @@ fn resolve_stack_arg_sentinels(
         let resolved_offset = if incoming {
             frame_size + entry_padding + offset_of(instruction)
         } else {
-            offset_of(instruction)
+            // Outgoing arg 0 sits above the Win64 shadow space (plan-47-B §4.3);
+            // `outgoing_args_base_offset()` defaults to 0, so SysV/AAPCS64 place it
+            // at the frame bottom unchanged.
+            super::mir::active_backend().outgoing_args_base_offset() + offset_of(instruction)
         };
         for (name, value) in &mut instruction.fields {
             match *name {

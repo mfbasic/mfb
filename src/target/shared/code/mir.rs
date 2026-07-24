@@ -551,6 +551,24 @@ pub(crate) trait Backend: Sync {
     fn frame_call_padding(&self) -> usize {
         0
     }
+    /// Bytes a caller must reserve at the bottom of its outgoing-argument region,
+    /// below the first stack argument, that a callee is entitled to use — the
+    /// Win64 32-byte "shadow"/"home" space, where a callee may spill its four
+    /// register arguments `rcx`/`rdx`/`r8`/`r9` into the *caller's* frame (plan-47-B
+    /// §4.3). Default 0: SysV and AAPCS64 have no such reservation, so every
+    /// existing backend keeps `finalize_frame`'s current `outgoing_bytes`
+    /// arithmetic and emits byte-identical frames. The Win64 backend returns 32.
+    fn shadow_space_bytes(&self) -> usize {
+        0
+    }
+    /// The offset added to every *outgoing* stack-argument slot when the frame's
+    /// stack-arg sentinels are resolved — the shadow space sits below the first
+    /// stack argument, so on Win64 outgoing arg 0 lives at `[rsp+32]`, not `[rsp+0]`
+    /// (plan-47-B §4.3). Default 0: existing backends place outgoing arg 0 at the
+    /// frame bottom, unchanged. The Win64 backend returns 32.
+    fn outgoing_args_base_offset(&self) -> usize {
+        0
+    }
 }
 
 thread_local! {

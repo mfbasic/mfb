@@ -48,6 +48,19 @@ fn map_scratch_register(n: usize) -> &'static str {
     // land on x86's callee-saved bank (rbx/rbp/r12/r13): with the `(n-9) % 11`
     // index, x20→rbx, x27→r12, x28→r13, x19→rbp. The low scratch (x8–x18, not
     // parked across calls) takes the caller-saved remainder (rcx/rsi/rdi/r8–r11).
+    //
+    // plan-47-B Phase 1 Win64 audit (finding, no live hazard yet): this pool is
+    // convention-independent — Win64 select would reuse it unchanged. The high
+    // indices (x19/x20/x27/x28 → rbp/rbx/r12/r13) are Win64 callee-saved too, so
+    // "survives an intervening call" still holds. The LATENT hazard is the low
+    // remainder: `rcx`/`r8`/`r9`/`rsi`/`rdi` are Win64 *argument* registers (arg
+    // 0–3 and the internal-extension 4/5) that were not SysV args 0–2, so a
+    // hand-written helper that parks a value in low scratch and then stages call
+    // arguments over it would corrupt it — but only under Win64 codegen, which no
+    // backend selects yet (47-B lands the ABI tables before a `Win64Backend` is
+    // reachable). No helper is corrupted today. This must be re-audited / the pool
+    // made abi-aware before the Win64 backend selects end to end (later 47-B / 47-D):
+    // recorded here so it is not rediscovered as a silent Windows-only miscompile.
     const POOL: &[&str] = &[
         "rbx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "rcx", "rbp",
     ];
@@ -74,18 +87,56 @@ const SYS_ARGS: &[&str] = &["rdi", "rsi", "rdx", "r10", "r8", "r9"];
 // corrupting propagated errors.
 const RETS: &[&str] = &["rax", "rdx", "rcx", "rsi"];
 
-/// Map an AArch64 ABI register `xN` (N ≤ 8) to its SysV/x86-64 home given its
-/// role: an argument flowing into the next call/syscall, a return value, or a
-/// result coming out of a preceding call/syscall.
-fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool) -> String {
+/// Which x86-64 calling convention `select_x86` realizes the residual ABI
+/// registers against (plan-47-B). `SysV` reads the constants above unchanged —
+/// every non-Windows caller passes it, so their bytes do not move. `Win64` reads
+/// the `*_WIN64` tables below.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum X86Abi {
+    SysV,
+    // Constructed by `Win64Backend::select`, which the win_x86_64 CodegenPlatform
+    // wires in 47-B A2; until then only the unit tests reach the Win64 arms.
+    #[allow(dead_code)]
+    Win64,
+}
+
+// Win64 (plan-47-B §4.1/§4.2): int args rcx,rdx,r8,r9; then an INTERNAL extension
+// for arguments 4–7 (rdi,rsi,rax,r10) so the compiler's own 8-parameter calls
+// keep 8 register homes exactly as SysV does (REGISTER_ARGUMENT_COUNT stays 8).
+// External calls are capped at 4 by `Win64RegisterModel::external_int_argument_registers`
+// and spill the rest to the stack tail above the 32-byte shadow space. rdi/rsi/r10
+// are excluded from the Win64 allocatable pool so the allocator never colors them
+// while they carry an argument.
+const CALL_ARGS_WIN64: &[&str] = &["rcx", "rdx", "r8", "r9", "rdi", "rsi", "rax", "r10"];
+// Win64 result bank: SysV's rcx/rsi (slots 2/3 of the 4-register fallible-result
+// convention) collide with Win64 argument register rcx, so use r8/r9 — caller-saved,
+// unpinned, and consumed by the error/TRAP path with no intervening call (§4.1).
+const RETS_WIN64: &[&str] = &["rax", "rdx", "r8", "r9"];
+
+/// Map an AArch64 ABI register `xN` (N ≤ 8) to its x86-64 home given its role
+/// (an argument flowing into the next call/syscall, a return value, or a result
+/// coming out of a preceding call/syscall) and the active `abi`.
+fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool, abi: X86Abi) -> String {
+    let (call_args, rets): (&[&str], &[&str]) = match abi {
+        X86Abi::SysV => (CALL_ARGS, RETS),
+        X86Abi::Win64 => (CALL_ARGS_WIN64, RETS_WIN64),
+    };
     let reg = if is_result {
-        RETS.get(n).copied().unwrap_or("rax")
+        rets.get(n).copied().unwrap_or("rax")
     } else {
         match role {
-            Some(AbiBoundary::Call) => CALL_ARGS.get(n).copied().unwrap_or("rax"),
-            Some(AbiBoundary::Syscall) if n == 8 => "rax", // syscall number
-            Some(AbiBoundary::Syscall) => SYS_ARGS.get(n).copied().unwrap_or("rax"),
-            Some(AbiBoundary::Ret) => RETS.get(n).copied().unwrap_or("rax"),
+            Some(AbiBoundary::Call) => call_args.get(n).copied().unwrap_or("rax"),
+            // Windows has no stable syscall ABI — every OS call is an imported-DLL
+            // call through the IAT (master §3), so a syscall boundary never reaches
+            // the Win64 arm. SysV keeps its raw-syscall register file.
+            Some(AbiBoundary::Syscall) => match abi {
+                X86Abi::SysV if n == 8 => "rax", // syscall number
+                X86Abi::SysV => SYS_ARGS.get(n).copied().unwrap_or("rax"),
+                X86Abi::Win64 => {
+                    unreachable!("Win64 emits no syscall boundary; OS calls go through the IAT")
+                }
+            },
+            Some(AbiBoundary::Ret) => rets.get(n).copied().unwrap_or("rax"),
             // No following boundary: a leftover ABI register used as a plain value
             // — most often a call RESULT whose boundary the dataflow lost (e.g. an
             // arena pointer `x1` copied in a loop, where the loop back-edge poisons
@@ -93,7 +144,7 @@ fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool) -> Str
             // that index's RESULT register (`x1`→rdx), NOT always rax — mapping a
             // leftover `x1` to rax (the OK tag = 0) gave a null-dst copy → SIGSEGV
             // in the datetime/json/regex/lambda/resource record builders.
-            None => RETS.get(n).copied().unwrap_or("rax"),
+            None => rets.get(n).copied().unwrap_or("rax"),
         }
     };
     reg.to_string()
@@ -104,7 +155,15 @@ fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool) -> Str
 /// leftover scratch) to their x86-64 / SysV homes. Virtual registers (`%vN`) and
 /// `arena_base` (already realized to `r15`) pass through. The hard case is
 /// `x0`–`x8`, whose role depends on the nearest call/`svc`/`ret` boundary.
-fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
+fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>, abi: X86Abi) {
+    // The argument/result register files for the active convention. `SysV` reads
+    // the module constants unchanged (byte-identical); `Win64` reads the `*_WIN64`
+    // tables. Both result banks are 4 wide, so every `rets.len()` guard is
+    // convention-independent.
+    let (call_args, rets): (&[&str], &[&str]) = match abi {
+        X86Abi::SysV => (CALL_ARGS, RETS),
+        X86Abi::Win64 => (CALL_ARGS_WIN64, RETS_WIN64),
+    };
     // The link register has no x86 equivalent — `call` pushes / `ret` pops the
     // return address — so drop the frame's LR save/restore entirely. Shared code
     // now spells it with the neutral `abi::LR` token (`"lr"`); the `"x30"`
@@ -253,7 +312,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
         .map(|i| !falls_into(i) || branch_preds.contains_key(&i))
         .collect();
 
-    // A def of `xK` (K < RETS.len()) is a *staged result* — part of the
+    // A def of `xK` (K < rets.len()) is a *staged result* — part of the
     // 4-register error-Result convention — when the first thing that consumes it
     // along control flow is a result-read USE: a use in a block whose in-effect
     // boundary is a call/syscall (e.g. `error_label`'s `store x1,[arena+32]` and
@@ -346,7 +405,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 if X86_DEF_FIELDS.contains(k) {
                     v.strip_prefix('x')
                         .and_then(|rest| rest.parse::<usize>().ok())
-                        .filter(|n| *n < RETS.len())
+                        .filter(|n| *n < rets.len())
                 } else {
                     None
                 }
@@ -523,7 +582,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             // without the caller redefining them since the call — regular calls
             // return x0/x1, so this only fires for a propagated error).
             let is_result = !is_def
-                && n < RETS.len()
+                && n < rets.len()
                 && !defined_since_boundary.contains(value)
                 && matches!(
                     boundary_before[i],
@@ -543,23 +602,23 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             // parameter and `param_home == arg` suppresses a bogus bridge.
             let is_param_use =
                 !is_def && n <= 7 && entry_clean[i] && (entry_undef[i] >> n) & 1 == 1;
-            let mapped = if is_def && n < RETS.len() && staged_result_def[i] {
+            let mapped = if is_def && n < rets.len() && staged_result_def[i] {
                 staged_live.insert(n);
-                RETS[n].to_string()
-            } else if !is_def && n < RETS.len() && staged_live.contains(&n) {
+                rets[n].to_string()
+            } else if !is_def && n < rets.len() && staged_live.contains(&n) {
                 // A same-block use of a staged-result def reads the register the
                 // def actually wrote (RETS), not the role-based coloring.
-                RETS[n].to_string()
+                rets[n].to_string()
             } else if is_param_use {
-                CALL_ARGS
+                call_args
                     .get(n)
                     .map(|reg| reg.to_string())
-                    .unwrap_or_else(|| map_abi_register(n, role, is_result))
+                    .unwrap_or_else(|| map_abi_register(n, role, is_result, abi))
             } else {
                 if is_def {
                     staged_live.remove(&n);
                 }
-                map_abi_register(n, role, is_result)
+                map_abi_register(n, role, is_result, abi)
             };
             if is_param_use {
                 param_home.entry(n).or_insert_with(|| mapped.clone());
@@ -594,7 +653,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     // pass it straight into a nested call) needs no copy.
     let mut prologue: Vec<CodeInstruction> = Vec::new();
     for (k, home) in &param_home {
-        let Some(arg) = CALL_ARGS.get(*k) else {
+        let Some(arg) = call_args.get(*k) else {
             continue;
         };
         if home == arg {
@@ -683,7 +742,7 @@ fn x86_float_branch(cond: &str, target: &str, site: usize) -> Vec<CodeInstructio
 /// setter + the flag-reading branch (x86 `cmp; jcc` works the same way), and
 /// `arena_base` realizes to the pinned `r15` — then remaps the residual AArch64
 /// ABI registers to their SysV homes ([`remap_x86_abi`]).
-pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
+pub(crate) fn select_x86(instructions: &[MirInstruction], abi: X86Abi) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
     // Distinguishes the skip label of every ordered-only float branch in this
     // function (see `x86_float_branch`).
@@ -774,7 +833,7 @@ pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction
             }
         }
     }
-    remap_x86_abi(&mut out);
+    remap_x86_abi(&mut out, abi);
     out
 }
 
@@ -794,7 +853,7 @@ mod tests {
 
     /// Select a stream from aarch64-form instructions.
     fn sel(instructions: &[CodeInstruction]) -> Vec<CodeInstruction> {
-        select_x86(&lower_to_mir(instructions))
+        select_x86(&lower_to_mir(instructions), X86Abi::SysV)
     }
 
     /// Every field value in the selected stream, flattened.
@@ -907,16 +966,60 @@ mod tests {
     #[test]
     fn map_abi_register_fallbacks() {
         // Out-of-range indices fall back to rax in every role.
-        assert_eq!(map_abi_register(9, Some(AbiBoundary::Call), false), "rax");
+        assert_eq!(map_abi_register(9, Some(AbiBoundary::Call), false, X86Abi::SysV), "rax");
         assert_eq!(
-            map_abi_register(9, Some(AbiBoundary::Syscall), false),
+            map_abi_register(9, Some(AbiBoundary::Syscall), false, X86Abi::SysV),
             "rax"
         );
-        assert_eq!(map_abi_register(9, Some(AbiBoundary::Ret), false), "rax");
-        assert_eq!(map_abi_register(9, None, false), "rax");
-        assert_eq!(map_abi_register(9, Some(AbiBoundary::Call), true), "rax");
+        assert_eq!(map_abi_register(9, Some(AbiBoundary::Ret), false, X86Abi::SysV), "rax");
+        assert_eq!(map_abi_register(9, None, false, X86Abi::SysV), "rax");
+        assert_eq!(map_abi_register(9, Some(AbiBoundary::Call), true, X86Abi::SysV), "rax");
         // A leftover ABI register with no boundary uses that index's RETS home.
-        assert_eq!(map_abi_register(1, None, false), "rdx");
+        assert_eq!(map_abi_register(1, None, false, X86Abi::SysV), "rdx");
+    }
+
+    /// SysV homes are exactly today's — `map_abi_register(_, _, _, SysV)` must not
+    /// move a single byte (plan-47-B Phase 1 byte-neutrality).
+    #[test]
+    fn map_abi_register_sysv_is_unchanged() {
+        let call = Some(AbiBoundary::Call);
+        assert_eq!(map_abi_register(0, call, false, X86Abi::SysV), "rdi");
+        assert_eq!(map_abi_register(1, call, false, X86Abi::SysV), "rsi");
+        assert_eq!(map_abi_register(2, call, false, X86Abi::SysV), "rdx");
+        assert_eq!(map_abi_register(3, call, false, X86Abi::SysV), "rcx");
+        assert_eq!(map_abi_register(4, call, false, X86Abi::SysV), "r8");
+        assert_eq!(map_abi_register(5, call, false, X86Abi::SysV), "r9");
+        // Internal extension for args 7/8 (rax/rbp).
+        assert_eq!(map_abi_register(6, call, false, X86Abi::SysV), "rax");
+        assert_eq!(map_abi_register(7, call, false, X86Abi::SysV), "rbp");
+        // Result bank rax,rdx,rcx,rsi.
+        assert_eq!(map_abi_register(0, None, true, X86Abi::SysV), "rax");
+        assert_eq!(map_abi_register(1, None, true, X86Abi::SysV), "rdx");
+        assert_eq!(map_abi_register(2, None, true, X86Abi::SysV), "rcx");
+        assert_eq!(map_abi_register(3, None, true, X86Abi::SysV), "rsi");
+    }
+
+    /// Win64 argument/result homes (plan-47-B §4.1/§4.2): rcx,rdx,r8,r9 then the
+    /// internal extension rdi,rsi,rax,r10; result bank rax,rdx,r8,r9.
+    #[test]
+    fn map_abi_register_win64_homes() {
+        let call = Some(AbiBoundary::Call);
+        assert_eq!(map_abi_register(0, call, false, X86Abi::Win64), "rcx");
+        assert_eq!(map_abi_register(1, call, false, X86Abi::Win64), "rdx");
+        assert_eq!(map_abi_register(2, call, false, X86Abi::Win64), "r8");
+        assert_eq!(map_abi_register(3, call, false, X86Abi::Win64), "r9");
+        assert_eq!(map_abi_register(4, call, false, X86Abi::Win64), "rdi");
+        assert_eq!(map_abi_register(5, call, false, X86Abi::Win64), "rsi");
+        assert_eq!(map_abi_register(6, call, false, X86Abi::Win64), "rax");
+        assert_eq!(map_abi_register(7, call, false, X86Abi::Win64), "r10");
+        // Result bank — rcx/rsi replaced by r8/r9 so they don't collide with the
+        // Win64 argument registers.
+        assert_eq!(map_abi_register(0, None, true, X86Abi::Win64), "rax");
+        assert_eq!(map_abi_register(1, None, true, X86Abi::Win64), "rdx");
+        assert_eq!(map_abi_register(2, None, true, X86Abi::Win64), "r8");
+        assert_eq!(map_abi_register(3, None, true, X86Abi::Win64), "r9");
+        // A leftover (None, non-result) also draws from the Win64 result bank.
+        assert_eq!(map_abi_register(2, None, false, X86Abi::Win64), "r8");
     }
 
     #[test]

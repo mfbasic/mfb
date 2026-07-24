@@ -182,6 +182,107 @@ impl RegisterModel for X86_64RegisterModel {
     }
 }
 
+// --- Win64 register model (plan-47-B §4.4) ---------------------------------
+//
+// A sibling of `X86_64RegisterModel`, NOT an edit to it — SysV stays byte-fact,
+// not claim. It diverges in exactly the four methods §4.4 names; every other
+// method delegates to the SysV model, since the ISA (spill widths, mnemonics,
+// pinned `arena_base`/`%thread`/`%closure_env`, `class_of`) is identical.
+
+// `r10` leaves the pool (it is `CALL_ARGS_WIN64`'s arg-7 slot), so Win64 has
+// THREE allocatable ints against SysV's four — an accepted, Windows-only
+// spill-pressure regression (§4.2): correctness first; the pool is a later
+// tuning knob (freeing `arena_base` from r15 would restore a fourth).
+const WIN64_INT_ALLOCATABLE: &[&str] = &["r11", "r12", "r14"];
+// Win64 callee-saved integers: SysV's bank plus `rdi`/`rsi` (caller-saved under
+// SysV). The callee-saved xmm bank (xmm6–xmm15) is handled in `is_callee_saved`.
+const WIN64_INT_CALLEE_SAVED: &[&str] =
+    &["rbx", "rbp", "rdi", "rsi", "r12", "r13", "r14", "r15"];
+// Win64 volatile (caller-saved) FP: xmm0–xmm5 only; xmm6–xmm15 are callee-saved.
+// Narrowing the volatile set from SysV's "every xmm" is the safe direction — the
+// allocator keeps FP values live across a call in the preserved xmm6–xmm15.
+// (xmm15 remains the reserved FP scratch, as under SysV — it is simply not
+// offered as caller-saved here.)
+const WIN64_FP_CALLER_SAVED: &[&str] =
+    &["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"];
+
+pub(crate) struct Win64RegisterModel;
+
+impl RegisterModel for Win64RegisterModel {
+    fn allocatable(&self, class: RegClass) -> &'static [&'static str] {
+        match class {
+            RegClass::Int => WIN64_INT_ALLOCATABLE,
+            // FP allocatable is unchanged; xmm6–xmm15 are simply saved on use
+            // (they are callee-saved — see `is_callee_saved`).
+            RegClass::Fp => X86_64RegisterModel.allocatable(RegClass::Fp),
+        }
+    }
+
+    fn class_of(&self, reg: &str) -> Option<RegClass> {
+        X86_64RegisterModel.class_of(reg)
+    }
+
+    fn is_callee_saved(&self, reg: &str) -> bool {
+        if WIN64_INT_CALLEE_SAVED.contains(&reg) {
+            return true;
+        }
+        // xmm6–xmm15 are callee-saved under Win64 (none are under SysV).
+        if let Some(n) = reg.strip_prefix("xmm").and_then(|s| s.parse::<u32>().ok()) {
+            return (6..=15).contains(&n);
+        }
+        false
+    }
+
+    fn caller_saved(&self, class: RegClass) -> &'static [&'static str] {
+        match class {
+            // The integer volatile set is left at SysV's — it names rsi/rdi, which
+            // Win64 actually preserves, so it is *conservatively* correct for calls
+            // out to Windows code (over-saves, never under-saves; §4.4).
+            RegClass::Int => X86_64RegisterModel.caller_saved(RegClass::Int),
+            RegClass::Fp => WIN64_FP_CALLER_SAVED,
+        }
+    }
+
+    fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
+        X86_64RegisterModel.emit_spill(class, reg, offset)
+    }
+
+    fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
+        X86_64RegisterModel.emit_reload(class, reg, offset)
+    }
+
+    fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
+        X86_64RegisterModel.emit_move(dst, src)
+    }
+
+    fn spill_slot_bytes(&self) -> usize {
+        X86_64RegisterModel.spill_slot_bytes()
+    }
+
+    fn arena_base(&self) -> &'static str {
+        X86_64RegisterModel.arena_base()
+    }
+
+    fn closure_env(&self) -> &'static str {
+        X86_64RegisterModel.closure_env()
+    }
+
+    fn current_thread(&self) -> &'static str {
+        X86_64RegisterModel.current_thread()
+    }
+
+    fn math_pool_base(&self) -> Option<&'static str> {
+        X86_64RegisterModel.math_pool_base()
+    }
+
+    /// A Win64 external C callee reads its first four integer arguments from
+    /// rcx/rdx/r8/r9 and everything past that from the stack tail above the shadow
+    /// space (§4.2). Mirrors `X86_64RegisterModel`'s 6, for the bug-296 reason.
+    fn external_int_argument_registers(&self) -> usize {
+        4
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,5 +422,44 @@ mod tests {
         assert_eq!(m.arena_base(), "r15");
         assert_eq!(m.math_pool_base(), None);
         // The zero register realizes xzr as r14.
+    }
+
+    /// The Win64 model diverges from SysV in exactly the four methods §4.4 names
+    /// and delegates the rest (plan-47-B).
+    #[test]
+    fn win64_model_diverges_in_four_methods_and_delegates_the_rest() {
+        let win = Win64RegisterModel;
+        let sysv = X86_64RegisterModel;
+
+        // (1) 4-register external cap.
+        assert_eq!(win.external_int_argument_registers(), 4);
+        // (2) three allocatable ints (r10 leaves the pool); FP unchanged.
+        assert_eq!(win.allocatable(RegClass::Int), &["r11", "r12", "r14"]);
+        assert_eq!(win.allocatable(RegClass::Fp), sysv.allocatable(RegClass::Fp));
+        // (3) Win64 callee-saved bank: rsi/rdi and xmm6–xmm15 join.
+        assert!(win.is_callee_saved("rsi") && win.is_callee_saved("rdi"));
+        assert!(win.is_callee_saved("xmm6") && win.is_callee_saved("xmm15"));
+        assert!(!win.is_callee_saved("xmm5")); // volatile
+        assert!(win.is_callee_saved("rbx")); // SysV bank still callee-saved
+        assert!(!sysv.is_callee_saved("rsi")); // and it is NOT under SysV
+        // (4) FP volatile set narrows to xmm0–xmm5; int volatile is left at SysV's
+        //     (conservative — it names rsi/rdi, which Win64 actually preserves).
+        assert_eq!(
+            win.caller_saved(RegClass::Fp),
+            &["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"]
+        );
+        assert_eq!(win.caller_saved(RegClass::Int), sysv.caller_saved(RegClass::Int));
+
+        // Delegated: identical ISA (pins, spill widths, mnemonics, class_of).
+        assert_eq!(win.arena_base(), "r15");
+        assert_eq!(win.current_thread(), "rbx");
+        assert_eq!(win.closure_env(), "r13");
+        assert_eq!(win.spill_slot_bytes(), 16);
+        assert_eq!(win.class_of("r11"), Some(RegClass::Int));
+        assert_eq!(win.class_of("xmm3"), Some(RegClass::Fp));
+        assert_eq!(
+            win.emit_spill(RegClass::Int, "r11", 8).op.mnemonic(),
+            "str_u64"
+        );
     }
 }
