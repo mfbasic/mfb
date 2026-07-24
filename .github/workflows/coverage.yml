@@ -6,6 +6,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # gen_regex_unicode.py derives the general-category table from the Python
+      # runtime's bundled `unicodedata`, whose Unicode version is tied to the
+      # Python minor version (3.14.x → Unicode 16.0.0). The checked-in artifact
+      # is pinned to 16.0.0, so check-generated only reproduces it under a Python
+      # that ships the same Unicode. ubuntu-latest's system python3 lags (Unicode
+      # 15.0.0), which drifts the regex table — pin the interpreter to match.
+      # Regenerate the artifact with this same Python version (see the script).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
       - name: Generated-artifact integrity (bug-339 A1)
         run: sh scripts/check-generated.sh
       - uses: dtolnay/rust-toolchain@1.96.0
