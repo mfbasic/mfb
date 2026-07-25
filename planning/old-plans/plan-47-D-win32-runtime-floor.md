@@ -1,5 +1,7 @@
 # plan-47-D: the Win32 console runtime floor
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
 Depends on: plan-47-B (a Win64 backend and the `CodegenPlatform` stub wall to fill in),
@@ -235,13 +237,13 @@ correct this table rather than leaving it at 9 by assumption.)
 The smallest `.exe` that fetches its own command line and prints it. **Do not build the
 rest until this runs on Windows.**
 
-- [ ] Change `entry_args_in_registers() -> bool` to `entry_args_source() -> EntryArgsSource`
+- [x] Change `entry_args_in_registers() -> bool` to `entry_args_source() -> EntryArgsSource`
       (defaulted), with `Registers`/`Stack` reproducing today's arms; `entry_and_arena.rs:40`
       matches on it.
-- [ ] Prove byte-identity for all four existing targets **before** adding the Windows arm.
-- [ ] Implement the `Fetched` arm: `GetCommandLineW` → `CommandLineToArgvW` → arena →
+- [x] Prove byte-identity for all four existing targets **before** adding the Windows arm.
+- [x] Implement the `Fetched` arm: `GetCommandLineW` → `CommandLineToArgvW` → arena →
       UTF-8 → `os::args`, with `LocalFree`.
-- [ ] Runtime: a program that prints its argv, run on the Win11 box with several
+- [x] Runtime: a program that prints its argv, run on the Win11 box with several
       arguments including a non-ASCII one.
 
 Acceptance: `scripts/artifact-gate.sh` 0 diffs on all four existing targets after the
@@ -252,12 +254,12 @@ Commit: —
 
 ### Phase 2 — arena, write, exit
 
-- [ ] `emit_arena_map`/`emit_arena_unmap` over `VirtualAlloc`/`VirtualFree`.
-- [ ] `emit_write` over `GetStdHandle` + `WriteFile` — **exercises 47-B's stack-arg tail
+- [x] `emit_arena_map`/`emit_arena_unmap` over `VirtualAlloc`/`VirtualFree`.
+- [x] `emit_write` over `GetStdHandle` + `WriteFile` — **exercises 47-B's stack-arg tail
       (5 arguments)**.
-- [ ] `emit_program_exit` over `ExitProcess`.
-- [ ] `plan.rs`: `NativePlanPlatform`'s 7 required methods, kernel32 imports.
-- [ ] Runtime: `hello.exe` prints and exits 0 on Windows.
+- [x] `emit_program_exit` over `ExitProcess`.
+- [x] `plan.rs`: `NativePlanPlatform`'s 7 required methods, kernel32 imports.
+- [x] Runtime: `hello.exe` prints and exits 0 on Windows.
 
 Acceptance: `hello.exe` stdout is **byte-identical** to the linux-x86_64 build's, exit
 code 0, on the Win11 box.
@@ -265,14 +267,14 @@ Commit: —
 
 ### Phase 3 — the fabricated-constant wall and capability advertisement
 
-- [ ] Fill the 21 POSIX constant accessors with **poison values** (`usize::MAX`-style),
+- [x] Fill the 21 POSIX constant accessors with **poison values** (`usize::MAX`-style),
       never plausible ones, each with a comment naming the sub-plan that will remove it
       (47-E). A path that reaches one must crash, not mis-address.
-- [ ] `emit_random_bytes` over `BCryptGenRandom`; `emit_errno` over `GetLastError`.
-- [ ] Decide `skip_entry_arena_destroy` for Windows explicitly (§3.2) and comment the
+- [x] `emit_random_bytes` over `BCryptGenRandom`; `emit_errno` over `GetLastError`.
+- [x] Decide `skip_entry_arena_destroy` for Windows explicitly (§3.2) and comment the
       reasoning — it is a use-after-free question.
-- [ ] `BackendCapabilities.executable = true`; `runtime_calls` = the floor set only.
-- [ ] Tests: a program using `fs::`/`term::`/`thread::`/`net::` is **rejected at compile
+- [x] `BackendCapabilities.executable = true`; `runtime_calls` = the floor set only.
+- [x] Tests: a program using `fs::`/`term::`/`thread::`/`net::` is **rejected at compile
       time** for `-target windows-x86_64`, with the unsupported-runtime-call diagnostic.
 
 Acceptance: floor programs build and run; every non-floor surface is rejected at compile
@@ -282,9 +284,9 @@ Commit: —
 
 ### Phase 4 — the real proof (largest blast radius last)
 
-- [ ] Integer arithmetic, string building, and collection programs run on Windows with
+- [x] Integer arithmetic, string building, and collection programs run on Windows with
       byte-identical stdout to their linux-x86_64 builds.
-- [ ] Add the Windows fixtures to the acceptance suite and seed their goldens.
+- [x] Add the Windows fixtures to the acceptance suite and seed their goldens.
 
 Acceptance: three non-trivial programs produce byte-identical stdout on Windows and
 Linux, and exit with the same codes.

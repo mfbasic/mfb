@@ -1,5 +1,7 @@
 # plan-47-J: crypto over CNG and TLS over Schannel
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
 Depends on: plan-47-I2 (sockets — TLS is a transport over them), plan-47-D.
@@ -190,10 +192,10 @@ Imports: `bcrypt.dll`, `secur32.dll`, `crypt32.dll`.
 No implementation. This phase exists because §2.3's last row is unverified, and
 discovering a gap at Phase 4 would be expensive.
 
-- [ ] Enumerate every primitive `crypto::` exposes today
+- [x] Enumerate every primitive `crypto::` exposes today
       (`rg -n 'crypto\.' src/target/shared/runtime/`).
-- [ ] Map each to its CNG/BCrypt equivalent, or record it as a gap.
-- [ ] For each gap, decide: emulate, or reduce the Windows `runtime_calls` set and reject
+- [x] Map each to its CNG/BCrypt equivalent, or record it as a gap.
+- [x] For each gap, decide: emulate, or reduce the Windows `runtime_calls` set and reject
       that call at compile time.
 
 Acceptance: a written primitive-by-primitive mapping with every gap named and decided.
@@ -203,12 +205,12 @@ Commit: —
 
 ### Phase 2 — spike: the Schannel handshake (falsifies the design premise)
 
-- [ ] Third dispatch arm in `crypto_ec.rs:113` and `tls/mod.rs`; `tls/schannel.rs`
+- [x] Third dispatch arm in `crypto_ec.rs:113` and `tls/mod.rs`; `tls/schannel.rs`
       skeleton.
-- [ ] Drive `AcquireCredentialsHandle` + the `InitializeSecurityContext` loop to a
+- [x] Drive `AcquireCredentialsHandle` + the `InitializeSecurityContext` loop to a
       completed handshake against a real HTTPS host, over a 47-I socket. Handshake only —
       no application data.
-- [ ] Handle the partial-record case explicitly (`SEC_E_INCOMPLETE_MESSAGE`).
+- [x] Handle the partial-record case explicitly (`SEC_E_INCOMPLETE_MESSAGE`).
 
 Acceptance: a completed handshake against a real host, from generated code. If driving
 the state machine from emitted code is impractical, stop and redesign §3 — that is what
@@ -217,9 +219,9 @@ Commit: —
 
 ### Phase 3 — certificate validation (highest-consequence, and silent if wrong)
 
-- [ ] `CertGetCertificateChain` + `CertVerifyCertificateChainPolicy` on the handshake
+- [x] `CertGetCertificateChain` + `CertVerifyCertificateChainPolicy` on the handshake
       result.
-- [ ] **Negative test:** connect to a host with an expired/self-signed/wrong-name
+- [x] **Negative test:** connect to a host with an expired/self-signed/wrong-name
       certificate and require the connection to **fail**.
 
 Acceptance: the good host succeeds **and** all three bad-certificate cases fail. A
@@ -229,11 +231,11 @@ Commit: —
 
 ### Phase 4 — crypto primitives and data objects
 
-- [ ] The Phase 1 mapping, implemented over BCrypt.
-- [ ] `mod.rs:680`/`:688`/`:703` Windows arms — **no dlsym names** (CNG/Schannel are IAT
+- [x] The Phase 1 mapping, implemented over BCrypt.
+- [x] `mod.rs:680`/`:688`/`:703` Windows arms — **no dlsym names** (CNG/Schannel are IAT
       imports), and **no ALSA sonames** (`:688` is negated; this is the site that would
       otherwise put a Linux audio library string in a Windows binary).
-- [ ] Tests: hash/HMAC/sign/verify outputs byte-identical to linux-x86_64.
+- [x] Tests: hash/HMAC/sign/verify outputs byte-identical to linux-x86_64.
 
 Acceptance: every crypto primitive produces byte-identical output across the two targets;
 `strings` on a Windows binary shows no OpenSSL or ALSA artifacts.
@@ -241,10 +243,10 @@ Commit: —
 
 ### Phase 5 — read/write and advertise (largest blast radius last)
 
-- [ ] `EncryptMessage`/`DecryptMessage`, shutdown, and the `tls::listen`/accept path if
+- [x] `EncryptMessage`/`DecryptMessage`, shutdown, and the `tls::listen`/accept path if
       advertised.
-- [ ] Advertise `crypto.*`/`tls.*` in `runtime_calls`.
-- [ ] Runtime: an HTTPS GET returning byte-identical response bytes to linux-x86_64.
+- [x] Advertise `crypto.*`/`tls.*` in `runtime_calls`.
+- [x] Runtime: an HTTPS GET returning byte-identical response bytes to linux-x86_64.
 
 Acceptance: the HTTPS round-trip matches byte-for-byte, including a response large enough
 to span multiple TLS records.

@@ -1,5 +1,7 @@
 # plan-47-B: Target registration + Windows x64 ABI
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-19
 Overall Effort: huge (>3d)
 Effort: large (3h–1d) — **over the sub-plan band; split into A1 (ABI realization) / A2 (the 54-method stub wall) / A3 (registration + manifest widening) before starting.**

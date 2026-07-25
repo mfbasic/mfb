@@ -1,5 +1,7 @@
 # plan-47-G: the Windows console/terminal surface
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-20
 Effort: small (<1h) for G1; medium (1h–2h) for G2
 Depends on: **G1 depends on nothing** (inert chokepoint refactor, lands before 47-B).
@@ -174,9 +176,9 @@ feature, not a port.
 
 ### G1 Phase 1 — the chokepoint (inert; blocks on nothing; land early)
 
-- [ ] Add a `term_symbol(intent)` chokepoint and route all 6 literals
+- [x] Add a `term_symbol(intent)` chokepoint and route all 6 literals
       (`io_helpers.rs:825,838,911,952,1034`; `term.rs:470`) through it.
-- [ ] No Windows arm. No behavior change.
+- [x] No Windows arm. No behavior change.
 
 Acceptance: `scripts/artifact-gate.sh` 0 diffs on all four existing targets. Any diff
 means the refactor changed emission — fix it, do not rebaseline.
@@ -184,10 +186,10 @@ Commit: —
 
 ### G2 Phase 1 — size and is-terminal (the safe half)
 
-- [ ] `emit_is_terminal` over `GetConsoleMode`; `emit_terminal_size` over
+- [x] `emit_is_terminal` over `GetConsoleMode`; `emit_terminal_size` over
       `GetConsoleScreenBufferInfo` using `srWindow`, not `dwSize`.
-- [ ] Answer 47-A's three `TIOCGWINSZ` matches (`term.rs:233`, `:316`, `:800`).
-- [ ] Runtime: a program printing the terminal size, and one printing whether stdout is
+- [x] Answer 47-A's three `TIOCGWINSZ` matches (`term.rs:233`, `:316`, `:800`).
+- [x] Runtime: a program printing the terminal size, and one printing whether stdout is
       a terminal (checked both piped and interactive).
 
 Acceptance: size matches what the Windows console reports; is-terminal is correct both
@@ -196,9 +198,9 @@ Commit: —
 
 ### G2 Phase 2 — raw mode
 
-- [ ] `emit_set_raw_mode` per §4, touching **both** the input and output handles and
+- [x] `emit_set_raw_mode` per §4, touching **both** the input and output handles and
       saving both original modes.
-- [ ] Runtime: a keystroke-reading program behaves as on linux-x86_64.
+- [x] Runtime: a keystroke-reading program behaves as on linux-x86_64.
 
 Acceptance: individual keystrokes are delivered without line buffering or echo, and VT
 sequences render.
@@ -209,11 +211,11 @@ Commit: —
 Console mode is process-wide state that **outlives the process**. Getting this wrong
 corrupts the user's shell after the program exits, which no unit test will catch.
 
-- [ ] Restore both saved modes from the shutdown path (`lower_shutdown`,
+- [x] Restore both saved modes from the shutdown path (`lower_shutdown`,
       `entry_and_arena.rs:1868`).
-- [ ] Runtime: enter raw mode then (a) exit normally, (b) TRAP, (c) Ctrl-C — and after
+- [x] Runtime: enter raw mode then (a) exit normally, (b) TRAP, (c) Ctrl-C — and after
       **each**, confirm the shell still echoes and line-buffers correctly.
-- [ ] Advertise `term.*` in `runtime_calls`.
+- [x] Advertise `term.*` in `runtime_calls`.
 
 Acceptance: after all three exit paths the console is fully restored. This is verified by
 using the shell afterwards, not by reading the code.

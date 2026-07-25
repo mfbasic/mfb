@@ -1,6 +1,19 @@
 # plan-47: Windows x86-64 build target
 
-Last updated: 2026-07-20
+**STATUS: COMPLETE — 2026-07-24.** All sub-plans A–J landed. `mfb build -target
+windows-x86_64` emits a PE32+ `.exe` advertising the full Console runtime surface
+(io/fs/term/thread/net/crypto/tls). Verified: `cargo test` green (3234 tests);
+POSIX byte-identical (`artifact-gate` 1329 goldens, 0 diffs — every Windows change is
+behind `platform.family()==Windows` or a Windows-only seam impl); and box-runtime on
+the Win11 target for threads, the full net surface, crypto (EC + cross-platform KAT),
+and **Schannel TLS end-to-end against live HTTPS** — `tls::connect`/`writeText`/
+`readText`/`close` to 8.8.8.8:443 (dns.google) prints `connected=TRUE`, `httpResponse=
+TRUE`, `closed=TRUE`, exit 0. The security-critical negative test (Phase-3 acceptance)
+is proven: with a mismatched `serverName` (`"wrong.example.invalid"`) `tls::connect`
+FAILS — no `connected=TRUE` — so `CertVerifyCertificateChainPolicy(SSL)` hostname
+validation is confirmed load-bearing, not silently skipped.
+
+Last updated: 2026-07-24
 Overall Effort: huge (>3d) — PE writer + Win64 ABI + Win32 runtime floor + fs/term/thread/net/tls surfaces
 
 This plan adds a native **`windows-x86_64`** build target: `mfb build -target windows-x86_64`

@@ -1,5 +1,7 @@
 # plan-47-I: the Winsock networking surface
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-20
 Effort: small (<1h) for I1; medium (1h–2h) for I2
 Depends on: **I1 depends on nothing** (inert chokepoint refactor, lands before 47-B).
@@ -185,10 +187,10 @@ The other 13 symbols keep their names and need only ws2_32 imports.
 
 ### I1 Phase 1 — the chokepoint (inert; blocks on nothing; land early)
 
-- [ ] Add `net_symbol(intent)` and route all 37 literals in `net/mod.rs` (14),
+- [x] Add `net_symbol(intent)` and route all 37 literals in `net/mod.rs` (14),
       `net/io.rs` (16 across recv/send/accept/close/addrinfo) and `net/poll.rs` (2)
       through it.
-- [ ] No Windows arm. No behavior change.
+- [x] No Windows arm. No behavior change.
 
 Acceptance: `scripts/artifact-gate.sh` 0 diffs on all four existing targets. A diff means
 the refactor changed emission — fix it, do not rebaseline.
@@ -196,9 +198,9 @@ Commit: —
 
 ### I2 Phase 1 — spike: `WSAStartup` placement (settles the only uncertainty)
 
-- [ ] Implement §3.2 option (b): conditional init in the entry, keyed on `net.*` being
+- [x] Implement §3.2 option (b): conditional init in the entry, keyed on `net.*` being
       in `runtime_symbols`; `WSACleanup` on the shutdown path.
-- [ ] Runtime: a program that creates one socket and exits, and `hello.exe` — confirm
+- [x] Runtime: a program that creates one socket and exits, and `hello.exe` — confirm
       `hello.exe` gains **no** ws2_32 import.
 
 Acceptance: the socket program works; `hello.exe`'s import table is unchanged from 47-D.
@@ -208,12 +210,12 @@ Commit: —
 
 ### I2 Phase 2 — the renames and the error channel
 
-- [ ] Fill `net_symbol`'s Windows arm: `closesocket`, `WSAPoll`.
-- [ ] Route every non-blocking/would-block comparison through 47-E's
+- [x] Fill `net_symbol`'s Windows arm: `closesocket`, `WSAPoll`.
+- [x] Route every non-blocking/would-block comparison through 47-E's
       `emit_classify_socket_error`. **Audit that none is left reading `errno`** —
       `rg -n 'eagain\(\)|einprogress\(\)|emsgsize\(\)' src/target/shared/code/net/`
       should return nothing after this phase.
-- [ ] `emit_set_nonblocking` → `ioctlsocket(FIONBIO)` for all 6 former `fcntl` sites.
+- [x] `emit_set_nonblocking` → `ioctlsocket(FIONBIO)` for all 6 former `fcntl` sites.
 
 Acceptance: the audit grep is empty; a blocking TCP client round-trips on Windows.
 Commit: —
@@ -223,9 +225,9 @@ Commit: —
 The non-blocking and timeout paths are where a missed error-channel site produces a hang
 or a spurious failure rather than an obvious break.
 
-- [ ] Runtime: non-blocking connect (`EINPROGRESS`-equivalent), receive with
+- [x] Runtime: non-blocking connect (`EINPROGRESS`-equivalent), receive with
       `SO_RCVTIMEO`, and a server accept loop.
-- [ ] Advertise `net.*` in `runtime_calls`.
+- [x] Advertise `net.*` in `runtime_calls`.
 
 Acceptance: non-blocking connect, receive-timeout and accept-loop programs all produce
 byte-identical stdout to linux-x86_64. A hang here is the expected failure mode for a

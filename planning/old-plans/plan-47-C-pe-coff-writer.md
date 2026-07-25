@@ -1,5 +1,7 @@
 # plan-47-C: PE/COFF executable writer
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-19
 Effort: medium (1h–2h)
 Depends on: **per phase.** *C1* = Phases 1–3 (`src/os/windows/{mod,object,link/}` plus
@@ -514,16 +516,16 @@ encoding with bit 63 clear; hint/name entries at even offsets.
 The zero-risk half: a JSON structural plan and the module seam, with no image
 bytes and nothing calling into the writer yet.
 
-- [ ] Add `pub(crate) mod windows;` to `src/os/mod.rs` (beside `linux`/`macos`,
+- [x] Add `pub(crate) mod windows;` to `src/os/mod.rs` (beside `linux`/`macos`,
       `:3`–`:6`).
-- [ ] New `src/os/windows/mod.rs`: `write_native_object_plan`,
+- [x] New `src/os/windows/mod.rs`: `write_native_object_plan`,
       `validate_native_object_plan` wrappers mirroring
       `src/os/linux/mod.rs:19`–`:34`, writing `<name>.nobj`.
-- [ ] New `src/os/windows/object.rs`: `NativeObjectPlan` with
+- [x] New `src/os/windows/object.rs`: `NativeObjectPlan` with
       `container: "pe"`, `image_base: 0x1_4000_0000`, and a `validate` accepting
       only `target == "windows-x86_64"` and `container == "pe"` — the structural
       twin of `src/os/linux/object.rs:106`,`:183`.
-- [ ] Tests: `src/os/windows/mod.rs` `#[cfg(test)]` module — the `.nobj` contains
+- [x] Tests: `src/os/windows/mod.rs` `#[cfg(test)]` module — the `.nobj` contains
       `"container": "pe"`; a `linux-x86_64` target is rejected (the mirror of
       `src/os/macos/mod.rs:116`); and a re-assert that
       `src/os/linux/mod.rs:141`'s `"windows"` rejection still holds unchanged.
@@ -538,18 +540,18 @@ Commit: —
 An import-less image: layout arithmetic only, fully unit-testable, byte-diffable
 against the oracle constants.
 
-- [ ] New `src/os/windows/link/pe.rs`: DOS header + 64-byte stub, PE signature,
+- [x] New `src/os/windows/link/pe.rs`: DOS header + 64-byte stub, PE signature,
       COFF header, PE32+ optional header (all §4.3 fields), and a section-header
       emitter — plus `align()` and `put_u16/u32/u64` helpers (the PE writer keeps
       its own copies; `src/os/linux/link/mod.rs:611`–`:644` is the shape).
-- [ ] New `src/os/windows/link/mod.rs`: `write_executable(project_dir, name,
+- [x] New `src/os/windows/link/mod.rs`: `write_executable(project_dir, name,
       image) -> PathBuf` writing `build/<name>.exe` via `BUILD_DIR`
       (`src/os/mod.rs:15`), and `encode_executable_bytes(image) -> Vec<u8>` doing
       entry resolution (`EncodedSection::Text` required), section planning
       (§4.4, omitting empty sections), and the `.text`/`.rdata`/`.data` payloads.
       Reject non-empty `rpaths` and `Some(signing_metadata)` with a named error.
-- [ ] Add `write_linked_executable` to `src/os/windows/mod.rs`.
-- [ ] Tests: new `src/os/windows/link/tests.rs`, mirroring
+- [x] Add `write_linked_executable` to `src/os/windows/mod.rs`.
+- [x] Tests: new `src/os/windows/link/tests.rs`, mirroring
       `src/os/linux/link/tests.rs`'s hand-built-image style — an image whose
       `_main` is `mov ecx,42; ret` writes bytes starting `MZ`; `e_lfanew` reads
       `0x80` and `PE\0\0` sits there; every §5 header field matches its oracle
@@ -569,16 +571,16 @@ Commit: —
 
 Where the format risk concentrates: everything the loader must agree with.
 
-- [ ] `src/os/windows/link/mod.rs`: build `.idata` per §4.5 — descriptors + zero
+- [x] `src/os/windows/link/mod.rs`: build `.idata` per §4.5 — descriptors + zero
       terminator, ILTs, IATs, hint/name table — grouping by `library` in
       `image.imports` first-appearance order, and record each symbol's IAT slot
       RVA. Fill data directories `[1]` and `[12]`; assert `[5]` stays zero.
-- [ ] Append one 12-byte `FF 25 disp32` + `0xCC` padding thunk per
+- [x] Append one 12-byte `FF 25 disp32` + `0xCC` padding thunk per
       `ImportKind::Function` import (§4.6), reach-checked with `i32::try_from`
       exactly as `src/os/linux/link/mod.rs:514`–`:518` does.
-- [ ] Add `patch_relocations` with the five arms of §4.6 and a terminal
+- [x] Add `patch_relocations` with the five arms of §4.6 and a terminal
       `Err(...)` arm naming binding + kind.
-- [ ] Tests (`src/os/windows/link/tests.rs`): a two-DLL image
+- [x] Tests (`src/os/windows/link/tests.rs`): a two-DLL image
       (`kernel32.dll` + `bcrypt.dll`, three symbols) produces descriptors in
       first-appearance order with a zero terminator; ILT and IAT are
       byte-identical and both `0`-terminated; every ILT entry has bit 63 clear
@@ -589,7 +591,7 @@ Where the format risk concentrates: everything the loader must agree with.
       text/data symbol VAs; an unsupported `(binding, kind)` pair errors with
       both names in the message; encoding the **same** image twice produces
       byte-identical output (determinism).
-- [ ] Tests (`src/arch/x86_64/encode/tests.rs`): pin the current external-`bl`
+- [x] Tests (`src/arch/x86_64/encode/tests.rs`): pin the current external-`bl`
       bytes `[0xB8,8,0,0,0,0xE8,0,0,0,0]` (already asserted at `:470`) with a
       comment naming plan-47-C — the thunk design depends on that call staying
       **direct**; if it ever becomes `FF 15`, this test must fail before a `.exe`
@@ -602,27 +604,27 @@ Commit: —
 
 ### Phase 4 — Runtime proof + backend wiring + spec
 
-- [ ] Wire the 47-B `src/target/win_x86_64/mod.rs` backend's `write_executable`
+- [x] Wire the 47-B `src/target/win_x86_64/mod.rs` backend's `write_executable`
       and `write_native_object_plan` to `crate::os::windows::*`. The backend's
       `BackendCapabilities.executable` (`src/target.rs:94`) stays **false** —
       47-D flips it — so `crate::target::write_executable`'s gate
       (`src/target.rs:280`) keeps rejecting a real build with the existing
       "native executable output does not support …" message.
-- [ ] Build the proof image by hand in a test-only helper: `.text` =
+- [x] Build the proof image by hand in a test-only helper: `.text` =
       `mov ecx, 42` + `call ExitProcess` (the encoder's external form) +
       `int3`, one `kernel32.dll` / `ExitProcess` import; write it to a temp dir
       and copy the `.exe` to a Windows/Wine runner.
-- [ ] New `src/docs/spec/linker/13_windows-x86_64.md`: the PE emission contract —
+- [x] New `src/docs/spec/linker/13_windows-x86_64.md`: the PE emission contract —
       header field values, the section set and characteristics, the `.idata`
       layout, the synthesized IAT thunk (and why it exists), the fixed-`ImageBase`
       / `RELOCS_STRIPPED` decision, and the determinism rules. Use
       `[[src/os/windows/link/mod.rs:symbol]]` citations; `scripts/fix_citations.py`
       keeps them honest. No `src/docs/spec/mod.rs` edit is needed — a new *topic*
       is auto-discovered (`src/docs/spec/mod.rs:39`–`:42`).
-- [ ] Add the topic to the reading-order list in
+- [x] Add the topic to the reading-order list in
       `src/docs/spec/linker/spec.md` (the `macos-aarch64`, `linux-*` bullet) and
       to the "the two in-tree linkers" sentence, which becomes three.
-- [ ] Update `.ai/compiler.md` / any `src/docs/**` list that enumerates targets or
+- [x] Update `.ai/compiler.md` / any `src/docs/**` list that enumerates targets or
       containers, if the grep finds one.
 
 Acceptance: the hand-built `.exe` runs on Windows x86-64 (or Wine) and exits

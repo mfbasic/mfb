@@ -1,5 +1,7 @@
 # plan-47-E: raise the platform seam off POSIX
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
 Depends on: plan-47-A (branches already exhaustive), plan-47-D (one real Windows surface
@@ -204,11 +206,11 @@ One group per phase, byte-identity gate after each, so a regression is attributa
 
 ### Phase 1 — the socket split decision (settles the only uncertainty)
 
-- [ ] Write a throwaway sketch of the Windows arm of `emit_classify_socket_error` and
+- [x] Write a throwaway sketch of the Windows arm of `emit_classify_socket_error` and
       `emit_set_nonblocking` against the real Winsock calls.
-- [ ] If the sketch needs a constant not in the "keep 6" list, revise §3.1 before
+- [x] If the sketch needs a constant not in the "keep 6" list, revise §3.1 before
       writing any production code.
-- [ ] Record the settled split in §Corrections.
+- [x] Record the settled split in §Corrections.
 
 Acceptance: the split is written down with the sketch that justified it. No production
 code lands in this phase.
@@ -216,10 +218,10 @@ Commit: —
 
 ### Phase 2 — the dirent/stat group (3 constants, smallest blast radius)
 
-- [ ] Add `emit_read_dir_entry`, `emit_stat_is_dir`; move the POSIX sequences verbatim
+- [x] Add `emit_read_dir_entry`, `emit_stat_is_dir`; move the POSIX sequences verbatim
       into the two impls; delete the 3 constants and the 47-A branches at
       `fs_helpers_paths.rs:922`, `:1039`.
-- [ ] Delete the corresponding poison values from `win_x86_64/code.rs`; leave
+- [x] Delete the corresponding poison values from `win_x86_64/code.rs`; leave
       `unreachable!("47-F owns this")`.
 
 Acceptance: `scripts/artifact-gate.sh` 0 diffs on all four existing targets.
@@ -227,9 +229,9 @@ Commit: —
 
 ### Phase 3 — the termios group (8 constants, the dangerous one)
 
-- [ ] Add `emit_set_raw_mode`; move the enter/exit sequence verbatim from
+- [x] Add `emit_set_raw_mode`; move the enter/exit sequence verbatim from
       `io_helpers.rs:866` into the two impls; delete the 8 constants.
-- [ ] Delete the poison values; leave `unreachable!("47-G owns this")`.
+- [x] Delete the poison values; leave `unreachable!("47-G owns this")`.
 
 Acceptance: 0 diffs on all four targets. This sequence is a read-modify-write of a struct
 with per-field offsets — diff the `.ncode` for a `term::`-using fixture explicitly, not
@@ -238,10 +240,10 @@ Commit: —
 
 ### Phase 4 — the socket group (largest blast radius last)
 
-- [ ] Add `emit_set_nonblocking` + `emit_classify_socket_error` per the Phase 1 split;
+- [x] Add `emit_set_nonblocking` + `emit_classify_socket_error` per the Phase 1 split;
       lift the 4 non-portable constants; **keep the 6 portable ones**.
-- [ ] Update `net/mod.rs`, `net/io.rs`, `net/poll.rs`, `tls/mod.rs`, `tls/openssl.rs`.
-- [ ] Delete the poison values; leave `unreachable!("47-I owns this")`.
+- [x] Update `net/mod.rs`, `net/io.rs`, `net/poll.rs`, `tls/mod.rs`, `tls/openssl.rs`.
+- [x] Delete the poison values; leave `unreachable!("47-I owns this")`.
 
 Acceptance: 0 diffs on all four targets, plus an explicit `.ncode` diff for a `net::`-
 and a `tls::`-using fixture. Confirm no poison constant remains anywhere in

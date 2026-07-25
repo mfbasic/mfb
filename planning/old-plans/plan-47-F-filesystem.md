@@ -1,5 +1,7 @@
 # plan-47-F: the Win32 filesystem surface
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
 Depends on: plan-47-D (the IAT mechanism and a runnable `.exe`). Strongly prefers
@@ -190,11 +192,11 @@ plan is removing, and it cannot express `FILE_FLAG_OPEN_REPARSE_POINT`.
 
 ### Phase 1 — spike: path marshaling and the open-flag shape
 
-- [ ] Implement `emit_path_exists` end to end: UTF-8 → `MultiByteToWideChar` →
+- [x] Implement `emit_path_exists` end to end: UTF-8 → `MultiByteToWideChar` →
       `GetFileAttributesW`. Decide and document where the UTF-16 buffer lives.
-- [ ] Change `open_flag_set` to return the §3.1 struct; POSIX arms reproduce today's
+- [x] Change `open_flag_set` to return the §3.1 struct; POSIX arms reproduce today's
       bitmask byte-identically.
-- [ ] Runtime: a program testing existence of an ASCII path and a non-ASCII path.
+- [x] Runtime: a program testing existence of an ASCII path and a non-ASCII path.
 
 Acceptance: `scripts/artifact-gate.sh` 0 diffs on the four existing targets after the
 `open_flag_set` reshape; the existence program is correct on Windows for both paths. If
@@ -203,9 +205,9 @@ Commit: —
 
 ### Phase 2 — file I/O
 
-- [ ] `emit_open_file`, `emit_read_file`, `emit_close_file`, `emit_seek_file`,
+- [x] `emit_open_file`, `emit_read_file`, `emit_close_file`, `emit_seek_file`,
       `emit_sync_file`, and the §3.3 progress-loop.
-- [ ] Runtime: write a file, read it back, byte-compare against linux-x86_64.
+- [x] Runtime: write a file, read it back, byte-compare against linux-x86_64.
 
 Acceptance: a write/read round-trip is byte-identical across the two targets, including
 a short-read case.
@@ -213,12 +215,12 @@ Commit: —
 
 ### Phase 3 — paths and directories (highest correctness risk)
 
-- [ ] `emit_realpath`, `emit_temp_directory`, `emit_current_directory`,
+- [x] `emit_realpath`, `emit_temp_directory`, `emit_current_directory`,
       `emit_rename_path`, `emit_mkstemps`, `emit_fs_path_operation`.
-- [ ] `emit_opendir`/`emit_readdir`/`emit_closedir` over `FindFirstFileW`.
-- [ ] Tests: a directory with **exactly one entry**, one with zero, and one with a
+- [x] `emit_opendir`/`emit_readdir`/`emit_closedir` over `FindFirstFileW`.
+- [x] Tests: a directory with **exactly one entry**, one with zero, and one with a
       non-ASCII filename — the first-entry lifecycle (§3) is where this breaks.
-- [ ] Decide and document §3.2 symlink refusal.
+- [x] Decide and document §3.2 symlink refusal.
 
 Acceptance: directory listings match linux-x86_64 exactly for the zero-, one- and
 many-entry cases and for a non-ASCII filename; the symlink decision is written down.
@@ -226,8 +228,8 @@ Commit: —
 
 ### Phase 4 — advertise and prove (largest blast radius last)
 
-- [ ] Add `fs.*` to `runtime_calls`; remove the compile-time rejection.
-- [ ] Runtime: the full fs acceptance fixture set on Windows.
+- [x] Add `fs.*` to `runtime_calls`; remove the compile-time rejection.
+- [x] Runtime: the full fs acceptance fixture set on Windows.
 
 Acceptance: every `fs::` fixture that passes on linux-x86_64 produces byte-identical
 stdout on Windows.

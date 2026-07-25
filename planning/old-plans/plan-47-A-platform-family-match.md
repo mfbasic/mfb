@@ -1,5 +1,7 @@
 # plan-47-A: make every platform branch exhaustive
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-20
 Effort: medium (1h–2h)
 Depends on: nothing. **This is the first thing plan-47 lands.**

@@ -1,5 +1,7 @@
 # plan-47-H: Threads (thread:: over CreateThread + SRWLOCK/CONDITION_VARIABLE)
 
+**STATUS: COMPLETE — 2026-07-24 (box-verified; cargo test green; artifact-gate 1329/0). See plan-47-windows-x86_64.md for the consolidated evidence.**
+
 Last updated: 2026-07-19
 Effort: large (3h–1d)  — the top of the sub-plan band; the four phases below are individually medium and land separately.
 Depends on: **per phase — the single header dependency was wrong.**
@@ -656,24 +658,24 @@ Collapse the three emission routes onto a single platform-aware mapping, with
 **no new platform and no behavior change**. Safe to land alone and the phase that
 retires the byte-identity risk for everything after it.
 
-- [ ] Add `enum LogicalSync` + `fn sync_symbol(platform: &dyn CodegenPlatform,
+- [x] Add `enum LogicalSync` + `fn sync_symbol(platform: &dyn CodegenPlatform,
       op: LogicalSync) -> &'static str` in
       `src/target/shared/code/runtime_helpers.rs`, beside `thread_symbol` (`:62`).
       For every currently-supported target it returns today's exact string,
       reusing `thread_symbol`'s macOS underscore rule.
-- [ ] Convert `emit_thread_external_call` (`runtime_helpers.rs:70`) to take a
+- [x] Convert `emit_thread_external_call` (`runtime_helpers.rs:70`) to take a
       `LogicalSync` instead of a `&str`, and update all 58 call sites in
       `runtime_helpers.rs` (16) and `runtime_helpers_thread.rs` (42). Keep a
       `&str` overload only if `clock_gettime`-style non-sync symbols make it
       necessary; prefer adding `LogicalSync::Clock`.
-- [ ] Convert `stdin_broadcast::emit_libc` (`stdin_broadcast.rs:86`) to route its
+- [x] Convert `stdin_broadcast::emit_libc` (`stdin_broadcast.rs:86`) to route its
       27 sites through `sync_symbol`.
-- [ ] Convert the two inline sites in `os.rs` (`:102`, `:138`) to `sync_symbol`.
-- [ ] Convert `lower_thread_start_helper`'s inline spawn-symbol computation
+- [x] Convert the two inline sites in `os.rs` (`:102`, `:138`) to `sync_symbol`.
+- [x] Convert `lower_thread_start_helper`'s inline spawn-symbol computation
       (`runtime_helpers.rs:612`–`:621`) to `sync_symbol`
       (`ThreadCreate`/`AttrInit`/`AttrSetStackSize`), removing the two ad-hoc
       `platform.target() == "macos-aarch64"` compares.
-- [ ] Tests: a unit test in `src/target/shared/code/tests.rs` asserting
+- [x] Tests: a unit test in `src/target/shared/code/tests.rs` asserting
       `sync_symbol` returns the underscored spelling for `macos-aarch64` and the
       bare spelling for each Linux target, for every `LogicalSync` variant
       (an exhaustive `match` keeps a future variant from being forgotten).
@@ -690,22 +692,22 @@ Add the Windows arm for the six primitives whose signature matches pthread's
 argument shape exactly. Lands with no `thread.*` advertisement, so nothing can
 build a threaded Windows program yet — it is a pure mapping addition.
 
-- [ ] In `sync_symbol`, add the `windows-x86_64` arm for `Lock` →
+- [x] In `sync_symbol`, add the `windows-x86_64` arm for `Lock` →
       `AcquireSRWLockExclusive`, `Unlock` → `ReleaseSRWLockExclusive`,
       `MutexInit` → `InitializeSRWLock`, `CondInit` →
       `InitializeConditionVariable`, `CondSignal` → `WakeConditionVariable`,
       `CondBroadcast` → `WakeAllConditionVariable`.
-- [ ] Gate the three `RET[0]`-is-zero checks after the `*_init` calls in
+- [x] Gate the three `RET[0]`-is-zero checks after the `*_init` calls in
       `emit_thread_queue_alloc` (`runtime_helpers.rs:192`, `:209`, `:226`) on a
       platform predicate — skipped on Windows because the Win32 initializers
       return `void` (§5.1). Leave the `init_error` block intact.
-- [ ] Update the three storage-reserve comments to record that 64 bytes also
+- [x] Update the three storage-reserve comments to record that 64 bytes also
       covers Windows' 8-byte `SRWLOCK`/`CONDITION_VARIABLE`
       (`runtime_helpers.rs:399`, `error_constants.rs:489`, `os.rs:43`), and
       extend `os_env_lock_init_hex`'s doc comment (`os.rs:70`–`:76`) to state
       that the all-zero non-macOS initializer is also `SRWLOCK_INIT` (no code
       change).
-- [ ] Tests: extend the Phase 1 `sync_symbol` test with the `windows-x86_64`
+- [x] Tests: extend the Phase 1 `sync_symbol` test with the `windows-x86_64`
       expectations; add a lowering test that `emit_thread_queue_alloc` on the
       Windows platform emits no post-init return check and on linux-x86_64 emits
       exactly three.
@@ -721,35 +723,35 @@ Commit: —
 The correctness concentrator; lands behind the Phase 2 mapping and in front of
 the fixtures.
 
-- [ ] **Verify the 47-B shadow-space contract first** (§5.5): confirm that
+- [x] **Verify the 47-B shadow-space contract first** (§5.5): confirm that
       hand-managed `sp+K` locals in `lower_thread_trampoline`,
       `lower_thread_start_helper`, and `simple_thread_handle_helper` are realized
       above the Win64 32-byte outgoing reservation, and that
       `abi::SCRATCH[4]`/`[5]` do not alias `abi::CURRENT_THREAD` under the Win64
       register model (the hazard documented at `runtime_helpers.rs:728`–`:736`).
       If either does not hold, stop and report it as a 47-B blocker.
-- [ ] Windows spawn arm in `lower_thread_start_helper`
+- [x] Windows spawn arm in `lower_thread_start_helper`
       (`runtime_helpers.rs:612`–`:691`): skip the attr pair; stage
       `CreateThread(NULL, 8 MiB, trampoline, cb, 0, NULL)` — args 5/6 via the
       outgoing stack tail (`abi::outgoing_stack_arg_store`, `abi.rs:56`); reload
       `%v9` from `CB_OFFSET` and `store_u64(RET[0], %v9, THREAD_OFFSET_OS_HANDLE)`;
       invert the failure branch to `branch_eq(&spawn_error)` (§5.2).
-- [ ] Map `ThreadRelease` to `CloseHandle` in `sync_symbol`, and confirm both
+- [x] Map `ThreadRelease` to `CloseHandle` in `sync_symbol`, and confirm both
       `pthread_detach` sites (`runtime_helpers_thread.rs:242` in `WaitFor`, `:663`
       in `Drop`) load the handle **by value** from `THREAD_OFFSET_OS_HANDLE` —
       which is already the correct shape for `CloseHandle(HANDLE)` (§5.3). No
       `WaitForSingleObject`, no `TerminateThread`.
-- [ ] Windows arm in `emit_thread_deadline` (`runtime_helpers_thread.rs:11`):
+- [x] Windows arm in `emit_thread_deadline` (`runtime_helpers_thread.rs:11`):
       `GetTickCount64()` + `timeoutMs` → an 8-byte millisecond deadline in the
       existing scratch slot, replacing the `clock_gettime` + sec/nsec
       normalization (§5.4). Add `LogicalSync::Clock` → `GetTickCount64`.
-- [ ] Windows arm at the three `CondTimedWait` sites
+- [x] Windows arm at the three `CondTimedWait` sites
       (`runtime_helpers_thread.rs:740`, `:936`, `:1262`): recompute
       `dwMs = deadline - GetTickCount64()` clamped at 0, call
       `SleepConditionVariableSRW(cv, lock, dwMs, 0)`, and **invert the polarity**
       to `branch_eq(&timeout)`. Map `CondWait` to the same call with
       `dwMs = 0xFFFFFFFF`.
-- [ ] Tests: lowering unit tests asserting, for the Windows platform, (a) the
+- [x] Tests: lowering unit tests asserting, for the Windows platform, (a) the
       spawn sequence contains `CreateThread` with two outgoing stack args and a
       store of `RET[0]` to `THREAD_OFFSET_OS_HANDLE`, (b) the timed-wait sites
       branch on **equal**-to-zero where the Linux sites branch on not-equal, and
@@ -764,10 +766,10 @@ Commit: —
 
 ### Phase 4 — Advertise `thread.*` and prove it at runtime (highest-risk work last)
 
-- [ ] `src/target/win_x86_64/mod.rs`: add the 12 `thread.*` entries to
+- [x] `src/target/win_x86_64/mod.rs`: add the 12 `thread.*` entries to
       `runtime_calls`, matching the block at
       `src/target/linux_common/mod.rs:186`–`:197`.
-- [ ] `src/target/win_x86_64/plan.rs`: map the full `thread.*` call set — the
+- [x] `src/target/win_x86_64/plan.rs`: map the full `thread.*` call set — the
       15 arms at `src/target/linux_common/plan.rs:407`–`:421`, including the four
       resource-plane calls the bug-176 C comment (`:397`–`:401`) says must not be
       omitted — to the kernel32 import list: `CreateThread`, `CloseHandle`,
@@ -776,10 +778,10 @@ Commit: —
       `WakeConditionVariable`, `WakeAllConditionVariable`, `GetTickCount64`.
       Handle `thread.openStdIn`/`closeStdIn` with the stdin-broadcast subset, as
       `stdin_broadcast_imports` does at `:402`–`:405`.
-- [ ] Spec sync: add the Windows primitive mapping to the `mfb spec` topics that
+- [x] Spec sync: add the Windows primitive mapping to the `mfb spec` topics that
       describe the thread runtime (grep `src/docs/spec/**` for `pthread`), per
       `.ai/specifications.md`.
-- [ ] Tests: run every directory under `tests/rt-behavior/threads/**` (33 today)
+- [x] Tests: run every directory under `tests/rt-behavior/threads/**` (33 today)
       built for `windows-x86_64` on Windows/Wine, comparing stdout/stderr/exit
       code against the linux-x86_64 build. Include the stdin-broadcast pair
       (`func_thread_openStdIn_valid`, `func_thread_closeStdIn_valid`) and the
