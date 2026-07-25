@@ -905,20 +905,3 @@ pub(crate) fn visibility_name(visibility: Visibility) -> &'static str {
         Visibility::Export => "export",
     }
 }
-
-// ===========================================================================
-// Binary Representation (structured) encode/decode
-// ===========================================================================
-//
-// The package payload is a faithful, versioned binary serialization of the
-// compiler's IR (`IrProject` / `IrFunction` / `IrOp` / `IrValue` / `IrType`).
-// It is *not* a flat opcode stream: control flow stays nested (regions with
-// explicit ends) and expressions stay as trees, exactly as in memory. The
-// in-memory IR is free to change behind this format; this encoding is the
-// stable contract.
-//
-// The format is self-contained: strings are inline length-prefixed, integers
-// are little-endian. There is no separate interned pool here — the `.mfp`
-// container's tables (manifest/ABI/import/export) are kept and derived
-// alongside this payload by `binary_repr.rs`, but a function body is faithfully
-// reconstructable from this payload alone.
