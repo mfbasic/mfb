@@ -86,6 +86,11 @@ void record(const char *group, const char *name, long long *times, int n) {
 }
 
 static void print_results(void) {
+#ifdef __OPTIMIZE__
+  printf("# Lang: C O2\n");
+#else
+  printf("# Lang: C O0\n");
+#endif
   printf("# columns: median, average, min, max (milliseconds)\n");
   const char *last = "";
   for (int i = 0; i < nresults; i++) {

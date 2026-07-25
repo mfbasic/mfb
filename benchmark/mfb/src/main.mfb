@@ -91,6 +91,7 @@ FUNC fmtMs(v AS Float) AS String
 END FUNC
 
 SUB printResults(tests AS List OF BenchResult)
+  io::print("# Lang: MFBasic")
   io::print("# columns: median, average, min, max (milliseconds)")
   MUT lastGroup AS String = ""
   FOR i = 0 TO len(tests) - 1

@@ -64,6 +64,7 @@ def record(group, name, times):
 
 
 def print_results():
+    print("# Lang: Python")
     print("# columns: median, average, min, max (milliseconds)")
     last = None
     for r in RESULTS:
