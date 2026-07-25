@@ -158,6 +158,13 @@ Three are **structurally different and must not be folded blindly**:
 Fix: a macro (or a `fn(pkg_name, source_text)` helper) for the 10 uniform cases;
 leave the three special cases as explicit overrides with a comment saying why.
 
+> **A3 done (2026-07-25).** One `pub(super) fn exact` now lives in
+> `src/builtins/mod.rs`; the fifteen byte-identical copies
+> (audio/crypto/csv/datetime/fs/general/http/io/json/money/net/os/regex/strings/tls)
+> were replaced with `use super::exact;`. Output-neutral (a compile-time
+> arg-type matcher; identical body → identical overload resolution): package
+> acceptance byte-identical (strings/money/crypto/datetime + others).
+
 ### A3 — `fn exact` duplicated byte-for-byte in 15 modules (105 lines)
 
 All fifteen bodies are byte-identical (verified by extracting and hashing each):

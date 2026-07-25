@@ -26,6 +26,17 @@ pub(crate) mod vector;
 
 pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 
+/// bug-340 A3: exact argument-type match, `arg_types == expected` element-wise.
+/// The single home for what were fifteen byte-identical `fn exact` copies, one
+/// per builtin-package module.
+pub(super) fn exact(arg_types: &[String], expected: &[&str]) -> bool {
+    arg_types.len() == expected.len()
+        && arg_types
+            .iter()
+            .zip(expected.iter())
+            .all(|(actual, expected)| actual == expected)
+}
+
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,

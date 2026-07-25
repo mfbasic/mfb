@@ -316,13 +316,7 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     }
 }
 
-fn exact(arg_types: &[String], expected: &[&str]) -> bool {
-    arg_types.len() == expected.len()
-        && arg_types
-            .iter()
-            .zip(expected.iter())
-            .all(|(actual, expected)| actual == expected)
-}
+use super::exact;
 
 #[cfg(test)]
 mod tests {

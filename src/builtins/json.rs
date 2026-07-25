@@ -130,13 +130,7 @@ pub(crate) fn augmented_project(
     Ok(augmented)
 }
 
-fn exact(arg_types: &[String], expected: &[&str]) -> bool {
-    arg_types.len() == expected.len()
-        && arg_types
-            .iter()
-            .zip(expected.iter())
-            .all(|(actual, expected)| actual == expected)
-}
+use super::exact;
 
 fn is_json_value_type(type_name: &str) -> bool {
     matches!(
