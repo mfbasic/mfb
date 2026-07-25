@@ -16,7 +16,8 @@ use crate::ir::{self, IrProject};
 /// Locate a committed test fixture directory by its leaf name, searching
 /// recursively under `tests/`. After the tests reorganization fixtures live
 /// under `tests/{syntax,rt-error,rt-behavior}/<feature>/<name>` (plus the
-/// `tests/acceptance` app), and leaf names are unique — so a by-name search
+/// `tests/acceptance` app and the `tests/byte-identity` gate-coverage tree),
+/// and leaf names are unique — so a by-name search
 /// keeps unit tests independent of the exact bucket/feature a fixture lives in.
 /// Panics if no matching fixture directory (one holding a `project.json`)
 /// exists.

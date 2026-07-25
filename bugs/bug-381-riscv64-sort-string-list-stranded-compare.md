@@ -6,7 +6,7 @@ Severity: MEDIUM
 Class: Correctness (compile-time panic — no code is emitted; the target cannot build the program)
 
 Status: Open
-Regression Test: tests/rt-behavior/codegen-cover/cover-fs (build for -target linux-riscv64) — currently panics; add a linux-riscv64 `.ncodesum` golden once fixed.
+Regression Test: tests/byte-identity/fs (build for -target linux-riscv64) — currently panics; add a linux-riscv64 `.ncodesum` golden once fixed.
 
 Compiling **any** program that sorts a string list to `linux-riscv64` aborts the
 build with a panic instead of emitting code. `_mfb_rt_sort_string_list` (the
@@ -46,14 +46,14 @@ References:
   invalidation of a stranded `pending` rhs) — this bug is the case those two
   comments call "latent, never fires today." It fires.
 - Found during plan-47 (Windows x86-64) prerequisite work — seeding
-  linux-riscv64 byte-identity goldens (§Prerequisites row 3). cover-fs is the
+  linux-riscv64 byte-identity goldens (§Prerequisites row 3). fs is the
   one of 7 cover fixtures that cannot be captured because of this.
 
 ## Failing Reproduction
 
 ```
 # At HEAD, with a release mfb built:
-target/release/mfb build -ncode -target linux-riscv64 tests/rt-behavior/codegen-cover/cover-fs
+target/release/mfb build -ncode -target linux-riscv64 tests/byte-identity/fs
 ```
 
 - Observed:
@@ -72,11 +72,11 @@ Contrast cases that build correctly today (bound the bug):
 
 | Environment | target | Result |
 | --- | --- | --- |
-| cover-fs | linux-x86_64 | works ✓ |
-| cover-fs | linux-aarch64 | works ✓ |
-| cover-fs | macos-aarch64 | works ✓ |
-| cover-fs | **linux-riscv64** | **panics ✗** |
-| cover-audio / cover-tls / cover-os / cover-crypto / cover-net / crypto-ec-valid | linux-riscv64 | works ✓ (none emit `sort_string_list`) |
+| fs | linux-x86_64 | works ✓ |
+| fs | linux-aarch64 | works ✓ |
+| fs | macos-aarch64 | works ✓ |
+| fs | **linux-riscv64** | **panics ✗** |
+| audio / tls / os / crypto / net / crypto-ec-valid | linux-riscv64 | works ✓ (none emit `sort_string_list`) |
 
 The riscv64 build of the six sibling cover fixtures succeeds, confirming the
 fault is specific to the `sort_string_list` code shape, not riscv64 codegen
@@ -182,7 +182,7 @@ miscompile. Validate against a riscv64 run, not just a rebuild.
 ### Phase 1 — failing test + audit (no behavior change)
 
 - [ ] Add a linux-riscv64 build assertion for a string-sorting fixture
-      (cover-fs is sufficient; a minimal `List<String>`-sort program is
+      (fs is sufficient; a minimal `List<String>`-sort program is
       cleaner). Confirm it panics at `select.rs:393` today.
 - [ ] Audit the riscv64 reserved-register set (`src/arch/riscv64/regmodel.rs`)
       for a second `gp`-like register, and enumerate every runtime helper that
@@ -205,7 +205,7 @@ Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Capture the linux-riscv64 `.ncodesum` golden for cover-fs (and any other
+- [ ] Capture the linux-riscv64 `.ncodesum` golden for fs (and any other
       newly-buildable fixture), completing plan-47 §Prerequisites row 3.
 - [ ] Run the full acceptance suite + `scripts/artifact-gate.sh` (all four
       targets byte-identical except the intended new riscv64 goldens).
@@ -218,7 +218,7 @@ Commit: —
 
 ## Validation Plan
 
-- Regression test: linux-riscv64 build of a string-sort fixture (cover-fs), plus
+- Regression test: linux-riscv64 build of a string-sort fixture (fs), plus
   its new `.ncodesum` golden once buildable.
 - Runtime proof: the sorted collection output on riscv64 equals the x86-64
   output for the same input (behavioral parity, not just "it compiles").
@@ -237,5 +237,5 @@ The engineering risk is in the reserved-register choice for the flag-emulation
 snapshot: it is a riscv64-only selector change, but a wrong register is a silent
 miscompile, so it must be proven on a riscv64 run, not merely a rebuild. The
 shared helper and the other three backends stay untouched. Until this lands,
-linux-riscv64 cannot compile string-sorting programs, and cover-fs cannot carry
+linux-riscv64 cannot compile string-sorting programs, and fs cannot carry
 a riscv64 byte-identity golden.
