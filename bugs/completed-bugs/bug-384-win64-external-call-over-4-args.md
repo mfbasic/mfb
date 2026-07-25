@@ -1,6 +1,34 @@
 # bug-384: Win64 external (IAT) calls with >4 args don't spill args 5+ to the stack
 
-Status: WORKED AROUND for net recvfrom/sendto (plan-47-I); general ABI gap OPEN.
+Status: FIXED (2026-07-24, commit 1a079a519)
+
+## Resolution
+
+Added `native_helpers::emit_external_int_call`, which spills every integer arg
+at or beyond `register_model().external_int_argument_registers()` to the
+`OUTGOING_ARGS_BASE` sentinel that `finalize_frame` already reserves and
+resolves (Win64 arg 5 → `[rsp+0x20]`, above the shadow; SysV/AAPCS/riscv → frame
+bottom). Because the threshold comes from the register model, the spill loop is
+empty for any call within a target's register-arg limit (SysV 6, AAPCS64/riscv64
+8), so the emitted bytes are byte-identical to a bare `emit_libc_call` on every
+non-Win64 target — only Win64 (4 register args) actually spills.
+
+The four `net` sites were converted to it and their manual `sub_sp` brackets
+removed: `recvfrom`/`sendto`/`setReadTimeout` (previously worked around) plus
+the two sites that had **no** guard and passed a garbage 5th arg on Win64 —
+`setsockopt(SO_REUSEADDR)` on `listenTcp` (best-effort, so latent) and
+`getsockopt(SO_ERROR)` on a non-blocking connect (reached only when the initial
+`connect()` returns EINPROGRESS, so latent on fast loopback). `schannel`'s
+`sspi_call`/`sspi_call_ext` and the CNG helpers already solved this locally and
+were left unchanged; the LINK-thunk refusal for >N-arg native calls
+(`link_thunk.rs`) is a separate feature and still stands (it is safe — it
+rejects rather than miscompiles).
+
+Verified byte-identical `net` `.ncodesum` on linux-x86_64, linux-aarch64,
+linux-riscv64, macos-aarch64; the Win64 ncode shows the getsockopt 5th arg
+spilled to `[rsp+0x20]`; and on 2230 (Win11) `func_net_receiveFrom_valid`
+(sendto/recvfrom/SO_RCVTIMEO) prints `4`/`77070007` and `func_net_accept_valid`
+(SO_REUSEADDR + non-blocking connect getsockopt) prints `accepted two`.
 
 ## Claim
 

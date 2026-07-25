@@ -1,7 +1,18 @@
 # bug-383: linux-x86_64 thread trampoline is 16-byte stack-misaligned (latent)
 
-Status: OPEN (latent — no known crash today; a real SysV ABI violation)
+Status: FIXED (2026-07-24, commit 48b030d6a)
 Found: while fixing plan-47-H (the Windows twin of this bug, commit acfeeab6c).
+
+## Resolution
+
+`lower_thread_trampoline` now gates the 8-byte realignment on
+`platform.arch() == "x86_64"` instead of `family() == Windows`, so linux-x86_64
+folds the same +8 into its trampoline frame as Win64 does. aarch64/riscv64 keep
+the byte-identical 80-byte frame (their `bl`/`jal` leave `sp` unchanged); both
+x86-64 OSes now use 88. There was no golden churn to re-baseline: the trampoline
+is emitted only for a module that uses threads, and no byte-identity fixture
+does. Verified the emitted linux-x86_64 trampoline frame is 88 (was 80) and that
+`thread-regex-rt` runs correctly on 2227 (Alpine x86_64 musl).
 
 ## Claim
 
