@@ -989,10 +989,6 @@ impl TypeEnv {
     }
 }
 
-/// A node's annotated result type, or `None` when it is absent, empty, or the
-/// explicit `"Unknown"` marker lowering stamps when it cannot name a type.
-/// Filtering `"Unknown"` here is what keeps the type-relational rules from
-/// rejecting a node whose type simply could not be reconstructed (plan-20-C).
 /// The result type a binary operator produces from its operand types, or `None`
 /// when it cannot be derived independently of the node's own annotation.
 ///
@@ -1029,6 +1025,10 @@ fn derived_unary_type(op: &str, operand: Option<&str>) -> Option<String> {
     }
 }
 
+/// A node's annotated result type, or `None` when it is absent, empty, or the
+/// explicit `"Unknown"` marker lowering stamps when it cannot name a type.
+/// Filtering `"Unknown"` here is what keeps the type-relational rules from
+/// rejecting a node whose type simply could not be reconstructed (plan-20-C).
 fn usable_type(annotated: Option<&str>) -> Option<String> {
     match annotated {
         Some(t) if !t.is_empty() && t != "Unknown" => Some(t.to_string()),

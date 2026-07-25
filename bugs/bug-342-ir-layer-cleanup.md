@@ -364,6 +364,13 @@ measured evidence recorded per item below.
 
 ### Theme D — comment and doc hygiene
 
+> **D1 done, D2 already-resolved (2026-07-25).** D1: moved `usable_type`'s doc
+> comment (the "annotated result type … `Unknown` marker" block) off the front of
+> `derived_binary_type`'s doc and onto `fn usable_type` itself, where it belongs.
+> D2: the stale `:1834` intra-file line-ref comment ("Unknown stays permissive
+> contract, :1834") no longer exists — the surrounding code was rewritten since
+> the doc was authored. Comment-only, output-neutral.
+
 #### D1 — `usable_type`'s doc comment is glued onto `derived_binary_type`
 
 - `src/ir/verify/mod.rs:4782-4785` is `usable_type`'s doc ("A node's annotated
