@@ -587,9 +587,14 @@ fn lower_net_endpoint_helper(
             abi::add_immediate(abi::ARG[3], abi::stack_pointer(), ONE_OFFSET),
             abi::move_immediate(abi::ARG[4], "Integer", "4"),
         ]);
-        platform.emit_libc_call(
+        // setsockopt takes FIVE int args; on Win64 the 5th (optlen) is a stack
+        // argument above the shadow, not rdi (bug-384). POSIX passes it in a
+        // register, byte-unchanged.
+        super::native_helpers::emit_external_int_call(
+            platform,
             net_symbol(platform, NetSymbol::SetSockOpt),
             symbol,
+            5,
             platform_imports,
             &mut instructions,
             &mut relocations,
@@ -778,9 +783,15 @@ fn lower_net_endpoint_helper(
             abi::add_immediate(abi::ARG[3], abi::stack_pointer(), SOERR_OFFSET),
             abi::add_immediate(abi::ARG[4], abi::stack_pointer(), SOLEN_OFFSET),
         ]);
-        platform.emit_libc_call(
+        // getsockopt takes FIVE int args; on Win64 the 5th (&optlen) is a stack
+        // argument above the shadow, not rdi (bug-384) — a garbage optlen makes
+        // getsockopt fail and the non-blocking connect never resolves. POSIX
+        // passes it in a register, byte-unchanged.
+        super::native_helpers::emit_external_int_call(
+            platform,
             net_symbol(platform, NetSymbol::GetSockOpt),
             symbol,
+            5,
             platform_imports,
             &mut instructions,
             &mut relocations,

@@ -204,26 +204,19 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
         abi::add_immediate(abi::ARG[3], abi::stack_pointer(), TIMEVAL_OFFSET),
         abi::move_immediate(abi::ARG[4], "Integer", optval_len),
     ]);
-    if win_timeout {
-        // setsockopt has FIVE args; on Win64 optlen (the 5th) is a stack argument
-        // above the shadow space, not rdi (bug-384). Without this, a garbage optlen
-        // makes SO_RCVTIMEO/SNDTIMEO setsockopt fail (SO_REUSEADDR tolerates it, so
-        // TCP was unaffected).
-        instructions.extend([
-            abi::subtract_stack(0x30),
-            abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x20),
-        ]);
-    }
-    platform.emit_libc_call(
+    // setsockopt has FIVE int args; on Win64 optlen (the 5th) is a stack argument
+    // above the shadow, not rdi (bug-384) — a garbage optlen makes
+    // SO_RCVTIMEO/SNDTIMEO setsockopt fail. The shared helper spills it through
+    // the outgoing-args sentinel; POSIX passes it in a register, byte-unchanged.
+    super::super::native_helpers::emit_external_int_call(
+        platform,
         net_symbol(platform, NetSymbol::SetSockOpt),
         symbol,
+        5,
         platform_imports,
         &mut instructions,
         &mut relocations,
     )?;
-    if win_timeout {
-        instructions.push(abi::add_stack(0x30));
-    }
     instructions.extend([
         // `setsockopt` returns a C `int`, and both AAPCS and SysV leave the upper
         // 32 bits of the return register unspecified (bug-310, the bug-170 class).
