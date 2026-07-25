@@ -26,6 +26,7 @@
 #include "bench.h"
 #include "bitsbench.h"
 #include "churnbench.h"
+#include "encodingbench.h"
 #include "list.h"
 #include "mapbench.h"
 #include "mathbench.h"
@@ -686,6 +687,8 @@ int main(int argc, char **argv) {
   run_strbuild_group();
 
   run_bits_group();
+
+  run_encoding_group();
 
   test_record_update();
 

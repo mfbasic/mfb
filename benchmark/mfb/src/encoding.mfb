@@ -1,0 +1,102 @@
+' Encoding-group benchmark (encoding:: package). New group `encoding`.
+'
+' encode/decode is a canonical throughput hot path with exact C/Python peers,
+' and it stresses the `List OF Byte` <-> String seam the string rows never hit.
+' Three rows:
+'   base64  round-trip encode+decode of a byte buffer (3-byte->4-char regroup)
+'   hex     round-trip hexEncode/hexDecode (nibble mapping, a different loop)
+'   percent percentEncode/percentDecode of a URL-ish string (reserved-set check)
+'
+' Every row builds its input once (outside timing) and reuses it, timing only the
+' encode/decode. Checksums fold the decoded bytes (which equal the input) plus the
+' encoded length, so the C/Python mirrors — using RFC 4648 base64/hex and RFC 3986
+' percent-encoding (unreserved = A-Za-z0-9-._~, uppercase escapes) — agree exactly.
+IMPORT io
+IMPORT encoding
+IMPORT strings
+IMPORT collections
+IMPORT datetime
+
+' Deterministic byte buffer: b[i] = (i*37 + 11) mod 256.
+FUNC encMakeBuf(n AS Integer) AS List OF Byte
+  MUT buf AS List OF Byte = []
+  FOR i = 0 TO n - 1
+    buf = collections::append(buf, toByte((i * 37 + 11) MOD 256))
+  NEXT
+  RETURN buf
+END FUNC
+
+FUNC encSumBytes(data AS List OF Byte) AS Integer
+  MUT s AS Integer = 0
+  FOR EACH b IN data
+    s = s + toInt(b)
+  NEXT
+  RETURN s
+END FUNC
+
+' base64 round-trip. Arena-gated (plan-44-J): allocates a fresh byte list + String
+' per call, so authored tiny — raise BUF/REPS in the commit that lands plan-44-J.
+FUNC test_encoding_base64(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET buf AS List OF Byte = encMakeBuf(64)   ' TODO(plan-44-J): raise to 4096
+  LET reps AS Integer = 4                     ' TODO(plan-44-J): raise to 200
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      LET enc AS String = encoding::base64Encode(buf)
+      LET dec AS List OF Byte = encoding::base64Decode(enc)
+      acc = acc + encSumBytes(dec) + len(enc)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("encoding_base64 = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("encoding", "base64", times))
+END FUNC
+
+' hex round-trip (nibble mapping).
+FUNC test_encoding_hex(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET buf AS List OF Byte = encMakeBuf(512)
+  LET reps AS Integer = 8
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      LET enc AS String = encoding::hexEncode(buf)
+      LET dec AS List OF Byte = encoding::hexDecode(enc)
+      acc = acc + encSumBytes(dec) + len(enc)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("encoding_hex = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("encoding", "hex", times))
+END FUNC
+
+' percent/URL encode of a URL-ish string with reserved chars.
+FUNC test_encoding_percent(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET src AS String = "https://example.com/search?q=hello world&lang=en_US#section-1 (v2.0) 100% done"
+  LET reps AS Integer = 16
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      LET enc AS String = encoding::percentEncode(src)
+      LET dec AS String = encoding::percentDecode(enc)
+      acc = acc + encSumBytes(strings::toBytes(dec)) + len(enc)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("encoding_percent = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("encoding", "percent", times))
+END FUNC

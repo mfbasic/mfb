@@ -17,6 +17,7 @@ import arenabench
 import bitsbench
 import churnbench
 import csv
+import encodingbench
 import io
 import json
 import list as listbench
@@ -788,6 +789,9 @@ def main():
 
     # bits group (ops)
     bitsbench.run_all(RUN, now_ns, record)
+
+    # encoding group (base64/hex/percent)
+    encodingbench.run_all(RUN, now_ns, record)
 
     test_record_update()
 

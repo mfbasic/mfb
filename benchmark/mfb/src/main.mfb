@@ -1114,6 +1114,11 @@ FUNC main(args AS List OF String) AS Integer
   ' bits group (bits.mfb)
   tests = test_bits_ops(run, tests)
 
+  ' encoding group (encoding.mfb) — base64/hex/percent serialize round-trips
+  tests = test_encoding_base64(run, tests)
+  tests = test_encoding_hex(run, tests)
+  tests = test_encoding_percent(run, tests)
+
   tests = test_record_update(run, tests)
 
   tests = test_bignum_modmul(run, tests)
