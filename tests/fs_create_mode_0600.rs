@@ -79,8 +79,24 @@ fn file_creating_builtins_create_owner_only_0600() {
         String::from_utf8_lossy(&output.stderr),
     );
 
-    // plan-46-D §4.1: the build emits into the project's `build/` directory.
-    let exe = project.join("build").join("bug184_mode.out");
+    // plan-46-D §4.1: the build emits into the project's `build/` directory. The
+    // console artifact is `<name>.out` on macOS but `<name>-<flavor>.out` on Linux,
+    // where a single Linux build emits BOTH the glibc and musl flavors (build/mod.rs
+    // "console build emits both libc flavors"). We must run the one matching THIS
+    // host — the other flavor's ELF interpreter is absent and would fail to exec —
+    // so select by the test binary's own libc rather than hardcode a name or take
+    // whichever `.out` the directory lists first.
+    let build_dir = project.join("build");
+    let exe = if cfg!(target_os = "macos") {
+        build_dir.join("bug184_mode.out")
+    } else {
+        let libc = if cfg!(target_env = "musl") {
+            "musl"
+        } else {
+            "glibc"
+        };
+        build_dir.join(format!("bug184_mode-{libc}.out"))
+    };
     let run = Command::new(&exe).output().expect("run built executable");
     assert!(
         run.status.success(),
