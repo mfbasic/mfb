@@ -1470,7 +1470,7 @@ fn lower_link_thunk(
     }
 
     // FREE: release the caller-owned native return now that it is copied into the
-    // owned wrapper result (mfbasic.md §17). The original pointer is still at
+    // owned wrapper result (17_native-libraries.md). The original pointer is still at
     // CRET_OFF; the deallocator (a C call) clobbers x0..x18, so the result value
     // is parked in the now-free STATUS slot across the call and reloaded after.
     // A NULL pointer is passed through unchanged — deallocators such as
@@ -1733,7 +1733,7 @@ fn emit_return_passthrough(
         }
         "CDouble" => {
             // §12.3: a C `double` may be NaN/Inf, but an MFBASIC `Float` is always
-            // finite (mfbasic.md §3), so reject non-finite results at the boundary.
+            // finite (04_types.md — an MFBASIC Float is always finite), so reject non-finite results at the boundary.
             // A non-finite double has all exponent bits set (`0x7FF0…`); the
             // mantissa then distinguishes Inf (zero) from NaN (non-zero).
             let finite = format!("{symbol}_float_finite");

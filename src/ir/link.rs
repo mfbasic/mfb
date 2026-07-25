@@ -449,7 +449,7 @@ pub(crate) struct IrLinkFunction {
     /// than a gap — the name is surface syntax that was already validated when
     /// that package was built from source, and it binds nothing at the boundary.
     pub(crate) bind_state_resource: Option<String>,
-    /// `FREE <slot>` deallocation of a caller-owned native return (mfbasic.md §17).
+    /// `FREE <slot>` deallocation of a caller-owned native return (17_native-libraries.md).
     pub(crate) free: Option<IrFree>,
     /// `BUFFER <slot> SIZE <expr>` clauses (plan-58-A §4.2): the byte capacity of
     /// each `OUT CBuffer` slot. Exactly one per `CBuffer` slot, and every entry

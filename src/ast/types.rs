@@ -355,14 +355,14 @@ pub struct LinkFunction {
     /// spell `RESULT` (plan-50-H).
     pub result: Option<Expression>,
     /// `FREE <slot> … END FREE` block releasing a caller-owned native return
-    /// after it is copied out (mfbasic.md §17).
+    /// after it is copied out (17_native-libraries.md).
     pub free: Option<FreeSpec>,
     pub line: usize,
 }
 
 /// A `FREE <slot> SYMBOL "…" ABI (ptr CPtr) AS CVoid END FREE` block: after the
 /// wrapper copies the named produced pointer into its owned MFBASIC result, the
-/// original native pointer is passed to the named deallocator (mfbasic.md §17).
+/// original native pointer is passed to the named deallocator (17_native-libraries.md).
 #[derive(Clone, Debug)]
 pub struct FreeSpec {
     /// The produced slot whose pointer is released (`return` or an `OUT` slot).

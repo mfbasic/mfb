@@ -310,6 +310,14 @@ with it.
 - Fix: rename the field to `return_value` (or document the historical name
   explicitly) and rewrite the doc to cite the spec, not the retired plan.
 
+> **D2 done (2026-07-25).** Repointed all 9 `mfbasic.md` citations in `src/` at
+> the current `src/docs/spec/language/` files by topic: §17 → `17_native-libraries.md`
+> (6 sites), §15.6 → `15_resource-management.md` (in the renamed
+> `resource_escape.rs`), §22 → `22_test-framework.md` (`cli/fmt.rs`), and §3
+> (the "Float is always finite" rule) → `04_types.md` (`link_thunk.rs`).
+> Comment-only, output-neutral. (These are code comments, not man/spec files, so
+> no citation-resolution test covers them.)
+
 #### D2 — nine comments cite `mfbasic.md`, a spec retired to `planning/old-moved-to-src-spec/`
 
 - Exact count: **9** references in `src/`. Retired location confirmed to exist:

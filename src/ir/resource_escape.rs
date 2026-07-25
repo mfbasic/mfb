@@ -1,4 +1,4 @@
-//! Resource escape analysis (mfbasic.md §15.6).
+//! Resource escape analysis (15_resource-management.md §15.6).
 //!
 //! A resource is owned by a *scope*. By default that is the scope where the
 //! resource is produced. When a pointer to a `RES` binding is added to a

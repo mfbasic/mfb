@@ -720,7 +720,7 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         // A FREE block releases a caller-owned native return after it is copied
-        // out (mfbasic.md §17). The implemented form frees the produced CPtr —
+        // out (17_native-libraries.md). The implemented form frees the produced CPtr —
         // the C return, named by `RETURN` — through a deallocator that takes one
         // CPtr and returns CVoid (e.g. `sqlite3_free`). Anything else is rejected.
         if let Some(free) = &function.free {

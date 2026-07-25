@@ -811,7 +811,7 @@ pub(crate) fn lower_module_for_platform(
     let globals_base = module.globals.len() + package_global_count;
     let link_count = module.link_functions.len();
     // Each `FREE` block resolves its deallocator into an additional writable slot,
-    // reserved just past the per-function slots (mfbasic.md §17).
+    // reserved just past the per-function slots (17_native-libraries.md).
     let free_count = module
         .link_functions
         .iter()

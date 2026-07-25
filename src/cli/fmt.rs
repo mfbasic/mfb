@@ -57,7 +57,7 @@ pub(crate) fn run_fmt_command(args: &[String]) -> i32 {
 
     match format_path(&path, indent, check) {
         Ok(true) => 0,
-        // `--check` found files that are not formatted (mfbasic.md §22).
+        // `--check` found files that are not formatted (22_test-framework.md).
         Ok(false) => 1,
         Err(err) => {
             eprintln!("error: {err}");
