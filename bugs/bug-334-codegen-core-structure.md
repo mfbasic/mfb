@@ -278,6 +278,15 @@ verbatim layout string
 copy at `:511` hardcodes `size: 16`). `data_objects.rs:724` already has the
 sibling `raw_data_object` helper; add `string_data_object` next to it.
 
+> **C2 already resolved; C3 done (2026-07-25).** C2: `regalloc/mod.rs`'s module
+> doc now correctly documents both strategies, the `--regalloc` flag, and the
+> `LinearScan` default — no stale single-dash spelling remains. C3: corrected the
+> stale `mod.rs` comment claiming `term::` helpers "keep the shared console
+> backend until Phase 5" — `emit_app_term_helper` now dispatches every term
+> helper to the app backend on all app platforms (verified: the macOS backend
+> covers on/off/clear/sync/moveTo/colors/attrs/cursor/size). Comment-only,
+> output-neutral.
+
 **C2 — `regalloc/mod.rs`'s module doc claims only one strategy ships, and
 misnames the flag.** `regalloc/mod.rs:11-15`: "The strategy is selected by the
 `-regalloc <name>` build flag (§4.2). Stage A ships exactly one strategy,

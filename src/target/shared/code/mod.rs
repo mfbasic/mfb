@@ -1496,9 +1496,11 @@ fn lower_runtime_helper(
         let term_state_offset = term_state_offset.ok_or_else(|| {
             format!("native code plan emits '{symbol}' without reserving term state")
         })?;
-        // App mode drives the synthesized TermView surface for the mode toggle
-        // (plan-01-term.md §6.3); the remaining term:: helpers keep the shared
-        // console backend until Phase 5 wires their app bodies.
+        // App mode drives the synthesized TermView surface (plan-01-term.md §6.3):
+        // `emit_app_term_helper` now dispatches EVERY term:: helper — the mode
+        // toggle plus clear/sync/moveTo/color/attr/cursor/size — to the platform's
+        // app backend (Phase 5 landed on every app platform). It falls through to
+        // the shared console backend below only in non-app builds.
         let app_term_helper = if app_mode {
             platform.emit_app_term_helper(spec.call, symbol, term_state_offset)
         } else {
