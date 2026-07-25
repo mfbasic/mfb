@@ -14,7 +14,7 @@
 //! freed)." Earlier revisions of this comment cited a "plan-00-H §7" that the
 //! plan does not contain (it has sections 1–6 and phases 1–4).
 
-use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
+use crate::target::shared::regmodel::{RegClass, RegisterModel};
 use crate::target::shared::code::CodeInstruction;
 
 /// The 16 general-purpose registers (64-bit names). `class_of` recognizes these

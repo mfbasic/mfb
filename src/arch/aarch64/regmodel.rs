@@ -15,11 +15,12 @@
 
 use super::abi;
 use crate::target::shared::code::CodeInstruction;
-// `RegClass` + the `RegisterModel` trait were hoisted to the neutral
-// `crate::target::shared::regmodel` (plan-34-B Phase 2); re-export them so the
-// AArch64 impl below and existing `crate::arch::aarch64::regmodel::…` callers are
-// unchanged.
-pub(crate) use crate::target::shared::regmodel::{RegClass, RegisterModel};
+// `RegClass` + the `RegisterModel` trait live in the neutral
+// `crate::target::shared::regmodel` (plan-34-B Phase 2); import them for the
+// AArch64 impl below. (bug-341-B4 removed the back-compat re-export that let the
+// x86_64/riscv64 siblings reach the neutral trait *through* this AArch64 module;
+// each now imports it directly from `target::shared`.)
+use crate::target::shared::regmodel::{RegClass, RegisterModel};
 
 /// The physical register AArch64 realizes the neutral `arena_base` token as —
 /// pinned `x19` program-wide, reserved from allocation (absent from

@@ -5,7 +5,7 @@
 //! shared lowering dispatches selection + allocation through it with no edit to
 //! the AArch64 backend or the shared selection sites.
 
-use crate::arch::aarch64::regmodel::RegisterModel;
+use crate::target::shared::regmodel::RegisterModel;
 use crate::arch::x86_64::regmodel::{Win64RegisterModel, X86_64RegisterModel};
 use crate::arch::x86_64::select::{select_x86, X86Abi};
 use crate::target::shared::code::mir::{Backend, MirInstruction};
