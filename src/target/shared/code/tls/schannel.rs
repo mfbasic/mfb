@@ -23,7 +23,6 @@ use crate::target::shared::abi;
 
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
-const WS2_32: &str = "ws2_32.dll";
 
 // --- Schannel / SSPI constants (values from sspi.h / schannel.h) ------------
 const SECPKG_CRED_OUTBOUND: &str = "2";
@@ -40,8 +39,6 @@ const SECBUFFER_STREAM_HEADER: &str = "7";
 const SECBUFFER_EXTRA: &str = "5";
 const SECBUFFER_VERSION: &str = "0";
 const SEC_E_OK: &str = "0";
-// SEC_I_CONTINUE_NEEDED 0x00090312 = 590098.
-const SEC_I_CONTINUE_NEEDED: &str = "590098";
 const SECPKG_ATTR_STREAM_SIZES: &str = "4";
 const SECPKG_ATTR_REMOTE_CERT_CONTEXT: &str = "83";
 // CertVerifyCertificateChainPolicy: CERT_CHAIN_POLICY_SSL = 4.
@@ -184,21 +181,22 @@ fn sspi_call_ext(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    let frame = (0x20 + stack.len() * 8 + 15) & !15;
-    // Load STATE (absolute arena pointer) at DEPTH 0; it survives the sub_sp.
+    // No manual sub_sp: the stack args go through outgoing_stack_arg_store, which
+    // finalize_frame resolves against the reserved outgoing-args area (Win64 arg 4
+    // at [rsp+0x20]) — everything stays at DEPTH 0, so STATE (`%v8`) can spill and
+    // reload without the body_shift skew a manual sub_sp bracket introduces (that
+    // skew scribbled an output pointer over the socket fd slot).
     ins.push(abi::load_u64("%v8", abi::stack_pointer(), state_off));
-    ins.push(abi::subtract_stack(frame));
     for (i, arg) in stack.iter().enumerate() {
         match arg {
-            None => ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20 + i * 8)),
+            None => ins.push(abi::outgoing_stack_arg_store(abi::ZERO, i)),
             Some(off) => {
                 ins.push(abi::add_immediate("%v9", "%v8", *off));
-                ins.push(abi::store_u64("%v9", abi::stack_pointer(), 0x20 + i * 8));
+                ins.push(abi::outgoing_stack_arg_store("%v9", i));
             }
         }
     }
     platform.emit_libc_call(symbol, from, imports, ins, rel)?;
-    ins.push(abi::add_stack(frame));
     ins.push(abi::sign_extend_word(abi::return_register(), abi::return_register()));
     Ok(())
 }

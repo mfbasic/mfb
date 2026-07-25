@@ -15,6 +15,7 @@ pub(super) fn lower_tls_read(
     const NOUT: usize = 120;
     const COLL: usize = 128;
     const STR: usize = 136;
+    const RFD: usize = 144; // socket fd, for the renegotiation handshake
     const FRAME_SIZE: usize = 0x100;
 
     let closed = format!("{symbol}_closed");
@@ -100,6 +101,11 @@ pub(super) fn lower_tls_read(
     ins.extend([
         abi::compare_immediate("%v15", "0"),
         abi::branch_lt(&fail),
+        // SEC_I_RENEGOTIATE (0x00090321): the peer sent post-handshake data (a TLS 1.3
+        // NewSessionTicket) that must be driven back through the ISC handshake loop
+        // before more application data can be decrypted.
+        abi::compare_immediate("%v15", "590625"),
+        abi::branch_eq(&format!("{symbol}_reneg")),
         // buffer [1] = DATA(plaintext). Copy to LEFT, set LEFT_OFF=0, LEFT_LEN=len.
         abi::load_u32("%v10", abi::stack_pointer(), BUFS + 16), // data len
         abi::load_u64("%v11", abi::stack_pointer(), BUFS + 24), // data ptr
@@ -185,6 +191,137 @@ pub(super) fn lower_tls_read(
         emit_build_byte_list(symbol, &format!("{symbol}_bl"), &format!("{symbol}_bld"), OUTBUF, NOUT, Some(COLL), abi::RET[1], &alloc_fail, &mut ins, &mut rel);
         ins.push(abi::branch(&done));
     }
+
+    // --- SEC_I_RENEGOTIATE handler: drive the buffered post-handshake data through
+    // the ISC handshake loop (reusing the arena STATE scratch), then resume decrypt.
+    let reneg = format!("{symbol}_reneg");
+    let reneg_isc = format!("{symbol}_reneg_isc");
+    let reneg_recv = format!("{symbol}_reneg_recv");
+    let reneg_nosend = format!("{symbol}_reneg_nosend");
+    let reneg_reset = format!("{symbol}_reneg_reset");
+    ins.push(abi::label(&reneg));
+    // fd → RFD; default RECV_LEN = 0 (Schannel holds the reneg data internally).
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), REC),
+        abi::load_u64("%v9", "%v9", TLS_OFFSET_FD),
+        abi::store_u64("%v9", abi::stack_pointer(), RFD),
+        abi::load_u64("%v9", abi::stack_pointer(), STATE),
+        abi::store_u64(abi::ZERO, "%v9", st::RECV_LEN),
+    ]);
+    // Move any DecryptMessage SECBUFFER_EXTRA ([1]/[2]/[3]) to the front of RECV.
+    for buf in [BUFS + 16, BUFS + 32, BUFS + 48] {
+        let next = format!("{symbol}_reneg_scan_{buf}");
+        ins.extend([
+            abi::load_u32("%v12", abi::stack_pointer(), buf + 4),
+            abi::compare_immediate("%v12", SECBUFFER_EXTRA),
+            abi::branch_ne(&next),
+            abi::load_u32("%v13", abi::stack_pointer(), buf), // extra len
+            abi::load_u64("%v14", abi::stack_pointer(), buf + 8), // extra ptr
+            abi::load_u64("%v9", abi::stack_pointer(), STATE),
+            abi::add_immediate("%v6", "%v9", st::RECV),
+        ]);
+        move_bytes("%v14", "%v6", "%v13", &format!("{symbol}_rex_{buf}"), &mut ins);
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), STATE),
+            abi::load_u32("%v13", abi::stack_pointer(), buf),
+            abi::store_u64("%v13", "%v9", st::RECV_LEN),
+            abi::branch(&reneg_isc),
+            abi::label(&next),
+        ]);
+    }
+    // reneg ISC loop: INBUF[0]={RECV_LEN, TOKEN, &RECV}, [1]=EMPTY; OUT=TOKEN(NULL).
+    ins.push(abi::label(&reneg_isc));
+    ins.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u32("%v11", "%v10", st::RECV_LEN),
+        abi::store_u32("%v11", "%v10", st::INBUF),
+        abi::move_immediate("%v9", "Integer", SECBUFFER_TOKEN),
+        abi::store_u32("%v9", "%v10", st::INBUF + 4),
+        abi::add_immediate("%v9", "%v10", st::RECV),
+        abi::store_u64("%v9", "%v10", st::INBUF + 8),
+    ]);
+    set_secbuffer("%v10", st::INBUF + 16, "0", SECBUFFER_EMPTY, abi::ZERO, &mut ins);
+    set_secbuffer_desc("%v10", st::INDESC, "2", st::INBUF, &mut ins);
+    set_secbuffer("%v10", st::OUTBUF, "0", SECBUFFER_TOKEN, abi::ZERO, &mut ins);
+    set_secbuffer_desc("%v10", st::OUTDESC, "1", st::OUTBUF, &mut ins);
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
+        abi::add_immediate(abi::return_register(), abi::return_register(), st::CRED), // 0
+        abi::load_u64(abi::ARG[1], abi::stack_pointer(), STATE),
+        abi::add_immediate(abi::ARG[1], abi::ARG[1], st::CTXT), // 1: phContext=&ctxt
+        abi::move_immediate(abi::ARG[2], "Integer", "0"), // 2: pszTargetName=NULL
+        abi::move_immediate(abi::ARG[3], "Integer", ISC_REQ_FLAGS), // 3
+    ]);
+    sspi_call_ext(
+        symbol,
+        "InitializeSecurityContextW",
+        STATE,
+        &[None, None, Some(st::INDESC), None, Some(st::CTXT), Some(st::OUTDESC), Some(st::ATTRS), Some(st::EXPIRY)],
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.push(abi::move_register("%v15", abi::return_register()));
+    branch_if_incomplete("%v15", &reneg_recv, &mut ins);
+    ins.extend([
+        abi::compare_immediate("%v15", "0"),
+        abi::branch_lt(&fail),
+    ]);
+    emit_send_token(symbol, RFD, STATE, st::OUTBUF, &reneg_nosend, "rtok", &fail, imports, platform, &mut ins, &mut rel)?;
+    ins.push(abi::label(&reneg_nosend));
+    ins.extend([
+        // SEC_E_OK → renegotiation complete, decrypt the application data.
+        abi::compare_immediate("%v15", "0"),
+        abi::branch_eq(&dloop),
+        // else CONTINUE: consume INBUF[1] EXTRA (move to front of RECV) or recv more.
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u32("%v9", "%v10", st::INBUF + 16 + 4), // type of buf[1]
+        abi::compare_immediate("%v9", SECBUFFER_EXTRA),
+        abi::branch_ne(&reneg_reset),
+        abi::load_u32("%v11", "%v10", st::INBUF + 16), // extra len
+        abi::load_u32("%v12", "%v10", st::RECV_LEN),
+        abi::subtract_registers("%v13", "%v12", "%v11"), // src offset
+        abi::add_immediate("%v14", "%v10", st::RECV),
+        abi::add_registers("%v14", "%v14", "%v13"),
+        abi::add_immediate("%v6", "%v10", st::RECV),
+    ]);
+    move_bytes("%v14", "%v6", "%v11", &format!("{symbol}_rgex"), &mut ins);
+    ins.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u32("%v11", "%v10", st::INBUF + 16),
+        abi::store_u64("%v11", "%v10", st::RECV_LEN),
+        abi::branch(&reneg_isc),
+        // CONTINUE with no buffered handshake bytes left: the post-handshake exchange
+        // is drained — resume the main decrypt loop, whose fresh recv reads the
+        // application data (do NOT recv more expecting handshake data that won't come).
+        abi::label(&reneg_reset),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::store_u64(abi::ZERO, "%v10", st::RECV_LEN),
+        abi::branch(&dloop),
+        // reneg_recv: SEC_E_INCOMPLETE_MESSAGE needs more bytes of the current record.
+        abi::label(&reneg_recv),
+        // recv(fd, RECV+RECV_LEN, RECV_CAP-RECV_LEN, 0)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), RFD),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u64("%v11", "%v10", st::RECV_LEN),
+        abi::add_immediate(abi::ARG[1], "%v10", st::RECV),
+        abi::add_registers(abi::ARG[1], abi::ARG[1], "%v11"),
+        abi::move_immediate(abi::ARG[2], "Integer", &RECV_CAP.to_string()),
+        abi::subtract_registers(abi::ARG[2], abi::ARG[2], "%v11"),
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+    ]);
+    platform.emit_libc_call("recv", symbol, imports, &mut ins, &mut rel)?;
+    ins.extend([
+        abi::sign_extend_word(abi::return_register(), abi::return_register()),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_le(&fail),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u64("%v11", "%v10", st::RECV_LEN),
+        abi::add_registers("%v11", "%v11", abi::return_register()),
+        abi::store_u64("%v11", "%v10", st::RECV_LEN),
+        abi::branch(&reneg_isc),
+    ]);
 
     ins.push(abi::label(&peer_closed));
     emit_fail(symbol, ERR_CONNECTION_CLOSED_CODE, ERR_CONNECTION_CLOSED_SYMBOL, &mut ins, &mut rel, &done);

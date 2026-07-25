@@ -229,7 +229,7 @@ pub(super) fn lower_tls_connect(
         abi::store_u32("%v9", "%v18", st::SC_CRED + 72),
     ]);
     // Marshal serverName -> wide cstr (SNAMEW) for pszTargetName.
-    emit_wide_cstring(symbol, SNAME, SNAMEW, &alloc_fail, &mut ins, &mut rel);
+    emit_wide_cstring(symbol, SNAME, SNAMEW, &alloc_fail, imports, platform, &mut ins, &mut rel)?;
 
     // AcquireCredentialsHandleW(NULL, "Microsoft Unified Security Protocol
     //   Provider", SECPKG_CRED_OUTBOUND, NULL, &cred, NULL, NULL, &state.cred, &expiry)
@@ -307,7 +307,7 @@ pub(super) fn lower_tls_connect(
     ins.extend([
         abi::sign_extend_word(abi::return_register(), abi::return_register()),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&format!("{symbol}_fail_recv")),
+        abi::branch_le(&fail),
         // recv_len += n
         abi::load_u64("%v10", abi::stack_pointer(), STATE),
         abi::load_u64("%v11", "%v10", st::RECV_LEN),
@@ -357,7 +357,7 @@ pub(super) fn lower_tls_connect(
     // Any negative status other than INCOMPLETE → handshake/cert failure.
     ins.extend([
         abi::compare_immediate("%v15", "0"),
-        abi::branch_lt(&format!("{symbol}_fail_isc2")),
+        abi::branch_lt(&fail),
     ]);
     // Send any output token produced.
     emit_send_token(symbol, FD, STATE, st::OUTBUF, &no_extra, "tok1", &fail, imports, platform, &mut ins, &mut rel)?;
@@ -415,7 +415,7 @@ pub(super) fn lower_tls_connect(
     ]);
 
     // Enforce the HOSTNAME against the negotiated chain (bug: easy to omit).
-    emit_verify_hostname(symbol, STATE, SNAMEW, &format!("{symbol}_fail_verify"), imports, platform, &mut ins, &mut rel)?;
+    emit_verify_hostname(symbol, STATE, SNAMEW, &fail, imports, platform, &mut ins, &mut rel)?;
 
     // Store state ptr in the resource, return the resource.
     ins.extend([
@@ -429,13 +429,6 @@ pub(super) fn lower_tls_connect(
 
     ins.push(abi::label(&fail));
     emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
-    // TEMP DIAGNOSTIC: distinct messages per handshake stage.
-    ins.push(abi::label(&format!("{symbol}_fail_recv")));
-    emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
-    ins.push(abi::label(&format!("{symbol}_fail_isc2")));
-    emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
-    ins.push(abi::label(&format!("{symbol}_fail_verify")));
-    emit_fail(symbol, ERR_CONNECTION_CLOSED_CODE, ERR_CONNECTION_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
     ins.push(abi::label(&alloc_fail));
     emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
     ins.extend([abi::label(&done), abi::return_()]);
