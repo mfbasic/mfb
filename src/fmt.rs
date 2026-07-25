@@ -127,7 +127,7 @@ fn indent_str(level: usize, width: usize) -> String {
 
 /// A significant (non-whitespace, non-comment) token, classified only as far as
 /// the formatter needs for indentation and continuation decisions.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy)]
 enum Sig {
     Kw(Keyword),
     /// A lone `_`, which as the last token of a line is a line continuation.

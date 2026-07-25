@@ -344,6 +344,14 @@ with it.
   message. The message text is a diagnostic string, so check for goldens
   asserting it before editing.
 
+> **D5 done (2026-07-25).** Dropped `PartialEq` from `enum Sig` in `src/fmt.rs`
+> (kept `Clone, Copy`); `cargo check` confirms it was unused (every `Sig`
+> discrimination goes through `matches!`). Did not touch `:161` (the `'\r'` arm
+> is reachable, per the correction below). Output-neutral (a dead derive is never
+> emitted or called). **D1 also verified already-resolved** — the AST
+> `LinkFunction.result` doc comment now cites `RETURN <expr>`, not the deleted
+> `RESULT` clause.
+
 #### D5 — `fmt.rs` dead `PartialEq` derive on `Sig`
 
 - `#[derive(Clone, Copy, PartialEq)] enum Sig` at `src/fmt.rs:122-123`. No `==`
