@@ -1,5 +1,17 @@
 # plan-45: Benchmark coverage — critical-feature hot paths to add
 
+**STATUS: COMPLETE — 2026-07-24.** All 12 benchmarks landed across mfb/C/python
+with cross-language-verified checksums (or marked mfb-only): three new groups —
+`encoding` (base64/hex/percent), `datetime` (civil/iso), `dispatch` (union+MATCH,
+inline TRAP) — plus extensions to `map` (intkey/intchurn/listagg), `mathpipe`
+(memo DP + mfb-only Money pipeline), and `list` (sort_asc/desc/rand). The three
+arena-sensitive rows (`encoding base64`, `datetime iso`, `map intchurn`) are
+authored tiny with a `TODO(plan-44-J)` marker per the rollout below — Phase 2 is
+bumping them to realistic N in the commit that lands plan-44-J (that plan's work,
+gated on the still-open arena fix). The top-down Map-memo variant of the DP was
+replaced by an in-place bottom-up `List` memo, since mfb's value-semantic map
+threading triggers the same plan-44-J arena quadratic.
+
 Last updated: 2026-07-14
 Effort: medium (each benchmark is a self-contained `test_*` in all three languages)
 Companion to `planning/plan-44-benchmark-perf.md` (the fix plan).
