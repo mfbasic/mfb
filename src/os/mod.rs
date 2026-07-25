@@ -4,6 +4,10 @@ pub(crate) mod icon;
 pub(crate) mod linux;
 pub(crate) mod macos;
 pub(crate) mod note;
+/// ISA-neutral native object-plan model (the plan structs, their JSON rendering,
+/// and the dedup/align helpers) shared by the Mach-O and ELF object writers
+/// (bug-335 A1). The format-specific `lower_plan`/validation stay per platform.
+mod object_plan;
 /// Windows PE/COFF container writer (plan-47-C). A leaf sibling of `linux`/`macos`
 /// that lands before the `windows-x86_64` backend (plan-47-B) selects it.
 pub(crate) mod windows;

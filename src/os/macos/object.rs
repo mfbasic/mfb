@@ -1,6 +1,11 @@
 use std::collections::HashSet;
 
 use crate::json_string;
+use crate::os::object_plan::{
+    align, join_json, json_string_list, push_unique, reject_duplicates, CodeUnitPlan, DataUnitPlan,
+    LoadEntryPlan, ObjectImport, ObjectRelocation, SectionPlan, SegmentPlan, StringTableEntry,
+    StringTablePlan, SymbolPlan,
+};
 use crate::target::shared::plan::{CallKind, NativePlan};
 
 const VM_BASE: u64 = 0x1_0000_0000;
@@ -15,7 +20,7 @@ pub(crate) struct NativeObjectPlan {
     entry: String,
     image_base: u64,
     dylibs: Vec<String>,
-    load_commands: Vec<LoadCommandPlan>,
+    load_commands: Vec<LoadEntryPlan>,
     segments: Vec<SegmentPlan>,
     sections: Vec<SectionPlan>,
     code_units: Vec<CodeUnitPlan>,
@@ -26,79 +31,6 @@ pub(crate) struct NativeObjectPlan {
     symbol_table: Vec<SymbolPlan>,
     string_table: StringTablePlan,
     relocations: Vec<ObjectRelocation>,
-}
-
-struct LoadCommandPlan {
-    kind: String,
-    name: Option<String>,
-}
-
-struct SegmentPlan {
-    name: String,
-    vm_address: u64,
-    vm_size: usize,
-    file_offset: usize,
-    file_size: usize,
-    max_protection: String,
-    initial_protection: String,
-}
-
-struct SectionPlan {
-    segment: String,
-    section: Option<String>,
-    kind: String,
-    vm_address: u64,
-    file_offset: usize,
-    size: usize,
-    align: usize,
-}
-
-struct CodeUnitPlan {
-    symbol: String,
-    section: String,
-    offset: usize,
-    planned_size: usize,
-    operations: Vec<String>,
-    calls: Vec<String>,
-    data_refs: Vec<String>,
-}
-
-struct DataUnitPlan {
-    symbol: String,
-    section: String,
-    offset: usize,
-    size: usize,
-    value: String,
-}
-
-struct ObjectImport {
-    library: String,
-    symbol: String,
-}
-
-struct SymbolPlan {
-    name: String,
-    kind: String,
-    section: Option<String>,
-    value: Option<u64>,
-    string_table_offset: usize,
-}
-
-struct StringTablePlan {
-    size: usize,
-    entries: Vec<StringTableEntry>,
-}
-
-struct StringTableEntry {
-    value: String,
-    offset: usize,
-}
-
-struct ObjectRelocation {
-    from: String,
-    to: String,
-    kind: String,
-    section: String,
 }
 
 pub(crate) fn lower_plan(plan: &NativePlan) -> Result<NativeObjectPlan, String> {
@@ -287,47 +219,47 @@ impl NativeObjectPlan {
     }
 }
 
-fn load_commands(plan: &NativePlan) -> Vec<LoadCommandPlan> {
+fn load_commands(plan: &NativePlan) -> Vec<LoadEntryPlan> {
     let mut commands = vec![
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_SEGMENT_64".to_string(),
             name: Some("__TEXT".to_string()),
         },
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_SEGMENT_64".to_string(),
             name: Some("__LINKEDIT".to_string()),
         },
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_DYLD_INFO_ONLY".to_string(),
             name: None,
         },
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_SYMTAB".to_string(),
             name: None,
         },
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_DYSYMTAB".to_string(),
             name: None,
         },
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_LOAD_DYLINKER".to_string(),
             name: Some("/usr/lib/dyld".to_string()),
         },
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_BUILD_VERSION".to_string(),
             name: Some("macos".to_string()),
         },
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_MAIN".to_string(),
             name: None,
         },
-        LoadCommandPlan {
+        LoadEntryPlan {
             kind: "LC_CODE_SIGNATURE".to_string(),
             name: None,
         },
     ];
     for dylib in dylibs(plan).unwrap_or_default() {
-        commands.push(LoadCommandPlan {
+        commands.push(LoadEntryPlan {
             kind: "LC_LOAD_DYLIB".to_string(),
             name: Some(dylib),
         });
@@ -728,226 +660,6 @@ fn push_relocation(relocations: &mut Vec<ObjectRelocation>, relocation: ObjectRe
         return;
     }
     relocations.push(relocation);
-}
-
-fn push_unique(values: &mut Vec<String>, value: String) {
-    if !values.contains(&value) {
-        values.push(value);
-    }
-}
-
-fn reject_duplicates(label: &str, values: &[String]) -> Result<(), String> {
-    let mut seen = HashSet::new();
-    for value in values {
-        if !seen.insert(value) {
-            return Err(format!(
-                "native object plan has duplicate {label} '{value}'"
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn align(value: usize, alignment: usize) -> usize {
-    value.div_ceil(alignment) * alignment
-}
-
-trait ToObjectJson {
-    fn to_json(&self, indent: usize) -> String;
-}
-
-impl ToObjectJson for LoadCommandPlan {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        let name = self
-            .name
-            .as_ref()
-            .map(|name| json_string(name))
-            .unwrap_or_else(|| "null".to_string());
-        format!(
-            "\n{}{{ \"kind\": {}, \"name\": {} }}",
-            pad,
-            json_string(&self.kind),
-            name
-        )
-    }
-}
-
-impl ToObjectJson for SegmentPlan {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        format!(
-            concat!(
-                "\n{}{{ \"name\": {}, \"vmAddress\": {}, \"vmSize\": {}, ",
-                "\"fileOffset\": {}, \"fileSize\": {}, \"maxProtection\": {}, ",
-                "\"initialProtection\": {} }}"
-            ),
-            pad,
-            json_string(&self.name),
-            self.vm_address,
-            self.vm_size,
-            self.file_offset,
-            self.file_size,
-            json_string(&self.max_protection),
-            json_string(&self.initial_protection)
-        )
-    }
-}
-
-impl ToObjectJson for SectionPlan {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        let section = self
-            .section
-            .as_ref()
-            .map(|section| json_string(section))
-            .unwrap_or_else(|| "null".to_string());
-        format!(
-            concat!(
-                "\n{}{{ \"segment\": {}, \"section\": {}, \"kind\": {}, ",
-                "\"vmAddress\": {}, \"fileOffset\": {}, \"size\": {}, \"align\": {} }}"
-            ),
-            pad,
-            json_string(&self.segment),
-            section,
-            json_string(&self.kind),
-            self.vm_address,
-            self.file_offset,
-            self.size,
-            self.align
-        )
-    }
-}
-
-impl ToObjectJson for CodeUnitPlan {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        format!(
-            concat!(
-                "\n{}{{ \"symbol\": {}, \"section\": {}, \"offset\": {}, ",
-                "\"plannedSize\": {}, \"operations\": [{}], \"calls\": [{}], \"dataRefs\": [{}] }}"
-            ),
-            pad,
-            json_string(&self.symbol),
-            json_string(&self.section),
-            self.offset,
-            self.planned_size,
-            json_string_list(&self.operations),
-            json_string_list(&self.calls),
-            json_string_list(&self.data_refs)
-        )
-    }
-}
-
-impl ToObjectJson for DataUnitPlan {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        format!(
-            "\n{}{{ \"symbol\": {}, \"section\": {}, \"offset\": {}, \"size\": {}, \"value\": {} }}",
-            pad,
-            json_string(&self.symbol),
-            json_string(&self.section),
-            self.offset,
-            self.size,
-            json_string(&self.value)
-        )
-    }
-}
-
-impl ToObjectJson for ObjectImport {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        format!(
-            "\n{}{{ \"library\": {}, \"symbol\": {} }}",
-            pad,
-            json_string(&self.library),
-            json_string(&self.symbol)
-        )
-    }
-}
-
-impl ToObjectJson for SymbolPlan {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        let section = self
-            .section
-            .as_ref()
-            .map(|section| json_string(section))
-            .unwrap_or_else(|| "null".to_string());
-        let value = self
-            .value
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "null".to_string());
-        format!(
-            concat!(
-                "\n{}{{ \"name\": {}, \"kind\": {}, \"section\": {}, ",
-                "\"value\": {}, \"stringTableOffset\": {} }}"
-            ),
-            pad,
-            json_string(&self.name),
-            json_string(&self.kind),
-            section,
-            value,
-            self.string_table_offset
-        )
-    }
-}
-
-impl ToObjectJson for StringTableEntry {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        format!(
-            "\n{}{{ \"value\": {}, \"offset\": {} }}",
-            pad,
-            json_string(&self.value),
-            self.offset
-        )
-    }
-}
-
-impl StringTablePlan {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        format!(
-            "{{\n{}  \"size\": {},\n{}  \"entries\": [{}\n{}  ]\n{}}}",
-            pad,
-            self.size,
-            pad,
-            join_json(&self.entries, indent + 2),
-            pad,
-            pad
-        )
-    }
-}
-
-impl ToObjectJson for ObjectRelocation {
-    fn to_json(&self, indent: usize) -> String {
-        let pad = " ".repeat(indent);
-        format!(
-            "\n{}{{ \"from\": {}, \"to\": {}, \"kind\": {}, \"section\": {} }}",
-            pad,
-            json_string(&self.from),
-            json_string(&self.to),
-            json_string(&self.kind),
-            json_string(&self.section)
-        )
-    }
-}
-
-fn join_json<T: ToObjectJson>(items: &[T], indent: usize) -> String {
-    items
-        .iter()
-        .map(|item| item.to_json(indent))
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-fn json_string_list(values: &[String]) -> String {
-    values
-        .iter()
-        .map(|value| json_string(value))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 #[cfg(test)]
