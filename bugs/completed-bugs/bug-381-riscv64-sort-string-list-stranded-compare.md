@@ -5,8 +5,13 @@ Effort: large (3h–1d)
 Severity: MEDIUM
 Class: Correctness (compile-time panic — no code is emitted; the target cannot build the program)
 
-Status: Open
-Regression Test: tests/byte-identity/fs (build for -target linux-riscv64) — currently panics; add a linux-riscv64 `.ncodesum` golden once fixed.
+Status: FIXED (2026-07-25)
+Regression Test: tests/byte-identity/fs (build for -target linux-riscv64) — now
+emits a byte-stable `.ncode`; the linux-riscv64 `.ncodesum` golden is committed
+(`tests/byte-identity/fs/golden/fs_codegen_cover_rt.linux-riscv64.ncodesum`).
+Plus `arch::riscv64::select` unit tests
+`pending_compare_recovers_across_a_{carry_out,borrow_out}_def_of_its_rhs` and
+`pending_compare_recovers_across_a_reload_of_its_operand`.
 
 Compiling **any** program that sorts a string list to `linux-riscv64` aborts the
 build with a panic instead of emitting code. `_mfb_rt_sort_string_list` (the
@@ -152,6 +157,12 @@ runtime helper that emits a non-adjacent or multi-branch compare.
 - Fusion at `mir.rs:469` — unaffected; it is correct that it only fuses adjacent
   pairs. The fix belongs in the riscv64 fallback, not in fusion.
 - x86-64 / aarch64 selectors — unaffected (independent flag state).
+- **Latent riscv64 allocator fault (still OPEN, found during this fix):** removing
+  a single register from `regmodel::INT_ALLOCATABLE` (tried as a rejected fix
+  shape) makes unrelated functions SIGSEGV at runtime on riscv64 — a miscompile
+  that only manifests with the smaller 11-register pool. Not exercised by the
+  landed fix (which leaves the pool untouched), but it means the rv64 allocator
+  has a latent bug that a future pool change would trip. Worth its own bug.
 
 ## Fix Design
 
@@ -181,10 +192,10 @@ miscompile. Validate against a riscv64 run, not just a rebuild.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a linux-riscv64 build assertion for a string-sorting fixture
+- [x] Add a linux-riscv64 build assertion for a string-sorting fixture
       (fs is sufficient; a minimal `List<String>`-sort program is
       cleaner). Confirm it panics at `select.rs:393` today.
-- [ ] Audit the riscv64 reserved-register set (`src/arch/riscv64/regmodel.rs`)
+- [x] Audit the riscv64 reserved-register set (`src/arch/riscv64/regmodel.rs`)
       for a second `gp`-like register, and enumerate every runtime helper that
       reaches the bare-`pending` path. Write each verdict into §Blast Radius.
 
@@ -194,9 +205,9 @@ Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Implement (a) (or (b) if the audit kills (a)) in `select_riscv64`: keep
+- [x] Implement (a) (or (b) if the audit kills (a)) in `select_riscv64`: keep
       both compared values live from compare to branch.
-- [ ] Confirm the bug-284 C3 invalidation still fires for genuinely-dead cases
+- [x] Confirm the bug-284 C3 invalidation still fires for genuinely-dead cases
       and no longer strands recoverable ones.
 
 Acceptance: Phase 1 test passes; riscv64 `.ncode` is byte-stable across two
@@ -205,11 +216,11 @@ Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Capture the linux-riscv64 `.ncodesum` golden for fs (and any other
+- [x] Capture the linux-riscv64 `.ncodesum` golden for fs (and any other
       newly-buildable fixture), completing plan-47 §Prerequisites row 3.
-- [ ] Run the full acceptance suite + `scripts/artifact-gate.sh` (all four
+- [x] Run the full acceptance suite + `scripts/artifact-gate.sh` (all four
       targets byte-identical except the intended new riscv64 goldens).
-- [ ] Run the sorted-output program on a riscv64 host / qemu and confirm the
+- [x] Run the sorted-output program on a riscv64 host / qemu and confirm the
       ordering matches the other targets.
 
 Acceptance: full suite green; only riscv64 bytes shift, as intended; sort output
@@ -226,10 +237,73 @@ Commit: —
   advertises the full surface.
 - Full suite: the project acceptance suite + `scripts/artifact-gate.sh`.
 
-## Open Decisions
+## Open Decisions — RESOLVED
 
-- Fix shape (a) snapshot-both-operands vs (b) re-materialize-from-slot — §Fix
-  Design recommends (a), pending the reserved-register audit in Phase 1.
+The recommended shape (a) "snapshot both operands into a second reserved
+register" was **implemented and empirically disproven on the riscv64 host
+(2229)**, and shape (b) as written (re-materialize from the spilled slot) was
+not viable because the stranded operand is never reliably spilled. The landed
+fix is a **third shape**: snapshot both compared *values* — the lhs into the
+existing reserved `gp`, and the rhs into a reserved **per-thread memory word**
+(`ARENA_FLAG_RHS_OFFSET`) — spilled at the compare and reloaded at the branch.
+See §Resolution.
+
+## Resolution
+
+The Phase-1 reserved-register audit found **no free second register**, and the
+two register-based candidates each failed a hard test on the riscv64 host:
+
+- **`tp` (x4) — the plan's recommended pick — is a silent miscompile.** It is the
+  hardware **thread pointer**; musl and glibc pin TLS/`errno` there. Snapshotting
+  the rhs into `tp` built and *byte-stabilized* fine, and the branch itself was
+  correct, but the resulting binary **SIGSEGVs at runtime** on 2229 the moment
+  control returns to libc — exactly the "validate on a run, not a rebuild" risk
+  this bug flagged. Proven by building a string-sort program with the `tp`
+  snapshot and running it on 2229 (segfault) vs the final fix (correct output).
+- **Dedicating a register from the allocatable pool destabilizes the allocator.**
+  Removing a caller-saved temporary (`t3`) from `regmodel::INT_ALLOCATABLE` to
+  reserve it made **12 unrelated rt-behavior fixtures SIGSEGV on 2229** — fixtures
+  that do not use the flag path at all (confirmed: their `.ncode` contains no
+  `gp`/`t3`). Restoring `t3` to the pool fixed them. Shrinking the 11–12 register
+  rv64 pool exposes a latent allocation fault, so the pool must not be touched.
+  (That latent allocator fault is a separate, still-open issue — see the note
+  added to §Blast Radius.)
+
+The landed fix therefore keeps the compared **values** live in places nothing
+else can touch, without any register-pool change:
+
+- **lhs → `gp`** (unchanged from plan-99; `gp` is codegen-unused and libc-safe).
+- **rhs → a reserved per-thread memory word.** `store_flag_rhs` spills the rhs
+  value at the compare and `load_flag_rhs` reloads it (into `t0`) at the branch,
+  both addressed off the pinned per-thread arena base `s11`. Immune to any
+  spill/reload or redefinition of the original operand registers, and — being
+  per-thread — race-free. The word is **carved from the existing rv64-only v128
+  slot region** (`ARENA_V128_SLOTS_SIZE` 128→127 slots, `SLOT_COUNT` 128→127), so
+  `ARENA_STATE_SIZE` is byte-for-byte unchanged and **no other target's bytes
+  move** (confirmed: x86-64/aarch64/macos `.ncodesum` all identical).
+- **The bug-284 C3 invalidation is preserved for the genuinely-unrecoverable
+  cases** (a `label` control-merge, a `call` — whose callee would overwrite the
+  shared snapshot word) and **relaxed only for operand-register redefinition**,
+  which is now recoverable because the value lives in memory, not a register.
+
+Surgical blast radius: only functions that actually hit the bare-compare path
+(today, just `_mfb_rt_sort_string_list`) change bytes. All six pre-existing
+riscv64 `.ncodesum` goldens are **unchanged**; only the new fs golden is added.
+
+### Validation performed
+
+- `cargo test -p mfb` — all 113 `arch::riscv64` unit tests pass (incl. the three
+  new recovery tests).
+- `scripts/artifact-gate.sh` — 0 diffs across 1330 goldens, all four targets,
+  including the new fs linux-riscv64 golden.
+- Full acceptance suite — passed (1081 tests).
+- **Runtime on 2229 (Alpine riscv64, musl):** a `List<String>`-sort program
+  (via `fs::listDirectory` of a scrambled directory) prints the identical
+  byte-wise sorted order the linux-x86_64 build prints; `crypto-ec-valid`
+  (P-256/384/521 sign/verify/tamper — heavy hand-written helpers) matches its
+  golden; a 75-fixture rt-behavior sample matches HEAD output for every case
+  except environmental (host-path/thread) differences, with **zero regressions**
+  (a bonus: `thread_fs_close_rt`, also bug-381-blocked at HEAD, now builds).
 
 ## Summary
 

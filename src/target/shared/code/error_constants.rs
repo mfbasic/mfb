@@ -433,14 +433,36 @@ pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET +
 /// math kernels) stage their lanes in memory. That region was a single process
 /// **global**, which two OS threads running v128 kernels concurrently corrupted.
 /// Reserving it inside the per-thread arena state — addressed off the pinned
-/// per-thread arena base (`s11`) — gives every thread its own slots. 128 slots ×
+/// per-thread arena base (`s11`) — gives every thread its own slots. 127 slots ×
 /// 16 bytes matches `arch::riscv64::v128::SLOT_COUNT`. The region is reserved
 /// uniformly (all targets) so the arena-state layout stays target-independent;
 /// only rv64 codegen addresses it. Placed last so `ARENA_V128_SLOTS_OFFSET`
 /// stays within the rv64 12-bit `addi` immediate (±2047).
+///
+/// bug-381: the region held 128 slots; one was reclaimed for
+/// [`ARENA_FLAG_RHS_OFFSET`] below, so `ARENA_STATE_SIZE` (and every target's
+/// arena-clear) is byte-for-byte unchanged. `arch::riscv64::v128::SLOT_COUNT`
+/// dropped to 127 in lockstep.
 pub(crate) const ARENA_V128_SLOTS_OFFSET: usize =
     ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
-pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 128 * 16;
+pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 127 * 16;
+/// Per-thread rv64 flag-emulation rhs snapshot (bug-381). RISC-V has no condition
+/// flags, so a bare (non-fused) integer compare whose flag-reading branch is not
+/// adjacent must keep its *compared values* live across the span — but under
+/// register pressure the allocator spills/reloads a compare operand between the
+/// compare and its branch, stranding it. The left operand is snapshotted into the
+/// reserved `gp`; the right is stored here, in this per-thread word, at the
+/// compare and reloaded at the branch. A reserved memory word (rather than a
+/// second reserved register) is used because rv64 has no free second register:
+/// every candidate is either allocatable, ABI/TLS-reserved (`tp` faults a
+/// dynamically-linked binary), or a hand-written-helper scratch; and *shrinking*
+/// the allocatable pool to free one destabilizes the allocator. This word is
+/// addressed off the same pinned per-thread `s11` the v128 slots use, so it is
+/// thread-safe, and it is only ever touched inside a single call-free/label-free
+/// compare→branch span, so it never races itself. Carved from the v128 region
+/// (16 bytes reclaimed above) so `ARENA_STATE_SIZE` does not grow and no other
+/// target's bytes change.
+pub(crate) const ARENA_FLAG_RHS_OFFSET: usize = ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
 /// Per-thread "current error" slot (plan-error-block-in-slot / design "b"): holds
 /// the block base of the single in-flight owned Error while it propagates, so the
 /// catching trap route ADOPTS that block (freeing it once) instead of rebuilding a
@@ -450,8 +472,7 @@ pub(crate) const ARENA_V128_SLOTS_SIZE: usize = 128 * 16;
 /// accesses compute the address in a register rather than using a fixed offset.
 /// Zero-initialized by the same whole-`ARENA_STATE_SIZE` clear the entry and
 /// thread-spawn paths already run.
-pub(crate) const ARENA_CURRENT_ERROR_OFFSET: usize =
-    ARENA_V128_SLOTS_OFFSET + ARENA_V128_SLOTS_SIZE;
+pub(crate) const ARENA_CURRENT_ERROR_OFFSET: usize = ARENA_FLAG_RHS_OFFSET + 16;
 /// Per-thread stdin broadcast staging (plan-15 §4.2), four `u64` words appended
 /// after the current-error slot. All zero-initialized by the whole-`ARENA_STATE_SIZE`
 /// clear the entry and thread-spawn paths run, so NULL/zero is the correct "not set

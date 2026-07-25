@@ -46,10 +46,19 @@ const FT1: &str = "ft1";
 const ZERO: &str = "zero";
 /// The flag register (plan-99): a bare `cmp`/`cmp_imm` whose flag-reading branch
 /// is NOT adjacent (fusion missed it — the flags outlive intervening loads in a
-/// few hand-written net/link helpers) saves its left operand here at the compare
-/// and the standalone branch re-derives the condition from it. `gp` (x3) is never
-/// used by the codegen (no gp-relative addressing) and is preserved across calls,
-/// so it survives the whole compare→branch span.
+/// few hand-written net/link helpers, and, under register pressure, a spill/reload
+/// the allocator threads between a compare and its branch) saves its **left**
+/// operand here at the compare and the standalone branch re-derives the condition
+/// from it. `gp` (x3) is never used by the codegen (no gp-relative addressing) and
+/// is preserved across calls, so it survives the whole compare→branch span.
+///
+/// bug-381: the **right** operand cannot share a second such register — rv64 has
+/// no free one (`tp`/x4 faults a dynamically-linked binary via TLS, and shrinking
+/// the allocatable pool to free a temporary destabilizes the allocator) — so it is
+/// spilled to a reserved per-thread memory word ([`ARENA_FLAG_RHS_OFFSET`]) at the
+/// compare and reloaded at the branch. That keeps the compared *value* live across
+/// any spill/reload or redefinition of the original operand register, which a
+/// flagless target must do. See [`store_flag_rhs`] / [`load_flag_rhs`].
 const GP: &str = "gp";
 
 /// The value of a named field (empty string if absent).
@@ -328,8 +337,49 @@ enum FlagRhs {
     Zero,
     /// Compare against an immediate, re-materialized at the branch.
     Imm(String),
-    /// Compare against a register whose value survives to the branch.
-    Reg(String),
+    /// Compare against a register operand. bug-381: its value is spilled to the
+    /// per-thread [`ARENA_FLAG_RHS_OFFSET`] word at the compare, so the branch
+    /// reloads the compared *value* rather than re-reading a register the
+    /// allocator may have overwritten in the span. No payload — the value lives in
+    /// memory, not a named register.
+    Reg,
+}
+
+/// Materialize the address of the per-thread flag-rhs snapshot word
+/// (`arena_base + ARENA_FLAG_RHS_OFFSET`) into `dst`. The offset is past the
+/// 12-bit load/store immediate, so it is built and added to the pinned arena base
+/// (`ARENA_BASE` is renamed to the physical arena register at the end of
+/// selection). `dst` must be a lowering-scratch register free at the call site.
+fn flag_rhs_address(dst: &str) -> Vec<CodeInstruction> {
+    let offset = crate::target::shared::code::ARENA_FLAG_RHS_OFFSET.to_string();
+    vec![
+        ci("mov_imm", &[("dst", dst), ("value", &offset)]),
+        ci("add", &[("dst", dst), ("lhs", ARENA_BASE), ("rhs", dst)]),
+    ]
+}
+
+/// bug-381: spill a bare compare's rhs *value* to the per-thread snapshot word.
+/// Uses `t0` as the address scratch (reserved lowering scratch, free at a bare
+/// compare); `rhs` is never `t0`, so the store is safe.
+fn store_flag_rhs(rhs: &str) -> Vec<CodeInstruction> {
+    let mut out = flag_rhs_address(T0);
+    out.push(ci(
+        "str_u64",
+        &[("src", rhs), ("base", T0), ("offset", "0")],
+    ));
+    out
+}
+
+/// bug-381: reload the snapshotted rhs value into `dst` at the branch. `dst`
+/// doubles as the address scratch (materialize address into `dst`, then load
+/// through it), so a single lowering-scratch register suffices.
+fn load_flag_rhs(dst: &str) -> Vec<CodeInstruction> {
+    let mut out = flag_rhs_address(dst);
+    out.push(ci(
+        "ldr_u64",
+        &[("dst", dst), ("base", dst), ("offset", "0")],
+    ));
+    out
 }
 
 /// Select neutral MIR into RV64GC machine ops (plan-99).
@@ -348,10 +398,12 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         super::v128::SLOT_COUNT
     );
     // A bare `cmp`/`cmp_imm` whose flag-reading branch is not adjacent (fusion
-    // missed it) saves its left operand into `gp` here; the standalone branch
-    // that follows consumes `pending` to build a native `rv.br`. Multiple
-    // branches may read one compare (`gp`/rhs persist until the next compare).
-    let mut pending: Option<FlagRhs> = None; // the compare's rhs; lhs is always GP
+    // missed it) saves its left operand into `gp` (and, for a register rhs, spills
+    // the right operand's value to the per-thread snapshot word — bug-381); the
+    // standalone branch that follows consumes `pending` to build a native `rv.br`.
+    // Multiple branches may read one compare (`gp`/the snapshot persist until the
+    // next compare, a call, or a label).
+    let mut pending: Option<FlagRhs> = None; // lhs is always GP; a register rhs is in the snapshot word
     for instruction in instructions {
         // Bare (non-fused) integer compare: save the left operand into the flag
         // register `gp`. RISC-V has no flags, so the comparison itself emits
@@ -360,8 +412,15 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             Some(CodeOp::Cmp) => {
                 let lhs = field_value(&instruction.fields, "lhs");
                 let rhs = field_value(&instruction.fields, "rhs");
+                // Snapshot BOTH compared values at the compare (bug-381): lhs into
+                // the reserved `gp`, rhs into the per-thread snapshot word. Keeping
+                // the rhs by register name (the plan-99 original) stranded the
+                // branch when the allocator reloaded that register in the span; the
+                // by-value snapshots survive any intervening spill/reload or
+                // redefinition of the original operands.
                 out.push(ci("mov", &[("dst", GP), ("src", &lhs)]));
-                pending = Some(FlagRhs::Reg(rhs));
+                out.extend(store_flag_rhs(&rhs));
+                pending = Some(FlagRhs::Reg);
                 continue;
             }
             Some(CodeOp::CmpImm) => {
@@ -419,8 +478,12 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                             ],
                         ));
                     }
-                    FlagRhs::Reg(r) => {
-                        let (a, b, rvcond) = int_branch(cond, GP, r);
+                    FlagRhs::Reg => {
+                        // Reload the snapshotted rhs value (bug-381) into t0, then
+                        // branch on gp vs t0 — reading the compared values, not the
+                        // originals the allocator may have overwritten.
+                        out.extend(load_flag_rhs(T0));
+                        let (a, b, rvcond) = int_branch(cond, GP, T0);
                         out.push(ci(
                             "rv.br",
                             &[
@@ -436,38 +499,33 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             }
             _ => {}
         }
-        // bug-126.2: a bare (non-fused) integer compare defers its operands —
-        // the lhs snapshotted into `gp`, the rhs kept by *register name* in
-        // `pending` — for a later standalone flag branch to re-read. That saved
-        // rhs is only valid until the register is redefined, and the whole
-        // pending compare only dominates a branch that no label separates from
-        // it. Neither invalidation existed (plan-99 cleared `pending` solely on
-        // the next compare), so a def of the rhs register or an intervening label
-        // could strand a stale compare. Invalidate here, before lowering the
-        // offending instruction. (Latent: current streams place the consuming
-        // branch immediately after the compare with no such interleaving, so
-        // this never fires and the selected bytes are unchanged.)
+        // bug-126.2 / bug-284 C3 / bug-381: a bare (non-fused) integer compare
+        // defers its operands — the lhs snapshotted into `gp`, a register rhs
+        // spilled to the per-thread snapshot word (bug-381) — for a later
+        // standalone flag branch to re-read. Two situations still invalidate the
+        // pending compare, because on NO architecture do flags survive them, so any
+        // codegen reading them across one would be wrong regardless of the snapshot:
         //
-        // bug-284 C3: "any def of the saved rhs" was implemented as "an instruction
-        // whose `dst` field is the rhs", which misses every other way a register is
-        // written. `add_carry` defines `carry_out` and `sub_borrow` defines
-        // `borrow_out`, neither of which is a `dst`; and `bl`/`blr` clobber the
-        // whole caller-saved set while naming no destination at all. Any of those
-        // between the compare and its branch left the branch re-reading a register
-        // that no longer holds the compared value -- a silently wrong branch.
+        //  - A `label`: control flow can merge at the label, reaching the branch
+        //    without having executed the compare, so the snapshots are stale on the
+        //    merged-in path.
+        //  - A `call`: a compare whose flag-reading branch sits across a call has no
+        //    meaning on any target (a call clobbers flags), and the callee's own
+        //    flag emulation would overwrite the shared per-thread snapshot word, so
+        //    the snapshot does NOT survive a call. Detect it rather than miscompile.
+        //
+        // What is NO LONGER invalidated (bug-381): a redefinition of an original
+        // operand *register* — a `dst`, an `add_carry` `carry_out`, a `sub_borrow`
+        // `borrow_out`, or an allocator-inserted spill/reload of the operand. On the
+        // flag machines that schedule is legal (redefining a GPR does not disturb
+        // the flags), and rv64 must reproduce it correctly, not panic. It does: both
+        // compared values were captured *by value* at the compare (lhs in `gp`, rhs
+        // in the snapshot word), so a later redefinition of the original register
+        // cannot touch them. This is the case bug-284 C3 could only *detect* (it
+        // panicked); bug-381 makes it *recoverable*.
         if instruction.op.to_code() == Some(CodeOp::Label) {
             pending = None;
         } else if matches!(instruction.op, MirOp::Call | MirOp::CallIndirect) {
-            // A call clobbers the caller-saved registers, and the saved rhs is
-            // named by register, so nothing about it survives the call.
-            pending = None;
-        } else if matches!(
-            &pending,
-            Some(FlagRhs::Reg(rhs))
-                if field_value(&instruction.fields, "dst") == *rhs
-                    || field_value(&instruction.fields, "carry_out") == *rhs
-                    || field_value(&instruction.fields, "borrow_out") == *rhs
-        ) {
             pending = None;
         }
         if instruction.op == MirOp::AddrOf {
@@ -966,7 +1024,9 @@ mod tests {
     #[test]
     fn bare_compare_register_defers_to_standalone_branch() {
         // A non-adjacent cmp/branch (fusion misses it): the cmp snapshots its lhs
-        // into `gp` and the standalone branch re-derives the native compare-branch.
+        // into `gp` and its rhs *value* into the per-thread snapshot word
+        // (bug-381), and the standalone branch reloads that value and re-derives
+        // the native compare-branch.
         let out = sel(&[
             build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
             build("mov", &[("dst", "x12"), ("src", "x13")]),
@@ -977,8 +1037,21 @@ mod tests {
         assert!(out
             .iter()
             .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
+        // rhs value spilled to and reloaded from the snapshot word: the address is
+        // built off the arena base (s11) into t0, then the value is stored/loaded
+        // through it.
+        assert!(out
+            .iter()
+            .any(|i| i.op.mnemonic() == "add" && i.get("lhs") == Some("s11")));
+        assert!(out
+            .iter()
+            .any(|i| i.op.mnemonic() == "str_u64" && i.get("base") == Some("t0")));
+        assert!(out
+            .iter()
+            .any(|i| i.op.mnemonic() == "ldr_u64" && i.get("dst") == Some("t0")));
         let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
         assert_eq!(br.get("lhs"), Some("gp"));
+        assert_eq!(br.get("rhs"), Some("t0")); // reloaded rhs value
         assert_eq!(br.get("cond"), Some("lt"));
     }
 
@@ -1012,9 +1085,11 @@ mod tests {
     }
 
     #[test]
-    fn pending_compare_invalidated_by_label_and_redef() {
+    fn pending_compare_invalidated_by_label() {
         // A label between the compare and any consumer strands the pending compare
-        // (bug-126.2) — no branch reads it, so selection must not panic.
+        // (bug-126.2): control flow can merge at the label, so the gp/snapshot are
+        // stale on the merged-in path. No branch reads it here, so selection must
+        // not panic, and the lhs snapshot mov is still emitted.
         let out = sel(&[
             build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
             build("label", &[("name", "mid")]),
@@ -1023,28 +1098,17 @@ mod tests {
         assert!(out
             .iter()
             .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
-
-        // A redefinition of the compare's rhs register likewise invalidates it.
-        let out = sel(&[
-            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
-            build("mov", &[("dst", "x10"), ("src", "x11")]),
-            build("ret", &[]),
-        ]);
-        assert!(out
-            .iter()
-            .any(|i| i.op == CodeOp::Mov && i.get("dst") == Some("gp")));
     }
 
-    /// bug-284 C3: bug-126.2's record claims the pending compare is invalidated by
-    /// "any def of the saved rhs", but the check only compared the instruction's
-    /// `dst` field. `add_carry` defines `carry_out` and `sub_borrow` defines
-    /// `borrow_out` -- neither is a `dst` -- so a carry op writing the compare's
-    /// rhs left the branch re-reading a register that no longer held the compared
-    /// value, silently taking the wrong branch.
+    /// bug-381: the compare snapshots BOTH operands by value (lhs → gp, rhs → the
+    /// per-thread word), so a redefinition of an original operand register between
+    /// the compare and its branch is now *recoverable* — the branch reads the
+    /// snapshots, not the since-clobbered originals. This is the exact schedule
+    /// bug-284 C3 could only detect (it panicked). `add_carry`'s `carry_out`
+    /// writing the compare's rhs register no longer strands the branch.
     #[test]
-    #[should_panic(expected = "standalone flag branch without a preceding compare")]
-    fn pending_compare_invalidated_by_a_carry_out_def_of_its_rhs() {
-        sel(&[
+    fn pending_compare_recovers_across_a_carry_out_def_of_its_rhs() {
+        let out = sel(&[
             build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
             build(
                 "add_carry",
@@ -1058,12 +1122,17 @@ mod tests {
             build("b.lt", &[("target", "L")]),
             build("ret", &[]),
         ]);
+        // The branch reads gp and the reloaded snapshot (t0), not x10 (whose home
+        // the carry_out redefined), so it is correct.
+        let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
+        assert_eq!(br.get("lhs"), Some("gp"));
+        assert_eq!(br.get("rhs"), Some("t0"));
+        assert_eq!(br.get("cond"), Some("lt"));
     }
 
     #[test]
-    #[should_panic(expected = "standalone flag branch without a preceding compare")]
-    fn pending_compare_invalidated_by_a_borrow_out_def_of_its_rhs() {
-        sel(&[
+    fn pending_compare_recovers_across_a_borrow_out_def_of_its_rhs() {
+        let out = sel(&[
             build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
             build(
                 "sub_borrow",
@@ -1077,11 +1146,38 @@ mod tests {
             build("b.lt", &[("target", "L")]),
             build("ret", &[]),
         ]);
+        let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
+        assert_eq!(br.get("lhs"), Some("gp"));
+        assert_eq!(br.get("rhs"), Some("t0"));
+        assert_eq!(br.get("cond"), Some("lt"));
     }
 
-    /// bug-284 C3: a call clobbers every caller-saved register and names no
-    /// destination at all, so nothing about a rhs held by register name survives
-    /// it -- yet no field comparison could ever notice.
+    /// bug-381, the observed failure shape: under register pressure the allocator
+    /// reloads a compare operand (`ldr_u64 dst=<operand>, [sp+..]`) into the
+    /// compare→branch span, redefining it. Before the fix the branch was stranded
+    /// (`pending` cleared, then a panic); now the rhs value lives in the snapshot
+    /// word, so the reload is harmless and a correct branch is emitted.
+    #[test]
+    fn pending_compare_recovers_across_a_reload_of_its_operand() {
+        let out = sel(&[
+            build("cmp", &[("lhs", "x9"), ("rhs", "x10")]),
+            build(
+                "ldr_u64",
+                &[("dst", "x10"), ("base", "sp"), ("offset", "80")],
+            ),
+            build("b.lo", &[("target", "L")]),
+            build("ret", &[]),
+        ]);
+        let br = out.iter().find(|i| i.op == CodeOp::RvBr).unwrap();
+        assert_eq!(br.get("lhs"), Some("gp"));
+        assert_eq!(br.get("rhs"), Some("t0"));
+        assert_eq!(br.get("cond"), Some("ltu")); // b.lo → unsigned lhs < rhs
+    }
+
+    /// bug-284 C3 / bug-381: a call still invalidates the pending compare. The
+    /// callee's own flag emulation would overwrite the shared per-thread snapshot
+    /// word, and a call clobbers flags on every target anyway, so a compare whose
+    /// branch sits across a call is a codegen bug we detect rather than miscompile.
     #[test]
     #[should_panic(expected = "standalone flag branch without a preceding compare")]
     fn pending_compare_invalidated_by_an_intervening_call() {
