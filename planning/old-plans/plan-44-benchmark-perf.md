@@ -1,5 +1,33 @@
 # plan-44: Benchmark performance — close the gap to C/Python
 
+> **⚠️ OUT OF DATE — retired 2026-07-24. Do not work from this document.**
+>
+> This plan's scorecard and Task-1 priority ordering were derived from the
+> `20260714-114214` logs. A fresh log set (`benchmark/*-20260724-180804.log`)
+> shows several of the top-priority rows have already been retired since — verified
+> against **unchanged Python baselines** (same machine/workload), so these are real
+> mfb improvements, not measurement drift:
+>
+> | plan-44 row | 07-14 mfb | 07-24 mfb |
+> |-------------|----------:|----------:|
+> | #1 listchurn nested (was worst) | 322 ms | 72 ms |
+> | #3 regexbench replace | 139 ms | 13 ms |
+> | #4 list window | 117 ms | 21 ms |
+> | #5 list sortBy | 68 ms | 22 ms |
+> | #6 regexbench capture | 67 ms | 4.5 ms |
+>
+> Other rows are unchanged and remain open (mapchurn churn 170, string case 68,
+> list copy 33.5, scalar classify ~30, the whole math band; sub-plans A, D, G, H, I,
+> J, K, L, M largely untaken). The bucket counts, `Δpy`/`ΔO0`/`ΔO2` deltas, and
+> priority ordering below are therefore all stale.
+>
+> The companion coverage plan `planning/plan-45-benchmark-coverage.md` shares the
+> same stale `20260714-114214` logs and should be treated the same way.
+>
+> **To get a current plan:** run `/benchmark-update` — it re-derives root causes
+> against the latest logs and authors fresh perf + coverage `plan-NN` docs. This file
+> is kept in `old-plans/` for historical reference only.
+
 Last updated: 2026-07-14
 Effort: xlarge (multi-day; many independently-landable `plan-44-<letter>` sub-plans)
 Platform under test: **aarch64 / macOS** (the target these logs were taken on)
