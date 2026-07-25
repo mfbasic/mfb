@@ -1046,11 +1046,17 @@ impl CodeBuilder<'_> {
             output_len_slot,
         ));
 
-        self.emit(abi::add_immediate(abi::return_register(), &scratch24, 9));
+        // bug-378: header (+9) add routed through the checked helper so a
+        // pathological composed byte length cannot wrap the allocation size,
+        // matching every sibling string builder (case-map, graphemes, ...).
+        let size_overflow = self.label("strings_nfc_size_overflow");
+        self.emit_checked_size_add_immediate(abi::return_register(), &scratch24, 9, &size_overflow);
         self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
         self.emit_arena_alloc_call();
         self.emit(abi::branch_eq(&result_alloc_ok));
         self.emit_allocation_error_return()?;
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&result_alloc_ok));
         self.emit(abi::store_u64(
             abi::RET[1],

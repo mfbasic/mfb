@@ -5,7 +5,12 @@ Effort: small (<1h)
 Severity: LOW
 Class: Footgun
 
-Status: Open
+Status: Fixed (2026-07-25). The NFC result allocation now routes its `+9`
+header/NUL add through `emit_checked_size_add_immediate` with a
+`strings_nfc_size_overflow` label + `ERR_OUT_OF_MEMORY` return, matching every
+sibling string builder. Full acceptance green (1082 tests); no golden moved (the
+checked path emits identical success-case arithmetic, only adding an
+overflow branch that is never taken for real inputs).
 Regression Test: none required (defense-consistency change; no observable
 behavior delta). Optionally assert the emitted instruction routes through the
 checked helper via a codegen snapshot.
