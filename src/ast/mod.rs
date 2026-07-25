@@ -16,6 +16,7 @@ pub(crate) mod manifest;
 mod overloads;
 mod parser;
 mod pipeline;
+pub(crate) mod scope_privates;
 mod serialize;
 mod stmt;
 mod testing;

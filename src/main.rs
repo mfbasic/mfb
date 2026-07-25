@@ -18,7 +18,6 @@ mod numeric;
 mod os;
 mod resolver;
 mod rules;
-mod scope_privates;
 mod syntaxcheck;
 mod target;
 mod terminal_safe;
