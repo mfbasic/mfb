@@ -802,6 +802,23 @@ pub(in crate::target::shared::code::tls) fn lower_tls_read_macos(
         FNPTR,
         &load_fail,
     )?;
+    // bug-386: if the connection has already transitioned to a terminal state
+    // (failed=4 / cancelled=5), the async receive we are about to post will have
+    // its completion block dropped by Network.framework, and — since no further
+    // state transition will fire the state-changed handler — nothing would ever
+    // signal the fresh semaphore, hanging the FOREVER `emit_wait` below. Route to
+    // peer-closed (EOF), matching how this path already surfaces a receive error.
+    // A transition that happens DURING the wait still fires the state handler,
+    // which signals ctx->sem, so the pre-check plus the handler close the hang on
+    // both sides of the race. CTX_STATE is reset to 0 (invalid, < 4) at ctx setup
+    // and only the state handler raises it, so a live/ready connection is never
+    // short-circuited.
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), CTX),
+        abi::load_u32("%v10", "%v9", CTX_STATE),
+        abi::compare_immediate("%v10", "4"),
+        abi::branch_ge(&peer_closed),
+    ]);
     // nw_connection_receive(conn, min=1, max=maxBytes, &block)
     dlsym(
         &mut EmitCtx {
@@ -1227,6 +1244,18 @@ pub(in crate::target::shared::code::tls) fn lower_tls_write_macos(
         FNPTR,
         &load_fail,
     )?;
+    // bug-386: skip the send + FOREVER wait if the connection is already in a
+    // terminal state (failed=4 / cancelled=5). The send completion would be
+    // dropped and, with no further state transition to fire the state-changed
+    // handler, the wait would hang. Route to write-fail (ErrTlsFailed) — a write
+    // to a dead connection is an error, not success. See the read path for the
+    // full rationale (the state handler still covers a mid-wait transition).
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), CTX),
+        abi::load_u32("%v10", "%v9", CTX_STATE),
+        abi::compare_immediate("%v10", "4"),
+        abi::branch_ge(&write_fail),
+    ]);
     // nw_connection_send(conn, content, context, is_complete=true, &block)
     dlsym(
         &mut EmitCtx {

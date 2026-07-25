@@ -5,8 +5,40 @@ Effort: large (3h–1d)
 Severity: HIGH
 Class: Correctness (concurrency / liveness)
 
-Status: Open
-Regression Test: tests/macos_tls_write_capacity.rs (`macos_tls_write_sends_capacity_over_count_byte_list_exactly`)
+Status: Fixed (2026-07-25) — both required layers landed.
+
+**Named trigger (identified by inspection; the intermittent flake did not
+reproduce under lldb, as the report notes).** `lower_tls_read_macos` /
+`lower_tls_write_macos` post an async `nw_connection_receive`/`nw_connection_send`
+and then `dispatch_semaphore_wait(FOREVER)` on a per-op fresh semaphore (`emit_fresh_sem`).
+That semaphore is signaled by two callbacks — the receive/send completion block
+(`RECV_INVOKE`/`SEND_INVOKE`) and the connection's state-changed handler
+(`STATE_INVOKE`, installed at connect AND at server-accept, both maintaining
+`CTX_STATE`). If the op is posted on a connection that has **already**
+transitioned to a terminal state (`failed`=4 / `cancelled`=5) *before* the fresh
+semaphore was created, Network.framework drops the completion block and no
+*further* state transition fires `STATE_INVOKE`, so nothing ever signals the
+fresh semaphore → the FOREVER wait hangs. (A transition that happens *during* the
+wait still fires `STATE_INVOKE`, which reads `ctx->sem` dynamically and signals
+the current fresh semaphore, so that side of the race was already covered.)
+
+**Fix — runtime liveness (the real fix).** Before posting the async op, both
+paths now load `CTX_STATE` and, if it is terminal (`>= 4`), short-circuit instead
+of entering the doomed FOREVER wait: read routes to peer-closed (EOF, matching how
+it already surfaces a receive error), write routes to `write_fail` (`ErrTlsFailed`).
+`CTX_STATE` is 0 (invalid, `< 4`) until the state handler raises it, so a
+live/ready connection is never short-circuited (verified: the regression test's
+accept→readText→write→close happy path passes in 1.82s). `accept`
+(`server.rs`) already had a deadline + `listener_dead` + handshake-timeout, so it
+was not vulnerable to an unbounded FOREVER wait; only read/write were.
+
+**Fix — test robustness (the deterministic backstop).**
+`macos_tls_write_capacity.rs` now runs the peer interaction on a worker thread
+bounded by a 30s `recv_timeout`; on expiry it kills the server + peer and fails
+fast (previously it hung `cargo test` for 36+ minutes). The bug-157 byte-exactness
+assertion is unchanged.
+
+Regression Test: tests/macos_tls_write_capacity.rs (`macos_tls_write_sends_capacity_over_count_byte_list_exactly`) — now bounded and passing.
 
 The macOS TLS runtime waits on a `dispatch_semaphore` with a `DISPATCH_TIME_FOREVER`
 deadline for its receive/send completion (`emit_wait`, `src/target/shared/code/tls/macos/mod.rs:489`).

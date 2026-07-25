@@ -161,19 +161,53 @@ fn macos_tls_write_sends_capacity_over_count_byte_list_exactly() {
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn openssl s_client");
-    client
-        .stdin
-        .take()
-        .expect("client stdin")
-        .write_all(b"hi\n")
-        .expect("write greeting");
-    let out = client.wait_with_output().expect("wait s_client");
-    let _ = server.wait();
+
+    // bug-386: the mfb TLS server can (intermittently, under load) stall forever
+    // on a `dispatch_semaphore_wait(FOREVER)` if a Network.framework completion
+    // never fires. The runtime pre-check in the read/write paths is the real fix,
+    // but this test must ALSO be unable to wedge `cargo test` for 36+ minutes if a
+    // regression reintroduces the stall: run the peer interaction on a worker
+    // thread and bound it with a hard wall-clock deadline, killing both processes
+    // and failing (not hanging) on expiry.
+    let server_pid = server.id();
+    let client_pid = client.id();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        client
+            .stdin
+            .take()
+            .expect("client stdin")
+            .write_all(b"hi\n")
+            .expect("write greeting");
+        let out = client.wait_with_output().expect("wait s_client");
+        let _ = server.wait();
+        let _ = tx.send(out.stdout);
+    });
+
+    let stdout = match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(stdout) => {
+            let _ = worker.join();
+            stdout
+        }
+        Err(_) => {
+            // The server (or peer) stalled. Kill both so nothing lingers, then
+            // fail fast — previously this hung the whole suite indefinitely.
+            for pid in [server_pid, client_pid] {
+                let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+            }
+            let _ = fs::remove_dir_all(&root);
+            panic!(
+                "bug-386: TLS server did not respond within 30s (a FOREVER \
+                 semaphore-wait stall); killed server+peer and failed instead of \
+                 hanging cargo test"
+            );
+        }
+    };
 
     assert!(
-        out.stdout.windows(EXPECTED.len()).any(|w| w == EXPECTED),
+        stdout.windows(EXPECTED.len()).any(|w| w == EXPECTED),
         "peer did not receive the exact byte payload {EXPECTED:?}; got {:x?}",
-        out.stdout
+        stdout
     );
 
     let _ = fs::remove_dir_all(&root);
