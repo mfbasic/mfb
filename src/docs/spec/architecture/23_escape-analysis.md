@@ -11,7 +11,7 @@ by `./mfb spec language resource-management` (§15.6). This page specifies the
 ## Result
 
 The analysis produces, per `RES` binding name, one of two owners
-[[src/escape.rs:ResOwner]]:
+[[src/ir/resource_escape.rs:ResOwner]]:
 
 | Owner | Meaning |
 | --- | --- |
@@ -20,13 +20,13 @@ The analysis produces, per `RES` binding name, one of two owners
 
 A floated binding becomes non-owning: it may not close, `RETURN`, or
 `thread::transfer` (`floats()` reports this; absent bindings are `Local`).
-[[src/escape.rs:FunctionEscape]]
+[[src/ir/resource_escape.rs:FunctionEscape]]
 
 ## Purely syntactic, run twice, must agree
 
 The analysis is **purely syntactic over the AST**. It depends only on which
 local names are `RES` bindings, their declaration depth/order, and the shape of
-collection-valued expressions — never on inferred types. [[src/escape.rs:analyze_function]]
+collection-valued expressions — never on inferred types. [[src/ir/resource_escape.rs:analyze_function]]
 
 It is consumed by **IR lowering**, which records the result per function as
 `resource_owners` — carried into the IR (and serialized into `.mfp` packages)
@@ -41,7 +41,7 @@ resource_owners = <escape analysis of the function> -> owners
 
 There is a single implementation of the analyzer; it is invoked,
 not copy-pasted. The typed-IR verifier is the sole consumer of this ownership
-logic. [[src/ir/lower.rs:lower_function]] [[src/escape.rs:analyze_function]]
+logic. [[src/ir/lower.rs:lower_function]] [[src/ir/resource_escape.rs:analyze_function]]
 
 Soundness no longer rests on a rule forbidding escape. A resource is owned by the
 outermost scope that touches it, and any holder of the pointer may close, return,
@@ -67,22 +67,22 @@ rather than twice or never.
 ## Walk: building the routing facts
 
 `analyze_function` records every binding's declaration depth and order, then
-walks the body collecting *routing facts*. [[src/escape.rs:Analyzer]]
+walks the body collecting *routing facts*. [[src/ir/resource_escape.rs:Analyzer]]
 
 - **`RES` parameters** are declared at depth 0 and entered as resources owned at
   function-entry depth.
 - The body is walked at depth 0; each nested block (`IF` then/else, `MATCH`
   case, `FOR`/`FOR EACH`/`WHILE`/`DO UNTIL` body) increments depth by 1.
-- **The trap body is walked at depth 1.** [[src/escape.rs:analyze_function]]
+- **The trap body is walked at depth 1.** [[src/ir/resource_escape.rs:analyze_function]]
 
 `declare(name, depth)` records, on first sight only, the binding's
 `decl_depth` and a monotonically increasing `decl_order` index. Declaration
 order is the deterministic tiebreak used by the float target selection.
-[[src/escape.rs:declare]]
+[[src/ir/resource_escape.rs:declare]]
 
 A **routing** is "a collection value carrying resource pointers flows into a
 target", where target is a variable (`LET`/`MUT` bind, assignment) or `Returned`
-(`RETURN <expr>`). [[src/escape.rs:Routing]] Each routing records:
+(`RETURN <expr>`). [[src/ir/resource_escape.rs:Routing]] Each routing records:
 
 - `res_elems` — `RES`-binding names inserted **directly** as elements here;
 - `src_collections` — collection bindings whose contents also flow into the
@@ -107,7 +107,7 @@ scan_collection_expr(expr):
   _                       -> ignore
 ```
 
-[[src/escape.rs:scan_collection_expr]]
+[[src/ir/resource_escape.rs:scan_collection_expr]]
 
 An inline `TRAP` is *unwrapped*, not ignored: both of its arms produce the same
 target, so the guarded expression and each handler `RECOVER` value flow into it
@@ -120,7 +120,7 @@ expression leaves a resource acquired outside the trap and inserted by its
 
 `scan_element` treats a `RES`-identifier as a direct insertion (push to
 `res_elems`); anything else falls through to `scan_collection_expr` so a nested
-list/map contributes its own reachable resources. [[src/escape.rs:scan_element]]
+list/map contributes its own reachable resources. [[src/ir/resource_escape.rs:scan_element]]
 A bare `RETURN f` or `LET g = f` of a resource produces **no** routing, so it
 never floats (it is an ordinary move).
 
@@ -128,7 +128,7 @@ never floats (it is an ordinary move).
 
 A call counts as a collection insertion when, after mapping qualified
 `collections.*` names back to the bare op via `native_member_bare`, the bare name
-is one of: [[src/escape.rs:is_insertion_builtin]]
+is one of: [[src/ir/resource_escape.rs:is_insertion_builtin]]
 
 ```text
 append  prepend  insert  set  mid  removeAt  filter  reduce
@@ -143,7 +143,7 @@ candidate element insertions.
 ## Solve: fixpoint membership, then per-resource owner
 
 `solve` first identifies **returned collections**: the `src_collections` of any
-routing whose target is `Returned`. [[src/escape.rs:solve]]
+routing whose target is `Returned`. [[src/ir/resource_escape.rs:solve]]
 
 It then computes, to a **fixpoint**, `membership[C]` = the set of resources
 reachable from collection binding `C`, propagating along every routing edge:
@@ -171,13 +171,13 @@ resource so its owned-list exists when the resource is produced. This is the
 special rule that **forces a Float even at the same scope depth**: the
 obligation rides the collection's owned-list and transfers to the caller on
 `RETURN`, instead of closing here. Pick the candidate with minimum
-`(depth, order)`. [[src/escape.rs:solve]]
+`(depth, order)`. [[src/ir/resource_escape.rs:solve]]
 
 **Phase 2 — otherwise float to a strictly-outer collection.** Only if Phase 1
 found nothing: among all collections containing the resource, keep only those
 declared at a **strictly outer** scope (`decl_depth(C) < res_depth`); same-or-
 inner scopes do not float. Pick the **outermost** — minimum `decl_depth`, then
-minimum `decl_order` as the deterministic tiebreak. [[src/escape.rs:solve]]
+minimum `decl_order` as the deterministic tiebreak. [[src/ir/resource_escape.rs:solve]]
 
 If neither phase finds a target, the owner is `Local`.
 
@@ -208,7 +208,7 @@ pick — declaration order is the final, deterministic tiebreak.
 | `RES f; RETURN f` | `f → Local` | bare resource return is a move, no routing |
 | outer `ys`; inner `{ RES f; xs=[f]; ys=xs }` | `f → Float(ys)` | membership reaches `ys`, the outermost (Phase 2) |
 
-[[src/escape.rs:tests]]
+[[src/ir/resource_escape.rs:tests]]
 
 ## See Also
 

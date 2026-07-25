@@ -21,7 +21,7 @@ Scalar and grapheme indices differ whenever a cluster spans multiple scalars: a
 combining sequence (`"a\u{301}"` = 2 scalars, 1 grapheme), a ZWJ emoji sequence
 (`"👨‍👩‍👧‍👦"` = 7 scalars, 1 grapheme), or a regional-indicator flag (`"🇺🇸"` = 2
 scalars, 1 grapheme). Byte indices differ from scalar indices for any non-ASCII
-scalar (`é` = 2 bytes, `日` = 3, `😀` = 4). [[src/unicode_backend.rs:graphemes]]
+scalar (`é` = 2 bytes, `日` = 3, `😀` = 4). [[src/unicode/backend.rs:graphemes]]
 
 ## Scalar / byte mapping
 
