@@ -22,6 +22,9 @@ for each package lives on its own (the same split in all three):
 | `vector*.*`         | `vector`          | every `vector::` member across the Float / Fixed / Integer families |
 | `bits*.*`           | `bits`            | every `bits::` bitwise / shift / rotate op |
 | `string*.*`         | `string`          | `&` concat + every `strings::` member (case, search, slice, Unicode) |
+| `encoding*.*`       | `encoding`        | `encoding::` serialize/deserialize round-trips (base64 / hex / percent) over the `List OF Byte` ↔ String seam |
+| `datetimeb.* / datetimebench.*` | `datetime` | `datetime::` civil arithmetic (addDays/addMonths/daysInMonth/between) and an ISO format/parse round-trip |
+| `dispatch*.*`       | `dispatch`        | control-flow dispatch: union + `MATCH` tag-dispatch expression eval, and inline-`TRAP` error recovery |
 
 In addition to that per-member surface, a second set of **pattern-throughput**
 groups (plan-40) exercises the hot paths real programs hit — sustained churn,
@@ -31,7 +34,7 @@ chained pipelines, compile-once/run-many — rather than one call per member:
 |---------------------|-------------------|
 | `mapchurn`          | map grow/rehash, steady-state insert/`removeKey` churn, and `keys`/`values`/`mapValues`/`merge` materialization in a loop |
 | `listchurn`         | build-by-`append`, `prepend` front-shift, and nested `List OF List` build + `flatten` + `groupBy` |
-| `float matmul` + `mathpipe` | dense N×N `Float` matmul; a naive DFT (sin/cos interleaved with float ops); mean/variance/stddev reduction; and `finance`, an mfb-only `Money` running-balance calc |
+| `float matmul` + `mathpipe` | dense N×N `Float` matmul; a naive DFT (sin/cos interleaved with float ops); mean/variance/stddev reduction; a bottom-up coin-change `memo` DP over a `List` memo table; and two mfb-only `Money` rows — `finance` (running balance) and `money` (per-line tax/tip pipeline) |
 | `strbuild`          | `&`-concat vs `strings::join` string building, `split`/`join` round-trip, and a `replace`/`trimChars`/`stripPrefix`/`padLeft` cleaning chain |
 | `regexbench`        | compile-once/match-many, capture-group rewrite, `\|`-alternation find-all, and pattern-driven replace |
 | `arena`             | mixed-size transient-churn / long-lived+short-lived / grow-shrink — the **regression gate for the arena free list** (see below) |
@@ -43,6 +46,15 @@ formatting), and `binary` (`strings::toBytes` + `fs` byte round-trip); the `stri
 group gains `unibig` (realistic-size Unicode churn). These new rows live in
 per-theme files (`mapchurn.*`, `listchurn.*`, `mathpipe.*`, `strbuild.*`,
 `regexbench.*`, `arena.*`, `scalarbench.*`) mirrored across all three languages.
+
+Three more per-member groups extend the existing surface (plan-45): the `map`
+group gains `intkey` (Integer-keyed `hasKey`/`get`/`getOr` sweep — the distinct
+Integer hash/probe path), `intchurn` (sliding-window insert + `removeKey` over
+Integer keys), and `listagg` (group N ints into a `Map OF List` and append into
+buckets); the `list` group gains `sort_asc`/`sort_desc`/`sort_rand` (`collections::sort`
+over pre-sorted / reverse / coprime-stride-scrambled permutations of `0..N-1` — the
+merge sort's best/worst/average shapes, all sorting to the same canonical order so
+one shared order-sensitive checksum proves each shape sorted correctly).
 
 ## Running
 
@@ -121,3 +133,12 @@ from tiny to realistic size in the same commit and must stay **linear** — that
 jump is the fix's acceptance criterion. (This is a runtime arena regression, not a
 property of the benchmarked code; the C/Python mirrors keep the same tiny counts
 only so the table lines up.)
+
+The plan-45 rows carrying a `TODO(plan-44-J)` marker — `encoding base64`,
+`datetime iso`, and `map intchurn` — are the same kind of gate for the current
+arena sub-plan (plan-44-J, successor to plan-39-A): each allocates a fresh
+`List`/`String`/`Map` per call and is authored tiny on purpose, to be bumped to a
+realistic `BUF`/`reps`/`W`/`steps` in the commit that lands plan-44-J and must
+stay linear. (`encoding hex`/`percent`, `datetime civil`, `map intkey`/`listagg`,
+`mathpipe memo`, and the `list sort_*` rows are Phase 1 — not arena-sensitive at
+their authored sizes — and run at realistic counts today.)

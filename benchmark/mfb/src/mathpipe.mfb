@@ -210,6 +210,7 @@ FUNC test_money_pipe(run AS Integer, tests AS List OF BenchResult) AS List OF Be
   LET reps AS Integer = 400
   LET taxRate AS Float = 1.0825
   LET tipRate AS Float = 0.18
+  LET discountRate AS Float = 0.98
   MUT prices AS List OF Money = []
   FOR i = 0 TO n - 1
     prices = collections::append(prices, toMoney((i * 7 + 13) MOD 500 + 1))
@@ -228,7 +229,7 @@ FUNC test_money_pipe(run AS Integer, tests AS List OF BenchResult) AS List OF Be
         subtotal = subtotal + line
       NEXT
       ' apply a 2% loyalty discount, settled to cents
-      LET discounted AS Money = money::round(subtotal * 0.98, 2)
+      LET discounted AS Money = money::round(subtotal * discountRate, 2)
       grand = grand + discounted
     NEXT
     checksum = toString(grand)
