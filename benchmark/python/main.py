@@ -18,6 +18,7 @@ import bitsbench
 import churnbench
 import csv
 import datetimebench
+import dispatchbench
 import encodingbench
 import io
 import json
@@ -796,6 +797,9 @@ def main():
 
     # datetime group (civil arithmetic + ISO round-trip)
     datetimebench.run_all(RUN, now_ns, record)
+
+    # dispatch group (union+MATCH eval + inline-TRAP recovery)
+    dispatchbench.run_all(RUN, now_ns, record)
 
     test_record_update()
 

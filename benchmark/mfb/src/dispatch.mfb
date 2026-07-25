@@ -1,0 +1,133 @@
+' Control-flow dispatch benchmark. New group `dispatch`.
+'
+' Union `MATCH` tag dispatch and inline-`TRAP` recovery are core language features
+' with no throughput coverage; both are hot in real interpreters/parsers. Two rows:
+'   union  build an expression tree as a `List OF Expr` (Num/Add/Mul tagged union)
+'          and evaluate it many times via MATCH on the variant tag
+'   trap   parse a stream of mixed valid/invalid tokens with an inline TRAP
+'          recovering per iteration, so the error path is taken 1/4 of the time
+'
+' All arithmetic is done mod 1000000007 (union) or as plain sums (trap), so the C
+' (tagged-union switch / errno check) and Python (match-isinstance / try-except)
+' mirrors produce identical checksums.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' --- union + MATCH: a tiny expression evaluator over a tagged union ---
+
+TYPE Num
+  value AS Integer
+END TYPE
+
+TYPE Add
+  left AS Integer   ' index of the left child in the node list
+  right AS Integer  ' index of the right child
+END TYPE
+
+TYPE Mul
+  left AS Integer
+  right AS Integer
+END TYPE
+
+UNION Expr
+  Num
+  Add
+  Mul
+END UNION
+
+' Evaluate node `i` recursively, dispatching on the variant tag via MATCH. `seed`
+' is added at every leaf so a per-iteration seed makes each full evaluation
+' distinct — the tree eval is not loop-invariant and cannot be hoisted (which a C
+' -O2 build would otherwise do to a constant tree, collapsing the row to noise).
+FUNC evalNode(nodes AS List OF Expr, i AS Integer, seed AS Integer) AS Integer
+  LET e AS Expr = collections::get(nodes, i)
+  MATCH e
+    CASE Num(n)
+      RETURN (n.value + seed) MOD 1000000007
+    CASE Add(a)
+      RETURN (evalNode(nodes, a.left, seed) + evalNode(nodes, a.right, seed)) MOD 1000000007
+    CASE Mul(m)
+      RETURN (evalNode(nodes, m.left, seed) * evalNode(nodes, m.right, seed)) MOD 1000000007
+  END MATCH
+END FUNC
+
+' Build a perfect binary tree in heap layout: internal node k (k < internal) is
+' Add (k even) or Mul (k odd) with children 2k+1 / 2k+2; leaf k is Num (k mod 7)+1.
+FUNC buildTree(total AS Integer, internal AS Integer) AS List OF Expr
+  MUT nodes AS List OF Expr = []
+  FOR k = 0 TO total - 1
+    IF k < internal THEN
+      IF k MOD 2 = 0 THEN
+        LET a AS Expr = Add[2 * k + 1, 2 * k + 2]
+        nodes = collections::append(nodes, a)
+      ELSE
+        LET m AS Expr = Mul[2 * k + 1, 2 * k + 2]
+        nodes = collections::append(nodes, m)
+      END IF
+    ELSE
+      LET leaf AS Expr = Num[(k MOD 7) + 1]
+      nodes = collections::append(nodes, leaf)
+    END IF
+  NEXT
+  RETURN nodes
+END FUNC
+
+FUNC test_dispatch_union(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET total AS Integer = 2047    ' perfect binary tree, depth 10
+  LET internal AS Integer = 1023
+  LET nodes AS List OF Expr = buildTree(total, internal)
+  LET evals AS Integer = 2000
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR n = 0 TO evals - 1
+      acc = (acc + evalNode(nodes, 0, n)) MOD 1000000007
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("dispatch_union = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("dispatch", "union", times))
+END FUNC
+
+' --- inline TRAP: parse a mixed valid/invalid token stream, recover per token ---
+
+FUNC buildTokens(n AS Integer) AS List OF String
+  MUT toks AS List OF String = []
+  FOR i = 0 TO n - 1
+    IF i MOD 4 = 0 THEN
+      toks = collections::append(toks, "bad")
+    ELSE
+      toks = collections::append(toks, toString(i))
+    END IF
+  NEXT
+  RETURN toks
+END FUNC
+
+FUNC test_dispatch_trap(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET tokens AS List OF String = buildTokens(1000)
+  LET passes AS Integer = 100
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR p = 0 TO passes - 1
+      FOR EACH tok IN tokens
+        MUT v AS Integer = toInt(tok) TRAP(err)
+          RECOVER 0 - 1
+        END TRAP
+        acc = acc + v
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("dispatch_trap = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("dispatch", "trap", times))
+END FUNC

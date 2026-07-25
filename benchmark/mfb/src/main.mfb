@@ -1123,6 +1123,10 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_datetime_civil(run, tests)
   tests = test_datetime_iso(run, tests)
 
+  ' dispatch group (dispatch.mfb) — union+MATCH eval + inline-TRAP recovery
+  tests = test_dispatch_union(run, tests)
+  tests = test_dispatch_trap(run, tests)
+
   tests = test_record_update(run, tests)
 
   tests = test_bignum_modmul(run, tests)

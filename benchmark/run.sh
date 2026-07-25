@@ -47,7 +47,8 @@ c_srcs=("$here/c/main.c" "$here/c/list.c" "$here/c/mapbench.c" "$here/c/mathbenc
         "$here/c/parsebench.c" "$here/c/parson.c" "$here/c/libcsv.c" \
         "$here/c/mathpipe.c" "$here/c/churnbench.c" "$here/c/strbuildbench.c" \
         "$here/c/regexbench.c" "$here/c/arenabench.c" "$here/c/scalarbench.c" \
-        "$here/c/encodingbench.c" "$here/c/datetimebench.c")
+        "$here/c/encodingbench.c" "$here/c/datetimebench.c" \
+        "$here/c/dispatchbench.c")
 cc -O0 -o "$here/c/bench-O0.out" "${c_srcs[@]}" -lm -lpthread
 cc -O2 -o "$here/c/bench-O2.out" "${c_srcs[@]}" -lm -lpthread
 
