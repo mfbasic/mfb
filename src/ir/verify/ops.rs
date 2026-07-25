@@ -4,6 +4,25 @@ impl TypeEnv {
     // 2. `check_ops` — per-op structural + type checks (one large dispatch)
     // ===========================================================================
 
+    /// bug-342 A10: recurse into a nested block on a FRESH copy of the current
+    /// `locals`/`muts` — a new scope whose bindings must not leak back to the
+    /// caller. Used by the IF then/else branches and the WHILE body. Match cases
+    /// and FOR/FOR-EACH bodies do NOT use this: they pre-seed the branch scope
+    /// (guard binds, the loop variable) before recursing, so they keep their own
+    /// inline prologue.
+    fn check_ops_in_branch(
+        &self,
+        body: &[IrOp],
+        locals: &HashMap<String, String>,
+        muts: &HashMap<String, bool>,
+        closure_slots: Option<usize>,
+        depth: usize,
+    ) {
+        let mut branch = locals.clone();
+        let mut branch_muts = muts.clone();
+        self.check_ops(body, &mut branch, &mut branch_muts, closure_slots, depth + 1);
+    }
+
     pub(super) fn check_ops(
         &self,
         ops: &[IrOp],
@@ -485,24 +504,8 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     self.check_condition_boolean("IF condition", condition, locals);
-                    let mut branch = locals.clone();
-                    let mut branch_muts = muts.clone();
-                    self.check_ops(
-                        then_body,
-                        &mut branch,
-                        &mut branch_muts,
-                        closure_slots,
-                        depth + 1,
-                    );
-                    let mut branch = locals.clone();
-                    let mut branch_muts = muts.clone();
-                    self.check_ops(
-                        else_body,
-                        &mut branch,
-                        &mut branch_muts,
-                        closure_slots,
-                        depth + 1,
-                    );
+                    self.check_ops_in_branch(then_body, locals, muts, closure_slots, depth);
+                    self.check_ops_in_branch(else_body, locals, muts, closure_slots, depth);
                 }
                 IrOp::Match { value, cases, .. } => {
                     if cases.is_empty() {
@@ -574,16 +577,8 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     self.check_condition_boolean("WHILE condition", condition, locals);
-                    let mut branch = locals.clone();
-                    let mut branch_muts = muts.clone();
                     self.loop_stack.borrow_mut().push(*kind);
-                    self.check_ops(
-                        body,
-                        &mut branch,
-                        &mut branch_muts,
-                        closure_slots,
-                        depth + 1,
-                    );
+                    self.check_ops_in_branch(body, locals, muts, closure_slots, depth);
                     self.loop_stack.borrow_mut().pop();
                 }
                 IrOp::For {

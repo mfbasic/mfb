@@ -251,6 +251,16 @@ measured evidence recorded per item below.
 - Fix: one base list plus explicitly-named deltas, each carrying a one-line
   rationale comment.
 
+> **A10 (block-recursion part) done (2026-07-25).** Extracted
+> `check_ops_in_branch(body, locals, muts, closure_slots, depth)` in
+> `verify/ops.rs` for the "recurse into a nested block on a fresh clone of
+> locals/muts" prologue; applied it to the IF then/else branches and the WHILE
+> body. Match cases and FOR/FOR-EACH bodies keep their inline prologue (they
+> pre-seed the branch scope with guard binds / the loop variable). Output-neutral:
+> control-flow/match/resources/trap acceptance byte-identical (153 fixtures). The
+> other A10 sub-parts (range-check idiom, Assign/AssignGlobal, arity helper, the
+> 9-way resolve_call fan-out) remain.
+
 #### A10 — repeated block-recursion, range-error, and arity boilerplate in `ir::verify`
 
 - Block recursion, 8 sites, each preceded by the identical
