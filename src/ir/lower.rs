@@ -1787,11 +1787,8 @@ fn expression_type(
                         if let Some(collection_type) =
                             expression_type(normalized[0], locals, context)
                         {
-                            if let Some(predicate_type) = collection_type
-                                .strip_prefix("List OF ")
-                                .and_then(|element| {
-                                    builtins::general::filter_predicate_type(predicate, element)
-                                })
+                            if let Some(predicate_type) =
+                                filter_predicate_arg_type(predicate, &collection_type)
                             {
                                 let arg_types = vec![collection_type, predicate_type];
                                 return builtins::general::resolve_call(
@@ -1820,11 +1817,8 @@ fn expression_type(
                         if let Some(collection_type) =
                             expression_type(normalized[0], locals, context)
                         {
-                            if let Some(predicate_type) = collection_type
-                                .strip_prefix("List OF ")
-                                .and_then(|element| {
-                                    builtins::general::filter_predicate_type(predicate, element)
-                                })
+                            if let Some(predicate_type) =
+                                filter_predicate_arg_type(predicate, &collection_type)
                             {
                                 let arg_types = vec![collection_type, predicate_type];
                                 return builtins::collections::resolve_call(
@@ -1843,158 +1837,39 @@ fn expression_type(
                 return builtins::collections::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
-            if builtins::strings::is_strings_call(&canonical_callee) {
+            // The remaining builtin packages share one arg-typed dispatch
+            // (bug-342 A1 — was 17 byte-identical is_*_call → resolve_call
+            // blocks). Gate on exactly this package set rather than the
+            // all-packages `builtins::is_builtin_call`: `encoding`, `money`, and
+            // `term` deliberately resolve through the name-based
+            // `call_return_type_name` fallthrough below, not here, so which
+            // calls resolve at this point is byte-for-byte unchanged. The
+            // shared `resolve_call_return_type` dispatches in the same order as
+            // `ir::verify`, keeping the two return-type oracles in lockstep.
+            if builtins::strings::is_strings_call(&canonical_callee)
+                || builtins::math::is_math_call(&canonical_callee)
+                || builtins::vector::is_vector_call(&canonical_callee)
+                || builtins::bits::is_bits_call(&canonical_callee)
+                || builtins::fs::is_fs_call(&canonical_callee)
+                || builtins::io::is_io_call(&canonical_callee)
+                || builtins::net::is_net_call(&canonical_callee)
+                || builtins::os::is_os_call(&canonical_callee)
+                || builtins::tls::is_tls_call(&canonical_callee)
+                || builtins::audio::is_audio_call(&canonical_callee)
+                || builtins::http::is_http_call(&canonical_callee)
+                || builtins::json::is_json_call(&canonical_callee)
+                || builtins::csv::is_csv_call(&canonical_callee)
+                || builtins::regex::is_regex_call(&canonical_callee)
+                || builtins::datetime::is_datetime_call(&canonical_callee)
+                || builtins::crypto::is_crypto_call(&canonical_callee)
+                || builtins::thread::is_thread_call(&canonical_callee)
+            {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
                         .iter()
                         .map(|argument| expression_type(argument, locals, context))
                         .collect::<Option<Vec<_>>>()?;
-                return builtins::strings::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::math::is_math_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::math::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::vector::is_vector_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::vector::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::bits::is_bits_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::bits::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::fs::is_fs_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::fs::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::io::is_io_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::io::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::net::is_net_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::net::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::os::is_os_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::os::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::tls::is_tls_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::tls::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::audio::is_audio_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::audio::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::http::is_http_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::http::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::json::is_json_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::json::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::csv::is_csv_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::csv::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::regex::is_regex_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::regex::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::datetime::is_datetime_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::datetime::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::crypto::is_crypto_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::crypto::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
-            }
-            if builtins::thread::is_thread_call(&canonical_callee) {
-                let arg_types =
-                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
-                        .iter()
-                        .map(|argument| expression_type(argument, locals, context))
-                        .collect::<Option<Vec<_>>>()?;
-                return builtins::thread::resolve_call(&canonical_callee, &arg_types)
-                    .map(|resolved| resolved.return_type.to_string());
+                return builtins::resolve_call_return_type(&canonical_callee, &arg_types);
             }
             builtins::call_return_type_name(&canonical_callee)
                 .map(str::to_string)
@@ -2353,6 +2228,18 @@ fn lower_expression(
     lower_expression_with_expected(expression, None, locals, context)
 }
 
+/// The predicate's function type for a `filter`/`forEach`-style callback whose
+/// collection argument has type `collection_type`: strip the `List OF ` prefix
+/// to the element type and ask `filter_predicate_type` for the bare predicate's
+/// signature. `None` when the argument is not a `List OF …` or the name is not a
+/// resolvable general built-in predicate (bug-342 A6 — was written inline at
+/// three call sites).
+fn filter_predicate_arg_type(predicate: &str, collection_type: &str) -> Option<String> {
+    collection_type
+        .strip_prefix("List OF ")
+        .and_then(|element| builtins::general::filter_predicate_type(predicate, element))
+}
+
 /// The function type to give a general built-in predicate named in a value
 /// position, when `expected` is a concrete unary Boolean function type it
 /// accepts (bug-368).
@@ -2564,13 +2451,7 @@ fn lower_expression_with_expected(
                         Expression::Identifier(predicate) => {
                             expression_type(normalized_builtin[0], locals, context)
                                 .and_then(|collection_type| {
-                                    collection_type
-                                        .strip_prefix("List OF ")
-                                        .and_then(|element| {
-                                            builtins::general::filter_predicate_type(
-                                                predicate, element,
-                                            )
-                                        })
+                                    filter_predicate_arg_type(predicate, &collection_type)
                                 })
                                 .map(|predicate_type| IrValue::FunctionRef {
                                     name: predicate.clone(),
