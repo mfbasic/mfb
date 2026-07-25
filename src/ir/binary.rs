@@ -880,13 +880,13 @@ fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
     // has no AST to re-run escape analysis on, so this must ride the format for
     // the package-path RES/ownership rules and resource codegen to stay correct
     // (format v4). Sorted by binding name for a deterministic encoding.
-    let mut owners: Vec<(&String, &crate::escape::ResOwner)> = f.resource_owners.iter().collect();
+    let mut owners: Vec<(&String, &crate::ir::resource_escape::ResOwner)> = f.resource_owners.iter().collect();
     owners.sort_by(|a, b| a.0.cmp(b.0));
     put_vec(out, &owners, |o, (name, owner)| {
         put_str(o, name);
         match owner {
-            crate::escape::ResOwner::Local => put_u8(o, 0),
-            crate::escape::ResOwner::Float(target) => {
+            crate::ir::resource_escape::ResOwner::Local => put_u8(o, 0),
+            crate::ir::resource_escape::ResOwner::Float(target) => {
                 put_u8(o, 1);
                 put_str(o, target);
             }
@@ -894,7 +894,7 @@ fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
             // carrying a blocked float before it can be encoded. Encoded as
             // `Local` so the format stays v4-compatible rather than gaining a tag
             // no reader could ever legitimately see.
-            crate::escape::ResOwner::FloatBlocked(_) => put_u8(o, 0),
+            crate::ir::resource_escape::ResOwner::FloatBlocked(_) => put_u8(o, 0),
         }
     });
 }
@@ -916,7 +916,7 @@ fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
 
 fn decode_resource_owners(
     r: &mut IrReader,
-) -> Result<HashMap<String, crate::escape::ResOwner>, String> {
+) -> Result<HashMap<String, crate::ir::resource_escape::ResOwner>, String> {
     let count = r.count()?;
     // Never pre-reserve more slots than the remaining bytes could fill (PKG-05,
     // mirroring `decode_vec`): each entry is a length-prefixed string + a 1-byte
@@ -929,8 +929,8 @@ fn decode_resource_owners(
     for _ in 0..count {
         let name = r.string()?;
         let owner = match r.u8()? {
-            0 => crate::escape::ResOwner::Local,
-            1 => crate::escape::ResOwner::Float(r.string()?),
+            0 => crate::ir::resource_escape::ResOwner::Local,
+            1 => crate::ir::resource_escape::ResOwner::Float(r.string()?),
             other => {
                 return Err(format!(
                     "Binary Representation: invalid ResOwner tag {other}"

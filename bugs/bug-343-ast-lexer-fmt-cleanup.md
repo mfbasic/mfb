@@ -120,6 +120,13 @@ with it.
 - Fix: move it to a neutral home (it is one line; it belongs wherever B1's
   merged normalizer lands) and re-point the five external call sites.
 
+> **A3 done (2026-07-25).** Renamed and relocated `src/escape.rs` →
+> `src/ir/resource_escape.rs` (`pub(crate) mod` in `src/ir/mod.rs`, dropped the
+> crate-root `mod escape;`); rewrote all 39 `crate::escape::` references across 13
+> files to `crate::ir::resource_escape::`. Pure module relocation, no logic
+> change → output-neutral: resources + trap acceptance byte-identical (122
+> fixtures). Its `mfbasic.md` citation (D2) still to repoint.
+
 #### A3 — `src/escape.rs` is resource-escape analysis, not escape sequences, and sits beside the file that does own escape sequences
 
 - `src/escape.rs:1`: `//! Resource escape analysis (mfbasic.md §15.6).` The

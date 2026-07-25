@@ -346,7 +346,7 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
             line: function.line as u32,
             column: 1,
         },
-        resource_owners: crate::escape::analyze_function(function).owners().clone(),
+        resource_owners: crate::ir::resource_escape::analyze_function(function).owners().clone(),
     }
 }
 

@@ -359,7 +359,7 @@ fn collect_diagnostics_with(
         // (ResOwner::Float) is non-owning afterwards: the collection owns the
         // close obligation (§15.6).
         for (name, owner) in &function.resource_owners {
-            if matches!(owner, crate::escape::ResOwner::Float(_)) {
+            if matches!(owner, crate::ir::resource_escape::ResOwner::Float(_)) {
                 non_owning.insert(name.clone());
             }
             // bug-291: the resource flows into a collection this function
@@ -370,7 +370,7 @@ fn collect_diagnostics_with(
             // the returned collection still carried it -- the caller's adopted
             // owned-list then closed it a second time, a double close with no
             // diagnostic. Reject it, and name the order that fixes it.
-            if let crate::escape::ResOwner::FloatBlocked(collection) = owner {
+            if let crate::ir::resource_escape::ResOwner::FloatBlocked(collection) = owner {
                 env.emit(
                     "TYPE_RESOURCE_RETURN_ORDER",
                     format!(

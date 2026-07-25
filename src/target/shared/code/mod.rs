@@ -180,7 +180,7 @@ struct CodeBuilder<'a> {
     /// being lowered, keyed by `RES` binding name. Drives where each resource's
     /// close obligation lives (its own scope, an outer collection's owned-list,
     /// or out via a returned collection).
-    resource_owners: HashMap<String, crate::escape::ResOwner>,
+    resource_owners: HashMap<String, crate::ir::resource_escape::ResOwner>,
     /// Collection binding names that own a runtime owned-list (some resource
     /// floats up to their scope).
     owner_collections: HashSet<String>,

@@ -148,8 +148,8 @@ pub(crate) struct NirFunction {
     /// `ErrorLoc.filename` for errors that originate inside this function.
     pub(crate) file: String,
     /// Resource ownership decisions (escape analysis, §15.6), keyed by `RES`
-    /// binding name. Absent names are [`crate::escape::ResOwner::Local`].
-    pub(crate) resource_owners: HashMap<String, crate::escape::ResOwner>,
+    /// binding name. Absent names are [`crate::ir::resource_escape::ResOwner::Local`].
+    pub(crate) resource_owners: HashMap<String, crate::ir::resource_escape::ResOwner>,
 }
 
 pub(crate) struct NirParam {

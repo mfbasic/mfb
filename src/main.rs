@@ -7,7 +7,6 @@ mod cli;
 mod coverage;
 mod doc;
 mod docs;
-mod escape;
 mod fmt;
 mod internal_name;
 mod ir;

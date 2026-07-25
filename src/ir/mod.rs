@@ -141,7 +141,7 @@ pub(crate) struct IrFunction {
     // binding name. Drives where each resource's close obligation is discharged:
     // its own scope, an outer collection's scope (runtime owned-list), or out via
     // a returned collection. Absent names are `Local`.
-    pub(crate) resource_owners: HashMap<String, crate::escape::ResOwner>,
+    pub(crate) resource_owners: HashMap<String, crate::ir::resource_escape::ResOwner>,
 }
 
 mod binary;
@@ -154,6 +154,9 @@ mod lower;
 mod lower_link;
 mod op;
 mod package;
+// bug-343 A3: resource-escape analysis (was the misleadingly-named crate-root
+// `escape.rs`); pub(crate) so its `src/target/` consumers can reach it.
+pub(crate) mod resource_escape;
 #[cfg(test)]
 mod tests;
 mod types;

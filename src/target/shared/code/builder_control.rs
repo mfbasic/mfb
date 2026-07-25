@@ -122,7 +122,7 @@ impl CodeBuilder<'_> {
                         // cleanup-registration branches below exactly.
                         let floats_to_collection = matches!(
                             self.resource_owners.get(name),
-                            Some(crate::escape::ResOwner::Float(_))
+                            Some(crate::ir::resource_escape::ResOwner::Float(_))
                         );
                         // bug-375: a bind that merely aliases an already-live
                         // resource registers no cleanup below, so it owns no
@@ -249,7 +249,7 @@ impl CodeBuilder<'_> {
                             .resource_owners
                             .get(name)
                             .cloned()
-                            .unwrap_or(crate::escape::ResOwner::Local);
+                            .unwrap_or(crate::ir::resource_escape::ResOwner::Local);
                         if Self::is_thread_type(type_) {
                             self.active_cleanups
                                 .push(ActiveCleanup::Thread(ThreadCleanup {
@@ -258,7 +258,7 @@ impl CodeBuilder<'_> {
                                 }));
                         } else if aliases_union_variant || by_ref_capture_slot {
                             // Non-owning — no cleanup (the parent binding frees it).
-                        } else if let crate::escape::ResOwner::Float(collection) = &resource_owner {
+                        } else if let crate::ir::resource_escape::ResOwner::Float(collection) = &resource_owner {
                             // Ownership floated to an outer collection's scope:
                             // register the record in that owned-list. This binding
                             // is now an alias and registers no static cleanup.

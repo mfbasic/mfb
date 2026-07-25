@@ -14,7 +14,7 @@ use super::package::{
     prefix_package_symbols,
 };
 use super::*;
-use crate::escape::ResOwner;
+use crate::ir::resource_escape::ResOwner;
 
 // --- builders --------------------------------------------------------------
 

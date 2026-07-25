@@ -475,7 +475,7 @@ pub(super) fn lower_function(
             .resource_owners
             .values()
             .filter_map(|owner| match owner {
-                crate::escape::ResOwner::Float(name) => Some(name.clone()),
+                crate::ir::resource_escape::ResOwner::Float(name) => Some(name.clone()),
                 _ => None,
             })
             .collect(),

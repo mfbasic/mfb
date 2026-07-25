@@ -303,7 +303,7 @@ impl ToNirJson for NirFunction {
         } else {
             // Sort by binding name so the dump is deterministic (the source is a
             // HashMap).
-            let mut owners: Vec<(&String, &crate::escape::ResOwner)> =
+            let mut owners: Vec<(&String, &crate::ir::resource_escape::ResOwner)> =
                 self.resource_owners.iter().collect();
             owners.sort_by(|a, b| a.0.cmp(b.0));
             let entries = owners
@@ -359,16 +359,16 @@ impl ToNirJson for NirFunction {
 
 /// Render a resource-ownership decision for the `-nir` dump (bug-139.4). Dump-only;
 /// no parser reads it back.
-fn res_owner_json(owner: &crate::escape::ResOwner) -> String {
+fn res_owner_json(owner: &crate::ir::resource_escape::ResOwner) -> String {
     match owner {
-        crate::escape::ResOwner::Local => "{ \"kind\": \"local\" }".to_string(),
-        crate::escape::ResOwner::Float(scope) => {
+        crate::ir::resource_escape::ResOwner::Local => "{ \"kind\": \"local\" }".to_string(),
+        crate::ir::resource_escape::ResOwner::Float(scope) => {
             format!(
                 "{{ \"kind\": \"float\", \"scope\": {} }}",
                 json_string(scope)
             )
         }
-        crate::escape::ResOwner::FloatBlocked(scope) => {
+        crate::ir::resource_escape::ResOwner::FloatBlocked(scope) => {
             format!(
                 "{{ \"kind\": \"float-blocked\", \"scope\": {} }}",
                 json_string(scope)

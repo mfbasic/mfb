@@ -2529,7 +2529,7 @@ fn rejects_res_on_non_resource() {
         vec![bind("x", "Integer", Some(int_const("1")), true, false)],
     );
     f.resource_owners
-        .insert("x".to_string(), crate::escape::ResOwner::Local);
+        .insert("x".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(&project(vec![f], vec![]), "TYPE_RES_REQUIRES_RESOURCE");
 }
 
@@ -2578,7 +2578,7 @@ fn rejects_state_on_union() {
     );
     // craft a resource union type "Res" with a File variant so is_resource true and unions contains it.
     f.resource_owners
-        .insert("r".to_string(), crate::escape::ResOwner::Local);
+        .insert("r".to_string(), crate::ir::resource_escape::ResOwner::Local);
     let u = union("Res", &["File"]);
     expect_rule(&project(vec![f], vec![u]), "TYPE_UNION_STATE_FORBIDDEN");
 }
@@ -2593,7 +2593,7 @@ fn rejects_state_type_not_defaultable() {
         vec![bind("h", "File STATE Shape", None, true, false)],
     );
     f.resource_owners
-        .insert("h".to_string(), crate::escape::ResOwner::Local);
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(
         &project(vec![f], vec![union("Shape", &["A", "B"])]),
         "TYPE_STATE_INVALID",
@@ -2613,7 +2613,7 @@ fn rejects_state_assign_no_state() {
     ];
     let mut f = func_returns("run", "Nothing", vec![], body);
     f.resource_owners
-        .insert("h".to_string(), crate::escape::ResOwner::Local);
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(&project(vec![f], vec![]), "TYPE_STATE_INVALID");
 }
 
@@ -2629,7 +2629,7 @@ fn rejects_state_assign_mismatch() {
     ];
     let mut f = func_returns("run", "Nothing", vec![], body);
     f.resource_owners
-        .insert("h".to_string(), crate::escape::ResOwner::Local);
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(&project(vec![f], vec![]), "TYPE_ASSIGNMENT_MISMATCH");
 }
 
@@ -2661,7 +2661,7 @@ fn rejects_use_after_close() {
     ];
     let mut f = func_returns("run", "Nothing", vec![], body);
     f.resource_owners
-        .insert("h".to_string(), crate::escape::ResOwner::Local);
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
 }
 
@@ -3622,7 +3622,7 @@ fn return_resource_move_is_not_use_after_move() {
     ];
     let mut f = func_returns("run", "File", vec![], body);
     f.resource_owners
-        .insert("h".to_string(), crate::escape::ResOwner::Local);
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     let got = rules(&project(vec![f], vec![]));
     assert!(
         !got.contains(&"TYPE_USE_AFTER_MOVE".to_string()),
@@ -3647,7 +3647,7 @@ fn rejects_double_move_close_then_return() {
     ];
     let mut f = func_returns("run", "File", vec![], body);
     f.resource_owners
-        .insert("h".to_string(), crate::escape::ResOwner::Local);
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
 }
 
@@ -4598,7 +4598,7 @@ fn accepts_res_bind_of_a_collection_element() {
         body,
     );
     f.resource_owners
-        .insert("h".to_string(), crate::escape::ResOwner::Local);
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
     accept(&project(vec![f], vec![]));
 }
 
@@ -4945,7 +4945,7 @@ fn owner_fn(name: &str, ret: &str, body: Vec<IrOp>, owners: &[&str]) -> IrFuncti
     let mut f = func_returns(name, ret, vec![], body);
     for o in owners {
         f.resource_owners
-            .insert((*o).to_string(), crate::escape::ResOwner::Local);
+            .insert((*o).to_string(), crate::ir::resource_escape::ResOwner::Local);
     }
     f
 }
@@ -5182,7 +5182,7 @@ fn rejects_res_on_enum() {
         vec![bind("c", "Color", None, true, false)],
     );
     f.resource_owners
-        .insert("c".to_string(), crate::escape::ResOwner::Local);
+        .insert("c".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(
         &project(vec![f], vec![enum_type("Color", &["Red"])]),
         "TYPE_RES_REQUIRES_RESOURCE",
@@ -5198,7 +5198,7 @@ fn rejects_res_on_record() {
         vec![bind("p", "Point", None, true, false)],
     );
     f.resource_owners
-        .insert("p".to_string(), crate::escape::ResOwner::Local);
+        .insert("p".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(
         &project(vec![f], vec![record("Point", &["x"])]),
         "TYPE_RES_REQUIRES_RESOURCE",
@@ -5215,7 +5215,7 @@ fn rejects_res_on_data_union() {
         vec![bind("s", "Shape", None, true, false)],
     );
     f.resource_owners
-        .insert("s".to_string(), crate::escape::ResOwner::Local);
+        .insert("s".to_string(), crate::ir::resource_escape::ResOwner::Local);
     expect_rule(
         &project(vec![f], vec![union("Shape", &["Circle", "Square"])]),
         "TYPE_RES_REQUIRES_RESOURCE",

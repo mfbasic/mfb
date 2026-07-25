@@ -19,7 +19,7 @@ impl TypeEnv {
         ops: &[IrOp],
         locals: &mut HashMap<String, String>,
         moved: &mut HashSet<String>,
-        owners: &HashMap<String, crate::escape::ResOwner>,
+        owners: &HashMap<String, crate::ir::resource_escape::ResOwner>,
         non_owning: &HashSet<String>,
         aliases: &mut HashMap<String, HashSet<String>>,
     ) {
