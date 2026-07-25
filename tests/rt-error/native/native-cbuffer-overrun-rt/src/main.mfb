@@ -1,0 +1,43 @@
+' sec-02: an OUT CBuffer whose declared SIZE is understated relative to the
+' length handed to the C callee overruns the buffer. The thunk allocates exactly
+' SIZE bytes plus a 16-byte guard region stamped with a canary; after the call it
+' checks the canary and, if the callee wrote past SIZE, traps with
+' ErrNativeBufferOverrun (7-703-0010) instead of silently corrupting the arena.
+'
+' Here SIZE is a hard-coded 8 while the callee is handed nbyte = 20 for a 20-byte
+' file, so pread writes 20 bytes into the 8-byte buffer — a 12-byte overrun. The
+' overrun is deliberately CONTAINED within the 16-byte guard (12 < 16), so the
+' trap fires on an otherwise-intact arena. This is the exact hazard sec-02
+' closes: a binding that compiles cleanly (the compiler cannot know pread will
+' write more than SIZE) but is memory-unsafe against the real C library.
+IMPORT io
+IMPORT fs
+
+LINK "c" AS libc
+  FUNC openRead(path AS String) AS Integer
+    SYMBOL "open"
+    ABI (path CString, flags CInt32) AS fd CInt32
+    CONST flags = 0
+    RETURN fd
+  END FUNC
+
+  ' SIZE 8 is understated: the callee still receives nbyte verbatim.
+  FUNC preadUnderstated(fd AS Integer, nbyte AS Integer, offset AS Integer) AS List OF Byte
+    SYMBOL "pread"
+    ABI (fd CInt32, buf OUT CBuffer, nbyte CInt64, offset CInt64) AS got CInt64
+    BUFFER buf SIZE 8
+    RETURN buf LENGTH got
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  LET path AS String = "target/native_cbuffer_overrun_rt.bin"
+  fs::writeText(path, "ABCDEFGHIJKLMNOPQRST") ' 20 bytes
+  LET fd AS Integer = libc::openRead(path)
+  io::print("fd_ok " & toString(fd > 0))
+  ' pread(fd, buf8, 20, 0) writes 20 bytes into the 8-byte buffer -> overrun.
+  ' The post-call canary check traps here; the line below is never reached.
+  LET data AS List OF Byte = libc::preadUnderstated(fd, 20, 0)
+  io::print("unreachable len " & toString(len(data)))
+  RETURN 0
+END FUNC

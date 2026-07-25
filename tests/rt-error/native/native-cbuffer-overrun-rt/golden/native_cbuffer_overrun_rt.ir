@@ -1,0 +1,32 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "native_cbuffer_overrun_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 33,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 34, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/native_cbuffer_overrun_rt.bin" } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "ABCDEFGHIJKLMNOPQRST" }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "fd", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "libc.openRead", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "fd_ok " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "fd" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }] } }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "data", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "libc.preadUnderstated", "args": [{ "kind": "local", "name": "fd" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "unreachable len " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "data" }] }] } }] } },
+    { "op": "return", "line": 42, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

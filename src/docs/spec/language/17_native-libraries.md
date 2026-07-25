@@ -194,6 +194,8 @@ That is narrower than `SUCCESS_ON` / `RETURN`, and deliberately so. Those are ev
 
 Deriving the capacity from a sibling slot by naming convention (a `buflen CInt64` next to a `buf OUT CBuffer`) was rejected: it is implicit, unstated in the `ABI` line, and silently picks the wrong slot whenever a C function takes two lengths. The clause states the relationship the C API actually has.
 
+`SIZE` is a **memory-safety boundary the author owns**: it must be greater than or equal to the maximum number of bytes the callee can write into the buffer. The compiler cannot verify this — it cannot know which ABI slot (if any) the C function treats as `buf`'s write length, nor how a multi-argument API derives it — so the write's safety rests on the `SIZE` expression being large enough. To keep an understated `SIZE` from silently corrupting the arena, the thunk allocates `SIZE` plus a small guard region, stamps a canary past the `SIZE`-th byte before the call, and checks it after: a callee that wrote past `SIZE` clobbers the canary and the call traps with `ErrNativeBufferOverrun` (`7-703-0010`) instead of continuing on corrupted memory. The guard converts a silent, exploitable heap overrun into a deterministic abort; it does not make an understated `SIZE` correct — always size the buffer to the callee's maximum write.
+
 A `CBuffer` is legal in exactly one position, and every other use is rejected with `NATIVE_BUFFER_INVALID` on both the source path and the `.mfp` package path:
 
 * It must be `OUT`. `IN`/`INOUT CBuffer` would need a `List OF Byte` *input* marshal, which does not exist; there is no send direction.

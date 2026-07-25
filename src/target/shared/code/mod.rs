@@ -2601,6 +2601,11 @@ fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'stat
             ERR_NATIVE_LINK_CALL_SYMBOL,
         ),
         (
+            ERR_NATIVE_BUFFER_OVERRUN_CODE,
+            ERR_NATIVE_BUFFER_OVERRUN_MESSAGE,
+            ERR_NATIVE_BUFFER_OVERRUN_SYMBOL,
+        ),
+        (
             ERR_OUT_OF_MEMORY_CODE,
             ERR_ALLOCATION_MESSAGE,
             ERR_ALLOCATION_SYMBOL,

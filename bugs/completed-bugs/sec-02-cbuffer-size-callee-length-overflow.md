@@ -5,11 +5,39 @@ Effort: medium (1h–2h for the mitigation; the preventive fix is a design decis
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: (to add) a runtime fixture under `tests/rt-behavior/native/` where a
-`BUFFER buf SIZE <small>` binding hands the callee a larger write length and a
-guard (canary/redzone) traps instead of silently corrupting the arena; plus an
-`ir::verify`/lowering twin if a verifier rule is chosen.
+Status: Fixed (2026-07-25) via mitigation (A) — the universal post-call
+canary/redzone. Option (B) (a declared `LIMIT` slot + runtime clamp) is left as a
+possible future preventive for the common single-length case; (A) covers every C
+API shape.
+
+**Fix.** `link_thunk.rs` now over-allocates each `OUT CBuffer` by
+`BUFFER_GUARD_BYTES` (16): `phys = SIZE + 16` is what `emit_alloc_byte_list`
+reserves and stores as the block's capacity/dataCapacity, so `arena_free` (which
+sizes a byte list from dataCapacity) reclaims the whole physical block — no leak.
+The logical `SIZE` word is untouched, so the pre-call size gate and the post-call
+`RETURN … LENGTH` clamp (which bounds the returned view to `[0, SIZE]`) are
+unchanged. Before the call the thunk stamps two canary words into
+`[dataBase+SIZE, dataBase+SIZE+16)`; after the call — and BEFORE `SUCCESS_ON` /
+result marshaling, so a corrupting call cannot surface a "successful" result from
+smashed memory — it verifies every CBuffer's canary and, on mismatch, traps with
+`ErrNativeBufferOverrun` (`7-703-0010`, new). This converts a silent, exploitable
+arena overrun into a deterministic abort (the doc's stated posture for (A); it
+does not *prevent* the overrun, so the author's `SIZE` must still be >= the
+callee's max write — now documented in `17_native-libraries.md` as a safety
+boundary).
+
+The change is confined to the LINK-binding thunk emitter; built-in packages
+(audio's `sf_readf_short`, fs, net, tls) call `emit_alloc_byte_list` directly and
+are unaffected (their cross-target `.ncodesum` goldens do not move). New runtime
+error code added to the `errorCode` registry (`02_error-codes.md`) so programs can
+match `errorCode::ErrNativeBufferOverrun`.
+
+Regression Test: `tests/rt-error/native/native-cbuffer-overrun-rt` — a `SIZE 8`
+binding handed `nbyte=20` for a 20-byte file; `pread` overruns 12 bytes into the
+16-byte guard (a *contained* overrun, so the trap runs on an intact arena) and the
+program traps with `ErrNativeBufferOverrun` instead of corrupting the arena. The
+coupled `native-cbuffer-read-rt` still runs byte-identically (reads correct, free
+accounting sound across many allocs incl. the 1 MiB at-cap, over-cap gate intact).
 
 A native `LINK` function with an `OUT CBuffer` slot allocates a byte-list buffer
 of exactly the `BUFFER <slot> SIZE <expr>` capacity, hands the C callee a pointer

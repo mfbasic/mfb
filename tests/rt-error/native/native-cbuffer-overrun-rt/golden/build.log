@@ -1,0 +1,16 @@
+$ mfb build -ast -ir tests/rt-error/native/native-cbuffer-overrun-rt
+Wrote AST to tests/rt-error/native/native-cbuffer-overrun-rt/native_cbuffer_overrun_rt.ast
+Wrote IR to tests/rt-error/native/native-cbuffer-overrun-rt/native_cbuffer_overrun_rt.ir
+[exit 0]
+$ mfb build tests/rt-error/native/native-cbuffer-overrun-rt
+   1 | {
+     | ^
+tests/rt-error/native/native-cbuffer-overrun-rt/project.json:1 warn[2-203-0115 NATIVE_LIBRARY_TARGET_UNCOVERED]: a supported build target has no `libraries` locator for a linked native library
+               `libraries.c` has no locator covering windows/x86_64. An executable built for that target will fail to resolve the library.
+Wrote executable to tests/rt-error/native/native-cbuffer-overrun-rt/build/native_cbuffer_overrun_rt.out
+[exit 0]
+$ tests/rt-error/native/native-cbuffer-overrun-rt/build/native_cbuffer_overrun_rt.out
+fd_ok TRUE
+Error: 7-703-0010
+Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected).
+[exit 255]

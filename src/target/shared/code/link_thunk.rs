@@ -24,6 +24,19 @@ use crate::ir::{IrLinkExpr, IrLinkFunction};
 use crate::target::shared::abi;
 use crate::target::shared::nir::{self, link_thunk_symbol};
 
+/// sec-02: bytes of guard region appended past an `OUT CBuffer`'s declared
+/// `SIZE`, stamped with a canary before the native call and checked after. A
+/// callee that writes past `SIZE` clobbers the canary (contiguous writers like
+/// `read`/`pread`/`recv` hit it first), converting a silent arena overrun into a
+/// deterministic `ErrNativeBufferOverrun` trap. Two 8-byte words = 16 bytes.
+const BUFFER_GUARD_BYTES: usize = 16;
+/// The two canary words (distinctive, non-trivial) — the odds a legitimate callee
+/// writes both exactly into the guard by coincidence are ~2^-128. Kept below
+/// `i64::MAX` so every backend's immediate parser accepts them (link_thunk is
+/// shared codegen). Only that store and check use the SAME constant matters.
+const BUFFER_CANARY_0: &str = "6510615555426900570"; // 0x5A5A5A5A5A5A5A5A
+const BUFFER_CANARY_1: &str = "3038287259199220266"; // 0x2A2A2A2A2A2A2A2A
+
 /// The generated functions and data objects backing the program's `LINK`
 /// bindings.
 pub(super) struct LinkSupport {
@@ -544,7 +557,12 @@ fn lower_link_thunk(
         .map(|(idx, _)| idx)
         .collect();
     let cbuffer_size_base = rec_ptr_off + 8;
-    let frame = align(cbuffer_size_base + cbuffer_slots.len() * 8 + 24, 16);
+    // sec-02: a parallel per-CBuffer word holding the *physical* allocation size
+    // (logical SIZE + BUFFER_GUARD_BYTES). `size_base` keeps the logical SIZE (for
+    // the size gate and the post-call LENGTH clamp); `phys_base` is what
+    // `emit_alloc_byte_list` actually reserves so the guard region exists.
+    let cbuffer_phys_base = cbuffer_size_base + cbuffer_slots.len() * 8;
+    let frame = align(cbuffer_phys_base + cbuffer_slots.len() * 8 + 24, 16);
 
     // plan-50-H: the wrapper's result is whatever `RETURN <expr>` names. A bare
     // `RETURN <slot>` (an `IrLinkExpr::Var`) selects that slot's value; anything
@@ -608,6 +626,9 @@ fn lower_link_thunk(
     let inf_fail = format!("{symbol}_inf_fail");
     // plan-58-B: the runtime size gate for `BUFFER … SIZE`.
     let buffer_size_fail = format!("{symbol}_buffer_size_fail");
+    // sec-02: the post-call canary-mismatch trap target (only emitted when the
+    // function has an OUT CBuffer).
+    let buffer_overrun = format!("{symbol}_buffer_overrun");
     let needs_buffer_size = !cbuffer_slots.is_empty();
     let done = format!("{symbol}_done");
 
@@ -714,6 +735,7 @@ fn lower_link_thunk(
     for (buf_seq, &slot_idx) in cbuffer_slots.iter().enumerate() {
         let slot = &function.abi_slots[slot_idx];
         let size_off = cbuffer_size_base + buf_seq * 8;
+        let phys_off = cbuffer_phys_base + buf_seq * 8;
         let out_off = cbuffer_out_off(slot_idx);
         let cslot_off = cslot_base + slot_idx * 8;
 
@@ -779,15 +801,28 @@ fn lower_link_thunk(
             abi::branch_gt(&buffer_size_fail),
         ]);
 
+        // sec-02: reserve BUFFER_GUARD_BYTES past the logical SIZE. `phys_off`
+        // (= SIZE + guard) is what `emit_alloc_byte_list` allocates and stores as
+        // the block's capacity/dataCapacity; since `arena_free` sizes a byte list
+        // from dataCapacity, the whole physical block (guard included) is
+        // reclaimed on drop — no leak. `size_off` still holds the logical SIZE, so
+        // the size gate above and the post-call LENGTH clamp are unaffected, and
+        // the returned list view is still bounded to [0, SIZE].
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), size_off),
+            abi::add_immediate("%v9", "%v9", BUFFER_GUARD_BYTES),
+            abi::store_u64("%v9", abi::stack_pointer(), phys_off),
+        ]);
+
         // Allocate the block and spill its pointer to the OUT word. The helper
-        // writes the header (count/capacity/dataLength/dataCapacity all `N`) and
-        // branches to `alloc_fail` on failure, so a wrapper with no LENGTH clause
-        // needs no post-call work and the list is well-formed even if the callee
-        // writes nothing.
+        // writes the header (count/capacity/dataLength/dataCapacity all = phys)
+        // and branches to `alloc_fail` on failure, so a wrapper with no LENGTH
+        // clause needs no post-call work and the list is well-formed even if the
+        // callee writes nothing.
         emit_alloc_byte_list(
             &symbol,
             &format!("cbuf{buf_seq}"),
-            size_off,
+            phys_off,
             out_off,
             &alloc_fail,
             &mut instructions,
@@ -803,6 +838,20 @@ fn lower_link_thunk(
             abi::load_u64("%v9", abi::stack_pointer(), out_off),
             abi::add_immediate("%v9", "%v9", COLLECTION_HEADER_SIZE),
             abi::store_u64("%v9", abi::stack_pointer(), cslot_off),
+        ]);
+
+        // sec-02: stamp the canary into the guard region
+        // [dataBase + SIZE, dataBase + SIZE + BUFFER_GUARD_BYTES) — the last
+        // BUFFER_GUARD_BYTES of the physical block. `%v9` still holds dataBase. A
+        // correct callee writes at most SIZE bytes, leaving the canary intact; an
+        // overrun clobbers it (checked after the call).
+        instructions.extend([
+            abi::load_u64("%v10", abi::stack_pointer(), size_off),
+            abi::add_registers("%v9", "%v9", "%v10"), // canary base = dataBase + SIZE
+            abi::move_immediate("%v11", "Integer", BUFFER_CANARY_0),
+            abi::store_u64("%v11", "%v9", 0),
+            abi::move_immediate("%v11", "Integer", BUFFER_CANARY_1),
+            abi::store_u64("%v11", "%v9", 8),
         ]);
     }
 
@@ -1022,6 +1071,31 @@ fn lower_link_thunk(
         abi::branch_link_register("%v16"),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CRET_OFF),
     ]);
+
+    // sec-02: verify every OUT CBuffer's guard canary survived the call, BEFORE
+    // the SUCCESS_ON gate or any result marshaling — so a callee that overran its
+    // buffer cannot surface a "successful" result built from smashed arena
+    // memory. A clobbered canary means the callee wrote past the declared SIZE;
+    // trap with ErrNativeBufferOverrun. Uses integer scratch only (%v9-%v11), so
+    // a float return still parked in d0 is untouched.
+    for (buf_seq, &slot_idx) in cbuffer_slots.iter().enumerate() {
+        let size_off = cbuffer_size_base + buf_seq * 8;
+        let out_off = cbuffer_out_off(slot_idx);
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), out_off), // block
+            abi::add_immediate("%v9", "%v9", COLLECTION_HEADER_SIZE), // dataBase
+            abi::load_u64("%v10", abi::stack_pointer(), size_off), // SIZE
+            abi::add_registers("%v9", "%v9", "%v10"),            // canary base
+            abi::load_u64("%v10", "%v9", 0),
+            abi::move_immediate("%v11", "Integer", BUFFER_CANARY_0),
+            abi::compare_registers("%v10", "%v11"),
+            abi::branch_ne(&buffer_overrun),
+            abi::load_u64("%v10", "%v9", 8),
+            abi::move_immediate("%v11", "Integer", BUFFER_CANARY_1),
+            abi::compare_registers("%v10", "%v11"),
+            abi::branch_ne(&buffer_overrun),
+        ]);
+    }
 
     // plan-59-B: a registered `CLOSE BY` op sets `RESOURCE_CLOSED_BIT` here —
     // after the native call has returned, and BEFORE branching on its status.
@@ -1442,6 +1516,30 @@ fn lower_link_thunk(
         &mut relocations,
     );
     instructions.push(abi::branch(&done));
+
+    // sec-02: buffer_overrun: a post-call canary check found an OUT CBuffer's
+    // guard region clobbered — the callee wrote past its declared SIZE. Only
+    // emitted when the function has an OUT CBuffer (otherwise the label is unused
+    // and never branched to).
+    if !cbuffer_slots.is_empty() {
+        instructions.extend([
+            abi::label(&buffer_overrun),
+            abi::move_immediate(
+                RESULT_VALUE_REGISTER,
+                "Integer",
+                ERR_NATIVE_BUFFER_OVERRUN_CODE,
+            ),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        ]);
+        emit_data_address(
+            &symbol,
+            RESULT_ERROR_MESSAGE_REGISTER,
+            ERR_NATIVE_BUFFER_OVERRUN_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::branch(&done));
+    }
 
     // alloc_fail: a marshaling allocation failed.
     instructions.extend([

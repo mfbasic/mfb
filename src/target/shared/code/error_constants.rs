@@ -111,6 +111,15 @@ pub(crate) const ERR_NATIVE_LINK_CALL_CODE: &str = "77030008";
 pub(crate) const ERR_NATIVE_LINK_CALL_MESSAGE: &str =
     "Native `LINK` binding call failed its `SUCCESS_ON` gate.";
 pub(crate) const ERR_NATIVE_LINK_CALL_SYMBOL: &str = "_mfb_str_error_native_link_call";
+/// sec-02: a native `LINK` `OUT CBuffer` callee wrote past the declared `SIZE`
+/// bytes, caught by a post-call canary in the buffer's guard region. The overrun
+/// already touched memory; the thunk traps deterministically instead of
+/// continuing on corrupted arena state (converting a silent heap smash into an
+/// abort). The author's `BUFFER … SIZE` must be >= the callee's maximum write.
+pub(crate) const ERR_NATIVE_BUFFER_OVERRUN_CODE: &str = "77030010";
+pub(crate) const ERR_NATIVE_BUFFER_OVERRUN_MESSAGE: &str =
+    "Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected).";
+pub(crate) const ERR_NATIVE_BUFFER_OVERRUN_SYMBOL: &str = "_mfb_str_error_native_buffer_overrun";
 
 // -- General runtime (7705) -------------------------------------------------
 pub(crate) const ERR_UNKNOWN_CODE: &str = "77050000";
