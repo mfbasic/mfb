@@ -614,32 +614,49 @@ impl Encoder {
         Ok(())
     }
 
+    /// Emit a three-register data-processing instruction: `opcode | Rm<<16 |
+    /// Rn<<5 | Rd`. The register-field placement is identical across the ~21
+    /// AArch64 arithmetic/logical/shift/FP-2-source ops that differ only in the
+    /// opcode base, so they all funnel through here rather than restating the bit
+    /// packing (bug-341-B6). GPR and FP register numbers share the same 5-bit
+    /// fields, so the same helper serves both.
+    fn emit_rrr(&mut self, opcode: u32, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(opcode | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// Emit a two-register instruction: `opcode | Rn<<5 | Rd` (register-to-register
+    /// moves, FP 1-source ops, and the GPR<->FP conversion group). Companion to
+    /// [`Self::emit_rrr`] for the ops with no `Rm` field (bug-341-B6).
+    fn emit_rr(&mut self, opcode: u32, rd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(opcode | ((rn as u32) << 5) | rd as u32)
+    }
+
     fn emit_add(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x8b00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x8b00_0000, rd, rn, rm)
     }
 
     fn emit_adds(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xab00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xab00_0000, rd, rn, rm)
     }
 
     fn emit_sub(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xcb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xcb00_0000, rd, rn, rm)
     }
 
     fn emit_subs(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xeb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xeb00_0000, rd, rn, rm)
     }
 
     fn emit_and(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x8a00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x8a00_0000, rd, rn, rm)
     }
 
     fn emit_orr(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xaa00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xaa00_0000, rd, rn, rm)
     }
 
     fn emit_eor(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xca00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xca00_0000, rd, rn, rm)
     }
 
     fn emit_mvn(&mut self, rd: u8, rm: u8) -> Result<(), String> {
@@ -647,15 +664,15 @@ impl Encoder {
     }
 
     fn emit_mul(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9b00_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9b00_7c00, rd, rn, rm)
     }
 
     fn emit_smulh(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9b40_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9b40_7c00, rd, rn, rm)
     }
 
     fn emit_umulh(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9bc0_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9bc0_7c00, rd, rn, rm)
     }
 
     /// Explicit-carry add (plan-00-G §4): `dst = lhs + rhs + carry_in`,
@@ -712,27 +729,27 @@ impl Encoder {
     }
 
     fn emit_rorv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9ac0_2c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9ac0_2c00, rd, rn, rm)
     }
 
     /// 32-bit `RORV Wd, Wn, Wm` — rotate right by `Wm mod 32`; zero-extends Wd.
     fn emit_rorv_w(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x1ac0_2c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x1ac0_2c00, rd, rn, rm)
     }
 
     /// 64-bit `LSLV Xd, Xn, Xm` — logical shift left by `Xm mod 64`.
     fn emit_lslv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9ac0_2000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9ac0_2000, rd, rn, rm)
     }
 
     /// 64-bit `LSRV Xd, Xn, Xm` — logical shift right by `Xm mod 64`.
     fn emit_lsrv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9ac0_2400 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9ac0_2400, rd, rn, rm)
     }
 
     /// 64-bit `ASRV Xd, Xn, Xm` — arithmetic shift right by `Xm mod 64`.
     fn emit_asrv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9ac0_2800 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9ac0_2800, rd, rn, rm)
     }
 
     /// 64-bit `CLZ Xd, Xn` — count leading zeros.
@@ -931,55 +948,55 @@ impl Encoder {
     }
 
     fn emit_fmov_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e66_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e66_0000, rd, dn)
     }
 
     fn emit_fmov_d_from_x(&mut self, dd: u8, rn: u8) -> Result<(), String> {
-        self.emit_word(0x9e67_0000 | ((rn as u32) << 5) | dd as u32)
+        self.emit_rr(0x9e67_0000, dd, rn)
     }
 
     /// `FMOV Dd, Dn` — scalar double register-to-register move.
     fn emit_fmov_d_from_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_4000 | ((dn as u32) << 5) | dd as u32)
+        self.emit_rr(0x1e60_4000, dd, dn)
     }
 
     fn emit_fadd_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_2800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_2800, dd, dn, dm)
     }
 
     fn emit_fsub_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_3800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_3800, dd, dn, dm)
     }
 
     fn emit_fmul_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_0800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_0800, dd, dn, dm)
     }
 
     fn emit_fdiv_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_1800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_1800, dd, dn, dm)
     }
 
     /// `FMINNM Dd, Dn, Dm` — FP data-processing (2-source) `.d`, opcode `0111`.
     fn emit_fminnm_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_7800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_7800, dd, dn, dm)
     }
 
     /// `FMAXNM Dd, Dn, Dm` — FP data-processing (2-source) `.d`, opcode `0110`.
     fn emit_fmaxnm_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_6800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_6800, dd, dn, dm)
     }
 
     fn emit_fneg_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x1e61_4000 | ((dn as u32) << 5) | dd as u32)
+        self.emit_rr(0x1e61_4000, dd, dn)
     }
 
     fn emit_fabs_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
         // FABS (scalar, double): opcode field 000001 in the FP-1-source group.
-        self.emit_word(0x1e60_c000 | ((dn as u32) << 5) | dd as u32)
+        self.emit_rr(0x1e60_c000, dd, dn)
     }
 
     fn emit_fsqrt_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x1e61_c000 | ((dn as u32) << 5) | dd as u32)
+        self.emit_rr(0x1e61_c000, dd, dn)
     }
 
     fn emit_fcmp_d(&mut self, dn: u8, dm: u8) -> Result<(), String> {
@@ -991,23 +1008,23 @@ impl Encoder {
     }
 
     fn emit_scvtf_d_from_x(&mut self, dd: u8, rn: u8) -> Result<(), String> {
-        self.emit_word(0x9e62_0000 | ((rn as u32) << 5) | dd as u32)
+        self.emit_rr(0x9e62_0000, dd, rn)
     }
 
     fn emit_fcvtzs_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e78_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e78_0000, rd, dn)
     }
 
     fn emit_fcvtms_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e70_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e70_0000, rd, dn)
     }
 
     fn emit_fcvtps_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e68_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e68_0000, rd, dn)
     }
 
     fn emit_fcvtas_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e64_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e64_0000, rd, dn)
     }
 
     fn emit_ldr_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
