@@ -37,9 +37,10 @@ use std::collections::HashMap;
 use crate::arch::ops::CodeOp;
 use crate::target::shared::code::{layout_data_objects, CodeInstruction, NativeCodePlan};
 
-// The neutral image/symbol/relocation/import containers are ISA-independent;
-// reuse them rather than redeclaring a parallel set.
-pub(crate) use crate::arch::aarch64::encode::{
+// The neutral image/symbol/relocation/import containers are ISA-independent
+// (`crate::arch::image`, bug-341-B2); reuse them rather than redeclaring a
+// parallel set.
+pub(crate) use crate::arch::image::{
     EncodedImage, EncodedImport, EncodedRelocation, EncodedSection, EncodedSymbol, ImportKind,
 };
 

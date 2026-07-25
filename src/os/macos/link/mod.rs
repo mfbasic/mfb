@@ -1,4 +1,4 @@
-use crate::arch::aarch64::encode::{EncodedImage, EncodedSection};
+use crate::arch::image::{EncodedImage, EncodedSection};
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_DESCRIPTOR_SIZE, MFB_NOTE_OWNER};
 use crate::os::BUILD_DIR;
 use sha2::{Digest, Sha256};

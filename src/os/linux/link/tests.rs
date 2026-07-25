@@ -1,5 +1,5 @@
 use super::*;
-use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
 
 fn versioned_exit_image() -> EncodedImage {
     // _main: movz w0, #0 ; bl _exit  (exit(0) through a versioned reference).

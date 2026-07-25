@@ -1,6 +1,6 @@
 use super::commands::bind_info;
 use super::*;
-use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
 
 fn import(library: &str, symbol: &str) -> EncodedImport {
     EncodedImport {

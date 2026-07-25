@@ -1,4 +1,4 @@
-use crate::arch::aarch64::encode::{EncodedImage, EncodedRelocation, EncodedSection, ImportKind};
+use crate::arch::image::{EncodedImage, EncodedRelocation, EncodedSection, ImportKind};
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER, MFB_NOTE_TYPE};
 use crate::os::BUILD_DIR;
