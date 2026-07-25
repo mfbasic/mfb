@@ -977,30 +977,37 @@ pub(crate) fn lower_thread_trampoline(
     let result_closed = format!("{THREAD_TRAMPOLINE_SYMBOL}_result_closed");
     let worker_result = format!("{THREAD_TRAMPOLINE_SYMBOL}_worker_result");
 
-    // Stack-alignment fixup, exactly mirroring the program entry's
-    // `entry_stack_misaligned_on_entry` (`entry.rs`): the OS/thread library
-    // `call`s the trampoline (Windows via BaseThreadInitThunk, POSIX via the
-    // pthread start-routine dispatch), so on x86-64 it arrives at `sp % 16 == 8`
-    // — a `call` pushes the 8-byte return address — but the hand-managed frame
-    // below (like the entry) assumes `sp % 16 == 0` before it issues any call.
-    // `FRAME_SIZE` is a 16-multiple, so without a fixup every downstream call
-    // (arena-init, the worker body, the `pthread_*` shims) lands at
-    // `sp % 16 == 8`; the callee then sees a 16-misaligned stack — an AMD64
-    // SysV/Win64 ABI violation on BOTH x86-64 OSes (bug-383/47-H).
+    // Stack-alignment fixup, mirroring the program entry's
+    // `entry_stack_misaligned_on_entry` (`entry.rs`): the hand-managed frame
+    // below (like the entry) assumes `sp % 16 == 0` before it issues any call,
+    // and `FRAME_SIZE` is a 16-multiple, so it preserves whatever alignment the
+    // trampoline is entered with. Whether the entry alignment is `sp % 16 == 0`
+    // or `sp % 16 == 8` depends on HOW the OS/thread library reaches this
+    // start-routine, and that differs per x86-64 ABI — so the fixup is gated
+    // per-flavor, not per-arch (bug-385 corrects bug-383's over-broad gate):
     //
-    // On Windows this crashes: a file API reaches ntdll's SwitchBack
-    // (`SbSelectProcedure`), which does `movaps [rbp+0x170], xmm0` on a stack
-    // local and #GPs on the misalignment (surfacing as an AV at address -1). On
-    // linux-x86_64 it is latent — glibc/musl callees the worker reaches do not
-    // assert 16-alignment via aligned-SSE-on-a-stack-local — but it is the same
-    // ABI violation and any `-mavx`/handwritten-SIMD callee spilling a `__m128`/
-    // `__m256` to an rsp-relative local with `movaps`/`vmovaps` would fault the
-    // same way. Folding 8 bytes into the frame realigns to `sp % 16 == 0`.
+    //   - Windows x86-64: BaseThreadInitThunk `call`s the routine, pushing an
+    //     8-byte return address, so it arrives at `sp % 16 == 8`. Without a fixup
+    //     a file API reaches ntdll's SwitchBack (`SbSelectProcedure`), which does
+    //     `movaps [rbp+0x170], xmm0` on a stack local and #GPs (an AV at
+    //     address -1). It NEEDS the +8 (47-H).
+    //   - musl x86-64: the pthread start-routine dispatch likewise `call`s the
+    //     routine, so it too arrives at `sp % 16 == 8` and NEEDS the +8 to give
+    //     downstream callees a 16-aligned stack (bug-383; proven on 2227).
+    //   - glibc x86-64: glibc's `start_thread` enters the start routine already
+    //     16-aligned (`sp % 16 == 0`), so a +8 here would MISalign every
+    //     downstream call and the first `movaps`-to-a-stack-local faults — a hard
+    //     SIGSEGV, not a latent tolerance. It must take NO realign (bug-385;
+    //     proven on 2228: the 88-byte frame SIGSEGVs, the 80-byte frame runs).
     //
-    // aarch64/riscv64 are unaffected: `bl`/`jal` write the return address to a
-    // link register and leave `sp` unchanged, so the trampoline is entered at
-    // `sp % 16 == 0` already and keeps its byte-identical 80-byte frame.
-    let x86_realign = if platform.arch() == "x86_64" { 8 } else { 0 };
+    // aarch64/riscv64 are unaffected on every OS: `bl`/`jal` write the return
+    // address to a link register and leave `sp` unchanged, so the trampoline is
+    // entered at `sp % 16 == 0` already and keeps its byte-identical 80-byte
+    // frame. macOS (aarch64) likewise takes no realign.
+    let needs_realign = platform.arch() == "x86_64"
+        && (platform.family() == PlatformFamily::Windows
+            || platform.libc() == Some(crate::manifest::libraries::Libc::Musl));
+    let x86_realign = if needs_realign { 8 } else { 0 };
     let frame = FRAME_SIZE + x86_realign;
 
     let mut instructions = vec![
