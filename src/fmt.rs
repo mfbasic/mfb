@@ -552,19 +552,13 @@ fn apply_ops(ops: &[Op], stack: &mut Vec<Block>, first_structural: bool, base: u
 
 // --- DOC blocks ------------------------------------------------------------
 
-/// Whether a trimmed line begins a `DOC ... END DOC` block (mirrors the lexer:
-/// `DOC` followed only by attribute words such as `INTERNAL`).
+/// Whether a trimmed line begins a `DOC ... END DOC` block: `DOC` followed only
+/// by attribute words such as `INTERNAL`. Shares the lexer's attribute-line
+/// recognizer so the two can't drift.
 fn is_doc_start(trimmed: &str) -> bool {
     let mut parts = trimmed.splitn(2, char::is_whitespace);
     let first = parts.next().unwrap_or("");
-    if !first.eq_ignore_ascii_case("DOC") {
-        return false;
-    }
-    let rest = parts.next().unwrap_or("").trim();
-    rest.is_empty()
-        || rest
-            .chars()
-            .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '\t')
+    first.eq_ignore_ascii_case("DOC") && lexer::is_doc_attr_rest(parts.next().unwrap_or(""))
 }
 
 /// Re-indent a whole `DOC … END DOC` block. `i` enters pointing at the `DOC`
@@ -590,13 +584,8 @@ fn format_doc_block(
     while *i < n {
         let raw = strip_cr(lines[*i]);
         let words: Vec<&str> = raw.split_whitespace().collect();
-        let is_end = |kw: &str| {
-            words.len() == 2
-                && words[0].eq_ignore_ascii_case("END")
-                && words[1].eq_ignore_ascii_case(kw)
-        };
         if in_example {
-            if is_end("EXAMPLE") {
+            if lexer::is_end_line(&words, "EXAMPLE") {
                 flush_example(&example, body + 1, width, out);
                 example.clear();
                 out.push(format!("{}END EXAMPLE", indent_str(body, width)));
@@ -604,7 +593,7 @@ fn format_doc_block(
             } else {
                 example.push(raw);
             }
-        } else if is_end("DOC") {
+        } else if lexer::is_end_line(&words, "DOC") {
             out.push(format!("{}END DOC", indent_str(base, width)));
             *i += 1;
             return;
