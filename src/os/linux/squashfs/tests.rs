@@ -849,12 +849,23 @@ fn matches_mksquashfs_modulo_the_documented_normalizations() {
     assert_eq!(read_u16(&theirs, 26), read_u16(&ours, 26), "no_ids");
     assert_eq!(read_u16(&theirs, 28), read_u16(&ours, 28), "s_major");
     assert_eq!(read_u16(&theirs, 30), read_u16(&ours, 30), "s_minor");
-    // The two cosmetic flag differences are the only ones allowed.
-    const NOID: u16 = 0x0800;
-    const DUPLICATE: u16 = 0x0040;
-    let theirs_flags = read_u16(&theirs, 24) | NOID;
-    let ours_flags = read_u16(&ours, 24) | DUPLICATE;
-    assert_eq!(theirs_flags, ours_flags, "flags modulo NOID/DUPLICATE");
+    // A handful of superblock flags legitimately differ from mksquashfs and carry
+    // no meaning for a reader mounting the image, so mask them out of both sides
+    // before comparing the rest. Masking (rather than OR-ing a bit into whichever
+    // side lacks it) stays correct across mksquashfs versions that set or clear
+    // each of these independently:
+    //   NOID (0x0800)       mksquashfs may clear it (`if (noI && noId) noId = FALSE;`);
+    //   DUPLICATE (0x0040)  mksquashfs sets it, we don't;
+    //   EXPORTABLE (0x0080) mksquashfs generates an NFS export table and sets it;
+    //                       we omit the export table via INVALID_BLK (plan-51-B §4.8),
+    //                       so the bit is legitimately clear for us.
+    const COSMETIC: u16 = 0x0800 | 0x0040 | 0x0080; // NOID | DUPLICATE | EXPORTABLE
+    let theirs_flags = read_u16(&theirs, 24) & !COSMETIC;
+    let ours_flags = read_u16(&ours, 24) & !COSMETIC;
+    assert_eq!(
+        theirs_flags, ours_flags,
+        "flags modulo NOID/DUPLICATE/EXPORTABLE"
+    );
     // And both must satisfy the ID-table adjacency rule identically.
     assert_eq!(read_u64(&theirs, 48) + 8, read_u64(&theirs, 40));
     assert_eq!(read_u64(&ours, 48) + 8, read_u64(&ours, 40));
