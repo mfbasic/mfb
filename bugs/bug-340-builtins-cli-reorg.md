@@ -430,6 +430,16 @@ expose this. The fix is therefore "promote the `binary_repr` decoder to a
 `pub(crate)` API and delete the `manifest` copy", not "switch a call site" —
 budget accordingly.
 
+> **B9 security fix done (2026-07-25).** The real defect — an unguarded package
+> name reaching `.mfp` metadata — is closed: `package_dependencies`
+> (`src/manifest/package.rs`) now applies the same blank-name +
+> `validate_package_name` guards as `project_package_dependency`, so a `../…` /
+> absolute / non-path-component dependency name is dropped instead of carried
+> into the wire format. Regression test `package_dependencies_drops_blank_and_
+> traversing_names` (passes); packages+project acceptance byte-identical (valid
+> manifests unaffected). The broader *dedup* of the two functions (different
+> return types, so only the extraction is shared) remains as tidiness.
+
 ### B9 — `package_dependencies` and `project_package_dependency` are divergent copies; only one has the bug-195 guard
 
 - `src/manifest/package.rs:457-492` `package_dependencies` — builds

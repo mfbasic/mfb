@@ -480,6 +480,17 @@ fn package_dependencies(
         .filter_map(|package| package.get::<HashMap<String, JsonValue>>())
         .filter_map(|package| {
             let name = package.get("name")?.get::<String>()?.clone();
+            // bug-340 B9 / bug-195: this path feeds `metadata.dependencies`, which
+            // reaches `.mfp` package metadata, and the dependency `name` is
+            // interpolated into `packages/<name>.mfp`. Apply the SAME guards the
+            // sibling `project_package_dependency` uses — reject a blank name, and
+            // validate it as a single path component — so a `../…` or absolute name
+            // cannot escape `packages/` or land unvalidated in `.mfp` metadata.
+            // Previously only `project_package_dependency` was guarded; this copy,
+            // the one that reaches the wire format, was not.
+            if name.trim().is_empty() || validate_package_name(&name).is_err() {
+                return None;
+            }
             let ident = package
                 .get("ident")
                 .and_then(|value| value.get::<String>())
@@ -658,6 +669,37 @@ mod tests {
             let (_dir, path) = write_temp(&build_mfp(name, "1.0.0"));
             assert!(read_mfp_header(&path).is_ok(), "name `{name}` must parse");
         }
+    }
+
+    #[test]
+    fn package_dependencies_drops_blank_and_traversing_names() {
+        // bug-340 B9 / bug-195: `package_dependencies` feeds `.mfp` package
+        // metadata and interpolates each dependency `name` into
+        // `packages/<name>.mfp`, so it must apply the same guards as the sibling
+        // `project_package_dependency` — a blank name or a name that is not a
+        // single path component (`../evil`, `a/b`) must be dropped, not carried
+        // into the wire format. Before the fix this copy had no guard.
+        let entry = |name: &str| {
+            let mut obj = HashMap::new();
+            obj.insert("name".to_string(), JsonValue::String(name.to_string()));
+            JsonValue::Object(obj)
+        };
+        let mut manifest = HashMap::new();
+        manifest.insert(
+            "packages".to_string(),
+            JsonValue::Array(vec![
+                entry("good"),
+                entry("../evil"),
+                entry(""),
+                entry("a/b"),
+                entry("also_ok"),
+            ]),
+        );
+        let names: Vec<String> = package_dependencies(&manifest)
+            .into_iter()
+            .map(|dep| dep.name)
+            .collect();
+        assert_eq!(names, vec!["good".to_string(), "also_ok".to_string()]);
     }
 
     #[test]
