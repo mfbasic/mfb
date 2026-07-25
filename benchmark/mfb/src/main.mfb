@@ -1091,6 +1091,9 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_map_lookup(run, tests)
   tests = test_map_int_ops(run, tests)
   tests = test_map_str_ops(run, tests)
+  tests = test_map_intkey(run, tests)
+  tests = test_map_intchurn(run, tests)
+  tests = test_map_listagg(run, tests)
 
   ' mapchurn group (mapchurn.mfb) — grow/rehash, insert/delete, iterate
   tests = test_mapchurn_grow(run, tests)

@@ -113,6 +113,77 @@ def test_map_str_ops():
     record("map", "str_ops", times)
 
 
+# --- plan-45: Integer-key hash path + Map OF List aggregation ---------------
+
+def test_map_intkey():
+    n = 5000
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        m = {}
+        for i in range(n):
+            m[i * 2] = i
+        acc = 0
+        for i in range(n):
+            if i * 2 in m:
+                acc += m[i * 2]
+            acc += m.get(i * 2 + 1, 0)
+        checksum = acc
+        times.append(now_ns() - t0)
+    print("map_intkey = %d" % checksum, file=sys.stderr)
+    record("map", "intkey", times)
+
+
+def test_map_intchurn():
+    # Arena-gated in mfb (plan-44-J); the Python mirror keeps the same tiny counts.
+    w = 32
+    steps = 64
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        m = {}
+        for i in range(w):
+            m[i] = i
+        acc = 0
+        for st in range(steps):
+            add_key = w + st
+            m[add_key] = add_key
+            rem_key = st
+            if rem_key in m:
+                del m[rem_key]
+            acc += m.get(add_key, 0)
+        checksum = acc + len(m)
+        times.append(now_ns() - t0)
+    print("map_intchurn = %d" % checksum, file=sys.stderr)
+    record("map", "intchurn", times)
+
+
+def test_map_listagg():
+    n = 2000
+    buckets = 64
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        m = {}
+        for i in range(n):
+            key = i % buckets
+            bucket = m.get(key, [])
+            bucket = bucket + [i]
+            m[key] = bucket
+        acc = 0
+        for key in range(buckets):
+            if key in m:
+                bucket = m[key]
+                acc += (key + 1) * len(bucket) + sum(bucket)
+        checksum = acc
+        times.append(now_ns() - t0)
+    print("map_listagg = %d" % checksum, file=sys.stderr)
+    record("map", "listagg", times)
+
+
 def run_all(run, now_ns_fn, record_fn):
     global RUN, now_ns, record
     RUN, now_ns, record = run, now_ns_fn, record_fn
@@ -120,3 +191,6 @@ def run_all(run, now_ns_fn, record_fn):
     test_map_lookup()
     test_map_int_ops()
     test_map_str_ops()
+    test_map_intkey()
+    test_map_intchurn()
+    test_map_listagg()

@@ -131,3 +131,100 @@ FUNC test_map_str_ops(run AS Integer, tests AS List OF BenchResult) AS List OF B
   io::printError("map_str_ops = " & toString(checksum))
   RETURN collections::append(tests, makeResult("map", "str_ops", times))
 END FUNC
+
+' --- plan-45: Integer-key hash path + Map OF List aggregation ----------------
+' The rows above are all String-keyed; the Integer-key hash/probe path is a
+' distinct code path (no per-key hashing of String bytes) and doubles as a
+' regression gate for plan-44-A/B (in-place removeKey / native groupBy).
+
+' Integer-keyed lookup: build an even-keyed Integer->Integer map, then sweep
+' hasKey/get on present keys and getOr on absent (odd) keys. Phase 1 (no churn).
+FUNC test_map_intkey(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET n AS Integer = 5000
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+    FOR i = 0 TO n - 1
+      m = collections::set(m, i * 2, i)
+    NEXT
+    MUT acc AS Integer = 0
+    FOR i = 0 TO n - 1
+      IF collections::hasKey(m, i * 2) THEN
+        acc = acc + collections::get(m, i * 2)
+      END IF
+      acc = acc + collections::getOr(m, i * 2 + 1, 0)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_intkey = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "intkey", times))
+END FUNC
+
+' Integer-keyed steady-state churn: slide a fixed-width window forward, inserting
+' a new key and removing the oldest each step (exercises plan-44-A's in-place
+' removeKey on Integer keys). Arena-gated (plan-44-J): author tiny, raise on land.
+FUNC test_map_intchurn(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET w AS Integer = 32       ' TODO(plan-44-J): raise to 2000
+  LET steps AS Integer = 64   ' TODO(plan-44-J): raise to 20000
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+    FOR i = 0 TO w - 1
+      m = collections::set(m, i, i)
+    NEXT
+    MUT acc AS Integer = 0
+    FOR st = 0 TO steps - 1
+      LET addKey AS Integer = w + st
+      m = collections::set(m, addKey, addKey)
+      LET remKey AS Integer = st
+      IF collections::hasKey(m, remKey) THEN
+        m = collections::removeKey(m, remKey)
+      END IF
+      acc = acc + collections::getOr(m, addKey, 0)
+    NEXT
+    checksum = acc + len(collections::keys(m))
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_intchurn = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "intchurn", times))
+END FUNC
+
+' Map OF List aggregation: group N items into buckets by key mod B and append into
+' each bucket (the group-and-append pattern at map depth; ties to plan-44-B's
+' native groupBy). Phase 1.
+FUNC test_map_listagg(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET n AS Integer = 2000
+  LET buckets AS Integer = 64
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF Integer TO List OF Integer = Map OF Integer TO List OF Integer {}
+    FOR i = 0 TO n - 1
+      LET key AS Integer = i MOD buckets
+      LET empty AS List OF Integer = []
+      MUT bucket AS List OF Integer = collections::getOr(m, key, empty)
+      bucket = collections::append(bucket, i)
+      m = collections::set(m, key, bucket)
+    NEXT
+    MUT acc AS Integer = 0
+    FOR key = 0 TO buckets - 1
+      IF collections::hasKey(m, key) THEN
+        LET bucket AS List OF Integer = collections::get(m, key)
+        acc = acc + (key + 1) * len(bucket) + collections::sum(bucket)
+      END IF
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_listagg = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "listagg", times))
+END FUNC

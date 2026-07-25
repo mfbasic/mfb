@@ -253,9 +253,118 @@ static void test_map_str_ops(void) {
   free(t);
 }
 
+/* ----- plan-45: Integer-key hash path + Map OF List aggregation --------- */
+
+/* Integer-keyed lookup: even-keyed open-addressing int map, then a hasKey/get
+ * sweep on present keys and getOr on absent (odd) keys. Phase 1. */
+static void test_map_intkey(void) {
+  enum { N = 5000, CAP = 16384 };
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    long *keys = calloc(CAP, sizeof(long));
+    long *vals = calloc(CAP, sizeof(long));
+    char *used = calloc(CAP, 1);
+    long long t0 = now_ns();
+    for (long i = 0; i < N; i++) {
+      long k = i * 2;
+      size_t h = (size_t)(k * 1099511628211UL) & (CAP - 1);
+      while (used[h] && keys[h] != k) h = (h + 1) & (CAP - 1);
+      used[h] = 1; keys[h] = k; vals[h] = i;
+    }
+    long acc = 0;
+    for (long i = 0; i < N; i++) {
+      long k = i * 2;
+      size_t h = (size_t)(k * 1099511628211UL) & (CAP - 1);
+      while (used[h] && keys[h] != k) h = (h + 1) & (CAP - 1);
+      if (used[h]) acc += vals[h];               /* hasKey + get */
+      long k2 = k + 1;                            /* getOr on absent odd key */
+      size_t h2 = (size_t)(k2 * 1099511628211UL) & (CAP - 1);
+      while (used[h2] && keys[h2] != k2) h2 = (h2 + 1) & (CAP - 1);
+      acc += used[h2] ? vals[h2] : 0;
+    }
+    checksum = acc;
+    t[r] = now_ns() - t0;
+    free(keys); free(vals); free(used);
+  }
+  fprintf(stderr, "map_intkey = %ld\n", checksum);
+  record("map", "intkey", t, RUN);
+  free(t);
+}
+
+/* Integer-keyed steady-state churn: a sliding window inserts one key and removes
+ * the oldest each step. The tiny key range makes a direct-mapped table exact.
+ * Arena-gated in mfb (plan-44-J); the C mirror keeps the same tiny counts. */
+static void test_map_intchurn(void) {
+  enum { W = 32, STEPS = 64, KMAX = 128 };
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    char present[KMAX];
+    long val[KMAX];
+    memset(present, 0, sizeof present);
+    long long t0 = now_ns();
+    for (int i = 0; i < W; i++) { present[i] = 1; val[i] = i; }
+    long acc = 0;
+    for (int st = 0; st < STEPS; st++) {
+      long add_key = W + st;
+      present[add_key] = 1; val[add_key] = add_key;
+      long rem_key = st;
+      if (present[rem_key]) present[rem_key] = 0;
+      acc += present[add_key] ? val[add_key] : 0;
+    }
+    int cnt = 0;
+    for (int k = 0; k < KMAX; k++) if (present[k]) cnt++;
+    checksum = acc + cnt;
+    t[r] = now_ns() - t0;
+  }
+  fprintf(stderr, "map_intchurn = %ld\n", checksum);
+  record("map", "intchurn", t, RUN);
+  free(t);
+}
+
+/* Map OF List aggregation: group N ints into B buckets by key % B, appending into
+ * each bucket, then fold (key+1)*len + sum per bucket. Phase 1. */
+static void test_map_listagg(void) {
+  enum { N = 2000, B = 64 };
+  long long *t = alloc_times();
+  long checksum = 0;
+  for (int r = 0; r < RUN; r++) {
+    long *bucket[B];
+    int blen[B], bcap[B];
+    for (int k = 0; k < B; k++) { bucket[k] = NULL; blen[k] = 0; bcap[k] = 0; }
+    long long t0 = now_ns();
+    for (int i = 0; i < N; i++) {
+      int key = i % B;
+      if (blen[key] == bcap[key]) {
+        bcap[key] = bcap[key] ? bcap[key] * 2 : 4;
+        bucket[key] = realloc(bucket[key], (size_t)bcap[key] * sizeof(long));
+      }
+      bucket[key][blen[key]++] = i;
+    }
+    long acc = 0;
+    for (int key = 0; key < B; key++) {
+      if (blen[key] > 0) {
+        long s = 0;
+        for (int j = 0; j < blen[key]; j++) s += bucket[key][j];
+        acc += (long)(key + 1) * blen[key] + s;
+      }
+    }
+    checksum = acc;
+    t[r] = now_ns() - t0;
+    for (int k = 0; k < B; k++) free(bucket[k]);
+  }
+  fprintf(stderr, "map_listagg = %ld\n", checksum);
+  record("map", "listagg", t, RUN);
+  free(t);
+}
+
 void run_map_group(void) {
   test_map_set();
   test_map_lookup();
   test_map_int_ops();
   test_map_str_ops();
+  test_map_intkey();
+  test_map_intchurn();
+  test_map_listagg();
 }
