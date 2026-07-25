@@ -48,7 +48,11 @@ mod value;
 pub(crate) mod verify;
 
 pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
-pub(crate) use docs::{collect_project_docs, IrDocDecl, IrDocKind, IrPackageDoc, ProjectDocs};
+pub(crate) use docs::{collect_project_docs, IrDocKind, ProjectDocs};
+// `IrDocDecl`/`IrPackageDoc` are constructed in `docs.rs` and, outside it, only
+// by the binary-repr round-trip tests; re-export them for that test path only.
+#[cfg(test)]
+pub(crate) use docs::{IrDocDecl, IrPackageDoc};
 pub(crate) use json::visibility_name;
 pub(crate) use link::{
     abi_ctype_valid_as_argument, abi_ctype_valid_as_return, check_buffer_slots, check_cstruct,
