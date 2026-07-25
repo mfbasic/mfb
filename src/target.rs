@@ -541,23 +541,29 @@ mod tests {
         }
     }
 
-    /// plan-47-D: `windows-x86_64` is a registered, resolvable target whose
-    /// machine floor is live — it now takes the executable/native-plan path
-    /// (a `RETURN 42` program compiles to a PE32+ that exits 42 on the Win11
-    /// box), not the non-executable stub of 47-B Phase 2.
+    /// plan-47-D..J: `windows-x86_64` is a registered, resolvable target whose
+    /// machine floor is live — it takes the executable/native-plan path (a
+    /// `RETURN 42` program compiles to a PE32+ that exits 42 on the Win11 box),
+    /// not the non-executable stub of 47-B Phase 2. With 47-E–J landed it now
+    /// advertises the full Console runtime surface (io/fs/term/thread/net/crypto/
+    /// tls); app mode stays off (Console-only, master §Non-goals).
     #[test]
     fn windows_x86_64_resolves_and_is_executable() {
         let target = BuildTarget::parse("windows-x86_64").expect("windows-x86_64 parses");
         let backend = backend_for(&target).expect("windows-x86_64 resolves (not unknown-target)");
         assert_eq!(backend.target(), target);
-        // The 47-D machine floor advertises the executable/native-plan pipeline
-        // (Console-only); the runtime-helper and app-mode surfaces are still off
-        // until their later slices (47-E–J) land.
         let caps = backend.capabilities();
         assert!(caps.executable);
         assert!(caps.native_ir && caps.native_plan);
         assert!(caps.native_object_plan && caps.native_code_plan);
-        assert!(caps.runtime_calls.is_empty());
+        // 47-E–J filled the runtime surface: it is no longer the empty stub wall.
+        assert!(!caps.runtime_calls.is_empty());
+        for family in ["io.print", "fs.readText", "thread.start", "net.connectTcp", "crypto.randomBytes", "tls.connect"] {
+            assert!(
+                caps.runtime_calls.contains(&family),
+                "windows-x86_64 must advertise {family}"
+            );
+        }
         assert!(!target_supports_app_mode(&target));
     }
 

@@ -74,7 +74,12 @@ impl CodegenPlatform for TestPlatform {
     fn socket_would_block_code(&self) -> &'static str { "11" }
     fn socket_message_size_code(&self) -> &'static str { "90" }
     fn socket_in_progress_code(&self) -> &'static str { "115" }
-    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, _i: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> { unimplemented!("TestPlatform::emit_set_nonblocking") }
+    fn emit_set_nonblocking(&self, _fd: usize, _fl: usize, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
+        // The openssl non-blocking connect toggles the socket via this seam; a
+        // plain `bl` lets the helper lower so the release-block tests can inspect it.
+        instructions.push(abi::branch_link("_fcntl"));
+        Ok(())
+    }
     fn so_error(&self) -> &'static str { "4" }
     fn emit_variadic_call(&self, base: &str, _from: &str, _pi: &HashMap<String, String>, instructions: &mut Vec<CodeInstruction>, _r: &mut Vec<CodeRelocation>) -> Result<(), String> {
         instructions.push(abi::branch_link(&format!("_{base}")));
