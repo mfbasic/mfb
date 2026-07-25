@@ -227,7 +227,7 @@ Commit: —
 
 - **Example placement.** Recommend adding to `examples/` alongside the existing
   collections demos (matches the recent 38-language `hello_world` expansion). Use
-  the project's canonical example location if it differs — verify before Phase 2.
+  the project's canonical example location if it differs — verify before Phase 2.Decision: Add to the benchmark code, no example.
 
 ## Corrections
 

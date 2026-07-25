@@ -301,6 +301,7 @@ Commit: —
   existing `collections::` package (recommended — `List` and `Map` already share
   one package) vs. a new `sets::` package. See plan-63-B §Open Decisions; A does
   not depend on the outcome (A adds no operations).
+  Decision: Add to `collections::`
 
 ## Corrections
 

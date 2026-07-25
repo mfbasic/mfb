@@ -163,6 +163,7 @@ Commit: —
 - **`symmetricDifference` naming/inclusion.** Recommend including it (standard set
   op, trivially `union(diff(a,b), diff(b,a))`). Drop only if the feature owner
   wants a minimal surface. — recommended: include.
+  Decision: include
 
 ## Corrections
 

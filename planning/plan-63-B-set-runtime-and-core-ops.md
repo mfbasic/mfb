@@ -302,10 +302,12 @@ Commit: —
   operation package and would fragment the "all collection ops live in
   `collections`" model. Decide before Phase 2 (it sets the member registration
   path). (§4.3)
+  Decision: Add to `collections::`
 - **`add`/`remove` names vs. `append`/`removeKey` reuse.** Recommend the distinct
   names `add`/`remove` — `append` implies ordered/positional and `removeKey`
   implies a key/value pair; set membership is neither. Low cost to change if
   review disagrees, since C is written against whatever names land.
+  Decision: reuse existing `collections::*` functions
 
 ## Corrections
 
