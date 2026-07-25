@@ -257,9 +257,12 @@ measured evidence recorded per item below.
 > locals/muts" prologue; applied it to the IF then/else branches and the WHILE
 > body. Match cases and FOR/FOR-EACH bodies keep their inline prologue (they
 > pre-seed the branch scope with guard binds / the loop variable). Output-neutral:
-> control-flow/match/resources/trap acceptance byte-identical (153 fixtures). The
-> other A10 sub-parts (range-check idiom, Assign/AssignGlobal, arity helper, the
-> 9-way resolve_call fan-out) remain.
+> control-flow/match/resources/trap acceptance byte-identical (153 fixtures).
+> The range-check idiom (4 sites) is also done: extracted
+> `check_literal_range_errored` in `verify/values.rs` (binding/Assign/AssignGlobal
+> all delegate); arithmetic/conversions/types/money acceptance byte-identical (73
+> fixtures). The remaining A10 sub-parts (Assign/AssignGlobal body dedup, arity
+> helper, the 9-way resolve_call fan-out) remain.
 
 #### A10 — repeated block-recursion, range-error, and arity boilerplate in `ir::verify`
 

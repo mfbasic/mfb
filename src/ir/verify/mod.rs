@@ -431,9 +431,8 @@ fn collect_diagnostics_with(
             // `Capture` in one is malformed IR for the same reason.
             env.check_value_captures(value, None);
             env.check_value(value, &HashMap::new());
-            let before = env.diags.borrow().len();
-            env.check_literal_range(resource_base_type(&binding.type_), value);
-            let range_errored = env.diags.borrow().len() > before;
+            let range_errored =
+                env.check_literal_range_errored(resource_base_type(&binding.type_), value);
             if !range_errored && binding.explicit_type {
                 env.check_binding_type(&binding.name, &binding.type_, value, &HashMap::new());
             }

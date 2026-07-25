@@ -254,6 +254,16 @@ impl TypeEnv {
     /// through a `-` negation (`-1` into `Byte` lowers to `Unary("-",
     /// Const{Integer,"1"})`, with `Byte` only on the enclosing bind). Matches
     /// the AST checker, which validates the literal against the expected type.
+    /// bug-342 A10: run [`check_literal_range`](Self::check_literal_range) and
+    /// report whether it emitted any diagnostic (the literal was out of
+    /// `expected`'s range). Callers use this to suppress a redundant follow-up
+    /// type/assignment check when the literal already failed its range.
+    pub(super) fn check_literal_range_errored(&self, expected: &str, value: &IrValue) -> bool {
+        let before = self.diags.borrow().len();
+        self.check_literal_range(expected, value);
+        self.diags.borrow().len() > before
+    }
+
     pub(super) fn check_literal_range(&self, expected: &str, value: &IrValue) {
         // Only a *numeric* literal can overflow a numeric range; a non-numeric
         // Const in a numeric position (e.g. a String arg where Integer is

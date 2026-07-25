@@ -94,9 +94,8 @@ impl TypeEnv {
                                 ),
                             );
                         }
-                        let before = self.diags.borrow().len();
-                        self.check_literal_range(resource_base_type(type_), value);
-                        let range_errored = self.diags.borrow().len() > before;
+                        let range_errored =
+                            self.check_literal_range_errored(resource_base_type(type_), value);
                         // Only an explicit `AS T` annotation can disagree with
                         // the initializer; an inferred type is the initializer's
                         // type by construction (matches syntaxcheck).
@@ -307,9 +306,8 @@ impl TypeEnv {
                         );
                     }
                     if let Some(t) = locals.get(name).cloned() {
-                        let before = self.diags.borrow().len();
-                        self.check_literal_range(resource_base_type(&t), value);
-                        let range_errored = self.diags.borrow().len() > before;
+                        let range_errored =
+                            self.check_literal_range_errored(resource_base_type(&t), value);
                         if !range_errored {
                             self.check_assignment_type(name, &t, value, locals);
                         }
@@ -325,9 +323,8 @@ impl TypeEnv {
                         );
                     }
                     if let Some(t) = self.globals.get(name).cloned() {
-                        let before = self.diags.borrow().len();
-                        self.check_literal_range(resource_base_type(&t), value);
-                        let range_errored = self.diags.borrow().len() > before;
+                        let range_errored =
+                            self.check_literal_range_errored(resource_base_type(&t), value);
                         if !range_errored {
                             self.check_assignment_type(name, &t, value, locals);
                         }
