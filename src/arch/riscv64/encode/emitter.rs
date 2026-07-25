@@ -732,3 +732,65 @@ impl Encoder {
         Ok(())
     }
 }
+
+impl crate::arch::encode_plan::InstructionEncoder for Encoder {
+    fn new(data: Vec<u8>, imports: HashMap<String, String>) -> Self {
+        Encoder {
+            text: Vec::new(),
+            data,
+            symbols: Vec::new(),
+            relocations: Vec::new(),
+            imports,
+            labels: HashMap::new(),
+            patches: Vec::new(),
+        }
+    }
+
+    fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
+        super::sizing::instruction_size(instruction)
+    }
+
+    fn label_name(instruction: &CodeInstruction) -> Result<String, String> {
+        super::operand::field(instruction, "name")
+    }
+
+    fn emit_one(&mut self, instruction: &CodeInstruction) -> Result<(), String> {
+        self.emit_instruction(instruction)
+    }
+
+    fn resolve_patches(&mut self) -> Result<(), String> {
+        self.patch_labels()
+    }
+
+    fn text_len(&self) -> usize {
+        self.text.len()
+    }
+
+    fn reserve_text(&mut self, len: usize) {
+        self.text.resize(len, 0);
+    }
+
+    fn truncate_text(&mut self, len: usize) {
+        self.text.truncate(len);
+    }
+
+    fn push_symbol(&mut self, symbol: EncodedSymbol) {
+        self.symbols.push(symbol);
+    }
+
+    fn insert_label(&mut self, name: String, offset: usize) -> Option<usize> {
+        self.labels.insert(name, offset)
+    }
+
+    fn clear_labels(&mut self) {
+        self.labels.clear();
+    }
+
+    fn clear_patches(&mut self) {
+        self.patches.clear();
+    }
+
+    fn into_parts(self) -> (Vec<u8>, Vec<u8>, Vec<EncodedSymbol>, Vec<EncodedRelocation>) {
+        (self.text, self.data, self.symbols, self.relocations)
+    }
+}

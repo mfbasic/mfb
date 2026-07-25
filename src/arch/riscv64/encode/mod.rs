@@ -23,14 +23,14 @@
 use std::collections::HashMap;
 
 use crate::arch::ops::CodeOp;
-use crate::target::shared::code::{layout_data_objects, CodeInstruction, NativeCodePlan};
+use crate::target::shared::code::{CodeInstruction, NativeCodePlan};
 
 // The neutral image/symbol/relocation/import containers are ISA-independent
-// (`crate::arch::image`, bug-341-B2); reuse them rather than redeclaring a
-// parallel set.
-pub(crate) use crate::arch::image::{
-    EncodedImage, EncodedImport, EncodedRelocation, EncodedSection, EncodedSymbol, ImportKind,
-};
+// (`crate::arch::image`, bug-341-B2). Re-export the ones the emitter and this
+// module name; `EncodedSection`/`ImportKind` are only named by the unit tests
+// now that the shared `encode_plan` driver (bug-341-B1) owns symbol/import
+// construction.
+pub(crate) use crate::arch::image::{EncodedImage, EncodedRelocation, EncodedSymbol};
 
 mod emitter;
 mod operand;
@@ -40,105 +40,10 @@ mod sizing;
 mod tests;
 
 use emitter::Encoder;
-use operand::field;
-use sizing::instruction_size;
 
+/// Encode a plan into a linkable image via the shared two-pass driver
+/// (bug-341-B1); this backend supplies the RV64 `Encoder` (its
+/// [`crate::arch::encode_plan::InstructionEncoder`] impl lives in `emitter`).
 pub(crate) fn encode(plan: &NativeCodePlan) -> Result<EncodedImage, String> {
-    // Partitioned data layout (bug-187): read-only constants first, then the
-    // writable region; `rodata_size` marks the boundary.
-    let (data, rodata_size, data_symbols) = layout_data_objects(&plan.data_objects)?;
-    let mut encoder = Encoder {
-        text: Vec::new(),
-        data,
-        symbols: Vec::new(),
-        relocations: Vec::new(),
-        imports: plan
-            .imports
-            .iter()
-            .map(|import| (import.symbol.clone(), import.library.clone()))
-            .collect(),
-        labels: HashMap::new(),
-        patches: Vec::new(),
-    };
-
-    for (name, offset) in data_symbols {
-        encoder.symbols.push(EncodedSymbol {
-            name,
-            section: EncodedSection::Data,
-            offset,
-        });
-    }
-
-    let mut text_offset = 0;
-    for function in &plan.functions {
-        encoder.symbols.push(EncodedSymbol {
-            name: function.symbol.clone(),
-            section: EncodedSection::Text,
-            offset: text_offset,
-        });
-        for instruction in &function.instructions {
-            text_offset += instruction_size(instruction)?;
-        }
-    }
-
-    for function in &plan.functions {
-        encoder.labels.clear();
-        let function_start = encoder.text.len();
-        // First sub-pass: place each label at its byte offset by reserving each
-        // non-label instruction's exact size.
-        for instruction in &function.instructions {
-            if instruction.op == CodeOp::Label {
-                let name = field(instruction, "name")?;
-                // A duplicate name would be last-writer-wins, silently resolving
-                // every reference to the final definition (bug-127; cf. x86 bug-15).
-                if let Some(first) = encoder.labels.insert(name.clone(), encoder.text.len()) {
-                    return Err(format!(
-                        "rv64: duplicate label '{name}' in function '{}' (first at byte {first})",
-                        function.name
-                    ));
-                }
-            } else {
-                encoder
-                    .text
-                    .resize(encoder.text.len() + instruction_size(instruction)?, 0);
-            }
-        }
-        encoder.text.truncate(function_start);
-        // Second sub-pass: emit the bytes (label offsets are known).
-        for instruction in &function.instructions {
-            encoder.emit_instruction(instruction)?;
-        }
-        encoder.patch_labels()?;
-        encoder.patches.clear();
-    }
-
-    let imports = plan
-        .imports
-        .iter()
-        .map(|import| EncodedImport {
-            library: import.library.clone(),
-            symbol: import.symbol.clone(),
-            kind: ImportKind::Function,
-            version: None,
-        })
-        .collect();
-
-    Ok(EncodedImage {
-        text: encoder.text,
-        data: encoder.data,
-        rodata_size,
-        symbols: encoder.symbols,
-        relocations: encoder.relocations,
-        imports,
-        entry: plan
-            .entry_symbol
-            .clone()
-            .ok_or_else(|| "encoded image requires entry symbol".to_string())?,
-        initializers: Vec::new(),
-        signing_metadata: None,
-        // Both are stamped by the build path after encoding: signing
-        // metadata from `--sign`, and the vendor RPATH(s) from the
-        // resolved native-library locators (plan-46-D §4.2/§4.3).
-        rpaths: Vec::new(),
-    })
+    crate::arch::encode_plan::encode_plan::<Encoder>(plan, "rv64")
 }

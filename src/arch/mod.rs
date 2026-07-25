@@ -1,4 +1,7 @@
 pub(crate) mod aarch64;
+/// The shared two-pass plan-to-image encoding driver (`encode_plan`) every
+/// backend's `encode()` delegates to (bug-341-B1).
+pub(crate) mod encode_plan;
 /// The ISA-neutral linkable-image container types (`EncodedImage` and siblings).
 /// Lives here, not under `aarch64/encode/`, because every backend encoder and
 /// both linkers consume them — they describe a linkable image, not an ISA
