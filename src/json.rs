@@ -14,3 +14,21 @@ pub(crate) fn json_string(value: &str) -> String {
         .stringify()
         .unwrap_or_else(|_| "\"mfb_project\"".to_string())
 }
+
+/// A node that renders itself as a JSON fragment at a given indent depth. Shared
+/// by the `-ast` and `-ir` dumpers, which were each carrying a byte-identical
+/// copy of this trait and the `join_json` helper below under their own names
+/// (`ToAstJson` + `join_indented`, `ToIrJson` + `join_json`).
+pub(crate) trait ToJson {
+    fn to_json(&self, indent: usize) -> String;
+}
+
+/// Render each of `items` and join the fragments with a comma — the array-body
+/// helper both emitters use.
+pub(crate) fn join_json<T: ToJson>(items: &[T], indent: usize) -> String {
+    items
+        .iter()
+        .map(|item| item.to_json(indent))
+        .collect::<Vec<_>>()
+        .join(",")
+}

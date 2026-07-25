@@ -1,4 +1,5 @@
 use super::*;
+use crate::json::{join_json, ToJson};
 
 impl IrProject {
     pub(super) fn to_json(&self) -> String {
@@ -53,11 +54,7 @@ impl EntryPoint {
     }
 }
 
-trait ToIrJson {
-    fn to_json(&self, indent: usize) -> String;
-}
-
-impl ToIrJson for IrType {
+impl ToJson for IrType {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         match self.kind.as_str() {
@@ -148,7 +145,7 @@ impl ToIrJson for IrType {
     }
 }
 
-impl ToIrJson for IrBinding {
+impl ToJson for IrBinding {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let value = self
@@ -169,7 +166,7 @@ impl ToIrJson for IrBinding {
     }
 }
 
-impl ToIrJson for IrField {
+impl ToJson for IrField {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let visibility = self
@@ -188,7 +185,7 @@ impl ToIrJson for IrField {
     }
 }
 
-impl ToIrJson for IrVariant {
+impl ToJson for IrVariant {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -212,14 +209,14 @@ impl ToIrJson for IrVariant {
     }
 }
 
-impl ToIrJson for IrEnumMember {
+impl ToJson for IrEnumMember {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!("\n{}{{ \"name\": {} }}", pad, json_string(&self.name))
     }
 }
 
-impl ToIrJson for IrFunction {
+impl ToJson for IrFunction {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -256,7 +253,7 @@ impl ToIrJson for IrFunction {
     }
 }
 
-impl ToIrJson for IrParam {
+impl ToJson for IrParam {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let default = self
@@ -275,7 +272,7 @@ impl ToIrJson for IrParam {
     }
 }
 
-impl ToIrJson for IrOp {
+impl ToJson for IrOp {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         match self {
@@ -593,7 +590,7 @@ impl ToIrJson for IrOp {
     }
 }
 
-impl ToIrJson for IrMatchCase {
+impl ToJson for IrMatchCase {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -623,7 +620,7 @@ impl ToIrJson for IrMatchCase {
     }
 }
 
-impl ToIrJson for IrMatchPattern {
+impl ToJson for IrMatchPattern {
     fn to_json(&self, indent: usize) -> String {
         match self {
             IrMatchPattern::Else => "{ \"kind\": \"else\" }".to_string(),
@@ -645,7 +642,7 @@ impl ToIrJson for IrMatchPattern {
     }
 }
 
-impl ToIrJson for IrValue {
+impl ToJson for IrValue {
     fn to_json(&self, _indent: usize) -> String {
         match self {
             IrValue::Const { type_, value } => {
@@ -880,7 +877,7 @@ impl ToIrJson for IrValue {
     }
 }
 
-impl ToIrJson for IrRecordUpdate {
+impl ToJson for IrRecordUpdate {
     fn to_json(&self, _indent: usize) -> String {
         format!(
             "{{ \"field\": {}, \"value\": {} }}",
@@ -888,14 +885,6 @@ impl ToIrJson for IrRecordUpdate {
             self.value.to_json(0)
         )
     }
-}
-
-fn join_json<T: ToIrJson>(items: &[T], indent: usize) -> String {
-    items
-        .iter()
-        .map(|item| item.to_json(indent))
-        .collect::<Vec<_>>()
-        .join(",")
 }
 
 pub(crate) fn visibility_name(visibility: Visibility) -> &'static str {
