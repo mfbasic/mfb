@@ -53,7 +53,7 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
         match &doc.header_params {
             Some(wanted) => matching
                 .clone()
-                .find(|f| function_param_types(f) == normalize_types(wanted)),
+                .find(|f| crate::ast::param_types(f) == crate::ast::normalize_types(wanted)),
             None => matching.clone().next(),
         }
     };
@@ -161,16 +161,4 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
     }
 
     ProjectDocs { package, decls }
-}
-
-fn function_param_types(function: &crate::ast::Function) -> Vec<String> {
-    function
-        .params
-        .iter()
-        .map(|param| crate::ast::normalize_ws(param.type_name.as_deref().unwrap_or("")))
-        .collect()
-}
-
-fn normalize_types(types: &[String]) -> Vec<String> {
-    types.iter().map(|t| crate::ast::normalize_ws(t)).collect()
 }

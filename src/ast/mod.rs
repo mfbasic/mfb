@@ -13,6 +13,7 @@ mod items;
 mod lexical;
 mod link_items;
 pub(crate) mod manifest;
+mod overloads;
 mod parser;
 mod pipeline;
 mod serialize;
@@ -23,7 +24,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use items::normalize_ws;
+pub use overloads::{normalize_types, normalize_ws, param_types};
 pub use manifest::{
     parse_project, parse_source, parse_source_internal, selected_source_paths, write_ast,
     BUILTIN_PRELUDE_PATH,

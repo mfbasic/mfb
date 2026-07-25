@@ -364,7 +364,8 @@ fn source_decl_meta(
                 .copied()
                 .filter(|f| matches!(f.kind, crate::ast::FunctionKind::Sub) == want_sub);
             let function = match &doc.header_params {
-                Some(wanted) => matching.find(|f| param_types(f) == normalize(wanted))?,
+                Some(wanted) => matching
+                    .find(|f| crate::ast::param_types(f) == crate::ast::normalize_types(wanted))?,
                 None => matching.next()?,
             };
             let kind = if want_sub { "sub" } else { "func" };
@@ -384,18 +385,6 @@ fn source_decl_meta(
         }
         DocHeaderKind::Package => None,
     }
-}
-
-fn param_types(function: &Function) -> Vec<String> {
-    function
-        .params
-        .iter()
-        .map(|p| crate::ast::normalize_ws(p.type_name.as_deref().unwrap_or("")))
-        .collect()
-}
-
-fn normalize(types: &[String]) -> Vec<String> {
-    types.iter().map(|t| crate::ast::normalize_ws(t)).collect()
 }
 
 /// Split the first description paragraph off as the page subtitle.

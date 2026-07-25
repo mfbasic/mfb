@@ -610,8 +610,3 @@ impl<'a> FileParser<'a> {
         })
     }
 }
-
-/// Collapse internal whitespace runs to single spaces and trim.
-pub fn normalize_ws(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
