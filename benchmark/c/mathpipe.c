@@ -114,7 +114,41 @@ static void test_stats(void) {
   free(xs);
 }
 
+/* memo — bottom-up coin-change DP over an array memo (the C mirror of the mfb
+ * List memo). Counts mod 1000000007 so all three languages agree. The `finance`
+ * and `money` Money rows are mfb-only, so only this row has a C peer. */
+static void test_memo_dp(void) {
+  const long MOD = 1000000007L;
+  const int coins[] = {1, 2, 5, 10, 25, 50, 100};
+  const int ncoins = (int)(sizeof coins / sizeof coins[0]);
+  enum { MAX_AMOUNT = 2000, PASSES = 60 };
+  long long *t = alloc_times();
+  long checksum = 0;
+  long *ways = malloc((size_t)(MAX_AMOUNT + 1) * sizeof(long));
+  for (int r = 0; r < RUN; r++) {
+    long long t0 = now_ns();
+    long acc = 0;
+    for (int p = 0; p < PASSES; p++) {
+      for (int a = 0; a <= MAX_AMOUNT; a++) ways[a] = 0;
+      ways[0] = 1;
+      for (int ci = 0; ci < ncoins; ci++) {
+        int c = coins[ci];
+        for (int a = c; a <= MAX_AMOUNT; a++)
+          ways[a] = (ways[a] + ways[a - c]) % MOD;
+      }
+      acc = (acc + ways[MAX_AMOUNT]) % MOD;
+    }
+    checksum = acc;
+    t[r] = now_ns() - t0;
+  }
+  fprintf(stderr, "memo_dp = %ld\n", checksum);
+  record("mathpipe", "memo", t, RUN);
+  free(ways);
+  free(t);
+}
+
 void run_mathpipe_group(void) {
   test_dft();
   test_stats();
+  test_memo_dp();
 }

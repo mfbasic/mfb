@@ -1020,6 +1020,8 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_dft(run, tests)
   tests = test_stats(run, tests)
   tests = test_finance(run, tests)
+  tests = test_memo_dp(run, tests)
+  tests = test_money_pipe(run, tests)
 
   ' math group (math.mfb)
   tests = test_sin(run, tests)

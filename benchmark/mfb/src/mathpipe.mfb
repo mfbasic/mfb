@@ -162,3 +162,79 @@ FUNC test_finance(run AS Integer, tests AS List OF BenchResult) AS List OF Bench
   io::printError("finance = " & checksum)
   RETURN collections::append(tests, makeResult("mathpipe", "finance", times))
 END FUNC
+
+' --- plan-45: memoized DP + a Money pipeline -------------------------------
+
+' memo — bottom-up coin-change count over a `List OF Integer` memo table: the
+' overlapping-subproblems DP that raw `fib` (exponential recompute, no memo)
+' never exercises. `ways[a]` accumulates the number of coin combinations for
+' amount `a`, filled in place; counts are taken mod 1000000007 so the C (array
+' memo) and Python (list memo) mirrors produce identical checksums. The table is
+' rebuilt each pass for throughput. Group `mathpipe`.
+FUNC test_memo_dp(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET coins AS List OF Integer = [1, 2, 5, 10, 25, 50, 100]
+  LET maxAmount AS Integer = 2000
+  LET passes AS Integer = 60
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR p = 0 TO passes - 1
+      MUT ways AS List OF Integer = []
+      FOR a = 0 TO maxAmount
+        ways = collections::append(ways, 0)
+      NEXT
+      ways = collections::set(ways, 0, 1)
+      FOR EACH c IN coins
+        FOR a = c TO maxAmount
+          LET updated AS Integer = (collections::get(ways, a) + collections::get(ways, a - c)) MOD 1000000007
+          ways = collections::set(ways, a, updated)
+        NEXT
+      NEXT
+      acc = (acc + collections::get(ways, maxAmount)) MOD 1000000007
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("memo_dp = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("mathpipe", "memo", times))
+END FUNC
+
+' money (mfb-only) — a per-line tax+tip pipeline over a List OF Money, then a
+' compounding discount, settling to whole cents with money::round. Exact base-10
+' decimal with no C/Python peer (like `finance`). Group `mathpipe`, mfb-only.
+FUNC test_money_pipe(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET n AS Integer = 500
+  LET reps AS Integer = 400
+  LET taxRate AS Float = 1.0825
+  LET tipRate AS Float = 0.18
+  MUT prices AS List OF Money = []
+  FOR i = 0 TO n - 1
+    prices = collections::append(prices, toMoney((i * 7 + 13) MOD 500 + 1))
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS String = ""
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT grand AS Money = toMoney(0)
+    FOR p = 0 TO reps - 1
+      MUT subtotal AS Money = toMoney(0)
+      FOR EACH price IN prices
+        LET taxed AS Money = money::round(price * taxRate, 2)
+        LET tip AS Money = money::round(price * tipRate, 2)
+        LET line AS Money = price + taxed + tip
+        subtotal = subtotal + line
+      NEXT
+      ' apply a 2% loyalty discount, settled to cents
+      LET discounted AS Money = money::round(subtotal * 0.98, 2)
+      grand = grand + discounted
+    NEXT
+    checksum = toString(grand)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("money_pipe = " & checksum)
+  RETURN collections::append(tests, makeResult("mathpipe", "money", times))
+END FUNC

@@ -106,9 +106,37 @@ def test_stats():
     record("mathpipe", "stats", times)
 
 
+# --- plan-45: memoized (bottom-up) coin-change DP over a List memo table ----
+# The `finance`/`money` Money rows are mfb-only (no exact base-10 decimal peer),
+# so only the `memo` row has a cross-language mirror.
+
+def test_memo_dp():
+    M = 1000000007
+    coins = [1, 2, 5, 10, 25, 50, 100]
+    max_amount = 2000
+    passes = 60
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        acc = 0
+        for _p in range(passes):
+            ways = [0] * (max_amount + 1)
+            ways[0] = 1
+            for c in coins:
+                for a in range(c, max_amount + 1):
+                    ways[a] = (ways[a] + ways[a - c]) % M
+            acc = (acc + ways[max_amount]) % M
+        checksum = acc
+        times.append(now_ns() - t0)
+    print("memo_dp = %d" % checksum, file=sys.stderr)
+    record("mathpipe", "memo", times)
+
+
 def run_all(run, now_ns_fn, record_fn):
     global RUN, now_ns, record
     RUN, now_ns, record = run, now_ns_fn, record_fn
     test_matmul()
     test_dft()
     test_stats()
+    test_memo_dp()
