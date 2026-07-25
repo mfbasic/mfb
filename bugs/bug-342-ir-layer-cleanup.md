@@ -99,6 +99,21 @@ measured evidence recorded per item below.
   missing packages were load-bearing and the delta must be explained before the
   change lands.
 
+> **A2 resolved by documentation (2026-07-25), not merge.** Investigated: the
+> `ir::verify` copy (`verify/link.rs`) is a *reject* predicate — a raw C type as a
+> wrapper's MFB-facing param/return is a `NATIVE_CPTR_ESCAPE`. Its `CVoid`
+> inclusion is a defensive superset of the spec's ABI-slot *allow*-list
+> (syntaxcheck/resolver), harmless because a `CVoid` MFB signature type is
+> unreachable in well-formed functions and, on the crafted-`.mfp` path, a
+> `return_type: "CVoid"` SHOULD be rejected. The two lists serve different
+> purposes (allow-in-slot vs. reject-in-signature), so they are NOT contradictory
+> and must not be blindly merged (dropping `CVoid` would weaken the verify guard;
+> adding it to the allow-list would contradict the spec). Added an explanatory
+> comment at the verify copy recording this. The broader "one shared predicate"
+> refactor is intentionally left — it requires the AST-accessor convergence with
+> bug-324, and the membership is a semantic decision, not a mechanical merge (as
+> this item's own text says).
+
 #### A2 — `is_c_abi_type` has three copies; the `ir::verify` copy contradicts the spec paragraph that anchors a different copy
 
 - `src/ir/verify/mod.rs:2945` — **13** type names, **includes `CVoid`**.

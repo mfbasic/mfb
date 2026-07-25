@@ -208,6 +208,16 @@ impl TypeEnv {
     /// gates. (Spans are function-level here; syntaxcheck keeps the slot-level
     /// spans on the source path.)
     pub(super) fn check_link_functions(&self, project: &IrProject) {
+        // bug-342 A2: this is a *reject* predicate — a raw C ABI type appearing as
+        // a wrapper's MFB-facing parameter or return type is a `NATIVE_CPTR_ESCAPE`
+        // (C types belong only in `ABI` slots). It deliberately INCLUDES `CVoid`,
+        // making it a defensive superset of the spec's ABI-slot allow-list
+        // (`syntaxcheck::helpers::is_c_abi_type`, which omits `CVoid` per
+        // `17_native-libraries.md:92`). The two are NOT contradictory: they serve
+        // different purposes — an allow-list for what may sit in an ABI slot vs. a
+        // reject-list for what must never leak into an MFB signature — and on the
+        // package (`.mfp`) path a crafted `return_type: "CVoid"` SHOULD be rejected.
+        // So they are kept separate on purpose; do not "unify" by dropping `CVoid`.
         fn is_c_abi_type(t: &str) -> bool {
             matches!(
                 t,
