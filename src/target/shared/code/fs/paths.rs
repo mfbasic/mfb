@@ -390,6 +390,20 @@ pub(in crate::target::shared::code) fn lower_fs_temp_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    // sec-03: clamp the platform hook's returned length to the buffer capacity
+    // before it drives the String allocation and copy loop. macOS
+    // `emit_temp_directory` forwards `confstr`'s return, which per its contract is
+    // the size *required* to hold the full path and can exceed the 4096 buffer on
+    // truncation; an unclamped value would read past the fixed buffer. Clamping in
+    // the shared caller bounds every present and future platform hook with one
+    // guard (the Linux hook already clamps internally, so this is a no-op there).
+    let temp_len_clamped = format!("{symbol}_temp_len_clamped");
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), TEMP_CAPACITY),
+        abi::branch_le(&temp_len_clamped),
+        abi::move_immediate(abi::return_register(), "Integer", TEMP_CAPACITY),
+        abi::label(&temp_len_clamped),
+    ]);
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&read_error),

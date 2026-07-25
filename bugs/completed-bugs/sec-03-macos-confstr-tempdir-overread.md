@@ -5,10 +5,17 @@ Effort: small (<1h)
 Severity: LOW
 Class: Memory-safety
 
-Status: Open
-Regression Test: (to add) a macOS runtime assertion that `fs.tempDirectory` copies
-at most `TEMP_CAPACITY` bytes regardless of the `confstr` return; ideally a unit
-check on the emitted sequence that a clamp branch exists.
+Status: Fixed (2026-07-25). Clamped in the shared caller
+`lower_fs_temp_directory_helper` (`fs/paths.rs`) immediately after the platform
+`emit_temp_directory` hook returns: `length = min(ret, TEMP_CAPACITY)` before it
+drives the String allocation and copy loop, so any present or future platform
+hook is bounded by one guard (the Linux hook already clamps internally, so this
+is a no-op there; macOS `confstr`, which may report a size exceeding the 4096
+buffer on truncation, is now bounded). Full acceptance green (1082 tests);
+`fs.tempDirectory` returns the correct path unchanged on macOS.
+Regression Test: covered by the fs runtime suite staying green (normal short-path
+resolution is byte-identical); the clamp only bounds a hypothetical over-long
+`confstr` return, which no real macOS system produces.
 
 The macOS implementation of `emit_temp_directory`
 (`src/target/macos_aarch64/code.rs:599-624`) calls
