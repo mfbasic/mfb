@@ -727,10 +727,8 @@ impl TypeEnv {
     }
 
     pub(super) fn is_comparable_seen(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
-        match type_ {
-            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer" | "Money"
-            | "Nothing" | "Scalar" | "String" | "Unknown" => return true,
-            _ => {}
+        if COMPARABLE_DEFAULTABLE_PRIMITIVES.contains(&type_) {
+            return true;
         }
         if type_.starts_with("List OF ")
             || type_.starts_with("Map OF ")

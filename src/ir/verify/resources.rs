@@ -296,10 +296,8 @@ impl TypeEnv {
     /// results/resources/threads/unions/enums no, collections and records
     /// recurse (cycle-guarded).
     pub(super) fn is_defaultable(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
-        match type_ {
-            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer" | "Money"
-            | "Nothing" | "Scalar" | "String" | "Unknown" => return true,
-            _ => {}
+        if COMPARABLE_DEFAULTABLE_PRIMITIVES.contains(&type_) {
+            return true;
         }
         if let Some(element) = type_.strip_prefix("List OF ") {
             return self.is_defaultable(element, seen);

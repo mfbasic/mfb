@@ -211,6 +211,16 @@ measured evidence recorded per item below.
 - Fix: one generic `push_unique` helper. Note the O(n²) is on package-merge
   cardinality, not per-op, so this is a readability fix, not a perf fix.
 
+> **A9 (partial) done (2026-07-25).** The two BYTE-IDENTICAL lists — the leading
+> match arms of `is_comparable_seen` (`verify/values.rs`) and `is_defaultable`
+> (`verify/resources.rs`) — are unified into one documented const
+> `COMPARABLE_DEFAULTABLE_PRIMITIVES` in `verify/mod.rs` (with the rationale for
+> its `Error`/`ErrorLoc`/`Unknown` delta over `PRIMITIVE_TYPES`). Both now
+> `.contains(&type_)`. Output-neutral: types/match/operators/errorcode acceptance
+> byte-identical (54 fixtures). The remaining two lists (`PRIMITIVE_TYPES` and
+> `provably_data_type`) have genuinely different membership and stay separate;
+> folding them all under one base+deltas scheme remains.
+
 #### A9 — four separately-maintained primitive-type lists; the differences are real but undocumented
 
 - `src/ir/verify/mod.rs:158-160` `PRIMITIVE_TYPES` — 9: Integer, Float, String,

@@ -167,6 +167,17 @@ const PRIMITIVE_TYPES: &[&str] = &[
     "Integer", "Float", "String", "Boolean", "Byte", "Fixed", "Nothing", "Money", "Scalar",
 ];
 
+/// The base-case scalar/opaque types that are BOTH directly comparable and
+/// directly defaultable — the identical set `is_comparable_seen` and
+/// `is_defaultable` each opened with (bug-342 A9: they were separately-maintained
+/// byte-identical `|`-lists with no reason to differ). It is `PRIMITIVE_TYPES`
+/// plus `Error`/`ErrorLoc` (errors compare and default as ordinary values) and
+/// `Unknown` (treated permissively — an unresolved type is not rejected here).
+const COMPARABLE_DEFAULTABLE_PRIMITIVES: &[&str] = &[
+    "Boolean", "Byte", "Error", "ErrorLoc", "Fixed", "Float", "Integer", "Money", "Nothing",
+    "Scalar", "String", "Unknown",
+];
+
 /// Collect every semantic-verification diagnostic for a merged `IrProject`, in
 /// the traversal order the AST type checker uses (functions in declaration
 /// order; each body's ops in order; each op's sub-values innermost-first). The
