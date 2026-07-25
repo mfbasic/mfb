@@ -1,4 +1,5 @@
 use super::*;
+use super::pipeline::{contains_placeholder, substitute_placeholder};
 
 /// Maximum expression-nesting depth. Recursive-descent parsing turns each nesting
 /// level into native stack frames, so an unbounded input (e.g. ~100k nested `(`,

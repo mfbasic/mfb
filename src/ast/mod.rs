@@ -14,6 +14,7 @@ mod lexical;
 mod link_items;
 pub(crate) mod manifest;
 mod parser;
+mod pipeline;
 mod serialize;
 mod stmt;
 mod testing;
@@ -31,7 +32,6 @@ pub use types::*;
 
 pub use parser::SYNTHETIC_TRAP_BINDING;
 use parser::{BlockTerminator, FileParser};
-use serialize::{contains_placeholder, substitute_placeholder};
 
 #[cfg(test)]
 pub use manifest::augment_with_prelude;
