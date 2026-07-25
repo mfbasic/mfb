@@ -978,23 +978,30 @@ pub(crate) fn lower_thread_trampoline(
     let worker_result = format!("{THREAD_TRAMPOLINE_SYMBOL}_worker_result");
 
     // Stack-alignment fixup, exactly mirroring the program entry's
-    // `entry_stack_misaligned_on_entry` (`entry.rs`): CreateThread `call`s the
-    // trampoline (via BaseThreadInitThunk), so it arrives at `sp % 16 == 8`, but
-    // the hand-managed frame below — like the entry — assumes `sp % 16 == 0`
-    // before it issues any call. `FRAME_SIZE` is a 16-multiple, so without a
-    // fixup every downstream call (arena-init, the worker body, the `pthread_*`
-    // shims) lands at `sp % 16 == 8`; the callee then sees a 16-misaligned stack.
-    // POSIX callees tolerate it, but a Windows file API reaches ntdll's SwitchBack
+    // `entry_stack_misaligned_on_entry` (`entry.rs`): the OS/thread library
+    // `call`s the trampoline (Windows via BaseThreadInitThunk, POSIX via the
+    // pthread start-routine dispatch), so on x86-64 it arrives at `sp % 16 == 8`
+    // — a `call` pushes the 8-byte return address — but the hand-managed frame
+    // below (like the entry) assumes `sp % 16 == 0` before it issues any call.
+    // `FRAME_SIZE` is a 16-multiple, so without a fixup every downstream call
+    // (arena-init, the worker body, the `pthread_*` shims) lands at
+    // `sp % 16 == 8`; the callee then sees a 16-misaligned stack — an AMD64
+    // SysV/Win64 ABI violation on BOTH x86-64 OSes (bug-383/47-H).
+    //
+    // On Windows this crashes: a file API reaches ntdll's SwitchBack
     // (`SbSelectProcedure`), which does `movaps [rbp+0x170], xmm0` on a stack
-    // local and #GPs on the misalignment (surfacing as an AV at address -1).
-    // Folding 8 bytes into the frame realigns to `sp % 16 == 0`; POSIX keeps its
-    // byte-identical 80-byte frame.
-    let win_realign = if platform.family() == PlatformFamily::Windows {
-        8
-    } else {
-        0
-    };
-    let frame = FRAME_SIZE + win_realign;
+    // local and #GPs on the misalignment (surfacing as an AV at address -1). On
+    // linux-x86_64 it is latent — glibc/musl callees the worker reaches do not
+    // assert 16-alignment via aligned-SSE-on-a-stack-local — but it is the same
+    // ABI violation and any `-mavx`/handwritten-SIMD callee spilling a `__m128`/
+    // `__m256` to an rsp-relative local with `movaps`/`vmovaps` would fault the
+    // same way. Folding 8 bytes into the frame realigns to `sp % 16 == 0`.
+    //
+    // aarch64/riscv64 are unaffected: `bl`/`jal` write the return address to a
+    // link register and leave `sp` unchanged, so the trampoline is entered at
+    // `sp % 16 == 0` already and keeps its byte-identical 80-byte frame.
+    let x86_realign = if platform.arch() == "x86_64" { 8 } else { 0 };
+    let frame = FRAME_SIZE + x86_realign;
 
     let mut instructions = vec![
         abi::label("entry"),
