@@ -26,6 +26,7 @@
 #include "bench.h"
 #include "bitsbench.h"
 #include "churnbench.h"
+#include "datetimebench.h"
 #include "encodingbench.h"
 #include "list.h"
 #include "mapbench.h"
@@ -689,6 +690,8 @@ int main(int argc, char **argv) {
   run_bits_group();
 
   run_encoding_group();
+
+  run_datetime_group();
 
   test_record_update();
 

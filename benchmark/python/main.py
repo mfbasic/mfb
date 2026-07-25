@@ -17,6 +17,7 @@ import arenabench
 import bitsbench
 import churnbench
 import csv
+import datetimebench
 import encodingbench
 import io
 import json
@@ -792,6 +793,9 @@ def main():
 
     # encoding group (base64/hex/percent)
     encodingbench.run_all(RUN, now_ns, record)
+
+    # datetime group (civil arithmetic + ISO round-trip)
+    datetimebench.run_all(RUN, now_ns, record)
 
     test_record_update()
 
