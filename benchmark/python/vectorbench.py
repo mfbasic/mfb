@@ -294,4 +294,5 @@ def run_all(run, now_ns_fn, record_fn):
     RUN, now_ns, record = run, now_ns_fn, record_fn
     test_vector_math()
     test_vector_float()
+    record("vector", "fixed", None)  # mfb-only (no Python Fixed type)
     test_vector_int()

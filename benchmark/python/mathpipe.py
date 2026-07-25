@@ -139,4 +139,6 @@ def run_all(run, now_ns_fn, record_fn):
     test_matmul()
     test_dft()
     test_stats()
+    record("mathpipe", "finance", None)  # mfb-only Money running balance
     test_memo_dp()
+    record("mathpipe", "money", None)    # mfb-only Money tax/tip pipeline

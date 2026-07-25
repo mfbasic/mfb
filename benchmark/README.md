@@ -81,7 +81,13 @@ columns; a single-sample run leaves `median == average`.
 
 Every `collections::`, `math::`, `vector::`, `bits::`, and `strings::` member is
 invoked with every element/numeric type it accepts, so the suite doubles as an
-API-surface coverage check. Two kinds of asymmetry are intentional:
+API-surface coverage check. Two kinds of asymmetry are intentional.
+
+The mfb-only rows (`math fixed`, `vector fixed`, `mathpipe finance`, `mathpipe
+money` — see below) still appear in the C and Python tables, printed as `--`, so
+every target's output has the **same rows in the same order** and lines up
+row-for-row. In C a `record(group, name, NULL, 0)` call emits the placeholder; in
+Python `record(group, name, None)` does.
 
 - **`parse` group (csv/json/regex)** — C has no standard-library CSV or JSON
   parser, so `parsebench.c` vendors two widely-used single-purpose libraries:

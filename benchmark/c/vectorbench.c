@@ -221,5 +221,6 @@ static void test_vector_int(void) {
 void run_vector_group(void) {
   test_vector_math();
   test_vector_float();
+  record("vector", "fixed", NULL, 0); /* mfb-only (no C Fixed type) */
   test_vector_int();
 }

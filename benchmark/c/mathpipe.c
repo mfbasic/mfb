@@ -150,5 +150,7 @@ static void test_memo_dp(void) {
 void run_mathpipe_group(void) {
   test_dft();
   test_stats();
+  record("mathpipe", "finance", NULL, 0); /* mfb-only Money running balance */
   test_memo_dp();
+  record("mathpipe", "money", NULL, 0);   /* mfb-only Money tax/tip pipeline */
 }

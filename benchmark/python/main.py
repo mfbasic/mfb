@@ -50,6 +50,11 @@ def now_ns():
 
 
 def record(group, name, times):
+    # A None `times` records an mfb-only row with no Python peer: it prints as
+    # "--" so every target's table has the same rows in the same order.
+    if times is None:
+        RESULTS.append({"group": group, "name": name, "na": True})
+        return
     s = sorted(times)
     n = len(s)
     if n % 2:
@@ -74,8 +79,12 @@ def print_results():
         if r["group"] != last:
             print("\n%s:" % r["group"])
             last = r["group"]
-        print("  %-15s: %10.3f, %10.3f, %10.3f, %10.3f"
-              % (r["name"], r["med"], r["avg"], r["min"], r["max"]))
+        if r.get("na"):
+            print("  %-15s: %10s, %10s, %10s, %10s"
+                  % (r["name"], "--", "--", "--", "--"))
+        else:
+            print("  %-15s: %10.3f, %10.3f, %10.3f, %10.3f"
+                  % (r["name"], r["med"], r["avg"], r["min"], r["max"]))
 
 
 def tmp_path(name):

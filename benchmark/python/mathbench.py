@@ -146,4 +146,5 @@ def run_all(run, now_ns_fn, record_fn):
     RUN, now_ns, record = run, now_ns_fn, record_fn
     test_math_float()
     test_math_int()
+    record("math", "fixed", None)  # mfb-only (no Python Fixed type)
     test_math_simd()

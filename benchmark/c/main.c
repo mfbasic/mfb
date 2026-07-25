@@ -54,9 +54,10 @@ typedef struct {
   const char *group;
   const char *name;
   double med, avg, min, max;
+  int na; /* 1 = mfb-only row with no C peer; printed as "--" to line the tables up */
 } Result;
 
-static Result results[128];
+static Result results[256];
 static int nresults = 0;
 
 static int cmp_ll(const void *a, const void *b) {
@@ -64,8 +65,15 @@ static int cmp_ll(const void *a, const void *b) {
   return (x > y) - (x < y);
 }
 
-/* Record one benchmark from its per-run elapsed nanosecond samples. */
+/* Record one benchmark from its per-run elapsed nanosecond samples. A NULL
+ * `times` records an mfb-only row with no C peer: it prints as "--" so every
+ * target's table has the same rows in the same order. */
 void record(const char *group, const char *name, long long *times, int n) {
+  if (times == NULL) {
+    Result na = {group, name, 0, 0, 0, 0, 1};
+    results[nresults++] = na;
+    return;
+  }
   qsort(times, n, sizeof(long long), cmp_ll);
   double med;
   if (n % 2)
@@ -85,6 +93,7 @@ void record(const char *group, const char *name, long long *times, int n) {
   r.avg = (double)sum / n / 1e6;
   r.min = (double)mn / 1e6;
   r.max = (double)mx / 1e6;
+  r.na = 0;
   results[nresults++] = r;
 }
 
@@ -102,7 +111,10 @@ static void print_results(void) {
       printf("\n%s:\n", r->group);
       last = r->group;
     }
-    printf("  %-15s: %10.3f, %10.3f, %10.3f, %10.3f\n", r->name, r->med, r->avg, r->min, r->max);
+    if (r->na)
+      printf("  %-15s: %10s, %10s, %10s, %10s\n", r->name, "--", "--", "--", "--");
+    else
+      printf("  %-15s: %10.3f, %10.3f, %10.3f, %10.3f\n", r->name, r->med, r->avg, r->min, r->max);
   }
 }
 

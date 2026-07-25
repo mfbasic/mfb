@@ -190,5 +190,6 @@ void run_math_group(void) {
   test_exp(); test_log(); test_log10(); test_pow(); test_sqrt();
   test_math_float();
   test_math_int();
+  record("math", "fixed", NULL, 0); /* mfb-only (no C Fixed type) */
   test_math_simd();
 }
