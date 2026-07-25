@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::json_string;
+use crate::json::json_string;
 use crate::target::shared::plan::{CallKind, NativePlan};
 
 const IMAGE_BASE: u64 = 0x400000;

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::arch::ops::CodeOp;
 use crate::binary_repr::{self};
 use crate::builtins;
-use crate::json_string;
+use crate::json::json_string;
 use crate::numeric;
 use crate::target::shared::abi;
 

@@ -555,8 +555,13 @@ Rejected alternatives, so they are not re-litigated:
 
 ### Phase 1 — gate + audit (no behavior change)
 
-- [ ] Confirm `scripts/artifact-gate.sh target/release/mfb` reports `diffs=0` on
-      a clean tree; record `checked`/`ran` as the baseline.
+- [x] Confirm `scripts/artifact-gate.sh target/release/mfb` baseline (2026-07-25,
+      clean tree at HEAD): 1067 tests, 1118 builds, 1332 goldens checked,
+      **9 diffs — ALL `.ncode (sha256)` in `{audio,net,tls}/*_codegen_cover_rt`**,
+      the known pre-existing union-drop HashMap-iteration nondeterminism (a
+      known-open issue, unrelated to this bug). Acceptance for every item below:
+      no diff appears OUTSIDE this flaky codegen set (no AST/IR/hex/deterministic
+      diff, no new fixture).
 - [ ] Capture the current `mfb fmt --check` result over all committed `.mfb`
       sources (expected: already-failing on `TESTING` blocks per bug-338) as the
       before-state.

@@ -1,4 +1,4 @@
-use crate::json_string;
+use crate::json::json_string;
 use crate::lexer::{self, Keyword, Token, TokenKind};
 use crate::rules;
 use std::collections::{HashMap, HashSet};

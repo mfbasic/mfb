@@ -8,7 +8,7 @@ use tinyjson::JsonValue;
 use crate::ast;
 use crate::binary_repr;
 use crate::ir;
-use crate::json_string;
+use crate::json::json_string;
 use crate::manifest::entry::validate_entry_point;
 use crate::manifest::libraries::Libc;
 use crate::manifest::package::{

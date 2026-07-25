@@ -29,7 +29,7 @@ pub(crate) fn write_covmap(path: &Path, slots: &[CovSlot]) -> std::io::Result<()
         }
         out.push_str(&format!(
             "{{\"file\":{},\"line\":{}}}",
-            crate::json_string(&slot.file),
+            crate::json::json_string(&slot.file),
             slot.line
         ));
     }
