@@ -182,18 +182,14 @@ pub(super) fn verify_vendor_libraries(
                     path.display(),
                     library.declaring_unit,
                     library.locator.source,
-                    hex(&expected),
-                    hex(&actual),
+                    crate::cli::pkg::hex_bytes(&expected),
+                    crate::cli::pkg::hex_bytes(&actual),
                 ),
             );
             ok = false;
         }
     }
     ok
-}
-
-pub(super) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Where this build's output shape wants its vendored native libraries — the

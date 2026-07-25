@@ -476,6 +476,11 @@ live at `src/testing.rs:37-40`; instrumentation is `instrument_coverage` at
 Fix: move `src/coverage.rs` under `src/testing/coverage.rs` so the feature lives
 in one subtree at one level.
 
+> **B11 done (2026-07-25).** Deleted `fn hex` in `src/cli/build/native_libs.rs`;
+> its two callers (a sha256-mismatch error message) now call the identical
+> `pub(crate)` `crate::cli::pkg::hex_bytes`. Output-neutral (identical body,
+> error-path only); compiles clean.
+
 ### B11 — `hex` / `hex_bytes`: the same one-liner in two CLI files
 
 `src/cli/build.rs:1567-1569` `fn hex(bytes: &[u8]) -> String` and
