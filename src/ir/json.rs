@@ -325,7 +325,7 @@ impl ToIrJson for IrOp {
                     "\n{}{{ \"op\": \"exitLoop\", \"line\": {}, \"loop\": {} }}",
                     pad,
                     loc.line,
-                    json_string(loop_kind_name(*kind))
+                    json_string(kind.name())
                 )
             }
             IrOp::ContinueLoop { kind, loc } => {
@@ -333,7 +333,7 @@ impl ToIrJson for IrOp {
                     "\n{}{{ \"op\": \"continueLoop\", \"line\": {}, \"loop\": {} }}",
                     pad,
                     loc.line,
-                    json_string(loop_kind_name(*kind))
+                    json_string(kind.name())
                 )
             }
             IrOp::ExitProgram { code, loc } => {
@@ -456,7 +456,7 @@ impl ToIrJson for IrOp {
                     pad,
                     loc.line,
                     pad,
-                    json_string(loop_kind_name(*kind)),
+                    json_string(kind.name()),
                     pad,
                     condition.to_json(indent),
                     pad,
@@ -896,14 +896,6 @@ fn join_json<T: ToIrJson>(items: &[T], indent: usize) -> String {
         .map(|item| item.to_json(indent))
         .collect::<Vec<_>>()
         .join(",")
-}
-
-pub(super) fn loop_kind_name(kind: LoopKind) -> &'static str {
-    match kind {
-        LoopKind::For => "for",
-        LoopKind::Do => "do",
-        LoopKind::While => "while",
-    }
 }
 
 pub(crate) fn visibility_name(visibility: Visibility) -> &'static str {

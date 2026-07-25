@@ -460,7 +460,7 @@ impl TypeEnv {
                             "EXIT_NO_MATCHING_LOOP",
                             format!(
                                 "EXIT {} has no matching enclosing loop.",
-                                loop_kind_keyword(*kind)
+                                kind.keyword()
                             ),
                         );
                     }
@@ -471,7 +471,7 @@ impl TypeEnv {
                             "CONTINUE_NO_MATCHING_LOOP",
                             format!(
                                 "CONTINUE {} has no matching enclosing loop.",
-                                loop_kind_keyword(*kind)
+                                kind.keyword()
                             ),
                         );
                     }

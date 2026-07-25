@@ -594,14 +594,14 @@ impl ToNirJson for NirOp {
                 format!(
                     "\n{}{{ \"op\": \"exitLoop\", \"loop\": {} }}",
                     pad,
-                    json_string(loop_kind_name(*kind))
+                    json_string(kind.name())
                 )
             }
             NirOp::ContinueLoop { kind } => {
                 format!(
                     "\n{}{{ \"op\": \"continueLoop\", \"loop\": {} }}",
                     pad,
-                    json_string(loop_kind_name(*kind))
+                    json_string(kind.name())
                 )
             }
             NirOp::ExitProgram { code } => {
@@ -681,7 +681,7 @@ impl ToNirJson for NirOp {
                 pad,
                 pad,
                 pad,
-                json_string(loop_kind_name(*kind)),
+                json_string(kind.name()),
                 pad,
                 condition.to_json(indent),
                 pad,
@@ -1026,13 +1026,6 @@ fn join_json<T: ToNirJson>(items: &[T], indent: usize) -> String {
         .join(",")
 }
 
-fn loop_kind_name(kind: LoopKind) -> &'static str {
-    match kind {
-        LoopKind::For => "for",
-        LoopKind::Do => "do",
-        LoopKind::While => "while",
-    }
-}
 
 fn join_values(values: &[NirValue]) -> String {
     values

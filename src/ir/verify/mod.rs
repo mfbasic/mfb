@@ -1039,15 +1039,6 @@ fn numeric_literal_is_zero(value: &IrValue) -> bool {
     }
 }
 
-/// The source keyword for a loop kind — mirrors `syntaxcheck::helpers`.
-fn loop_kind_keyword(kind: crate::ast::LoopKind) -> &'static str {
-    match kind {
-        crate::ast::LoopKind::For => "FOR",
-        crate::ast::LoopKind::Do => "DO",
-        crate::ast::LoopKind::While => "WHILE",
-    }
-}
-
 /// The integer value of a constant expression (possibly negated) — mirrors
 /// `syntaxcheck::helpers::integer_constant_value` on the IR shape.
 fn integer_constant_value(value: &IrValue) -> Option<i128> {

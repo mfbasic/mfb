@@ -165,6 +165,15 @@ measured evidence recorded per item below.
   `strip_prefix("List OF ")` → `builtins::general::filter_predicate_type`.
 - Fix: extract `filter_predicate_arg_type`.
 
+> **A7 done (2026-07-25).** `LoopKind::name()` (lowercase) and
+> `LoopKind::keyword()` (uppercase) added in `src/ast/types.rs`; the five copies
+> (`loop_kind_name` ×3 in `ir/json.rs`/`nir/json.rs`/`ast/serialize.rs`,
+> `loop_kind_keyword` in `ir/verify/mod.rs`, `plan_loop_kind_name` in
+> `plan/function_builder.rs`) and their callers now delegate. Output-neutral
+> (identical strings); control-flow acceptance byte-identical (25 fixtures).
+> **A4 also verified already-resolved** — the dead duplicated CSTRUCT `continue`
+> block is gone (`verify/mod.rs` was split; no adjacent-dup `continue` remains).
+
 #### A7 — `loop_kind_name` exists in three modules with byte-identical bodies
 
 - `src/ir/json.rs:901`, `src/target/shared/nir/json.rs:1006`,

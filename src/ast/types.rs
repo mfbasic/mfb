@@ -702,6 +702,28 @@ pub enum LoopKind {
     While,
 }
 
+impl LoopKind {
+    /// Lowercase kind name (`for`/`do`/`while`) used in AST/IR/NIR JSON dumps and
+    /// plan text. bug-342 A7: the single home for what were five byte-identical
+    /// `loop_kind_name`/`loop_kind_keyword`/`plan_loop_kind_name` copies.
+    pub fn name(self) -> &'static str {
+        match self {
+            LoopKind::For => "for",
+            LoopKind::Do => "do",
+            LoopKind::While => "while",
+        }
+    }
+
+    /// Uppercase source keyword (`FOR`/`DO`/`WHILE`) for diagnostics and plan text.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            LoopKind::For => "FOR",
+            LoopKind::Do => "DO",
+            LoopKind::While => "WHILE",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MatchCase {
     pub pattern: MatchPattern,

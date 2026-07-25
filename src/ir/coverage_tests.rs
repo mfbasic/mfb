@@ -1412,10 +1412,9 @@ fn json_project_with_no_bindings_omits_the_bindings_section() {
 
 #[test]
 fn loop_kind_name_covers_all_kinds() {
-    use super::json::loop_kind_name;
-    assert_eq!(loop_kind_name(LoopKind::For), "for");
-    assert_eq!(loop_kind_name(LoopKind::Do), "do");
-    assert_eq!(loop_kind_name(LoopKind::While), "while");
+    assert_eq!(LoopKind::For.name(), "for");
+    assert_eq!(LoopKind::Do.name(), "do");
+    assert_eq!(LoopKind::While.name(), "while");
 }
 
 #[test]

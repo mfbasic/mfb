@@ -97,11 +97,11 @@ impl FunctionPlanBuilder<'_> {
                 }
                 NirOp::ExitLoop { kind } => {
                     self.operations
-                        .push(format!("exit {}", plan_loop_kind_name(*kind)));
+                        .push(format!("exit {}", kind.keyword()));
                 }
                 NirOp::ContinueLoop { kind } => {
                     self.operations
-                        .push(format!("continue {}", plan_loop_kind_name(*kind)));
+                        .push(format!("continue {}", kind.keyword()));
                 }
                 NirOp::ExitProgram { code } => {
                     self.lower_value(code)?;
@@ -588,13 +588,6 @@ pub(super) fn describe_value(value: &NirValue) -> String {
     }
 }
 
-pub(super) fn plan_loop_kind_name(kind: crate::ast::LoopKind) -> &'static str {
-    match kind {
-        crate::ast::LoopKind::For => "FOR",
-        crate::ast::LoopKind::Do => "DO",
-        crate::ast::LoopKind::While => "WHILE",
-    }
-}
 
 pub(super) fn describe_match_pattern(pattern: &super::nir::NirMatchPattern) -> String {
     match pattern {

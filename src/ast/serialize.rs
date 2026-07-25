@@ -971,7 +971,7 @@ impl ToAstJson for Statement {
                 format!(
                     "\n{}{{ \"kind\": \"continue\", \"loop\": {}, \"line\": {} }}",
                     pad,
-                    json_string(loop_kind_name(*kind)),
+                    json_string(kind.name()),
                     line
                 )
             }
@@ -1144,7 +1144,7 @@ impl ToAstJson for Statement {
                     pad,
                     pad,
                     pad,
-                    json_string(loop_kind_name(*kind)),
+                    json_string(kind.name()),
                     pad,
                     condition.to_json(0),
                     pad,
@@ -1618,13 +1618,6 @@ fn exit_target_name(target: ExitTarget) -> &'static str {
     }
 }
 
-fn loop_kind_name(kind: LoopKind) -> &'static str {
-    match kind {
-        LoopKind::For => "for",
-        LoopKind::Do => "do",
-        LoopKind::While => "while",
-    }
-}
 
 fn join_indented<T: ToAstJson>(items: &[T], indent: usize) -> String {
     items
