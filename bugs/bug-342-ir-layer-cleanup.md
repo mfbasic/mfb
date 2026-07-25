@@ -142,6 +142,16 @@ measured evidence recorded per item below.
   same predicate.
 - Fix: delete `:3016-3024`. Smallest item in this bug.
 
+> **A5 done (2026-07-25).** Extracted the shared case-folding loop into
+> `fold_match_coverage(cases) -> (HashSet<String>, bool)` in `verify/mod.rs`;
+> `match_covers_all` (`verify/resources.rs`) and `check_match_exhaustive`
+> (`verify/matching.rs`) now call it. The two equivalent-but-not-identical
+> closures (`name_of` / `pattern_name`) collapse to one. The `all`-set
+> computation and the bool-vs-emit / open-type / Result handling stay per-caller
+> (they genuinely differ). Output-neutral: match acceptance byte-identical (14
+> fixtures). Folding cases after an unguarded ELSE is harmless (both callers
+> early-out on the flag), matching the originals' immediate return.
+
 #### A5 — `match_covers_all` and `check_match_exhaustive` duplicate one coverage computation
 
 - `src/ir/verify/mod.rs:2655-2698` (`match_covers_all`) and `:3383-3447`

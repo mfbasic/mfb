@@ -429,31 +429,9 @@ impl TypeEnv {
         } else {
             return false;
         };
-        let mut covered: HashSet<String> = HashSet::new();
-        for case in cases {
-            if case.guard.is_some() {
-                continue;
-            }
-            let name_of = |v: &IrValue| match v {
-                IrValue::Local(name) => Some(name.clone()),
-                IrValue::MemberAccess { member, .. } => Some(member.clone()),
-                _ => None,
-            };
-            match &case.pattern {
-                super::super::IrMatchPattern::Else => return true,
-                super::super::IrMatchPattern::Value(v) => {
-                    if let Some(n) = name_of(v) {
-                        covered.insert(n);
-                    }
-                }
-                super::super::IrMatchPattern::OneOf(vs) => {
-                    for v in vs {
-                        if let Some(n) = name_of(v) {
-                            covered.insert(n);
-                        }
-                    }
-                }
-            }
+        let (covered, has_unguarded_else) = super::fold_match_coverage(cases);
+        if has_unguarded_else {
+            return true;
         }
         all.difference(&covered).next().is_none()
     }

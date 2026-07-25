@@ -1039,6 +1039,46 @@ fn numeric_literal_is_zero(value: &IrValue) -> bool {
     }
 }
 
+/// bug-342 A5: the shared MATCH-coverage fold used by both `match_covers_all`
+/// (`verify/resources.rs`) and `check_match_exhaustive` (`verify/matching.rs`).
+/// Walks the cases, skipping guarded arms (a guard may not fire, so it covers
+/// nothing), folds every `Value`/`OneOf` variant/member name into `covered`, and
+/// reports whether an unguarded `CASE ELSE` (a catch-all) was seen. Both callers
+/// early-out on `has_unguarded_else`, so folding cases after an ELSE is harmless
+/// and keeps behaviour identical to the two hand-rolled loops this replaces.
+fn fold_match_coverage(
+    cases: &[crate::ir::IrMatchCase],
+) -> (std::collections::HashSet<String>, bool) {
+    let name_of = |v: &IrValue| match v {
+        IrValue::Local(name) => Some(name.clone()),
+        IrValue::MemberAccess { member, .. } => Some(member.clone()),
+        _ => None,
+    };
+    let mut covered: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut has_unguarded_else = false;
+    for case in cases {
+        if case.guard.is_some() {
+            continue;
+        }
+        match &case.pattern {
+            crate::ir::IrMatchPattern::Else => has_unguarded_else = true,
+            crate::ir::IrMatchPattern::Value(v) => {
+                if let Some(name) = name_of(v) {
+                    covered.insert(name);
+                }
+            }
+            crate::ir::IrMatchPattern::OneOf(vs) => {
+                for v in vs {
+                    if let Some(name) = name_of(v) {
+                        covered.insert(name);
+                    }
+                }
+            }
+        }
+    }
+    (covered, has_unguarded_else)
+}
+
 /// The integer value of a constant expression (possibly negated) — mirrors
 /// `syntaxcheck::helpers::integer_constant_value` on the IR shape.
 fn integer_constant_value(value: &IrValue) -> Option<i128> {

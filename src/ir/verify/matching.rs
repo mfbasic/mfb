@@ -46,33 +46,9 @@ impl TypeEnv {
             }
             return;
         };
-        let pattern_name = |v: &IrValue| -> Option<String> {
-            match v {
-                IrValue::Local(name) => Some(name.clone()),
-                IrValue::MemberAccess { member, .. } => Some(member.clone()),
-                _ => None,
-            }
-        };
-        let mut covered: HashSet<String> = HashSet::new();
-        for case in cases {
-            if case.guard.is_some() {
-                continue; // a guarded arm may not fire → does not cover
-            }
-            match &case.pattern {
-                super::super::IrMatchPattern::Else => return, // unguarded catch-all
-                super::super::IrMatchPattern::Value(v) => {
-                    if let Some(name) = pattern_name(v) {
-                        covered.insert(name);
-                    }
-                }
-                super::super::IrMatchPattern::OneOf(vs) => {
-                    for v in vs {
-                        if let Some(name) = pattern_name(v) {
-                            covered.insert(name);
-                        }
-                    }
-                }
-            }
+        let (covered, has_unguarded_else) = super::fold_match_coverage(cases);
+        if has_unguarded_else {
+            return; // unguarded catch-all makes the MATCH exhaustive
         }
         if all.difference(&covered).next().is_none() {
             return;
