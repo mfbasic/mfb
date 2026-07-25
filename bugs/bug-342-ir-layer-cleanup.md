@@ -194,6 +194,14 @@ measured evidence recorded per item below.
   `src/ir/verify/mod.rs:4844`.
 - Fix: put both spellings on `LoopKind` in `src/ast/`.
 
+> **A8 done (2026-07-25).** Added a generic `push_unique(dest, items, same)` in
+> `src/ir/package.rs`; the five uniform "push if absent" merges (types, bindings,
+> functions, link_functions, link_cstructs) now call it with their identity
+> predicate. The sixth (link_aliases) keeps its inline loop — it transforms each
+> item (qualifies the alias with the package name) before the dedup, so it is not
+> a pure push-unique. Order-preserving and output-neutral: packages + collections
+> acceptance byte-identical (78 fixtures).
+
 #### A8 — `merge_package`'s six "push if absent" O(n²) loops
 
 - `src/ir/package.rs:115-184`, six `if !…iter().any(…) { push }` blocks: types

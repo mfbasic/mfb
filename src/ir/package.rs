@@ -113,33 +113,17 @@ pub fn apply_package_identity(
 /// are de-duplicated by their (already namespaced) name; types by bare name.
 /// Call `prefix_package_symbols` on `package` first.
 pub fn merge_package(project: &mut IrProject, package: IrProject) {
-    for ty in package.types {
-        if !project
-            .types
-            .iter()
-            .any(|existing| existing.name == ty.name)
-        {
-            project.types.push(ty);
-        }
-    }
-    for binding in package.bindings {
-        if !project
-            .bindings
-            .iter()
-            .any(|existing| existing.name == binding.name)
-        {
-            project.bindings.push(binding);
-        }
-    }
-    for function in package.functions {
-        if !project
-            .functions
-            .iter()
-            .any(|existing| existing.name == function.name)
-        {
-            project.functions.push(function);
-        }
-    }
+    // bug-342 A8: the five "push if absent" merges below shared the same O(n²)
+    // shape, differing only in the identity predicate. `push_unique` folds them
+    // into one, preserving the exact order (iterate incoming in order, append
+    // each not already present) the hand-rolled loops produced.
+    push_unique(&mut project.types, package.types, |a, b| a.name == b.name);
+    push_unique(&mut project.bindings, package.bindings, |a, b| {
+        a.name == b.name
+    });
+    push_unique(&mut project.functions, package.functions, |a, b| {
+        a.name == b.name
+    });
     // Native `LINK` functions are de-duplicated by their `(alias, name)` routing
     // identity. `prefix_package_symbols` has already qualified each imported
     // package's alias with its content-addressed identity prefix, so this key is
@@ -147,28 +131,16 @@ pub fn merge_package(project: &mut IrProject, package: IrProject) {
     // function name stay separate (bug-251), while a diamond import — the same
     // package reached twice, hence the same prefix — still collapses to one entry
     // (plan-linker.md §12).
-    for link in package.link_functions {
-        if !project
-            .link_functions
-            .iter()
-            .any(|existing| existing.alias == link.alias && existing.name == link.name)
-        {
-            project.link_functions.push(link);
-        }
-    }
+    push_unique(&mut project.link_functions, package.link_functions, |a, b| {
+        a.alias == b.alias && a.name == b.name
+    });
     // The CSTRUCT table travels with its LINK functions (plan-50-E): a struct
     // slot's ctype names a declaration in the same alias, so without this an
     // imported binding's struct slots resolve to nothing and are rejected as an
     // unknown ctype. De-duplicated by (alias, name) exactly like the functions.
-    for cstruct in package.link_cstructs {
-        if !project
-            .link_cstructs
-            .iter()
-            .any(|existing| existing.alias == cstruct.alias && existing.name == cstruct.name)
-        {
-            project.link_cstructs.push(cstruct);
-        }
-    }
+    push_unique(&mut project.link_cstructs, package.link_cstructs, |a, b| {
+        a.alias == b.alias && a.name == b.name
+    });
     // A re-export alias is reached by importers as `<package>.<alias>` (the IR
     // normalizes any `IMPORT … AS` binding to the package name), so qualify the
     // bare alias name with the package for routing (plan-link-update.md §5a).
@@ -180,6 +152,18 @@ pub fn merge_package(project: &mut IrProject, package: IrProject) {
             .any(|(existing, _)| existing == &qualified)
         {
             project.link_aliases.push((qualified, target));
+        }
+    }
+}
+
+/// bug-342 A8: append each of `items` to `dest` only if `dest` has no element
+/// the `same` predicate deems equal — the "push if absent" merge that
+/// `merge_package` applied inline six times. Preserves input order (a stable
+/// first-wins merge); O(n·m), exactly as the hand-rolled loops were.
+fn push_unique<T>(dest: &mut Vec<T>, items: Vec<T>, same: impl Fn(&T, &T) -> bool) {
+    for item in items {
+        if !dest.iter().any(|existing| same(existing, &item)) {
+            dest.push(item);
         }
     }
 }
