@@ -32,51 +32,37 @@ pub(crate) mod helpers {
         root
     }
 
-    const MANIFEST: &str = r#"{
-  "name": "irtest",
+    /// The project.json for a throwaway single-file `project`. Identical for
+    /// every harness caller except the project name (bug-342 C1 folded the two
+    /// hand-copied manifests — `irtest`/`irlower` — into this one builder).
+    fn manifest_for(project: &str) -> String {
+        format!(
+            r#"{{
+  "name": "{project}",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "sources": [{{ "root": "src", "role": "main", "include": ["**/*.mfb"] }}],
   "entry": "main",
   "targets": ["native"]
-}"#;
-
-    /// Parse+resolve+monomorph+lower a single-file program source. Panics with
-    /// the front-end diagnostics silenced if any earlier stage fails, so a test
-    /// failure points at genuinely broken source rather than noise.
-    pub(crate) fn lower_src(src: &str) -> IrProject {
-        let dir = unique_dir("lower");
-        std::fs::write(dir.join("project.json"), MANIFEST).expect("write manifest");
-        std::fs::write(dir.join("src").join("main.mfb"), src).expect("write source");
-        let manifest =
-            validate_project_manifest(&dir.join("project.json")).expect("manifest validates");
-        let astp = ast::parse_project("irtest", &dir, &manifest).expect("parse");
-        resolver::resolve_project(&dir, &manifest, &astp).expect("resolve");
-        let concrete = monomorph::monomorphize_project(&dir, &astp).expect("monomorphize");
-        resolver::resolve_project_with(&dir, &manifest, &concrete, false)
-            .expect("resolve concrete");
-        let ir = lower_project_with_external_functions(
-            &concrete,
-            None,
-            &std::collections::HashMap::new(),
-            &std::collections::HashMap::new(),
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-        ir
+}}"#
+        )
     }
 
-    /// Like [`lower_src`] but returns `None` when any front-end stage before
-    /// lowering rejects the program (so a test can assert lowering is reached).
-    pub(crate) fn try_lower_src(src: &str) -> Option<IrProject> {
-        let dir = unique_dir("try");
-        std::fs::write(dir.join("project.json"), MANIFEST).ok()?;
-        std::fs::write(dir.join("src").join("main.mfb"), src).ok()?;
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
+    /// The single source-driven lower pipeline shared by every harness in this
+    /// file (bug-342 C1). Writes `src` as a throwaway project named `project`
+    /// under a **per-call-unique** temp dir (via `unique_dir`, so two calls
+    /// never wipe each other's directory), then runs
+    /// parse→resolve→monomorph→lower, returning `None` if any stage rejects the
+    /// program. Panic-hook handling is the caller's job (the fallible wrappers
+    /// silence it; the infallible ones let a genuine panic surface).
+    fn run_lower(project: &str, tag: &str, src: &str) -> Option<IrProject> {
+        let dir = unique_dir(tag);
         let result = (|| {
+            std::fs::write(dir.join("project.json"), manifest_for(project)).ok()?;
+            std::fs::write(dir.join("src").join("main.mfb"), src).ok()?;
             let manifest = validate_project_manifest(&dir.join("project.json")).ok()?;
-            let astp = ast::parse_project("irtest", &dir, &manifest).ok()?;
+            let astp = ast::parse_project(project, &dir, &manifest).ok()?;
             resolver::resolve_project(&dir, &manifest, &astp).ok()?;
             let concrete = monomorph::monomorphize_project(&dir, &astp).ok()?;
             resolver::resolve_project_with(&dir, &manifest, &concrete, false).ok()?;
@@ -87,8 +73,39 @@ pub(crate) mod helpers {
                 &std::collections::HashMap::new(),
             ))
         })();
-        std::panic::set_hook(prev);
         let _ = std::fs::remove_dir_all(&dir);
+        result
+    }
+
+    /// Parse+resolve+monomorph+lower a single-file program source. Panics if any
+    /// stage fails, so a test failure points at genuinely broken source.
+    pub(crate) fn lower_src(src: &str) -> IrProject {
+        run_lower("irtest", "lower", src).expect("source must lower cleanly")
+    }
+
+    /// Like [`lower_src`] but returns `None` when any front-end stage before
+    /// lowering rejects the program (so a test can assert lowering is reached).
+    /// Front-end diagnostics are silenced while trying.
+    pub(crate) fn try_lower_src(src: &str) -> Option<IrProject> {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = run_lower("irtest", "try", src);
+        std::panic::set_hook(prev);
+        result
+    }
+
+    /// [`lower_src`] for a caller that needs a specific project `name` (so a
+    /// name-dependent assertion sees it) and a descriptive temp-dir `tag`.
+    pub(crate) fn lower_src_named(name: &str, tag: &str, src: &str) -> IrProject {
+        run_lower(name, tag, src).expect("source must lower cleanly")
+    }
+
+    /// [`try_lower_src`] with an explicit project `name` and temp-dir `tag`.
+    pub(crate) fn try_lower_src_named(name: &str, tag: &str, src: &str) -> Option<IrProject> {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = run_lower(name, tag, src);
+        std::panic::set_hook(prev);
         result
     }
 
@@ -525,7 +542,8 @@ mod binary_repr_tests {
             functions: vec![IrFunction {
                 name: "main".to_string(),
                 visibility: "export".to_string(),
-                kind: "function".to_string(),
+                // bug-342 C3: on-contract kind is `func`/`sub`, not `function`.
+                kind: "func".to_string(),
                 isolated: false,
                 params: vec![
                     IrParam {
@@ -617,7 +635,8 @@ mod binary_repr_tests {
         IrFunction {
             name: name.to_string(),
             visibility: "export".to_string(),
-            kind: "function".to_string(),
+            // bug-342 C3: on-contract kind is `func`/`sub`, not `function`.
+            kind: "func".to_string(),
             isolated: false,
             params: vec![],
             returns: "Integer".to_string(),
@@ -3445,16 +3464,28 @@ mod lower_tests {
     }
 }
 
-/// exercise the AST->IR lowering paths (`lower.rs`) directly.
+/// Source-driven tests that exercise the AST→IR lowering paths (`lower.rs`)
+/// directly, asserting on the lowered `IrProject` a real program produces.
+/// (bug-342 C1 repaired this truncated doc and folded this module's hand-copied
+/// harness onto the shared, per-call-unique `helpers` pipeline.)
 #[cfg(test)]
 mod lower_pipeline_tests {
     use crate::ast;
     use crate::manifest::validate_project_manifest;
     use crate::monomorph;
     use crate::resolver;
-    use std::path::PathBuf;
 
-    fn temp_dir(name: &str) -> PathBuf {
+    // Bespoke front-end setup for `lowers_with_external_function_metadata`, the
+    // one test here that stops before `lower_project_with_external_functions` to
+    // inject its own external-function maps (the shared `helpers` pipeline always
+    // lowers with empty maps). Every other test goes through the delegating
+    // harness below.
+    const PROJECT_JSON: &str = r#"{ "name": "irlower", "version": "0.1.0", "mfb": "1.0",
+        "kind": "executable",
+        "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+        "entry": "main", "targets": ["native"] }"#;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
             "mfb_ir_lower_{name}_{}_{}",
             std::process::id(),
@@ -3465,54 +3496,23 @@ mod lower_pipeline_tests {
         root
     }
 
-    const PROJECT_JSON: &str = r#"{ "name": "irlower", "version": "0.1.0", "mfb": "1.0",
-        "kind": "executable",
-        "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-        "entry": "main", "targets": ["native"] }"#;
-
     /// Lower a single-file program through the whole front end and return the IR.
-    /// Panics with the failing stage if any pre-lowering stage rejects the source
-    /// (so a broken test source surfaces immediately rather than silently).
+    /// Panics with the failing stage if any pre-lowering stage rejects the source.
+    /// `name` labels the throwaway project's temp dir; the project is `irlower`.
     fn lower_src(name: &str, source: &str) -> super::IrProject {
-        try_lower_src(name, source).expect("source must lower cleanly")
+        super::helpers::lower_src_named("irlower", name, source)
     }
 
     /// Like [`lower_src`] but returns `None` when a pre-lowering stage rejects the
     /// program. Diagnostic noise from the front end is suppressed.
     fn try_lower_src(name: &str, source: &str) -> Option<super::IrProject> {
-        let dir = temp_dir(name);
-        std::fs::write(dir.join("project.json"), PROJECT_JSON).unwrap();
-        std::fs::write(dir.join("src").join("main.mfb"), source).unwrap();
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let manifest = validate_project_manifest(&dir.join("project.json")).ok();
-        let result = manifest.and_then(|manifest| {
-            let name = manifest
-                .get("name")
-                .and_then(|v| v.get::<String>())
-                .cloned()?;
-            let ast = ast::parse_project(&name, &dir, &manifest).ok()?;
-            resolver::resolve_project(&dir, &manifest, &ast).ok()?;
-            let concrete = monomorph::monomorphize_project(&dir, &ast).ok()?;
-            resolver::resolve_project_with(&dir, &manifest, &concrete, false).ok()?;
-            Some(super::lower_project_with_external_functions(
-                &concrete,
-                None,
-                &std::collections::HashMap::new(),
-                &std::collections::HashMap::new(),
-            ))
-        });
-        std::panic::set_hook(prev);
-        result
+        super::helpers::try_lower_src_named("irlower", name, source)
     }
 
     /// Find a lowered function body by name (user functions only, not injected
     /// package or lambda bodies).
     fn function<'a>(ir: &'a super::IrProject, name: &str) -> &'a super::IrFunction {
-        ir.functions
-            .iter()
-            .find(|f| f.name == name)
-            .unwrap_or_else(|| panic!("function `{name}` not found in lowered IR"))
+        super::helpers::function(ir, name)
     }
 
     /// Serialize the whole project to JSON — a convenient way to assert a
