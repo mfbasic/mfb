@@ -5,7 +5,23 @@ Effort: medium (1h–2h per item; large for the cluster)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open
+Status: Open (partial progress 2026-07-25).
+
+Progress 2026-07-25:
+- **A1 — already resolved.** `.ai/compiler.md:66` already documents the current
+  four-tree layout ("The old flat `tests/func_...` layout no longer exists — never
+  create it"); AGENTS.md carries no stale flat-layout reference. No action.
+- **D1 — done.** Deleted `scripts/gen_vector_tests.py` (self-declared LEGACY,
+  emits the pre-reorg flat layout, unreferenced by any script/CI/`check-generated.sh`).
+- **D2 — deletions done.** Deleted `scripts/audit.sh` (superseded by the goal-NN
+  review docs) and `scripts/fix_citations.py` (broken — wrong `SPEC_DIR`);
+  both were referenced only by historical `old-plans/` docs. **Kept** the
+  net-timeout pair (`check-net-connect-timeout.sh` + `net_blackhole_server.py`) —
+  a genuine runtime validation; wiring it into `.ai/compiler.md` remains open.
+  `bug-326-dead-code-sweep` no longer exists in the tree, so no coordination conflict.
+- **D3 — already correct.** The `src/ir/tests.rs` census `#[ignore]` stays by
+  design (parity gap non-zero); the plan-20 citation is already gone. No action.
+
 Regression Test: the harness itself — `scripts/test-accept.sh` and
 `scripts/artifact-gate.sh` must be green before and after; new coverage added
 only where an item deletes a duplicate (B1, C1, C3).
