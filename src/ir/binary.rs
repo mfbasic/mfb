@@ -114,7 +114,10 @@ fn put_opt_value(out: &mut Vec<u8>, value: &Option<IrValue>) {
 /// native stack frame, so an unbounded tree overflows the stack and aborts the
 /// compiler before any structural check runs. 256 is far deeper than any real
 /// program yet shallow enough to never overflow the thread stack.
-const MAX_DECODE_DEPTH: usize = 256;
+///
+/// Forwards to the single [`super::MAX_IR_NESTING_DEPTH`] source (bug-342 A3) so
+/// the decoder's cap and `ir::verify`'s cap can never diverge.
+const MAX_DECODE_DEPTH: usize = super::MAX_IR_NESTING_DEPTH;
 
 struct IrReader<'a> {
     bytes: &'a [u8],
@@ -1606,15 +1609,17 @@ pub fn verify_package(pir: &IrProject) -> Result<(), String> {
     let mut seen_functions: HashSet<&str> = HashSet::new();
     for function in &pir.functions {
         if function.name.is_empty() {
-            return Err(
-                "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: package contains an unnamed function"
-                    .to_string(),
-            );
+            return Err(format!(
+                "{}: package contains an unnamed function",
+                super::VERIFY_TYPE
+            ));
         }
         if !seen_functions.insert(function.name.as_str()) {
             return Err(format!(
-                "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: duplicate function `{}` in package `{}`",
-                function.name, pir.name
+                "{}: duplicate function `{}` in package `{}`",
+                super::VERIFY_TYPE,
+                function.name,
+                pir.name
             ));
         }
     }
@@ -1622,8 +1627,10 @@ pub fn verify_package(pir: &IrProject) -> Result<(), String> {
     for ty in &pir.types {
         if !seen_types.insert(ty.name.as_str()) {
             return Err(format!(
-                "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: duplicate type `{}` in package `{}`",
-                ty.name, pir.name
+                "{}: duplicate type `{}` in package `{}`",
+                super::VERIFY_TYPE,
+                ty.name,
+                pir.name
             ));
         }
     }
@@ -1640,7 +1647,8 @@ fn verify_ops(ops: &[IrOp], depth: usize) -> Result<(), String> {
     // on merged IR, which may not have flowed through the depth-bounded decoder.
     if depth > MAX_DECODE_DEPTH {
         return Err(format!(
-            "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: statement nesting exceeds the {MAX_DECODE_DEPTH} level limit"
+            "{}: statement nesting exceeds the {MAX_DECODE_DEPTH} level limit",
+            super::VERIFY_TYPE
         ));
     }
     for op in ops {
@@ -1659,10 +1667,18 @@ fn verify_ops(ops: &[IrOp], depth: usize) -> Result<(), String> {
             | IrOp::ForEach { body, .. }
             | IrOp::Trap { body, .. } => verify_ops(body, depth + 1)?,
             IrOp::Match { cases, .. } => {
+                // Structural pre-merge guard: reject a decoded package whose
+                // MATCH carries no cases. `ir::verify` independently re-checks
+                // this on the merged IR (its `VERIFY_MATCH` emit) — the two
+                // enforcement points are intentional (pre-merge per-package vs.
+                // the plan-20 post-merge sole-rejecter) and share one rule
+                // id/message via the hoisted consts so they cannot drift.
                 if cases.is_empty() {
-                    return Err(
-                        "PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH: MATCH has no cases (not exhaustive)".to_string(),
-                    );
+                    return Err(format!(
+                        "{}: {}",
+                        super::VERIFY_MATCH,
+                        super::VERIFY_MATCH_EMPTY_MSG
+                    ));
                 }
                 for case in cases {
                     verify_ops(&case.body, depth + 1)?;

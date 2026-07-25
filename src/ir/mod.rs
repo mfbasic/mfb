@@ -28,6 +28,23 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+// Single source of truth for the package-format invariants that are enforced at
+// two points (bug-342 A3): the binary decoder / `verify_package`'s structural
+// re-check in `binary.rs`, and `ir::verify`'s semantic walk. Both forward to
+// these so the depth cap and the rule id/message are each spelled once and can
+// never drift apart.
+
+/// Maximum statement/expression nesting depth accepted anywhere in the IR.
+pub(crate) const MAX_IR_NESTING_DEPTH: usize = 256;
+/// Rule-id prefix for a structural package-format violation.
+pub(crate) const VERIFY_TYPE: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE";
+/// Rule-id prefix for a non-exhaustive (empty) MATCH in a decoded package.
+pub(crate) const VERIFY_MATCH: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH";
+/// Message body paired with [`VERIFY_MATCH`], shared by the pre-merge structural
+/// check and the post-merge semantic walk so the two enforcement points read
+/// identically.
+pub(crate) const VERIFY_MATCH_EMPTY_MSG: &str = "MATCH has no cases (not exhaustive)";
+
 mod binary;
 #[cfg(test)]
 mod coverage_tests;
