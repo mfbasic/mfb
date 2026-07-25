@@ -504,7 +504,7 @@ impl<'a> FileParser<'a> {
     }
 
     /// Detect a function-alias item: `[vis] FUNC name AS qualified::func`. The
-    /// `::`-qualified target distinguishes the alias (plan-link-update.md §5a)
+    /// `::`-qualified target distinguishes the alias (17_native-libraries.md)
     /// from an ordinary function declaration with a body.
     pub(super) fn check_top_level_func_alias(&self) -> bool {
         let mut index = self.current;
