@@ -83,11 +83,11 @@ pub(crate) fn native_strings_package_static_string_value(
         .first()
         .and_then(|arg| native_static_string_value(arg, constants))?;
     match target {
-        "strings.upper" if args.len() == 1 => Some(crate::unicode_backend::upper(&value)),
-        "strings.lower" if args.len() == 1 => Some(crate::unicode_backend::lower(&value)),
-        "strings.caseFold" if args.len() == 1 => Some(crate::unicode_backend::case_fold(&value)),
+        "strings.upper" if args.len() == 1 => Some(crate::unicode::backend::upper(&value)),
+        "strings.lower" if args.len() == 1 => Some(crate::unicode::backend::lower(&value)),
+        "strings.caseFold" if args.len() == 1 => Some(crate::unicode::backend::case_fold(&value)),
         "strings.normalizeNfc" if args.len() == 1 => {
-            Some(crate::unicode_backend::normalize_nfc(&value))
+            Some(crate::unicode::backend::normalize_nfc(&value))
         }
         _ => None,
     }
@@ -102,7 +102,7 @@ pub(crate) fn native_static_graphemes_value(
         return None;
     }
     let value = native_static_string_value(&args[0], constants)?;
-    Some(crate::unicode_backend::graphemes(&value))
+    Some(crate::unicode::backend::graphemes(&value))
 }
 
 pub(crate) fn native_primitive_text(

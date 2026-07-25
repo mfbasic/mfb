@@ -24,8 +24,7 @@ mod terminal_safe;
 mod testing;
 #[cfg(test)]
 mod testutil;
-mod unicode_backend;
-mod unicode_runtime_tables;
+mod unicode;
 
 use std::env;
 use std::path::Path;

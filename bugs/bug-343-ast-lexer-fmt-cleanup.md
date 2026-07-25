@@ -139,6 +139,16 @@ with it.
 - Fix: rename to `resource_escape` and move it under `src/ir/`, next to its
   consumers. (Its `mfbasic.md` citation is D2.)
 
+> **A4 (relocation) done (2026-07-25).** Consolidated the loose top-level
+> `unicode_backend.rs` + `unicode_runtime_tables.rs` into `src/unicode/{mod,
+> backend,runtime_tables}.rs` (`pub(crate) mod` each; dropped the two crate-root
+> `mod` lines for one `mod unicode;`). Rewrote every `crate::unicode_backend::` /
+> `crate::unicode_runtime_tables::` reference; fixed the `include_str!` path
+> (`../` → `../../`, one dir deeper). Output-neutral: strings + encoding
+> acceptance byte-identical (50 fixtures). The bundled dead-code half (blanket
+> `#![allow(dead_code)]`, `category_value` delete-or-wire, `property_for_codepoint`
+> test-only attr) is left — it overlaps bug-326 and needs its own decision.
+
 #### A4 — `unicode_backend.rs` + `unicode_runtime_tables.rs` are the only prefix-paired loose top-level files
 
 - Full inventory of loose top-level `.rs` files in `src/`: `coverage.rs`,

@@ -611,10 +611,10 @@ impl CodeBuilder<'_> {
             {
                 let value = self.static_string_value(&args[0])?;
                 Some(match target.as_str() {
-                    "strings.upper" => crate::unicode_backend::upper(&value),
-                    "strings.lower" => crate::unicode_backend::lower(&value),
-                    "strings.caseFold" => crate::unicode_backend::case_fold(&value),
-                    "strings.normalizeNfc" => crate::unicode_backend::normalize_nfc(&value),
+                    "strings.upper" => crate::unicode::backend::upper(&value),
+                    "strings.lower" => crate::unicode::backend::lower(&value),
+                    "strings.caseFold" => crate::unicode::backend::case_fold(&value),
+                    "strings.normalizeNfc" => crate::unicode::backend::normalize_nfc(&value),
                     _ => unreachable!(),
                 })
             }

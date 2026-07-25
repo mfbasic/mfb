@@ -783,7 +783,7 @@ impl CodeBuilder<'_> {
         self.emit_unicode_u32_mapping_lookup(
             &scratch10,
             UNICODE_NFD_ENTRIES_SYMBOL,
-            crate::unicode_runtime_tables::tables().nfd_entries.len(),
+            crate::unicode::runtime_tables::tables().nfd_entries.len(),
             UNICODE_NFD_SEQUENCES_SYMBOL,
             &scratch26,
             &scratch27,
@@ -844,7 +844,7 @@ impl CodeBuilder<'_> {
         self.emit_unicode_u32_mapping_lookup(
             &scratch10,
             UNICODE_NFD_ENTRIES_SYMBOL,
-            crate::unicode_runtime_tables::tables().nfd_entries.len(),
+            crate::unicode::runtime_tables::tables().nfd_entries.len(),
             UNICODE_NFD_SEQUENCES_SYMBOL,
             &scratch26,
             &scratch27,

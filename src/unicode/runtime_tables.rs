@@ -2,7 +2,7 @@ use std::sync::OnceLock;
 use unicode_casefold::UnicodeCaseFold;
 use unicode_normalization::UnicodeNormalization;
 
-const UTF8PROC_DATA: &str = include_str!("../third_party/utf8proc/utf8proc_data.c");
+const UTF8PROC_DATA: &str = include_str!("../../third_party/utf8proc/utf8proc_data.c");
 const U16_MAX: u16 = u16::MAX;
 
 pub(crate) struct UnicodeRuntimeTables {
@@ -101,7 +101,7 @@ pub(crate) fn properties_hex() -> String {
 /// against the same tables, in generated code. It exists as the executable
 /// statement of the algorithm: the specification cites it by name
 /// (`unicode/01_tables-and-algorithms.md:57`,
-/// `[[src/unicode_runtime_tables.rs:property_for_codepoint]]`), and its own tests
+/// `[[src/unicode/runtime_tables.rs:property_for_codepoint]]`), and its own tests
 /// are what check the shipped tables actually decode. Deleting it would leave
 /// the spec citing nothing and the tables checked only indirectly (bug-326-D4).
 #[allow(dead_code)]

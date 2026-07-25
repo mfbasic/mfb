@@ -16,7 +16,7 @@ impl CodeBuilder<'_> {
         }
         if target == "strings.graphemes" && args.len() == 1 {
             if let Some(value) = self.static_string_value(&args[0]) {
-                let values = crate::unicode_backend::graphemes(&value)
+                let values = crate::unicode::backend::graphemes(&value)
                     .into_iter()
                     .map(|value| NirValue::Const {
                         type_: "String".to_string(),
@@ -122,11 +122,11 @@ impl CodeBuilder<'_> {
             return Ok(None);
         };
         let value = match target {
-            "strings.upper" if args.len() == 1 => crate::unicode_backend::upper(&value),
-            "strings.lower" if args.len() == 1 => crate::unicode_backend::lower(&value),
-            "strings.caseFold" if args.len() == 1 => crate::unicode_backend::case_fold(&value),
+            "strings.upper" if args.len() == 1 => crate::unicode::backend::upper(&value),
+            "strings.lower" if args.len() == 1 => crate::unicode::backend::lower(&value),
+            "strings.caseFold" if args.len() == 1 => crate::unicode::backend::case_fold(&value),
             "strings.normalizeNfc" if args.len() == 1 => {
-                crate::unicode_backend::normalize_nfc(&value)
+                crate::unicode::backend::normalize_nfc(&value)
             }
             _ => return Ok(None),
         };
@@ -432,7 +432,7 @@ impl UnicodeCaseMap {
     }
 
     fn entry_count(self) -> usize {
-        let tables = crate::unicode_runtime_tables::tables();
+        let tables = crate::unicode::runtime_tables::tables();
         match self {
             UnicodeCaseMap::Upper => tables.uppercase_entries.len(),
             UnicodeCaseMap::Lower => tables.lowercase_entries.len(),
