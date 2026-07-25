@@ -1,5 +1,51 @@
 use super::*;
 
+/// The documentation surface of a project: an optional package-level entry plus
+/// one entry per documented exported declaration (plan-09-doc.md §5).
+#[derive(Clone, Default)]
+pub(crate) struct ProjectDocs {
+    pub(crate) package: Option<IrPackageDoc>,
+    pub(crate) decls: Vec<IrDocDecl>,
+}
+
+#[derive(Clone)]
+pub(crate) struct IrPackageDoc {
+    pub(crate) name: String,
+    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind::code`.
+    pub(crate) desc: Vec<(u8, String)>,
+    /// `Some(message)` when deprecated (message may be empty); `None` otherwise.
+    pub(crate) deprecated: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IrDocKind {
+    Func,
+    Sub,
+    Type,
+    Union,
+    Enum,
+    Resource,
+}
+
+#[derive(Clone)]
+pub(crate) struct IrDocDecl {
+    pub(crate) kind: IrDocKind,
+    pub(crate) name: String,
+    pub(crate) signature: String,
+    /// `GROUP` name for FUNC/SUB, or empty.
+    pub(crate) group: String,
+    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind::code`.
+    pub(crate) desc: Vec<(u8, String)>,
+    pub(crate) args: Vec<(String, String)>,
+    pub(crate) props: Vec<(String, String)>,
+    pub(crate) ret: String,
+    pub(crate) errors: Vec<(String, String)>,
+    pub(crate) example: String,
+    pub(crate) internal: bool,
+    /// `Some(message)` when deprecated (message may be empty); `None` otherwise.
+    pub(crate) deprecated: Option<String>,
+}
+
 fn doc_prose(desc: &[crate::ast::DocProse]) -> Vec<(u8, String)> {
     desc.iter()
         .map(|prose| (prose.kind.code(), prose.text.clone()))
