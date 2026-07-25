@@ -752,8 +752,21 @@ impl CodeBuilder<'_> {
         &mut self,
         ptr_slot: usize,
     ) -> Result<(), String> {
-        let size_slot = self.allocate_stack_object("adopt_free_size", 8);
-        self.emit_inlined_block_size_from_ptr_slot("Error", ptr_slot, size_slot)?;
+        self.emit_free_flat_block_from_slot("Error", ptr_slot)
+    }
+
+    /// Free an owned flat block of `block_type` whose base is in `ptr_slot`: size
+    /// it from the type and `arena_free`. Generalizes `emit_free_error_block_from_slot`
+    /// so any block success type (`String`, a flat record/union, a collection) can be
+    /// reclaimed after it has been copied into a materialized `Result` (bug-379).
+    /// `ptr_slot` must hold a non-null arena block base.
+    pub(super) fn emit_free_flat_block_from_slot(
+        &mut self,
+        block_type: &str,
+        ptr_slot: usize,
+    ) -> Result<(), String> {
+        let size_slot = self.allocate_stack_object("flat_free_size", 8);
+        self.emit_inlined_block_size_from_ptr_slot(block_type, ptr_slot, size_slot)?;
         self.emit(abi::load_u64(
             abi::return_register(),
             abi::stack_pointer(),

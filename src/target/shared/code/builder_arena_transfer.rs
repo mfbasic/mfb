@@ -132,6 +132,16 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             result_slot,
         ));
+        // bug-379: for a block success type, `emit_build_result_inline` above
+        // deep-copies the payload into the freshly-allocated `Result`, so the
+        // intermediate `copied_success` block is now dead. Free it here —
+        // strictly after the inline copy completes — mirroring the ERR_BLOCK
+        // path's `emit_free_error_block_from_slot`. Scalar success types have no
+        // intermediate block (`copy_value_to_current_arena` returns a register),
+        // so there is nothing to free.
+        if self.result_payload_is_block(success_type) {
+            self.emit_free_flat_block_from_slot(success_type, payload_slot)?;
+        }
         self.emit(abi::branch(&have_payload_label));
 
         self.emit(abi::label(&wrap_error_label));

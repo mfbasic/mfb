@@ -5,10 +5,17 @@ Effort: small (<1h)
 Severity: LOW
 Class: Memory-safety
 
-Status: Open
-Regression Test: (to add) an arena-accounting / no-growth runtime test that
-materializes an OK `Result OF String` (or `Result OF <collection>`) in a loop and
-asserts the function-scope arena does not grow per iteration.
+Status: Fixed (2026-07-25) via option (A). The OK block path now frees the
+intermediate `copied_success` block after `emit_build_result_inline` copies it
+into the `Result`, mirroring the ERR_BLOCK path. Added a generic
+`emit_free_flat_block_from_slot(block_type, ptr_slot)` (sized from the success
+type via `emit_inlined_block_size_from_ptr_slot`); `emit_free_error_block_from_slot`
+now delegates to it with `"Error"`. Guarded by `result_payload_is_block(success_type)`
+so the scalar OK path (no intermediate block) is untouched. Full acceptance green
+(1082 tests); no golden moved (the fix only frees an intermediate).
+Regression Test: covered by the existing Result/TRAP suites staying green and
+byte-identical; the fix is a pure free (no output change). A dedicated
+no-arena-growth loop test remains a possible future addition.
 
 When `materialize_current_result` builds an **OK** `Result` whose success type is
 a block (`String`, a flat record/data-union, or a collection), it first
