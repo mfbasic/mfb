@@ -190,6 +190,94 @@ FUNC test_list_sort(run AS Integer, tests AS List OF BenchResult) AS List OF Ben
   RETURN collections::append(tests, makeResult("list", "sort", times))
 END FUNC
 
+' --- plan-45: sort adaptivity — same size, three input shapes --------------
+' collections::sort over pre-sorted / reverse-sorted / scrambled Integer lists.
+' All three are permutations of 0..N-1, so each sorts to the same canonical order
+' and an order-sensitive polynomial hash gives one shared checksum (identical
+' across languages and across the three shapes — a broken sort or a non-permutation
+' input would change it). The three rows expose best/worst/average behaviour and
+' catch an adaptive-sort regression / prove O(n log n) holds across shapes.
+' The "random" input is a deterministic coprime-stride scramble (i*7919 mod N),
+' so it is reproducible and identical across languages.
+
+FUNC sortMakeAsc(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, i)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC sortMakeDesc(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, n - 1 - i)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC sortMakeScramble(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, (i * 7919) MOD n)
+  NEXT
+  RETURN xs
+END FUNC
+
+' Order-sensitive polynomial hash of a sorted list (canonical 0..n-1).
+FUNC sortHash(sorted AS List OF Integer) AS Integer
+  MUT acc AS Integer = 0
+  FOR i = 0 TO len(sorted) - 1
+    acc = (acc * 31 + collections::get(sorted, i)) MOD 1000000007
+  NEXT
+  RETURN acc
+END FUNC
+
+FUNC test_list_sort_asc(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = sortMakeAsc(20000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET sorted AS List OF Integer = collections::sort(base)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = sortHash(sorted)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_sort_asc = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "sort_asc", times))
+END FUNC
+
+FUNC test_list_sort_desc(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = sortMakeDesc(20000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET sorted AS List OF Integer = collections::sort(base)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = sortHash(sorted)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_sort_desc = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "sort_desc", times))
+END FUNC
+
+FUNC test_list_sort_rand(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = sortMakeScramble(20000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET sorted AS List OF Integer = collections::sort(base)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = sortHash(sorted)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_sort_rand = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "sort_rand", times))
+END FUNC
+
 ' --- shared helpers + predicates for the remaining collections:: list ops ---
 
 MUT forEachAcc AS Integer = 0

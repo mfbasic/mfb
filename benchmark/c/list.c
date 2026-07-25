@@ -200,6 +200,57 @@ static void test_list_sort(void) {
   free(t);
 }
 
+/* --- plan-45: sort adaptivity — same size, three input shapes ------- */
+/* qsort over pre-sorted / reverse / scrambled permutations of 0..N-1. All sort
+ * to the canonical order, so an order-sensitive polynomial hash gives one shared
+ * checksum (232616725) matching mfb and Python. */
+#define SORT_N 20000
+
+static long sort_hash(const int *a, int n) {
+  const long MOD = 1000000007L;
+  long acc = 0;
+  for (int i = 0; i < n; i++) acc = (acc * 31 + a[i]) % MOD;
+  return acc;
+}
+
+static void run_sort_shape(const char *name, const int *base) {
+  long long *t = alloc_times();
+  long checksum = 0;
+  int *tmp = malloc(SORT_N * sizeof(int));
+  for (int r = 0; r < RUN; r++) {
+    memcpy(tmp, base, SORT_N * sizeof(int));
+    long long t0 = now_ns();
+    qsort(tmp, SORT_N, sizeof(int), cmp_int);
+    t[r] = now_ns() - t0;
+    checksum = sort_hash(tmp, SORT_N);
+  }
+  fprintf(stderr, "list_%s = %ld\n", name, checksum);
+  record("list", name, t, RUN);
+  free(tmp);
+  free(t);
+}
+
+static void test_list_sort_asc(void) {
+  int *base = malloc(SORT_N * sizeof(int));
+  for (int i = 0; i < SORT_N; i++) base[i] = i;
+  run_sort_shape("sort_asc", base);
+  free(base);
+}
+
+static void test_list_sort_desc(void) {
+  int *base = malloc(SORT_N * sizeof(int));
+  for (int i = 0; i < SORT_N; i++) base[i] = SORT_N - 1 - i;
+  run_sort_shape("sort_desc", base);
+  free(base);
+}
+
+static void test_list_sort_rand(void) {
+  int *base = malloc(SORT_N * sizeof(int));
+  for (int i = 0; i < SORT_N; i++) base[i] = (i * 7919) % SORT_N;
+  run_sort_shape("sort_rand", base);
+  free(base);
+}
+
 /* --- 26 collections:: list benchmarks ------------------------------- */
 
 static void test_list_all(void) {
@@ -1030,6 +1081,9 @@ void run_list_group(void) {
   test_list_groupby();
   test_list_set();
   test_list_sort();
+  test_list_sort_asc();
+  test_list_sort_desc();
+  test_list_sort_rand();
 
   test_list_all();
   test_list_any();

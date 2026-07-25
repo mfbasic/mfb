@@ -696,11 +696,51 @@ def test_liststr_reshape():
     record("liststr", "reshape", times)
 
 
+# --- plan-45: sort adaptivity — same size, three input shapes ---------------
+# collections::sort / sorted over pre-sorted / reverse / scrambled permutations
+# of 0..N-1. All sort to the canonical order, so an order-sensitive polynomial
+# hash gives one shared checksum (232616725) matching mfb and C.
+
+def _sort_hash(sorted_list):
+    M = 1000000007
+    acc = 0
+    for v in sorted_list:
+        acc = (acc * 31 + v) % M
+    return acc
+
+
+def _run_sort_shape(name, base):
+    times = []
+    checksum = 0
+    for _ in range(RUN):
+        t0 = now_ns()
+        s = sorted(base)
+        t1 = now_ns()
+        checksum = _sort_hash(s)
+        times.append(t1 - t0)
+    print("list_%s = %d" % (name, checksum), file=sys.stderr)
+    record("list", name, times)
+
+
+def test_list_sort_asc():
+    _run_sort_shape("sort_asc", list(range(20000)))
+
+
+def test_list_sort_desc():
+    _run_sort_shape("sort_desc", list(range(19999, -1, -1)))
+
+
+def test_list_sort_rand():
+    n = 20000
+    _run_sort_shape("sort_rand", [(i * 7919) % n for i in range(n)])
+
+
 def run_all(run, now_ns_fn, record_fn):
     global RUN, now_ns, record
     RUN, now_ns, record = run, now_ns_fn, record_fn
     test_list_append(); test_list_append_batch(); test_list_prepend(); test_list_copy()
     test_list_distinct(); test_list_groupby(); test_list_set(); test_list_sort()
+    test_list_sort_asc(); test_list_sort_desc(); test_list_sort_rand()
     test_list_all(); test_list_any(); test_list_chunks(); test_list_contains()
     test_list_drop(); test_list_filter(); test_list_find(); test_list_findIndex()
     test_list_findLastIndex(); test_list_flatten(); test_list_forEach(); test_list_get()
