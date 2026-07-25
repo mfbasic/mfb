@@ -5,11 +5,45 @@ Effort: small (<1h)
 Severity: LOW
 Class: Memory-safety
 
-Status: Open
-Regression Test: (to add) — but see the reachability caveat below: the test must
-first establish that a null native-resource record can actually reach a native
-`RES`-parameter call. If it cannot, this is closed as unreachable and the guard is
-optional hardening.
+Status: Closed — UNREACHABLE (verified 2026-07-25). A null native-resource record
+cannot reach a native `RES`-param call; the guard's missing null test is therefore
+not a reachable defect. See "Reachability Verdict" below.
+Regression Test: none — the null-at-guard state is unreachable, so per
+`[[reproduce-the-actual-shape-not-a-proxy]]` no proxy repro is shipped. The
+reachability proof (two compiler behaviors) stands in for a test.
+
+## Reachability Verdict (2026-07-25)
+
+A null native-resource record can reach the `RES`-param guard only if a resource
+binding can be observed null at a *forward* use. Two compiler behaviors, verified
+against `target/debug/mfb`, jointly forbid that:
+
+1. **A resource binding must be initialized.** A bare `RES f AS T` with no
+   initializer is rejected at compile time with `TYPE_LET_REQUIRES_VALUE`
+   ("immutable binding must have an initializer"). There is no zero/default-init
+   resource declaration, so no path produces a null record that is then used.
+
+2. **A fallible resource initializer auto-propagates on failure.** Runtime probe:
+   `RES f AS File = fs::open("/no/such/file", "read")` followed by
+   `io::print("REACHED-USE-AFTER-FAILED-INIT")` and a `fs::readLine(f)`. The
+   program traps at `open` with `ErrPathNotFound` (7-703-0001), exits 255, and the
+   print **never runs** — control returns from the function before any forward use.
+   The null slot the trapped initializer leaves behind is therefore observable
+   *only* during scope-drop unwind, which `builder_resource_cleanup.rs:223-227`
+   (bug-246) already null-guards.
+
+Because (1) removes the uninitialized-use path and (2) removes the
+trapped-then-used path, no null record reaches a native (or built-in) `RES`-param
+call. The built-in resource ops named in Blast Radius are safe by the same
+construction. The one-instruction null branch remains available as future-proofing
+if flow analysis ever changes, but is not warranted today: it would churn every
+native `RES`-param thunk's golden to guard a state no program can reach, and no
+test could exercise it (this repo forbids proxy repros). Closed won't-fix.
+
+---
+
+Original report follows.
+
 
 The thunk for a native `LINK` function that takes a resource parameter
 (`RES x AS T` where `T` is a native resource) emits a closed/moved guard at the
