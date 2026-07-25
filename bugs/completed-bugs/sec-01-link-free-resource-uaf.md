@@ -5,10 +5,20 @@ Effort: small (<1h)
 Severity: HIGH
 Class: Memory-safety
 
-Status: Open
-Regression Test: (to add) a syntaxcheck rejection fixture, e.g.
-`tests/syntaxcheck/` `native-free-on-resource-producer`, plus an `ir::verify`
-twin.
+Status: Fixed (2026-07-25). Rejected at the frontend AND mirrored in
+`ir::verify`: a `FREE` block on a function with `return_resource == true` now
+reports `NATIVE_FREE_INVALID` with a message explaining a resource producer keeps
+the native handle alive in its record and must not free it. The codegen FREE site
+(`link_thunk.rs`) gained a `debug_assert!(!function.return_resource)` to lock the
+invariant. New negative fixture
+`tests/syntax/native/native-free-on-resource-producer-invalid` (the doc's repro)
+now rejects; full acceptance green (1082 tests); no valid package changed (none
+combined the two features), so no golden moved.
+Regression Test: `tests/syntax/native/native-free-on-resource-producer-invalid`
+(syntaxcheck rejection). The `ir::verify` twin is mirror code covering the
+decoded-`.mfp` path (no source-level fixture can reach it since syntaxcheck now
+rejects the combination); it is validated by the full ir::verify suite staying
+green.
 
 A native `LINK` function that both **produces a resource** (`... AS RES <T>`,
 setting `return_resource`) and carries a **`FREE` block** compiles cleanly but

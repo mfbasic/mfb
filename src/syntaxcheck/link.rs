@@ -724,6 +724,24 @@ impl<'a> SyntaxChecker<'a> {
         // the C return, named by `RETURN` — through a deallocator that takes one
         // CPtr and returns CVoid (e.g. `sqlite3_free`). Anything else is rejected.
         if let Some(free) = &function.free {
+            // sec-01: `FREE` is a copy-then-free mechanism for a caller-owned value
+            // that the wrapper copies out (a `String`/buffer). An `AS RES` producer
+            // instead keeps the native handle alive by storing it into the resource
+            // record's `FD@0`; freeing it in the thunk would leave every later use a
+            // use-after-free and the scope-drop `CLOSE BY` a double-free. The
+            // combination is semantically contradictory, so reject it outright.
+            if function.return_resource {
+                self.report(
+                    "NATIVE_FREE_INVALID",
+                    &format!(
+                        "Native function `{}` declares a FREE block on an `AS RES` resource producer: a resource producer keeps the native handle alive in its record and must not free it (FREE is only for a caller-owned value copied out of the return).",
+                        function.name
+                    ),
+                    file,
+                    free.line,
+                );
+                return;
+            }
             let mut ok = true;
             // plan-50-H: `FREE <slot>` names the real slot rather than the magic
             // `return`. The freed slot must be the C return, and that return must

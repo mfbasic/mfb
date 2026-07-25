@@ -1402,6 +1402,14 @@ fn lower_link_thunk(
     // A NULL pointer is passed through unchanged — deallocators such as
     // sqlite3_free treat NULL as a no-op.
     if let Some(free_slot) = free_slot {
+        // sec-01: syntaxcheck + ir::verify now reject `FREE` on an `AS RES`
+        // producer, so this deallocation can never run for a resource-wrapping
+        // thunk (which keeps the handle live in FD@0). Lock the invariant here so
+        // any future path that reintroduces the combination trips in debug.
+        debug_assert!(
+            !function.return_resource,
+            "FREE on an AS RES producer must be rejected before codegen (sec-01)"
+        );
         instructions.extend([
             abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STATUS_OFF),
             abi::load_u64(&abi::argument_register(0)?, abi::stack_pointer(), CRET_OFF),

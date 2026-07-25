@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/syntax/native/native-free-on-resource-producer-invalid
+  11 |     ABI (path CString) AS handle CPtr
+  12 |     RETURN handle
+  13 |     FREE handle
+     | ^
+tests/syntax/native/native-free-on-resource-producer-invalid/src/lib.mfb:13 error[2-203-0099 NATIVE_FREE_INVALID]: a FREE block is malformed: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid
+               Native function `open` declares a FREE block on an `AS RES` resource producer: a resource producer keeps the native handle alive in its record and must not free it (FREE is only for a caller-owned value copied out of the return).
+[exit 1]

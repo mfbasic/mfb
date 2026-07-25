@@ -1,0 +1,23 @@
+' sec-01: A `FREE` block is a copy-then-free mechanism for a caller-owned value
+' the wrapper copies out of the return (a `String`/buffer). An `AS RES` producer
+' instead keeps the native handle alive by storing it into the resource record's
+' `FD@0`; freeing it in the thunk would make every later use a use-after-free and
+' the scope-drop `CLOSE BY` a double-free. The combination must be rejected.
+EXPORT RESOURCE Db CLOSE BY fooLink::free
+
+LINK "foo" AS fooLink
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "foo_open"
+    ABI (path CString) AS handle CPtr
+    RETURN handle
+    FREE handle
+      SYMBOL "foo_free"
+      ABI (ptr CPtr) AS CVoid
+    END FREE
+  END FUNC
+  FUNC free(RES db AS Db) AS Nothing
+    SYMBOL "foo_free"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK

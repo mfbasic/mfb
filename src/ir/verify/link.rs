@@ -464,7 +464,19 @@ impl TypeEnv {
             // The IR's FREE form keeps only slot+symbol (the deallocator's
             // signature check stays in syntaxcheck): the symbol must be present.
             if let Some(free) = &function.free {
-                if free.symbol.is_empty() {
+                // sec-01: a decoded `.mfp` bypasses syntaxcheck, so mirror the
+                // frontend rejection here — `FREE` on an `AS RES` producer would
+                // free the live handle stored in the resource record (UAF +
+                // double-free). This guard is load-bearing for binary packages.
+                if function.return_resource {
+                    self.emit(
+                        "NATIVE_FREE_INVALID",
+                        format!(
+                            "Native function `{}` declares a FREE block on an `AS RES` resource producer: a resource producer keeps the native handle alive in its record and must not free it (FREE is only for a caller-owned value copied out of the return).",
+                            function.name
+                        ),
+                    );
+                } else if free.symbol.is_empty() {
                     self.emit(
                         "NATIVE_FREE_INVALID",
                         format!(

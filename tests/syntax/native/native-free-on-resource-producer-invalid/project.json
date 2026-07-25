@@ -1,0 +1,8 @@
+{
+  "name": "native_free_on_resource_producer_invalid",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "sec-01: FREE is invalid on an AS RES resource producer (it would free the live handle the record keeps alive).",
+  "sources": [ { "root": "src", "role": "package", "include": ["**/*.mfb"] } ]
+}
