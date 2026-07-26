@@ -5,7 +5,8 @@
     "path": "src/main.mfb",
     "imports": [
     { "module": "io", "line": 2 },
-    { "module": "audio", "line": 3 }
+    { "module": "collections", "line": 3 },
+    { "module": "audio", "line": 4 }
     ],
     "items": [
     {
@@ -13,17 +14,43 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 5,
+      "line": 6,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "mic", "type": "AudioInput", "value": { "kind": "call", "callee": "audio.openInput", "arguments": [{ "kind": "number", "value": "48000" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "512" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "pcm", "type": null, "value": { "kind": "call", "callee": "audio.read", "arguments": [{ "kind": "identifier", "value": "mic" }, { "kind": "number", "value": "256" }] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pcm" }] }] }] }, "line": 8 },
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "spk", "type": "AudioOutput", "value": { "kind": "call", "callee": "audio.openOutput", "arguments": [{ "kind": "number", "value": "48000" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "512" }] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.write", "arguments": [{ "kind": "identifier", "value": "spk" }, { "kind": "identifier", "value": "pcm" }] }, "line": 10 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "mic", "type": "AudioInput", "value": { "kind": "call", "callee": "audio.openInput", "arguments": [{ "kind": "number", "value": "48000" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "512" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "pcm", "type": null, "value": { "kind": "call", "callee": "audio.read", "arguments": [{ "kind": "identifier", "value": "mic" }, { "kind": "number", "value": "256" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pcm" }] }] }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "pcm2", "type": null, "value": { "kind": "call", "callee": "audio.read", "arguments": [{ "kind": "identifier", "value": "mic" }, { "kind": "number", "value": "256" }, { "kind": "number", "value": "100" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "pcm2" }] }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "audio.available", "arguments": [{ "kind": "identifier", "value": "mic" }] }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "audio.poll", "arguments": [{ "kind": "identifier", "value": "mic" }] }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "audio.poll", "arguments": [{ "kind": "identifier", "value": "mic" }, { "kind": "number", "value": "50" }] }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "audio.xruns", "arguments": [{ "kind": "identifier", "value": "mic" }] }] }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "devs", "type": null, "value": { "kind": "call", "callee": "audio.devices", "arguments": [] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "devs" }] }] }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "dev", "type": null, "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "devs" }, { "kind": "number", "value": "0" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "mic2", "type": "AudioInput", "value": { "kind": "call", "callee": "audio.openInput", "arguments": [{ "kind": "identifier", "value": "dev" }, { "kind": "number", "value": "48000" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "512" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.close", "arguments": [{ "kind": "identifier", "value": "mic2" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "spk", "type": "AudioOutput", "value": { "kind": "call", "callee": "audio.openOutput", "arguments": [{ "kind": "number", "value": "48000" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "512" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.write", "arguments": [{ "kind": "identifier", "value": "spk" }, { "kind": "identifier", "value": "pcm" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "audio.available", "arguments": [{ "kind": "identifier", "value": "spk" }] }] }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "audio.poll", "arguments": [{ "kind": "identifier", "value": "spk" }] }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "audio.poll", "arguments": [{ "kind": "identifier", "value": "spk" }, { "kind": "number", "value": "50" }] }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "audio.xruns", "arguments": [{ "kind": "identifier", "value": "spk" }] }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.play", "arguments": [{ "kind": "identifier", "value": "spk" }, { "kind": "string", "value": "T120 O4 CDEFGAB" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "tracks", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "T120 O4 CEG" }, { "kind": "string", "value": "T120 O3 GEC" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.play", "arguments": [{ "kind": "identifier", "value": "spk" }, { "kind": "identifier", "value": "tracks" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "spk2", "type": "AudioOutput", "value": { "kind": "call", "callee": "audio.openOutput", "arguments": [{ "kind": "identifier", "value": "dev" }, { "kind": "number", "value": "48000" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "512" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.close", "arguments": [{ "kind": "identifier", "value": "spk2" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "env", "type": null, "value": { "kind": "constructor", "type": "AudioEnvelope", "arguments": [{ "kind": "number", "value": "2400" }, { "kind": "number", "value": "4800" }, { "kind": "number", "value": "31200" }, { "kind": "number", "value": "9600" }, { "kind": "number", "value": "12000" }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "note", "type": null, "value": { "kind": "constructor", "type": "AudioNote", "arguments": [{ "kind": "number", "value": "440.0" }, { "kind": "number", "value": "48000" }, { "kind": "identifier", "value": "env" }, { "kind": "number", "value": "0.8" }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "tone", "type": null, "value": { "kind": "call", "callee": "audio.render", "arguments": [{ "kind": "identifier", "value": "note" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "tone" }] }] }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.close", "arguments": [{ "kind": "identifier", "value": "mic" }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "audio.close", "arguments": [{ "kind": "identifier", "value": "spk" }] }, "line": 52 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 53 }
       ]
     }
     ]

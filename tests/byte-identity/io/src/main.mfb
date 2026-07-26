@@ -1,0 +1,47 @@
+' bug-389 byte-identity codegen coverage for the io package.
+' Compile-only by design: io reads standard input and inspects terminals, which
+' is irrelevant at compile time, so there is no .run golden and the harness
+' never executes this — it exists only to give the io backend a .ncode golden.
+IMPORT io
+
+FUNC main() AS Integer
+  ' Output functions (String -> Nothing).
+  io::print("hello")
+  io::printError("hello")
+  io::write("hello")
+  io::writeError("hello")
+  io::flush()
+
+  ' Buffering controls.
+  io::setBuffered(TRUE)
+  LET buffered AS Boolean = io::isBuffered()
+  io::print(toString(buffered))
+
+  ' Input functions.
+  LET line AS String = io::input()
+  io::print(line)
+  LET prompted AS String = io::input("Name: ")
+  io::print(prompted)
+  LET b AS Byte = io::readByte()
+  io::print(toString(b))
+  LET ch AS String = io::readChar()
+  io::print(ch)
+  LET raw AS String = io::readLine()
+  io::print(raw)
+
+  ' Poll input (no-arg and timeout overloads).
+  LET ready AS Boolean = io::pollInput()
+  io::print(toString(ready))
+  LET readyTimeout AS Boolean = io::pollInput(1000)
+  io::print(toString(readyTimeout))
+
+  ' Terminal predicates.
+  LET inTerm AS Boolean = io::isInputTerminal()
+  io::print(toString(inTerm))
+  LET outTerm AS Boolean = io::isOutputTerminal()
+  io::print(toString(outTerm))
+  LET errTerm AS Boolean = io::isErrorTerminal()
+  io::print(toString(errTerm))
+
+  RETURN 0
+END FUNC

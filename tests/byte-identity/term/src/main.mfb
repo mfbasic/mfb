@@ -1,0 +1,56 @@
+' bug-389 byte-identity codegen coverage for the term package.
+' Compile-only by design: term drives a live full-screen TUI surface, which is
+' irrelevant at compile time, so there is no .run golden and the harness never
+' executes this — it exists only to give the term backend a .ncode golden.
+IMPORT io
+IMPORT term
+
+FUNC main() AS Integer
+  ' Gate: enter and query TUI mode.
+  term::on()
+  LET on AS Boolean = term::isOn()
+  io::print(toString(on))
+
+  ' Cursor placement and visibility.
+  term::moveTo(3, 7)
+  term::hideCursor()
+  term::showCursor()
+
+  ' Colour setters (three Byte channels each).
+  term::setForeground(255, 128, 0)
+  term::setBackground(0, 64, 200)
+
+  ' Attribute setters (Boolean).
+  term::setBold(TRUE)
+  term::setUnderline(FALSE)
+
+  ' Colour getters (TermColor: three Byte fields r, g, b).
+  LET fg AS TermColor = term::getForeground()
+  io::print(toString(fg.r))
+  io::print(toString(fg.g))
+  io::print(toString(fg.b))
+  LET bg AS TermColor = term::getBackground()
+  io::print(toString(bg.r))
+  io::print(toString(bg.g))
+  io::print(toString(bg.b))
+
+  ' Attribute getters (Boolean).
+  LET bold AS Boolean = term::getBold()
+  io::print(toString(bold))
+  LET under AS Boolean = term::getUnderline()
+  io::print(toString(under))
+
+  ' Surface size (TermSize: two Integer fields columns, rows).
+  LET size AS TermSize = term::terminalSize()
+  io::print(toString(size.columns))
+  io::print(toString(size.rows))
+
+  ' Clear the surface and present the composed frame.
+  term::clear()
+  term::sync()
+
+  ' Leave TUI mode.
+  term::off()
+
+  RETURN 0
+END FUNC

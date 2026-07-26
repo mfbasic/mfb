@@ -40,7 +40,17 @@
         { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "k" }] }, "line": 14 }
         ]
       },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.name", "arguments": [] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.arch", "arguments": [] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "os.pid", "arguments": [] }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "os.cpuCount", "arguments": [] }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "MFB_COVER" }, { "kind": "string", "value": "1" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.getEnv", "arguments": [{ "kind": "string", "value": "MFB_COVER" }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.getEnvOr", "arguments": [{ "kind": "string", "value": "MFB_MISSING" }, { "kind": "string", "value": "fallback" }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "os.hasEnv", "arguments": [{ "kind": "string", "value": "MFB_COVER" }] }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.unsetEnv", "arguments": [{ "kind": "string", "value": "MFB_COVER" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "os.resourcePath", "arguments": [{ "kind": "string", "value": "data/asset.txt" }] }] }, "line": 25 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
       ]
     }
     ]

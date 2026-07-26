@@ -1,0 +1,79 @@
+' bug-389 byte-identity codegen coverage for the http package: calls every
+' http function and every distinct overload with valid typed args and full
+' resource ceremony. Compile-only by design — it opens sockets/files that do
+' not exist in a test run, so it carries no .run golden and is never executed.
+IMPORT io
+IMPORT http
+IMPORT net
+IMPORT tls
+IMPORT fs
+IMPORT collections
+
+' Route handler: exercises http::respondPath (only obtainable from a Request).
+FUNC coverHandler(req AS http::Request) AS http::Response
+  RETURN http::respondPath(req, "target/http-root")
+END FUNC
+
+FUNC main() AS Integer
+  ' --- Response constructors + combinators ---------------------------------
+  LET okr = http::ok("welcome")
+  io::print(toString(okr.status))
+  LET jr = http::json("{\"ok\":true}")
+  io::print(toString(jr.status))
+  LET dr = http::responseDefault()
+  io::print(toString(dr.status))
+  LET sr = http::status(404, "nope")
+  io::print(toString(sr.status))
+  LET wr = http::withHeader(okr, "Cache-Control", "no-store")
+  io::print(toString(len(wr.headers)))
+  LET bd = http::bytes("payload")
+  io::print(toString(len(bd)))
+
+  ' --- respondFile: both overloads (each consumes a fresh File handle) ------
+  RES f1 AS File = fs::openFile("target/cover.bin")
+  LET rf1 = http::respondFile(f1)
+  io::print(toString(rf1.status))
+  RES f2 AS File = fs::openFile("target/cover.bin")
+  LET rf2 = http::respondFile(f2, "text/plain")
+  io::print(toString(rf2.status))
+
+  ' --- Client: read (3 overloads) + write (3 overloads) --------------------
+  LET url = net::toUrl("http://example.com/items")
+  MUT hdrs AS Map OF String TO String = Map OF String TO String {}
+  hdrs = collections::set(hdrs, "x-test", "1")
+  LET r1 = http::read(url)
+  io::print(toString(r1.status))
+  LET r2 = http::read(url, hdrs)
+  io::print(toString(r2.status))
+  LET r3 = http::read(url, hdrs, "HEAD")
+  io::print(toString(r3.status))
+  LET w1 = http::write(url, "body")
+  io::print(toString(w1.status))
+  LET w2 = http::write(url, "body", hdrs)
+  io::print(toString(w2.status))
+  LET w3 = http::write(url, "body", hdrs, "PUT")
+  io::print(toString(w3.status))
+
+  ' --- route + the respondPath-bearing handler (compiled via the list) -----
+  MUT routes AS List OF http::Route = []
+  routes = collections::append(routes, http::route("/static/*", coverHandler))
+  io::print(toString(len(routes)))
+
+  ' --- server: 3 overloads (returns net::Listener) -------------------------
+  RES lst1 AS Listener = http::server(8080)
+  RES lst2 AS Listener = http::server(8081, "0.0.0.0")
+  RES lst3 AS Listener = http::server(8082, "0.0.0.0", 16)
+  io::print(toString(net::localAddress(lst2).port))
+  io::print(toString(net::localAddress(lst3).port))
+
+  ' --- serverSSL: 3 overloads (returns tls::TlsListener) -------------------
+  RES tl1 AS TlsListener = http::serverSSL(8443, "cert.pem", "key.pem")
+  RES tl2 AS TlsListener = http::serverSSL(8444, "cert.pem", "key.pem", "0.0.0.0")
+  RES tl3 AS TlsListener = http::serverSSL(8445, "cert.pem", "key.pem", "0.0.0.0", 16)
+
+  ' --- handleRequest: both overloads (net::Listener + tls::TlsListener) -----
+  http::handleRequest(lst1, routes)
+  http::handleRequest(tl1, routes)
+
+  RETURN 0
+END FUNC

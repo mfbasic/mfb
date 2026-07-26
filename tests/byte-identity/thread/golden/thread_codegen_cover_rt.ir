@@ -1,0 +1,74 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_codegen_cover_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 10, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "t1", "type": "Thread OF String RES File TO Integer", "value": { "kind": "call", "type": "Thread OF String RES File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_cover_worker.coverWorker", "type": "ISOLATED FUNC(ThreadWorker OF String RES File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [{ "kind": "local", "name": "t1" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "thread.closeStdIn", "args": [{ "kind": "local", "name": "t1" }] } },
+    {
+      "op": "if",
+      "line": 22,
+      "condition": { "kind": "call", "type": "Boolean", "target": "thread.isRunning", "args": [{ "kind": "local", "name": "t1" }] },
+      "then": [
+      { "op": "assign", "line": 23, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "line": 25,
+      "condition": { "kind": "call", "type": "Boolean", "target": "thread.poll", "args": [{ "kind": "local", "name": "t1" }, { "kind": "const", "type": "Integer", "value": "0" }] },
+      "then": [
+      { "op": "assign", "line": 26, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "thread.cancel", "args": [{ "kind": "local", "name": "t1" }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t1" }, { "kind": "const", "type": "String", "value": "alpha" }] } },
+    { "op": "eval", "line": 32, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t1" }, { "kind": "const", "type": "String", "value": "beta" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 35, "mutable": false, "name": "r1", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t1" }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "r2", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 37, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "r1" }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "r2" }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "pf1", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "bug-389-does-not-exist-1.txt" }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "t1" }, { "kind": "local", "name": "pf1" }] } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "pf2", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "bug-389-does-not-exist-2.txt" }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "t1" }, { "kind": "local", "name": "pf2" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 47, "mutable": false, "name": "wf1", "type": "File", "value": { "kind": "call", "type": "File", "target": "thread.acceptResource", "args": [{ "kind": "local", "name": "t1" }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "wf1" }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "wf2", "type": "File", "value": { "kind": "call", "type": "File", "target": "thread.acceptResource", "args": [{ "kind": "local", "name": "t1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "wf2" }] } },
+    { "op": "bind", "line": 53, "mutable": false, "name": "res1", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t1" }] } },
+    { "op": "assign", "line": 54, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "res1" } } },
+    { "op": "bind", "line": 57, "mutable": false, "name": "t2", "type": "Thread OF String RES File TO Integer", "value": { "kind": "call", "type": "Thread OF String RES File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_cover_worker.coverWorker", "type": "ISOLATED FUNC(ThreadWorker OF String RES File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "assign", "line": 58, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t2" }] } } },
+    { "op": "bind", "line": 61, "mutable": false, "name": "t3", "type": "Thread OF String RES File TO Integer", "value": { "kind": "call", "type": "Thread OF String RES File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_cover_worker.coverWorker", "type": "ISOLATED FUNC(ThreadWorker OF String RES File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "assign", "line": 62, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "type": "Integer", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t3" }] } } },
+    { "op": "eval", "line": 65, "value": { "kind": "call", "type": "Nothing", "target": "thread.openStdIn", "args": [] } },
+    { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "thread.closeStdIn", "args": [] } },
+    { "op": "eval", "line": 68, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] }] } },
+    { "op": "return", "line": 69, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

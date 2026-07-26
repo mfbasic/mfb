@@ -1,0 +1,159 @@
+' bug-389 byte-identity codegen-coverage for package math: compile-only, never executed.
+IMPORT io
+IMPORT math
+
+FUNC main() AS Integer
+  ' typed scalar operands, one per numeric type
+  LET iVal AS Integer = 5
+  LET iVal2 AS Integer = 3
+  LET fVal AS Float = 1.5
+  LET fVal2 AS Float = 2.5
+  LET fUnit AS Float = 0.5
+  LET xVal AS Fixed = 1.25
+  LET xVal2 AS Fixed = 2.5
+  LET xUnit AS Fixed = 0.5
+  LET xLow AS Fixed = 0.0
+  LET xHigh AS Fixed = 10.0
+  LET mVal AS Money = 1.25m
+  LET mVal2 AS Money = 2.5m
+  LET mLow AS Money = 0.0m
+  LET mHigh AS Money = 10.0m
+
+  ' typed list operands, one per numeric type
+  LET iList AS List OF Integer = [1, 2, 3]
+  LET iList2 AS List OF Integer = [4, 5, 6]
+  LET fList AS List OF Float = [1.5, 2.5]
+  LET fList2 AS List OF Float = [3.5, 4.5]
+  LET fUnitList AS List OF Float = [0.5, -0.5]
+  LET xList AS List OF Fixed = [1.25, 2.5]
+  LET xList2 AS List OF Fixed = [3.25, 4.5]
+
+  ' abs: Integer, Float, Fixed, Money, and List OF Integer/Float/Fixed
+  io::print(toString(math::abs(iVal)))
+  io::print(toString(math::abs(fVal)))
+  io::print(toString(math::abs(xVal)))
+  io::print(toString(math::abs(mVal)))
+  io::print(toString(len(math::abs(iList))))
+  io::print(toString(len(math::abs(fList))))
+  io::print(toString(len(math::abs(xList))))
+
+  ' acos: Float, Fixed, List OF Float  (arguments in [-1, 1])
+  io::print(toString(math::acos(fUnit)))
+  io::print(toString(math::acos(xUnit)))
+  io::print(toString(len(math::acos(fUnitList))))
+
+  ' asin: Float, Fixed, List OF Float  (arguments in [-1, 1])
+  io::print(toString(math::asin(fUnit)))
+  io::print(toString(math::asin(xUnit)))
+  io::print(toString(len(math::asin(fUnitList))))
+
+  ' atan: Float, Fixed, List OF Float
+  io::print(toString(math::atan(fVal)))
+  io::print(toString(math::atan(xVal)))
+  io::print(toString(len(math::atan(fList))))
+
+  ' atan2: (Float, Float), (Fixed, Fixed), (List OF Float, List OF Float)
+  io::print(toString(math::atan2(fVal, fVal2)))
+  io::print(toString(math::atan2(xVal, xVal2)))
+  io::print(toString(len(math::atan2(fList, fList2))))
+
+  ' ceil: Float, Fixed, Money, List OF Float, List OF Fixed
+  io::print(toString(math::ceil(fVal)))
+  io::print(toString(math::ceil(xVal)))
+  io::print(toString(math::ceil(mVal)))
+  io::print(toString(len(math::ceil(fList))))
+  io::print(toString(len(math::ceil(xList))))
+
+  ' clamp: Integer, Float, Fixed, Money, List OF Integer/Float/Fixed
+  io::print(toString(math::clamp(iVal, 0, 10)))
+  io::print(toString(math::clamp(fVal, 0.0, 10.0)))
+  io::print(toString(math::clamp(xVal, xLow, xHigh)))
+  io::print(toString(math::clamp(mVal, mLow, mHigh)))
+  io::print(toString(len(math::clamp(iList, 0, 10))))
+  io::print(toString(len(math::clamp(fList, 0.0, 10.0))))
+  io::print(toString(len(math::clamp(xList, xLow, xHigh))))
+
+  ' cos: Float, Fixed, List OF Float
+  io::print(toString(math::cos(fVal)))
+  io::print(toString(math::cos(xVal)))
+  io::print(toString(len(math::cos(fList))))
+
+  ' exp: Float, Fixed, List OF Float
+  io::print(toString(math::exp(fVal)))
+  io::print(toString(math::exp(xVal)))
+  io::print(toString(len(math::exp(fList))))
+
+  ' floor: Float, Fixed, Money, List OF Float, List OF Fixed
+  io::print(toString(math::floor(fVal)))
+  io::print(toString(math::floor(xVal)))
+  io::print(toString(math::floor(mVal)))
+  io::print(toString(len(math::floor(fList))))
+  io::print(toString(len(math::floor(xList))))
+
+  ' log: Float, Fixed, List OF Float, List OF Fixed  (positive arguments)
+  io::print(toString(math::log(fVal)))
+  io::print(toString(math::log(xVal)))
+  io::print(toString(len(math::log(fList))))
+  io::print(toString(len(math::log(xList))))
+
+  ' log10: Float, Fixed, List OF Float, List OF Fixed  (positive arguments)
+  io::print(toString(math::log10(fVal)))
+  io::print(toString(math::log10(xVal)))
+  io::print(toString(len(math::log10(fList))))
+  io::print(toString(len(math::log10(xList))))
+
+  ' max: Integer, Float, Fixed, Money, List OF Integer/Float/Fixed
+  io::print(toString(math::max(iVal, iVal2)))
+  io::print(toString(math::max(fVal, fVal2)))
+  io::print(toString(math::max(xVal, xVal2)))
+  io::print(toString(math::max(mVal, mVal2)))
+  io::print(toString(len(math::max(iList, iList2))))
+  io::print(toString(len(math::max(fList, fList2))))
+  io::print(toString(len(math::max(xList, xList2))))
+
+  ' min: Integer, Float, Fixed, Money, List OF Integer/Float/Fixed
+  io::print(toString(math::min(iVal, iVal2)))
+  io::print(toString(math::min(fVal, fVal2)))
+  io::print(toString(math::min(xVal, xVal2)))
+  io::print(toString(math::min(mVal, mVal2)))
+  io::print(toString(len(math::min(iList, iList2))))
+  io::print(toString(len(math::min(fList, fList2))))
+  io::print(toString(len(math::min(xList, xList2))))
+
+  ' pow: (Float, Float), (Fixed, Fixed), (List OF Float, List OF Float)
+  io::print(toString(math::pow(fVal, fVal2)))
+  io::print(toString(math::pow(xVal, xVal2)))
+  io::print(toString(len(math::pow(fList, fList2))))
+
+  ' rand: (Integer, Integer), (Money, Money)  (min <= max)
+  io::print(toString(math::rand(iVal2, iVal)))
+  io::print(toString(math::rand(mLow, mHigh)))
+
+  ' round: Float, Fixed, Money, List OF Float, List OF Fixed
+  io::print(toString(math::round(fVal)))
+  io::print(toString(math::round(xVal)))
+  io::print(toString(math::round(mVal)))
+  io::print(toString(len(math::round(fList))))
+  io::print(toString(len(math::round(xList))))
+
+  ' seed: Integer -> Nothing
+  math::seed(12345)
+
+  ' sin: Float, Fixed, List OF Float
+  io::print(toString(math::sin(fVal)))
+  io::print(toString(math::sin(xVal)))
+  io::print(toString(len(math::sin(fList))))
+
+  ' sqrt: Float, Fixed, List OF Float, List OF Fixed  (non-negative arguments)
+  io::print(toString(math::sqrt(fVal)))
+  io::print(toString(math::sqrt(xVal)))
+  io::print(toString(len(math::sqrt(fList))))
+  io::print(toString(len(math::sqrt(xList))))
+
+  ' tan: Float, Fixed, List OF Float
+  io::print(toString(math::tan(fVal)))
+  io::print(toString(math::tan(xVal)))
+  io::print(toString(len(math::tan(fList))))
+
+  RETURN 0
+END FUNC

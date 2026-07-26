@@ -1,0 +1,165 @@
+' bug-389 byte-identity codegen coverage for the datetime package.
+' Calls every datetime function and every distinct overload with valid typed
+' args, building each value type through its constructor and chaining producers
+' into consumers. Compile-only: never executed, so results just need consuming.
+IMPORT io
+IMPORT datetime
+
+SUB useS(value AS String)
+  io::print(value)
+END SUB
+
+SUB useI(value AS Integer)
+  io::print(toString(value))
+END SUB
+
+SUB useB(value AS Boolean)
+  IF value THEN
+    io::print("1")
+  ELSE
+    io::print("0")
+  END IF
+END SUB
+
+SUB useInstant(v AS Instant)
+  useI(v.seconds + v.nanos)
+END SUB
+
+SUB useDuration(v AS Duration)
+  useI(v.seconds + v.nanos)
+END SUB
+
+SUB useDate(v AS Date)
+  useI(v.year + v.month + v.day)
+END SUB
+
+SUB useTime(v AS Time)
+  useI(v.hour + v.minute + v.second + v.nanos)
+END SUB
+
+SUB useZone(v AS Zone)
+  useI(v.offsetSeconds + v.kind)
+  useS(v.label)
+END SUB
+
+SUB useDateTime(v AS DateTime)
+  useI(v.offset)
+  useDate(v.date)
+  useTime(v.time)
+END SUB
+
+SUB useWeekday(v AS Weekday)
+  useB(v = Weekday.Monday OR v = Weekday.Sunday)
+END SUB
+
+FUNC main() AS Integer
+  ' --- Clocks (host-touching intrinsics) ---
+  LET nowI AS Instant = datetime::now()
+  useInstant(nowI)
+  useI(datetime::nowNanos())
+  useDuration(datetime::monotonic())
+  useI(datetime::monotonicNanos())
+
+  ' --- instant: all five overloads ---
+  LET i1 AS Instant = datetime::instant(1000)
+  LET i2 AS Instant = datetime::instant(1000, 500)
+  LET i3 AS Instant = datetime::instant(10, 20, 500)
+  LET i4 AS Instant = datetime::instant(1, 10, 20, 500)
+  LET i5 AS Instant = datetime::instant(2, 1, 10, 20, 500)
+  useInstant(i1)
+  useInstant(i2)
+  useInstant(i3)
+  useInstant(i4)
+  useInstant(i5)
+  useInstant(datetime::fromMillis(1700000000000))
+
+  ' --- duration: all five overloads ---
+  LET d1 AS Duration = datetime::duration(60)
+  LET d2 AS Duration = datetime::duration(60, 500)
+  LET d3 AS Duration = datetime::duration(1, 30, 500)
+  LET d4 AS Duration = datetime::duration(1, 1, 30, 500)
+  LET d5 AS Duration = datetime::duration(1, 1, 1, 30, 500)
+  useDuration(d1)
+  useDuration(d2)
+  useDuration(d3)
+  useDuration(d4)
+  useDuration(d5)
+
+  ' --- Zones: utc / local / fixedOffset (both overloads) ---
+  LET zu AS Zone = datetime::utc()
+  LET zl AS Zone = datetime::local()
+  LET zf1 AS Zone = datetime::fixedOffset(19800)
+  LET zf2 AS Zone = datetime::fixedOffset(5, 30)
+  useZone(zu)
+  useZone(zl)
+  useZone(zf1)
+  useZone(zf2)
+
+  ' --- Date / Time (time defaults: 2, 3, and 4 argument forms) ---
+  LET dd AS Date = datetime::date(2026, 6, 26)
+  LET t2 AS Time = datetime::time(9, 30)
+  LET t3 AS Time = datetime::time(9, 30, 15)
+  LET t4 AS Time = datetime::time(9, 30, 15, 500)
+  useDate(dd)
+  useTime(t2)
+  useTime(t3)
+  useTime(t4)
+
+  ' --- DateTime producers ---
+  LET civ AS DateTime = datetime::civil(dd, t4, zu)
+  LET dtz AS DateTime = datetime::inZone(nowI, zf1)
+  LET dtu AS DateTime = datetime::toUtc(nowI)
+  LET dtl AS DateTime = datetime::toLocal(nowI)
+  LET dtw AS DateTime = datetime::withZone(civ, zl)
+  LET dtd AS DateTime = datetime::addDays(civ, 3)
+  LET dtm AS DateTime = datetime::addMonths(civ, 2)
+  LET dts AS DateTime = datetime::startOfDay(civ)
+  LET dtp AS DateTime = datetime::parse("2026-06-26 09:30", "yyyy-MM-dd HH:mm")
+  LET dtp2 AS DateTime = datetime::parse("2026-06-26 09:30", "yyyy-MM-dd HH:mm", zf1)
+  LET dti AS DateTime = datetime::parseIso("2026-06-26T09:30:00+00:00")
+  useDateTime(civ)
+  useDateTime(dtz)
+  useDateTime(dtu)
+  useDateTime(dtl)
+  useDateTime(dtw)
+  useDateTime(dtd)
+  useDateTime(dtm)
+  useDateTime(dts)
+  useDateTime(dtp)
+  useDateTime(dtp2)
+  useDateTime(dti)
+
+  ' --- Instant arithmetic ---
+  useInstant(datetime::add(nowI, d1))
+  useInstant(datetime::subtract(nowI, d1))
+  useInstant(datetime::resolve(civ))
+  useDuration(datetime::between(i1, i2))
+
+  ' --- Duration arithmetic ---
+  useDuration(datetime::plus(d1, d2))
+  useDuration(datetime::minus(d2, d1))
+  useDuration(datetime::negate(d1))
+
+  ' --- Comparisons ---
+  useI(datetime::compare(i1, i2))
+  useB(datetime::equals(i1, i2))
+  useB(datetime::isAfter(i2, i1))
+  useB(datetime::isBefore(i1, i2))
+
+  ' --- Conversions / accessors ---
+  useI(datetime::toMillis(nowI))
+  useI(datetime::toNanos(i1))
+  useI(datetime::dayOfYear(civ))
+  useI(datetime::daysInMonth(2026, 2))
+  useB(datetime::isLeapYear(2024))
+  useI(datetime::localOffset(1700000000))
+  useI(datetime::offsetAt(zf1, nowI))
+  useWeekday(datetime::weekday(civ))
+
+  ' --- Formatting / parsing text ---
+  useS(datetime::format(civ, "yyyy-MM-dd'T'HH:mm:ss Z"))
+  useS(datetime::formatDuration(d5))
+  useS(datetime::toIso(civ))
+
+  RETURN 0
+END FUNC

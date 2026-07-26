@@ -4,8 +4,8 @@
   {
     "path": "src/main.mfb",
     "imports": [
-    { "module": "io", "line": 2 },
-    { "module": "fs", "line": 3 }
+    { "module": "io", "line": 10 },
+    { "module": "fs", "line": 11 }
     ],
     "items": [
     {
@@ -13,24 +13,77 @@
       "visibility": "public",
       "isolated": false,
       "name": "main",
-      "line": 5,
+      "line": 13,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }, "line": 6 },
-      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": { "kind": "call", "callee": "fs.readAllBytes", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 7 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": { "kind": "call", "callee": "fs.readAllBytes", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] }, "line": 17 },
       {
         "kind": "forEach",
         "name": "name",
         "iterable": { "kind": "call", "callee": "fs.listDirectory", "arguments": [{ "kind": "string", "value": "target" }] },
-        "line": 9,
+        "line": 18,
         "body": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 10 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 19 }
         ]
       },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      { "kind": "binding", "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "72" }, { "kind": "number", "value": "101" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "108" }, { "kind": "number", "value": "111" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": { "kind": "string", "value": "hello" }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "parts", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "string", "value": "target" }, { "kind": "string", "value": "sub" }, { "kind": "string", "value": "leaf.txt" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathJoin", "arguments": [{ "kind": "identifier", "value": "parts" }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathNormalize", "arguments": [{ "kind": "string", "value": "target/./a/../cover.bin" }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathDirName", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathBaseName", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.pathExtension", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.canonicalPath", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.isWithin", "arguments": [{ "kind": "string", "value": "target" }, { "kind": "string", "value": "target/cover.bin" }] }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.exists", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }] }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.fileExists", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }] }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.directoryExists", "arguments": [{ "kind": "string", "value": "target" }] }] }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectory", "arguments": [{ "kind": "string", "value": "target/coverdir" }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectories", "arguments": [{ "kind": "string", "value": "target/coverdir/nested/leaf" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteDirectory", "arguments": [{ "kind": "string", "value": "target/coverdir/nested/leaf" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.currentDirectory", "arguments": [] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.tempDirectory", "arguments": [] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setCurrentDirectory", "arguments": [{ "kind": "string", "value": "." }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readBytes", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }] }] }] }, "line": 51 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeText", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "identifier", "value": "text" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeTextAtomic", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "identifier", "value": "text" }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytes", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "identifier", "value": "payload" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytesAtomic", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "identifier", "value": "payload" }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.appendText", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "identifier", "value": "text" }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.appendBytes", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "identifier", "value": "payload" }] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }, "line": 58 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "fh", "type": "File", "value": { "kind": "call", "callee": "fs.open", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "string", "value": "rw" }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "fh" }, { "kind": "boolean", "value": true }] }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.isBuffered", "arguments": [{ "kind": "identifier", "value": "fh" }] }] }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "fh" }, { "kind": "identifier", "value": "text" }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAllBytes", "arguments": [{ "kind": "identifier", "value": "fh" }, { "kind": "identifier", "value": "payload" }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.flush", "arguments": [{ "kind": "identifier", "value": "fh" }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readLine", "arguments": [{ "kind": "identifier", "value": "fh" }] }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "fh" }] }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readAllBytes", "arguments": [{ "kind": "identifier", "value": "fh" }] }] }] }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.eof", "arguments": [{ "kind": "identifier", "value": "fh" }] }] }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "fh" }] }, "line": 72 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f2", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "string", "value": "read" }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f2" }] }, "line": 76 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f3", "type": "File", "value": { "kind": "call", "callee": "fs.openFileNoFollow", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }, "line": 77 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f3" }] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f4", "type": "File", "value": { "kind": "call", "callee": "fs.openFileNoFollow", "arguments": [{ "kind": "string", "value": "target/cover.bin" }, { "kind": "string", "value": "read" }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f4" }] }, "line": 80 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f5", "type": "File", "value": { "kind": "call", "callee": "fs.openWithin", "arguments": [{ "kind": "string", "value": "target" }, { "kind": "string", "value": "cover.bin" }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f5" }] }, "line": 82 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f6", "type": "File", "value": { "kind": "call", "callee": "fs.openWithin", "arguments": [{ "kind": "string", "value": "target" }, { "kind": "string", "value": "cover.bin" }, { "kind": "string", "value": "read" }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f6" }] }, "line": 84 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f7", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 85 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f7" }] }, "line": 86 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f8", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [{ "kind": "string", "value": "target" }] }, "line": 87 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "f8" }] }, "line": 88 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 90 }
       ]
     }
     ]
