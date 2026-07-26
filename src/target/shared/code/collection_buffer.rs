@@ -175,7 +175,9 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
         // Mark the map hash index not-ready (built lazily on first probe); a no-op
-        // field for lists. Fresh, grown, and copied collections all reset it here.
+        // field for lists. Every collection built THROUGH this helper resets it
+        // here — but note the field-by-field header writers that bypass this helper
+        // (list-only paths, where the field is a no-op) do not.
         self.emit(abi::move_immediate(&scratch22, "Byte", "0"));
         self.emit(abi::store_u8(
             &scratch22,
