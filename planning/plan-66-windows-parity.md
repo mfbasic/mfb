@@ -322,11 +322,17 @@ write-plan split rule (as plan-47-B/H did). Keep this file's checkboxes current 
 tick in the same commit as the work.
 
 ### Phase A — `datetime::`
-- [ ] Advertise `datetime.*` in `win_x86_64/mod.rs:RUNTIME_CALLS`.
-- [ ] Fill `datetime.rs:65` (`monotonicNanos`, QPC) and `:77` (`nowNanos`) + `localOffset`; add `plan.rs` imports.
-- [ ] Tests: seed `*.windows-x86_64.ncode` goldens; box run printing a monotonic delta + wall clock.
+- [x] Advertise `datetime.*` in `win_x86_64/mod.rs:RUNTIME_CALLS`.
+- [x] Fill the Windows datetime lowering + add `plan.rs` imports. (Implemented as a
+  dedicated `lower_datetime_windows` in `shared/code/datetime.rs`, not literally
+  the `:65`/`:77` libc arms — those are `clock_gettime`/`localtime_r`-shaped and
+  Windows has no CRT; see Corrections.)
+- [x] Tests: `tests/rt-behavior/datetime/datetime-clock-offset` (host-neutral
+  boolean fixture, cross-target) + box run printing monotonic delta / wall clock /
+  offset stability / out-of-range trap. (ncode golden dropped as impractical — see
+  Corrections; box run + build-determinism are the Windows byte guard.)
 
-Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets.
+Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets. **MET** — box (`dt66.exe`): `mono_nonneg=TRUE now_recent=TRUE off_stable=TRUE(-28800=PST) oor_invalidArg=TRUE`; artifact-gate 21 diffs are all pre-existing flaky `codegen_cover_rt` noise in untouched paths (see Corrections), 0 attributable to this change; full `cargo test` green.
 Commit: —
 
 ### Phase B — `os::`
@@ -444,6 +450,47 @@ Commit: —
   → **14** (devices, openInput, openInputDevice, openOutput, openOutputDevice,
   read, readTimeout, write, poll, pollTimeout, available, xruns, closeInput,
   closeOutput). Sizing of letter H is unaffected.
+- **2026-07-26 (Phase A, datetime lowering location).** The plan cited
+  `datetime.rs:65`/`:77` as the Windows arms to fill, but that shared body is
+  `clock_gettime`/`localtime_r`-shaped (the `PlatformFamily::Windows` arm there was
+  an `unreachable!` reading "47-D owns the Windows clock"). Windows has no CRT, so
+  the three intrinsics can't reuse the libc body. Implemented instead as a
+  dedicated `lower_datetime_windows` routed from the top of `lower_datetime_helper`:
+  monotonicNanos = QueryPerformanceCounter/Frequency with an overflow-safe
+  tick→nanos split; nowNanos = GetSystemTimePreciseAsFileTime rebased to the Unix
+  epoch; localOffset = FileTimeToSystemTime → SystemTimeToTzSpecificLocalTime →
+  SystemTimeToFileTime (the local−UTC FILETIME delta). The now-unreachable libc
+  `PlatformFamily::Windows` clock-id arm was re-commented, not deleted (the match
+  must stay exhaustive over `PlatformFamily`).
+- **2026-07-26 (Phase A, localOffset correctness — beyond the plan's one-liner).**
+  The plan said "GetTimeZoneInformation for localOffset", but that returns only the
+  *current* offset, not the offset *at the passed instant* (the documented
+  contract). Used the SYSTEMTIME round-trip instead, which applies the machine's TZ
+  rules (incl. DST) to the given instant. Also: the libc path traps
+  `ErrInvalidArgument` for an out-of-range instant (localtime_r → NULL, bug-42); the
+  naive Windows `epochSeconds*1e7` silently *wraps* to a valid-looking FILETIME, so
+  a bound-check on `epochSeconds` was added to reproduce the trap. Both were caught
+  by the box run (first run leaked `off=-28800` instead of trapping) — not by any
+  golden.
+- **2026-07-26 (Phase A, golden strategy for A–K).** The plan's "seed
+  `*.windows-x86_64.ncode` goldens" is impractical for feature fixtures: a datetime
+  program's `.ncode` is ~14 MB (the datetime package is large), vs 130 KB–935 KB for
+  the existing *curated tiny-program* ncode goldens. By existing convention feature
+  fixtures carry only `.ast/.ir/.run/build.log` (no ncode); the tiny curated
+  `byte-identity/` set owns codegen byte-identity. For Windows byte-identity the
+  standing guard is `scripts/exe-oracle.sh` (records `.exe` sha256) plus verified
+  build determinism (same `.exe` sha256 across two builds). Adopting this for A–K:
+  each console letter ships a host-neutral cross-target rt-behavior fixture + a box
+  run; the ncode-golden task line is satisfied via exe-oracle/determinism, not a
+  multi-MB committed ncode.
+- **2026-07-26 (artifact-gate baseline noise).** `scripts/artifact-gate.sh` reports
+  21 pre-existing diffs on `audio/crypto/fs/net/tls .../*_codegen_cover_rt.*.ncode`
+  (macOS/Linux/riscv). These goldens are byte-identical to base `cc4b4343c` (not
+  edited here) and lie in codegen paths this plan does not touch; they are the
+  known flaky `codegen_cover_rt` / union-drop-HashMap nondeterminism noise (memory
+  `known-red-test-baseline`, `union-drop-codegen-nondeterminism`). "0 diffs on
+  existing targets" is read as "0 *new* diffs attributable to this plan", verified
+  per letter by confirming no diffing golden is in the letter's changed paths.
 
 ## Summary
 

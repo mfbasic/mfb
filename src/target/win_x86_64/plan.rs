@@ -178,6 +178,24 @@ impl NativePlanPlatform for Platform {
                 import("SetConsoleMode", KERNEL32, required_by),
                 import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
             ],
+            // datetime:: (plan-66-A). No libc clocks on Windows: the monotonic
+            // clock is QueryPerformanceCounter/Frequency, the wall clock is
+            // GetSystemTimePreciseAsFileTime, and the local UTC offset is the
+            // FILETIME delta across a UTC→local SYSTEMTIME round-trip.
+            "datetime.monotonicNanos" => vec![
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+            ],
+            "datetime.nowNanos" => vec![import(
+                "GetSystemTimePreciseAsFileTime",
+                KERNEL32,
+                required_by,
+            )],
+            "datetime.localOffset" => vec![
+                import("FileTimeToSystemTime", KERNEL32, required_by),
+                import("SystemTimeToTzSpecificLocalTime", KERNEL32, required_by),
+                import("SystemTimeToFileTime", KERNEL32, required_by),
+            ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
             // sync primitives (they share the queue/broadcast machinery), so the

@@ -61,6 +61,13 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.writeAll",
     "fs.writeAllBytes",
     "fs.flush",
+    // datetime:: OS-seam intrinsics (plan-66-A): monotonic/wall clocks over
+    // QueryPerformanceCounter + GetSystemTimePreciseAsFileTime, local offset over
+    // the FILETIME/SYSTEMTIME conversion round-trip. Bodies in
+    // shared/code/datetime.rs (PlatformFamily::Windows arm), imports in plan.rs.
+    "datetime.nowNanos",
+    "datetime.monotonicNanos",
+    "datetime.localOffset",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",

@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/datetime/datetime-clock-offset
+Wrote AST to tests/rt-behavior/datetime/datetime-clock-offset/datetime_clock_offset.ast
+Wrote IR to tests/rt-behavior/datetime/datetime-clock-offset/datetime_clock_offset.ir
+[exit 0]
+$ mfb build tests/rt-behavior/datetime/datetime-clock-offset
+Wrote executable to tests/rt-behavior/datetime/datetime-clock-offset/build/datetime_clock_offset.out
+[exit 0]
+$ tests/rt-behavior/datetime/datetime-clock-offset/build/datetime_clock_offset.out
+mono_nonneg=TRUE
+now_recent=TRUE
+off_stable=TRUE
+oor_invalidArg=TRUE
+[exit 0]
