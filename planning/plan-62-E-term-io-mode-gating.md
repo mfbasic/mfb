@@ -169,7 +169,7 @@ Acceptance: in a `--app` build, `term::moveTo(1,1)` while in `None` raises `ErrW
 (trappable); the same call in `Console` behaves as today; a non-`app::` build emits no check.
 **VERIFIED** on macOS headless (`test-macapp.sh` case "term:: raises ErrWrongMode outside
 Console, works in Console", exit 0).
-Commit: —
+Commit: b7964aa43
 
 ### Phase 2 — the io-read gate + the io-write assertion
 
@@ -186,7 +186,7 @@ Acceptance: `io::readLine()` in `None` raises `ErrWrongMode` rather than hanging
 it reads as today. **VERIFIED** on macOS headless (`test-macapp.sh` case "io::readLine raises
 ErrWrongMode outside Console", exit 0). The `io::print`-routing assertion for `Console` rides
 with C Phase 2.
-Commit: —
+Commit: b7964aa43
 
 ## Validation Plan
 
