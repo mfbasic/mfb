@@ -41,9 +41,9 @@ use crate::target::shared::code::{CodeInstruction, NativeCodePlan};
 // module name; `EncodedSection`/`ImportKind` are only named by the unit tests
 // now that the shared `encode_plan` driver (bug-341-B1) owns symbol/import
 // construction.
-pub(crate) use crate::arch::image::{EncodedImage, EncodedRelocation, EncodedSymbol};
 #[cfg(test)]
 use crate::arch::image::EncodedSection;
+pub(crate) use crate::arch::image::{EncodedImage, EncodedRelocation, EncodedSymbol};
 
 mod emitter;
 mod operand;

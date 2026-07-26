@@ -49,4 +49,3 @@ pub(super) fn fp_reg(name: String) -> Result<u8, String> {
         .filter(|n| *n < 16)
         .ok_or_else(|| format!("not an xmm register: '{name}'"))
 }
-

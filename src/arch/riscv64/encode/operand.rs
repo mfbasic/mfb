@@ -82,4 +82,3 @@ pub(super) fn freg(name: String) -> Result<u8, String> {
         other => return Err(format!("unknown rv64 FP register '{other}'")),
     })
 }
-
