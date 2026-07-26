@@ -359,6 +359,19 @@ source-generic `merge`/`mapValues`.
   + map acceptance fixtures + `artifact-gate.sh`.** ~80-120 LOC, its own debug/verify budget;
   map-corruption risk, but checksum-catchable. Removes one of the two O(N) sweeps of
   `mapchurn churn` (165 → ~90 ms est.).
+  - **⚠️ WIN IS UNMEASURED — likely partly self-negating (found while designing the impl).**
+    The fused `MAP_BUCKET_PUT` hashes all N survivors — the **same N hashes** the eliminated
+    `hasKey` rebuild (`_mfb_rt_map_probe`) does; it only *moves* them into the copy loop. The net
+    saving is just the rebuild's *separate-loop iteration* overhead (bound check + entry load +
+    index bump per entry), MINUS the **new** per-entry spill/reload of ~10 loop-live registers
+    that fusing a `bl` into the currently call-free copy loop forces (scratch8/9/10/11/12/13/17/
+    20/21/nb — the loop keeps them ALL in registers across iterations today). That spill overhead
+    could eat most or all of the win — the same "measure before landing" trap as L1 (and K, G3).
+    **Do NOT implement blind: build it behind a quick throwaway toggle, measure `mapchurn churn`
+    `--run 50` vs baseline FIRST, and only keep it if the row actually drops.** If the fused-spill
+    overhead negates it, the real lever is a `_mfb_rt_map_probe` that is itself cheaper, or an
+    in-place removeKey that avoids the copy sweep entirely (the harder original design) — not this
+    fusion.
 - **[x] C2-mapValues — LANDED.** Native `collections::mapValues` for a same-type 8-byte
   fixed-width value (V==U in Integer/Float/Fixed/Money; gate parses `#collections_mapValues$K$V$U`;
   else `.mfb`): copy the map's key/bucket structure once and rewrite each value payload in place
