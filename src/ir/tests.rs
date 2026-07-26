@@ -235,24 +235,6 @@ mod lowering_totality_tests {
 mod binary_repr_tests {
     use super::*;
 
-    fn sample_value() -> IrValue {
-        IrValue::Binary {
-            op: "+".to_string(),
-            left: Box::new(IrValue::Const {
-                type_: "Integer".to_string(),
-                value: "1".to_string(),
-            }),
-            right: Box::new(IrValue::Unary {
-                op: "-".to_string(),
-                operand: Box::new(IrValue::Local("x".to_string())),
-                loc: IrSourceLoc::default(),
-                type_: "Unknown".to_string(),
-            }),
-            loc: IrSourceLoc::default(),
-            type_: "Unknown".to_string(),
-        }
-    }
-
     // The single variant corpus (bug-342 C2): `variant_corpus` is a strict
     // superset of every IrType/IrOp/IrValue/IrMatchPattern kind this suite
     // needs (it adds For/DoUntil/StateAssign/ExitLoop/ContinueLoop/ExitProgram
