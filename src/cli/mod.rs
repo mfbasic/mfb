@@ -1,6 +1,8 @@
 pub mod build;
+pub mod dispatch;
 pub mod doc;
 pub mod fmt;
+pub mod help;
 pub mod init;
 pub mod man;
 pub mod pkg;

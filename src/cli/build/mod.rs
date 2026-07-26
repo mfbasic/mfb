@@ -1928,4 +1928,96 @@ mod tests {
             assert_eq!(slots[0].to_string(), "macos/aarch64");
         }
     }
+
+    #[test]
+    fn parse_build_options_defaults_to_console_mode() {
+        let options = parse_build_options(vec!["some/project".to_string()]).expect("options");
+        assert!(!options.app_mode);
+    }
+
+    #[test]
+    fn parse_build_options_accepts_app_flag() {
+        let options = parse_build_options(vec!["--app".to_string(), "some/project".to_string()])
+            .expect("options");
+        assert!(options.app_mode);
+    }
+
+    #[test]
+    fn parse_build_options_rejects_duplicate_app_flag() {
+        let result = parse_build_options(vec!["--app".to_string(), "--app".to_string()]);
+        match result {
+            Err(err) => assert!(err.contains("at most one -app")),
+            Ok(_) => panic!("duplicate --app must be rejected"),
+        }
+    }
+
+    #[test]
+    fn parse_build_options_app_flag_composes_with_native_output() {
+        let options =
+            parse_build_options(vec!["--app".to_string(), "--nir".to_string()]).expect("options");
+        assert!(options.app_mode);
+        assert_eq!(options.outputs, vec![BuildOutput::NativeIr]);
+    }
+
+    #[test]
+    fn parse_build_options_combines_output_flags_in_order() {
+        let options = parse_build_options(vec![
+            "--ast".to_string(),
+            "--ir".to_string(),
+            "--ncode".to_string(),
+            "--mir".to_string(),
+            "some/project".to_string(),
+        ])
+        .expect("options");
+        assert_eq!(
+            options.outputs,
+            vec![
+                BuildOutput::Ast,
+                BuildOutput::Ir,
+                BuildOutput::NativeCodePlan,
+                BuildOutput::Mir,
+            ]
+        );
+    }
+
+    /// plan-42: the single-dash spellings stay working, undocumented aliases —
+    /// a mixed-spelling command line parses exactly like the `--` one.
+    #[test]
+    fn parse_build_options_accepts_single_dash_aliases() {
+        let options = parse_build_options(vec![
+            "-app".to_string(),
+            "-ast".to_string(),
+            "--ir".to_string(),
+            "-mir".to_string(),
+            "some/project".to_string(),
+        ])
+        .expect("options");
+        assert!(options.app_mode);
+        assert_eq!(
+            options.outputs,
+            vec![BuildOutput::Ast, BuildOutput::Ir, BuildOutput::Mir]
+        );
+    }
+
+    #[test]
+    fn parse_build_options_rejects_duplicate_output_flag() {
+        let result = parse_build_options(vec!["--ncode".to_string(), "--ncode".to_string()]);
+        match result {
+            Err(err) => assert!(err.contains("duplicate output flag `--ncode`")),
+            Ok(_) => panic!("duplicate output flag must be rejected"),
+        }
+        // The duplicate check is per-output, not per-spelling: `-ncode --ncode`
+        // is the same flag twice.
+        let mixed = parse_build_options(vec!["-ncode".to_string(), "--ncode".to_string()]);
+        match mixed {
+            Err(err) => assert!(err.contains("duplicate output flag `--ncode`")),
+            Ok(_) => panic!("mixed-spelling duplicate output flag must be rejected"),
+        }
+    }
+
+    #[test]
+    fn parse_build_options_no_output_flags_means_full_build() {
+        let options = parse_build_options(vec!["some/project".to_string()]).expect("options");
+        assert!(options.outputs.is_empty());
+    }
 }

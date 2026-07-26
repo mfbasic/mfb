@@ -5,7 +5,7 @@ use crate::ast;
 use crate::fmt;
 use crate::manifest::validate_project_manifest;
 use crate::rules;
-use crate::USAGE;
+use crate::cli::help::USAGE;
 
 /// `mfb fmt [--indent N] [location]` — format MFBASIC source in place. Like
 /// `mfb build` and `mfb doc`, the location defaults to the current directory and

@@ -5,7 +5,7 @@ use crate::ast;
 use crate::doc;
 use crate::manifest::validate_project_manifest;
 use crate::resolver;
-use crate::USAGE;
+use crate::cli::help::USAGE;
 
 /// `mfb doc <path> [--out <file>]` — render HTML documentation from source
 /// (plan-09-doc.md §6.1). Returns a process exit code.

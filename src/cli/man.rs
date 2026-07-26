@@ -3,7 +3,7 @@ use std::io::IsTerminal;
 use crate::cli::spec::detect_terminal_width;
 use crate::docs::man;
 use crate::docs::render;
-use crate::USAGE;
+use crate::cli::help::USAGE;
 
 pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
     let mut all = false;
