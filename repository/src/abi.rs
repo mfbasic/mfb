@@ -401,6 +401,27 @@ fn read_abi_exports(bytes: &[u8], strings: &[String]) -> Result<BTreeMap<String,
     Ok(map)
 }
 
+fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
+    let slice = bytes.get(offset..offset + 2).ok_or("truncated u16")?;
+    Ok(u16::from_le_bytes([slice[0], slice[1]]))
+}
+
+fn read_u8(bytes: &[u8], offset: usize) -> Result<u8, String> {
+    bytes.get(offset).copied().ok_or("truncated u8".to_string())
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let slice = bytes.get(offset..offset + 4).ok_or("truncated u32")?;
+    Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
+    let slice = bytes.get(offset..offset + 8).ok_or("truncated u64")?;
+    Ok(u64::from_le_bytes([
+        slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
+    ]))
+}
+
 /// A minimal `vendor` locator for tests that care only about the blob hash —
 /// the version→blob edges in `store.rs` and the reachability walk in `gc.rs`,
 /// which predate the platform axis plan-61-A added. Shared here so those tests
@@ -1039,25 +1060,4 @@ mod tests {
         assert_eq!(read_u32(&[2, 0, 0, 0], 0).unwrap(), 2);
         assert_eq!(read_u64(&[2, 0, 0, 0, 0, 0, 0, 0], 0).unwrap(), 2);
     }
-}
-
-fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
-    let slice = bytes.get(offset..offset + 2).ok_or("truncated u16")?;
-    Ok(u16::from_le_bytes([slice[0], slice[1]]))
-}
-
-fn read_u8(bytes: &[u8], offset: usize) -> Result<u8, String> {
-    bytes.get(offset).copied().ok_or("truncated u8".to_string())
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
-    let slice = bytes.get(offset..offset + 4).ok_or("truncated u32")?;
-    Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
-}
-
-fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, String> {
-    let slice = bytes.get(offset..offset + 8).ok_or("truncated u64")?;
-    Ok(u64::from_le_bytes([
-        slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
-    ]))
 }

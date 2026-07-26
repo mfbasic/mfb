@@ -8,6 +8,12 @@ license = "MIT"
 name = "mfb-repo"
 path = "src/main.rs"
 
+# Mirror the root crate's guard: an item placed after a `#[cfg(test)] mod tests`
+# reads as the end of the file, so production code under it is easy to miss.
+# `abi.rs`'s byte readers had drifted there; deny keeps them from coming back.
+[lints.clippy]
+items_after_test_module = "deny"
+
 [features]
 default = []
 # Optional S3 (and S3-compatible) blob backend. Off by default so the AWS SDK
