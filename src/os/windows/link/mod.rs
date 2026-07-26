@@ -14,6 +14,10 @@
 //! since nothing calls `write_executable` until the backend is wired.
 
 mod pe;
+// plan-66-J: the message-loop ↔ worker spike (test-only), proving the app-mode
+// premise before the full Win32 floor is built.
+#[cfg(test)]
+mod spike;
 
 use crate::arch::image::{EncodedImage, EncodedSection, ImportKind};
 use pe::{
