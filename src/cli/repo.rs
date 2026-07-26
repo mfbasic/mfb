@@ -27,10 +27,10 @@ use std::path::Path;
 pub(crate) const REPO_HELP_HINT: &str =
     "Run 'mfb repo --help' for all repository, auth & publishing commands.";
 
-pub(crate) enum RepoCommandError {
-    Usage(String),
-    Failed(String),
-}
+/// The `mfb repo`/`machine`/`key`/`org`/`token` commands' terminal error. An
+/// alias of the shared [`crate::cli::CommandError`] (bug-340 B2): one enum, two
+/// domain-facing names.
+pub(crate) use super::CommandError as RepoCommandError;
 
 pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> {
     let Some(command) = args.first().map(String::as_str) else {

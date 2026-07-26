@@ -29,10 +29,9 @@ use super::repo::REPO_HELP_HINT;
 
 use super::build::{build_project, BuildOptions, Verbosity};
 
-pub(crate) enum PkgCommandError {
-    Usage(String),
-    Failed(String),
-}
+/// The `mfb pkg` command's terminal error. An alias of the shared
+/// [`crate::cli::CommandError`] (bug-340 B2): one enum, two domain-facing names.
+pub(crate) use super::CommandError as PkgCommandError;
 
 pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
     match args {

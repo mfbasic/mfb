@@ -11,6 +11,32 @@ pub mod version;
 
 use std::path::{Path, PathBuf};
 
+/// A CLI subcommand's terminal error, carrying the message to print. `Usage`
+/// maps to process exit code `2` (a malformed invocation), `Failed` to exit code
+/// `1` (the command ran but did not succeed). Shared by every `run_*_command`;
+/// the package- and repo-facing aliases `pkg::PkgCommandError` /
+/// `repo::RepoCommandError` name this same type (bug-340 B2).
+pub(crate) enum CommandError {
+    Usage(String),
+    Failed(String),
+}
+
+/// Map a subcommand's terminal [`CommandError`] onto its process exit code and
+/// abort. The single home for what were six byte-identical error-dispatch arms
+/// in `main` (bug-340 B2).
+pub(crate) fn dispatch_command_error(err: CommandError) -> ! {
+    match err {
+        CommandError::Usage(message) => {
+            eprintln!("error: {message}");
+            std::process::exit(2);
+        }
+        CommandError::Failed(message) => {
+            eprintln!("error: {message}");
+            std::process::exit(1);
+        }
+    }
+}
+
 /// Write an untrusted package blob into `packages_dir` under a fresh, exclusively
 /// created name, and return that staging path.
 ///

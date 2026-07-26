@@ -37,8 +37,8 @@ use cli::doc::run_doc_command;
 use cli::fmt::run_fmt_command;
 use cli::init::{init_package_project, init_project};
 use cli::man::show_man;
-use cli::pkg::{run_pkg_command, PkgCommandError};
-use cli::repo::{run_repo_command, RepoCommandError};
+use cli::pkg::run_pkg_command;
+use cli::repo::run_repo_command;
 use cli::spec::show_spec;
 
 pub(crate) const USAGE: &str = "\
@@ -369,16 +369,7 @@ fn main() {
                 return;
             }
             if let Err(err) = run_pkg_command(&pkg_args) {
-                match err {
-                    PkgCommandError::Usage(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(2);
-                    }
-                    PkgCommandError::Failed(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(1);
-                    }
-                }
+                cli::dispatch_command_error(err);
             }
         }
         Some("repo") => {
@@ -388,16 +379,7 @@ fn main() {
                 return;
             }
             if let Err(err) = run_repo_command(&repo_args) {
-                match err {
-                    RepoCommandError::Usage(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(2);
-                    }
-                    RepoCommandError::Failed(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(1);
-                    }
-                }
+                cli::dispatch_command_error(err);
             }
         }
         Some("machine") => {
@@ -407,16 +389,7 @@ fn main() {
                 return;
             }
             if let Err(err) = cli::repo::run_machine_command(&machine_args) {
-                match err {
-                    RepoCommandError::Usage(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(2);
-                    }
-                    RepoCommandError::Failed(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(1);
-                    }
-                }
+                cli::dispatch_command_error(err);
             }
         }
         Some("key") => {
@@ -426,16 +399,7 @@ fn main() {
                 return;
             }
             if let Err(err) = cli::repo::run_key_command(&key_args) {
-                match err {
-                    RepoCommandError::Usage(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(2);
-                    }
-                    RepoCommandError::Failed(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(1);
-                    }
-                }
+                cli::dispatch_command_error(err);
             }
         }
         Some("org") => {
@@ -445,16 +409,7 @@ fn main() {
                 return;
             }
             if let Err(err) = cli::repo::run_org_command(&org_args) {
-                match err {
-                    RepoCommandError::Usage(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(2);
-                    }
-                    RepoCommandError::Failed(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(1);
-                    }
-                }
+                cli::dispatch_command_error(err);
             }
         }
         Some("token") => {
@@ -464,16 +419,7 @@ fn main() {
                 return;
             }
             if let Err(err) = cli::repo::run_token_command(&token_args) {
-                match err {
-                    RepoCommandError::Usage(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(2);
-                    }
-                    RepoCommandError::Failed(message) => {
-                        eprintln!("error: {message}");
-                        process::exit(1);
-                    }
-                }
+                cli::dispatch_command_error(err);
             }
         }
         Some("audit") => {
