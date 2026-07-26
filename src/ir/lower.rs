@@ -699,7 +699,7 @@ fn lower_statement(
                 ..
             } = expression
             {
-                if crate::builtins::testing::is_expect_call(callee) {
+                if crate::builtins::testing::is_testing_call(callee) {
                     let uid = context.next_temp_id;
                     context.next_temp_id += 1;
                     let expanded =

@@ -26,7 +26,7 @@ else is rejected before any other front-end pass with
 It evaluates `actual` and `expected` — in that order, exactly once each — and
 passes when `actual = expected`. It is spelled bare, with no `testing::`
 qualifier, because it is a compiler-recognized builtin rather than a package
-function. [[src/builtins/testing.rs:is_expect_call]]
+function. [[src/builtins/testing.rs:is_testing_call]]
 
 The comparison is the language `=` operator, not a special test-only equality,
 so `expectEqual` accepts exactly the operand pairs `=` accepts: any two numeric

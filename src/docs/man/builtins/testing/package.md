@@ -19,7 +19,7 @@ expectTrap(expression, code)
 The assertion builtins are always in scope inside a `TCASE` body and need no
 `IMPORT` statement. They are valid **only** inside a `TCASE`; using one anywhere
 else is a compile error (`TESTING_EXPECT_OUTSIDE_TCASE`).
-[[src/builtins/testing.rs:is_expect_call]]
+[[src/builtins/testing.rs:is_testing_call]]
 
 ## Description
 
