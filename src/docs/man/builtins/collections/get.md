@@ -87,7 +87,7 @@ Returns the value stored under `key`. A key that is not present raises
 
 | Type | Description |
 | --- | --- |
-| `T` (list overload) or `V` (map overload) | The selected element, as an owned value the caller may bind, store, and free. The list overload returns the list element type; the map overload returns the map value type. [[src/builtins/general.rs:resolve_get]] |
+| `T` (list overload) or `V` (map overload) | The selected element, as an owned value the caller may bind, store, and free. The list overload returns the list element type; the map overload returns the map value type. [[src/builtins/collections.rs:resolve_get]] |
 
 ## Errors
 
@@ -106,7 +106,7 @@ the call has type `T`. Otherwise the first argument must be a `Map OF K TO V`,
 the second must be exactly the map key type `K`, and the call has type `V`. Any
 other combination — a non-collection first argument, a non-`Integer` list index,
 or a map key whose type is not `K` — is a compile-time type error.
-[[src/builtins/general.rs:resolve_get]]
+[[src/builtins/collections.rs:resolve_get]]
 
 ## Examples
 
