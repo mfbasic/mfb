@@ -780,6 +780,29 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-64 D1: native groupBy for 8-byte fixed-width T/V, Integer key,
+                // and a re-evaluation-safe value arg (`#collections_groupBy$T$K$V`).
+                if let Some(params) = target.strip_prefix("#collections_groupBy$") {
+                    if args.len() == 3 {
+                        let parts: Vec<&str> = params.split('$').collect();
+                        let reeval_safe = matches!(
+                            &args[0],
+                            NirValue::Local(_)
+                                | NirValue::Const { .. }
+                                | NirValue::Global { .. }
+                                | NirValue::LocalRef { .. }
+                        );
+                        let ok = parts.len() == 3
+                            && matches!(parts[0], "Integer" | "Float" | "Fixed" | "Money")
+                            && parts[1] == "Integer"
+                            && matches!(parts[2], "Integer" | "Float" | "Fixed" | "Money")
+                            && reeval_safe;
+                        if ok {
+                            let (kt, vt) = (parts[1].to_string(), parts[2].to_string());
+                            return self.lower_collection_group_by_call(args, &kt, &vt);
+                        }
+                    }
+                }
                 // plan-64 D3: native chunks for 8-byte fixed-width elements with a
                 // constant size >= 1 (`#collections_chunks$T`, 2 args).
                 if let Some(t) = target.strip_prefix("#collections_chunks$") {
