@@ -632,6 +632,16 @@ pub(crate) const ARENA_FREE_SYMBOL: &str = "_mfb_arena_free";
 /// insert shared by `arena_free` and `arena_alloc`'s block-grow path. Pure
 /// free-list surgery; does not scrub (callers fill first when required).
 pub(crate) const ARENA_INSERT_FREE_SYMBOL: &str = "_mfb_arena_insert_free";
+/// `arena_flush_coalesce()` — plan-64 A1. The flush-before-grow path: gather every
+/// parked quick-bin chunk plus the address-ordered list into one chain, sort it by
+/// address in a single in-place merge sort, coalesce physically-adjacent chunks in
+/// one linear pass, then re-park (≤ QUICK_BIN_MAX → exact bin, larger → the rebuilt
+/// address-ordered list). Replaces the old per-chunk `arena_insert_free` drain,
+/// whose each-insert-is-O(list) walk made a flush of M parked chunks O(M²) — the
+/// arena mixed-transient-churn quadratic. Coalescing is address-exact, so even a
+/// sort defect can only under-coalesce (a memory shortfall), never overlap live
+/// allocations. No args, operates on arena state; leaf, vreg-allocated.
+pub(crate) const ARENA_FLUSH_COALESCE_SYMBOL: &str = "_mfb_arena_flush_coalesce";
 
 /// Capacity of the lazily-allocated stdout output buffer, in bytes.
 pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;

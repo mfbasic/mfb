@@ -1197,6 +1197,7 @@ pub(crate) fn lower_module_for_platform(
     code_functions.push(lower_make_error_result());
     code_functions.push(lower_simd_alloc_list());
     code_functions.push(lower_arena_insert_free());
+    code_functions.push(lower_arena_flush_coalesce());
     code_functions.push(lower_arena_free());
     // Entropy fill is always on (plan-01 §6.5): scrub freed chunks and poison
     // fresh blocks. The fill RNG/seed helpers ship with every arena.

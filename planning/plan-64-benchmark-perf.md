@@ -243,11 +243,46 @@ addDays`/`civil` construct spreads of distinct-sized `Date`/`Instant`/`Duration`
 records per call — all ≤2048, so they park in quick bins then drain through the flush.
 
 **Fixes (semantics-preserving — allocator internals; no observable change).**
-- **A1 (biggest):** make the flush-before-grow (`arena.rs:387-407`) coalesce the parked
-  bins in **one address-ordered merge pass** instead of N× O(list) `insert_find` calls.
-- **A2:** segregate the address-ordered free list into size-class sublists (or a
-  balanced index) so neither the alloc walk nor the insert walk is global — best-fit
-  large-bin with bounded split.
+- **A1 (biggest) — [x] LANDED.** The flush-before-grow now coalesces the parked bins +
+  the address-ordered list in **one pass** via a new `arena_flush_coalesce` helper
+  (`arena.rs` `lower_arena_flush_coalesce`): gather every quick-bin chunk + the list into
+  one chain, sort by address with an in-place bottom-up linked-list **merge sort**,
+  coalesce physically-adjacent chunks in one linear walk, then re-park (≤ QUICK_BIN_MAX →
+  exact bin, larger → the rebuilt address-ordered list). This replaces the old per-chunk
+  `arena_insert_free` drain (an O(free-list) walk **per** chunk → O(M²) over M parked
+  chunks — the quadratic). The whole flush is now **O(M log M)**.
+  **Diagnostic that pinned the root cause:** disabling the flush entirely made a
+  fresh-arena `datetime civil --run 50` go **963 → 0.78 ms flat** (proving the flush is
+  the quadratic) but blew peak memory 3 → 12.7 GB (proving the coalesce is load-bearing);
+  a per-flush drain **cap** (bounded O(cap²)) fixed the time but not the memory (no cap
+  value wins both). The single-pass sort keeps **both**: same peak memory as the old
+  uncapped flush (3.09 GB @ --run 12, identical) and O(M log M) time.
+  **Results (trimmed fragmenting-suite `--run 50`, min→max ms):** serialize `roundtrip`
+  1092 → 24.8, regex `capture` 1831 → 58, `parse regex` 415 → 15.6, regex `compile`
+  304(med) → 14.5, map `int_ops` 691 → 63, map `str_ops` 921 → 109, serialize `csv`
+  56 → 2.0, `parse json` 22.9 → 4.6 — the mixed-size arena-quadratic rows collapse to
+  near-linear. Coalescing is **address-exact** (`cur + size == next`), so no sort defect
+  can fabricate an overlap — a mis-order can only under-coalesce (a memory shortfall),
+  never hand the same bytes to two allocations. Correctness verified: full benchmark
+  suite (all groups incl. crypto SHA/ECDSA KATs) + `crypto-kat-valid`/`strings`/`csv`/
+  `json` acceptance all pass with unchanged checksums/output; `.ir`/`.ast`/`.run` goldens
+  unchanged (allocator is native-only); the 42 codegen goldens (`.mir`/`.ncode`/32
+  cross-target `.ncodesum`) regenerated; `artifact-gate.sh` back to 0 diffs.
+  **Residual (honest):** `datetime civil` — whose records are scattered, *same-workload*
+  small chunks that are genuinely non-adjacent, so coalescing merges little and the DV
+  stays small, re-triggering flushes — is only partly helped (963 → 569 max @ --run 50;
+  but **~5.4 ms median at the default --run 12**, vs 974 originally). Fully flattening
+  that pure-scattered-small case needs incremental (boundary-tag) O(1)-coalescing-on-free,
+  a much larger allocator rewrite left as future work. `arena.rs`, `error_constants.rs`
+  (`ARENA_FLUSH_COALESCE_SYMBOL`), `mod.rs`.
+- **A2 — resolved as subsumed (no separate change).** A2 wanted the alloc walk and the
+  insert walk to stop being global O(free-list). They already are: large frees divert to
+  the hashed **large-block bins** (plan-25-A, `arena_free`), small frees to the
+  **quick bins**, and A1's coalesce keeps the address-ordered list holding only the few
+  `> QUICK_BIN_MAX` coalesced chunks — so the first-fit walk and `arena_insert_free` (now
+  reached only from the rare DV-retire-large path) run over a list kept short by
+  construction, not a global one. A balanced-index rewrite would add blast radius for no
+  measured win on top of A1 + the existing segregation.
 - **A3 (workload-side mitigations, independent):** `csv::parse` — track `(start,end)`
   scalar indices into the already-encoded `chars` and decode one sub-slice per cell
   (only quoted fields need a rebuilt buffer), cutting distinct transient sizes;

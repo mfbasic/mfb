@@ -358,14 +358,6 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     let default_block = vregs.next();
     let saved_size = vregs.next();
     let page_mask = vregs.next();
-    // Flush-before-grow scratch (allocator-01): the drain loop's cursors are
-    // loop-carried across the `arena_insert_free` calls, so they live in vregs
-    // the allocator spills.
-    let flush_index = vregs.next();
-    let flush_offset = vregs.next();
-    let flush_slot = vregs.next();
-    let flush_node = vregs.next();
-    let flush_next = vregs.next();
     instructions.extend([
         abi::label("arena_alloc_grow"),
         // Flush-before-grow (allocator-01), gated to SMALL requests: a small
@@ -385,75 +377,14 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::compare_immediate(&size, &ARENA_QUICK_BIN_MAX.to_string()),
         abi::branch_hi("arena_alloc_grow_map"),
         abi::move_immediate(&flushed, "Integer", "1"),
-        abi::move_immediate(&flush_index, "Integer", "0"),
-        abi::label("arena_alloc_flush_bin"),
-        abi::compare_immediate(&flush_index, &ARENA_QUICK_BIN_COUNT.to_string()),
-        abi::branch_eq("arena_alloc_flush_done"),
-        abi::shift_left_immediate(&flush_offset, &flush_index, 3),
-        abi::add_registers(&flush_slot, ARENA_STATE_REGISTER, &flush_offset),
-        abi::load_u64(&flush_node, &flush_slot, ARENA_QUICK_BIN_BASE_OFFSET),
-        abi::store_u64(abi::ZERO, &flush_slot, ARENA_QUICK_BIN_BASE_OFFSET),
-        abi::label("arena_alloc_flush_chain"),
-        abi::compare_immediate(&flush_node, "0"),
-        abi::branch_eq("arena_alloc_flush_next_bin"),
-        abi::load_u64(&flush_next, &flush_node, 0),
-        abi::load_u64(abi::ARG[1], &flush_node, 8),
-        abi::move_register(abi::ARG[0], &flush_node),
-        abi::branch_link(ARENA_INSERT_FREE_SYMBOL),
-        abi::move_register(&flush_node, &flush_next),
-        abi::branch("arena_alloc_flush_chain"),
-        abi::label("arena_alloc_flush_next_bin"),
-        abi::add_immediate(&flush_index, &flush_index, 1),
-        abi::branch("arena_alloc_flush_bin"),
-        // Post-flush re-park sweep: after coalescing, move every list chunk
-        // ≤ QUICK_BIN_MAX back onto its exact-size bin. Without this, drained
-        // small chunks that did not merge into large runs rot on the list
-        // forever — nothing small ever walks (bins and the victim serve
-        // first), so ONLY large requests pay for them, once per walk
-        // (measured: 17k dead 16-byte nodes doubling a JSON parse). After the
-        // sweep the list holds only > QUICK_BIN_MAX chunks and the retry
-        // re-enters through the victim-renewal bin scan, which sees every
-        // swept chunk.
-        abi::label("arena_alloc_flush_done"),
-        abi::move_immediate(&flush_slot, "Integer", "0"), // prev
-        abi::load_u64(
-            &flush_node,
-            ARENA_STATE_REGISTER,
-            ARENA_FREE_LIST_HEAD_OFFSET,
-        ),
-        abi::label("arena_alloc_sweep_loop"),
-        abi::compare_immediate(&flush_node, "0"),
-        abi::branch_eq("arena_alloc_sweep_done"),
-        abi::load_u64(&flush_next, &flush_node, 0),
-        abi::load_u64(&flush_offset, &flush_node, 8),
-        abi::compare_immediate(&flush_offset, &ARENA_QUICK_BIN_MAX.to_string()),
-        abi::branch_hi("arena_alloc_sweep_keep"),
-        // Unlink cur from the list …
-        abi::compare_immediate(&flush_slot, "0"),
-        abi::branch_eq("arena_alloc_sweep_unlink_head"),
-        abi::store_u64(&flush_next, &flush_slot, 0),
-        abi::branch("arena_alloc_sweep_binpush"),
-        abi::label("arena_alloc_sweep_unlink_head"),
-        abi::store_u64(
-            &flush_next,
-            ARENA_STATE_REGISTER,
-            ARENA_FREE_LIST_HEAD_OFFSET,
-        ),
-        abi::label("arena_alloc_sweep_binpush"),
-        // … and push it onto its exact-size bin (node.size at +8 is intact).
-        abi::shift_right_immediate(&bin_scan, &flush_offset, 4),
-        abi::shift_left_immediate(&bin_scan, &bin_scan, 3),
-        abi::add_registers(&bin_scan, ARENA_STATE_REGISTER, &bin_scan),
-        abi::load_u64(&bin_head, &bin_scan, ARENA_QUICK_BIN_BASE_OFFSET - 8),
-        abi::store_u64(&bin_head, &flush_node, 0),
-        abi::store_u64(&flush_node, &bin_scan, ARENA_QUICK_BIN_BASE_OFFSET - 8),
-        abi::move_register(&flush_node, &flush_next),
-        abi::branch("arena_alloc_sweep_loop"),
-        abi::label("arena_alloc_sweep_keep"),
-        abi::move_register(&flush_slot, &flush_node),
-        abi::move_register(&flush_node, &flush_next),
-        abi::branch("arena_alloc_sweep_loop"),
-        abi::label("arena_alloc_sweep_done"),
+        // plan-64 A1: single-pass sort+coalesce (gather bins+list → merge sort by
+        // address → coalesce adjacent → re-park). Replaces the old per-chunk
+        // `arena_insert_free` drain + re-park sweep, whose O(list)-per-chunk insert
+        // made a flush of M parked chunks O(M²) (the arena mixed-transient-churn
+        // quadratic). `size`/`eff_align` are loop-carried across the call; the
+        // clobber model spills them. The retry re-enters at the victim renewal,
+        // which sees every re-parked chunk.
+        abi::branch_link(ARENA_FLUSH_COALESCE_SYMBOL),
         abi::branch("arena_alloc_dv_scan"),
         abi::label("arena_alloc_grow_map"),
         abi::add_registers(&map_size, &size, &eff_align),
@@ -561,10 +492,10 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::label("arena_alloc_ret"),
         abi::return_(),
     ]);
-    let relocations = vec![internal_branch(
-        ARENA_ALLOC_SYMBOL,
-        ARENA_FILL_RANDOM_SYMBOL,
-    )];
+    let relocations = vec![
+        internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FILL_RANDOM_SYMBOL),
+        internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FLUSH_COALESCE_SYMBOL),
+    ];
     Ok(finalize_vreg_helper(
         "runtime.arena_alloc",
         ARENA_ALLOC_SYMBOL,
@@ -798,6 +729,218 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
     finalize_vreg_helper(
         "runtime.arena_insert_free",
         ARENA_INSERT_FREE_SYMBOL,
+        "Nothing",
+        instructions,
+        Vec::new(),
+    )
+}
+
+/// `arena_flush_coalesce()` — plan-64 A1 single-pass flush-before-grow coalesce.
+///
+/// Gathers the address-ordered free-list head and every quick-bin chain into one
+/// singly-linked chain (`{next@0, size@8}` overlay, chained via `@0`), sorts that
+/// chain by chunk address with an in-place bottom-up linked-list merge sort, then
+/// walks it once coalescing physically-adjacent chunks (`cur + cur.size == next`)
+/// and re-parking each survivor: `≤ ARENA_QUICK_BIN_MAX` onto its exact-size quick
+/// bin, larger onto the freshly rebuilt address-ordered list (appended at the tail,
+/// which stays sorted because the walk is ascending).
+///
+/// This replaces the old drain that fed each parked chunk through
+/// `arena_insert_free` — an O(free-list) walk per chunk, so O(M²) over M parked
+/// chunks, the arena mixed-transient-churn quadratic. The merge sort makes the
+/// whole flush O(M log M). Coalescing is address-exact (`cur + size == next`), so a
+/// mis-ordered sort can only *miss* an adjacency (under-coalesce, a memory
+/// shortfall) — it can never fabricate an overlap, so no sort defect can hand the
+/// same bytes to two allocations. Leaf, vreg-allocated: all caller-saved integer
+/// registers are clobbered (the caller spills its live `size`/`eff_align`).
+pub(super) fn lower_arena_flush_coalesce() -> CodeFunction {
+    let mut vregs = Vregs::new();
+    // Gather cursors.
+    let gathered = vregs.next();
+    let gi = vregs.next();
+    let gslot = vregs.next();
+    let gnode = vregs.next();
+    let gnext = vregs.next();
+    // Merge-sort cursors.
+    let width = vregs.next();
+    let p = vregs.next();
+    let q = vregs.next();
+    let e = vregs.next();
+    let tail = vregs.next();
+    let nmerges = vregs.next();
+    let psize = vregs.next();
+    let qsize = vregs.next();
+    let step = vregs.next();
+    let newhead = vregs.next();
+    // Coalesce cursors.
+    let cur = vregs.next();
+    let cnext = vregs.next();
+    let csize = vregs.next();
+    let nsize = vregs.next();
+    let cbin = vregs.next();
+    let cbinhead = vregs.next();
+    let ltail = vregs.next();
+    let cend = vregs.next();
+    let quick_max = ARENA_QUICK_BIN_MAX.to_string();
+    let bin_count = ARENA_QUICK_BIN_COUNT.to_string();
+    let instructions = vec![
+        abi::label("entry"),
+        // --- Phase 1: gather list + every quick bin into `gathered` ------------
+        abi::load_u64(&gathered, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::move_immediate(&gi, "Integer", "0"),
+        abi::label("fc_gather_bin"),
+        abi::compare_immediate(&gi, &bin_count),
+        abi::branch_eq("fc_gather_done"),
+        abi::shift_left_immediate(&gslot, &gi, 3),
+        abi::add_registers(&gslot, ARENA_STATE_REGISTER, &gslot),
+        abi::load_u64(&gnode, &gslot, ARENA_QUICK_BIN_BASE_OFFSET),
+        abi::store_u64(abi::ZERO, &gslot, ARENA_QUICK_BIN_BASE_OFFSET),
+        abi::label("fc_gather_chain"),
+        abi::compare_immediate(&gnode, "0"),
+        abi::branch_eq("fc_gather_nextbin"),
+        abi::load_u64(&gnext, &gnode, 0),
+        abi::store_u64(&gathered, &gnode, 0), // gnode.next = gathered
+        abi::move_register(&gathered, &gnode), // gathered = gnode
+        abi::move_register(&gnode, &gnext),
+        abi::branch("fc_gather_chain"),
+        abi::label("fc_gather_nextbin"),
+        abi::add_immediate(&gi, &gi, 1),
+        abi::branch("fc_gather_bin"),
+        abi::label("fc_gather_done"),
+        abi::compare_immediate(&gathered, "0"),
+        abi::branch_eq("fc_ret"), // nothing parked
+        // --- Phase 2: bottom-up merge sort `gathered` by chunk address --------
+        abi::move_immediate(&width, "Integer", "1"),
+        abi::label("fc_sort_outer"),
+        abi::move_register(&p, &gathered),
+        abi::move_immediate(&newhead, "Integer", "0"),
+        abi::move_immediate(&tail, "Integer", "0"),
+        abi::move_immediate(&nmerges, "Integer", "0"),
+        abi::label("fc_sort_pass"),
+        abi::compare_immediate(&p, "0"),
+        abi::branch_eq("fc_sort_passdone"),
+        abi::add_immediate(&nmerges, &nmerges, 1),
+        // q = p advanced by `width`; psize = actual length of p's run (≤ width).
+        abi::move_register(&q, &p),
+        abi::move_immediate(&psize, "Integer", "0"),
+        abi::move_immediate(&step, "Integer", "0"),
+        abi::label("fc_advq"),
+        abi::compare_registers(&step, &width),
+        abi::branch_eq("fc_advq_done"),
+        abi::compare_immediate(&q, "0"),
+        abi::branch_eq("fc_advq_done"),
+        abi::add_immediate(&psize, &psize, 1),
+        abi::load_u64(&q, &q, 0),
+        abi::add_immediate(&step, &step, 1),
+        abi::branch("fc_advq"),
+        abi::label("fc_advq_done"),
+        abi::move_register(&qsize, &width), // q's run is ≤ width; guarded by q==0
+        // Merge p's run (psize) with q's run (qsize).
+        abi::label("fc_merge"),
+        abi::compare_immediate(&psize, "0"),
+        abi::branch_ne("fc_merge_p_live"),
+        // p exhausted: take from q unless q's run is also done.
+        abi::compare_immediate(&qsize, "0"),
+        abi::branch_eq("fc_merge_done"),
+        abi::compare_immediate(&q, "0"),
+        abi::branch_eq("fc_merge_done"),
+        abi::move_register(&e, &q),
+        abi::load_u64(&q, &q, 0),
+        abi::subtract_immediate(&qsize, &qsize, 1),
+        abi::branch("fc_merge_append"),
+        abi::label("fc_merge_p_live"),
+        // p available; take q only if q's run has nodes left.
+        abi::compare_immediate(&qsize, "0"),
+        abi::branch_eq("fc_merge_take_p"),
+        abi::compare_immediate(&q, "0"),
+        abi::branch_eq("fc_merge_take_p"),
+        // Both live: take the lower address (stable: ties take p).
+        abi::compare_registers(&p, &q),
+        abi::branch_hi("fc_merge_take_q"),
+        abi::label("fc_merge_take_p"),
+        abi::move_register(&e, &p),
+        abi::load_u64(&p, &p, 0),
+        abi::subtract_immediate(&psize, &psize, 1),
+        abi::branch("fc_merge_append"),
+        abi::label("fc_merge_take_q"),
+        abi::move_register(&e, &q),
+        abi::load_u64(&q, &q, 0),
+        abi::subtract_immediate(&qsize, &qsize, 1),
+        abi::label("fc_merge_append"),
+        abi::compare_immediate(&tail, "0"),
+        abi::branch_eq("fc_merge_sethead"),
+        abi::store_u64(&e, &tail, 0), // tail.next = e
+        abi::branch("fc_merge_settail"),
+        abi::label("fc_merge_sethead"),
+        abi::move_register(&newhead, &e),
+        abi::label("fc_merge_settail"),
+        abi::move_register(&tail, &e),
+        abi::branch("fc_merge"),
+        abi::label("fc_merge_done"),
+        abi::move_register(&p, &q), // advance to the next pair
+        abi::branch("fc_sort_pass"),
+        abi::label("fc_sort_passdone"),
+        abi::store_u64(abi::ZERO, &tail, 0), // terminate the rebuilt chain
+        abi::move_register(&gathered, &newhead),
+        abi::compare_immediate(&nmerges, "1"),
+        abi::branch_hi("fc_sort_more"),
+        abi::branch("fc_coalesce"),
+        abi::label("fc_sort_more"),
+        abi::shift_left_immediate(&width, &width, 1),
+        abi::branch("fc_sort_outer"),
+        // --- Phase 3: coalesce adjacent + re-park -----------------------------
+        abi::label("fc_coalesce"),
+        abi::move_register(&cur, &gathered),
+        abi::move_immediate(&ltail, "Integer", "0"),
+        abi::label("fc_coalesce_loop"),
+        abi::compare_immediate(&cur, "0"),
+        abi::branch_eq("fc_ret"),
+        abi::load_u64(&cnext, &cur, 0),
+        abi::load_u64(&csize, &cur, 8),
+        abi::label("fc_absorb"),
+        abi::compare_immediate(&cnext, "0"),
+        abi::branch_eq("fc_place"),
+        abi::add_registers(&cend, &cur, &csize),
+        abi::compare_registers(&cend, &cnext),
+        abi::branch_ne("fc_place"), // not physically adjacent
+        abi::load_u64(&nsize, &cnext, 8),
+        abi::add_registers(&csize, &csize, &nsize),
+        abi::load_u64(&cnext, &cnext, 0), // drop the absorbed node
+        abi::branch("fc_absorb"),
+        abi::label("fc_place"),
+        abi::store_u64(&csize, &cur, 8),
+        abi::compare_immediate(&csize, &quick_max),
+        abi::branch_hi("fc_place_list"),
+        // Re-park onto the exact-size quick bin (class csize/16, head at
+        // state + (csize>>4<<3) + QUICK_BIN_BASE_OFFSET-8).
+        abi::shift_right_immediate(&cbin, &csize, 4),
+        abi::shift_left_immediate(&cbin, &cbin, 3),
+        abi::add_registers(&cbin, ARENA_STATE_REGISTER, &cbin),
+        abi::load_u64(&cbinhead, &cbin, ARENA_QUICK_BIN_BASE_OFFSET - 8),
+        abi::store_u64(&cbinhead, &cur, 0),
+        abi::store_u64(&cur, &cbin, ARENA_QUICK_BIN_BASE_OFFSET - 8),
+        abi::branch("fc_place_next"),
+        abi::label("fc_place_list"),
+        // Append to the address-ordered list (ascending walk → append at tail).
+        abi::store_u64(abi::ZERO, &cur, 0),
+        abi::compare_immediate(&ltail, "0"),
+        abi::branch_eq("fc_place_list_head"),
+        abi::store_u64(&cur, &ltail, 0),
+        abi::branch("fc_place_list_tail"),
+        abi::label("fc_place_list_head"),
+        abi::store_u64(&cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::label("fc_place_list_tail"),
+        abi::move_register(&ltail, &cur),
+        abi::label("fc_place_next"),
+        abi::move_register(&cur, &cnext),
+        abi::branch("fc_coalesce_loop"),
+        abi::label("fc_ret"),
+        abi::return_(),
+    ];
+    finalize_vreg_helper(
+        "runtime.arena_flush_coalesce",
+        ARENA_FLUSH_COALESCE_SYMBOL,
         "Nothing",
         instructions,
         Vec::new(),
