@@ -1,5 +1,43 @@
 use super::*;
 
+/// Parse the `--target`/`--regalloc` options shared verbatim by `mfb build` and
+/// `mfb test`. Returns `Ok(true)` when `arg` was one of them (updating `target`
+/// or `regalloc`, consuming the value from `iter` for the space-separated form),
+/// `Ok(false)` when `arg` is not a shared option, or `Err` on a malformed value.
+/// `cmd` is the subcommand word (`"build"` / `"test"`) for the error text.
+fn parse_common_option(
+    arg: &str,
+    iter: &mut impl Iterator<Item = String>,
+    cmd: &str,
+    target: &mut Option<target::BuildTarget>,
+    regalloc: &mut target::shared::code::regalloc::RegallocKind,
+) -> Result<bool, String> {
+    if arg == "--target" || arg == "-target" {
+        let Some(value) = iter.next() else {
+            return Err(format!("mfb {cmd} -target requires os-arch"));
+        };
+        *target = Some(target::BuildTarget::parse(&value)?);
+    } else if let Some(value) = arg
+        .strip_prefix("--target=")
+        .or_else(|| arg.strip_prefix("-target="))
+    {
+        *target = Some(target::BuildTarget::parse(value)?);
+    } else if arg == "--regalloc" || arg == "-regalloc" {
+        let Some(value) = iter.next() else {
+            return Err(format!("mfb {cmd} -regalloc requires a strategy name"));
+        };
+        *regalloc = target::shared::code::regalloc::parse_kind(&value)?;
+    } else if let Some(value) = arg
+        .strip_prefix("--regalloc=")
+        .or_else(|| arg.strip_prefix("-regalloc="))
+    {
+        *regalloc = target::shared::code::regalloc::parse_kind(value)?;
+    } else {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
 pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
     let mut outputs: Vec<BuildOutput> = Vec::new();
@@ -18,16 +56,8 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
                 return Err(format!("mfb build got duplicate output flag `{arg}`"));
             }
             outputs.push(output);
-        } else if arg == "--target" || arg == "-target" {
-            let Some(value) = iter.next() else {
-                return Err("mfb build -target requires os-arch".to_string());
-            };
-            target = Some(target::BuildTarget::parse(&value)?);
-        } else if let Some(value) = arg
-            .strip_prefix("--target=")
-            .or_else(|| arg.strip_prefix("-target="))
-        {
-            target = Some(target::BuildTarget::parse(value)?);
+        } else if parse_common_option(&arg, &mut iter, "build", &mut target, &mut regalloc)? {
+            // handled by the shared --target/--regalloc parser
         } else if arg == "--sign" {
             let Some(value) = iter.next() else {
                 return Err("mfb build --sign requires <owner_name>".to_string());
@@ -51,16 +81,6 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
             app_debug = true;
         } else if arg == "--unsigned" {
             allow_unsigned = true;
-        } else if arg == "--regalloc" || arg == "-regalloc" {
-            let Some(value) = iter.next() else {
-                return Err("mfb build -regalloc requires a strategy name".to_string());
-            };
-            regalloc = target::shared::code::regalloc::parse_kind(&value)?;
-        } else if let Some(value) = arg
-            .strip_prefix("--regalloc=")
-            .or_else(|| arg.strip_prefix("-regalloc="))
-        {
-            regalloc = target::shared::code::regalloc::parse_kind(value)?;
         } else if arg == "-q" || arg == "--quiet" {
             if verbosity.replace(Verbosity::Quiet) == Some(Verbosity::Verbose) {
                 return Err("mfb build accepts at most one of -q / -v".to_string());
@@ -106,26 +126,8 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
     while let Some(arg) = iter.next() {
         if arg == "--coverage" {
             coverage = true;
-        } else if arg == "--target" || arg == "-target" {
-            let Some(value) = iter.next() else {
-                return Err("mfb test -target requires os-arch".to_string());
-            };
-            target = Some(target::BuildTarget::parse(&value)?);
-        } else if let Some(value) = arg
-            .strip_prefix("--target=")
-            .or_else(|| arg.strip_prefix("-target="))
-        {
-            target = Some(target::BuildTarget::parse(value)?);
-        } else if arg == "--regalloc" || arg == "-regalloc" {
-            let Some(value) = iter.next() else {
-                return Err("mfb test -regalloc requires a strategy name".to_string());
-            };
-            regalloc = target::shared::code::regalloc::parse_kind(&value)?;
-        } else if let Some(value) = arg
-            .strip_prefix("--regalloc=")
-            .or_else(|| arg.strip_prefix("-regalloc="))
-        {
-            regalloc = target::shared::code::regalloc::parse_kind(value)?;
+        } else if parse_common_option(&arg, &mut iter, "test", &mut target, &mut regalloc)? {
+            // handled by the shared --target/--regalloc parser
         } else if arg.starts_with('-') {
             return Err(format!("unknown test option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {

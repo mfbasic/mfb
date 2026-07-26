@@ -142,6 +142,22 @@ impl BuildOutput {
             _ => None,
         }
     }
+
+    /// The human-readable noun for this output, used both in the `Wrote <noun> to
+    /// …` success line and in the package-unsupported diagnostic. Kept in one
+    /// place so the two sites cannot drift (bug-340 B4).
+    fn label(self) -> &'static str {
+        match self {
+            BuildOutput::Ast => "AST",
+            BuildOutput::Ir => "IR",
+            BuildOutput::BinaryRepr => "binary representation",
+            BuildOutput::NativeIr => "native IR",
+            BuildOutput::NativePlan => "native plan",
+            BuildOutput::NativeObjectPlan => "native object plan",
+            BuildOutput::NativeCodePlan => "native code plan",
+            BuildOutput::Mir => "MIR",
+        }
+    }
 }
 
 pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
@@ -726,13 +742,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             | BuildOutput::NativeCodePlan
             | BuildOutput::Mir => {
                 if project_kind == "package" {
-                    let what = match output {
-                        BuildOutput::NativeIr => "native IR",
-                        BuildOutput::NativePlan => "native plan",
-                        BuildOutput::NativeObjectPlan => "native object plan",
-                        BuildOutput::NativeCodePlan => "native code plan",
-                        _ => "MIR",
-                    };
+                    let what = output.label();
                     rules::show_general_diagnostic(
                         "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
                         &format!("Package projects do not support {what} output; run `mfb build` to write a .mfp package."),
@@ -794,75 +804,29 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     binary_repr_path.display()
                 );
             }
-            BuildOutput::NativeIr => {
-                let nir_path =
-                    match target::write_nir(&options.location, ir, &target, packages, build_mode) {
-                        Ok(path) => path,
-                        Err(err) => {
-                            eprintln!("error: {err}");
-                            return Err(());
-                        }
-                    };
-                println!("Wrote native IR to {}", nir_path.display());
-            }
-            BuildOutput::NativePlan => {
-                let plan_path = match target::write_native_plan(
-                    &options.location,
-                    ir,
-                    &target,
-                    packages,
-                    build_mode,
-                ) {
+            BuildOutput::NativeIr
+            | BuildOutput::NativePlan
+            | BuildOutput::NativeObjectPlan
+            | BuildOutput::NativeCodePlan
+            | BuildOutput::Mir => {
+                // All five native dumps share the same writer signature
+                // (`-> Result<PathBuf, String>`) and error/success handling;
+                // only the writer function and the noun differ (bug-340 B4).
+                let writer = match output {
+                    BuildOutput::NativeIr => target::write_nir,
+                    BuildOutput::NativePlan => target::write_native_plan,
+                    BuildOutput::NativeObjectPlan => target::write_native_object_plan,
+                    BuildOutput::NativeCodePlan => target::write_native_code_plan,
+                    _ => target::write_mir,
+                };
+                let path = match writer(&options.location, ir, &target, packages, build_mode) {
                     Ok(path) => path,
                     Err(err) => {
                         eprintln!("error: {err}");
                         return Err(());
                     }
                 };
-                println!("Wrote native plan to {}", plan_path.display());
-            }
-            BuildOutput::NativeObjectPlan => {
-                let object_path = match target::write_native_object_plan(
-                    &options.location,
-                    ir,
-                    &target,
-                    packages,
-                    build_mode,
-                ) {
-                    Ok(path) => path,
-                    Err(err) => {
-                        eprintln!("error: {err}");
-                        return Err(());
-                    }
-                };
-                println!("Wrote native object plan to {}", object_path.display());
-            }
-            BuildOutput::NativeCodePlan => {
-                let code_path = match target::write_native_code_plan(
-                    &options.location,
-                    ir,
-                    &target,
-                    packages,
-                    build_mode,
-                ) {
-                    Ok(path) => path,
-                    Err(err) => {
-                        eprintln!("error: {err}");
-                        return Err(());
-                    }
-                };
-                println!("Wrote native code plan to {}", code_path.display());
-            }
-            BuildOutput::Mir => {
-                let mir_path =
-                    match target::write_mir(&options.location, ir, &target, packages, build_mode) {
-                        Ok(path) => path,
-                        Err(err) => {
-                            eprintln!("error: {err}");
-                            return Err(());
-                        }
-                    };
-                println!("Wrote MIR to {}", mir_path.display());
+                println!("Wrote {} to {}", output.label(), path.display());
             }
             BuildOutput::Ast | BuildOutput::Ir => unreachable!("handled above"),
         }
