@@ -332,11 +332,11 @@ fn write_executable(
         NativeBuildMode::Console => {
             os::macos::write_linked_executable(project_dir, &ir.name, &image).map(|path| vec![path])
         }
-        // `LinuxApp` is a Linux toolkit selection; it never reaches the macOS
-        // backend (the CLI picks the build mode from the target OS).
-        NativeBuildMode::LinuxApp => {
-            Err("internal error: macOS backend received a Linux app build mode".to_string())
-        }
+        // `LinuxApp`/`WindowsApp` are other-toolkit selections; they never reach
+        // the macOS backend (the CLI picks the build mode from the target OS).
+        NativeBuildMode::LinuxApp | NativeBuildMode::WindowsApp => Err(
+            "internal error: macOS backend received a non-macOS app build mode".to_string(),
+        ),
     }
 }
 

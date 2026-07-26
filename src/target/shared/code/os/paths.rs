@@ -184,7 +184,12 @@ pub(super) fn resource_base_offset(
     module_name: &str,
 ) -> (u32, String) {
     match build_mode {
-        crate::target::NativeBuildMode::Console => (1, String::new()),
+        // The Windows app `.exe` sits in `build/` beside its resources exactly as a
+        // console build does (single file, no bundle) — strip the filename, no
+        // suffix (plan-66-I/J).
+        crate::target::NativeBuildMode::Console | crate::target::NativeBuildMode::WindowsApp => {
+            (1, String::new())
+        }
         crate::target::NativeBuildMode::MacApp => (2, "Resources".to_string()),
         crate::target::NativeBuildMode::LinuxApp => (2, format!("share/{module_name}")),
     }
