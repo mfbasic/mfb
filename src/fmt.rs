@@ -79,7 +79,7 @@ pub fn format_source(source: &str, indent_width: usize) -> String {
         }
         i += 1;
 
-        let base = stack.len();
+        let level = stack.len();
         let (mut first_structural, mut ops) = structural_ops(&sig);
         // bug-348: a line-leading `TGROUP`/`TCASE` opens a block the keyword
         // stream cannot see, since neither word is a keyword.
@@ -89,7 +89,7 @@ pub fn format_source(source: &str, indent_width: usize) -> String {
                 first_structural = true;
             }
         }
-        let line_indent = apply_ops(&ops, &mut stack, first_structural, base);
+        let line_indent = apply_ops(&ops, &mut stack, first_structural, level);
         let indent = indent_str(line_indent, indent_width);
 
         for (j, cased) in cased_lines.iter().enumerate() {
@@ -119,8 +119,8 @@ fn strip_cr(line: &str) -> &str {
     line.strip_suffix('\r').unwrap_or(line)
 }
 
-fn indent_str(level: usize, width: usize) -> String {
-    " ".repeat(level * width)
+fn indent_str(level: usize, indent_width: usize) -> String {
+    " ".repeat(level * indent_width)
 }
 
 // --- Per-line scanning -----------------------------------------------------
@@ -373,9 +373,10 @@ enum Op {
     Case,
     /// `END X`: closes a block. The keyword identifies it (for `END MATCH`).
     End(Option<Keyword>),
-    /// `NEXT`/`LOOP`: closes the top loop block. (`END WHILE` routes through
-    /// `End` like every other `END <kind>` closer.)
-    Pop,
+    /// `NEXT`/`LOOP`: an *implicit* block closer — it closes the top loop block
+    /// without an `END <kind>` keyword, unlike [`Op::End`]. (`END WHILE` routes
+    /// through `End` like every other `END <kind>` closer.)
+    EndImplicit,
 }
 
 /// Extract the block-structure operations for one logical line, and whether the
@@ -450,7 +451,7 @@ fn classify(
         K::ElseIf | K::Else => is_first.then_some(Op::Else),
         K::Case => Some(Op::Case),
         K::End => Some(Op::End(next_keyword(sig, idx))),
-        K::Next | K::Loop => Some(Op::Pop),
+        K::Next | K::Loop => Some(Op::EndImplicit),
         // FUNC/SUB may be preceded by visibility/ISOLATED modifiers, so they are
         // not required to lead the line; EXIT FUNC/SUB is excluded by `after_exit`.
         // A function *type* `FUNC(…) AS T` / `SUB(…)` (the keyword immediately
@@ -513,8 +514,8 @@ fn next_keyword(sig: &[Sig], idx: usize) -> Option<Keyword> {
 
 /// Apply a logical line's operations to the block stack and return the
 /// indentation level at which the line should be printed.
-fn apply_ops(ops: &[Op], stack: &mut Vec<Block>, first_structural: bool, base: usize) -> usize {
-    let mut line_indent = base;
+fn apply_ops(ops: &[Op], stack: &mut Vec<Block>, first_structural: bool, level: usize) -> usize {
+    let mut line_indent = level;
     for (i, op) in ops.iter().enumerate() {
         let ind = match op {
             Op::Open(block) => {
@@ -538,7 +539,7 @@ fn apply_ops(ops: &[Op], stack: &mut Vec<Block>, first_structural: bool, base: u
                 stack.pop();
                 stack.len()
             }
-            Op::Pop => {
+            Op::EndImplicit => {
                 stack.pop();
                 stack.len()
             }
@@ -562,23 +563,23 @@ fn is_doc_start(trimmed: &str) -> bool {
 }
 
 /// Re-indent a whole `DOC … END DOC` block. `i` enters pointing at the `DOC`
-/// line and leaves pointing past the block's last line. `base` is the block
+/// line and leaves pointing past the block's last line. `level` is the block
 /// level of the surrounding code.
 fn format_doc_block(
     lines: &[&str],
     i: &mut usize,
     n: usize,
-    base: usize,
-    width: usize,
+    level: usize,
+    indent_width: usize,
     out: &mut Vec<String>,
 ) {
     out.push(format!(
         "{}{}",
-        indent_str(base, width),
+        indent_str(level, indent_width),
         doc_header(strip_cr(lines[*i]).trim())
     ));
     *i += 1;
-    let body = base + 1;
+    let body = level + 1;
     let mut in_example = false;
     let mut example: Vec<&str> = Vec::new();
     while *i < n {
@@ -586,44 +587,44 @@ fn format_doc_block(
         let words: Vec<&str> = raw.split_whitespace().collect();
         if in_example {
             if lexer::is_end_line(&words, "EXAMPLE") {
-                flush_example(&example, body + 1, width, out);
+                flush_example(&example, body + 1, indent_width, out);
                 example.clear();
-                out.push(format!("{}END EXAMPLE", indent_str(body, width)));
+                out.push(format!("{}END EXAMPLE", indent_str(body, indent_width)));
                 in_example = false;
             } else {
                 example.push(raw);
             }
         } else if lexer::is_end_line(&words, "DOC") {
-            out.push(format!("{}END DOC", indent_str(base, width)));
+            out.push(format!("{}END DOC", indent_str(level, indent_width)));
             *i += 1;
             return;
         } else if words.len() == 1 && words[0].eq_ignore_ascii_case("EXAMPLE") {
-            out.push(format!("{}EXAMPLE", indent_str(body, width)));
+            out.push(format!("{}EXAMPLE", indent_str(body, indent_width)));
             in_example = true;
         } else if raw.trim().is_empty() {
             out.push(String::new());
         } else {
-            out.push(format!("{}{}", indent_str(body, width), raw.trim()));
+            out.push(format!("{}{}", indent_str(body, indent_width), raw.trim()));
         }
         *i += 1;
     }
     // Unterminated block: flush any pending example source so nothing is lost.
     if in_example {
-        flush_example(&example, body + 1, width, out);
+        flush_example(&example, body + 1, indent_width, out);
     }
 }
 
 /// Emit `EXAMPLE` source lines anchored at `level`, preserving each line's
 /// indentation relative to the least-indented line so the code's own nesting
 /// survives while the block as a whole is re-anchored.
-fn flush_example(lines: &[&str], level: usize, width: usize, out: &mut Vec<String>) {
+fn flush_example(lines: &[&str], level: usize, indent_width: usize, out: &mut Vec<String>) {
     let min = lines
         .iter()
         .filter(|line| !line.trim().is_empty())
         .map(|line| line.len() - line.trim_start().len())
         .min()
         .unwrap_or(0);
-    let prefix = level * width;
+    let prefix = level * indent_width;
     for line in lines {
         if line.trim().is_empty() {
             out.push(String::new());
@@ -635,6 +636,21 @@ fn flush_example(lines: &[&str], level: usize, width: usize, out: &mut Vec<Strin
     }
 }
 
+/// The re-cased `DOC` header line, uppercasing only the `DOC` keyword and
+/// leaving any attribute words as written.
+fn doc_header(trimmed: &str) -> String {
+    let mut parts = trimmed.splitn(2, char::is_whitespace);
+    let _ = parts.next();
+    let rest = parts.next().unwrap_or("").trim();
+    if rest.is_empty() {
+        "DOC".to_string()
+    } else {
+        format!("DOC {rest}")
+    }
+}
+
+// --- LINK blocks -----------------------------------------------------------
+
 /// Re-indent a whole `LINK … END LINK` block from its `FUNC`/`FREE` nesting. `i`
 /// enters pointing at the `LINK` line and leaves pointing past `END LINK`. Text
 /// and casing are preserved; only leading indentation changes.
@@ -642,17 +658,17 @@ fn format_link_block(
     lines: &[&str],
     i: &mut usize,
     n: usize,
-    base: usize,
-    width: usize,
+    level: usize,
+    indent_width: usize,
     out: &mut Vec<String>,
 ) {
     out.push(format!(
         "{}{}",
-        indent_str(base, width),
+        indent_str(level, indent_width),
         strip_cr(lines[*i]).trim()
     ));
     *i += 1;
-    let mut depth = base + 1;
+    let mut depth = level + 1;
     while *i < n {
         let text = strip_cr(lines[*i]).trim();
         let words: Vec<&str> = text.split_whitespace().collect();
@@ -676,19 +692,19 @@ fn format_link_block(
                 || second.eq_ignore_ascii_case("CSTRUCT")
                 || second.eq_ignore_ascii_case("BIND"));
         if first.eq_ignore_ascii_case("END") && second.eq_ignore_ascii_case("LINK") {
-            out.push(format!("{}END LINK", indent_str(base, width)));
+            out.push(format!("{}END LINK", indent_str(level, indent_width)));
             *i += 1;
             return;
         } else if text.is_empty() {
             out.push(String::new());
         } else if is_closer {
             depth = depth.saturating_sub(1);
-            out.push(format!("{}{}", indent_str(depth, width), text));
+            out.push(format!("{}{}", indent_str(depth, indent_width), text));
         } else if is_opener {
-            out.push(format!("{}{}", indent_str(depth, width), text));
+            out.push(format!("{}{}", indent_str(depth, indent_width), text));
             depth += 1;
         } else {
-            out.push(format!("{}{}", indent_str(depth, width), text));
+            out.push(format!("{}{}", indent_str(depth, indent_width), text));
         }
         *i += 1;
     }
@@ -703,19 +719,6 @@ fn is_link_start(trimmed: &str) -> bool {
         return false;
     }
     parts.next().unwrap_or("").trim_start().starts_with('"')
-}
-
-/// The re-cased `DOC` header line, uppercasing only the `DOC` keyword and
-/// leaving any attribute words as written.
-fn doc_header(trimmed: &str) -> String {
-    let mut parts = trimmed.splitn(2, char::is_whitespace);
-    let _ = parts.next();
-    let rest = parts.next().unwrap_or("").trim();
-    if rest.is_empty() {
-        "DOC".to_string()
-    } else {
-        format!("DOC {rest}")
-    }
 }
 
 #[cfg(test)]
