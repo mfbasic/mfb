@@ -13,14 +13,15 @@ IMPORT term
 '   ./examples/text-web/build/text-web.out
 '
 ' Layout (top to bottom):
-'   row 0            top bar:  [<spinner|Lock|Unlock>] Address: <url>
+'   row 0            top bar:  [<spinner|🔒|🔓>] Address: <url>
 '   row 1            a single horizontal rule
 '   rows 2..H-3      the content area (the raw page, or an error/help text)
 '   row H-2          a single horizontal rule
 '   row H-1          footer:   [Q]uit  [G]o            Files: <loaded>/<total>
 '
-' The bracket at the far left is a spinner while a page is loading, "Lock" once
-' a page has loaded over https, and "Unlock" otherwise. "Files: n/m" counts the
+' The bracket at the far left is a spinner while a page is loading, a locked
+' padlock (🔒) once a page has loaded over https, and an open padlock (🔓)
+' otherwise. "Files: n/m" counts the
 ' resources fetched for the current page: today a page is one document, so a
 ' successful load reads 1/1 (redirect hops are followed to reach that document,
 ' not counted as separate resources).
@@ -118,8 +119,15 @@ END FUNC
 
 FUNC indicatorText(loadState AS String, secure AS Boolean, spinner AS Integer) AS String
   IF loadState = "loading" THEN RETURN spinnerGlyph(spinner)
-  IF secure THEN RETURN "Lock"
-  RETURN "Unlock"
+  IF secure THEN RETURN "🔒"
+  RETURN "🔓"
+END FUNC
+
+' The rendered column width of the indicator. The lock emoji is one scalar but
+' occupies two terminal columns; the spinner is a single column.
+FUNC indicatorWidth(loadState AS String, secure AS Boolean) AS Integer
+  IF loadState = "loading" THEN RETURN 1
+  RETURN 2
 END FUNC
 
 ' The first-run help shown in the content area.
@@ -293,9 +301,11 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, loadStat
   term::setBackground(0, 0, 0)
   term::setForeground(255, 255, 255)
 
-  ' Cursor: visible at the end of the URL while editing, hidden otherwise.
+  ' Cursor: visible at the end of the URL while editing, hidden otherwise. The
+  ' indicator glyph may be wider than its one scalar, so add its extra columns.
   IF addressMode THEN
-    LET curCol AS Integer = minOf(len(prefix) + len(url), cols - 1)
+    LET extra AS Integer = indicatorWidth(loadState, secure) - 1
+    LET curCol AS Integer = minOf(len(prefix) + extra + len(url), cols - 1)
     term::moveTo(0, curCol)
     term::showCursor()
   ELSE
