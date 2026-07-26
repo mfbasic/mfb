@@ -47,7 +47,7 @@ pub(crate) const VERIFY_MATCH_EMPTY_MSG: &str = "MATCH has no cases (not exhaust
 
 mod binary;
 #[cfg(test)]
-mod coverage_tests;
+mod variant_corpus_tests;
 mod docs;
 mod json;
 mod link;
@@ -58,6 +58,8 @@ mod package;
 // bug-343 A3: resource-escape analysis (was the misleadingly-named crate-root
 // `escape.rs`); pub(crate) so its `src/target/` consumers can reach it.
 pub(crate) mod resource_escape;
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;
 mod types;
