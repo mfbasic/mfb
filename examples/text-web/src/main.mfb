@@ -1,0 +1,363 @@
+IMPORT collections
+IMPORT http
+IMPORT io
+IMPORT net
+IMPORT strings
+IMPORT term
+
+' text-web — a tiny full-screen terminal "web browser" built on the term:: TUI
+' module and the blocking http:: client.
+'
+' Build and run it from an interactive terminal:
+'   mfb build examples/text-web
+'   ./examples/text-web/build/text-web.out
+'
+' Layout (top to bottom):
+'   row 0            top bar:  [<spinner|Lock|Unlock>] Address: <url>
+'   row 1            a single horizontal rule
+'   rows 2..H-3      the content area (the raw page, or an error/help text)
+'   row H-2          a single horizontal rule
+'   row H-1          footer:   [Q]uit  [G]o            Files: <line>/<total>
+'
+' The bracket at the far left is a spinner while a page is loading, "Lock" once
+' a page has loaded over https, and "Unlock" otherwise. "Files: n/m" is the
+' scroll position: n is the top visible line and m is the total line count.
+'
+' Controls:
+'   Q / q      quit
+'   G / g      enter Address Mode
+'   In Address Mode: type to edit the URL, Backspace deletes, Enter loads the
+'                    URL and returns to Display Mode, Esc cancels.
+'   Up / Down  (Display Mode) scroll the loaded content one line at a time.
+'
+' On a load error of any kind the error message is shown in the content area.
+
+' The result of one load attempt: a decoded page body, or an error message.
+TYPE LoadResult
+  ok AS Boolean
+  content AS String
+  secure AS Boolean
+END TYPE
+
+' ----- small numeric helpers (no built-in min/max) -----
+
+FUNC maxOf(a AS Integer, b AS Integer) AS Integer
+  IF a > b THEN RETURN a
+  RETURN b
+END FUNC
+
+FUNC minOf(a AS Integer, b AS Integer) AS Integer
+  IF a < b THEN RETURN a
+  RETURN b
+END FUNC
+
+' Rows available for page content: everything except the 2 header and 2 footer
+' rows. At least one row so the arithmetic below never goes negative.
+FUNC contentHeight(size AS TermSize) AS Integer
+  RETURN maxOf(1, size.rows - 4)
+END FUNC
+
+' ----- text shaping -----
+
+' Truncate or space-pad a string to exactly `width` scalar columns.
+FUNC fit(s AS String, width AS Integer) AS String
+  IF width <= 0 THEN RETURN ""
+  IF len(s) > width THEN RETURN strings::mid(s, 0, width)
+  RETURN strings::padRight(s, width)
+END FUNC
+
+' Compose one footer line: `left` flush-left, `right` flush-right, in `width`
+' columns. Both are truncated if they cannot fit.
+FUNC composeFooter(left AS String, right AS String, width AS Integer) AS String
+  IF width <= 0 THEN RETURN ""
+  MUT r AS String = right
+  IF len(r) > width THEN r = strings::mid(r, 0, width)
+  LET leftRoom AS Integer = width - len(r)
+  MUT l AS String = left
+  IF len(l) > leftRoom THEN l = strings::mid(l, 0, leftRoom)
+  l = strings::padRight(l, leftRoom)
+  RETURN l & r
+END FUNC
+
+' Break raw page text into display lines, hard-wrapping at `width` columns and
+' honouring existing newlines. Tabs become four spaces so widths stay stable.
+FUNC wrapContent(content AS String, width AS Integer) AS List OF String
+  LET w AS Integer = maxOf(1, width)
+  MUT out AS List OF String = []
+  LET rawLines AS List OF String = strings::split(content, "\n")
+  FOR EACH raw IN rawLines
+    MUT line AS String = raw
+    IF strings::endsWith(line, "\r") THEN line = strings::mid(line, 0, len(line) - 1)
+    line = strings::replace(line, "\t", "    ")
+    IF len(line) = 0 THEN
+      out = collections::append(out, "")
+    ELSE
+      MUT start AS Integer = 0
+      DO WHILE start < len(line)
+        LET count AS Integer = minOf(w, len(line) - start)
+        out = collections::append(out, strings::mid(line, start, count))
+        start = start + count
+      LOOP
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The far-left status glyph in the top bar.
+FUNC spinnerGlyph(i AS Integer) AS String
+  LET frames AS String = "|/-\\"
+  RETURN strings::mid(frames, i MOD 4, 1)
+END FUNC
+
+FUNC indicatorText(loadState AS String, secure AS Boolean, spinner AS Integer) AS String
+  IF loadState = "loading" THEN RETURN spinnerGlyph(spinner)
+  IF secure THEN RETURN "Lock"
+  RETURN "Unlock"
+END FUNC
+
+' The first-run help shown in the content area.
+FUNC welcomeText() AS String
+  RETURN "text-web — a tiny terminal web viewer\n\nPress G to type an address, then Enter to load it.\nUse the Up / Down arrows to scroll a loaded page.\nPress Q to quit.\n\nExample addresses (https:// is assumed when omitted):\n  example.com\n  https://example.org\n"
+END FUNC
+
+' ----- loading -----
+
+' Give a bare host an https scheme so net::toUrl accepts it.
+FUNC ensureScheme(u AS String) AS String
+  IF strings::contains(u, "://") THEN RETURN u
+  RETURN "https://" & u
+END FUNC
+
+' Fetch one URL. Any failure — a malformed URL, DNS/TLS/transport error, a
+' non-UTF-8 body — is caught and returned as an error LoadResult.
+FUNC loadUrl(rawUrl AS String) AS LoadResult
+  LET trimmed AS String = strings::trim(rawUrl)
+  IF trimmed = "" THEN
+    RETURN LoadResult[FALSE, "No address entered. Press G and type a URL.", FALSE]
+  END IF
+  LET full AS String = ensureScheme(trimmed)
+  LET u AS net::Url = net::toUrl(full)
+  LET resp AS http::Response = http::read(u)
+  LET body AS String = toString(resp.body)
+  RETURN LoadResult[TRUE, body, u.scheme = "https"]
+
+  TRAP(e)
+    RETURN LoadResult[FALSE, "Error loading " & rawUrl & "\n\n" & e.message, FALSE]
+  END TRAP
+END FUNC
+
+' ----- input -----
+
+' Read one Unicode scalar, or "" at end of input / on a read error.
+FUNC getChar() AS String
+  LET c AS String = io::readChar() TRAP(e)
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+' True if input is ready within `ms` milliseconds; never raises.
+FUNC ready(ms AS Integer) AS Boolean
+  LET r AS Boolean = io::pollInput(ms) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  RETURN r
+END FUNC
+
+' Read one logical key, decoding arrow-key escape sequences into named tokens.
+' Returns "UP"/"DOWN"/"LEFT"/"RIGHT", "ENTER", "ESC", "BACKSPACE", "EOF", or a
+' single printable scalar as itself.
+FUNC readKey() AS String
+  LET c AS String = getChar()
+  IF c = "" THEN RETURN "EOF"
+  IF c = "\u{1B}" THEN
+    ' ESC alone, or the start of a CSI arrow sequence (ESC [ A .. D).
+    IF NOT ready(30) THEN RETURN "ESC"
+    LET c2 AS String = getChar()
+    IF c2 = "[" OR c2 = "O" THEN
+      LET c3 AS String = getChar()
+      IF c3 = "A" THEN RETURN "UP"
+      IF c3 = "B" THEN RETURN "DOWN"
+      IF c3 = "C" THEN RETURN "RIGHT"
+      IF c3 = "D" THEN RETURN "LEFT"
+      RETURN "ESC"
+    END IF
+    RETURN "ESC"
+  END IF
+  IF c = "\r" OR c = "\n" THEN RETURN "ENTER"
+  IF c = "\u{7F}" OR c = "\u{08}" THEN RETURN "BACKSPACE"
+  RETURN c
+END FUNC
+
+' A key that should be inserted into the address field: a single scalar that is
+' not one of the multi-character named tokens above.
+FUNC isTextKey(key AS String) AS Boolean
+  RETURN len(key) = 1
+END FUNC
+
+' ----- drawing -----
+
+' Paint one whole frame from the current state and present it.
+SUB renderFrame(size AS TermSize, addressMode AS Boolean, url AS String, wrapped AS List OF String, scroll AS Integer, loadState AS String, secure AS Boolean, spinner AS Integer)
+  LET cols AS Integer = size.columns
+  LET rows AS Integer = size.rows
+
+  term::clear()
+
+  IF cols < 1 OR rows < 5 THEN
+    term::moveTo(0, 0)
+    io::write(fit("Window too small", maxOf(1, cols)))
+    term::sync()
+    EXIT SUB
+  END IF
+
+  LET contentH AS Integer = maxOf(1, rows - 4)
+  LET ind AS String = indicatorText(loadState, secure, spinner)
+  LET prefix AS String = "[" & ind & "] Address: "
+
+  ' Row 0: top bar.
+  term::setBackground(30, 40, 60)
+  term::setForeground(225, 233, 255)
+  term::setBold(TRUE)
+  term::moveTo(0, 0)
+  io::write(fit(prefix & url, cols))
+  term::setBold(FALSE)
+
+  ' Row 1: header rule.
+  term::setBackground(0, 0, 0)
+  term::setForeground(90, 110, 150)
+  term::moveTo(1, 0)
+  io::write(strings::repeat("─", cols))
+
+  ' Content rows.
+  term::setForeground(210, 214, 220)
+  FOR r = 0 TO contentH - 1
+    LET idx AS Integer = scroll + r
+    MUT lineStr AS String = ""
+    IF idx >= 0 AND idx < len(wrapped) THEN
+      lineStr = collections::get(wrapped, idx)
+    END IF
+    term::moveTo(2 + r, 0)
+    io::write(fit(lineStr, cols))
+  NEXT
+
+  ' Footer rule.
+  term::setForeground(90, 110, 150)
+  term::moveTo(rows - 2, 0)
+  io::write(strings::repeat("─", cols))
+
+  ' Footer controls.
+  LET total AS Integer = len(wrapped)
+  MUT cur AS Integer = 0
+  IF total > 0 THEN cur = scroll + 1
+  LET rightPart AS String = "Files: " & toString(cur) & "/" & toString(total)
+  MUT leftPart AS String = "[Q]uit  [G]o"
+  IF addressMode THEN leftPart = "[Esc] Cancel  [Enter] Go"
+  term::setBackground(30, 40, 60)
+  term::setForeground(225, 233, 255)
+  term::setBold(TRUE)
+  term::moveTo(rows - 1, 0)
+  io::write(composeFooter(leftPart, rightPart, cols - 1))
+  term::setBold(FALSE)
+  term::setBackground(0, 0, 0)
+  term::setForeground(255, 255, 255)
+
+  ' Cursor: visible at the end of the URL while editing, hidden otherwise.
+  IF addressMode THEN
+    LET curCol AS Integer = minOf(len(prefix) + len(url), cols - 1)
+    term::moveTo(0, curCol)
+    term::showCursor()
+  ELSE
+    term::hideCursor()
+  END IF
+
+  term::sync()
+END SUB
+
+FUNC main AS Integer
+  ' A full-screen TUI needs an interactive terminal on both ends.
+  IF NOT io::isOutputTerminal() OR NOT io::isInputTerminal() THEN
+    io::printError("text-web: run this from an interactive terminal.")
+    RETURN 1
+  END IF
+
+  term::on()
+  term::hideCursor()
+
+  MUT running AS Boolean = TRUE
+  MUT addressMode AS Boolean = FALSE
+  MUT url AS String = ""
+  MUT content AS String = welcomeText()
+  MUT scroll AS Integer = 0
+  MUT loadState AS String = "idle"
+  MUT secure AS Boolean = FALSE
+  MUT spinner AS Integer = 0
+
+  DO WHILE running
+    ' Track the live terminal size; stop cleanly if the terminal detaches.
+    LET size AS TermSize = term::terminalSize() TRAP(e)
+      EXIT DO
+    END TRAP
+
+    LET wrapped AS List OF String = wrapContent(content, size.columns)
+    LET maxScroll AS Integer = maxOf(0, len(wrapped) - contentHeight(size))
+    IF scroll > maxScroll THEN scroll = maxScroll
+    IF scroll < 0 THEN scroll = 0
+
+    renderFrame(size, addressMode, url, wrapped, scroll, loadState, secure, spinner)
+    spinner = spinner + 1
+
+    LET key AS String = readKey()
+
+    IF addressMode THEN
+      IF key = "ENTER" THEN
+        ' Leave Address Mode and attempt the load. Show a spinner frame first,
+        ' since http::read blocks the UI until the exchange completes.
+        addressMode = FALSE
+        loadState = "loading"
+        LET full AS String = ensureScheme(strings::trim(url))
+        LET loading AS List OF String = wrapContent("Loading " & full & " ...", size.columns)
+        renderFrame(size, FALSE, url, loading, 0, loadState, secure, spinner)
+
+        LET loaded AS LoadResult = loadUrl(url)
+        content = loaded.content
+        secure = loaded.secure
+        scroll = 0
+        IF loaded.ok THEN
+          loadState = "ok"
+        ELSE
+          loadState = "error"
+        END IF
+      ELSEIF key = "ESC" THEN
+        addressMode = FALSE
+      ELSEIF key = "BACKSPACE" THEN
+        IF len(url) > 0 THEN url = strings::mid(url, 0, len(url) - 1)
+      ELSEIF key = "EOF" THEN
+        running = FALSE
+      ELSEIF isTextKey(key) THEN
+        url = url & key
+      END IF
+    ELSE
+      IF key = "q" OR key = "Q" OR key = "EOF" THEN
+        running = FALSE
+      ELSEIF key = "g" OR key = "G" THEN
+        addressMode = TRUE
+      ELSEIF key = "UP" THEN
+        IF scroll > 0 THEN scroll = scroll - 1
+      ELSEIF key = "DOWN" THEN
+        scroll = scroll + 1
+      END IF
+    END IF
+  LOOP
+
+  term::showCursor()
+  term::off()
+  RETURN 0
+
+  TRAP(e)
+    term::showCursor()
+    term::off()
+    io::printError("text-web: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
