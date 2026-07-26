@@ -14,6 +14,122 @@ use super::nir::{
 use super::plan::NativePlan;
 use super::runtime;
 
+mod builder_arena_transfer;
+mod builder_bits;
+mod builder_error_emission;
+mod builder_exits;
+mod builder_owned_cleanup;
+mod builder_registers;
+mod builder_resource_cleanup;
+mod builder_thread_cleanup;
+mod error_constants;
+pub(crate) use error_constants::*;
+mod types;
+pub(crate) use types::*;
+mod arena;
+mod entry;
+mod error_result;
+mod process_lifecycle;
+mod rng_pcg64;
+use arena::*;
+use error_result::*;
+use process_lifecycle::*;
+use rng_pcg64::*;
+#[cfg(test)]
+pub(crate) mod test_support;
+mod validation;
+pub(crate) use entry::lower_program_entry;
+pub(crate) use runtime_helpers::lower_thread_trampoline;
+mod codegen_utils;
+use codegen_utils::*;
+mod code_impl;
+use code_impl::{join_json, ToCodeJson};
+mod fs;
+use fs::*;
+mod float_format;
+use float_format::*;
+mod io_stdin;
+use io_stdin::*;
+mod io_stdout;
+use io_stdout::*;
+mod io_terminal;
+use io_terminal::*;
+mod stdin_broadcast;
+use stdin_broadcast::*;
+mod runtime_helpers;
+use runtime_helpers::*;
+mod runtime_helpers_thread;
+use runtime_helpers_thread::*;
+mod data_objects;
+use data_objects::*;
+mod module_analysis;
+use module_analysis::*;
+mod audio;
+mod builder_collection_compare;
+mod builder_collection_layout;
+use builder_collection_layout::{
+    byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_block_kind,
+    list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
+};
+mod builder_collection_queries;
+mod builder_collection_query;
+mod builder_control;
+mod builder_conversions;
+mod builder_emit_helpers;
+mod builder_fixed_math;
+mod builder_fmod;
+mod builder_fs_paths;
+mod builder_inplace_assign;
+mod builder_math;
+mod builder_money;
+mod builder_money_math;
+mod builder_numeric;
+mod builder_pow;
+mod builder_search;
+mod builder_simd_fixed_math;
+mod builder_simd_float_math;
+mod builder_simd_math;
+mod builder_strings;
+mod builder_strings_builtins;
+mod builder_strings_package;
+mod builder_value_semantics;
+mod builder_values;
+mod builder_vector_inline;
+mod collection_buffer;
+mod collection_mutate;
+mod native_helpers;
+
+mod crypto;
+mod crypto_ec;
+mod datetime;
+/// Consumer-side native-library locator resolution (plan-46-C). Shared with
+/// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
+/// copied filename cannot diverge.
+pub(crate) mod link_locator;
+mod link_thunk;
+mod list_mutate;
+mod map_mutate;
+mod net;
+mod os;
+mod private;
+mod simd_kernel_coeffs;
+mod term;
+mod term_grid;
+#[cfg(test)]
+mod tests;
+pub(crate) mod tls;
+mod type_utils;
+use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
+use type_utils::*;
+mod function_lowering;
+use function_lowering::*;
+mod architecture_guards;
+mod fma_fusion;
+pub(crate) mod mir;
+mod peephole;
+pub(crate) mod regalloc;
+pub(crate) use mir::MirPlan;
+
 /// The parameters every emitter helper in `shared/code` threads through: who is
 /// emitting (`symbol`), what the target can import (`platform_imports`,
 /// `platform`), and the two streams being appended to.
@@ -2233,122 +2349,6 @@ fn lower_map_probe_helper() -> CodeFunction {
         relocations,
     }
 }
-
-mod builder_arena_transfer;
-mod builder_bits;
-mod builder_error_emission;
-mod builder_exits;
-mod builder_owned_cleanup;
-mod builder_registers;
-mod builder_resource_cleanup;
-mod builder_thread_cleanup;
-mod error_constants;
-pub(crate) use error_constants::*;
-mod types;
-pub(crate) use types::*;
-mod arena;
-mod entry;
-mod error_result;
-mod process_lifecycle;
-mod rng_pcg64;
-use arena::*;
-use error_result::*;
-use process_lifecycle::*;
-use rng_pcg64::*;
-#[cfg(test)]
-pub(crate) mod test_support;
-mod validation;
-pub(crate) use entry::lower_program_entry;
-pub(crate) use runtime_helpers::lower_thread_trampoline;
-mod codegen_utils;
-use codegen_utils::*;
-mod code_impl;
-use code_impl::{join_json, ToCodeJson};
-mod fs;
-use fs::*;
-mod float_format;
-use float_format::*;
-mod io_stdin;
-use io_stdin::*;
-mod io_stdout;
-use io_stdout::*;
-mod io_terminal;
-use io_terminal::*;
-mod stdin_broadcast;
-use stdin_broadcast::*;
-mod runtime_helpers;
-use runtime_helpers::*;
-mod runtime_helpers_thread;
-use runtime_helpers_thread::*;
-mod data_objects;
-use data_objects::*;
-mod module_analysis;
-use module_analysis::*;
-mod audio;
-mod builder_collection_compare;
-mod builder_collection_layout;
-use builder_collection_layout::{
-    byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_block_kind,
-    list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
-};
-mod builder_collection_queries;
-mod builder_collection_query;
-mod builder_control;
-mod builder_conversions;
-mod builder_emit_helpers;
-mod builder_fixed_math;
-mod builder_fmod;
-mod builder_fs_paths;
-mod builder_inplace_assign;
-mod builder_math;
-mod builder_money;
-mod builder_money_math;
-mod builder_numeric;
-mod builder_pow;
-mod builder_search;
-mod builder_simd_fixed_math;
-mod builder_simd_float_math;
-mod builder_simd_math;
-mod builder_strings;
-mod builder_strings_builtins;
-mod builder_strings_package;
-mod builder_value_semantics;
-mod builder_values;
-mod builder_vector_inline;
-mod collection_buffer;
-mod collection_mutate;
-mod native_helpers;
-
-mod crypto;
-mod crypto_ec;
-mod datetime;
-/// Consumer-side native-library locator resolution (plan-46-C). Shared with
-/// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
-/// copied filename cannot diverge.
-pub(crate) mod link_locator;
-mod link_thunk;
-mod list_mutate;
-mod map_mutate;
-mod net;
-mod os;
-mod private;
-mod simd_kernel_coeffs;
-mod term;
-mod term_grid;
-#[cfg(test)]
-mod tests;
-pub(crate) mod tls;
-mod type_utils;
-use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
-use type_utils::*;
-mod function_lowering;
-use function_lowering::*;
-mod architecture_guards;
-mod fma_fusion;
-pub(crate) mod mir;
-mod peephole;
-pub(crate) mod regalloc;
-pub(crate) use mir::MirPlan;
 
 /// Resolve every logical `LINK` library this module names to the concrete
 /// The thunk symbol a resource's registered `CLOSE BY` op resolves to, or `None`
