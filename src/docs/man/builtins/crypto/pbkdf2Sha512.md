@@ -35,7 +35,7 @@ The output is produced one 64-byte HMAC-SHA-512 block at a time until at least
 `length` bytes have accumulated, then truncated to exactly `length` bytes. Each
 block folds `salt` and the block index through `iterations` rounds of HMAC,
 XOR-accumulating every round into the block.
-[[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Block512]]
+[[src/builtins/crypto_hash.mfb:__crypto_pbkdf2Block]]
 
 `salt` should be unique per password and need not be secret; a random salt from
 `crypto::randomBytes` (16 bytes or more) is recommended, stored alongside the

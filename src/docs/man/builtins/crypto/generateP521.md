@@ -34,7 +34,7 @@ arguments and returns a `crypto::KeyPair` record with two fields:
   `crypto::p521Sign` consumes. [[src/builtins/crypto_ecdsa.mfb:__crypto_generateP521]]
 - `publicKey` — 133 bytes, the wire form `0x04 || X || Y`: the leading SEC1
   uncompressed public point, sliced from the private bytes.
-  [[src/builtins/crypto_ecdsa.mfb:__crypto_bytePrefix]]
+  [[src/builtins/crypto_hash.mfb:__crypto_truncate]]
 
 The key is produced by a native raw keygen helper that binds the platform key
 API — `SecKey` on macOS, `EVP_PKEY`/`EC_KEY` on Linux (OpenSSL) — while the
@@ -69,7 +69,7 @@ None.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050000` | `ErrUnknown` | The platform key API fails to load or key generation fails (e.g. `SecKeyCreateRandomKey` / `EC_KEY_generate_key` returns an error). [[src/target/shared/code/crypto_ec/macos.rs:generate]] [[src/target/shared/code/crypto_ec/openssl.rs:generate]] |
-| `77010001` | `ErrOutOfMemory` | An arena allocation for the key bytes (or for the byte list built while slicing out the public key) fails. [[src/target/shared/code/crypto_ec/macos.rs:generate]] [[src/target/shared/code/crypto_ec/openssl.rs:generate]] [[src/builtins/crypto_ecdsa.mfb:__crypto_bytePrefix]] |
+| `77010001` | `ErrOutOfMemory` | An arena allocation for the key bytes (or for the byte list built while slicing out the public key) fails. [[src/target/shared/code/crypto_ec/macos.rs:generate]] [[src/target/shared/code/crypto_ec/openssl.rs:generate]] [[src/builtins/crypto_hash.mfb:__crypto_truncate]] |
 
 ## Examples
 

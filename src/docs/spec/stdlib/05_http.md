@@ -91,7 +91,7 @@ body's **byte** length (`strings::byteLen`), not its grapheme count.
 and `\n` escapes — and all framing (status line, header lines, the blank
 separator) uses it.
 
-[[src/builtins/http_package.mfb:__http_crlf]]
+[[src/builtins/http_package.mfb:__http_buildRequest]]
 
 ## Response Parsing
 
