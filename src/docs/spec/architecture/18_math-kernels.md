@@ -48,7 +48,7 @@ anything.)
 ## Accuracy
 
 The accuracy bar is **macOS libm**, captured once as bit-pattern reference
-vectors in `tests/_data/math_kernel_ref/<fn>.ref`. The kernels meet it as follows:
+vectors in `tools/math-kernels/ref/<fn>.ref`. The kernels meet it as follows:
 
 | Function(s) | Bound | Notes |
 |---|---|---|
@@ -96,7 +96,7 @@ Three layers, all offline/in-tree (no network, no Mac required after capture):
 
 1. **Reference vectors** — `tools/math-kernels/capture_ref.c` links macOS libm and
    emits `<fn>.ref` bit-pattern vectors; the committed copies under
-   `tests/_data/math_kernel_ref/` *are* macOS libm.
+   `tools/math-kernels/ref/` *are* macOS libm.
 2. **Coefficient/algorithm proof** — `tools/math-kernels/gen_coeffs.py verify`
    reconstructs each kernel in `f64` (mirroring the codegen's reduction + FMA
    sequence) and reports its ULP histogram against the vectors, proving a

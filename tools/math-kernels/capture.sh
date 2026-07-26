@@ -16,9 +16,9 @@
 # Usage:
 #   ./capture.sh [OUT_DIR]
 # OUT_DIR defaults to ./reference (a tool-local sample). For a real capture the
-# implementer points it at the in-tree test data location, e.g.:
-#   ./capture.sh ../../tests/_data/math_kernel_ref
-# (kept out of src/ here so this tool never writes outside tools/ by default).
+# implementer points it at the committed reference set, e.g.:
+#   ./capture.sh ref
+# (kept under tools/ here so this tool never writes outside tools/ by default).
 
 set -euo pipefail
 

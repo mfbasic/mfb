@@ -45,8 +45,8 @@ pip install -r requirements.txt           # mpmath; only needed for gen_coeffs.p
 
 ```sh
 # Writes reference/<fn>.ref (tool-local scratch). For the committed copy, point
-# it at the in-tree test-data path the kernel tests read:
-./capture.sh ../../tests/_data/math_kernel_ref
+# it at the reference set the kernel tests read:
+./capture.sh ref
 ```
 
 Each `.ref` file:
