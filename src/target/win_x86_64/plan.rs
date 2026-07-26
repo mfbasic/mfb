@@ -17,6 +17,10 @@ const WS2_32: &str = "ws2_32.dll";
 const BCRYPT: &str = "bcrypt.dll";
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
+const ADVAPI32: &str = "advapi32.dll";
+// WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
+// endpoint objects themselves are called through their vtables (no import).
+const OLE32: &str = "ole32.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -259,6 +263,21 @@ impl NativePlanPlatform for Platform {
                 import("BCryptVerifySignature", BCRYPT, required_by),
             ],
             "crypto.randomBytes" => vec![import("BCryptGenRandom", BCRYPT, required_by)],
+            // WASAPI audio (plan-66 G+H). ole32 provides the COM runtime and object
+            // activation (CoInitializeEx/CoCreateInstance/CoTaskMemFree); kernel32
+            // provides the event-driven wait primitives. The IMMDevice*/IAudioClient*/
+            // IAudio{Render,Capture}Client/IPropertyStore methods are called through
+            // their COM vtables (an indirect `call r/m64`), so they need no import.
+            // Any audio.* call declares the whole set; the merged IAT dedups.
+            call if call.starts_with("audio.") => vec![
+                import("CoInitializeEx", OLE32, required_by),
+                import("CoCreateInstance", OLE32, required_by),
+                import("CoTaskMemFree", OLE32, required_by),
+                import("CreateEventW", KERNEL32, required_by),
+                import("WaitForSingleObject", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetTickCount64", KERNEL32, required_by),
+            ],
             // TLS client over Schannel (plan-47-J): SSPI (secur32), the cert-chain
             // policy check (crypt32), the socket layer (ws2_32), and the wide-string
             // marshal for the SNI/target name (kernel32). Any tls.* call declares
@@ -271,6 +290,9 @@ impl NativePlanPlatform for Platform {
                 import("AcquireCredentialsHandleW", SECUR32, required_by),
                 import("FreeCredentialsHandle", SECUR32, required_by),
                 import("InitializeSecurityContextW", SECUR32, required_by),
+                // Server handshake (tls.listen/accept): AcceptSecurityContext has
+                // no A/W variant (it takes no string args).
+                import("AcceptSecurityContext", SECUR32, required_by),
                 import("DeleteSecurityContext", SECUR32, required_by),
                 import("FreeContextBuffer", SECUR32, required_by),
                 import("QueryContextAttributesW", SECUR32, required_by),
@@ -281,13 +303,37 @@ impl NativePlanPlatform for Platform {
                 import("CertVerifyCertificateChainPolicy", CRYPT32, required_by),
                 import("CertFreeCertificateChain", CRYPT32, required_by),
                 import("CertFreeCertificateContext", CRYPT32, required_by),
+                // Server credential build: PEM → DER (CryptStringToBinaryA), the
+                // cert context, the PKCS#8→PKCS#1 decode, and the property that
+                // binds the private key to the cert.
+                import("CryptStringToBinaryA", CRYPT32, required_by),
+                import("CertCreateCertificateContext", CRYPT32, required_by),
+                import("CertSetCertificateContextProperty", CRYPT32, required_by),
+                import("CryptDecodeObjectEx", CRYPT32, required_by),
+                // Legacy CryptoAPI ephemeral private-key import (advapi32): the
+                // CryptImportKey-into-VERIFYCONTEXT + CERT_KEY_CONTEXT recipe.
+                import("CryptAcquireContextW", ADVAPI32, required_by),
+                import("CryptImportKey", ADVAPI32, required_by),
+                import("CryptDestroyKey", ADVAPI32, required_by),
+                import("CryptReleaseContext", ADVAPI32, required_by),
                 import("getaddrinfo", WS2_32, required_by),
                 import("freeaddrinfo", WS2_32, required_by),
                 import("socket", WS2_32, required_by),
                 import("connect", WS2_32, required_by),
+                // Server socket: bind/listen/accept + the SO_REUSEADDR toggle and
+                // the connection-wait poll.
+                import("bind", WS2_32, required_by),
+                import("listen", WS2_32, required_by),
+                import("accept", WS2_32, required_by),
+                import("setsockopt", WS2_32, required_by),
+                import("WSAPoll", WS2_32, required_by),
                 import("send", WS2_32, required_by),
                 import("recv", WS2_32, required_by),
                 import("closesocket", WS2_32, required_by),
+                // The PEM cert/key files are read via the Win32 file API.
+                import("CreateFileW", KERNEL32, required_by),
+                import("ReadFile", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],

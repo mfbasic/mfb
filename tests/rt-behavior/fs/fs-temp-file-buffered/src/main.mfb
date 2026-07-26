@@ -1,0 +1,17 @@
+IMPORT io
+IMPORT fs
+
+REM plan-66-E: fs::createTempFile (opened O_EXCL/CREATE_NEW at a random name in the
+REM system temp dir) plus the setBuffered/isBuffered resource-flag pair, across
+REM every native target. Writes only into the system temp dir, so the fixture
+REM leaves no artifact in the repo and its output is host-neutral.
+FUNC main AS Integer
+  RES tf AS File = fs::createTempFile()
+  io::print("buffered_default=" & toString(fs::isBuffered(tf)))
+  fs::setBuffered(tf, TRUE)
+  io::print("buffered_set=" & toString(fs::isBuffered(tf)))
+  fs::writeAll(tf, "temp-payload")
+  io::print("wrote=TRUE")
+  fs::close(tf)
+  RETURN 0
+END FUNC

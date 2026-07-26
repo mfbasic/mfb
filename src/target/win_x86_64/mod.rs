@@ -115,14 +115,31 @@ const RUNTIME_CALLS: &[&str] = &[
     "crypto.p256Verify",
     "crypto.p384Verify",
     "crypto.p521Verify",
-    // TLS client over Schannel (plan-47-J). Server (listen/accept) is not yet
-    // advertised on Windows.
+    // TLS client + server over Schannel (plan-47-J).
     "tls.connect",
     "tls.read",
     "tls.readText",
     "tls.write",
     "tls.writeText",
     "tls.close",
+    "tls.listen",
+    "tls.accept",
+    "tls.closeListener",
+    // WASAPI audio (plan-66 G+H): the full audio:: surface over COM.
+    "audio.devices",
+    "audio.openOutput",
+    "audio.openOutputDevice",
+    "audio.openInput",
+    "audio.openInputDevice",
+    "audio.write",
+    "audio.read",
+    "audio.readTimeout",
+    "audio.poll",
+    "audio.pollTimeout",
+    "audio.available",
+    "audio.xruns",
+    "audio.closeInput",
+    "audio.closeOutput",
 ];
 
 impl NativeBackend for Backend {
@@ -149,8 +166,9 @@ impl NativeBackend for Backend {
     }
 
     fn supports_app_mode(&self) -> bool {
-        // Console subsystem only — no Windows GUI/app mode (master §Non-goals).
-        false
+        // plan-66-I/J: the Win32 transcript window (GUI-subsystem PE hosting the
+        // program's console I/O).
+        true
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -161,8 +179,8 @@ impl NativeBackend for Backend {
         packages: &[PathBuf],
         signing_metadata: Option<&[u8]>,
         build_mode: NativeBuildMode,
-        _app_icon: Option<&Path>,
-        _app_version: Option<&str>,
+        app_icon: Option<&Path>,
+        app_version: Option<&str>,
         _vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
@@ -175,7 +193,16 @@ impl NativeBackend for Backend {
         native_code.validate()?;
         let mut image = crate::arch::x86_64::encode::encode(&native_code)?;
         image.signing_metadata = signing_metadata.map(|m| m.to_vec());
-        let path = os::windows::write_linked_executable(project_dir, &ir.name, &image)?;
+        // plan-66-I: app mode emits a GUI-subsystem PE; icon/version are threaded
+        // toward the writer for the plan-66-K `.rsrc` resource section.
+        let path = os::windows::write_linked_executable(
+            project_dir,
+            &ir.name,
+            &image,
+            build_mode.is_app(),
+            app_icon,
+            app_version,
+        )?;
         Ok(vec![path])
     }
 
@@ -266,7 +293,12 @@ fn lower_validated_module(
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    if !matches!(build_mode, NativeBuildMode::Console) {
+    // plan-66-I: Windows supports Console and its own app mode (the Win32
+    // transcript window). Any other mode (macOS/Linux toolkits) is a misroute.
+    if !matches!(
+        build_mode,
+        NativeBuildMode::Console | NativeBuildMode::WindowsApp
+    ) {
         return Err(format!(
             "windows-x86_64 native targets do not support the {} build mode",
             build_mode.as_str()

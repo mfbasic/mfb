@@ -1,0 +1,71 @@
+IMPORT collections
+IMPORT io
+
+' plan-64 D4: native `collections::partition` (fixed-width fast path) plus the
+' `.mfb` String fallback, and callback-failure propagation. A failing predicate
+' must route its Error to the enclosing inline TRAP — the interpreted body now
+' evaluates the predicate through `collections::transform` (which checks the
+' result tag) instead of a bare `IF predicate(item)` that silently swallowed it.
+
+FUNC isEven(n AS Integer) AS Boolean
+  RETURN (n MOD 2) = 0
+END FUNC
+
+FUNC isPosF(x AS Float) AS Boolean
+  RETURN x > 0.0
+END FUNC
+
+FUNC isShort(s AS String) AS Boolean
+  RETURN len(s) <= 3
+END FUNC
+
+FUNC failOn20(v AS Integer) AS Boolean
+  IF v = 20 THEN FAIL error(2, "predicate hit 20")
+  RETURN v > 5
+END FUNC
+
+FUNC failOnB(s AS String) AS Boolean
+  IF s = "b" THEN FAIL error(3, "predicate hit b")
+  RETURN len(s) > 0
+END FUNC
+
+FUNC main AS Integer
+  ' Native fixed-width path (Integer)
+  LET a AS Partition OF Integer = collections::partition([1, 2, 3, 4, 5, 6], isEven)
+  io::print("int matched=" & toString(len(a.matched)) & " unmatched=" & toString(len(a.unmatched)))
+  io::print("int m0=" & toString(collections::get(a.matched, 0)) & " u0=" & toString(collections::get(a.unmatched, 0)))
+
+  ' Native path (Float)
+  LET f AS Partition OF Float = collections::partition([-1.0, 2.0, -3.0, 4.0], isPosF)
+  io::print("float matched=" & toString(len(f.matched)) & " unmatched=" & toString(len(f.unmatched)))
+
+  ' Empty source
+  LET emptyI AS List OF Integer = []
+  LET e AS Partition OF Integer = collections::partition(emptyI, isEven)
+  io::print("empty matched=" & toString(len(e.matched)) & " unmatched=" & toString(len(e.unmatched)))
+
+  ' String fallback (.mfb path)
+  LET s AS Partition OF String = collections::partition(["a", "abcd", "xy", "hello"], isShort)
+  io::print("str matched=" & toString(len(s.matched)) & " unmatched=" & toString(len(s.unmatched)) & " m0=" & collections::get(s.matched, 0))
+
+  ' Failing predicate under inline TRAP — native fixed-width receiver
+  LET emptyL AS List OF Integer = []
+  LET p AS Partition OF Integer = collections::partition([10, 20, 30], failOn20) TRAP(err)
+    io::print("int trap caught: " & err.message)
+    RECOVER Partition[emptyL, emptyL]
+  END TRAP
+  io::print("int trap matched=" & toString(len(p.matched)))
+
+  ' Failing predicate under inline TRAP — String fallback receiver
+  LET emptyS AS List OF String = []
+  LET q AS Partition OF String = collections::partition(["a", "b", "c"], failOnB) TRAP(err)
+    io::print("str trap caught: " & err.message)
+    RECOVER Partition[emptyS, emptyS]
+  END TRAP
+  io::print("str trap matched=" & toString(len(q.matched)))
+
+  ' Success still works after a recovery
+  LET b AS Partition OF Integer = collections::partition([7, 8, 9, 10], isEven)
+  io::print("after matched=" & toString(len(b.matched)) & " m0=" & toString(collections::get(b.matched, 0)))
+  RETURN 0
+END FUNC

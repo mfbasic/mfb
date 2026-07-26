@@ -59,8 +59,14 @@ pub(super) fn lower_pid(
 ) -> HelperResult {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    // Windows has no `getpid`; GetCurrentProcessId is the drop-in (no args, DWORD
+    // in the return register). plan-66-B.
+    let getpid_fn = match platform.family() {
+        PlatformFamily::Windows => "GetCurrentProcessId",
+        _ => "getpid",
+    };
     platform.emit_libc_call(
-        "getpid",
+        getpid_fn,
         symbol,
         platform_imports,
         &mut instructions,
@@ -82,11 +88,46 @@ pub(super) fn lower_cpu_count(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
+    if platform.family() == PlatformFamily::Windows {
+        // Windows has no sysconf; GetSystemInfo(&si) fills a SYSTEM_INFO whose
+        // `dwNumberOfProcessors` (DWORD) sits at offset 0x20. It is always >= 1,
+        // but keep the shared clamp for uniformity. plan-66-B.
+        const SYSTEM_INFO_SIZE: usize = 48;
+        const DW_NUMBER_OF_PROCESSORS_OFFSET: usize = 0x20;
+        let positive = format!("{symbol}_positive");
+        let mut vregs = Vregs::new();
+        let count = vregs.next();
+        let mut instructions = vec![
+            abi::label("entry"),
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0), // &SYSTEM_INFO
+        ];
+        let mut relocations = Vec::new();
+        platform.emit_libc_call(
+            "GetSystemInfo",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::load_u32(&count, abi::stack_pointer(), DW_NUMBER_OF_PROCESSORS_OFFSET),
+            abi::compare_immediate(&count, "1"),
+            abi::branch_ge(&positive),
+            abi::move_immediate(&count, "Integer", "1"),
+            abi::label(&positive),
+            abi::move_register(RESULT_VALUE_REGISTER, &count),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::return_(),
+        ]);
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], SYSTEM_INFO_SIZE);
+        return Ok((frame, instructions, relocations, stack_slots));
+    }
     let sc_nprocessors_onln = match platform.family() {
         PlatformFamily::MacOS => "58",
         PlatformFamily::Linux => "84",
-        // 47-D owns the Windows CPU count (GetSystemInfo), not sysconf.
-        PlatformFamily::Windows => unreachable!("47-D owns the Windows processor count"),
+        // Windows is handled above (GetSystemInfo); never reaches this sysconf id.
+        PlatformFamily::Windows => unreachable!("plan-66-B routes Windows cpuCount to GetSystemInfo"),
     };
     let positive = format!("{symbol}_positive");
     let mut vregs = Vregs::new();
@@ -122,11 +163,61 @@ pub(super) fn lower_cpu_count(
 /// `os::hostName` — `gethostname(buf, 256)` into an on-frame buffer, then a
 /// `String` copy. HOST_NAME_MAX is 64 (Linux) / 255 (macOS), so 256 always
 /// holds a NUL-terminated name.
+/// Windows body shared by `os::hostName`/`userName`/`executablePath` (plan-66-B):
+/// `platform.emit_os_wide_string(which)` leaves a UTF-8 value C-string pointer (0 on
+/// failure) in the return register; build a `String` from it, or raise
+/// `ErrUnsupported`. The `*W` query + UTF-16→UTF-8 marshal live in the Windows
+/// backend; this reuses the shared String builder and error tails.
+pub(super) fn lower_os_wide_string_windows(
+    symbol: &str,
+    which: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> HelperResult {
+    let fail = format!("{symbol}_fail");
+    let alloc_error = format!("{symbol}_alloc_error");
+    let done = format!("{symbol}_done");
+    let mut vregs = Vregs::new();
+    let value = vregs.next();
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    platform.emit_os_wide_string(which, symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::move_register(&value, abi::return_register()),
+        abi::compare_immediate(&value, "0"),
+        abi::branch_eq(&fail),
+    ]);
+    build_string_from_cstr(
+        symbol,
+        &value,
+        &alloc_error,
+        &format!("{symbol}_str"),
+        &mut vregs,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&done),
+        abi::label(&fail),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ]);
+    push_error_message_address(symbol, ERR_UNSUPPORTED_SYMBOL, &mut instructions, &mut relocations);
+    instructions.extend([abi::branch(&done), abi::label(&alloc_error)]);
+    push_alloc_error(symbol, &mut instructions, &mut relocations);
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
+}
+
 pub(super) fn lower_host_name(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
+    if platform.family() == PlatformFamily::Windows {
+        return lower_os_wide_string_windows(symbol, "hostName", platform_imports, platform);
+    }
     const BUF: usize = 256;
     let ok = format!("{symbol}_ok");
     let fail = format!("{symbol}_fail");
@@ -191,6 +282,11 @@ pub(super) fn lower_user_name(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
+    if platform.family() == PlatformFamily::Windows {
+        // Windows has no getpwuid; GetUserNameW is self-contained (writes a caller
+        // buffer, no shared static), so it needs no env/pwd lock (plan-66-B).
+        return lower_os_wide_string_windows(symbol, "userName", platform_imports, platform);
+    }
     let have_pwd = format!("{symbol}_have_pwd");
     let have_name = format!("{symbol}_have_name");
     let fail = format!("{symbol}_fail");

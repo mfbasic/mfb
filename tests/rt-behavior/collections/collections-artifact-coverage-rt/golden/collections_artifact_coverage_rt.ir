@@ -602,32 +602,33 @@
     ],
     "returns": "Partition$Integer",
     "body": [
-    { "op": "bind", "line": 336, "mutable": true, "name": "matched", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "line": 337, "mutable": true, "name": "unmatched", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "line": 338, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 342, "mutable": false, "name": "flags", "type": "List OF Boolean", "value": { "kind": "call", "type": "List OF Boolean", "target": "collections.transform", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "predicate" }] } },
+    { "op": "bind", "line": 343, "mutable": true, "name": "matched", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 344, "mutable": true, "name": "unmatched", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 345, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 339,
+      "line": 346,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
       "body": [
-      { "op": "bind", "line": 340, "mutable": false, "name": "item", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] } },
+      { "op": "bind", "line": 347, "mutable": false, "name": "item", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] } },
       {
         "op": "if",
-        "line": 341,
-        "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "local", "name": "item" }] },
+        "line": 348,
+        "condition": { "kind": "call", "type": "Boolean", "target": "collections.get", "args": [{ "kind": "local", "name": "flags" }, { "kind": "local", "name": "i" }] },
         "then": [
-        { "op": "assign", "line": 342, "name": "matched", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "matched" }, { "kind": "local", "name": "item" }] } }
+        { "op": "assign", "line": 349, "name": "matched", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "matched" }, { "kind": "local", "name": "item" }] } }
         ],
         "else": [
-        { "op": "assign", "line": 344, "name": "unmatched", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "unmatched" }, { "kind": "local", "name": "item" }] } }
+        { "op": "assign", "line": 351, "name": "unmatched", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "local", "name": "unmatched" }, { "kind": "local", "name": "item" }] } }
         ]
       },
-      { "op": "assign", "line": 346, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 353, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "bind", "line": 348, "mutable": false, "name": "result", "type": "Partition$Integer", "value": { "kind": "constructor", "type": "Partition$Integer", "args": [{ "kind": "local", "name": "matched" }, { "kind": "local", "name": "unmatched" }] } },
-    { "op": "return", "line": 349, "value": { "kind": "local", "name": "result" } }
+    { "op": "bind", "line": 355, "mutable": false, "name": "result", "type": "Partition$Integer", "value": { "kind": "constructor", "type": "Partition$Integer", "args": [{ "kind": "local", "name": "matched" }, { "kind": "local", "name": "unmatched" }] } },
+    { "op": "return", "line": 356, "value": { "kind": "local", "name": "result" } }
     ]
   },
   {

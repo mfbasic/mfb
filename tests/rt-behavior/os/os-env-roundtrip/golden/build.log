@@ -1,0 +1,15 @@
+$ mfb build -ast -ir tests/rt-behavior/os/os-env-roundtrip
+Wrote AST to tests/rt-behavior/os/os-env-roundtrip/os_env_roundtrip.ast
+Wrote IR to tests/rt-behavior/os/os-env-roundtrip/os_env_roundtrip.ir
+[exit 0]
+$ mfb build tests/rt-behavior/os/os-env-roundtrip
+Wrote executable to tests/rt-behavior/os/os-env-roundtrip/build/os_env_roundtrip.out
+[exit 0]
+$ tests/rt-behavior/os/os-env-roundtrip/build/os_env_roundtrip.out
+has=TRUE
+get=hello-世界
+getOr_present=hello-世界
+getOr_absent=fallback
+has_missing=FALSE
+has_after_unset=FALSE
+[exit 0]

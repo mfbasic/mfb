@@ -1,0 +1,44 @@
+{
+  "project": "os_environ_roundtrip",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "os", "line": 2 },
+    { "module": "collections", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "MFB66_ENVTEST" }, { "kind": "string", "value": "envval-世界" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "os.setEnv", "arguments": [{ "kind": "string", "value": "MFB66_ENVEQ" }, { "kind": "string", "value": "a=b=c" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "env", "type": "Map OF String TO String", "value": { "kind": "call", "callee": "os.environ", "arguments": [] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nonempty=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.keys", "arguments": [{ "kind": "identifier", "value": "env" }] }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "has_key=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "env" }, { "kind": "string", "value": "MFB66_ENVTEST" }] }] } }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "val=" }, "right": { "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "env" }, { "kind": "string", "value": "MFB66_ENVTEST" }, { "kind": "string", "value": "MISSING" }] } }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "val_eq=" }, "right": { "kind": "call", "callee": "collections.getOr", "arguments": [{ "kind": "identifier", "value": "env" }, { "kind": "string", "value": "MFB66_ENVEQ" }, { "kind": "string", "value": "MISSING" }] } }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "has_unset=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.hasKey", "arguments": [{ "kind": "identifier", "value": "env" }, { "kind": "string", "value": "MFB66_UNSET_ZZZ" }] }] } }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 20,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "TRAP=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 22 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,24 @@
+IMPORT io
+IMPORT os
+IMPORT collections
+
+REM plan-66-B: os::environ() across every native target. On Windows the char** is
+REM synthesized from GetEnvironmentStringsW (skipping the hidden =drive entries),
+REM marshaling each entry UTF-8. Set two vars first so the output is deterministic
+REM and host-neutral: a Unicode value and a value containing '=' (which must split
+REM only at the first '=').
+FUNC main AS Integer
+  os::setEnv("MFB66_ENVTEST", "envval-世界")
+  os::setEnv("MFB66_ENVEQ", "a=b=c")
+  LET env AS Map OF String TO String = os::environ()
+  io::print("nonempty=" & toString(len(collections::keys(env)) > 0))
+  io::print("has_key=" & toString(collections::hasKey(env, "MFB66_ENVTEST")))
+  io::print("val=" & collections::getOr(env, "MFB66_ENVTEST", "MISSING"))
+  io::print("val_eq=" & collections::getOr(env, "MFB66_ENVEQ", "MISSING"))
+  io::print("has_unset=" & toString(collections::hasKey(env, "MFB66_UNSET_ZZZ")))
+  RETURN 0
+  TRAP(err)
+    io::print("TRAP=" & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC

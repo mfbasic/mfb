@@ -335,7 +335,7 @@ pub(super) fn lower_tls_listen_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_listen_openssl(symbol, platform_imports, platform)
         }
-        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
+        PlatformFamily::Windows => schannel::lower_tls_listen(symbol, platform_imports, platform),
     }
 }
 
@@ -349,7 +349,7 @@ pub(super) fn lower_tls_accept_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_accept_openssl(symbol, platform_imports, platform)
         }
-        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
+        PlatformFamily::Windows => schannel::lower_tls_accept(symbol, platform_imports, platform),
     }
 }
 
@@ -417,7 +417,9 @@ pub(super) fn lower_tls_close_listener_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_close_listener_openssl(symbol, platform_imports, platform)
         }
-        PlatformFamily::Windows => unreachable!("47-J owns the Windows TLS backend (Schannel)"),
+        PlatformFamily::Windows => {
+            schannel::lower_tls_close_listener(symbol, platform_imports, platform)
+        }
     }
 }
 

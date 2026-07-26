@@ -387,7 +387,7 @@ pub(super) fn finalize_frame(
     let mut callee_offsets: Vec<usize> = Vec::with_capacity(callee_saved.len());
     let mut save_cursor = 0usize;
     for register in &callee_saved {
-        if is_aarch64_fp_callee_saved(register) {
+        if is_simd128_callee_saved(register) {
             save_cursor = align(save_cursor, 16);
             callee_offsets.push(save_cursor);
             save_cursor += 16;
@@ -634,10 +634,28 @@ fn is_aarch64_fp_callee_saved(register: &str) -> bool {
         .is_some_and(|n| (8..=15).contains(&n))
 }
 
+/// Whether `register` is a callee-saved SIMD register that can carry a 128-bit
+/// `v128` value and so must be spilled with the 128-bit `str q`/`ldr q` into a
+/// 16-byte slot: AArch64 `d8`–`d15` (bug-124.2) OR x86-64 `xmm6`–`xmm15`. Only
+/// Win64 makes any `xmm` callee-saved (SysV makes them all caller-saved, so its
+/// `callee_saved` list never contains one), which is why a callee-saved `xmm`
+/// spelled with a GPR `str_u64` — the encoder rejecting `unknown register
+/// 'xmm10'` — went unseen until a float-using Win64 function needed one to hold a
+/// value live across a call (plan-66: the `audio::` library's `render`/`play`).
+/// The 64-bit `str d`/`ldr d` would truncate a spilled vector's high lane exactly
+/// as on AArch64, so both take the 128-bit `movups` path.
+fn is_simd128_callee_saved(register: &str) -> bool {
+    is_aarch64_fp_callee_saved(register)
+        || register
+            .strip_prefix("xmm")
+            .and_then(|rest| rest.parse::<u8>().ok())
+            .is_some()
+}
+
 fn save_callee_saved(register: &str, offset: usize) -> CodeInstruction {
-    if is_aarch64_fp_callee_saved(register) {
-        // 128-bit `str q` — a 64-bit `str d` would truncate a `v128` value's high
-        // lane (bug-124.2). Only AArch64 `d`-registers can carry a 128-bit vector.
+    if is_simd128_callee_saved(register) {
+        // 128-bit `str q` (AArch64 `str q` / x86-64 `movups`) — a 64-bit store
+        // would truncate a `v128` value's high lane (bug-124.2).
         abi::vector_store(register, abi::stack_pointer(), offset)
     } else if is_fp_register(register) {
         abi::store_double(register, abi::stack_pointer(), offset)
@@ -647,7 +665,7 @@ fn save_callee_saved(register: &str, offset: usize) -> CodeInstruction {
 }
 
 fn restore_callee_saved(register: &str, offset: usize) -> CodeInstruction {
-    if is_aarch64_fp_callee_saved(register) {
+    if is_simd128_callee_saved(register) {
         abi::vector_load(register, abi::stack_pointer(), offset)
     } else if is_fp_register(register) {
         abi::load_double(register, abi::stack_pointer(), offset)

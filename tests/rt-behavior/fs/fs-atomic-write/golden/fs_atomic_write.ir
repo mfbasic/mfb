@@ -1,0 +1,41 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "fs_atomic_write",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/fs-atomic-write" }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeTextAtomic", "args": [{ "kind": "const", "type": "String", "value": "target/fs-atomic-write/t.txt" }, { "kind": "const", "type": "String", "value": "atomic-text-世界" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "text_ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "target/fs-atomic-write/t.txt" }] }, "right": { "kind": "const", "type": "String", "value": "atomic-text-世界" } }] } }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "72" }, { "kind": "const", "type": "Byte", "value": "105" }, { "kind": "const", "type": "Byte", "value": "33" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeBytesAtomic", "args": [{ "kind": "const", "type": "String", "value": "target/fs-atomic-write/b.txt" }, { "kind": "local", "name": "bytes" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "bytes_ok=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "const", "type": "String", "value": "target/fs-atomic-write/b.txt" }] }, "right": { "kind": "const", "type": "String", "value": "Hi!" } }] } }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 16,
+      "name": "err",
+      "body": [
+      { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "TRAP=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }] } }] } },
+      { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

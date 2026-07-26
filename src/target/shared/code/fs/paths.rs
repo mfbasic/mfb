@@ -1512,6 +1512,15 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
     let cb = vregs.next();
     let bchar = vregs.next();
     let cchar = vregs.next();
+    // The canonicalized paths use the platform path separator: `/` (47) on POSIX,
+    // `\` (92) on Windows (GetFullPathNameW always normalizes to backslash). The
+    // containment boundary check below must test the same byte, else a child
+    // genuinely inside base reads as outside (plan-66-E).
+    let within_sep = if platform.family() == PlatformFamily::Windows {
+        "92"
+    } else {
+        "47"
+    };
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&child_realpath_ok),
@@ -1520,7 +1529,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::move_register(&bb, &base_buffer),
         abi::move_register(&cb, &child_buffer),
         abi::load_u8(&bchar, &bb, 0),
-        abi::compare_immediate(&bchar, "47"),
+        abi::compare_immediate(&bchar, within_sep),
         abi::branch_ne(&compare_loop),
         abi::load_u8(&bchar, &bb, 1),
         abi::compare_immediate(&bchar, "0"),
@@ -1538,7 +1547,7 @@ pub(in crate::target::shared::code) fn lower_fs_is_within_helper(
         abi::label(&base_ended),
         abi::compare_immediate(&cchar, "0"),
         abi::branch_eq(&true_label),
-        abi::compare_immediate(&cchar, "47"),
+        abi::compare_immediate(&cchar, within_sep),
         abi::branch_eq(&true_label),
         abi::branch(&false_label),
         abi::label(&root_true),

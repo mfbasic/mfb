@@ -818,6 +818,14 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-64 D4: native partition for 8-byte fixed-width elements
+                // (`#collections_partition$T`, 2 args). String/Scalar/Byte fall
+                // through to the `.mfb` `__collections_partition`.
+                if let Some(t) = target.strip_prefix("#collections_partition$") {
+                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money") && args.len() == 2 {
+                        return self.lower_collection_partition_call(args, t);
+                    }
+                }
                 if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
                 }

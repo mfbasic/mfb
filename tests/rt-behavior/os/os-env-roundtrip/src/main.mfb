@@ -1,0 +1,22 @@
+IMPORT io
+IMPORT os
+
+REM plan-66-B: the os:: environment family across every native target. Setting then
+REM reading a variable (with non-ASCII value, exercising the UTF-8<->UTF-16 marshal
+REM on Windows) is deterministic and host-neutral: the variable is process-local, so
+REM the output is identical on macOS, Linux and Windows.
+FUNC main AS Integer
+  os::setEnv("MFB66_VAR", "hello-世界")
+  io::print("has=" & toString(os::hasEnv("MFB66_VAR")))
+  io::print("get=" & os::getEnv("MFB66_VAR"))
+  io::print("getOr_present=" & os::getEnvOr("MFB66_VAR", "fallback"))
+  io::print("getOr_absent=" & os::getEnvOr("MFB66_ABSENT_XYZ", "fallback"))
+  io::print("has_missing=" & toString(os::hasEnv("MFB66_ABSENT_XYZ")))
+  os::unsetEnv("MFB66_VAR")
+  io::print("has_after_unset=" & toString(os::hasEnv("MFB66_VAR")))
+  RETURN 0
+  TRAP(err)
+    io::print("TRAP=" & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC

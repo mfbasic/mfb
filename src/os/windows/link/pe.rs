@@ -137,6 +137,9 @@ pub(super) fn write_image(
     sections: &[Section],
     entry_rva: u32,
     dirs: ImportDirectories,
+    // plan-66-I: `true` links the GUI subsystem (WINDOWS_GUI=2, app mode);
+    // `false` the console subsystem (WINDOWS_CUI=3).
+    gui: bool,
 ) -> Vec<u8> {
     let n = sections.len();
     let headers_size = size_of_headers(n);
@@ -210,7 +213,10 @@ pub(super) fn write_image(
     w.u32(size_of_image);
     w.u32(headers_size); // SizeOfHeaders
     w.u32(0); // CheckSum (determinism)
-    w.u16(3); // Subsystem = WINDOWS_CUI
+    // Subsystem: WINDOWS_GUI(2) in app mode, WINDOWS_CUI(3) for a console build
+    // (plan-66-I). GUI is the only difference — the loader hides the console for
+    // subsystem 2, letting the app own its own Win32 window.
+    w.u16(if gui { 2 } else { 3 });
     w.u16(0x0100 | 0x8000); // DllCharacteristics: NX_COMPAT | TERMINAL_SERVER_AWARE (DYNAMIC_BASE clear)
                             // 8 MiB reserve matching the worker-thread stacks, with 1 MiB committed
                             // up front. Committing a full megabyte (rather than the usual single guard
@@ -303,7 +309,25 @@ mod tests {
             file_offset: text_file,
             bytes: &text,
         }];
-        write_image(&sections, text_rva, ImportDirectories::default())
+        write_image(&sections, text_rva, ImportDirectories::default(), false)
+    }
+
+    /// The GUI-subsystem (app-mode) sibling of `single_text_image`, used to assert
+    /// the plan-66-I Subsystem=2 toggle.
+    fn single_text_image_gui() -> Vec<u8> {
+        let text = vec![0x90u8; 16];
+        let headers = size_of_headers(1);
+        let text_rva = align_up(headers, SECTION_ALIGNMENT);
+        let text_file = align_up(headers, FILE_ALIGNMENT);
+        let sections = vec![Section {
+            name: section_name(".text"),
+            characteristics: SCN_TEXT,
+            virtual_address: text_rva,
+            virtual_size: text.len() as u32,
+            file_offset: text_file,
+            bytes: &text,
+        }];
+        write_image(&sections, text_rva, ImportDirectories::default(), true)
     }
 
     #[test]
@@ -345,6 +369,16 @@ mod tests {
         assert_eq!(le_u32(&image, opt + 36), FILE_ALIGNMENT);
         // Subsystem at optional-header offset 68 (24 std + 44 into windows-specific).
         assert_eq!(le_u16(&image, opt + 68), 3, "Subsystem = WINDOWS_CUI");
+    }
+
+    /// plan-66-I: an app-mode (`gui = true`) build links the GUI subsystem so the
+    /// loader does not attach a console — the PE header carries Subsystem=2.
+    #[test]
+    fn app_mode_links_gui_subsystem() {
+        let image = single_text_image_gui();
+        let opt = 0x80 + 4 + 20;
+        assert_eq!(le_u16(&image, opt), 0x020B, "Magic = PE32+");
+        assert_eq!(le_u16(&image, opt + 68), 2, "Subsystem = WINDOWS_GUI");
         assert_eq!(
             le_u16(&image, opt + 70),
             0x8100,
@@ -409,7 +443,7 @@ mod tests {
             import: (0x3000, 40),
             iat: (0x3100, 16),
         };
-        let image = write_image(&sections, text_rva, dirs);
+        let image = write_image(&sections, text_rva, dirs, false);
         let dd = 0x80 + 4 + 20 + 112;
         assert_eq!(le_u32(&image, dd + 8), 0x3000, "Import[1] RVA");
         assert_eq!(le_u32(&image, dd + 8 + 4), 40, "Import[1] size");

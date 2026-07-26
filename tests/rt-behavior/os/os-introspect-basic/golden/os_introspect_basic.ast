@@ -1,0 +1,31 @@
+{
+  "project": "os_introspect_basic",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "os", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pid_pos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "os.pid", "arguments": [] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cpu_pos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">=", "left": { "kind": "call", "callee": "os.cpuCount", "arguments": [] }, "right": { "kind": "number", "value": "1" } }] } }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "name_known=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "macos" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "linux" } } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.name", "arguments": [] }, "right": { "kind": "string", "value": "windows" } } }] } }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "arch_known=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.arch", "arguments": [] }, "right": { "kind": "string", "value": "x86_64" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.arch", "arguments": [] }, "right": { "kind": "string", "value": "aarch64" } } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "os.arch", "arguments": [] }, "right": { "kind": "string", "value": "riscv64" } } }] } }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

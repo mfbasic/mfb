@@ -1,0 +1,34 @@
+{
+  "project": "fs_temp_file_buffered",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "tf", "type": "File", "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "buffered_default=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.isBuffered", "arguments": [{ "kind": "identifier", "value": "tf" }] }] } }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "tf" }, { "kind": "boolean", "value": true }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "buffered_set=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.isBuffered", "arguments": [{ "kind": "identifier", "value": "tf" }] }] } }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "tf" }, { "kind": "string", "value": "temp-payload" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "wrote=TRUE" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "tf" }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 16 }
+      ]
+    }
+    ]
+  }
+  ]
+}

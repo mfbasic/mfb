@@ -176,6 +176,7 @@ pub(super) fn lower_tls_connect(
     let hs_loop = format!("{symbol}_hs_loop");
     let hs_read = format!("{symbol}_hs_read");
     let hs_done = format!("{symbol}_hs_done");
+    let hs_finish = format!("{symbol}_hs_finish");
     let no_token = format!("{symbol}_no_token");
     let no_extra = format!("{symbol}_no_extra");
 
@@ -362,10 +363,10 @@ pub(super) fn lower_tls_connect(
     // Send any output token produced.
     emit_send_token(symbol, FD, STATE, st::OUTBUF, &no_extra, "tok1", &fail, imports, platform, &mut ins, &mut rel)?;
     ins.push(abi::label(&no_extra));
-    // If SEC_E_OK → done; else (SEC_I_CONTINUE_NEEDED) reset recv_len and loop.
+    // If SEC_E_OK → finish; else (SEC_I_CONTINUE_NEEDED) reset recv_len and loop.
     ins.extend([
         abi::compare_immediate("%v15", SEC_E_OK),
-        abi::branch_eq(&hs_done),
+        abi::branch_eq(&hs_finish),
         // handle SECBUFFER_EXTRA in INBUF[1]: move leftover to front, else recv anew.
         abi::load_u64("%v10", abi::stack_pointer(), STATE),
         abi::load_u32("%v9", "%v10", st::INBUF + 16 + 4), // type of buf[1]
@@ -389,6 +390,33 @@ pub(super) fn lower_tls_connect(
         abi::load_u64("%v10", abi::stack_pointer(), STATE),
         abi::store_u64(abi::ZERO, "%v10", st::RECV_LEN),
         abi::branch(&hs_read),
+        // Handshake complete: the final ISC consumed the server's last flight from
+        // RECV. Any coalesced post-handshake data (a TLS 1.3 NewSessionTicket, or
+        // application data) is INBUF[1] SECBUFFER_EXTRA — keep it at the front of
+        // RECV for the first read; otherwise reset RECV_LEN to 0 so read does not
+        // re-decrypt consumed handshake bytes (which stranded the first read of a
+        // TLS 1.2 server that filled RECV with its final flight).
+        abi::label(&hs_finish),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u32("%v9", "%v10", st::INBUF + 16 + 4),
+        abi::compare_immediate("%v9", SECBUFFER_EXTRA),
+        abi::branch_ne(&format!("{symbol}_fin_noextra")),
+        abi::load_u32("%v11", "%v10", st::INBUF + 16),
+        abi::load_u64("%v12", "%v10", st::RECV_LEN),
+        abi::subtract_registers("%v13", "%v12", "%v11"),
+        abi::add_immediate("%v14", "%v10", st::RECV),
+        abi::add_registers("%v14", "%v14", "%v13"),
+        abi::add_immediate("%v6", "%v10", st::RECV),
+    ]);
+    move_bytes("%v14", "%v6", "%v11", &format!("{symbol}_finextra"), &mut ins);
+    ins.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u32("%v11", "%v10", st::INBUF + 16),
+        abi::store_u64("%v11", "%v10", st::RECV_LEN),
+        abi::branch(&hs_done),
+        abi::label(&format!("{symbol}_fin_noextra")),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::store_u64(abi::ZERO, "%v10", st::RECV_LEN),
         abi::label(&hs_done),
     ]);
 

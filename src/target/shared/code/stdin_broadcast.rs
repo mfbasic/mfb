@@ -88,13 +88,31 @@ fn emit_libc(ctx: &mut EmitCtx, name: &str) -> Result<(), String> {
     let platform = ctx.platform;
     let platform_imports = ctx.platform_imports;
 
-    platform.emit_libc_call(
-        name,
-        symbol,
-        platform_imports,
-        ctx.instructions,
-        ctx.relocations,
-    )
+    // The broadcast log's growable buffer lives outside the arena, so it uses the
+    // process heap; route malloc/free through the platform heap seam (Windows:
+    // HeapAlloc/HeapFree). Its mutex/condvar primitives are pthread names; on
+    // Windows those have no libc symbol, so route them through the same
+    // pthread→Win32 (SRWLOCK/CONDITION_VARIABLE) seam the thread machinery uses
+    // (plan-47-H). macOS/Linux keep the direct libc call and stay byte-identical.
+    // plan-66-C.
+    match name {
+        "malloc" => {
+            platform.emit_heap_alloc(symbol, platform_imports, ctx.instructions, ctx.relocations)
+        }
+        "free" => {
+            platform.emit_heap_free(symbol, platform_imports, ctx.instructions, ctx.relocations)
+        }
+        _ if platform.family() == PlatformFamily::Windows => {
+            super::runtime_helpers::emit_thread_external_call(ctx, name)
+        }
+        _ => platform.emit_libc_call(
+            name,
+            symbol,
+            platform_imports,
+            ctx.instructions,
+            ctx.relocations,
+        ),
+    }
 }
 
 /// Emit one stdin byte read through the broadcast log, replacing the per-byte
