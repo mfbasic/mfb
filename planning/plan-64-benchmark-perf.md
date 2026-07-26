@@ -812,8 +812,18 @@ fixtures pass):**
 | Item | Change | Row | Before → after (ms, `--run 50`) | Commit |
 |------|--------|-----|------|--------|
 | **F1** | whole-string ASCII shortcut in `case_map` | string case | 66.0 → 50.6 | `ced444de6` |
-| **A3-datetime** | fixed-offset fast path in `addDays`/`addMonths` | datetime civil | 973.9 → 96.5 (10×) | `de8da577a` |
+| **A3-datetime** | fixed-offset fast path in `addDays`/`addMonths` | datetime civil | 973.9 → 77.5 (10×) | `de8da577a` |
 | **G2** | ASCII fast path in 5 classify predicates | scalar classify | 29.3 → **4.2 (COMPLETE**, beats Py) | `4cfb9a7f9` |
+| **D2** | native `sortBy` (fixed-width items, signed 8-byte keys) — merge sort, ping-pong buffers | list sortBy | 21.2 → **4.5 (4.75×)** | `ec79ef661` |
+| **C2-mapValues** | native `mapValues` (same-type 8-byte value) — copy structure + rewrite values | mapchurn iterate | 24.5 → **14.6 (~40%)** | `3ba2f61d9` |
+| **D3-window** | native `window` (8-byte elems, const size) — direct nested-block build | list window | 20.6 → **4.6 (4.5×)** | `9409d7941` |
+| **D3-chunks** | native `chunks` (8-byte elems, const size) — direct nested-block build | list chunks | 5.5 → **0.9 (COMPLETE**, beats Py) | `13fcc99d0` |
+
+**7 sub-plans landed this session, all on main.** Native-codegen technique proven and reused
+across D2/C2/D3: monomorphized-target dispatch gate (`#collections_<fn>$…`), FUNC-pointer
+callbacks (`emit_direct_callable_branch` + `emit_callback_failure_exit`), and direct kind-2 /
+nested-block construction (`emit_write_list_header_from_registers`, VALUE_OFFSET/LENGTH entries),
+each with a `.mfb` fallback for the un-gated types and each proven bit-identical.
 
 Authoritative post-fix full `--run 50` (`benchmark/mfb-20260725-223351.log`) confirms the
 three rows (case 50.3, civil 77.5, classify 4.2) with **no regression** on unaddressed rows
