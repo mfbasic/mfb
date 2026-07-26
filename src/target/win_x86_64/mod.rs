@@ -104,6 +104,18 @@ const RUNTIME_CALLS: &[&str] = &[
     // os::args (plan-66-B): UTF-8 argv built in the entry from GetCommandLineW /
     // CommandLineToArgvW after the arena is mapped (defers_arg_capture).
     "os.args",
+    // io:: console input + buffering (plan-66-C). Reads ride emit_read_file (fd 0 →
+    // GetStdHandle(STD_INPUT)+ReadFile); pollInput rides emit_poll_input
+    // (WaitForSingleObject on the stdin handle); isBuffered/setBuffered are
+    // platform-independent buffer-flag logic; flush drains the stdout buffer.
+    "io.input",
+    "io.readLine",
+    "io.readChar",
+    "io.readByte",
+    "io.pollInput",
+    "io.flush",
+    "io.isBuffered",
+    "io.setBuffered",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",

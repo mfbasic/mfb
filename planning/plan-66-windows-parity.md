@@ -377,11 +377,22 @@ Commit: 78622bb8d
 Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **MET** — all 15 calls box-proven on 2230, incl. `os::args alpha beta "gamma with spaces" 世界` → four args parsed and UTF-8-marshaled. Non-args + non-Windows entries byte-identical; full `cargo test` green.
 Commit: 52e5fb79c (t1); 69599dfc9 (env); eae84d465 (string trio); 95b305201 (environ); aa138536a (args)
 
-### Phase C — `io::` input + buffering
-- [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.
-- [ ] Tests: goldens + a box run reading a piped line and a raw char.
+### Phase C — `io::` input + buffering  (COMPLETE — 8/8)
+- [x] Advertise the 8 calls. `emit_read_file` now resolves fd 0 → GetStdHandle(
+  STD_INPUT)+ReadFile (mirroring emit_write); `emit_poll_input` waits on the stdin
+  handle (WaitForSingleObject, mapping WAIT_OBJECT_0/WAIT_TIMEOUT → 1/0). The
+  stdin-broadcast log needed two CRT-less seams (see Corrections): a
+  `emit_heap_alloc`/`emit_heap_free` platform pair (default = libc malloc/free,
+  byte-identical; Windows = GetProcessHeap+HeapAlloc/HeapFree) and routing its
+  pthread mutex/condvar names through the existing `emit_thread_external_call`
+  pthread→Win32 (SRWLOCK/CONDITION_VARIABLE) seam on Windows only. isBuffered/
+  setBuffered/flush are platform-independent. Removed the now-dead `unsupported()`
+  helper (every Windows floor stub is implemented).
+- [x] Tests: cross-target fixture `io-input-eof-buffering` (isBuffered/setBuffered/
+  flush + readLine-on-EOF trap, identical on host and box); box runs with piped
+  input.
 
-Acceptance: an interactive `readLine`/`readChar` program echoes correctly on the box.
+Acceptance: an interactive `readLine`/`readChar` program echoes correctly on the box. **MET** — box (piped): `readChar`=X, `readByte`=121(y), `readLine`=done interleave correctly through the broadcast log; `io::input` prints its prompt and reads the line; `pollInput(0)`=TRUE with data waiting; two-line pipe reads both lines. Non-Windows byte-identical; full `cargo test` green.
 Commit: —
 
 ### Phase D — `term::` styling/TUI
@@ -593,6 +604,20 @@ Commit: —
   one Phase-B item that touches the shared program entry (floor-wide blast radius),
   deferred to its own focused change rather than risking the box-proven console
   entry. `lower_args` itself is unchanged. **Remaining Phase-B work = `os::args`.**
+- **2026-07-26 (Phase C, the stdin-broadcast is pthread+malloc-based).** The Feature
+  map said io-input "reuses the existing Windows raw-mode machinery"; it omits that
+  the shared stdin-broadcast log (`stdin_broadcast.rs`, linked by every io read) is
+  built on libc `malloc`/`free` and `pthread_mutex_*`/`pthread_cond_*` — none of
+  which exist on the CRT-less Windows floor. Two seams close the gap without
+  touching non-Windows codegen: (1) a `emit_heap_alloc`/`emit_heap_free`
+  `CodegenPlatform` pair (default = the same libc `malloc`/`free` the broadcast
+  already emitted; Windows = GetProcessHeap + HeapAlloc/HeapFree), and (2) routing
+  the broadcast's pthread primitives through the *existing* pthread→Win32
+  `emit_thread_external_call` seam (plan-47-H's SRWLOCK/CONDITION_VARIABLE map) on
+  Windows only. `emit_read_file` also gained the fd 0 → GetStdHandle(STD_INPUT)
+  resolution (it previously served only fs handles). With the io/fs/os stubs all
+  implemented, the `unsupported()` helper in `win_x86_64/code.rs` became dead and
+  was deleted (no-dead-code rule).
 - **2026-07-26 (Phase D, the `term.rs:238/323/809` "0" arms need no change).** The
   Feature map says to "wire `term.rs:238,323,809` Windows arms (currently `"0"`
   placeholders)". Those placeholders are the ioctl *request value* for

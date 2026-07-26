@@ -194,6 +194,35 @@ impl NativePlanPlatform for Platform {
                 import("GetLastError", KERNEL32, required_by),
             ],
             "fs.flush" => vec![import("FlushFileBuffers", KERNEL32, required_by)],
+            // io:: console input (plan-66-C): reads resolve fd 0 → GetStdHandle +
+            // ReadFile; pollInput waits on the stdin handle (WaitForSingleObject);
+            // the input echo + flush ride WriteFile. isBuffered/setBuffered make no
+            // OS call (no imports → fall through).
+            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.pollInput"
+            | "io.flush" => vec![
+                import("GetStdHandle", KERNEL32, required_by),
+                import("ReadFile", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("WaitForSingleObject", KERNEL32, required_by),
+                import("GetConsoleMode", KERNEL32, required_by),
+                import("SetConsoleMode", KERNEL32, required_by),
+                // The stdin-broadcast log: its buffer uses the process heap and its
+                // reader/consumer sync uses SRWLOCK + CONDITION_VARIABLE (the pthread
+                // primitives mapped through the thread seam). plan-66-C.
+                import("GetProcessHeap", KERNEL32, required_by),
+                import("HeapAlloc", KERNEL32, required_by),
+                import("HeapFree", KERNEL32, required_by),
+                import("InitializeSRWLock", KERNEL32, required_by),
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                import("InitializeConditionVariable", KERNEL32, required_by),
+                import("WakeConditionVariable", KERNEL32, required_by),
+                import("WakeAllConditionVariable", KERNEL32, required_by),
+                import("SleepConditionVariableSRW", KERNEL32, required_by),
+                import("CreateThread", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             // Terminal queries (plan-47-G): GetConsoleMode succeeding IS isatty;
             // GetConsoleScreenBufferInfo gives the window size.
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => vec![

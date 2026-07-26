@@ -377,6 +377,32 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Err("os::setEnv Windows primitive is only implemented on windows-x86_64".to_string())
     }
+    /// Allocate `ARG[0]` bytes from the process heap, returning the pointer in the
+    /// return register (0 on failure) — the `malloc` contract. Defaults to a libc
+    /// `malloc` call (byte-identical on macOS/Linux/riscv); Windows has no CRT, so it
+    /// overrides this with GetProcessHeap + HeapAlloc (plan-66-C). Used by the
+    /// stdin-broadcast log, whose growable buffer lives outside the arena.
+    fn emit_heap_alloc(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.emit_libc_call("malloc", from, platform_imports, instructions, relocations)
+    }
+    /// Free the heap block whose pointer is in `ARG[0]` — the `free` contract.
+    /// Defaults to a libc `free` call; Windows overrides with GetProcessHeap +
+    /// HeapFree (plan-66-C).
+    fn emit_heap_free(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.emit_libc_call("free", from, platform_imports, instructions, relocations)
+    }
     /// Windows-only string-query primitive (plan-66-B). Runs the `*W` OS query named
     /// by `which` (`"hostName"` = GetComputerNameExW, `"userName"` = GetUserNameW,
     /// `"executablePath"` = GetModuleFileNameW) into a wide buffer, marshals the

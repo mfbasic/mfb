@@ -410,11 +410,6 @@ fn emit_ioctl_fionbio(
     instructions.push(abi::add_stack(FRAME));
 }
 
-/// Every surface this floor does not implement rejects loudly if it is ever
-/// reached — which it cannot be, since the backend does not advertise it.
-fn unsupported(surface: &str) -> String {
-    format!("windows-x86_64: the {surface} surface is not yet implemented (plan-47-D..J)")
-}
 
 impl code::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
@@ -789,14 +784,102 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_heap_alloc(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // malloc(size) → HeapAlloc(GetProcessHeap(), 0, size). size in ARG[0], the
+        // block pointer in the return register (0 on failure). Balanced frame so the
+        // caller sees the plain malloc contract. plan-66-C.
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x28), // save size
+        ]);
+        call_external(from, "GetProcessHeap", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // hHeap
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // dwFlags
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x28),  // dwBytes
+        ]);
+        call_external(from, "HeapAlloc", KERNEL32, instructions, relocations);
+        instructions.push(abi::add_stack(0x30));
+        Ok(())
+    }
+
+    fn emit_heap_free(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // free(ptr) → HeapFree(GetProcessHeap(), 0, ptr). ptr in ARG[0]. plan-66-C.
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x28), // save ptr
+        ]);
+        call_external(from, "GetProcessHeap", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // hHeap
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // dwFlags
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x28),  // lpMem
+        ]);
+        call_external(from, "HeapFree", KERNEL32, instructions, relocations);
+        instructions.push(abi::add_stack(0x30));
+        Ok(())
+    }
+
     fn emit_poll_input(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("console input"))
+        // poll(&pollfd, 1, timeout) for fd 0: the shared caller passes the pollfd
+        // pointer in the return register, nfds=1 in ARG[1], and the timeout (ms, -1 =
+        // infinite) in ARG[2]. Windows has no poll(); wait on the stdin handle with
+        // WaitForSingleObject(hStdin, timeout) — a -1 timeout's low 32 bits are
+        // 0xFFFFFFFF == INFINITE, and a positive ms passes through. Map WAIT_OBJECT_0
+        // (0) → 1 (ready), WAIT_TIMEOUT (258) → 0, anything else → -1 (the caller
+        // routes <0 to its retry/error tail). plan-66-C.
+        let n = instructions.len();
+        let ready = format!("{from}_poll_ready_{n}");
+        let timeout = format!("{from}_poll_timeout_{n}");
+        let done = format!("{from}_poll_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // save timeout
+            // GetStdHandle(STD_INPUT_HANDLE = -10) without a negative immediate.
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[0], abi::ARG[0], 10),
+        ]);
+        call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // hHandle
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x28),  // dwMilliseconds
+        ]);
+        call_external(from, "WaitForSingleObject", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"), // WAIT_OBJECT_0
+            abi::branch_eq(&ready),
+            abi::compare_immediate(abi::return_register(), "258"), // WAIT_TIMEOUT
+            abi::branch_eq(&timeout),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1 error
+            abi::branch(&done),
+            abi::label(&ready),
+            abi::move_immediate(abi::return_register(), "Integer", "1"),
+            abi::branch(&done),
+            abi::label(&timeout),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(0x30),
+        ]);
+        Ok(())
     }
 
     fn emit_is_terminal(
@@ -1502,22 +1585,45 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // read(fd, buf, len): HANDLE in ARG[0], buffer in ARG[1], length in ARG[2];
-        // return the byte count (0 = EOF, negative = error). ReadFile(hFile,
-        // lpBuffer, nToRead, &nRead, NULL) — the 5th arg (lpOverlapped) is a stack
-        // arg that MUST be NULL; the bytes-read out-param and the NULL live in the
-        // outgoing frame. On BOOL failure return -1; otherwise return nRead (which
-        // is 0 at end of file, exactly the read() contract).
+        // read(fd, buf, len): fd/HANDLE in ARG[0], buffer in ARG[1], length in
+        // ARG[2]; return the byte count (0 = EOF, negative = error). fd 0 (stdin —
+        // the io:: input path passes the POSIX fd, not a handle) resolves to
+        // GetStdHandle(STD_INPUT_HANDLE = -10) the same way emit_write resolves
+        // stdout/stderr; a CreateFileW handle (always ≥ 4) passes through. ReadFile(
+        // hFile, lpBuffer, nToRead, &nRead, NULL) — the 5th arg (lpOverlapped) is a
+        // stack arg that MUST be NULL. On BOOL failure return -1; otherwise nRead
+        // (0 at EOF, exactly the read() contract). plan-66-C.
         let n = instructions.len();
         let ok = format!("{from}_read_ok_{n}");
         let done = format!("{from}_read_done_{n}");
+        let file_handle = format!("{from}_read_fileh_{n}");
+        let have_handle = format!("{from}_read_haveh_{n}");
         instructions.extend([
-            abi::subtract_stack(0x40),
+            abi::subtract_stack(0x50),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), 0x30), // save buf
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x38), // save len
+            abi::compare_immediate(abi::ARG[0], "2"),
+            abi::branch_gt(&file_handle),
+            // std fd → GetStdHandle(-(fd+10)) without a negative immediate.
+            abi::add_immediate(abi::ARG[1], abi::ARG[0], 10),
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+        ]);
+        call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x40), // hFile
+            abi::branch(&have_handle),
+            abi::label(&file_handle),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // hFile = handle directly
+            abi::label(&have_handle),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpOverlapped = NULL (5th)
             // Zero the nRead slot first — it is a DWORD (32-bit) out-param, so
             // ReadFile writes only the low 32 bits; the load_u64 below would
             // otherwise return garbage in the high 32 bits (see emit_write).
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // hFile
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x30), // lpBuffer
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x38), // nToRead
             abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0x28), // &nRead (4th)
         ]);
         call_external(from, "ReadFile", KERNEL32, instructions, relocations);
@@ -1530,7 +1636,7 @@ impl code::CodegenPlatform for Platform {
             abi::label(&ok),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), 0x28), // nRead
             abi::label(&done),
-            abi::add_stack(0x40),
+            abi::add_stack(0x50),
         ]);
         Ok(())
     }
