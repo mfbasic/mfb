@@ -152,6 +152,7 @@ pub fn check_project_collect(
     ast: &AstProject,
 ) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    let augmented = builtins::app::augmented_project(&augmented)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;

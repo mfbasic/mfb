@@ -1,0 +1,14 @@
+IMPORT app
+IMPORT io
+
+' plan-62-A: the app:: presentation-mode surface typechecks in an --app build.
+' `app::getMode()` returns the `Mode` enum; `app::setMode(Mode)` returns Nothing;
+' the `Mode` enum has exactly the variants `Console` and `None`.
+SUB main()
+  LET start AS Mode = app::getMode()
+  app::setMode(Mode.None)
+  app::setMode(Mode.Console)
+  LET back AS Mode = app::getMode()
+  io::print(toString(start = Mode.Console))
+  io::print(toString(back = Mode.None))
+END SUB

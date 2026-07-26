@@ -1,0 +1,32 @@
+{
+  "project": "app_mode_surface_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "app", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "start", "type": "Mode", "value": { "kind": "call", "callee": "app.getMode", "arguments": [] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setMode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "None" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "app.setMode", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Console" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "Mode", "value": { "kind": "call", "callee": "app.getMode", "arguments": [] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "start" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "Console" } }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "back" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Mode" }, "member": "None" } }] }] }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

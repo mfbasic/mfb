@@ -49,6 +49,8 @@ pub fn lower_project_with_external_functions(
 ) -> IrProject {
     let augmented =
         builtins::json::augmented_project(ast).expect("built-in json package source must parse");
+    let augmented = builtins::app::augmented_project(&augmented)
+        .expect("built-in app package source must parse");
     let augmented = builtins::csv::augmented_project(&augmented)
         .expect("built-in csv package source must parse");
     let augmented = builtins::regex::augmented_project(&augmented)
@@ -2029,7 +2031,8 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
     let machine_table = builtins::term::param_types(callee)
         .or_else(|| builtins::datetime::argument_types(callee))
         .or_else(|| builtins::encoding::argument_types(callee))
-        .or_else(|| builtins::money::argument_types(callee));
+        .or_else(|| builtins::money::argument_types(callee))
+        .or_else(|| builtins::app::argument_types(callee));
     if let Some(types) = machine_table {
         return Some(types.iter().map(|type_| (*type_).to_string()).collect());
     }

@@ -252,6 +252,26 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     ));
     let parse_start = std::time::Instant::now();
     let mut ast = ast::parse_project(project_name, &options.location, &manifest)?;
+    // plan-62-A §3.3: the `app::` package is importable ONLY in `--app` builds.
+    // `is_builtin_import` makes `IMPORT app` legal at the name gate (so the
+    // resolver does not reject it as an unknown package); the CLI is the sole
+    // place that sees the full `app_mode` decision (the additive `-app` flag over
+    // the manifest `"mode":"app"`), so the app-mode requirement is enforced here,
+    // before any lowering — the same shape as the `target_supports_app_mode`
+    // reject above. A console build that imports `app` is a compile error.
+    if !app_mode {
+        let imports_app = ast.files.iter().any(|file| {
+            file.imports
+                .iter()
+                .any(|import| import.package_name() == "app")
+        });
+        if imports_app {
+            eprintln!(
+                "error: the `app` package requires app mode (build with -app or set \"mode\": \"app\" in project.json)"
+            );
+            return Err(());
+        }
+    }
     // plan-18: the assertion builtins are valid only inside a TCASE body; reject
     // any that appear elsewhere before lowering the TESTING blocks away.
     if crate::testing::validate_expect_placement(&ast) {

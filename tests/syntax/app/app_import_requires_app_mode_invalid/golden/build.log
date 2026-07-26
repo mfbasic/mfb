@@ -1,0 +1,3 @@
+$ mfb build -ast -ir tests/syntax/app/app_import_requires_app_mode_invalid
+error: the `app` package requires app mode (build with -app or set "mode": "app" in project.json)
+[exit 1]

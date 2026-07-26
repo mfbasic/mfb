@@ -1,0 +1,27 @@
+' ===========================================================================
+' Built-in `app::` package source (plan-62-A).
+'
+' Declares the `Mode` enum that names an `--app` program's *presentation mode* —
+' what its window surface currently is. `app::getMode` / `app::setMode` (native
+' inline builtins) read and write the per-execution-context presentation-mode
+' field; this source only provides the enum type so `Mode.Console` / `Mode.None`
+' resolve. The two callables are lowered directly in native codegen (plan-62-B),
+' exactly like `money::getRounding` / `money::setRounding`.
+'
+' The enum discriminants are exactly the stored values: `Console = 0` (the
+' terminal-in-a-window surface that exists today, the default) and `None = 1`
+' (windowless). A future `GUI` / `Canvas` mode is a new variant appended here.
+' ===========================================================================
+
+DOC
+  ENUM Mode
+  DESC Names an `--app` program's presentation mode — what its window surface
+  DESC currently is. Set the mode with `app::setMode` and read it with
+  DESC `app::getMode`.
+  PROP Console The terminal-in-a-window surface (the default).
+  PROP None Windowless — no surface is presented.
+END DOC
+EXPORT ENUM Mode
+  Console         ' the terminal-in-a-window surface (default)
+  None            ' windowless
+END ENUM

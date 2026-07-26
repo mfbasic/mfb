@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/syntax/app/app_mode_surface_valid
+Wrote AST to tests/syntax/app/app_mode_surface_valid/app_mode_surface_valid.ast
+Wrote IR to tests/syntax/app/app_mode_surface_valid/app_mode_surface_valid.ir
+[exit 0]

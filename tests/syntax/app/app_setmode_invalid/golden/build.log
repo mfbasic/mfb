@@ -1,0 +1,26 @@
+$ mfb build -ast -ir tests/syntax/app/app_setmode_invalid
+   4 | SUB main()
+   5 |   ' setMode takes exactly one Mode argument (wrong arity: none).
+   6 |   app::setMode()
+     | ^
+tests/syntax/app/app_setmode_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `app.setMode` has 0 argument(s), expected 1.
+   6 |   app::setMode()
+   7 |   ' setMode's argument must be a Mode, not an Integer (wrong type).
+   8 |   app::setMode(1)
+     | ^
+tests/syntax/app/app_setmode_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `app.setMode` has argument type(s) (Integer), expected Mode.
+   8 |   app::setMode(1)
+   9 |   ' getMode takes no arguments (wrong arity: one).
+  10 |   LET m AS Mode = app::getMode(Mode.None)
+     | ^
+tests/syntax/app/app_setmode_invalid/src/main.mfb:10 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `app.getMode` has 1 argument(s), expected 0.
+   8 |   app::setMode(1)
+   9 |   ' getMode takes no arguments (wrong arity: one).
+  10 |   LET m AS Mode = app::getMode(Mode.None)
+     | ^
+tests/syntax/app/app_setmode_invalid/src/main.mfb:10 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `m` does not have a known type.
+[exit 1]

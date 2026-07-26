@@ -46,12 +46,12 @@ References (read first):
 plan-62 has **no cross-plan prerequisite** — it is the foundation. The only conditions are
 environmental, and all are already true.
 
-| Must be true | Command | Status 2026-07-24 |
+| Must be true | Command | Status 2026-07-25 (re-measured) |
 |---|---|---|
-| App mode works on both target platforms | `ls src/target/macos_aarch64/app/ src/target/linux_gtk/` | **MET** |
-| A GTK4 Linux box is reachable for backend proof (needed by D) | `grep -n 'GTK4' .ai/remote_systems.md` | **MET (box 2232)** |
-| The `app` package name is free | `rg -n '"app"' src/builtins/mod.rs` → no `is_builtin_import` arm | **MET** |
-| Source-companion enums are a working route | `rg -n 'EXPORT ENUM' src/builtins/*.mfb` | **MET (datetime, money)** |
+| App mode works on both target platforms | `ls src/target/macos_aarch64/app/ src/target/linux_gtk/` | **MET** (both dirs present) |
+| A GTK4 Linux box is reachable for backend proof (needed by D) | `grep -n 'GTK4' .ai/remote_systems.md` | **MET** — but box **2232 is Debian riscv64** (app mode impossible), NOT the aarch64 GTK4 box D names. Real GTK4 boxes: 2228 (x86_64 glibc), 2227 (x86_64 musl), 2224 (aarch64 musl), 2226 (aarch64 glibc). See Corrections; D's box citation is fixed in plan-62-D. |
+| The `app` package name is free | `rg -n '"app"' src/builtins/mod.rs` → no `is_builtin_import` arm | **MET** (was free before this letter) |
+| Source-companion enums are a working route | `rg -n 'EXPORT ENUM' src/builtins/*.mfb` | **MET** (money `Rounding`, datetime `ZoneKind`/`Weekday`/`Month`) |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.** Re-run every
 > command before continuing and again before deciding to stop. If you stop, report the status
@@ -204,49 +204,59 @@ app mode, not the additive `-app` flag — so only the CLI has the full picture 
 
 ### Phase 1 — the `Mode` enum companion (lowest uncertainty first, but it is the type everything names)
 
-- [ ] Create `src/builtins/app_package.mfb` with `EXPORT ENUM Mode` (`Console`, `None`),
-      following `datetime_package.mfb`.
-- [ ] Add `src/builtins/app.rs` with `source_file()`/`uses_package()`/`augmented_project()`
-      mirroring `datetime.rs:359-375`; declare `pub(crate) mod app;` in `builtins/mod.rs`.
-- [ ] Wire the companion into the augment chains: `resolver/mod.rs`, `syntaxcheck/mod.rs:163`,
-      `ir/lower.rs:66`.
+- [x] Create `src/builtins/app_package.mfb` with `EXPORT ENUM Mode` (`Console`, `None`),
+      following `money_package.mfb` (the exact enum-only-companion precedent — see Corrections).
+- [x] Add `src/builtins/app.rs` with `source_file()`/`uses_package()`/`augmented_project()`
+      via `super::package_source_glue!`; declare `pub(crate) mod app;` in `builtins/mod.rs`.
+- [x] Wire the companion into the augment chains: `resolver/mod.rs`, `syntaxcheck/mod.rs`,
+      `ir/lower.rs` (each right after the `json` augment).
 
-Acceptance: a `--app` program that does `IMPORT app` and binds `DIM m As app::Mode = app::Mode::Console`
-typechecks; `app::Mode::None` resolves; a golden in `tests/syntax/app/` captures it.
-Commit: —
+Acceptance: a `--app` program that does `IMPORT app` and binds `LET m AS Mode = Mode.Console`
+typechecks; `Mode.None` resolves; the golden `tests/syntax/app/app_mode_surface_valid`
+captures it (exit 0, AST+IR written, IR shows the `Mode` enum with `Console`/`None`).
+**VERIFIED** via `scripts/test-accept.sh` on the app fixtures + `app::` Rust unit tests.
+Commit: — (Phases 1–3 landed together; hash recorded in the next commit)
 
 ### Phase 2 — the `getMode`/`setMode` surface (the 17-file registration sweep)
 
-- [ ] Register `app` in `is_builtin_import` (`builtins/mod.rs:29`) and `is_builtin_type`
-      (`:57`).
-- [ ] In `app.rs`, declare `GET_MODE = "app.getMode"` / `SET_MODE = "app.setMode"`, plus
-      `is_app_call`, `param_types` (`getMode → []`, `setMode → ["Mode"]`), `call_return_type_name`
-      (`getMode → Mode`, `setMode → Nothing`), `arity`, `expected_arguments`, `resolve_call` —
-      the `term.rs` shape.
-- [ ] Add the `app` row to `syntaxcheck::BUILTIN_PACKAGES` (`builtins.rs:53`) mirroring the
-      `net` row; add `app::` arms in `inference.rs:821`, `helpers.rs:296`, `ir/lower.rs:1900`/`:3557`,
-      `ir/verify/mod.rs:1081`/`:1184`, `ir/verify/compat.rs:311`.
-- [ ] Confirm the `binary_repr` files (`sections.rs`, `builder.rs`, `tests.rs`) need **no**
-      edit under the source-companion route; if a golden round-trip references the new enum,
-      seed it. Note the result in the plan (moot vs. touched).
+- [x] Register `app` in `is_builtin_import` and `is_builtin_type` (both in `builtins/mod.rs`),
+      plus `qualified_builtin_type`, and add `app::` to the `resolve_call_return_type`,
+      `call_return_type_name`, `is_builtin_call`, and `call_param_names` aggregators.
+- [x] In `app.rs`, declare `GET_MODE = "app.getMode"` / `SET_MODE = "app.setMode"`, plus
+      `is_app_call`, `call_param_names` (`getMode → []`, `setMode → [["mode"]]`),
+      `call_return_type_name` (`getMode → Mode`, `setMode → Nothing`), `arity`,
+      `expected_arguments`, `argument_types`, `resolve_call` — the `money.rs` shape (an
+      enum-arg native builtin), plus `argument_types` wired into `ir::lower::builtin_argument_types`.
+- [x] Add the `app` row to `syntaxcheck::BUILTIN_PACKAGES` (`ArgMode::Read`) mirroring the
+      `money` row. ~~add `app::` arms in `inference.rs`, `helpers.rs`, `ir/verify/mod.rs`,
+      `ir/verify/compat.rs`~~ — **moot: those are record-field / arg-typed-verify sites; `Mode`
+      is a source-companion ENUM (not a record like `TermColor`/`Address`), and `money` — the
+      exact precedent — has no such arms (see Corrections).**
+- [x] ~~Confirm the `binary_repr` files need no edit~~ — **moot: source-companion enum route;
+      no `binary_repr` edit, no golden round-trip references the new enum** (as the plan predicted).
 
-Acceptance: a program naming `app::getMode()` and `app::setMode(app::Mode::None)` typechecks;
-`cargo check --all-targets` is clean; a `tests/syntax/app/` golden covers arity and a
-wrong-arity rejection (`app::setMode()` with no arg → `TYPE_CALL_ARITY_MISMATCH`).
+Acceptance: a program naming `app::getMode()` and `app::setMode(Mode.None)` typechecks;
+`cargo test` is fully green (32 test groups, 0 failed); `tests/syntax/app/app_setmode_invalid`
+covers wrong arity (`app::setMode()` → `TYPE_CALL_ARITY_MISMATCH`), wrong type
+(`app::setMode(1)` → `TYPE_CALL_ARGUMENT_MISMATCH`, Integer≠Mode), and `getMode` over-arity.
+**VERIFIED**.
 Commit: —
 
 ### Phase 3 — the `--app` gate (blast radius: rejects a whole build — but a pure diagnostic)
 
-- [ ] In `src/cli/build/mod.rs` after `:193`, scan `concrete_ast` imports for `"app"`; when
-      `!app_mode`, emit a compile error naming app mode (mirror the `:177` reject). Add the
-      diagnostic to the error catalog if one is required.
-- [ ] Tests: `tests/syntax/app/` — `IMPORT app` under `--app` accepted; the CLI-level reject
-      for a console build (whichever harness exercises CLI build-mode rejects; follow the
-      `target_supports_app_mode` test's location).
+- [x] In `src/cli/build/mod.rs` (in `build_project`, right after `ast::parse_project`, once
+      `app_mode` is known), scan the parsed AST's file imports for `"app"`; when `!app_mode`,
+      emit `error: the \`app\` package requires app mode (...)` and `return Err(())` — the same
+      plain-`eprintln!` shape as the `target_supports_app_mode` reject (no error-catalog code,
+      matching that precedent). Fires before lowering.
+- [x] Tests: `tests/syntax/app/` — `IMPORT app` under app mode accepted
+      (`app_mode_surface_valid`, via `"mode":"app"` — see Corrections); the CLI-level reject for
+      a console build (`app_import_requires_app_mode_invalid`, build.log captures the gate error).
 
-Acceptance: `IMPORT app` compiled `--app` builds; compiled without `--app` it fails with a
-diagnostic that names app mode; both are captured by tests. The reject is a compile error, not
-a lowering/link failure.
+Acceptance: `IMPORT app` compiled under app mode builds (exit 0, AST+IR); compiled without app
+mode it fails with a diagnostic naming app mode (exit 1, before lowering — no AST/IR written);
+both captured by fixtures. **VERIFIED** (empirically: console `-ast -ir` → gate error;
+`-app -ast -ir` and `"mode":"app"` `-ast -ir` → success).
 Commit: —
 
 ## Validation Plan
@@ -280,6 +290,41 @@ Commit: —
 
 - 2026-07-24 — plan-13 master §2.4 cites `AppEntrySpec` at `types.rs:636-641`; it is now at
   `types.rs:840-845` (rotted). Recorded here because plan-62-B extends that struct.
+
+- 2026-07-25 — **User-facing enum syntax is `Mode.None` / `Mode.Console`, NOT `app::Mode::None`.**
+  Every plan-62 letter wrote `app::Mode::Console`. The real MFBASIC enum-member syntax is a bare
+  type name + dot + variant (`Mode.None`), and the type is referenced bare after `IMPORT app` —
+  exactly like `money`'s `Rounding.Banker` (verified in `tests/acceptance/src/money.mfb:24`).
+  `app::getMode()` / `app::setMode(...)` keep the `::` call qualifier. Fixtures and man pages
+  use the corrected spelling.
+
+- 2026-07-25 — **`app.rs` follows the `money::` template, not `term::`.** `money` is the exact
+  precedent: an enum-only source companion (`Rounding`, discriminants `0`/`1`) plus native inline
+  `getRounding`/`setRounding` (one takes the enum). `app` is identical (`Mode` `Console=0`/`None=1`
+  + `getMode`/`setMode`). Consequences: `expected_arguments` returns `&'static str` (money shape),
+  and the plan's cited record-field sites — `inference.rs` `builtin_type_fields`, `helpers.rs`,
+  `ir/verify/mod.rs` — are **moot** (`Mode` is an enum, not a field-bearing record like
+  `TermColor`/`net::Address`). `money` has no arms in any of them.
+
+- 2026-07-25 — **`ir/verify/compat.rs` needs no `app` arm (moot).** Its `checked` array and its
+  `is_term_call` special block deliberately exclude `money` (the comment at `compat.rs:281-287`
+  says the set is narrower than `resolve_call_return_type`'s on purpose); `app`, mirroring
+  `money`, resolves by name through the aggregators and needs no arm there.
+
+- 2026-07-25 — **App-mode syntax fixtures use `"mode":"app"` in `project.json`, not `-app` goldens.**
+  The acceptance harness always runs the `-ast -ir` dump build in CONSOLE mode (`test-accept.sh`
+  line 324); its only `-app` invocation requests native flags (`.app.ncode`/`nir`/`nplan`), which
+  need plan-62-B's native lowering. `IMPORT app` fails the console `-ast -ir` gate — so an accept
+  fixture that produces `.ast`/`.ir` goldens sets `"mode":"app"` in its manifest, which makes the
+  plain `-ast -ir` build run in app mode and pass the gate (verified empirically). This keeps
+  plan-A's accept goldens fully independent of plan-B, resolving the apparent A/B entanglement.
+
+- 2026-07-25 — **Doc sync split A↔B.** A ships the man-page API reference
+  (`src/docs/man/builtins/app/{package,getMode,setMode}.md`, following the `money::` pages;
+  `check-man-examples.py` and the man-citation tests are green, 512 pages). The
+  `src/docs/spec/stdlib/` *behavior-model* topic is deferred to plan-62-B, where the runtime
+  mode state / static default / per-arena field it must describe is actually implemented —
+  authoring it in A would document unimplemented runtime behavior. Recorded so B picks it up.
 
 ## Summary
 

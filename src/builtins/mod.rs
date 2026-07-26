@@ -1,3 +1,4 @@
+pub(crate) mod app;
 pub(crate) mod audio;
 pub(crate) mod bits;
 pub(crate) mod collections;
@@ -79,7 +80,8 @@ pub(crate) use package_source_glue;
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
-        "audio"
+        "app"
+            | "audio"
             | "bits"
             | "collections"
             | "crypto"
@@ -105,7 +107,8 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    audio::is_builtin_type(name)
+    app::is_builtin_type(name)
+        || audio::is_builtin_type(name)
         || crypto::is_builtin_type(name)
         || datetime::is_builtin_type(name)
         || fs::is_builtin_type(name)
@@ -146,6 +149,7 @@ pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     // `is_builtin_type(member)` check would accept any cross pairing (`io.Url`,
     // `csv.Thread`) because that predicate ORs every package together (bug-98).
     let belongs = match package {
+        "app" => app::is_builtin_type(member),
         "audio" => audio::is_builtin_type(member),
         "crypto" => crypto::is_builtin_type(member),
         "datetime" => datetime::is_builtin_type(member),
@@ -353,6 +357,7 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
         };
     }
     try_pkg!(general::resolve_call(callee, arg_types));
+    try_pkg!(app::resolve_call(callee, arg_types));
     try_pkg!(collections::resolve_call(callee, arg_types));
     try_pkg!(strings::resolve_call(callee, arg_types));
     try_pkg!(math::resolve_call(callee, arg_types));
@@ -378,7 +383,8 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
-    audio::call_return_type_name(name)
+    app::call_return_type_name(name)
+        .or_else(|| audio::call_return_type_name(name))
         .or_else(|| general::call_return_type_name(name))
         .or_else(|| collections::call_return_type_name(name))
         .or_else(|| strings::call_return_type_name(name))
@@ -434,7 +440,8 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
     if audio::is_audio_internal_call(name) {
         return false;
     }
-    audio::is_audio_call(name)
+    app::is_app_call(name)
+        || audio::is_audio_call(name)
         || collections::is_collections_call(name)
         || general::is_general_call(name)
         || strings::is_strings_call(name)
@@ -586,7 +593,8 @@ pub(crate) fn select_param_name_overload<'a>(
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
-    audio::call_param_names(name)
+    app::call_param_names(name)
+        .or_else(|| audio::call_param_names(name))
         .or_else(|| general::call_param_names(name))
         .or_else(|| collections::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
@@ -848,6 +856,7 @@ mod tests {
     /// apart (plan-33-D Phase 2 — the earlier `money` omission recurred because no
     /// such test existed).
     const ALL_BUILTIN_PACKAGES: &[&str] = &[
+        "app",
         "audio",
         "bits",
         "collections",
@@ -927,6 +936,7 @@ mod tests {
     #[test]
     fn is_builtin_import_cases() {
         for pkg in [
+            "app",
             "bits",
             "collections",
             "crypto",

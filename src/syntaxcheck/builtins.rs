@@ -224,6 +224,16 @@ const BUILTIN_PACKAGES: &[BuiltinPackage] = &[
         args: ArgMode::Read,
     },
     BuiltinPackage {
+        name: "app",
+        is_call: builtins::app::is_app_call,
+        arity: builtins::app::arity,
+        resolve_return_type: |name, arg_types| {
+            builtins::app::resolve_call(name, arg_types).map(|call| call.return_type)
+        },
+        expected_arguments: builtins::app::expected_arguments,
+        args: ArgMode::Read,
+    },
+    BuiltinPackage {
         name: "http",
         is_call: builtins::http::is_http_call,
         arity: builtins::http::arity,

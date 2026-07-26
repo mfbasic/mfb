@@ -1,0 +1,11 @@
+IMPORT app
+
+' plan-62-A: app:: is fixed-arity, no overloads (the term:: shape).
+SUB main()
+  ' setMode takes exactly one Mode argument (wrong arity: none).
+  app::setMode()
+  ' setMode's argument must be a Mode, not an Integer (wrong type).
+  app::setMode(1)
+  ' getMode takes no arguments (wrong arity: one).
+  LET m AS Mode = app::getMode(Mode.None)
+END SUB
