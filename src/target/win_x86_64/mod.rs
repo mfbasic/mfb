@@ -86,6 +86,13 @@ const RUNTIME_CALLS: &[&str] = &[
     "os.arch",
     "os.pid",
     "os.cpuCount",
+    // os:: environment (plan-66-B): Get/SetEnvironmentVariableW under the SRWLOCK
+    // env lock, with UTF-8↔UTF-16 marshaling (emit_env_get/emit_env_set).
+    "os.getEnv",
+    "os.getEnvOr",
+    "os.hasEnv",
+    "os.setEnv",
+    "os.unsetEnv",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",

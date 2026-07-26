@@ -335,25 +335,28 @@ tick in the same commit as the work.
 Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets. **MET** — box (`dt66.exe`): `mono_nonneg=TRUE now_recent=TRUE off_stable=TRUE(-28800=PST) oor_invalidArg=TRUE`; artifact-gate 21 diffs are all pre-existing flaky `codegen_cover_rt` noise in untouched paths (see Corrections), 0 attributable to this change; full `cargo test` green.
 Commit: 78622bb8d
 
-### Phase B — `os::`  (IN PROGRESS — 4/15 calls landed)
-- [~] Advertise `os.*`; implement the 15 calls. **Landed & box-proven (track 1,
-  52e5fb79c):** `os.name`, `os.arch` (const-string arms already returned
-  windows/x86_64), `os.pid` (GetCurrentProcessId), `os.cpuCount` (GetSystemInfo,
-  `dwNumberOfProcessors` at SYSTEM_INFO+0x20 — replaced an `unreachable!`).
-  **Remaining:** the env family (`getEnv`/`getEnvOr`/`hasEnv`/`setEnv`/`unsetEnv`
-  — need a `PlatformFamily::Windows` arm using GetEnvironmentVariableW/
-  SetEnvironmentVariableW + a SRWLOCK env-lock branch in `emit_env_lock`/
-  `emit_env_unlock_return`), `environ` (`emit_environ_pointer` stub at
-  `code.rs:821` → GetEnvironmentStringsW, minus the `=C:=…` drive entries),
-  `hostName`/`userName`/`executablePath` (`*W` + WideCharToMultiByte marshal;
-  `cpuCount`-style — `executablePath` currently `unreachable!` at `paths.rs:89`),
-  and `args` (**entry-side capture is missing** — see Corrections).
-- [x] Tests: host-neutral fixture `tests/rt-behavior/os/os-introspect-basic`
-  (pid/cpuCount/name/arch), box run all TRUE. (Full env/args/exePath box run
-  pending the remaining calls.)
+### Phase B — `os::`  (IN PROGRESS — 9/15 calls landed)
+- [~] Advertise `os.*`; implement the 15 calls. **Landed & box-proven:**
+  *track 1 (52e5fb79c)* `os.name`, `os.arch` (const-string arms), `os.pid`
+  (GetCurrentProcessId), `os.cpuCount` (GetSystemInfo, `dwNumberOfProcessors` at
+  SYSTEM_INFO+0x20 — replaced an `unreachable!`). *track 2 (env family)*
+  `getEnv`/`getEnvOr`/`hasEnv`/`setEnv`/`unsetEnv`: a SRWLOCK env-lock branch in
+  `emit_env_lock`/`emit_env_unlock_return` (Acquire/ReleaseSRWLockExclusive), plus
+  two Windows-only platform primitives `emit_env_get`
+  (GetEnvironmentVariableW + name UTF-8→UTF-16 + value UTF-16→UTF-8, returns a UTF-8
+  value C-string or 0 — the POSIX getenv contract) and `emit_env_set`
+  (SetEnvironmentVariableW, inverted to the POSIX 0=success convention; NULL value
+  → delete for unsetEnv). Box-proven incl. a non-ASCII round-trip (`hello-世界`).
+  **Remaining (6):** `environ` (`emit_environ_pointer` stub → GetEnvironmentStringsW,
+  minus `=C:=…` drive entries), `hostName`/`userName`/`executablePath` (`*W` +
+  WideCharToMultiByte marshal; `executablePath` currently `unreachable!` at
+  `paths.rs:89`), and `args` (**entry-side capture is missing** — see Corrections).
+- [x] Tests: host-neutral fixtures `os-introspect-basic` (pid/cpuCount/name/arch)
+  and `os-env-roundtrip` (set/get/has/unset incl. Unicode); box runs all correct.
+  (environ/args/exePath/hostName/userName box run pending the remaining calls.)
 
-Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **PARTIAL** — pid/cpuCount box-proven; getEnv/args/executablePath/hostName/userName not yet implemented.
-Commit: 52e5fb79c (track 1)
+Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **PARTIAL** — pid/cpuCount/getEnv(+family) box-proven; args/executablePath/hostName/userName/environ not yet implemented.
+Commit: 52e5fb79c (track 1); env family — this commit
 
 ### Phase C — `io::` input + buffering
 - [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.

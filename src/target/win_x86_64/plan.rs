@@ -221,6 +221,20 @@ impl NativePlanPlatform for Platform {
             // cpuCount are single kernel32 calls.
             "os.pid" => vec![import("GetCurrentProcessId", KERNEL32, required_by)],
             "os.cpuCount" => vec![import("GetSystemInfo", KERNEL32, required_by)],
+            // The env family serializes on the SRWLOCK env lock and marshals
+            // names/values UTF-8↔UTF-16 around Get/SetEnvironmentVariableW.
+            // getEnv/getEnvOr/hasEnv read (emit_env_get); setEnv/unsetEnv write
+            // (emit_env_set); setEnv also reads GetLastError via emit_errno. The
+            // merged IAT dedups the shared set. plan-66-B.
+            "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv" => vec![
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+                import("GetEnvironmentVariableW", KERNEL32, required_by),
+                import("SetEnvironmentVariableW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
             // sync primitives (they share the queue/broadcast machinery), so the

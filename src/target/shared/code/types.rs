@@ -320,6 +320,37 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Ok(())
     }
+    /// Windows-only `os::getEnv` primitive (plan-66-B). Reads a UTF-8 NUL-terminated
+    /// variable name from `ARG[0]`, looks it up via `GetEnvironmentVariableW`
+    /// (marshaling name → UTF-16 and the value UTF-16 → UTF-8), and leaves a
+    /// freshly arena-allocated UTF-8 NUL-terminated value C-string pointer in the
+    /// return register — or 0 when the variable is not set. Same register contract
+    /// as the POSIX `getenv` the other platforms call, so the shared helper's
+    /// found/not-found/build-string tail is reused unchanged. Non-Windows platforms
+    /// never take this arm; the default is an error rather than a silent stub.
+    fn emit_env_get(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("os::getEnv Windows primitive is only implemented on windows-x86_64".to_string())
+    }
+    /// Windows-only `os::setEnv`/`unsetEnv` primitive (plan-66-B). Reads a UTF-8
+    /// name from `ARG[0]` and a UTF-8 value from `ARG[1]` (or 0 in `ARG[1]` to
+    /// delete the variable), marshals both to UTF-16, and calls
+    /// `SetEnvironmentVariableW`, leaving its BOOL result (0 = failure) in the
+    /// return register. Non-Windows platforms call `setenv`/`unsetenv` directly.
+    fn emit_env_set(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("os::setEnv Windows primitive is only implemented on windows-x86_64".to_string())
+    }
     /// Copy the saved terminal state at `base + original_offset` to
     /// `base + modified_offset`, then edit the copy into single-key raw mode:
     /// clear `ECHO`/`ICANON` in the local-flags field when requested and set

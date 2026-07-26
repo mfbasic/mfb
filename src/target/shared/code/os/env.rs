@@ -35,6 +35,16 @@ pub(crate) fn os_env_lock_init_hex(family: PlatformFamily) -> String {
 /// Acquire the env/pwd lock: `pthread_mutex_lock(&_mfb_rt_os_env_lock)`. Emitted at
 /// helper entry, after incoming `String*` arguments have been saved into vregs (the
 /// call clobbers all caller-saved registers).
+/// The env/pwd lock acquire and release function names. POSIX uses the pthread
+/// mutex; Windows uses an SRWLOCK (its all-zero `SRWLOCK_INIT` static already lands
+/// via `os_env_lock_init_hex`'s Windows arm). plan-66-B.
+fn env_lock_fns(family: PlatformFamily) -> (&'static str, &'static str) {
+    match family {
+        PlatformFamily::Windows => ("AcquireSRWLockExclusive", "ReleaseSRWLockExclusive"),
+        _ => ("pthread_mutex_lock", "pthread_mutex_unlock"),
+    }
+}
+
 pub(super) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
     let symbol = ctx.symbol;
     let platform = ctx.platform;
@@ -47,8 +57,9 @@ pub(super) fn emit_env_lock(ctx: &mut EmitCtx) -> Result<(), String> {
         ctx.instructions,
         ctx.relocations,
     );
+    let (lock_fn, _) = env_lock_fns(platform.family());
     platform.emit_libc_call(
-        "pthread_mutex_lock",
+        lock_fn,
         symbol,
         platform_imports,
         ctx.instructions,
@@ -83,8 +94,9 @@ pub(super) fn emit_env_unlock_return(ctx: &mut EmitCtx, vregs: &mut Vregs) -> Re
         ctx.instructions,
         ctx.relocations,
     );
+    let (_, unlock_fn) = env_lock_fns(platform.family());
     platform.emit_libc_call(
-        "pthread_mutex_unlock",
+        unlock_fn,
         symbol,
         platform_imports,
         ctx.instructions,
@@ -140,13 +152,20 @@ pub(super) fn lower_get_env(
         &mut relocations,
     );
     instructions.push(abi::move_register(abi::ARG[0], &cname));
-    platform.emit_libc_call(
-        "getenv",
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    // Windows has no `getenv`: GetEnvironmentVariableW + UTF-16↔UTF-8 marshal,
+    // leaving a UTF-8 value C-string pointer (0 = unset) in the return register —
+    // the same contract the not-found/build-string tail below expects (plan-66-B).
+    if platform.family() == PlatformFamily::Windows {
+        platform.emit_env_get(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    } else {
+        platform.emit_libc_call(
+            "getenv",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     instructions.extend([
         abi::move_register(&value, abi::return_register()),
         abi::compare_immediate(&value, "0"),
@@ -271,13 +290,20 @@ pub(super) fn lower_has_env(
         &mut relocations,
     );
     instructions.push(abi::move_register(abi::ARG[0], &cname));
-    platform.emit_libc_call(
-        "getenv",
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    // Windows: GetEnvironmentVariableW (via emit_env_get) leaves a non-zero UTF-8
+    // value pointer when the variable exists, 0 when unset — the same nonzero-means-
+    // present test as POSIX getenv (plan-66-B).
+    if platform.family() == PlatformFamily::Windows {
+        platform.emit_env_get(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    } else {
+        platform.emit_libc_call(
+            "getenv",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&present),
@@ -364,13 +390,20 @@ pub(super) fn lower_set_env(
         abi::move_register(abi::ARG[1], &cvalue),
         abi::move_immediate(abi::ARG[2], "Integer", "1"),
     ]);
-    platform.emit_libc_call(
-        "setenv",
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    // Windows: SetEnvironmentVariableW(wideName, wideValue) via emit_env_set, which
+    // marshals both and returns the POSIX convention (0 = success) the branch below
+    // expects (plan-66-B).
+    if platform.family() == PlatformFamily::Windows {
+        platform.emit_env_set(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    } else {
+        platform.emit_libc_call(
+            "setenv",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&fail),
@@ -454,13 +487,20 @@ pub(super) fn lower_unset_env(
         &mut relocations,
     );
     instructions.push(abi::move_register(abi::ARG[0], &cname));
-    platform.emit_libc_call(
-        "unsetenv",
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    // Windows: SetEnvironmentVariableW(name, NULL) deletes the variable; a NULL
+    // value pointer in ARG[1] selects the delete path in emit_env_set (plan-66-B).
+    if platform.family() == PlatformFamily::Windows {
+        instructions.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+        platform.emit_env_set(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    } else {
+        platform.emit_libc_call(
+            "unsetenv",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+    }
     // `unsetenv` is a no-op for an absent variable; treat any return as success.
     instructions.extend([
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),

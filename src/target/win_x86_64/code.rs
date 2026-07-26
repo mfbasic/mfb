@@ -66,6 +66,60 @@ const MARSHAL_WBUF_SLOT: usize = 0x38;
 /// entry the UTF-8 path pointer is in `ARG[0]`; on return the wide string's arena
 /// pointer is at `sp + MARSHAL_WBUF_SLOT` (and also live in `ARG[0]`... clobbered —
 /// the caller reloads from the slot).
+/// `_mfb_arena_alloc(size, align=2) -> RET[1]`, storing the returned buffer
+/// pointer at `sp + slot`. The 64 KiB-ish requests never OOM in practice (the
+/// arena maps fresh 1 MiB+ blocks), so the Result tag is not checked (matching
+/// `emit_marshal_path`). plan-66-B.
+fn arena_alloc_to_slot(
+    from: &str,
+    size: &str,
+    slot: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::move_immediate(abi::return_register(), "Integer", size),
+        abi::move_immediate(abi::ARG[1], "Integer", "2"),
+        abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(CodeRelocation {
+        from: from.to_string(),
+        to: code::ARENA_ALLOC_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
+}
+
+/// Emit `MultiByteToWideChar(CP_UTF8, 0, [src_slot], -1, [dst_slot], wchar_cap)`,
+/// converting the NUL-terminated UTF-8 C-string at `sp + src_slot` into the UTF-16
+/// buffer at `sp + dst_slot`. Stages the two stack args (5th/6th) through `ARG[2]`
+/// as a caller-saved scratch before it is set to its real 3rd-arg value — the same
+/// discipline as `emit_marshal_path` (the SCRATCH pool must not be used on Win64).
+/// The caller owns the surrounding frame (shadow space + [0x20]/[0x28] arg slots).
+fn emit_utf8_slot_to_wide(
+    from: &str,
+    src_slot: usize,
+    dst_slot: usize,
+    wchar_cap: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), dst_slot), // lpWideCharStr (5th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
+        abi::move_immediate(abi::ARG[2], "Integer", wchar_cap), // cchWideChar (6th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), src_slot), // lpMultiByteStr (3rd)
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cbMultiByte = -1 (NUL-terminated)
+    ]);
+    call_external(from, "MultiByteToWideChar", KERNEL32, instructions, relocations);
+}
+
 fn emit_marshal_path(
     from: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -862,6 +916,133 @@ impl code::CodegenPlatform for Platform {
         ]);
         call_external(from, "SetConsoleMode", KERNEL32, instructions, relocations);
         instructions.extend([abi::label(&skip), abi::add_stack(0x30)]);
+        Ok(())
+    }
+
+    fn emit_env_get(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // GetEnvironmentVariableW over a UTF-8 name in ARG[0]; leaves a UTF-8
+        // NUL-terminated value C-string pointer in the return register (0 = unset),
+        // matching the POSIX getenv contract the shared helper consumes. Frame
+        // (after subtract_stack(0x60)): [0x00..0x20) shadow, [0x20]/[0x28] marshal
+        // 5th/6th stack args, [0x40] saved UTF-8 name, [0x48] wide name buf, [0x50]
+        // wide value buf, [0x58] UTF-8 value buf. Env values cap at 32767 wchars, so
+        // 64 KiB wide buffers hold any value; the UTF-8 out buffer is 128 KiB (worst
+        // case ~3 bytes/char). plan-66-B.
+        const NAME_SLOT: usize = 0x40;
+        const WNAME_SLOT: usize = 0x48;
+        const WVAL_SLOT: usize = 0x50;
+        const U8VAL_SLOT: usize = 0x58;
+        let n = instructions.len();
+        let not_found = format!("{from}_env_get_nf_{n}");
+        let done = format!("{from}_env_get_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x60),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), NAME_SLOT), // save name (arena_alloc clobbers)
+        ]);
+        arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
+        arena_alloc_to_slot(from, "65536", WVAL_SLOT, instructions, relocations);
+        arena_alloc_to_slot(from, "131072", U8VAL_SLOT, instructions, relocations);
+        // name (UTF-8) -> wide name.
+        emit_utf8_slot_to_wide(from, NAME_SLOT, WNAME_SLOT, "32768", instructions, relocations);
+        // GetEnvironmentVariableW(wideName, wideVal, 32768) -> char count (0 = unset).
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WNAME_SLOT),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), WVAL_SLOT),
+            abi::move_immediate(abi::ARG[2], "Integer", "32768"),
+        ]);
+        call_external(from, "GetEnvironmentVariableW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&not_found),
+            // WideCharToMultiByte(CP_UTF8, 0, wideVal, -1, u8Val, 131072, NULL, NULL).
+            abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), U8VAL_SLOT), // lpMultiByteStr (5th)
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::ARG[2], "Integer", "131072"), // cbMultiByte (6th)
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // lpDefaultChar (7th) = NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // lpUsedDefaultChar (8th) = NULL
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), WVAL_SLOT), // lpWideCharStr (3rd)
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
+        ]);
+        call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), U8VAL_SLOT), // UTF-8 value ptr
+            abi::branch(&done),
+            abi::label(&not_found),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(0x60),
+        ]);
+        Ok(())
+    }
+
+    fn emit_env_set(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // SetEnvironmentVariableW(wideName, wideValue|NULL). ARG[0] = UTF-8 name,
+        // ARG[1] = UTF-8 value (0 to delete). Frame (after subtract_stack(0x50)):
+        // shadow [0x00..0x20), [0x20]/[0x28] marshal stack args, [0x30] wide name,
+        // [0x38] wide value (or NULL), [0x40] saved name, [0x48] saved value.
+        // plan-66-B.
+        const WNAME_SLOT: usize = 0x30;
+        const WVAL_SLOT: usize = 0x38;
+        const NAME_SLOT: usize = 0x40;
+        const VAL_SLOT: usize = 0x48;
+        let n = instructions.len();
+        let set_null = format!("{from}_env_set_null_{n}");
+        let do_set = format!("{from}_env_set_do_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x50),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), NAME_SLOT),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), VAL_SLOT),
+        ]);
+        arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
+        emit_utf8_slot_to_wide(from, NAME_SLOT, WNAME_SLOT, "32768", instructions, relocations);
+        // value == 0 → delete (wideValue = NULL); else marshal the value.
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), VAL_SLOT),
+            abi::compare_immediate(abi::ARG[0], "0"),
+            abi::branch_eq(&set_null),
+        ]);
+        arena_alloc_to_slot(from, "131072", WVAL_SLOT, instructions, relocations);
+        emit_utf8_slot_to_wide(from, VAL_SLOT, WVAL_SLOT, "65536", instructions, relocations);
+        instructions.extend([
+            abi::branch(&do_set),
+            abi::label(&set_null),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), WVAL_SLOT), // lpValue = NULL → delete
+            abi::label(&do_set),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WNAME_SLOT),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), WVAL_SLOT),
+        ]);
+        call_external(from, "SetEnvironmentVariableW", KERNEL32, instructions, relocations);
+        // SetEnvironmentVariableW returns BOOL (nonzero = success); invert to the
+        // POSIX setenv/unsetenv convention (0 = success, nonzero = failure) the
+        // shared helper's branch expects.
+        let ok = format!("{from}_env_set_ok_{n}");
+        let out = format!("{from}_env_set_out_{n}");
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
+            abi::branch(&out),
+            abi::label(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"), // success
+            abi::label(&out),
+            abi::add_stack(0x50),
+        ]);
         Ok(())
     }
 
