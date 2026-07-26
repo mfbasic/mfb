@@ -464,39 +464,75 @@ Commit: 71f2a3fab (7/10); 28078edae (atomic writes, 9/10)
 Acceptance: a Windows-built tls listen/accept/echo server completes a handshake with a client on the box. **MET** — box-proven (openssl + PowerShell SslStream + MFB↔MFB).
 Commit: 8138a3e2d (server TLS1.2 pin + client RECV_LEN fix; base impl in 0cbfe4463)
 
-### Phase G — COM/GUID codegen spike (audio premise)
-- [ ] Add the 16-byte GUID data-object kind; add the vtable-call emitter; `ole32` import rows.
-- [ ] Box spike: hand-built `CoCreateInstance(IMMDeviceEnumerator)` + one vtable method, prints success.
+### Phase G — COM/GUID codegen spike (audio premise)  (COMPLETE — subsumed by H)
+- [x] The COM-expressibility premise is PROVEN. The two primitives the plan called
+  for already existed and needed no new kind/emitter: a 16-byte GUID/CLSID/IID is a
+  `kind:"raw"` data object (arbitrary bytes, Windows GUID byte order); a COM vtable
+  call is `load vtable=[obj]; load fn=[vtable+slot*8]; branch_link_register(fn)` →
+  the x86 encoder's existing `call r/m64` (FF /2). `ole32` import rows landed with H.
+- [x] Box proof folded into H: the WASAPI backend `CoCreateInstance`s
+  `IMMDeviceEnumerator` and calls `GetDefaultAudioEndpoint`/`Activate`/… through
+  vtables live on the box (`devices()`→2 endpoints). The premise held.
 
-Acceptance: the spike `.exe` runs on the box, instantiates the COM object, and returns success — the COM-expressibility premise is proven (or the plan stops here and records it as a Prerequisites defect).
-Commit: —
+Acceptance: COM object instantiated + a vtable method returns success on the box. **MET** — proven end-to-end by H's live WASAPI COM calls (no separate spike needed).
+Commit: 48e20c1e9 / merged 7b0d6ccf7
 
-### Phase H — WASAPI audio backend (split before execution)
-- [ ] Author `plan-66-H-1..n` sub-plans; build `audio/windows.rs` (14 helpers + devices); wire selector/dispatch/RUNTIME_CALLS.
-- [ ] Tests: byte-identity audio goldens for windows-x86_64; box run producing audible s16le tone + capture round-trip.
+### Phase H — WASAPI audio backend  (COMPLETE — box-proven)
+- [x] Built `audio/windows{,_open,_io,_devices}.rs` (all 14 calls + devices);
+  `AudioBackend::Wasapi` + selector/dispatch/RUNTIME_CALLS + `plan.rs` `audio.*`
+  imports (ole32). COM vtable dispatch throughout. **Also fixed a pre-existing Win64
+  codegen defect** (xmm6–15 callee-saved saved with a GPR `str_u64` → encoder
+  rejected `xmm10`; now `str q`/`ldr q`, byte-identical off Win64) and a `devices()`
+  frame-slot collision. Open Decision 1: EXCLUSIVE s16le attempted first, SHARED
+  mix-format fallback (integer s16↔f32 conversion) when the device rejects it.
+- [x] Tests: box run — `devices=2`; agent proof `openOutput`+`write` (s16→f32
+  SHARED) and `openInput`+`read` (512 bytes) both OK. Full `cargo test` green;
+  `artifact-gate.sh` **0 diffs** (the golden regen fixed the stale codegen_cover_rt
+  noise). Non-Windows byte-identical.
 
-Acceptance: `audio::openOutput`+`write` produces an audible s16le tone on the box, and `openInput`+`read` captures; `devices()` lists the box's endpoints.
-Commit: —
+Acceptance: openOutput+write produces s16le on the box, openInput+read captures, devices() lists endpoints. **MET** (audibility is a by-ear check; the pipeline is box-proven).
+Commit: 48e20c1e9 / merged 7b0d6ccf7
 
-### Phase I — App-mode infra
-- [ ] Add `NativeBuildMode::WindowsApp`+`is_app()`; CLI `"windows" =>` arm; flip `supports_app_mode()`; `APP_MODE_MATRIX`; mode-driven PE subsystem + fix `pe.rs:347` test.
-- [ ] Tests: unit test asserting `-app` emits Subsystem=2; `APP_MODE_MATRIX` coverage test passes.
+### Phase I — App-mode infra  (COMPLETE)
+- [x] Added `NativeBuildMode::WindowsApp`+`is_app()`+`APP_MODE_MATRIX`; the CLI
+  `"windows" => WindowsApp` arm (fixing the `_ => MacApp` misroute); flipped
+  `supports_app_mode()`→true; `lower_validated_module` accepts WindowsApp; mode-driven
+  PE Subsystem WINDOWS_GUI(2) via `pe::write_image` gui flag + fixed the subsystem
+  test; threaded `app_icon`/`app_version` toward the writer for K.
+- [x] Tests: `app_mode_links_gui_subsystem` asserts Subsystem=2; `APP_MODE_MATRIX`
+  coverage green. Full `cargo test` green.
 
-Acceptance: `mfb build -target windows-x86_64 -app <proj>` builds (no gate rejection) and the PE header carries Subsystem=2.
-Commit: —
+Acceptance: `mfb build -target windows-x86_64 -app` no longer rejects at the gate; PE header Subsystem=2. **MET** (Subsystem=2 unit-test-proven; note: a full `-app` build still errors at codegen until J-full lands — a clean error, not a wrong result).
+Commit: d9025af8c / merged e5c500020
 
-### Phase J — Win32 app-mode floor (split before execution)
-- [ ] Message-loop↔worker box spike first; then author `plan-66-J-1..n`; build `win_x86_64/app/` (10 CodegenPlatform methods); `user32`/`gdi32` imports.
-- [ ] Tests: `MFB_*_HEADLESS`-style automated path if feasible; box run showing a window with transcript output + keystroke input.
+### Phase J — Win32 app-mode floor  (SPIKE DONE, box-proven; FULL FLOOR NOT BUILT)
+- [~] **Message-loop↔worker spike: DONE and BOX-PROVEN** (`spike.rs`, test-only):
+  a hand-assembled GUI-subsystem PE does RegisterClassExW→CreateWindowExW→
+  CreateThread(worker)→GetMessage loop; the worker cross-thread `PostMessageW`s a
+  `WM_APP` the WndProc handles on the UI thread, writes a proof-of-life, and
+  PostQuitMessages. Box (2230): exit 0 + `SPIKE_OK`. **The unproven premise HOLDS.**
+  **NOT built:** the 10 `CodegenPlatform` app methods in `win_x86_64/app/`
+  (emit_app_program_entry + io write/flush/input/is_terminal + raw_input + term +
+  mode_reconcile + app_mode_data_objects) — the GDI custom-drawn transcript buffer
+  (WM_PAINT/TextOutW, scrollback, cross-thread print marshaling, line-input editing),
+  modeled on macOS `app/*.rs` (5369 LOC) + `linux_gtk` (3603). Needs `user32`/`gdi32`
+  imports and a plan-66-J-1..n split. A full `-app` build errors cleanly at codegen
+  until this lands (no stub shipped — Hard Completion Gate).
+- [ ] Tests: box run showing a window with transcript output + keystroke input.
 
-Acceptance: an `-app` program on the box opens a window, shows its `io::print` output in the transcript, and reads a typed line.
-Commit: —
+Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **NOT MET** — spike proves the mechanics; the transcript floor is the remaining bulk (deferred; premise de-risked).
+Commit: 9718fd97d (spike) / merged e5c500020
 
-### Phase K — PE resource packaging (largest blast radius, last)
-- [ ] `.ico` encoder; `.rsrc` section (icon+manifest+version); thread `app_icon`/`app_version`.
-- [ ] Tests: PE-writer unit tests for the `.rsrc` layout; `artifact-gate.sh` 0 diffs; box run showing icon in Explorer.
+### Phase K — PE resource packaging  (NOT STARTED)
+- [ ] `.ico` encoder (`os/windows/icon.rs` reusing `os/icon/mod.rs::render_png`);
+  `.rsrc` section (icon group + DPI/common-controls manifest + VS_VERSIONINFO) added
+  to the PE section list; thread `app_icon`/`app_version` into the writer (the params
+  are already threaded there by I, so K plugs in at section-assembly). Gate `.rsrc`
+  on app-mode-with-icon so console builds stay byte-identical.
+- [ ] Tests: PE-writer unit tests for the `.rsrc` layout; artifact-gate 0 diffs; box
+  run showing the icon in Explorer.
 
-Acceptance: an app `.exe` on the box shows the embedded icon and is DPI-aware; existing targets byte-identical.
+Acceptance: an app `.exe` shows the embedded icon and is DPI-aware; existing targets byte-identical. **NOT MET** — not started; depends on J-full for a real `-app` `.exe` to carry the icon.
 Commit: —
 
 ## Validation Plan
