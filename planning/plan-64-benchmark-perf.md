@@ -378,6 +378,24 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
 **Fixes (semantics-preserving — same order/stability/buckets).**
 - **D1:** native `groupBy` — single pass growing each bucket **in place** in a hash-slot
   side structure, materialized to the Map once at the end (kills the O(bucket²) copy).
+  - **[ ] D1 — implementation-ready (pieces confirmed this session; ~250 LOC, biggest
+    remaining native win).** Gate the monomorphized `#collections_groupBy$T$K$V` to T/K/V
+    all 8-byte fixed-width, K integer-comparable (benchmark is Integer/Integer/Integer);
+    else `.mfb`. Build: (1) extract `keys`/`vals` in one pass (two FUNC-ptr callbacks per
+    element — the D2 keys-extraction template with a second callback). (2) `keyToIdx` =
+    empty `Map OF K TO Integer` (`lower_map_literal`), `keyOrder` = `List OF K`,
+    `bucketPtrs` = `List OF Integer` (raw bucket-list pointers). Per element: `emit_map_probe`
+    (`builder_collection_query.rs:215`, slot-based, branches to not-found); found → read the
+    entry's `VALUE_OFFSET` = bucketIdx, load `bucketPtrs[idx]` into a slot, `lower_list_append_in_place`
+    (updates the slot on realloc), store the new ptr back to `bucketPtrs[idx]`; not-found →
+    build a fresh `[v]`, append its ptr to `bucketPtrs`, `lower_map_set_in_place(keyToIdx, k,
+    numBuckets)`, append k to `keyOrder`. This keeps buckets as **top-level** lists grown
+    O(1)-amortized (no nested-in-place, no O(bucket²) get-copy). (3) Final `Map OF K TO List
+    OF V`: empty map, loop `keyOrder` → `lower_map_set_in_place(result, keyOrder[b],
+    list-at-bucketPtrs[b])` (map set with a flat-inline List value). All three helpers emit
+    once inside emitted runtime loops (labels/slots unique, code runs per iteration). Gate:
+    `listchurn_nested` checksum + full `cargo test` + acceptance groupBy fixtures + a String-key
+    fallback fixture. The intricacy is the bucket-pointer bookkeeping across the realloc-update.
 - **[x] D2 — LANDED (native sortBy).** Bottom-up **stable** merge sort with the two
   ping-pong buffer pairs allocated once and swapped by slot pointer per pass — no per-pass
   full copy (the `.mfb`'s dominant cost). Gated to **8-byte fixed-width items**
@@ -812,8 +830,18 @@ fixtures pass):**
 | Item | Change | Row | Before → after (ms, `--run 50`) | Commit |
 |------|--------|-----|------|--------|
 | **F1** | whole-string ASCII shortcut in `case_map` | string case | 66.0 → 50.6 | `ced444de6` |
-| **A3-datetime** | fixed-offset fast path in `addDays`/`addMonths` | datetime civil | 973.9 → 96.5 (10×) | `de8da577a` |
+| **A3-datetime** | fixed-offset fast path in `addDays`/`addMonths` | datetime civil | 973.9 → 77.5 (10×) | `de8da577a` |
 | **G2** | ASCII fast path in 5 classify predicates | scalar classify | 29.3 → **4.2 (COMPLETE**, beats Py) | `4cfb9a7f9` |
+| **D2** | native `sortBy` (fixed-width items, signed 8-byte keys) — merge sort, ping-pong buffers | list sortBy | 21.2 → **4.5 (4.75×)** | `ec79ef661` |
+| **C2-mapValues** | native `mapValues` (same-type 8-byte value) — copy structure + rewrite values | mapchurn iterate | 24.5 → **14.6 (~40%)** | `3ba2f61d9` |
+| **D3-window** | native `window` (8-byte elems, const size) — direct nested-block build | list window | 20.6 → **4.6 (4.5×)** | `9409d7941` |
+| **D3-chunks** | native `chunks` (8-byte elems, const size) — direct nested-block build | list chunks | 5.5 → **0.9 (COMPLETE**, beats Py) | `13fcc99d0` |
+
+**7 sub-plans landed this session, all on main.** Native-codegen technique proven and reused
+across D2/C2/D3: monomorphized-target dispatch gate (`#collections_<fn>$…`), FUNC-pointer
+callbacks (`emit_direct_callable_branch` + `emit_callback_failure_exit`), and direct kind-2 /
+nested-block construction (`emit_write_list_header_from_registers`, VALUE_OFFSET/LENGTH entries),
+each with a `.mfb` fallback for the un-gated types and each proven bit-identical.
 
 Authoritative post-fix full `--run 50` (`benchmark/mfb-20260725-223351.log`) confirms the
 three rows (case 50.3, civil 77.5, classify 4.2) with **no regression** on unaddressed rows
