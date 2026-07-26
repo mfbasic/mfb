@@ -29,6 +29,11 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 failures=0
 
+# Result reporting, matching test-appimage.sh so the two macOS/Linux runtime
+# gates read the same. `fail` is the single place `failures` is incremented.
+pass() { echo "ok: $1"; }
+fail() { echo "FAIL: $1" >&2; failures=$((failures + 1)); }
+
 # GUI cases open real windows (stealing focus) and, in one case, inject
 # keystrokes via System Events into the focused app. They are OPT-IN so the
 # default run never disrupts an interactive session. Enable with MFB_MACAPP_GUI=1
@@ -41,28 +46,34 @@ gui_enabled() { [ "${MFB_MACAPP_GUI:-0}" = "1" ]; }
 # breaks one line here, not every case below.
 bundle() { printf '%s' "$1/build/$2.app"; }
 
-# Run a bundle's executable headlessly with a watchdog; echo "code=N" or "signal=N".
+# Run a bundle's executable headlessly with a watchdog; echo "code=N" or
+# "signal=N". The watchdog bound is a parameter (default 15s), matching
+# test-appimage.sh's `timeout_run` so the two gates cannot diverge silently.
 run_headless() {
-  local exe=$1
+  local exe=$1 limit=${2:-15}
   MFB_MACAPP_HEADLESS=1 perl -e '
+    my $limit = shift @ARGV;
     my $pid = fork();
     if ($pid == 0) { exec($ARGV[0]) or exit 127; }
     local $SIG{ALRM} = sub { kill "KILL", $pid; print "timeout\n"; waitpid($pid,0); exit 99; };
-    alarm 15; waitpid($pid, 0); my $st = $?;
+    alarm $limit; waitpid($pid, 0); my $st = $?;
     if ($st & 127) { printf "signal=%d\n", ($st & 127); }
     else { printf "code=%d\n", ($st >> 8); }
-  ' "$exe"
+  ' "$limit" "$exe"
 }
 
 # Run headless and capture the program's stdout (the io sink in headless mode).
+# stdin is inherited, so a caller can pipe fed input in. Bound is a parameter
+# (default 15s). Callers use `$(...)`, which strips the trailing newline.
 run_headless_stdout() {
-  local exe=$1
+  local exe=$1 limit=${2:-15}
   MFB_MACAPP_HEADLESS=1 perl -e '
+    my $limit = shift @ARGV;
     my $pid = open(my $fh, "-|");
     if ($pid == 0) { exec($ARGV[0]) or exit 127; }
     local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99; };
-    alarm 15; local $/; my $o = <$fh>; close($fh); print $o;
-  ' "$exe"
+    alarm $limit; local $/; my $o = <$fh>; close($fh); print $o;
+  ' "$limit" "$exe"
 }
 
 # Case 1: FUNC main() AS Integer returns 42 -> process exits 42 (worker ran it).
@@ -79,15 +90,13 @@ FUNC main() AS Integer
 END FUNC
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app exitcode" >&2
-  failures=$((failures + 1))
+  fail "build -app exitcode"
 else
   result=$(run_headless "$(bundle "$proj" exitcode)/Contents/MacOS/exitcode")
   if [ "$result" = "code=42" ]; then
-    echo "ok: worker ran program and propagated exit code ($result)"
+    pass "worker ran program and propagated exit code ($result)"
   else
-    echo "FAIL: expected code=42, got '$result'" >&2
-    failures=$((failures + 1))
+    fail "expected code=42, got '$result'"
   fi
 fi
 
@@ -104,15 +113,13 @@ SUB main()
 END SUB
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app nothing" >&2
-  failures=$((failures + 1))
+  fail "build -app nothing"
 else
   result=$(run_headless "$(bundle "$proj" nothing)/Contents/MacOS/nothing")
   if [ "$result" = "code=0" ]; then
-    echo "ok: SUB main() worker ran and exited cleanly ($result)"
+    pass "SUB main() worker ran and exited cleanly ($result)"
   else
-    echo "FAIL: expected code=0, got '$result'" >&2
-    failures=$((failures + 1))
+    fail "expected code=0, got '$result'"
   fi
 fi
 
@@ -135,15 +142,13 @@ SUB main()
 END SUB
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app output" >&2
-  failures=$((failures + 1))
+  fail "build -app output"
 else
   out=$(run_headless_stdout "$(bundle "$proj" output)/Contents/MacOS/output")
   if [ "$out" = $'APPMODE_LINE\nAPPMODE_NONL' ]; then
-    echo "ok: app-mode io::print/io::write produced expected output"
+    pass "app-mode io::print/io::write produced expected output"
   else
-    echo "FAIL: unexpected app-mode io output: $(printf '%q' "$out")" >&2
-    failures=$((failures + 1))
+    fail "unexpected app-mode io output: $(printf '%q' "$out")"
   fi
 fi
 
@@ -167,8 +172,7 @@ MFB
 if ! gui_enabled; then
   echo "skip: keep-window-open GUI test (set MFB_MACAPP_GUI=1 when idle)"
 elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app keepopen" >&2
-  failures=$((failures + 1))
+  fail "build -app keepopen"
 else
   result=$(perl -e '
     use POSIX ":sys_wait_h";
@@ -183,10 +187,9 @@ else
     else { printf "exited=%d", ($? >> 8); }
   ' "$(bundle "$proj" keepopen)/Contents/MacOS/keepopen")
   if [ "$result" = "alive" ]; then
-    echo "ok: window stayed open after the program finished"
+    pass "window stayed open after the program finished"
   else
-    echo "FAIL: app did not keep the window open ($result)" >&2
-    failures=$((failures + 1))
+    fail "app did not keep the window open ($result)"
   fi
 fi
 
@@ -212,20 +215,13 @@ SUB main()
 END SUB
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app input" >&2
-  failures=$((failures + 1))
+  fail "build -app input"
 else
-  out=$(printf 'bob\nsecond\n' | MFB_MACAPP_HEADLESS=1 perl -e '
-    my $pid = open(my $fh, "-|");
-    if ($pid == 0) { exec($ARGV[0]) or exit 127; }
-    local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99; };
-    alarm 15; local $/; my $o = <$fh>; close($fh); print $o;
-  ' "$(bundle "$proj" input)/Contents/MacOS/input")
+  out=$(printf 'bob\nsecond\n' | run_headless_stdout "$(bundle "$proj" input)/Contents/MacOS/input")
   if [ "$out" = $'Name? Hi bob\nEcho second' ]; then
-    echo "ok: app-mode io::input + io::readLine consume input correctly"
+    pass "app-mode io::input + io::readLine consume input correctly"
   else
-    echo "FAIL: unexpected app-mode input output: $(printf '%q' "$out")" >&2
-    failures=$((failures + 1))
+    fail "unexpected app-mode input output: $(printf '%q' "$out")"
   fi
 fi
 
@@ -249,20 +245,13 @@ SUB main()
 END SUB
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app inputonly (bug-247: missing _isatty/_tcgetattr imports?)" >&2
-  failures=$((failures + 1))
+  fail "build -app inputonly (bug-247: missing _isatty/_tcgetattr imports?)"
 else
-  out=$(printf 'bob\n' | MFB_MACAPP_HEADLESS=1 perl -e '
-    my $pid = open(my $fh, "-|");
-    if ($pid == 0) { exec($ARGV[0]) or exit 127; }
-    local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99; };
-    alarm 15; local $/; my $o = <$fh>; close($fh); print $o;
-  ' "$(bundle "$proj" inputonly)/Contents/MacOS/inputonly")
+  out=$(printf 'bob\n' | run_headless_stdout "$(bundle "$proj" inputonly)/Contents/MacOS/inputonly")
   if [ "$out" = 'Name? Hi bob' ]; then
-    echo "ok: app-mode io::input alone (no io::readLine) builds and reads"
+    pass "app-mode io::input alone (no io::readLine) builds and reads"
   else
-    echo "FAIL: unexpected app-mode input-only output: $(printf '%q' "$out")" >&2
-    failures=$((failures + 1))
+    fail "unexpected app-mode input-only output: $(printf '%q' "$out")"
   fi
 fi
 
@@ -289,8 +278,7 @@ MFB
 if ! gui_enabled; then
   echo "skip: window keystroke GUI test (set MFB_MACAPP_GUI=1 when idle)"
 elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app keyinput" >&2
-  failures=$((failures + 1))
+  fail "build -app keyinput"
 else
   rm -f "$proj/got.txt"
   open "$(bundle "$proj" keyinput)"
@@ -301,7 +289,7 @@ else
   pkill -KILL keyinput >/dev/null 2>&1
   got=$(cat "$proj/got.txt" 2>/dev/null || true)
   if [ "$got" = "got:WindowKeys" ]; then
-    echo "ok: window keypresses delivered to io::readLine"
+    pass "window keypresses delivered to io::readLine"
   else
     echo "skip: window keystroke injection unavailable (need Accessibility); got '$got'"
   fi
@@ -327,19 +315,13 @@ SUB main()
 END SUB
 MFB
 if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app isterm" >&2
-  failures=$((failures + 1))
+  fail "build -app isterm"
 else
-  out=$(MFB_MACAPP_HEADLESS=1 perl -e '
-    my $pid = open(my $fh, "-|"); if ($pid == 0) { exec($ARGV[0]) or exit 127; }
-    local $SIG{ALRM} = sub { kill "KILL", $pid; exit 99 }; alarm 10;
-    local $/; my $o = <$fh>; close($fh); chomp $o; print $o;
-  ' "$(bundle "$proj" isterm)/Contents/MacOS/isterm")
+  out=$(run_headless_stdout "$(bundle "$proj" isterm)/Contents/MacOS/isterm" 10)
   if [ "$out" = "terminal:yes" ]; then
-    echo "ok: app-mode io::is*Terminal return TRUE"
+    pass "app-mode io::is*Terminal return TRUE"
   else
-    echo "FAIL: io::is*Terminal expected terminal:yes, got '$out'" >&2
-    failures=$((failures + 1))
+    fail "io::is*Terminal expected terminal:yes, got '$out'"
   fi
 fi
 
@@ -369,8 +351,7 @@ MFB
 if ! gui_enabled; then
   echo "skip: terminalSize GUI test (set MFB_MACAPP_GUI=1 when idle)"
 elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
-  echo "FAIL: build -app tsize" >&2
-  failures=$((failures + 1))
+  fail "build -app tsize"
 else
   rm -f "$proj/size.txt"
   open "$(bundle "$proj" tsize)"
@@ -378,7 +359,7 @@ else
   pkill -KILL tsize >/dev/null 2>&1
   size=$(cat "$proj/size.txt" 2>/dev/null || true)
   if printf '%s' "$size" | grep -Eq '^[1-9][0-9]*x[1-9][0-9]*$'; then
-    echo "ok: term::terminalSize reported window surface ($size)"
+    pass "term::terminalSize reported window surface ($size)"
   else
     echo "skip: term::terminalSize window check unavailable (need GUI session); got '$size'"
   fi
