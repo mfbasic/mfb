@@ -404,7 +404,7 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   constant size>=1; same nested-block build, variable last chunk, chunk-count via a count
   loop). **Result: `list chunks` 5.5 → 0.91 ms (~6x; COMPLETE, <=5ms, beats Python 1.68).**
   checksum 20000 proven unchanged; cargo test green; artifact-gate clean; acceptance passes.
-  `lower_collection_chunks_call`. Commit: `<pending>`.
+  `lower_collection_chunks_call`. Commit: `13fcc99d0`.
 - **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
   outputs, inlined comparator (with B's borrowed String element for String lists).
 - Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the
