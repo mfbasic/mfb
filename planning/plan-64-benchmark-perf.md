@@ -399,7 +399,12 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   20.6 → 4.58 ms (~4.5x; beats Python 8.38).** checksum 99100 proven unchanged; full `cargo
   test` green; artifact-gate zero new diffs; 74 window/list acceptance fixtures pass; edge
   cases (size==n, size>n empty, size==1) verified. `lower_collection_window_call`.
-  Commit: `9409d7941`. (chunks/D3-chunks + stride>1 remain on the `.mfb`.)
+  Commit: `9409d7941`. (window stride>1 remains on the `.mfb`.)
+- **[x] D3-chunks — LANDED.** Native `collections::chunks` (8-byte fixed-width elems,
+  constant size>=1; same nested-block build, variable last chunk, chunk-count via a count
+  loop). **Result: `list chunks` 5.5 → 0.91 ms (~6x; COMPLETE, <=5ms, beats Python 1.68).**
+  checksum 20000 proven unchanged; cargo test green; artifact-gate clean; acceptance passes.
+  `lower_collection_chunks_call`. Commit: `<pending>`.
 - **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
   outputs, inlined comparator (with B's borrowed String element for String lists).
 - Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the

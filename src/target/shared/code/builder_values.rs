@@ -780,6 +780,21 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-64 D3: native chunks for 8-byte fixed-width elements with a
+                // constant size >= 1 (`#collections_chunks$T`, 2 args).
+                if let Some(t) = target.strip_prefix("#collections_chunks$") {
+                    if matches!(t, "Integer" | "Float" | "Fixed" | "Money") && args.len() == 2 {
+                        if let Some(NirValue::Const { type_, value }) = args.get(1) {
+                            if type_ == "Integer" {
+                                if let Ok(sz) = value.parse::<i64>() {
+                                    if sz >= 1 {
+                                        return self.lower_collection_chunks_call(args, sz);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
                 }
