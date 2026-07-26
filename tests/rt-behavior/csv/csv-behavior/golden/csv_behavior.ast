@@ -89,15 +89,36 @@
       "kind": "func",
       "visibility": "public",
       "isolated": false,
-      "name": "main",
-      "line": 60,
+      "name": "csv_unquoted_unicode_run",
+      "line": 66,
       "params": [
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "binding", "mutable": false, "name": "_csv_read_valid", "type": "Integer", "value": { "kind": "call", "callee": "csv_read_valid_run", "arguments": [] }, "line": 61 },
-      { "kind": "binding", "mutable": false, "name": "_csv_write_valid", "type": "Integer", "value": { "kind": "call", "callee": "csv_write_valid_run", "arguments": [] }, "line": 62 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 63 }
+      { "kind": "binding", "mutable": false, "name": "doc", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "string", "value": "ascii,café,日本語,🎉x" }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rows=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "doc" }] }] } }] }, "line": 68 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "List OF String", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "doc" }, { "kind": "number", "value": "0" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "cols=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "r" }] }] } }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "1" }] }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "2" }] }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "r" }, { "kind": "number", "value": "3" }] }] }, "line": 73 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 74 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 77,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "_csv_read_valid", "type": "Integer", "value": { "kind": "call", "callee": "csv_read_valid_run", "arguments": [] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "name": "_csv_write_valid", "type": "Integer", "value": { "kind": "call", "callee": "csv_write_valid_run", "arguments": [] }, "line": 79 },
+      { "kind": "binding", "mutable": false, "name": "_csv_unquoted_unicode", "type": "Integer", "value": { "kind": "call", "callee": "csv_unquoted_unicode_run", "arguments": [] }, "line": 80 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 81 }
       ]
     }
     ]

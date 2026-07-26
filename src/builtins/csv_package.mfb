@@ -14,18 +14,27 @@ IMPORT encoding
 ' splitter may yield "\r" and "\n" as two separate graphemes, so the scanner must
 ' not assume CR+LF arrives as one cursor step.
 ' plan-39 G1/G2: scan the input over its Unicode scalars (one-pass utf32Encode ->
-' List OF Integer) instead of materializing a grapheme List OF String, and build
-' each field in a scalar buffer flushed with encoding::utf32Decode — avoiding the
-' ~n single-grapheme string allocations and the O(n^2) `field = field & ch`
+' List OF Integer) instead of materializing a grapheme List OF String — avoiding
+' the ~n single-grapheme string allocations and the O(n^2) `field = field & ch`
 ' concat. Every structural CSV character (comma, quote, CR, LF) is ASCII, and a
 ' grapheme cluster split into scalars and rejoined is byte-identical, so the grid
 ' is unchanged. Scalar codes: comma=44, double-quote=34, CR=13, LF=10.
+' plan-64 A3: an UNQUOTED field is a contiguous run of those scalars, so it is
+' decoded straight from the shared scalar buffer with one __csv_decodeRange
+' call (`__csv_fieldValue`) — no per-character scalar-buffer growth and no
+' intermediate slice. Only a QUOTED field (whose "" escapes and stripped delimiters
+' make its content non-contiguous) builds `fieldBuf`. This removes the ~n per-field
+' append churn that fed the arena mixed-transient-churn quadratic (plan-64 sub-plan
+' A) while keeping the grid byte-identical. `fieldStart` tracks the scalar index
+' where the current field's content begins; `wasQuoted` selects the buffer vs. range
+' path.
 FUNC __csv_parse(value AS String) AS List OF List OF String
   LET chars AS List OF Integer = encoding::utf32Encode(value)
   LET count AS Integer = len(chars)
   MUT rows AS List OF List OF String = []
   MUT row AS List OF String = []
   MUT fieldBuf AS List OF Integer = []
+  MUT fieldStart AS Integer = 0
   MUT index AS Integer = 0
   MUT inQuotes AS Boolean = FALSE
   MUT fieldStarted AS Boolean = FALSE
@@ -49,7 +58,7 @@ FUNC __csv_parse(value AS String) AS List OF List OF String
         index = index + 1
       END IF
     ELSEIF __csv_separatorLength(chars, count, index) > 0 THEN
-      row = collections::append(row, encoding::utf32Decode(fieldBuf))
+      row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
       rows = collections::append(rows, row)
       row = []
       fieldBuf = []
@@ -57,13 +66,15 @@ FUNC __csv_parse(value AS String) AS List OF List OF String
       wasQuoted = FALSE
       recordPending = FALSE
       index = index + __csv_separatorLength(chars, count, index)
+      fieldStart = index
     ELSEIF ch = 44 THEN
-      row = collections::append(row, encoding::utf32Decode(fieldBuf))
+      row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
       fieldBuf = []
       fieldStarted = FALSE
       wasQuoted = FALSE
       recordPending = TRUE
       index = index + 1
+      fieldStart = index
     ELSEIF wasQuoted THEN
       FAIL error(77050003, "invalid CSV format")
     ELSEIF ch = 34 AND fieldStarted = FALSE THEN
@@ -71,7 +82,6 @@ FUNC __csv_parse(value AS String) AS List OF List OF String
       fieldStarted = TRUE
       index = index + 1
     ELSE
-      fieldBuf = collections::append(fieldBuf, ch)
       fieldStarted = TRUE
       index = index + 1
     END IF
@@ -82,11 +92,50 @@ FUNC __csv_parse(value AS String) AS List OF List OF String
   END IF
 
   IF fieldStarted OR recordPending OR wasQuoted THEN
-    row = collections::append(row, encoding::utf32Decode(fieldBuf))
+    row = collections::append(row, __csv_fieldValue(chars, fieldBuf, wasQuoted, fieldStart, index))
     rows = collections::append(rows, row)
   END IF
 
   RETURN rows
+END FUNC
+
+' Decode one CSV field. A quoted field's content was collapsed into `buf`
+' (doubled quotes folded, delimiters stripped), so it is decoded from the buffer.
+' An unquoted field is exactly the contiguous scalar run chars[fieldStart..index),
+' so it is decoded straight from the shared scalar buffer with one range decode —
+' no per-character buffer growth and no intermediate slice (plan-64 A3). `index`
+' is the scalar just past the field (the delimiter, or `count` at end of input),
+' so it is the exclusive end of the field's scalar run.
+FUNC __csv_fieldValue(chars AS List OF Integer, buf AS List OF Integer, wasQuoted AS Boolean, fieldStart AS Integer, index AS Integer) AS String
+  IF wasQuoted THEN
+    RETURN encoding::utf32Decode(buf)
+  END IF
+  RETURN __csv_decodeRange(chars, fieldStart, index)
+END FUNC
+
+' Decode the half-open scalar range chars[startIndex..endIndex) directly to a
+' String, reusing encoding's canonical per-code-point UTF-8 encoder. Validation
+' and output match encoding::utf32Decode over that slice, so this equals
+' utf32Decode(mid(chars, s, e - s)) byte-for-byte — but it reads straight from the
+' shared scalar buffer with no intermediate List OF Integer allocation, which is
+' the whole point (plan-64 A3). Kept in csv (rather than added as an encoding
+' member) so only csv's own corpus changes; encoding's — imported far more widely —
+' stays byte-identical.
+FUNC __csv_decodeRange(chars AS List OF Integer, startIndex AS Integer, endIndex AS Integer) AS String
+  MUT out AS String = ""
+  MUT i AS Integer = startIndex
+  WHILE i < endIndex
+    LET cp AS Integer = collections::get(chars, i)
+    IF cp < 0 OR cp > 1114111 THEN
+      FAIL error(77050003, "invalid code point")
+    END IF
+    IF cp >= 55296 AND cp <= 57343 THEN
+      FAIL error(77050003, "surrogate code point")
+    END IF
+    out = out & __encoding_fromCodepoint(cp)
+    i = i + 1
+  END WHILE
+  RETURN out
 END FUNC
 
 FUNC __csv_isDoubledQuote(chars AS List OF Integer, count AS Integer, index AS Integer) AS Boolean

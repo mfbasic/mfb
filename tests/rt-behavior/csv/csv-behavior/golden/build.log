@@ -11,4 +11,9 @@ age
 Hop,per
 rows=2
 roundtrip equal=TRUE
+rows=1
+cols=4
+café
+日本語
+🎉x
 [exit 0]

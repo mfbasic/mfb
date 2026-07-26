@@ -57,8 +57,26 @@ FUNC csv_write_valid_run AS Integer
   RETURN 0
 END FUNC
 
+' ---- unquoted multi-byte fields (plan-64 A3 range decode) ----
+
+' An unquoted field is decoded straight from the shared scalar buffer, so this
+' exercises the 1-, 2-, 3-, and 4-byte UTF-8 branches of the range decoder:
+' ASCII, "é" (2-byte), "日" (3-byte), and "🎉" (4-byte, a supplementary-plane
+' scalar). The cells must survive byte-for-byte, unquoted, through parse.
+FUNC csv_unquoted_unicode_run AS Integer
+  LET doc AS List OF List OF String = csv::parse("ascii,café,日本語,🎉x")
+  io::print("rows=" & toString(len(doc)))
+  LET r AS List OF String = collections::get(doc, 0)
+  io::print("cols=" & toString(len(r)))
+  io::print(collections::get(r, 1))
+  io::print(collections::get(r, 2))
+  io::print(collections::get(r, 3))
+  RETURN 0
+END FUNC
+
 FUNC main AS Integer
   LET _csv_read_valid AS Integer = csv_read_valid_run()
   LET _csv_write_valid AS Integer = csv_write_valid_run()
+  LET _csv_unquoted_unicode AS Integer = csv_unquoted_unicode_run()
   RETURN 0
 END FUNC

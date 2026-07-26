@@ -271,7 +271,37 @@ records per call — all ≤2048, so they park in quick bins then drain through 
     `artifact-gate.sh` back to the 17 pre-existing flaky diffs. The residual max 938
     ms is the arena quadratic itself (A1/A2), not yet linear — A3 is the mitigation, not
     the full fix. `datetime_package.mfb` `__datetime_addDays`/`__datetime_addMonths`.
-  - **[ ] A3-csv** and the `"UTC"` intern remain.
+  - **[x] A3-csv — LANDED.** An unquoted field is a contiguous run of the shared
+    `chars` scalar buffer, so it is decoded straight from that buffer via a new
+    `__csv_decodeRange(chars, start, end)` — no per-field `fieldBuf` growth and (unlike
+    a `collections::mid` slice) no intermediate list at all. Only a quoted field, whose
+    `""` escapes and stripped delimiters make its content non-contiguous, still builds
+    `fieldBuf`; `wasQuoted` selects the path. **Measurement correction:** the plan's
+    "decode one sub-slice per cell" (`collections::mid` + `utf32Decode`) was measured a
+    **regression** (median 5.85→6.74 ms) because the benchmark's 6000 fields are tiny
+    numeric ASCII, where a fresh `mid` allocation per cell costs more than the old
+    in-place appends. The *fused* range decode (no intermediate list) is the real win:
+    **csv parse median 5.85→5.33 ms, min 5.50→5.19** (trimmed csv-only `--run 30`, 3
+    samples; `parse_csv` checksum 6003000 unchanged). Byte-identical vs a HEAD rebuild
+    across ASCII/CRLF/quoted/doubled-quote/empty/ZWJ-emoji/combining-mark/lone-CR/
+    unterminated cases. `__csv_decodeRange` reuses encoding's canonical
+    `__encoding_fromCodepoint` (single UTF-8-encoder source of truth) and is kept in the
+    csv package — **not** added as an `encoding` member — so only csv's corpus changes:
+    `artifact-gate.sh` = 2 diffs (both `csv-behavior`, regenerated), vs 28 when the
+    helper lived in the far-more-imported `encoding` package. New fixture case
+    `csv_unquoted_unicode_run` covers the 2/3/4-byte range-decode branches.
+    `csv_package.mfb`.
+  - **[~] `"UTC"` intern — resolved as moot (no hot path; subsumed by A3-datetime).**
+    `__datetime_utc()` (`datetime_package.mfb:465`, the sole `Zone[0,0,"UTC"]` site) is
+    **not on any plan-64 benchmark path**: `datetime civil`/`iso` hoist `z = datetime::utc()`
+    out of the loop (`datetimeb.mfb:20,60`); `parseIso` builds a fixed-offset zone
+    (`:1077`), not UTC; `resolve` reuses `dt.zone`; only `toUtc`/default-zone `parse`
+    reach `__datetime_utc`, neither benchmarked. The per-iteration Zone round-trip the
+    intern targeted was in the old `addDays` path, which A3-datetime already eliminated.
+    And because a record inlines its String fields (`[[records-inline-their-string-fields]]`),
+    interning the literal cannot avoid the runtime label copy anyway. Any edit to
+    `__datetime_utc` would churn every datetime `.ir` golden for zero measurable gain, so
+    it is intentionally left unchanged.
 - Order: A1 → A2 (the real fix), A3 as belt-and-suspenders. **Acceptance criterion:** the
   plan-65 arena-gated rows (`encoding base64`, `datetime iso`, `map intchurn`, the
   crypto churn rows) bump from tiny to realistic N in the commit that lands A and stay
