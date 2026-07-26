@@ -468,7 +468,7 @@ Consistent ⇒ genuine (NOT the arena quadratic).
   29.3 → 4.2 ms — COMPLETE** (beats Python 14.2; ≤5 ms). checksum 3413150747 **proven
   unchanged** vs stashed-baseline rebuild; full `cargo test` green; one `.ir` snapshot golden
   (`scalar-strings-seam-rt`, line-renumber churn) regenerated, `.run`/behavior unchanged;
-  24 scalar/strings acceptance fixtures pass. `strings_package.mfb`. Commit: `<pending>`.
+  24 scalar/strings acceptance fixtures pass. `strings_package.mfb`. Commit: `4cfb9a7f9`.
   (The 4099-arm→table conversion is a separate optional cleanup; the ASCII path retires the
   benchmark.)
 - **G3:** natively lower `toScalars` — one arena alloc + a single UTF-8 decode pass
@@ -705,6 +705,30 @@ ops/run.
   the arena-gated rows, confirm **linear** scaling across the run loop (min ≈ median).
 - Codegen changes: `scripts/artifact-gate.sh` (byte-deterministic 4-target self-diff).
   Math changes: `tools/math-kernels/runtime_ulp.py`.
+
+## Execution status (/follow-plan, worktree P-64)
+
+**Landed & fully verified (each: benchmark checksum proven unchanged vs a stashed-baseline
+rebuild + full `cargo test` green + `artifact-gate.sh` clean-modulo-17-flaky + acceptance
+fixtures pass):**
+
+| Item | Change | Row | Before → after (ms, `--run 50`) | Commit |
+|------|--------|-----|------|--------|
+| **F1** | whole-string ASCII shortcut in `case_map` | string case | 66.0 → 50.6 | `ced444de6` |
+| **A3-datetime** | fixed-offset fast path in `addDays`/`addMonths` | datetime civil | 973.9 → 96.5 (10×) | `de8da577a` |
+| **G2** | ASCII fast path in 5 classify predicates | scalar classify | 29.3 → **4.2 (COMPLETE**, beats Py) | `4cfb9a7f9` |
+
+**Not yet done — remaining P1/P2 work is deep, heap-corruption-prone codegen that each
+warrants a dedicated focused effort with multi-arch runtime validation (per
+`.ai/compiler.md`), not a rushed pass:** C1 (map in-place removeKey — variable-length
+String-key data-region compaction + incremental bucket maintenance; new in-place path
+needs its own tests), D1–D4 (native-lower list generics: groupBy/sortBy/window/chunks/
+partition), B (borrow read-only `get` element — escape analysis), A1/A2 (arena allocator
+machine-code: single-pass flush coalesce + size-class segregation — the highest blast
+radius in the plan; the residual `datetime civil` max 938 ms and all of csv/iso/dispatch-
+trap-climb wait on this). Source/algorithmic: A3-csv (needs a range-decode), K (bignum
+schoolbook long division — checksum-critical), L, G1/G3, F2/F3. Capped (ceilings only):
+M (transcendentals), N (fib/thread overflow-check).
 
 ## Corrections (execution — /follow-plan)
 
