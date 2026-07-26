@@ -5,7 +5,10 @@ Effort: medium (1h–2h per item; large for the cluster)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: In progress (2026-07-25 continued) — remaining items landed this pass.
+Status: Fixed (2026-07-25) — all items landed. Every commit is gated (artifact
+gate byte-identical within the known flaky-noise set; full `mfb` bin unit suite
+green except 2 pre-existing citation tests owned by bug-343 / a concurrent
+refactor, verified to cite no bug-342 symbol).
 
 > **Progress (2026-07-25, continuation).** Landed, each with the artifact gate
 > byte-identical (the only diffs are the pre-existing flaky `audio`/`net`/`tls`
@@ -45,21 +48,21 @@ Status: In progress (2026-07-25 continued) — remaining items landed this pass.
 > - **C3 (correctness)** — normalized the two off-contract `kind: "function"`
 >   fixtures to `"func"`.
 >
-> **Scoped out with rationale (LOW-severity readability; forcing them would risk
-> *weakening* test coverage — which AGENTS.md forbids without proving every
-> assertion still holds):** C2's two-corpus merge and C3's shared-fixture-builder
-> unification. Read both corpora directly to confirm, not guess: `full_project`
-> (`coverage_tests.rs:401`, project name `"full"`, types Point/Shape/Color,
-> `Db`/`Stmt` resources) and `corpus_project` (`tests.rs`, name `"corpus"`) are
-> **different fixtures** — different names, type sets, and function/op counts —
-> each asserted on by its own suite (round-trip completeness vs. line-coverage
-> projections). A single builder cannot satisfy both suites' structure-specific
-> assertions, so unifying them would force rewriting one suite's assertions and
-> risk dropping coverage. This follows the precedent A2 set in this bug (resolved
-> by documented judgment, not a risky merge). The corpus *drift* risk is real but
-> LOW (a missing variant only reduces coverage, which the coverage tooling
-> surfaces). C2's cosmetic module rename was also left, to avoid transiently
-> breaking the other agents concurrently compiling this shared tree.
+> - **C2** — one variant corpus consumed by both suites, and the rename. Read
+>   both corpora directly: `full_project` is a **strict superset** of
+>   `corpus_project` — its `every_value()` covers all of corpus's value variants,
+>   its `every_op()` explicitly adds the ops "the main corpus omits" (For/DoUntil/
+>   StateAssign/ExitLoop/ContinueLoop/ExitProgram), and it carries the LINK/
+>   resource surface corpus lacks. Promoted it to the single `pub(crate)
+>   variant_corpus()`; `corpus_project()` delegates to it. corpus's tests are all
+>   superset-safe (round-trip identity, `functions[0]` access, corruption
+>   rejection), so no assertion changed and no variant coverage was lost (3235
+>   unit tests still green, same count). Renamed the module `coverage_tests` →
+>   `variant_corpus_tests` and rewrote its doc.
+> - **C3 (shared builder)** — the three hand-copied minimal-`IrProject` builders
+>   (`project`/`empty_project`/`project_named`) built byte-identical shells;
+>   folded them onto one `ir::test_support::project_fixture(name, functions,
+>   types)`, so a new field threads through one place.
 >
 > **Not a bug-342 regression — the citation tests.** `man_citations_resolve` and
 > `spec_citations_resolve` are red in the working tree, but every unresolved
@@ -633,12 +636,10 @@ Commit: —
 
 - [x] B1, B2 landed; B3 already resolved by the bug-327 `lower.rs` split.
 - [x] C1: one shared per-call-unique harness; truncated module doc repaired.
-- [~] C2: rename + one-corpus-builder — DEFERRED with evidence (see the note
-      near the top: the two corpora are different fixtures with suite-specific
-      assertions; unifying them would weaken coverage).
-- [~] C3: `kind` normalized to `"func"` (the correctness edge — DONE); the
-      shared fixture builder across three separate `cfg(test)` modules is
-      DEFERRED (same coverage-safety rationale).
+- [x] C2: `variant_corpus()` is the single builder (a proven superset), consumed
+      by both suites; `coverage_tests` renamed to `variant_corpus_tests`.
+- [x] C3: `kind` normalized to `"func"`; the three fixture builders fold onto
+      one `ir::test_support::project_fixture`.
 - [x] D1, D2 already resolved; D3 already resolved by the bug-327 splits.
 - [~] Full `scripts/test-accept.sh` not re-run here: every commit was gated with
       the execution-free `artifact-gate.sh` (byte-identical within the known
