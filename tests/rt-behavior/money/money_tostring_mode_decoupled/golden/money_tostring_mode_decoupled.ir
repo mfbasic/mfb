@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 16,
+    "line": 23,
     "visibility": "export",
     "name": "Rounding",
     "members": [

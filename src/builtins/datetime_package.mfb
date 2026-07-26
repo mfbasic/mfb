@@ -16,22 +16,51 @@ IMPORT collections
 ' Types (§3). Every public type is a flat copyable record/enum.
 ' ===========================================================================
 
+DOC
+  TYPE Instant
+  DESC An absolute point on the UTC timeline, stored as a count of seconds since
+  DESC the Unix epoch plus a sub-second nanosecond part.
+  PROP seconds Whole seconds since the Unix epoch (1970-01-01T00:00:00Z).
+  PROP nanos Sub-second part in nanoseconds, in the range 0..999_999_999.
+END DOC
 EXPORT TYPE Instant
   seconds AS Integer
   nanos   AS Integer
 END TYPE
 
+DOC
+  TYPE Duration
+  DESC A signed span of time between two instants, stored as seconds plus a
+  DESC nanosecond part.
+  PROP seconds The whole-seconds component of the span.
+  PROP nanos The sub-second part in nanoseconds, in the range 0..999_999_999.
+END DOC
 EXPORT TYPE Duration
   seconds AS Integer
   nanos   AS Integer
 END TYPE
 
+DOC
+  TYPE Date
+  DESC A proleptic-Gregorian calendar date, without any time or zone.
+  PROP year The year (e.g. 2026).
+  PROP month The month of the year, 1..12.
+  PROP day The day of the month, 1..31.
+END DOC
 EXPORT TYPE Date
   year  AS Integer
   month AS Integer
   day   AS Integer
 END TYPE
 
+DOC
+  TYPE Time
+  DESC A wall-clock time of day, without any date or zone.
+  PROP hour The hour of the day, 0..23.
+  PROP minute The minute of the hour, 0..59.
+  PROP second The second of the minute, 0..59.
+  PROP nanos The sub-second part in nanoseconds, in the range 0..999_999_999.
+END DOC
 EXPORT TYPE Time
   hour   AS Integer
   minute AS Integer
@@ -39,12 +68,29 @@ EXPORT TYPE Time
   nanos  AS Integer
 END TYPE
 
+DOC
+  TYPE Zone
+  DESC A time zone, described by its offset from UTC together with the kind of
+  DESC zone and a display label.
+  PROP offsetSeconds Offset from UTC in seconds (east positive).
+  PROP kind The zone's kind as a `ZoneKind` discriminant (Utc, FixedOffset, or Local).
+  PROP label A human-readable label for the zone (e.g. `"UTC"` or `"+05:30"`).
+END DOC
 EXPORT TYPE Zone
   offsetSeconds AS Integer
   kind          AS Integer
   label         AS String
 END TYPE
 
+DOC
+  TYPE DateTime
+  DESC A zoned date-and-time: a `Date` and `Time` interpreted in a `Zone`, with
+  DESC the resolved UTC offset cached alongside.
+  PROP date The calendar date component.
+  PROP time The wall-clock time component.
+  PROP zone The zone the date and time are expressed in.
+  PROP offset The resolved offset from UTC in seconds at this moment.
+END DOC
 EXPORT TYPE DateTime
   date   AS Date
   time   AS Time
@@ -52,14 +98,49 @@ EXPORT TYPE DateTime
   offset AS Integer
 END TYPE
 
+DOC
+  ENUM ZoneKind
+  DESC Classifies a `Zone`: coordinated universal time, a fixed offset, or the
+  DESC host's local zone.
+  PROP Utc Coordinated Universal Time (offset 0).
+  PROP FixedOffset A constant offset from UTC.
+  PROP Local The host system's local time zone.
+END DOC
 EXPORT ENUM ZoneKind
   Utc, FixedOffset, Local
 END ENUM
 
+DOC
+  ENUM Weekday
+  DESC A day of the week, Monday through Sunday.
+  PROP Monday Monday.
+  PROP Tuesday Tuesday.
+  PROP Wednesday Wednesday.
+  PROP Thursday Thursday.
+  PROP Friday Friday.
+  PROP Saturday Saturday.
+  PROP Sunday Sunday.
+END DOC
 EXPORT ENUM Weekday
   Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
 END ENUM
 
+DOC
+  ENUM Month
+  DESC A month of the year, January through December.
+  PROP January January.
+  PROP February February.
+  PROP March March.
+  PROP April April.
+  PROP May May.
+  PROP June June.
+  PROP July July.
+  PROP August August.
+  PROP September September.
+  PROP October October.
+  PROP November November.
+  PROP December December.
+END DOC
 EXPORT ENUM Month
   January, February, March, April, May, June, July, August, September, October, November, December
 END ENUM

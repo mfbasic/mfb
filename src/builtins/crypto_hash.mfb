@@ -24,11 +24,25 @@ IMPORT encoding
 ' ===========================================================================
 
 ' The public types (plan-04-crypto.md §A.1). Plain copyable records.
+DOC
+  TYPE Sealed
+  DESC The result of an AEAD seal operation: the encrypted `ciphertext` bytes
+  DESC paired with the authentication `tag` that binds them.
+  PROP ciphertext The encrypted message bytes.
+  PROP tag The authentication tag produced by the AEAD cipher, verified on open.
+END DOC
 EXPORT TYPE Sealed
   ciphertext AS List OF Byte
   tag        AS List OF Byte
 END TYPE
 
+DOC
+  TYPE KeyPair
+  DESC A public-key key pair, holding the secret `privateKey` used to sign or
+  DESC derive and the matching `publicKey` shared with counterparties.
+  PROP privateKey The secret key bytes; keep confidential.
+  PROP publicKey The public key bytes; safe to share.
+END DOC
 EXPORT TYPE KeyPair
   privateKey AS List OF Byte
   publicKey  AS List OF Byte

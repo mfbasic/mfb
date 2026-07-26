@@ -15,6 +15,20 @@ IMPORT errorCode
 ' program reads a header with the ordinary collections accessors, e.g.
 ' `collections::getOr(resp.headers, "content-type", "")`. Duplicate fields
 ' collapse last-wins.
+DOC
+  TYPE Response
+  DESC The client response from an HTTP request. A plain, copyable value record.
+  DESC `headers` is a standard map with field names lowercased (HTTP field names
+  DESC are case-insensitive), so a program reads a header with the ordinary
+  DESC collections accessors, e.g. `collections::getOr(resp.headers,
+  DESC "content-type", "")`. Duplicate fields collapse last-wins.
+  PROP status The HTTP status code, e.g. 200 or 404.
+  PROP reason The reason phrase, e.g. `"OK"`; `""` if omitted.
+  PROP httpVersion The HTTP version from the status line, `"1.0"` or `"1.1"`.
+  PROP headers Response headers, keyed by lowercased field name.
+  PROP body The raw body bytes (decode text via `toString`).
+  PROP ok `TRUE` iff `status` is in 200..299.
+END DOC
 EXPORT TYPE Response
   status      AS Integer          ' status code, e.g. 200, 404
   reason      AS String           ' reason phrase, e.g. "OK" ("" if omitted)
@@ -377,6 +391,19 @@ END FUNC
 ' ============================================================================
 
 ' Request bound to a matched route. All flat, copyable value records (§F.2).
+DOC
+  TYPE Request
+  DESC A server-side request bound to a matched route. A flat, copyable value
+  DESC record. Header, query, and param maps use last-wins on duplicate keys.
+  PROP method The request method, uppercased (e.g. `"GET"`, `"POST"`).
+  PROP path The request path with the query stripped and percent-decoded.
+  PROP rawPath The request-target exactly as received.
+  PROP headers Request headers, keyed by lowercased field name.
+  PROP query Parsed query parameters from `?a=1&b=2`, decoded.
+  PROP params Route captures (`:id`, `:x?`, `*`), keyed by capture name.
+  PROP parts Multipart body parts, keyed by part name.
+  PROP body The raw request body bytes.
+END DOC
 EXPORT TYPE Request
   method  AS String                         ' "GET", "POST", ... (uppercased)
   path    AS String                         ' "/test/42" — query stripped, decoded
@@ -388,12 +415,26 @@ EXPORT TYPE Request
   body    AS List OF Byte                   ' raw request body bytes
 END TYPE
 
+DOC
+  TYPE RequestPart
+  DESC A single part of a multipart request body.
+  PROP filename The filename from Content-Disposition; `""` for a plain field.
+  PROP contentType The part's Content-Type; `""` if absent.
+  PROP body The part's raw bytes.
+END DOC
 EXPORT TYPE RequestPart
   filename    AS String        ' from Content-Disposition; "" for a plain field
   contentType AS String        ' the part's Content-Type; "" if absent
   body        AS List OF Byte  ' the part's raw bytes
 END TYPE
 
+DOC
+  TYPE Route
+  DESC A server route: a URL pattern paired with the handler that serves a
+  DESC matching request.
+  PROP pattern The route pattern, with captures like `:id`, `:x?`, and `*`.
+  PROP handler The function invoked with the bound `Request`, returning a `Response`.
+END DOC
 EXPORT TYPE Route
   pattern AS String
   handler AS FUNC(Request) AS Response

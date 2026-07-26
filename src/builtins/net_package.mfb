@@ -8,6 +8,19 @@
 IMPORT strings
 IMPORT collections
 
+DOC
+  TYPE Url
+  DESC A parsed URL, produced by `net::toUrl` and rendered back with
+  DESC `net::toString`. Each component is stored decomposed for direct access.
+  PROP scheme The scheme, lowercased (e.g. `"http"` or `"https"`).
+  PROP username The userinfo before the `:`, or `""` if none.
+  PROP password The userinfo after the `:`, or `""` if none.
+  PROP host The registered name or IP literal (an IPv6 literal without brackets).
+  PROP port The explicit port, or the scheme default (80 for http, 443 for https).
+  PROP path The path, beginning with `/`; `/` when the href had none.
+  PROP query The raw query without the leading `?`, or `""` if none.
+  PROP fragment The raw fragment without the leading `#`, or `""` if none.
+END DOC
 EXPORT TYPE Url
   scheme   AS String    ' "http" or "https" (lowercased)
   username AS String    ' userinfo before ':'  ("" if none)

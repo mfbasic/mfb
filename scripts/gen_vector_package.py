@@ -455,8 +455,23 @@ def gen_tostring(element, dim):
     return fn(sig, [f"RETURN {' & '.join(parts)}"])
 
 
+_COMPONENT_ORDINAL = {"x": "first", "y": "second", "z": "third", "w": "fourth"}
+
+
 def gen_type(element, dim):
-    out = [f"EXPORT TYPE {tname(element, dim)}"]
+    # bug-339 F1: emit a validated DOC block so `mfb man`/`mfb doc` surface each
+    # exported vector record (previously documented only by a plain comment).
+    t = tname(element, dim)
+    out = [
+        "DOC",
+        f"  TYPE {t}",
+        f"  DESC A {dim}-component `{element}` math vector "
+        f"({', '.join(FIELDS[dim])}).",
+    ]
+    for f in FIELDS[dim]:
+        out.append(f"  PROP {f} The {_COMPONENT_ORDINAL[f]} component.")
+    out.append("END DOC")
+    out.append(f"EXPORT TYPE {t}")
     for f in FIELDS[dim]:
         out.append(f"  {f} AS {element}")
     out.append("END TYPE")

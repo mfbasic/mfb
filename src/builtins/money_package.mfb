@@ -13,6 +13,13 @@
 ' (round half away from zero, the default), `Banker = 1` (round half to even).
 ' ===========================================================================
 
+DOC
+  ENUM Rounding
+  DESC Selects how Money arithmetic settles the half case. Set the per-context
+  DESC mode with `money::setRounding` and read it with `money::getRounding`.
+  PROP Commercial Round half away from zero (the default).
+  PROP Banker Round half to even (banker's rounding).
+END DOC
 EXPORT ENUM Rounding
   Commercial      ' round half away from zero (default)
   Banker          ' round half to even (banker's rounding)

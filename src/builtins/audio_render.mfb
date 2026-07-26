@@ -14,6 +14,19 @@ IMPORT strings
 ' frames: a linear attack, a linear decay to `sustainLevel`, a held sustain, and
 ' a linear release. `holdFrames` is informational; the sustain fills whatever the
 ' note's total length leaves between decay and release.
+DOC
+  TYPE AudioEnvelope
+  DESC An amplitude envelope in raw s16 sample units (0..32767), applied over a
+  DESC note's frames as a linear attack, a linear decay to `sustainLevel`, a
+  DESC held sustain, and a linear release. `holdFrames` is informational; the
+  DESC sustain fills whatever the note's total length leaves between decay and
+  DESC release.
+  PROP attackFrames Frame count of the linear ramp from silence to full amplitude.
+  PROP decayFrames Frame count of the linear ramp from full amplitude down to `sustainLevel`.
+  PROP holdFrames Informational sustain length in frames; the actual sustain fills the note's remaining frames.
+  PROP releaseFrames Frame count of the linear ramp from `sustainLevel` back to silence.
+  PROP sustainLevel Held amplitude in s16 sample units (0..32767) during the sustain phase.
+END DOC
 EXPORT TYPE AudioEnvelope
   attackFrames  AS Integer
   decayFrames   AS Integer
@@ -24,6 +37,15 @@ END TYPE
 
 ' A single note to synthesize: a sine at `frequencyHz` for `noteFrames` frames,
 ' shaped by `envelope` and scaled by `gainOverall` (0..1).
+DOC
+  TYPE AudioNote
+  DESC A single note to synthesize: a sine at `frequencyHz` for `noteFrames`
+  DESC frames, shaped by `envelope` and scaled by `gainOverall`.
+  PROP frequencyHz Pitch of the sine tone in hertz.
+  PROP noteFrames Total length of the note in sample frames.
+  PROP envelope The `AudioEnvelope` shaping the note's amplitude over time.
+  PROP gainOverall Overall gain applied to the note, in the range 0..1.
+END DOC
 EXPORT TYPE AudioNote
   frequencyHz AS Float
   noteFrames  AS Integer
