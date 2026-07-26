@@ -19,30 +19,40 @@ use std::path::{Path, PathBuf};
 /// pre-planted link at the destination would be written *through*. `create_new`
 /// refuses to open an existing path (symlink or not), and the staged file is
 /// promoted only after it verifies.
+/// Write `bytes` to the exclusively-created staging path `staged`, flushing to
+/// disk, and remove the partial file on any error. This is the shared
+/// write-and-sync half of [`stage_package_blob`] and [`install_vendor_file`]:
+/// each caller computes its own `.part` path (they differ in naming and in
+/// whether the name is validated) and later promotes it with
+/// [`commit_staged_package`].
+fn stage_bytes(staged: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(staged)
+        .map_err(|err| format!("failed to create '{}': {err}", staged.display()))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|err| {
+            let _ = std::fs::remove_file(staged);
+            format!("failed to write '{}': {err}", staged.display())
+        })
+}
+
 pub(crate) fn stage_package_blob(
     packages_dir: &Path,
     name: &str,
     blob: &[u8],
 ) -> Result<PathBuf, String> {
-    use std::io::Write;
-
     crate::manifest::package::validate_package_name(name)?;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
     let staged = packages_dir.join(format!(".{name}.mfp.{}.{nanos}.part", std::process::id()));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&staged)
-        .map_err(|err| format!("failed to create '{}': {err}", staged.display()))?;
-    file.write_all(blob)
-        .and_then(|()| file.sync_all())
-        .map_err(|err| {
-            let _ = std::fs::remove_file(&staged);
-            format!("failed to write '{}': {err}", staged.display())
-        })?;
+    stage_bytes(&staged, blob)?;
     Ok(staged)
 }
 
@@ -93,8 +103,6 @@ pub(crate) fn install_vendor_file(
     filename: &str,
     bytes: &[u8],
 ) -> Result<PathBuf, String> {
-    use std::io::Write;
-
     std::fs::create_dir_all(dir)
         .map_err(|err| format!("failed to create '{}': {err}", dir.display()))?;
     let nanos = std::time::SystemTime::now()
@@ -102,22 +110,9 @@ pub(crate) fn install_vendor_file(
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
     let staged = dir.join(format!(".{filename}.{}.{nanos}.part", std::process::id()));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&staged)
-        .map_err(|err| format!("failed to create '{}': {err}", staged.display()))?;
-    file.write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|err| {
-            let _ = std::fs::remove_file(&staged);
-            format!("failed to write '{}': {err}", staged.display())
-        })?;
+    stage_bytes(&staged, bytes)?;
     let destination = dir.join(filename);
-    std::fs::rename(&staged, &destination).map_err(|err| {
-        let _ = std::fs::remove_file(&staged);
-        format!("failed to install '{}': {err}", destination.display())
-    })?;
+    commit_staged_package(&staged, &destination)?;
     Ok(destination)
 }
 
