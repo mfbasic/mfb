@@ -1,0 +1,452 @@
+# plan-66: Windows x86-64 feature parity (audio + app-mode + console gaps)
+
+Last updated: 2026-07-26
+Effort (Human): huge (>3d)
+Effort (AI): huge (>3d)
+
+This plan brings the `windows-x86_64` target to genuine feature parity with the
+macOS and Linux targets. plan-47 shipped a Windows console target advertising
+io(output)/fs(core)/thread/net/crypto/tls(client), but an audit (2026-07-26)
+found that "COMPLETE" claim overstated: **seven runtime-call families that
+macOS/Linux ship are missing or partial on Windows**, and neither **audio** nor
+**app-mode** (a native window hosting the program's console I/O) exists on
+Windows at all. This plan closes exactly those gaps — nothing more.
+
+Parity is measured against what macOS/Linux **actually ship today**, not against
+planned work. `mfb build -target windows-x86_64` advertises 87 runtime calls;
+`mfb build -target macos-aarch64` advertises 152
+(`grep -cE '"\w+\.' src/target/{win_x86_64,macos_aarch64}/mod.rs` → 87 / 152).
+The single behavioral outcome: after this plan, any program that runs on
+macOS/Linux using audio, app-mode, or any of the seven families below produces
+the same observable behavior when built for and run on Windows x86-64.
+
+**Explicitly NOT in scope: the plan-13 `app::` widget toolkit** (buttons, tables,
+flexbox layout, attributed strings). That toolkit is implemented on **no**
+platform — `grep -rl '_mfb_rt_app_layout\|addButton' src/` → no matches — so a
+Windows widget backend cannot be "at parity" with anything, and building it here
+would braid this plan into the unfinished plan-13. See Non-goals and Prerequisites.
+
+References (read first):
+
+- `planning/old-plans/plan-47-windows-x86_64.md` — the shipped Windows console
+  target this plan extends; its §3.1/§3.2 (the POSIX-shaped shared layer, the
+  `PlatformFamily` match) are the seams every letter here edits.
+- `planning/old-plans/plan-33-{A,B,C}-audio-*.md` — the audio surface + the
+  CoreAudio/ALSA backend precedents letters G/H mirror. plan-33-A §6 is the
+  no-atomics concurrency contract any audio backend must honor.
+- `planning/plan-13-app-gui.md` + `planning/plan-13-E-macos-backend.md` +
+  `planning/plan-13-F-gtk-backend.md` — the app-*mode* precedent (transcript
+  window). Read for the mode-not-target shape; ignore the widget toolkit (out of
+  scope here).
+- `src/target/win_x86_64/{mod.rs,code.rs,plan.rs}` — the Windows backend this
+  plan grows: `RUNTIME_CALLS` (`mod.rs:27`), the `CodegenPlatform` impl
+  (`code.rs`), the import map (`plan.rs`).
+- `src/target/shared/code/` — the shared, POSIX-shaped lowering. The
+  `PlatformFamily::Windows` arms here are what each letter fills:
+  `datetime.rs:65`, `audio/mod.rs:137`, `tls/mod.rs:338,352`, etc.
+- `src/os/windows/link/{mod,pe}.rs` — the PE writer; letter K adds `.rsrc` and
+  the GUI subsystem toggle (`pe.rs:213`).
+- `.ai/remote_systems.md:11` — the Win11 x86-64 box (ssh port 2230), the only
+  runtime oracle. `scripts/exe-oracle.sh` ships/compares `.exe` output there;
+  `scripts/artifact-gate.sh` guards byte-identity of existing targets.
+
+## Prerequisites
+
+These are preconditions on the whole feature, not dependencies to negotiate.
+Stated once here; every letter points back.
+
+| Must be true | Command | Status 2026-07-26 |
+|---|---|---|
+| plan-47's Windows console target is landed (registered, non-app, io/fs/net/thread/crypto/tls-client box-proven) | `grep -n 'win_x86_64::BACKEND' src/target.rs` → registered; `planning/old-plans/plan-47-windows-x86_64.md:3` → COMPLETE | **MET** |
+| The Win11 x86-64 box is reachable for runtime proof | `grep -n 'Win11' .ai/remote_systems.md` → `:11`, ssh port 2230 | **MET (re-verify before each box-gated letter)** |
+| The exhaustive `PlatformFamily` match exists (adding a Windows arm is a compile error at each shared-lowering site, per plan-47-A) | `grep -rn 'PlatformFamily::Windows' src/target/shared/code/ \| head` | **MET** |
+| The generic per-DLL IAT builder handles arbitrary DLLs (audio needs `ole32`/`mmdevapi`; app needs `user32`/`gdi32`) | read `group_imports_by_dll` `src/os/windows/link/mod.rs:53-62` — groups by `import.library` string, no hardcoded list | **MET (property-verified)** |
+| **The plan-13 `app::` widget toolkit is NOT a parity target** — it is unbuilt everywhere, so it is a non-goal here, never scope | `grep -rl '_mfb_rt_app_layout\|addButton' src/` → no matches | **MET (out of scope by construction)** |
+
+> **NOTE — the Status column is a snapshot; the Command column is the truth.**
+> Re-run every command and update every status before continuing, and again
+> before deciding to stop. The box-reachability row especially: re-verify port
+> 2230 before any letter whose acceptance is a box run. **If you stop, report the
+> status of all rows.**
+
+Everything below is written against the world where these hold. There are no
+hedges for a world where plan-47 regressed or the widget toolkit landed.
+
+## Dependency graph  <!-- letters are in dependency order; the line fans out -->
+
+```
+Console completions — each blocks on nothing but the plan-47 base, fan out in parallel:
+  A (datetime)   B (os)   C (io input+buffering)   D (term TUI)   E (fs extras)   F (tls server)
+
+Audio track — pipeline (spike proves the premise, backend consumes it):
+  G (COM/GUID codegen spike)  ──►  H (WASAPI backend)
+
+App-mode track — pipeline (infra plumbs the mode, floor + packaging consume it):
+  I (app-mode infra: WindowsApp mode + subsystem toggle)  ──►  J (Win32 app-mode floor)
+                                                           └──►  K (PE resource packaging)
+```
+
+Dependency list the executor checks:
+`A, B, C, D, E, F, G, I ← plan-47 base only`; `H ← G`; `J ← I`; `K ← I`.
+
+**Order by uncertainty, then value.** A–F rest on **no unproven premise** —
+plan-47 already box-proved the Windows fs/net/term machinery, so these are
+mechanical completions and deliver the bulk of parity; land them first. The two
+**unproven premises** live in the audio and app tracks and get cheap falsifying
+spikes as the first letter of each track: **G** (can the plan-47 PE/IAT path
+express a COM vtable call at all?) and the message-loop spike at the front of
+**J** (does a Win32 `GetMessage` loop integrate with the app worker thread?). If
+either spike fails, only its track is affected — A–F and the other track stand.
+
+## 1. Goal
+
+- Every runtime-call family macOS/Linux advertise is advertised and implemented
+  on `windows-x86_64`: the seven missing/partial families (os, datetime, audio,
+  term-styling, io-input, fs-extras, tls-server) reach parity, verified on the
+  Win11 box.
+- `mfb build -target windows-x86_64 -app <proj>` produces a GUI-subsystem `.exe`
+  that opens a native window hosting the program's console I/O — the same
+  app-*mode* behavior macOS (`.app`) and Linux (`.AppImage`) produce, with an
+  embedded icon and application manifest.
+- `audio::openOutput`/`write`/`read`/`devices`/… work on Windows over WASAPI,
+  producing audible s16le output on the box, at parity with the CoreAudio/ALSA
+  backends.
+- No existing target's emitted bytes change (`scripts/artifact-gate.sh` 0 diffs).
+
+### Non-goals (explicit constraints)
+
+- **The plan-13 `app::` widget toolkit is out of scope.** No `app::Window`,
+  `Button`, `Label`, `Input`, `Container`, `TextArea`, `Table`, layout solver,
+  events, or `text::AttributeString` on Windows. Reason: it exists on **no**
+  platform (`grep -rl '_mfb_rt_app_layout' src/` → no matches), so it is not a
+  parity gap. A Windows widget backend is a **future dependent of plan-13** — it
+  cannot start until plan-13 lands its macOS/Linux backends, at which point it
+  is its own plan. Folding it in here would braid two plans (write-plan skill:
+  "a cross-plan dependency is a precondition, never scope").
+- **No change to any existing target's output bytes.** macOS/Linux/riscv64 stay
+  byte-identical; guarded by `scripts/artifact-gate.sh`.
+- **No external toolchain / CRT.** All OS access is DLL imports through the IAT +
+  raw entry, exactly as plan-47's console floor. No `link.exe`/msvcrt/UCRT `main`.
+- **No language, IR, NIR/plan/MIR-schema, value/copy/move, or layout change.**
+- **COM is used only where unavoidable (WASAPI device/client activation).** The
+  app-mode backend (J) uses GDI + custom drawing, not Direct2D/DirectWrite, so it
+  needs no COM (Open Decision 3).
+
+## 2. Current State
+
+### Measured populations
+
+Every count that sizes this plan, with the command that produced it.
+
+| What | Count | Command |
+|---|---|---|
+| Runtime calls advertised: macOS / Windows | 152 / 87 | `grep -cE '"\w+\.' src/target/{macos_aarch64,win_x86_64}/mod.rs` |
+| `os.*` gap (macOS has, Windows lacks) | **15** | `grep -c '"os\.' src/target/{macos_aarch64,win_x86_64}/mod.rs` → 15 / 0 |
+| `datetime.*` gap | **3** | `grep -c '"datetime\.' …` → 3 / 0 |
+| `audio.*` gap | **14** | `grep -c '"audio\.' …` → 14 / 0 |
+| `term.*` gap | **16** | `grep -c '"term\.' …` → 17 / 1 |
+| `io.*` gap (input + buffering) | **8** | `grep -c '"io\.' …` → 15 / 7 |
+| `fs.*` gap (extras) | **10** | `grep -c '"fs\.' …` → 36 / 26 |
+| `tls.*` gap (server: listen/accept/closeListener) | **3** | `grep -c '"tls\.' …` → 9 / 6 |
+| thread / net / crypto | parity+ / parity+ / parity | `grep -c` → thread 12/17, net 19/20, crypto 10/10 |
+| audio runtime-helper symbols a backend must emit | **14** | `grep -c 'name:' src/target/shared/runtime/audio_specs.rs` |
+| macOS app-mode backend LOC (sizing J) | **5369** | `wc -l src/target/macos_aarch64/app/*.rs` |
+| GTK app-mode backend LOC (sizing J) | **3603** | `wc -l src/target/linux_gtk/*.rs` |
+| ALSA / macOS-audio backend LOC (sizing H) | **2339 / 2910** | `wc -l src/target/shared/code/audio/{alsa,macos}.rs` |
+| Windows native goldens today | **0** | `find tests -name '*windows-x86_64*'` → no matches |
+| COM call sites / vtable dispatch in the tree | **0** | `grep -rn 'CoCreateInstance\|lpVtbl\|IUnknown' src/` → no matches |
+
+### Verified properties (claims a citation alone cannot settle)
+
+| Claim | Verdict | How checked |
+|---|---|---|
+| The three `unsupported(...)` stubs in `win_x86_64/code.rs` (:612,:821,:1137) are DEAD, not live bugs | **CONFIRMED** | `validate_capabilities` (`shared/validate/capabilities.rs:19-23`) rejects an un-advertised call before codegen; the surfaces reaching those stubs are absent from `RUNTIME_CALLS` |
+| App on Windows is a MODE, not a new target | **CONFIRMED** | `NativeBuildMode{Console,MacApp,LinuxApp}` (`target.rs:37-40`); macOS routes MacApp in-target; no `linux-gtk` in `NATIVE_BACKENDS` (`target.rs:198-205`) — GTK is a shared module |
+| App-*mode* (windowed transcript) exists on macOS AND Linux | **CONFIRMED** | `emit_app_program_entry` implemented at `macos_aarch64/app/mod.rs:566` and `linux_gtk/mod.rs:427` |
+| The IAT builder imports arbitrary DLLs with no linker change | **CONFIRMED** | `group_imports_by_dll` keys on the `import.library` string (`os/windows/link/mod.rs:53-62`); DLL set is whatever codegen emits |
+| The COM vtable-dispatch pattern WASAPI needs has NO precedent but the primitive exists | **CONFIRMED / UNPROVEN end-to-end** | `grep` → 0 COM sites; but `call r/m64` (`FF /2`, `arch/x86_64/encode/emitter.rs:712`) + `branch_link_register` (`shared/abi.rs`) can express it. **Letter G's spike is the falsification test.** |
+| WASAPI shared mode forces the device mix format (usually f32), colliding with the package's no-conversion s16le rule | **CONFIRMED (design risk)** | plan-33-A §s16le contract; ALSA *verifies* the committed format (`audio/alsa.rs:1016-1025`). Forces exclusive mode or a plan-level ruling — Open Decision 1. |
+| The `_ => MacApp` fallthrough at `cli/build/mod.rs:206` would misroute a Windows `-app` build | **CONFIRMED (latent bug)** | reading the `match target.os` arm; needs an explicit `"windows" =>` arm — fixed in letter I |
+
+## 3. Design Overview
+
+Three independent tracks under the existing plan-47 pipeline
+(NIR → NativePlan → NativeCodePlan → EncodedImage → PE container). Each letter
+either (a) advertises a family in `win_x86_64/mod.rs:RUNTIME_CALLS`, (b) fills
+the `PlatformFamily::Windows` arm in the relevant `shared/code/` lowering and/or
+the `win_x86_64/code.rs` `CodegenPlatform` method, (c) adds the DLL import rows in
+`win_x86_64/plan.rs`, and (d) seeds byte-identity goldens + a box run.
+
+**Where correctness risk (blast radius) concentrates — schedule last within its
+track:** letter K (PE `.rsrc` + subsystem toggle edits the shared PE writer that
+every Windows `.exe` flows through; a bad section table silently fails to load).
+
+**Where design uncertainty concentrates — schedule first within its track:**
+letter G (COM expressibility) and the message-loop spike fronting J (Win32
+event-loop ↔ worker integration). These are the two premises that, if false,
+resize their tracks. Both get a cheap end-to-end spike on the box before the
+bulk work behind them is scheduled.
+
+**Rejected alternatives.**
+- *A separate `windows-gtk` target for app mode.* Windows is single-arch and GTK
+  is not the native toolkit; the macOS pattern (app as an in-target mode) is the
+  right shape (Verified properties).
+- *Direct2D/DirectWrite for app-mode text.* Pulls in COM for the app track too;
+  GDI + custom drawing keeps app-mode COM-free and on the same "custom-draw
+  everything" footing as AppKit/GTK (Open Decision 3).
+- *WASAPI shared mode with silent format conversion.* Violates the audio
+  package's absolute no-resampling s16le contract; Open Decision 1 picks
+  exclusive mode instead.
+
+## 4. Feature map (the whole `66`)
+
+Letters are in dependency order. A–F fan out from the plan-47 base; G→H and
+I→{J,K} are the two pipelines. Every letter is gated behind §Prerequisites.
+
+- **66-A — `datetime::` (3 calls).** Advertise `datetime.*` in `RUNTIME_CALLS`
+  (`win_x86_64/mod.rs:27`); fill the `PlatformFamily::Windows` arms at
+  `shared/code/datetime.rs:65` (`monotonicNanos` — currently `unreachable!`) and
+  `:77` (`nowNanos`): `QueryPerformanceCounter`/`QueryPerformanceFrequency` for
+  monotonic, `GetSystemTimePreciseAsFileTime` (already imported for entry
+  entropy, `win_x86_64/code.rs:398`) for wall clock, `GetTimeZoneInformation`
+  for `localOffset`; add import rows in `plan.rs`. Depends on: plan-47 base.
+  Effort (Human) small · (AI) small.
+- **66-B — `os::` (15 calls).** Advertise `os.*`; implement `getEnv`/`getEnvOr`/
+  `hasEnv`/`setEnv`/`unsetEnv` (Get/SetEnvironmentVariableW), `environ`
+  (`GetEnvironmentStringsW` — `emit_environ_pointer` stub at `code.rs:821`),
+  `args` (`GetCommandLineW`+`CommandLineToArgvW`, already used at entry), `pid`
+  (GetCurrentProcessId), `executablePath` (GetModuleFileNameW), `hostName`
+  (GetComputerNameExW), `userName` (GetUserNameW), `cpuCount`
+  (GetSystemInfo). `os.name`/`os.arch` const-string arms already exist
+  (`shared/code/os/mod.rs:109`, `os/paths.rs:88`). Depends on: plan-47 base.
+  Precedent-heavy → Effort (Human) large · (AI) medium.
+- **66-C — `io::` console input + buffering (8 calls).** Advertise
+  `io.input`/`readLine`/`readChar`/`readByte`/`pollInput`/`flush`/`isBuffered`/
+  `setBuffered`; implement `emit_poll_input` (stub at `code.rs:612`) over
+  `ReadConsoleW`/`ReadFile`(stdin) + the stdin-broadcast plumbing; raw-char reads
+  reuse the existing Windows raw-mode machinery (`code.rs:1427-1546`). Depends
+  on: plan-47 base. Effort (Human) large · (AI) medium.
+- **66-D — `term::` styling/TUI (16 calls).** Advertise the styling family
+  (on/off/isOn/setFg/Bg/Bold/Underline/show/hideCursor/clear/sync/moveTo/get*);
+  enable `ENABLE_VIRTUAL_TERMINAL_PROCESSING` via SetConsoleMode so the existing
+  ANSI-emitting `term.rs` arms work unchanged; wire the Windows arms at
+  `term.rs:238,323,809` (currently `"0"` placeholders). `terminalSize`/raw-mode
+  already ship. Depends on: plan-47 base. Effort (Human) medium · (AI) small.
+- **66-E — `fs::` extras (10 calls).** Advertise + implement `createTempFile`
+  (`emit_mkstemps` stub at `code.rs:1137` → `GetTempFileNameW`/`CreateFileW`),
+  `open`/`openFileNoFollow`/`openWithin`, `createDirectories`,
+  `writeTextAtomic`/`writeBytesAtomic` (temp + `MoveFileExW` REPLACE_EXISTING),
+  `setBuffered`/`isBuffered`, `isWithin`. Depends on: plan-47 base.
+  Effort (Human) medium · (AI) medium.
+- **66-F — `tls::` server (3 calls).** Advertise `tls.listen`/`accept`/
+  `closeListener`; fill the Schannel server arms at `shared/code/tls/mod.rs:338,
+  352` (currently `unreachable!`) — server-side `AcceptSecurityContext` loop over
+  the existing Winsock listener. Depends on: plan-47 base.
+  Effort (Human) medium · (AI) medium.
+- **66-G — COM vtable-dispatch + GUID-data-object codegen (spike + primitive).**
+  The audio track's unproven premise. Produce: (1) a 16-byte GUID data-object
+  kind (CLSID/IID) beside the C-string data objects; (2) a vtable-call emitter —
+  `load [obj]`=vtable, `load [vtable+slot*8]`=fn, `branch_link_register` with
+  `obj` as Win64 arg0; (3) `ole32!CoInitializeEx`/`CoCreateInstance` import rows.
+  **Acceptance is a box spike:** a hand-built program that `CoCreateInstance`s
+  `IMMDeviceEnumerator` and calls one vtable method (`GetDefaultAudioEndpoint`),
+  printing success, run on the Win11 box. This falsifies-or-confirms the premise
+  before H is scheduled. Depends on: plan-47 base. Effort (Human) medium ·
+  (AI) medium (box-round-trip bound → converges).
+  **Produces:** the GUID data-object kind + the vtable-call emitter that H consumes.
+- **66-H — WASAPI audio backend.** New `shared/code/audio/windows.rs` (mirror of
+  `alsa.rs`, 2339 LOC): the 14 helper bodies + `audio.devices`. Add
+  `AudioBackend::Wasapi` + selector arm (`audio/mod.rs:166`), replace the
+  `Windows => unreachable!` dispatch (`audio/mod.rs:137`), advertise `audio.*` in
+  `RUNTIME_CALLS`. Event-driven shared/exclusive client (Open Decision 1) via
+  `IAudioClient`/`IAudioRenderClient`/`IAudioCaptureClient` + `CreateEventW`/
+  `WaitForSingleObject` on the helper thread (honors plan-33-A §6 no-atomics —
+  no OS callback thread needed, unlike CoreAudio). **Declared large — split into
+  plan-66-H-1..n before execution** (suggested phases: H-1 openOutput+write
+  spine, H-2 openInput+read, H-3 devices enumeration, H-4 poll/available/xruns/
+  close, H-5 box proof). Depends on: G. Effort (Human) large · (AI) large.
+- **66-I — App-mode infra (`WindowsApp` mode + subsystem toggle).** Add
+  `NativeBuildMode::WindowsApp` + `is_app()` (`target.rs:37-59`); the explicit
+  `"windows" =>` CLI arm fixing the `_ => MacApp` misroute (`cli/build/mod.rs:206`);
+  flip `supports_app_mode()` → true (`win_x86_64/mod.rs:151`); update
+  `APP_MODE_MATRIX` (`target.rs:441`); make the PE `Subsystem` field mode-driven
+  (`pe.rs:213` CONSOLE=3 → thread a GUI flag → GUI=2 through
+  `link/mod.rs:269`→`os/windows/mod.rs:47`→backend) + fix the `pe.rs:347` test.
+  **Acceptance:** `mfb build -target windows-x86_64 -app` no longer rejects at
+  the gate and emits a Subsystem-2 `.exe` (verified in the PE header test) — no
+  window yet. Depends on: plan-47 base. Effort (Human) medium · (AI) small.
+  **Produces:** the `WindowsApp` mode + GUI-subsystem plumbing J and K consume.
+- **66-J — Win32 app-mode floor.** The macOS `app/mod.rs` analog: a new
+  `win_x86_64/app/` submodule implementing the 10 `CodegenPlatform` app methods
+  (`emit_app_program_entry` + `emit_app_io_{write,flush,input,is_terminal}_helper`
+  + `emit_app_raw_input_mode` + `emit_app_term_helper` + `emit_app_mode_reconcile`
+  + `app_mode_data_objects`). Raw entry → `RegisterClassExW`/`CreateWindowExW`, a
+  `WndProc` + `GetMessage`/`DispatchMessage` loop owning the main thread, a worker
+  `CreateThread` running MFBASIC, cross-thread marshaling via `PostMessage`/
+  `SendMessage` (the `performSelectorOnMainThread`/`g_idle_add` analog), console
+  I/O rerouted into a transcript control (GDI custom-drawn text buffer);
+  `user32`/`gdi32` import rows in `plan.rs`. **The message-loop ↔ worker
+  integration is the unproven premise — front a box spike (bare window + one
+  round-tripped keystroke) before the full floor.** **Declared large — split into
+  plan-66-J-1..n before execution** (suggested: J-1 message-loop↔worker spike,
+  J-2 window+entry bootstrap, J-3 transcript output, J-4 input round-trip, J-5
+  box proof). Depends on: I. Effort (Human) large · (AI) large.
+- **66-K — PE resource packaging (icon + manifest + version).** The last letter,
+  largest blast radius (edits the shared PE writer). A `.ico` encoder (new
+  `os/windows/icon.rs` reusing the platform-neutral `os/icon/mod.rs:72`
+  `render_png`); a `.rsrc` resource-directory section builder (icon group +
+  application manifest for DPI-awareness/common-controls v6 + VS_VERSIONINFO)
+  added to the PE section list (`link/mod.rs:359`); thread `app_icon`/`app_version`
+  (currently dropped at `win_x86_64/mod.rs:164`) into `write_linked_executable`.
+  **Acceptance:** an app `.exe` on the box shows the embedded icon in Explorer
+  and is DPI-aware. Depends on: I. Effort (Human) medium · (AI) medium.
+
+## Compatibility / Format Impact
+
+- **New:** `datetime`/`os`/`audio`/`term`-styling/`io`-input/`fs`-extras/`tls`-server
+  advertised on Windows; a `NativeBuildMode::WindowsApp` mode; a GUI-subsystem
+  `.exe`; a `.rsrc` PE section; new DLL imports (`kernel32` extras, `ole32`,
+  `mmdevapi`/`audioses`, `user32`, `gdi32`); a 16-byte GUID data-object kind; a
+  COM vtable-call codegen form.
+- **Unchanged:** the language, IR, NIR/plan/MIR schemas, `EncodedImage`, the
+  x86-64 instruction encoder, and **every existing target's emitted bytes**
+  (guarded 0-diff). No macOS/Linux/riscv64 file is edited except shared
+  `PlatformFamily::Windows` arms that were `unreachable!`/placeholder (byte-inert
+  for non-Windows targets by construction).
+
+## Phases
+
+Each letter is an independently-landable phase; A–K are the phases. The large
+letters (H, J) split into their own sub-plan docs before execution, per the
+write-plan split rule (as plan-47-B/H did). Keep this file's checkboxes current —
+tick in the same commit as the work.
+
+### Phase A — `datetime::`
+- [ ] Advertise `datetime.*` in `win_x86_64/mod.rs:RUNTIME_CALLS`.
+- [ ] Fill `datetime.rs:65` (`monotonicNanos`, QPC) and `:77` (`nowNanos`) + `localOffset`; add `plan.rs` imports.
+- [ ] Tests: seed `*.windows-x86_64.ncode` goldens; box run printing a monotonic delta + wall clock.
+
+Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets.
+Commit: —
+
+### Phase B — `os::`
+- [ ] Advertise `os.*`; implement the 15 calls in `win_x86_64/code.rs` (+ `emit_environ_pointer` at `:821`); import rows.
+- [ ] Tests: goldens + a box run of an env/args/pid program vs the macOS output.
+
+Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box.
+Commit: —
+
+### Phase C — `io::` input + buffering
+- [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.
+- [ ] Tests: goldens + a box run reading a piped line and a raw char.
+
+Acceptance: an interactive `readLine`/`readChar` program echoes correctly on the box.
+Commit: —
+
+### Phase D — `term::` styling/TUI
+- [ ] Advertise the 16 calls; enable VT processing; wire `term.rs:238,323,809` Windows arms.
+- [ ] Tests: goldens + a box run emitting colored/positioned output.
+
+Acceptance: a TUI program (colors, cursor moves, clear) renders correctly in Windows Terminal on the box.
+Commit: —
+
+### Phase E — `fs::` extras
+- [ ] Advertise + implement the 10 calls (+ `emit_mkstemps` at `code.rs:1137`).
+- [ ] Tests: goldens + a box run of createTempFile/atomic-write/createDirectories.
+
+Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box.
+Commit: —
+
+### Phase F — `tls::` server
+- [ ] Advertise the 3 calls; fill Schannel server arms (`tls/mod.rs:338,352`).
+- [ ] Tests: goldens + a box run: Windows tls server ↔ a client, handshake + echo.
+
+Acceptance: a Windows-built tls listen/accept/echo server completes a handshake with a client on the box.
+Commit: —
+
+### Phase G — COM/GUID codegen spike (audio premise)
+- [ ] Add the 16-byte GUID data-object kind; add the vtable-call emitter; `ole32` import rows.
+- [ ] Box spike: hand-built `CoCreateInstance(IMMDeviceEnumerator)` + one vtable method, prints success.
+
+Acceptance: the spike `.exe` runs on the box, instantiates the COM object, and returns success — the COM-expressibility premise is proven (or the plan stops here and records it as a Prerequisites defect).
+Commit: —
+
+### Phase H — WASAPI audio backend (split before execution)
+- [ ] Author `plan-66-H-1..n` sub-plans; build `audio/windows.rs` (14 helpers + devices); wire selector/dispatch/RUNTIME_CALLS.
+- [ ] Tests: byte-identity audio goldens for windows-x86_64; box run producing audible s16le tone + capture round-trip.
+
+Acceptance: `audio::openOutput`+`write` produces an audible s16le tone on the box, and `openInput`+`read` captures; `devices()` lists the box's endpoints.
+Commit: —
+
+### Phase I — App-mode infra
+- [ ] Add `NativeBuildMode::WindowsApp`+`is_app()`; CLI `"windows" =>` arm; flip `supports_app_mode()`; `APP_MODE_MATRIX`; mode-driven PE subsystem + fix `pe.rs:347` test.
+- [ ] Tests: unit test asserting `-app` emits Subsystem=2; `APP_MODE_MATRIX` coverage test passes.
+
+Acceptance: `mfb build -target windows-x86_64 -app <proj>` builds (no gate rejection) and the PE header carries Subsystem=2.
+Commit: —
+
+### Phase J — Win32 app-mode floor (split before execution)
+- [ ] Message-loop↔worker box spike first; then author `plan-66-J-1..n`; build `win_x86_64/app/` (10 CodegenPlatform methods); `user32`/`gdi32` imports.
+- [ ] Tests: `MFB_*_HEADLESS`-style automated path if feasible; box run showing a window with transcript output + keystroke input.
+
+Acceptance: an `-app` program on the box opens a window, shows its `io::print` output in the transcript, and reads a typed line.
+Commit: —
+
+### Phase K — PE resource packaging (largest blast radius, last)
+- [ ] `.ico` encoder; `.rsrc` section (icon+manifest+version); thread `app_icon`/`app_version`.
+- [ ] Tests: PE-writer unit tests for the `.rsrc` layout; `artifact-gate.sh` 0 diffs; box run showing icon in Explorer.
+
+Acceptance: an app `.exe` on the box shows the embedded icon and is DPI-aware; existing targets byte-identical.
+Commit: —
+
+## Validation Plan
+
+- Tests: per letter — byte-identity `*.windows-x86_64[.app].ncode` goldens
+  (currently ZERO exist) plus, for behavior, `scripts/exe-oracle.sh` records +
+  the Win11 box (ssh 2230) runs.
+- Coverage check: **Windows has 0 native goldens today** — a green
+  `artifact-gate.sh` proves nothing about Windows. Each letter must SEED its own
+  goldens; do not treat their absence as coverage.
+- Runtime proof: the Win11 box is the only oracle for every behavioral
+  acceptance above (audio audibility, the app window, tls handshake). Re-verify
+  port 2230 before each box-gated letter.
+- Doc sync: `src/docs/spec/stdlib/11_audio.md` (Windows backend note), the
+  `app` spec/man pages (Windows app-mode), `mfb spec linker` (`.rsrc` + GUI
+  subsystem), and the man pages for each newly-advertised family.
+- Acceptance: full `cargo test` green; `scripts/artifact-gate.sh` 0 diffs on
+  macOS/Linux/riscv64; the per-letter box runs.
+
+## Open Decisions
+
+1. **WASAPI s16le: exclusive vs shared mode** (§H) — **recommend exclusive mode**
+   (`AUDCLNT_SHAREMODE_EXCLUSIVE`) to honor the audio package's no-conversion
+   s16le contract, accepting that some devices reject it and it monopolizes the
+   endpoint. Alternative: shared mode with the device mix format — rejected, it
+   forces silent resampling the package forbids. Settle with a box test in G/H-1.
+2. **Whether `os::` (B) lands before `datetime::` (A)** — both block on nothing;
+   recommend A first (smaller, warms the Windows-golden cadence). Immaterial to
+   correctness.
+3. **App-mode text: GDI custom-draw vs Direct2D/DirectWrite** (§J) —
+   **recommend GDI + custom drawing**, keeping the app track COM-free and on the
+   same footing as AppKit/GTK. Direct2D/DirectWrite gives higher text fidelity
+   but drags COM (the whole G machinery) into the app track — rejected for v1.
+
+## Corrections
+
+<!-- Filled in during execution. -->
+
+## Summary
+
+The audit refuted plan-47's "COMPLETE": Windows was missing seven runtime-call
+families (os/datetime/audio/term-styling/io-input/fs-extras/tls-server) plus
+audio and app-mode entirely. This plan closes exactly those. The engineering
+risk sits in two unproven premises, each de-risked by a cheap box spike as its
+track's first letter: **COM expressibility** (G, gating the WASAPI backend H)
+and **Win32 message-loop ↔ worker integration** (front of J, the app-mode floor).
+The blast-radius work — the PE `.rsrc`/subsystem edits to the shared writer —
+lands last (K). Six console completions (A–F) rest on no unproven premise and
+deliver the bulk of parity first.
+
+What is deliberately left out: the plan-13 `app::` widget toolkit. It is built on
+no platform, so it is not a parity gap; a Windows widget backend is a future
+dependent of plan-13, not scope here.

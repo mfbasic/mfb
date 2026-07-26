@@ -378,7 +378,15 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
 **Fixes (semantics-preserving — same order/stability/buckets).**
 - **D1:** native `groupBy` — single pass growing each bucket **in place** in a hash-slot
   side structure, materialized to the Map once at the end (kills the O(bucket²) copy).
-  - **[ ] D1 — implementation-ready (pieces confirmed this session; ~250 LOC, biggest
+  - **[x] D1 — LANDED (native groupBy).** listchurn nested 70.8 → 13.3 ms (~5.3×); the O(bucket²)
+    get-copy is gone. `lower_collection_group_by_call` + gate (`#collections_groupBy$T$K$V`, 8-byte
+    fixed-width T/V, Integer key, re-eval-safe value; else `.mfb`). Inline open-addressing hash table
+    (key & mask) for keyToIdx, top-level bucket lists grown via `lower_list_append_in_place`,
+    materialized once via `lower_map_set_in_place` in a loop. checksum 160042000 proven unchanged;
+    cargo test green; artifact-gate clean; 2 groupBy acceptance fixtures pass; edge cases (empty,
+    100-elem bucket grow, negative keys, String-value fallback) verified. Commit: `34024b800`.
+    (Original design retained below.)
+  - **[~] D1 — implementation-ready (pieces confirmed this session; ~250 LOC, biggest
     remaining native win).** Gate the monomorphized `#collections_groupBy$T$K$V` to T/K/V
     all 8-byte fixed-width, K integer-comparable (benchmark is Integer/Integer/Integer);
     else `.mfb`. Build: (1) extract `keys`/`vals` in one pass (two FUNC-ptr callbacks per
@@ -861,8 +869,9 @@ fixtures pass):**
 | **C2-mapValues** | native `mapValues` (same-type 8-byte value) — copy structure + rewrite values | mapchurn iterate | 24.5 → **14.6 (~40%)** | `3ba2f61d9` |
 | **D3-window** | native `window` (8-byte elems, const size) — direct nested-block build | list window | 20.6 → **4.6 (4.5×)** | `9409d7941` |
 | **D3-chunks** | native `chunks` (8-byte elems, const size) — direct nested-block build | list chunks | 5.5 → **0.9 (COMPLETE**, beats Py) | `13fcc99d0` |
+| **D1-groupBy** | native `groupBy` (8-byte T/V, Integer key) — inline hash + top-level buckets, kills O(bucket²) | listchurn nested | 70.8 → **13.3 (5.3×)** | `34024b800` |
 
-**7 sub-plans landed this session, all on main.** Native-codegen technique proven and reused
+**8 sub-plans landed this session, all on main** (D fully done: D1/D2/D3). Native-codegen technique proven and reused
 across D2/C2/D3: monomorphized-target dispatch gate (`#collections_<fn>$…`), FUNC-pointer
 callbacks (`emit_direct_callable_branch` + `emit_callback_failure_exit`), and direct kind-2 /
 nested-block construction (`emit_write_list_header_from_registers`, VALUE_OFFSET/LENGTH entries),
