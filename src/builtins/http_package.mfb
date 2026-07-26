@@ -257,22 +257,10 @@ FUNC __http_parseResponse(raw AS List OF Byte) AS Response
   END IF
   MUT base AS Response = __http_parseStatusLine(collections::get(lines, 0))
 
-  ' Field names are lowercased so the standard map accessors find them
-  ' case-insensitively; duplicate fields collapse last-wins.
-  MUT headers AS Map OF String TO String = Map OF String TO String {}
-  MUT index AS Integer = 1
-  WHILE index < len(lines)
-    LET line AS String = collections::get(lines, index)
-    IF line <> "" THEN
-      LET colon AS Integer = __http_indexOf(line, ":", 0)
-      IF colon >= 0 THEN
-        LET fieldName AS String = strings::lower(strings::trim(__http_slice(line, 0, colon)))
-        LET fieldValue AS String = strings::trim(__http_slice(line, colon + 1, len(line)))
-        headers = collections::set(headers, fieldName, fieldValue)
-      END IF
-    END IF
-    index = index + 1
-  END WHILE
+  ' bug-339 C2: the header block (lines after the status line, lowercased,
+  ' trimmed, last-wins) is exactly what __http_headerMapFromHead builds — it too
+  ' skips line 0 — so parse it there instead of re-inlining the loop.
+  LET headers AS Map OF String TO String = __http_headerMapFromHead(headSection)
 
   LET bodyBytes AS List OF Byte = __http_decodeBody(base.status, headers, bodySection)
   RETURN Response[base.status, base.reason, base.httpVersion, headers, bodyBytes, base.ok]
