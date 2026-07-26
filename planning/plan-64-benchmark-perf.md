@@ -378,6 +378,24 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
 **Fixes (semantics-preserving — same order/stability/buckets).**
 - **D1:** native `groupBy` — single pass growing each bucket **in place** in a hash-slot
   side structure, materialized to the Map once at the end (kills the O(bucket²) copy).
+  - **[ ] D1 — implementation-ready (pieces confirmed this session; ~250 LOC, biggest
+    remaining native win).** Gate the monomorphized `#collections_groupBy$T$K$V` to T/K/V
+    all 8-byte fixed-width, K integer-comparable (benchmark is Integer/Integer/Integer);
+    else `.mfb`. Build: (1) extract `keys`/`vals` in one pass (two FUNC-ptr callbacks per
+    element — the D2 keys-extraction template with a second callback). (2) `keyToIdx` =
+    empty `Map OF K TO Integer` (`lower_map_literal`), `keyOrder` = `List OF K`,
+    `bucketPtrs` = `List OF Integer` (raw bucket-list pointers). Per element: `emit_map_probe`
+    (`builder_collection_query.rs:215`, slot-based, branches to not-found); found → read the
+    entry's `VALUE_OFFSET` = bucketIdx, load `bucketPtrs[idx]` into a slot, `lower_list_append_in_place`
+    (updates the slot on realloc), store the new ptr back to `bucketPtrs[idx]`; not-found →
+    build a fresh `[v]`, append its ptr to `bucketPtrs`, `lower_map_set_in_place(keyToIdx, k,
+    numBuckets)`, append k to `keyOrder`. This keeps buckets as **top-level** lists grown
+    O(1)-amortized (no nested-in-place, no O(bucket²) get-copy). (3) Final `Map OF K TO List
+    OF V`: empty map, loop `keyOrder` → `lower_map_set_in_place(result, keyOrder[b],
+    list-at-bucketPtrs[b])` (map set with a flat-inline List value). All three helpers emit
+    once inside emitted runtime loops (labels/slots unique, code runs per iteration). Gate:
+    `listchurn_nested` checksum + full `cargo test` + acceptance groupBy fixtures + a String-key
+    fallback fixture. The intricacy is the bucket-pointer bookkeeping across the realloc-update.
 - **[x] D2 — LANDED (native sortBy).** Bottom-up **stable** merge sort with the two
   ping-pong buffer pairs allocated once and swapped by slot pointer per pass — no per-pass
   full copy (the `.mfb`'s dominant cost). Gated to **8-byte fixed-width items**
