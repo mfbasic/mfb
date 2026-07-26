@@ -537,14 +537,9 @@ END FUNC
 
 ' --- byte-slice helpers ----------------------------------------------------
 
+' bug-339 B3: native range copy [start, stop). Every caller passes start <= stop.
 FUNC __crypto_slice(data AS List OF Byte, start AS Integer, stop AS Integer) AS List OF Byte
-  MUT out AS List OF Byte = []
-  MUT i AS Integer = start
-  WHILE i < stop
-    out = collections::append(out, collections::get(data, i))
-    i = i + 1
-  END WHILE
-  RETURN out
+  RETURN collections::mid(data, start, stop - start)
 END FUNC
 
 FUNC __crypto_clampScalar(a AS List OF Byte) AS List OF Byte
