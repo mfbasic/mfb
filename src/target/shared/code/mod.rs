@@ -592,24 +592,10 @@ pub(crate) fn lower_module_for_platform(
     string_objects.sort_by_key(|(_, left_symbol)| *left_symbol);
     let mut data_objects = string_objects
         .into_iter()
-        .map(|(value, symbol)| CodeDataObject {
-            symbol: symbol.clone(),
-            kind: "constant".to_string(),
-            layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }".to_string(),
-            align: 8,
-            size: align(8 + value.len() + 1, 8),
-            value: value.clone(),
-        })
+        .map(|(value, symbol)| string_data_object(symbol, value.clone()))
         .collect::<Vec<_>>();
     if module_requires_empty_string_constant(module) {
-        data_objects.push(CodeDataObject {
-            symbol: EMPTY_STRING_SYMBOL.to_string(),
-            kind: "constant".to_string(),
-            layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }".to_string(),
-            align: 8,
-            size: 16,
-            value: String::new(),
-        });
+        data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
     // Writable global pointing at the main thread's arena state (set at startup,
     // read by `_mfb_shutdown` / the signal handler). Zero-initialized; it must
@@ -686,15 +672,7 @@ pub(crate) fn lower_module_for_platform(
     {
         for (_, message, symbol) in standard_error_messages() {
             if !data_objects.iter().any(|object| object.symbol == *symbol) {
-                data_objects.push(CodeDataObject {
-                    symbol: (*symbol).to_string(),
-                    kind: "constant".to_string(),
-                    layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }"
-                        .to_string(),
-                    align: 8,
-                    size: align(8 + message.len() + 1, 8),
-                    value: (*message).to_string(),
-                });
+                data_objects.push(string_data_object(symbol, (*message).to_string()));
             }
         }
     }
@@ -1367,15 +1345,7 @@ pub(crate) fn lower_module_for_platform(
         data_objects.extend(support.data_objects);
         for (_, message, symbol) in native_link_error_messages() {
             if !data_objects.iter().any(|object| object.symbol == *symbol) {
-                data_objects.push(CodeDataObject {
-                    symbol: symbol.to_string(),
-                    kind: "constant".to_string(),
-                    layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }"
-                        .to_string(),
-                    align: 8,
-                    size: align(8 + message.len() + 1, 8),
-                    value: message.to_string(),
-                });
+                data_objects.push(string_data_object(symbol, message.to_string()));
             }
         }
     }
