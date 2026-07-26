@@ -533,20 +533,13 @@ END FUNC
 
 ' --- percent / form-url --------------------------------------------------
 
+' bug-339 C4: the RFC 3986 unreserved set is the alphanumerics plus "-._~", so
+' reuse __encoding_isAlphaNum rather than repeating its three range checks.
 FUNC __encoding_isUnreserved(c AS Integer) AS Boolean
-  IF c >= 65 AND c <= 90 THEN
+  IF __encoding_isAlphaNum(c) THEN
     RETURN TRUE
   END IF
-  IF c >= 97 AND c <= 122 THEN
-    RETURN TRUE
-  END IF
-  IF c >= 48 AND c <= 57 THEN
-    RETURN TRUE
-  END IF
-  IF c = 45 OR c = 46 OR c = 95 OR c = 126 THEN
-    RETURN TRUE
-  END IF
-  RETURN FALSE
+  RETURN c = 45 OR c = 46 OR c = 95 OR c = 126
 END FUNC
 
 FUNC __encoding_isAlphaNum(c AS Integer) AS Boolean
@@ -899,12 +892,14 @@ END FUNC
 
 ' --- leb128 / varint -----------------------------------------------------
 
-FUNC __encoding_uleb128Encode(value AS Integer) AS List OF Byte
-  IF value < 0 THEN
-    FAIL error(77050003, "negative value")
-  END IF
+' bug-339 C4: shared LEB128 base-128 emit loop. Takes the seed as a raw 64-bit
+' pattern and uses a LOGICAL shift (bits::sr), so it terminates for both a plain
+' non-negative value (uleb128) and a zigzag pattern that is negative as a signed
+' Integer (varint, |value| >= 2^62). The negativity guard stays in the uleb128
+' wrapper — folding it in here would wrongly reject those large varint inputs.
+FUNC __encoding_leb128Emit(seed AS Integer) AS List OF Byte
   MUT result AS List OF Byte = []
-  MUT remaining AS Integer = value
+  MUT remaining AS Integer = seed
   MUT chunk AS Integer = 0
   MUT more AS Boolean = TRUE
   WHILE more
@@ -918,6 +913,13 @@ FUNC __encoding_uleb128Encode(value AS Integer) AS List OF Byte
     END IF
   END WHILE
   RETURN result
+END FUNC
+
+FUNC __encoding_uleb128Encode(value AS Integer) AS List OF Byte
+  IF value < 0 THEN
+    FAIL error(77050003, "negative value")
+  END IF
+  RETURN __encoding_leb128Emit(value)
 END FUNC
 
 FUNC __encoding_uleb128Decode(data AS List OF Byte) AS Integer
@@ -1005,23 +1007,12 @@ FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
   RETURN result
 END FUNC
 
+' bug-339 C4: zigzag-map to unsigned, then share the LEB128 emit. Cannot delegate
+' to __encoding_uleb128Encode: the zigzag is negative as a signed Integer for
+' |value| >= 2^62 and that would trip uleb128's negativity guard.
 FUNC __encoding_varintEncode(value AS Integer) AS List OF Byte
   LET zigzag AS Integer = bits::bxor(bits::sl(value, 1), bits::sra(value, 63))
-  MUT result AS List OF Byte = []
-  MUT remaining AS Integer = zigzag
-  MUT chunk AS Integer = 0
-  MUT more AS Boolean = TRUE
-  WHILE more
-    chunk = bits::band(remaining, 127)
-    remaining = bits::sr(remaining, 7)
-    IF remaining = 0 THEN
-      result = collections::append(result, toByte(chunk))
-      more = FALSE
-    ELSE
-      result = collections::append(result, toByte(chunk + 128))
-    END IF
-  END WHILE
-  RETURN result
+  RETURN __encoding_leb128Emit(zigzag)
 END FUNC
 
 FUNC __encoding_varintDecode(data AS List OF Byte) AS Integer
