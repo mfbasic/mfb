@@ -23,6 +23,11 @@ mod builder_registers;
 mod builder_resource_cleanup;
 mod builder_thread_cleanup;
 mod error_constants;
+// Deliberate glob (bug-334 B1): `error_constants` is nothing but `pub(crate)
+// const`s consumed by essentially every file in the subtree. An explicit list
+// would be hundreds of lines of import noise per consumer and would obscure
+// rather than reveal the dependency structure — the one legitimate `use x::*;`
+// here. Keep it a glob on purpose.
 pub(crate) use error_constants::*;
 mod types;
 pub(crate) use types::*;
