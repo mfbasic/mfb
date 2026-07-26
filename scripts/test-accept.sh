@@ -248,6 +248,10 @@ while IFS= read -r project_json; do
   test_name=${test_dir#"$TEST_ROOT/"}
   matches_filter "$test_name" || continue
   ran=$((ran + 1))
+  # Stream per-fixture progress to stderr so a long run is observable live
+  # (stdout stays reserved for the final pass/fail summary; goldens diff only
+  # captured command output, never this line).
+  printf '[%d] %s\n' "$ran" "$test_name" >&2
   package_name=$(project_name "$test_dir")
   if [ -z "$package_name" ]; then
     echo "could not read project name for $test_name" >&2
