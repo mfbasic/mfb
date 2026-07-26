@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
 use crate::binary_repr;
-use crate::json_string;
+use crate::json::json_string;
 use crate::manifest::package::project_package_dependency;
 use crate::manifest::{parse_project_json, validate_packages_array};
 

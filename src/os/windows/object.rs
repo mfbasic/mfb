@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::json_string;
+use crate::json::json_string;
 use crate::target::shared::plan::{CallKind, NativePlan};
 
 /// Fixed PE32+ image base for a console `.exe` (plan-47-C §5): no `.reloc`, no

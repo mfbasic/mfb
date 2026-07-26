@@ -8,7 +8,7 @@ use tinyjson::JsonValue;
 use crate::ast;
 use crate::binary_repr;
 use crate::ir;
-use crate::json_string;
+use crate::json::json_string;
 use crate::manifest::entry::validate_entry_point;
 use crate::manifest::libraries::Libc;
 use crate::manifest::package::{
@@ -248,7 +248,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // case bodies (which may reference privates) are rewritten consistently.
     // Returns shadow warnings (rendered with the other diagnostics below) and a
     // should-never-fire hash-collision.
-    let scope_diagnostics = crate::scope_privates::scope_privates(&mut ast);
+    let scope_diagnostics = crate::ast::scope_privates::scope_privates(&mut ast);
     // The `-ast` dump shows the parsed TESTING syntax (post-rename), so snapshot
     // after `scope_privates` but before the blocks are lowered away — only when
     // the dump is actually requested.

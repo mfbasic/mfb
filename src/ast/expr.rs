@@ -1,3 +1,4 @@
+use super::pipeline::{contains_placeholder, substitute_placeholder};
 use super::*;
 
 /// Maximum expression-nesting depth. Recursive-descent parsing turns each nesting

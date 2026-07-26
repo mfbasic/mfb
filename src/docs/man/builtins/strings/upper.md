@@ -38,7 +38,7 @@ The mapping is deterministic and locale-independent: it always uses the default
 Unicode case conventions and applies no language-specific tailoring, so no
 Turkish dotted/dotless-i tailoring is performed. `upper` does not normalize, so
 combining sequences stay decomposed; apply `strings::normalizeNfc` first when
-that matters. [[src/unicode_backend.rs:upper]]
+that matters. [[src/unicode/backend.rs:upper]]
 
 For caseless *comparison*, prefer `strings::caseFold` over uppercasing or
 lowercasing both operands. `value` is not mutated; the result is a new owned

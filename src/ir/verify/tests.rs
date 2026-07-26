@@ -4931,8 +4931,10 @@ fn close_eval(h: &str) -> IrOp {
 fn owner_fn(name: &str, ret: &str, body: Vec<IrOp>, owners: &[&str]) -> IrFunction {
     let mut f = func_returns(name, ret, vec![], body);
     for o in owners {
-        f.resource_owners
-            .insert((*o).to_string(), crate::ir::resource_escape::ResOwner::Local);
+        f.resource_owners.insert(
+            (*o).to_string(),
+            crate::ir::resource_escape::ResOwner::Local,
+        );
     }
     f
 }

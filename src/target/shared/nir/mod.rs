@@ -4,7 +4,7 @@ use crate::ir::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp,
     IrParam, IrProject, IrRecordUpdate, IrType, IrValue, IrVariant,
 };
-use crate::json_string;
+use crate::json::json_string;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;

@@ -1,4 +1,4 @@
-use crate::json_string;
+use crate::json::json_string;
 
 pub(super) use super::nir::{self, NirFunction, NirModule, NirOp, NirValue};
 pub(super) use super::runtime;
