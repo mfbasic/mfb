@@ -1,0 +1,431 @@
+IMPORT backend
+IMPORT collections
+IMPORT io
+IMPORT strings
+IMPORT term
+IMPORT thread
+
+' browser — a tiny full-screen terminal "web browser" built on the term:: TUI
+' module. The blocking http:: fetch runs on a worker thread (the `backend`
+' package) so the loading spinner keeps animating while a page loads.
+'
+' Build and run it from an interactive terminal (see examples/browser/README.md
+' for the one-time backend package install):
+'   mfb build examples/browser/app
+'   ./examples/browser/app/build/browser.out
+'
+' Layout (top to bottom):
+'   row 0            top bar:  [<spinner|🔒|🔓>] followed by the page title
+'                    (right-aligned) in Display Mode, or "HREF: <url>" while
+'                    editing in Address Mode
+'   row 1            a single horizontal rule
+'   rows 2..H-3      the content area (the page title + parsed text, or an error)
+'   row H-2          a single horizontal rule
+'   row H-1          footer:   [Q]uit  [G]o            Files: <loaded>/<total>
+'
+' The bracket at the far left is a spinner while a page is loading, a locked
+' padlock (🔒) once a page has loaded over https, and an open padlock (🔓)
+' otherwise. "Files: n/m" counts the
+' resources fetched for the current page: today a page is one document, so a
+' successful load reads 1/1 (redirect hops are followed to reach that document,
+' not counted as separate resources).
+'
+' Controls:
+'   Q / q      quit
+'   G / g      enter Address Mode
+'   In Address Mode: type to edit the URL, Backspace deletes, Enter loads the
+'                    URL and returns to Display Mode, Esc cancels.
+'   Up / Down  (Display Mode) scroll the loaded content one line at a time.
+'
+' On a load error of any kind the error message is shown in the content area.
+'
+' The fetch itself (and the backend::LoadResult record it returns) lives in the
+' imported `backend` package, because thread::start requires an ISOLATED worker
+' from a different package than the caller.
+
+' ----- small numeric helpers (no built-in min/max) -----
+
+FUNC maxOf(a AS Integer, b AS Integer) AS Integer
+  IF a > b THEN RETURN a
+  RETURN b
+END FUNC
+
+FUNC minOf(a AS Integer, b AS Integer) AS Integer
+  IF a < b THEN RETURN a
+  RETURN b
+END FUNC
+
+' Rows available for page content: everything except the 2 header and 2 footer
+' rows. At least one row so the arithmetic below never goes negative.
+FUNC contentHeight(size AS TermSize) AS Integer
+  RETURN maxOf(1, size.rows - 4)
+END FUNC
+
+' ----- text shaping -----
+
+' Truncate or space-pad a string to exactly `width` scalar columns.
+FUNC fit(s AS String, width AS Integer) AS String
+  IF width <= 0 THEN RETURN ""
+  IF len(s) > width THEN RETURN strings::mid(s, 0, width)
+  RETURN strings::padRight(s, width)
+END FUNC
+
+' Compose one footer line: `left` flush-left, `right` flush-right, in `width`
+' columns. Both are truncated if they cannot fit.
+FUNC composeFooter(left AS String, right AS String, width AS Integer) AS String
+  IF width <= 0 THEN RETURN ""
+  MUT r AS String = right
+  IF len(r) > width THEN r = strings::mid(r, 0, width)
+  LET leftRoom AS Integer = width - len(r)
+  MUT l AS String = left
+  IF len(l) > leftRoom THEN l = strings::mid(l, 0, leftRoom)
+  l = strings::padRight(l, leftRoom)
+  RETURN l & r
+END FUNC
+
+' Break raw page text into display lines, hard-wrapping at `width` columns and
+' honouring existing newlines. Tabs become four spaces so widths stay stable.
+FUNC wrapContent(content AS String, width AS Integer) AS List OF String
+  LET w AS Integer = maxOf(1, width)
+  MUT out AS List OF String = []
+  LET rawLines AS List OF String = strings::split(content, "\n")
+  FOR EACH raw IN rawLines
+    MUT line AS String = raw
+    IF strings::endsWith(line, "\r") THEN line = strings::mid(line, 0, len(line) - 1)
+    line = strings::replace(line, "\t", "    ")
+    IF len(line) = 0 THEN
+      out = collections::append(out, "")
+    ELSE
+      MUT start AS Integer = 0
+      DO WHILE start < len(line)
+        LET count AS Integer = minOf(w, len(line) - start)
+        out = collections::append(out, strings::mid(line, start, count))
+        start = start + count
+      LOOP
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' The far-left status glyph in the top bar.
+FUNC spinnerGlyph(i AS Integer) AS String
+  LET frames AS String = "⣷⣯⣟⡿⢿⣻⣽⣾"
+  RETURN strings::mid(frames, i MOD 8, 1)
+END FUNC
+
+FUNC indicatorText(loadState AS String, secure AS Boolean, spinner AS Integer) AS String
+  IF loadState = "loading" THEN RETURN spinnerGlyph(spinner)
+  IF secure THEN RETURN "🔒"
+  RETURN "🔓"
+END FUNC
+
+' The first-run help shown in the content area.
+FUNC welcomeText() AS String
+  RETURN "browser — a tiny terminal web viewer\n\nPress G to type an address, then Enter to load it.\nUse the Up / Down arrows to scroll a loaded page.\nPress Q to quit.\n\nExample addresses (https:// is assumed when omitted):\n  example.com\n  https://example.org\n"
+END FUNC
+
+' ----- input -----
+
+' Read one Unicode scalar, or "" at end of input / on a read error.
+FUNC getChar() AS String
+  LET c AS String = io::readChar() TRAP(e)
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+' True if input is ready within `ms` milliseconds; never raises.
+FUNC ready(ms AS Integer) AS Boolean
+  LET r AS Boolean = io::pollInput(ms) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  RETURN r
+END FUNC
+
+' Read one logical key, decoding arrow-key escape sequences into named tokens.
+' Returns "UP"/"DOWN"/"LEFT"/"RIGHT", "ENTER", "ESC", "BACKSPACE", "EOF", or a
+' single printable scalar as itself.
+FUNC readKey() AS String
+  LET c AS String = getChar()
+  IF c = "" THEN RETURN "EOF"
+  IF c = "\u{1B}" THEN
+    ' ESC alone, or the start of a CSI arrow sequence (ESC [ A .. D).
+    IF NOT ready(30) THEN RETURN "ESC"
+    LET c2 AS String = getChar()
+    IF c2 = "[" OR c2 = "O" THEN
+      LET c3 AS String = getChar()
+      IF c3 = "A" THEN RETURN "UP"
+      IF c3 = "B" THEN RETURN "DOWN"
+      IF c3 = "C" THEN RETURN "RIGHT"
+      IF c3 = "D" THEN RETURN "LEFT"
+      RETURN "ESC"
+    END IF
+    RETURN "ESC"
+  END IF
+  IF c = "\r" OR c = "\n" THEN RETURN "ENTER"
+  IF c = "\u{7F}" OR c = "\u{08}" THEN RETURN "BACKSPACE"
+  RETURN c
+END FUNC
+
+' A key that should be inserted into the address field: a single scalar that is
+' not one of the multi-character named tokens above.
+FUNC isTextKey(key AS String) AS Boolean
+  RETURN len(key) = 1
+END FUNC
+
+' ----- drawing -----
+'
+' The frame is split into "chrome" (the address bar, the two rules, and the
+' footer) and the "content" region (the page text). Chrome is one row each and
+' cheap, so it is repainted every frame. The content region can be many rows and
+' its wrapped text is expensive to lay out, so it is repainted only when the
+' page, the scroll offset, or the terminal size actually changes — the main loop
+' tracks that with a dirty flag. term::sync then emits only the cells that
+' differ from the previous frame, so an unchanged region costs no terminal I/O.
+
+' Draw the top bar, both rules, the footer, and place the cursor. The top bar
+' shows the URL being edited in Address Mode ("[ind] HREF: <url>") and the page
+' title, right-aligned, in Display Mode ("[ind]            <title>").
+SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, filesLoaded AS Integer, filesTotal AS Integer)
+  LET cols AS Integer = size.columns
+  LET rows AS Integer = size.rows
+  LET ind AS String = indicatorText(loadState, secure, spinner)
+  LET hrefPrefix AS String = "[" & ind & "] HREF: "
+
+  ' Row 0: top bar.
+  term::setBackground(30, 40, 60)
+  term::setForeground(225, 233, 255)
+  term::setBold(TRUE)
+  term::moveTo(0, 0)
+  IF addressMode THEN
+    io::write(fit(hrefPrefix & url, cols))
+  ELSE
+    io::write(composeFooter("[" & ind & "] ", title, cols))
+  END IF
+  term::setBold(FALSE)
+
+  ' Row 1 and row H-2: the header and footer rules.
+  term::setBackground(0, 0, 0)
+  term::setForeground(90, 110, 150)
+  term::drawHLine(LineStyle.Light, 1, 0, cols - 1)
+  term::drawHLine(LineStyle.Light, rows - 2, 0, cols - 1)
+
+  ' Row H-1: footer controls.
+  LET rightPart AS String = "Files: " & toString(filesLoaded) & "/" & toString(filesTotal)
+  MUT leftPart AS String = "[Q]uit  [G]o"
+  IF addressMode THEN leftPart = "[Esc] Cancel  [Enter] Go"
+  term::setBackground(30, 40, 60)
+  term::setForeground(225, 233, 255)
+  term::setBold(TRUE)
+  term::moveTo(rows - 1, 0)
+  io::write(composeFooter(leftPart, rightPart, cols - 1))
+  term::setBold(FALSE)
+  term::setBackground(0, 0, 0)
+  term::setForeground(255, 255, 255)
+
+  ' Cursor: visible at the end of the URL while editing, hidden otherwise. Each
+  ' scalar (the emoji included) is one cell on the term:: grid.
+  IF addressMode THEN
+    LET curCol AS Integer = minOf(len(hrefPrefix) + len(url), cols - 1)
+    term::moveTo(0, curCol)
+    term::showCursor()
+  ELSE
+    term::hideCursor()
+  END IF
+END SUB
+
+' Repaint the whole content region (rows 2 .. H-3). Every row is rewritten,
+' blanks included, so a shorter page leaves no stale lines behind.
+SUB drawContent(size AS TermSize, wrapped AS List OF String, scroll AS Integer)
+  LET cols AS Integer = size.columns
+  LET contentH AS Integer = maxOf(1, size.rows - 4)
+  term::setBackground(0, 0, 0)
+  term::setForeground(210, 214, 220)
+  FOR r = 0 TO contentH - 1
+    LET idx AS Integer = scroll + r
+    MUT lineStr AS String = ""
+    IF idx >= 0 AND idx < len(wrapped) THEN
+      lineStr = collections::get(wrapped, idx)
+    END IF
+    term::moveTo(2 + r, 0)
+    io::write(fit(lineStr, cols))
+  NEXT
+END SUB
+
+FUNC main AS Integer
+  ' A full-screen TUI needs an interactive terminal on both ends.
+  IF NOT io::isOutputTerminal() OR NOT io::isInputTerminal() THEN
+    io::printError("browser: run this from an interactive terminal.")
+    RETURN 1
+  END IF
+
+  term::on()
+  term::hideCursor()
+
+  MUT running AS Boolean = TRUE
+  MUT addressMode AS Boolean = FALSE
+  MUT url AS String = ""
+  MUT pageTitle AS String = ""
+  MUT content AS String = welcomeText()
+  MUT scroll AS Integer = 0
+  MUT loadState AS String = "idle"
+  MUT secure AS Boolean = FALSE
+  MUT spinner AS Integer = 0
+  MUT filesLoaded AS Integer = 0
+  MUT filesTotal AS Integer = 0
+
+  ' Cached layout. `wrapped` holds `content` laid out at `wrapWidth` columns;
+  ' it is recomputed only when the page text or the width changes (needRewrap).
+  ' `contentDirty` marks the content region for repaint (a load, a scroll, or a
+  ' resize); the chrome is cheap and repainted every frame. lastCols/lastRows
+  ' detect a resize.
+  MUT wrapped AS List OF String = []
+  MUT wrapWidth AS Integer = -1
+  MUT needRewrap AS Boolean = TRUE
+  MUT contentDirty AS Boolean = TRUE
+  MUT lastCols AS Integer = -1
+  MUT lastRows AS Integer = -1
+
+  DO WHILE running
+    ' Track the live terminal size; stop cleanly if the terminal detaches.
+    LET size AS TermSize = term::terminalSize() TRAP(e)
+      EXIT DO
+    END TRAP
+    LET cols AS Integer = size.columns
+    LET rows AS Integer = size.rows
+
+    IF cols < 1 OR rows < 5 THEN
+      ' Too small for the full layout: show a hint and wait for a key or resize.
+      term::clear()
+      term::moveTo(0, 0)
+      io::write(fit("Window too small", maxOf(1, cols)))
+      term::sync()
+      lastCols = cols
+      lastRows = rows
+      contentDirty = TRUE
+    ELSE
+      ' A resize invalidates the whole surface: clear and repaint everything.
+      IF cols <> lastCols OR rows <> lastRows THEN
+        term::clear()
+        contentDirty = TRUE
+        lastCols = cols
+        lastRows = rows
+      END IF
+
+      ' Re-wrap only when the page text or the column width changed.
+      IF needRewrap OR cols <> wrapWidth THEN
+        wrapped = wrapContent(content, cols)
+        wrapWidth = cols
+        needRewrap = FALSE
+        contentDirty = TRUE
+      END IF
+
+      ' Keep the scroll offset in range; a change repaints the content region.
+      LET maxScroll AS Integer = maxOf(0, len(wrapped) - contentHeight(size))
+      IF scroll > maxScroll THEN
+        scroll = maxScroll
+        contentDirty = TRUE
+      END IF
+      IF scroll < 0 THEN
+        scroll = 0
+        contentDirty = TRUE
+      END IF
+
+      drawChrome(size, addressMode, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+      IF contentDirty THEN
+        drawContent(size, wrapped, scroll)
+        contentDirty = FALSE
+      END IF
+      term::sync()
+    END IF
+
+    spinner = spinner + 1
+
+    LET key AS String = readKey()
+
+    IF addressMode THEN
+      IF key = "ENTER" THEN
+        ' Leave Address Mode and load the URL. The fetch runs on a worker thread
+        ' so the UI thread stays free to animate the spinner: draw a "Loading…"
+        ' frame, start backend::fetch, then spin at ~10 fps until it finishes.
+        addressMode = FALSE
+        loadState = "loading"
+        pageTitle = ""
+        LET target AS String = strings::trim(url)
+        LET loadingLines AS List OF String = wrapContent("Loading " & target & " ...", cols)
+        drawChrome(size, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+        drawContent(size, loadingLines, 0)
+        term::sync()
+
+        LET worker AS Thread OF String TO LoadResult = thread::start(backend::fetch, target)
+        DO WHILE thread::isRunning(worker)
+          spinner = spinner + 1
+          drawChrome(size, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+          term::sync()
+          ' Wait up to one frame for a key; Q aborts the load and quits.
+          IF ready(100) THEN
+            LET k AS String = readKey()
+            IF k = "q" OR k = "Q" OR k = "EOF" THEN
+              thread::cancel(worker)
+              running = FALSE
+              EXIT DO
+            END IF
+          END IF
+        LOOP
+
+        IF running THEN
+          ' Not aborted: take the result. (On abort the handle drops here,
+          ' cancelling and detaching the worker so quitting is immediate.)
+          LET page AS LoadResult = thread::waitFor(worker)
+          ' The title goes in the top bar (Display Mode); the body fills content.
+          pageTitle = page.title
+          content = page.content
+          secure = page.secure
+          filesLoaded = page.filesLoaded
+          filesTotal = page.filesTotal
+          scroll = 0
+          needRewrap = TRUE
+          contentDirty = TRUE
+          IF page.ok THEN
+            loadState = "ok"
+          ELSE
+            loadState = "error"
+          END IF
+        END IF
+      ELSEIF key = "ESC" THEN
+        addressMode = FALSE
+      ELSEIF key = "BACKSPACE" THEN
+        IF len(url) > 0 THEN url = strings::mid(url, 0, len(url) - 1)
+      ELSEIF key = "EOF" THEN
+        running = FALSE
+      ELSEIF isTextKey(key) THEN
+        url = url & key
+      END IF
+    ELSE
+      IF key = "q" OR key = "Q" OR key = "EOF" THEN
+        running = FALSE
+      ELSEIF key = "g" OR key = "G" THEN
+        addressMode = TRUE
+      ELSEIF key = "UP" THEN
+        IF scroll > 0 THEN
+          scroll = scroll - 1
+          contentDirty = TRUE
+        END IF
+      ELSEIF key = "DOWN" THEN
+        scroll = scroll + 1
+        contentDirty = TRUE
+      END IF
+    END IF
+  LOOP
+
+  term::showCursor()
+  term::off()
+  RETURN 0
+
+  TRAP(e)
+    term::showCursor()
+    term::off()
+    io::printError("browser: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC

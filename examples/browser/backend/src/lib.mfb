@@ -1,0 +1,316 @@
+' backend — the browser example's network worker.
+'
+' http::read is blocking: it freezes the calling thread until the whole exchange
+' finishes. To keep the UI (and its loading spinner) alive, the app runs the
+' fetch on a separate OS thread via thread::start(backend::fetch, url) and polls
+' thread::isRunning while animating. This package holds the fetch itself so it
+' can be an exported ISOLATED worker — thread::start rejects a worker defined in
+' the caller's own package.
+'
+' The worker also parses the fetched HTML into a page title and readable text
+' (see parseHtml), so the heavy work stays off the UI thread and only the small
+' cleaned result crosses the thread boundary.
+
+IMPORT collections
+IMPORT encoding
+IMPORT http
+IMPORT net
+IMPORT regex
+IMPORT strings
+IMPORT thread
+
+' The outcome of one load attempt: a page title and decoded body text, or an
+' error message (in `content`, with an empty title). filesLoaded / filesTotal
+' count the resources fetched for the page — today a page is a single document,
+' so a successful load is 1/1. Every field is a plain copyable value, so a
+' LoadResult is thread-sendable as the worker result.
+EXPORT TYPE LoadResult
+  ok AS Boolean
+  content AS String
+  title AS String
+  secure AS Boolean
+  filesLoaded AS Integer
+  filesTotal AS Integer
+END TYPE
+
+' A parsed page: its <title> text and its tag-free, readable body text.
+TYPE ParsedPage
+  title AS String
+  content AS String
+END TYPE
+
+' ----- HTML parsing -----
+'
+' Not an XML/DOM parser: a forgiving single-pass tag stripper that turns real
+' (often malformed) HTML into readable text. It drops <script>/<style>/comments
+' entirely, breaks lines on block-level tags, decodes character references, and
+' collapses whitespace. It scans with strings::find/mid rather than character by
+' character so a large page stays roughly linear.
+
+' strings::find, but returns -1 instead of failing when the needle is absent.
+FUNC findFrom(s AS String, needle AS String, start AS Integer) AS Integer
+  LET idx AS Integer = strings::find(s, needle, start) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN idx
+END FUNC
+
+' TRUE when the substring of `html` at `i` equals `needle`.
+FUNC matchAt(html AS String, i AS Integer, needle AS String) AS Boolean
+  IF i < 0 THEN RETURN FALSE
+  IF i + len(needle) > len(html) THEN RETURN FALSE
+  RETURN strings::mid(html, i, len(needle)) = needle
+END FUNC
+
+' TRUE for the ASCII letters and digits that make up a tag name.
+FUNC isNameChar(ch AS String) AS Boolean
+  IF ch = "" THEN RETURN FALSE
+  RETURN strings::contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", ch)
+END FUNC
+
+' Read the tag name beginning at `i` (just past "<" or "</"), lowercased.
+FUNC tagName(html AS String, i AS Integer) AS String
+  MUT j AS Integer = i
+  MUT name AS String = ""
+  LET n AS Integer = len(html)
+  DO WHILE j < n
+    LET ch AS String = strings::mid(html, j, 1)
+    IF isNameChar(ch) THEN
+      name = name & ch
+      j = j + 1
+    ELSE
+      EXIT DO
+    END IF
+  LOOP
+  RETURN strings::lower(name)
+END FUNC
+
+' Tags that should force a line break in the rendered text.
+FUNC isBlockTag(name AS String) AS Boolean
+  RETURN name = "p" OR name = "div" OR name = "br" OR name = "hr" OR name = "li" OR name = "ul" OR name = "ol" OR name = "tr" OR name = "table" OR name = "h1" OR name = "h2" OR name = "h3" OR name = "h4" OR name = "h5" OR name = "h6" OR name = "section" OR name = "article" OR name = "header" OR name = "footer" OR name = "nav" OR name = "aside" OR name = "main" OR name = "blockquote" OR name = "pre" OR name = "figure" OR name = "figcaption" OR name = "dl" OR name = "dd" OR name = "dt" OR name = "form"
+END FUNC
+
+' Position just past the ">" of the next "</name>" close tag, or -1.
+FUNC findCloseTag(html AS String, name AS String, start AS Integer) AS Integer
+  MUT s AS Integer = start
+  LET n AS Integer = len(html)
+  DO WHILE s < n
+    LET p AS Integer = findFrom(html, "</", s)
+    IF p < 0 THEN RETURN -1
+    IF tagName(html, p + 2) = name THEN
+      LET gt AS Integer = findFrom(html, ">", p)
+      IF gt < 0 THEN RETURN -1
+      RETURN gt + 1
+    END IF
+    s = p + 2
+  LOOP
+  RETURN -1
+END FUNC
+
+' Decode HTML character references in one text run. htmlUnescape fails on a
+' malformed/unknown entity (real pages carry bare "&"), so fall back to the raw
+' run; skip the call entirely when there is no "&" to decode.
+FUNC cleanRun(s AS String) AS String
+  IF NOT strings::contains(s, "&") THEN RETURN s
+  LET decoded AS String = encoding::htmlUnescape(s) TRAP(e)
+    RECOVER s
+  END TRAP
+  RETURN decoded
+END FUNC
+
+' Collapse whitespace in body text: single spaces, at most one blank line.
+FUNC tidyContent(s AS String) AS String
+  MUT t AS String = strings::replace(s, "\t", " ")
+  t = strings::replace(t, "\r", "")
+  t = regex::replace(t, " +", " ")
+  t = regex::replace(t, " ?\n ?", "\n")
+  t = regex::replace(t, "\n{3,}", "\n\n")
+  RETURN strings::trim(t)
+END FUNC
+
+' Flatten a title to a single trimmed line.
+FUNC tidyTitle(s AS String) AS String
+  MUT t AS String = strings::replace(s, "\n", " ")
+  t = strings::replace(t, "\t", " ")
+  t = strings::replace(t, "\r", " ")
+  t = regex::replace(t, " +", " ")
+  RETURN strings::trim(t)
+END FUNC
+
+' The most text segments parseHtml will collect before stopping. Extracting a
+' segment allocates a short-lived String, and the runtime arena's free list is
+' quadratic under that churn (a known open issue — see the benchmark's arena
+' regression gate), so an unbounded parse of a multi-megabyte page hangs. This
+' cap keeps the work — and the rendered preview — bounded; the title is parsed
+' from <head> first, so it is never lost to truncation.
+FUNC maxParts() AS Integer
+  RETURN 1500
+END FUNC
+
+' Parse HTML into a title and readable body text.
+FUNC parseHtml(html AS String) AS ParsedPage
+  MUT parts AS List OF String = []
+  MUT titleParts AS List OF String = []
+  MUT inTitle AS Boolean = FALSE
+  MUT truncated AS Boolean = FALSE
+  MUT pos AS Integer = 0
+  LET n AS Integer = len(html)
+
+  DO WHILE pos < n
+    IF len(parts) >= maxParts() THEN
+      truncated = TRUE
+      EXIT DO
+    END IF
+    LET lt AS Integer = findFrom(html, "<", pos)
+    IF lt < 0 THEN
+      ' Trailing text with no more tags.
+      LET run AS String = cleanRun(strings::mid(html, pos, n - pos))
+      IF inTitle THEN
+        titleParts = collections::append(titleParts, run)
+      ELSE
+        parts = collections::append(parts, run)
+      END IF
+      pos = n
+    ELSE
+      IF lt > pos THEN
+        LET run AS String = cleanRun(strings::mid(html, pos, lt - pos))
+        IF inTitle THEN
+          titleParts = collections::append(titleParts, run)
+        ELSE
+          parts = collections::append(parts, run)
+        END IF
+      END IF
+
+      IF lt + 1 >= n THEN
+        pos = n
+      ELSE
+        LET c AS String = strings::mid(html, lt + 1, 1)
+        IF c = "!" THEN
+          ' Comment (<!-- -->) or declaration (<!doctype …>).
+          IF matchAt(html, lt + 2, "--") THEN
+            LET e AS Integer = findFrom(html, "-->", lt)
+            IF e < 0 THEN pos = n ELSE pos = e + 3
+          ELSE
+            LET gt AS Integer = findFrom(html, ">", lt)
+            IF gt < 0 THEN pos = n ELSE pos = gt + 1
+          END IF
+        ELSE
+          LET isClose AS Boolean = (c = "/")
+          MUT nameStart AS Integer = lt + 1
+          IF isClose THEN nameStart = lt + 2
+          LET name AS String = tagName(html, nameStart)
+
+          IF name = "script" AND NOT isClose THEN
+            LET e AS Integer = findCloseTag(html, "script", lt + 1)
+            IF e < 0 THEN pos = n ELSE pos = e
+          ELSEIF name = "style" AND NOT isClose THEN
+            LET e AS Integer = findCloseTag(html, "style", lt + 1)
+            IF e < 0 THEN pos = n ELSE pos = e
+          ELSE
+            IF name = "title" THEN
+              inTitle = NOT isClose
+            ELSEIF isBlockTag(name) THEN
+              parts = collections::append(parts, "\n")
+            END IF
+            LET gt AS Integer = findFrom(html, ">", lt)
+            IF gt < 0 THEN pos = n ELSE pos = gt + 1
+          END IF
+        END IF
+      END IF
+    END IF
+  LOOP
+
+  IF truncated THEN
+    parts = collections::append(parts, "\n\n[… page truncated — too large to render in full …]")
+  END IF
+
+  LET title AS String = tidyTitle(strings::join(titleParts, ""))
+  LET content AS String = tidyContent(strings::join(parts, ""))
+  RETURN ParsedPage[title, content]
+END FUNC
+
+' ----- fetching -----
+
+' Give a bare host an https scheme so net::toUrl accepts it.
+FUNC ensureScheme(u AS String) AS String
+  IF strings::contains(u, "://") THEN RETURN u
+  RETURN "https://" & u
+END FUNC
+
+' A response the client should follow to a new location. http:: returns 3xx
+' as-is (it never follows), so the worker follows them itself.
+FUNC isRedirect(resp AS http::Response) AS Boolean
+  LET s AS Integer = resp.status
+  RETURN s = 301 OR s = 302 OR s = 303 OR s = 307 OR s = 308
+END FUNC
+
+' Index of the last "/" in s, or -1 if none (strings has no reverse find).
+FUNC lastSlash(s AS String) AS Integer
+  MUT idx AS Integer = -1
+  MUT i AS Integer = 0
+  LET n AS Integer = len(s)
+  DO WHILE i < n
+    IF strings::mid(s, i, 1) = "/" THEN idx = i
+    i = i + 1
+  LOOP
+  RETURN idx
+END FUNC
+
+' Resolve a Location header against the request URL, covering the three shapes a
+' redirect uses in practice: an absolute URL, a root-relative path ("/x"), and a
+' path relative to the current document's directory.
+FUNC resolveLocation(base AS net::Url, loc AS String) AS String
+  LET target AS String = strings::trim(loc)
+  IF strings::contains(target, "://") THEN RETURN target
+  LET authority AS String = base.scheme & "://" & base.host & ":" & toString(base.port)
+  IF strings::startsWith(target, "/") THEN RETURN authority & target
+  MUT dir AS String = base.path
+  LET slash AS Integer = lastSlash(dir)
+  IF slash >= 0 THEN
+    dir = strings::mid(dir, 0, slash + 1)
+  ELSE
+    dir = "/"
+  END IF
+  RETURN authority & dir & target
+END FUNC
+
+' Turn a final response into a LoadResult: parse HTML into title + text, but
+' show a non-HTML body (JSON, plain text, CSS) verbatim.
+FUNC pageResult(resp AS http::Response, secure AS Boolean) AS LoadResult
+  LET body AS String = toString(resp.body)
+  LET ctype AS String = collections::getOr(resp.headers, "content-type", "")
+  IF strings::contains(ctype, "html") OR ctype = "" THEN
+    LET parsed AS ParsedPage = parseHtml(body)
+    RETURN LoadResult[TRUE, parsed.content, parsed.title, secure, 1, 1]
+  END IF
+  RETURN LoadResult[TRUE, body, "", secure, 1, 1]
+END FUNC
+
+' Fetch a URL, following up to 10 redirects to reach the final document, then
+' parse it. Any failure — a malformed URL, DNS/TLS/transport error, a non-UTF-8
+' body, or a redirect loop — is caught and returned as an error LoadResult.
+'
+' The ISOLATED worker entry point started by thread::start. Its first parameter
+' is the runtime-provided ThreadWorker handle (unused here — the result is
+' returned, not sent as a message); the second is the URL to load.
+EXPORT ISOLATED FUNC fetch(worker AS ThreadWorker OF String TO LoadResult, rawUrl AS String) AS LoadResult
+  LET trimmed AS String = strings::trim(rawUrl)
+  IF trimmed = "" THEN
+    RETURN LoadResult[FALSE, "No address entered. Press G and type a URL.", "", FALSE, 0, 0]
+  END IF
+  MUT href AS String = ensureScheme(trimmed)
+  FOR hop = 0 TO 10
+    LET u AS net::Url = net::toUrl(href)
+    LET resp AS http::Response = http::read(u)
+    LET loc AS String = collections::getOr(resp.headers, "location", "")
+    IF NOT isRedirect(resp) OR loc = "" THEN
+      RETURN pageResult(resp, u.scheme = "https")
+    END IF
+    href = resolveLocation(u, loc)
+  NEXT
+  RETURN LoadResult[FALSE, "Too many redirects while loading " & rawUrl, "", FALSE, 0, 1]
+
+  TRAP(e)
+    RETURN LoadResult[FALSE, "Error loading " & rawUrl & "\n\n" & e.message, "", FALSE, 0, 1]
+  END TRAP
+END FUNC

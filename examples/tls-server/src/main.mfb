@@ -1,0 +1,43 @@
+' A very simple HTTPS server.
+'
+' It binds a TLS listening socket on port 8443 using a self-signed certificate
+' shipped as a build resource, then serves every request — any method, any
+' path — with the plain-text body "ONLINE".
+'
+' Try it once the server is running:
+'   curl -k https://localhost:8443/
+'   curl -k https://localhost:8443/anything/at/all
+
+IMPORT http
+IMPORT tls
+IMPORT collections
+IMPORT os
+IMPORT io
+
+' Handler for every request: reply with "ONLINE".
+FUNC online(req AS http::Request) AS http::Response
+  RETURN http::ok("ONLINE")
+END FUNC
+
+SUB main()
+  ' Resolve the self-signed certificate and key copied out of resources/.
+  LET certPath AS String = os::resourcePath("certs/cert.pem")
+  LET keyPath AS String = os::resourcePath("certs/key.pem")
+
+  ' A single catch-all route: "*" matches any path, including "/".
+  MUT routes AS List OF http::Route = []
+  routes = collections::append(routes, http::route("*", online))
+
+  ' Bind the HTTPS listener. It is a resource: RES closes it at scope exit.
+  RES server AS tls::TlsListener = http::serverSSL(8443, certPath, keyPath) TRAP(e)
+    io::print("Couldn't start the server: " & e.message)
+    EXIT PROGRAM 1
+  END TRAP
+
+  io::print("Listening on https://localhost:8443/  (Ctrl-C to stop)")
+
+  ' Single-threaded accept loop: serve one connection at a time, forever.
+  DO
+    http::handleRequest(server, routes)
+  LOOP UNTIL FALSE
+END SUB
