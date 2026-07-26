@@ -44,17 +44,33 @@ REM ---------------------------------------------------------------------------
 REM Scalar classification predicates (total over every Scalar)
 REM ---------------------------------------------------------------------------
 
+' plan-64 G2: ASCII fast path in each classification predicate. For cp < 0x80 a
+' direct range test reproduces genCat's category exactly (ASCII: A-Z=Lu 65-90,
+' a-z=Ll 97-122, 0-9=Nd 48-57, space=Zs 32; no other ASCII scalar is a letter,
+' digit, or Unicode space), skipping the 4099-arm __strings_genCat scan and its
+' String return/compare on the hot path. cp >= 0x80 keeps the genCat path.
 FUNC __strings_isLetter(sc AS Scalar) AS Boolean
-  LET cat AS String = __strings_genCat(toInt(sc))
+  LET cp AS Integer = toInt(sc)
+  IF cp < 128 THEN
+    RETURN (cp >= 65 AND cp <= 90) OR (cp >= 97 AND cp <= 122)
+  END IF
+  LET cat AS String = __strings_genCat(cp)
   RETURN cat = "Lu" OR cat = "Ll" OR cat = "Lt" OR cat = "Lm" OR cat = "Lo"
 END FUNC
 
 FUNC __strings_isDigit(sc AS Scalar) AS Boolean
-  RETURN __strings_genCat(toInt(sc)) = "Nd"
+  LET cp AS Integer = toInt(sc)
+  IF cp < 128 THEN
+    RETURN cp >= 48 AND cp <= 57
+  END IF
+  RETURN __strings_genCat(cp) = "Nd"
 END FUNC
 
 FUNC __strings_isWhitespace(sc AS Scalar) AS Boolean
   LET cp AS Integer = toInt(sc)
+  IF cp < 128 THEN
+    RETURN (cp >= 9 AND cp <= 13) OR cp = 32
+  END IF
   LET cat AS String = __strings_genCat(cp)
   IF cat = "Zs" OR cat = "Zl" OR cat = "Zp" THEN
     RETURN TRUE
@@ -69,9 +85,17 @@ FUNC __strings_isWhitespace(sc AS Scalar) AS Boolean
 END FUNC
 
 FUNC __strings_isUpper(sc AS Scalar) AS Boolean
-  RETURN __strings_genCat(toInt(sc)) = "Lu"
+  LET cp AS Integer = toInt(sc)
+  IF cp < 128 THEN
+    RETURN cp >= 65 AND cp <= 90
+  END IF
+  RETURN __strings_genCat(cp) = "Lu"
 END FUNC
 
 FUNC __strings_isLower(sc AS Scalar) AS Boolean
-  RETURN __strings_genCat(toInt(sc)) = "Ll"
+  LET cp AS Integer = toInt(sc)
+  IF cp < 128 THEN
+    RETURN cp >= 97 AND cp <= 122
+  END IF
+  RETURN __strings_genCat(cp) = "Ll"
 END FUNC

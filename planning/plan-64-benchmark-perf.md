@@ -461,8 +461,16 @@ Consistent ⇒ genuine (NOT the arena quadratic).
 - **G1:** `genCat` returns an **Integer** category code (or a parallel `__strings_genCatCode`);
   the five predicates compare integers, not Strings — kills every String return/compare
   on the hot path.
-- **G2:** an ASCII fast path in each predicate (cp < 128 → direct range test) skipping
-  `genCat` entirely; convert the 4099-arm chain to a binary-search/two-level table.
+- **[x] G2 — LANDED (ASCII fast path):** each of `isLetter`/`isDigit`/`isWhitespace`/
+  `isUpper`/`isLower` now returns a direct range test for `cp < 128` (A-Z=65-90, a-z=97-122,
+  0-9=48-57, space=32, plus 9-13 for whitespace) that exactly reproduces `genCat`'s ASCII
+  category, skipping the 4099-arm scan + String return/compare. **Result: `scalar classify`
+  29.3 → 4.2 ms — COMPLETE** (beats Python 14.2; ≤5 ms). checksum 3413150747 **proven
+  unchanged** vs stashed-baseline rebuild; full `cargo test` green; one `.ir` snapshot golden
+  (`scalar-strings-seam-rt`, line-renumber churn) regenerated, `.run`/behavior unchanged;
+  24 scalar/strings acceptance fixtures pass. `strings_package.mfb`. Commit: `<pending>`.
+  (The 4099-arm→table conversion is a separate optional cleanup; the ASCII path retires the
+  benchmark.)
 - **G3:** natively lower `toScalars` — one arena alloc + a single UTF-8 decode pass
   writing 4-byte scalars directly (no toBytes+utf32Encode+double-append chain).
 - Gate: the five classification counts + scalar checksums unchanged.
