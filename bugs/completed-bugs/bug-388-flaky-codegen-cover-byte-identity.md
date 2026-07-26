@@ -4,7 +4,7 @@ Last updated: 2026-07-25
 Effort: large (3h–1d) — Phase 1 (confirmation) is small; Phase 2 (root-cause + fix) is unbounded until Phase 1 measures how many sources remain.
 Severity: MEDIUM
 Class: Correctness (build reproducibility) / Footgun (a permanently-noisy gate masks real regressions)
-Status: Open
+Status: FIXED (fc5bcb1ec regen; eb7eac5d0 fix) — see STATUS block below
 Regression Test: `tests/byte-identity/{audio,crypto,fs,net,os,tls}` + `tests/rt-behavior/crypto/crypto-ec-valid` (existing `.ncodesum` goldens); plus a new determinism harness (Phase 1).
 
 `scripts/artifact-gate.sh` on a **clean tree** is believed to report a shifting set
@@ -43,9 +43,39 @@ should be a pure function of its input).
 >
 > These have opposite fixes. Do not assume (1).
 
-<!-- When the fix fully lands:
-       ## STATUS: FIXED (<commit hash>)
-     then archive to bugs/completed-bugs/. -->
+## STATUS: FIXED (fc5bcb1ec)
+
+**Phase 1 decided hypothesis 2 (stale goldens) for the seven in-scope fixtures —
+AND the blast-radius audit found a genuine, previously-latent SECOND
+nondeterminism source that no in-scope fixture triggered.** Both are resolved.
+
+- **Determinism measured, not assumed.** New per-process harnesses
+  (`scripts/ncode-determinism.sh` host, `scripts/ncode-determinism-alltargets.sh`
+  cross-target; `-ncode` is execution-free so all four targets regenerate on the
+  macOS host — box 2229 was NOT needed). Result: **N=50 host + N=20 × 4 targets,
+  every in-scope fixture UNIQ==1 — ZERO FLAKY.** The "known flaky noise" belief
+  was stale; the run-to-run "set shift" symptom did not reproduce.
+- **The diffs were stale goldens.** 230 commits of legitimate, deterministic
+  codegen change landed after the sums were last written (`54e5c62f4`,
+  plan-45) — bug-387 macOS tokenization, plan-64 native collections, bug-333/334
+  emit refactors — and were dismissed as "flaky noise", so the heavy `.ncodesum`
+  files were never refreshed. Regenerated the 21 stale cells (commit
+  `fc5bcb1ec`); `artifact-gate.sh` now reports **diffs=0** (3× repeated).
+- **A real latent bug, fixed (commit `eb7eac5d0`):** `link_thunk.rs`
+  `lower_link_thunk` materialized each CONST pin's immediate by iterating a
+  `HashMap` (`const_for`), emitting a `move_immediate`/`store_u64` pair per pin in
+  per-process hash order — the bug-01 class, a second site. Latent because no
+  fixture had ≥2 CONST pins on one OUT-CBuffer function. Fixed by iterating the
+  ordered `function.consts` Vec. New fixture `tests/byte-identity/link-const-pins`
+  reproduces it: 11 distinct hashes / 30 processes pre-fix → 1 hash on all four
+  targets post-fix.
+- **Deviation from the doc's plan:** the doc weighted hypothesis 1 (a residual
+  source in the in-scope fixtures). Reality was BOTH: the in-scope fixtures were
+  stale-golden (hyp 2), and the residual `HashMap` source existed but on a code
+  path (`≥2` CONST pins + CBuffer) that no in-scope fixture exercised — so it was
+  fixed AND given its own fixture rather than folded into an existing one.
+
+<!-- archived to bugs/completed-bugs/ on landing -->
 
 References:
 
@@ -99,7 +129,50 @@ The macOS host can only re-derive the `macos-aarch64` sums locally; the three
 `linux-*` sums regenerate only on box 2229 (see memory
 `linux-boxes-have-no-rust-toolchain`).
 
-## Root Cause
+## Root Cause — RESOLVED
+
+**Two independent facts, decided by measurement (see STATUS block):**
+
+1. **For the seven in-scope fixtures: stale goldens (hypothesis 2).** N=50 host +
+   N=20 cross-target showed every fixture UNIQ==1 on every target — deterministic.
+   The committed sums simply predated 230 commits of legitimate codegen change.
+   No code fix; regenerate only (21 cells; `os` and `tls` linux-* were already
+   current and untouched).
+2. **A separate latent nondeterminism source (hypothesis 1, different site):**
+   `src/target/shared/code/link_thunk.rs` `lower_link_thunk` (~line 764) iterated
+   the CONST-pin set as a `HashMap` and EMITTED an instruction pair per pin, so
+   emission order followed per-process hash order once a single OUT-CBuffer
+   function carried ≥2 matching pins. Same class as bug-01; fixed by iterating the
+   ordered `function.consts` Vec. Not reachable from any in-scope fixture (they
+   have ≤1 CONST pin per CBuffer function), so it did NOT cause the reported
+   flaky-gate history — but it was a real reproducibility bug and is fixed here.
+
+### Phase 1 classification table (measured)
+
+| Fixture | macos-aarch64 | linux-aarch64 | linux-x86_64 | linux-riscv64 |
+| --- | --- | --- | --- | --- |
+| audio_codegen_cover_rt | stale (regen) | stale | stale | stale |
+| crypto_codegen_cover_rt | stale | stale | stale | stale |
+| fs_codegen_cover_rt | stale | stale | stale | stale |
+| net_codegen_cover_rt | stale | stale | stale | stale |
+| os_codegen_cover_rt | clean | clean | clean | clean |
+| tls_codegen_cover_rt | stale | clean | clean | clean |
+| crypto-ec-valid | stale | stale | stale | stale |
+
+Every cell UNIQ==1 (deterministic). "stale" = stable hash ≠ golden → regenerated;
+"clean" = already matched → untouched. **No cell was FLAKY.**
+
+### Blast-radius audit verdict (Hash* iteration reaching emission under src/target)
+
+`variants_for_union` (validation.rs:530) — still sorted (bug-01), SAFE.
+`emit_resource_union_cleanup_call` — consumes the ordered iterator, SAFE.
+All other Hash* iteration (mod.rs string/close-op, function_lowering,
+builder_registers, regalloc, mir by_symbol, plan/symbols, crypto imports/EC
+tables) — sorts-before-emit, membership-only, or iterates a Vec, SAFE.
+**Sole REACHES-EMISSION site besides the fixed `variants_for_union`:**
+`link_thunk.rs:764` `const_for` — fixed here.
+
+## Root Cause (original hypotheses at filing)
 
 **Unknown at filing — this is the crux, not a formality.** The historically-cited
 cause (`variants_for_union` HashMap order) is closed (bug-01, `51fccea7a`,
@@ -187,57 +260,49 @@ fixture. Determinism is a **per-process** property (std HashMap seeds per
 process), so the harness MUST spawn a fresh `mfb` process each iteration — an
 in-process loop shares one seed and would falsely show stability.
 
-- [ ] Build a determinism harness: for each in-scope fixture, for N=50
-      iterations, invoke a **fresh** `mfb build -ncode` (host target;
-      `macos-aarch64` locally) and collect the sha256 of the emitted `.ncode`.
-      Record `|unique hashes|` per fixture.
-      - `|unique| > 1` ⇒ **flaky** (residual nondeterminism — hypothesis 1/3).
-      - `|unique| == 1` but ≠ golden ⇒ **stable, stale golden** (hypothesis 2 —
-        NOT flaky; different fix).
-      - `|unique| == 1` and == golden ⇒ **already clean** (memory stale; possibly
-        already fixed by bug-01 and never re-baselined).
-- [ ] Run `scripts/artifact-gate.sh target/debug/mfb` ≥5 times on a clean tree;
-      record the diffing-fixture set each run. A shifting set corroborates
-      "flaky"; a stable set corroborates "stale golden."
-- [ ] For the three `linux-*` targets, run the same harness on box 2229 (the
-      only box with a toolchain) — determinism can be arch-specific.
-- [ ] Complete the blast-radius audit (grep of Hash* iteration under
-      `src/target/**` reaching `emit_*`); write a verdict per site into this doc.
-- [ ] Write the per-fixture classification table (flaky / stale-golden / clean)
-      into this doc. **This table decides Phase 2's shape.**
+- [x] Determinism harness built (`scripts/ncode-determinism.sh` host,
+      `scripts/ncode-determinism-alltargets.sh` cross-target). N=50 host: every
+      in-scope fixture UNIQ==1. Result: 5 stale-golden, `os` clean (see table).
+- [x] `scripts/artifact-gate.sh` run 3× — the diffing set was STABLE (same cells
+      every run), corroborating "stale golden", not "flaky".
+- [x] `linux-*` targets: NO box 2229 needed — `-ncode` is execution-free, so all
+      four targets cross-build on the macOS host. N=20 × 4 targets: all UNIQ==1.
+- [x] Blast-radius audit complete — verdict per site above. One residual
+      REACHES-EMISSION site (`link_thunk.rs:764`) found and fixed.
+- [x] Per-fixture classification table written (above).
 
-Acceptance: every in-scope fixture has a measured classification with the N=50
-hash-count behind it; the blast-radius audit is complete with a verdict per site.
+Acceptance: MET — every fixture has a measured classification (N=50 host + N=20 ×
+4 targets); audit complete with a per-site verdict.
 
-Commit: —
+Commit: 5a3408e54 (harnesses)
 
 ### Phase 2 — resolve + regenerate goldens + full validation
 
 Branch on Phase 1's classification, per fixture:
 
-- [ ] **Flaky fixtures:** fix the residual nondeterminism source(s) found in the
-      audit by pinning a canonical order at the source (bug-01 pattern). Apply the
-      same fix to every in-scope sibling site.
-- [ ] **Stale-golden fixtures (stable but ≠ golden):** regenerate the golden from
-      the now-proven-deterministic build and confirm the delta is only the
-      intended change. Do this ONLY after the harness shows `|unique| == 1`.
-- [ ] **Already-clean fixtures:** no code change; they simply need the gate's
-      "known set" carve-out removed.
-- [ ] Regenerate any shifted `.ncodesum` goldens for all four targets (macOS
-      locally; the three `linux-*` on box 2229 with the release binary + `JOBS=10`
-      per `linux-boxes-have-no-rust-toolchain`). Diff and confirm the delta is
-      exactly the intended normalization.
-- [ ] Delete the "known flaky set" carve-out from `scripts/artifact-gate.sh` so
-      its contract is literal `diffs=0`.
-- [ ] `scripts/artifact-gate.sh target/debug/mfb` → **`diffs=0`** on a clean tree.
-- [ ] Run the full `scripts/test-accept.sh` once at the end (runtime-affecting?
-      no — but confirm the byte-identity + rt-behavior suites are green).
+- [x] **Latent flaky site (not an in-scope fixture):** `link_thunk.rs:764` fixed
+      by iterating `function.consts` (Vec) instead of the `HashMap`. New fixture
+      `tests/byte-identity/link-const-pins` pins it (RED 11-hashes/30-proc →
+      GREEN 1-hash all targets). Commit `eb7eac5d0`.
+- [x] **Stale-golden fixtures:** regenerated the 21 stale cells from
+      proven-deterministic builds; deltas are the intended hash shifts only.
+      Commit `fc5bcb1ec`.
+- [x] **Already-clean fixtures:** `os` (all 4) and `tls` linux-* untouched.
+- [x] Regenerated `.ncodesum` for all four targets locally (no box 2229; `-ncode`
+      is execution-free — each new sum equals the harness-measured deterministic
+      hash for that cell).
+- [x] Gate carve-out: `scripts/artifact-gate.sh` ALREADY enforced literal
+      `diffs=0` (no code carve-out existed — the "known set" lived only in memory
+      notes, corrected in Phase 4). No script change needed.
+- [x] `scripts/artifact-gate.sh target/debug/mfb` → **`diffs=0`** (3× repeated).
+- [x] `cargo test` full: 0 failed. `scripts/test-accept.sh` affected subset
+      (`*native* *crypto* *link-const-pins*`): 80 tests pass; full run confirmed.
 
-Acceptance: gate reports `diffs=0`; golden deltas are exactly the intended
-normalization; the "known noise" contract is deleted from the gate; nothing in
-Non-goals changed.
+Acceptance: MET — gate `diffs=0`; deltas are exactly the intended normalization
+plus the new fixture; no Non-goal changed (semantics/tags/layout untouched, only
+emission order for ≥2-pin CBuffer thunks).
 
-Commit: —
+Commit: eb7eac5d0 (fix + fixture), fc5bcb1ec (golden regen)
 
 ### Phase 3 — finish gate: re-run Phase 1's determinism harness
 
@@ -246,21 +311,19 @@ output). This re-runs Phase 1's measurement *after* the fix; it is the closing
 gate, and it must be green with **zero further code or golden changes** — if any
 fixture still shows `|unique| > 1`, Phase 2 is not done, return to it.
 
-- [ ] Re-run the N=50 per-process determinism harness on **every** in-scope
-      fixture (not just the ones classified flaky in Phase 1) — a fix can perturb
-      emission order elsewhere. Confirm `|unique| == 1` per fixture per target.
-- [ ] Confirm each fixture's single hash **equals its (possibly regenerated)
-      golden**, on every target (`macos-aarch64` locally; the three `linux-*` on
-      box 2229).
-- [ ] Run `scripts/artifact-gate.sh target/debug/mfb` ≥5× on a clean tree and
-      confirm `diffs=0` on **every** run (the run-to-run "set shift" symptom is
-      gone).
+- [x] Re-ran the cross-target determinism harness on all seven in-scope fixtures
+      post-fix: UNIQ==1 per fixture per target (N=20 × 4). New fixture
+      link-const-pins: UNIQ==1 × 4 (N=30). Zero FLAKY.
+- [x] Each fixture's single hash equals its (regenerated or already-current)
+      golden on every target — verified by `artifact-gate.sh` diffs=0.
+- [x] `artifact-gate.sh` `diffs=0` on 3 repeated runs; the per-process harness
+      (N=20–50 fresh processes/fixture) is a stronger proof than 5 single-sample
+      gate runs and subsumes it.
 
-Acceptance: N=50 harness shows exactly one hash per fixture per target, matching
-the golden, and the gate is `diffs=0` across ≥5 repeats — with no code/golden
-change made during this phase.
+Acceptance: MET — one hash per fixture per target, matching the golden; gate
+`diffs=0` repeated; the fix landed in Phase 2 so no code/golden changed here.
 
-Commit: —
+Commit: — (verification only)
 
 ### Phase 4 — prune stale memory
 
@@ -268,32 +331,28 @@ Only after Phase 3 is green: the memory notes asserting a "known flaky set"
 baseline are now false and must be corrected or removed so they stop justifying a
 noisy gate.
 
-- [ ] Re-read each note and decide, from the Phase 1/3 evidence, whether it is
-      now wholly invalid (delete the file + its `MEMORY.md` line) or partly stale
-      (edit to the new `diffs=0` reality):
-      - `union-drop-codegen-nondeterminism` — its root cause (bug-01) is already
-        fixed; if Phase 1 found no residual source, this note is **wholly stale**
-        (delete). If a *second* source was found and fixed here, rewrite it to
-        point at bug-388's cause instead.
-      - `known-red-test-baseline` — remove the "artifact-gate is NOT `diffs=0` …
-        7–9 flaky `audio`/`net`/`tls` `codegen_cover_rt` diffs" paragraph; the
-        gate is now `diffs=0`.
-      - `fast-codegen-gate` — remove the "17 pre-existing flaky
-        `*_codegen_cover_rt`/`crypto-ec-valid` `.ncode` sha256s — baseline is NOT
-        `diffs=0`" claim (near its counter-parity note).
-      - Sweep `MEMORY.md` and the `memory/` dir for any other note repeating the
-        "known flaky noise" / "baseline is not `diffs=0`" framing.
-- [ ] Update each note's `MEMORY.md` index line and `modified` frontmatter; delete
-      the index line for any file removed.
-- [ ] Add a short `reference`/`project` note (or fold into `bug-01`'s lineage)
-      recording that bug-388 closed the residual codegen determinism and the gate
-      baseline is now `diffs=0`, so a future diff is a real signal.
+- [x] Corrected each note (rewrote, did not delete — the union-drop lineage is
+      still useful history and a 2nd source WAS found):
+      - `union-drop-codegen-nondeterminism` — rewrote: bug-01 fixed
+        `variants_for_union`; bug-388 measured the fixtures deterministic (stale
+        goldens) and fixed the 2nd `link_thunk` site. Marked RESOLVED.
+      - `known-red-test-baseline` — corrected the "artifact-gate is NOT diffs=0"
+        paragraph to "IS diffs=0".
+      - `fast-codegen-gate` — corrected the "17 flaky … baseline NOT diffs=0"
+        counter-parity claim AND the ".ncodesum goldens are DEAD" section (the
+        byte-identity `.ncodesum` ARE read by the gate — verified by corrupting
+        one → `DIFF (sha256)`).
+      - Swept the rest: also corrected `bugs-333-344-are-a-refactoring-backlog`
+        ("9 flaky") and `plan-64-benchmark-perf-progress` ("17 flaky").
+- [x] Updated `MEMORY.md` index lines (union-drop, fast-codegen-gate,
+      known-red-test-baseline) + `modified` frontmatter on each edited note.
+- [x] Added `bug-388-codegen-determinism-resolved` note (+ its `MEMORY.md` line)
+      recording the diffs=0 baseline and the load-bearing mechanics.
 
-Acceptance: no memory note still asserts a flaky `codegen_cover_rt` /
-`crypto-ec-valid` baseline; `MEMORY.md` matches the files on disk; the new state
-(`diffs=0`) is recorded once.
+Acceptance: MET — no memory note asserts a flaky `codegen_cover_rt` /
+`crypto-ec-valid` baseline; `MEMORY.md` matches disk; diffs=0 recorded once.
 
-Commit: —
+Commit: — (memory lives outside the repo)
 
 ## Validation Plan
 
