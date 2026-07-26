@@ -406,6 +406,22 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
 >   unchanged + full `cargo test` + `artifact-gate.sh` + acceptance sort fixtures + a
 >   String-key sortBy fixture to prove the `.mfb` fallback still fires. **Not yet
 >   implemented** — a focused ~150-line codegen push with its own debug/verify budget.
+> - **Implementation decision (refined this session — pick one before coding):**
+>   **(a) fixed-width + fallback:** raw `load/store [base + i*w]` (fastest), but the native
+>   path must be **statically type-gated in the dispatch** (`builder_values.rs:708`-style)
+>   so String/Float keys/items fall through to the `.mfb` `__collections_sortBy` — the
+>   handler can't lower args then bail (double-lowering), so the gate needs a static
+>   item-type + `callable_return_type(keyFn)` peek *before* lowering, and the general
+>   collections-source-call fallthrough must be confirmed reachable. **(b) generic +
+>   all-types:** use `lower_list_get`/`lower_list_set` + the `<`-operator compare on the
+>   two key `ValueResult`s — handles every element type (no fallback/gate needed), still
+>   kills the per-pass full copies (the dominant cost), at the price of the generic
+>   get/set bounds-check overhead. **(b) is lower-risk (no fallback plumbing) and captures
+>   the main win; recommended.** Buffers allocated once via `lower_reserved_list`
+>   (`list_mutate.rs:2424`) / `copy_collection_tight` (`builder_collection_layout.rs:359`),
+>   ping-pong by swapping the four slot pointers per pass, return the parity-correct buffer.
+>   Dispatch: `Some("sortBy") => self.lower_collection_sortby_call(args)` at
+>   `builder_values.rs:1502` + the `if native == Some("sortBy") && args.len()==2` guard.
 
 ### Sub-plan E — COW / refcount collection buffers
 
