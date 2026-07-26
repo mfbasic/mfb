@@ -5,7 +5,7 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup) / Dead-code
 
-Status: Substantially complete (2026-07-25). Landed: A1 (gated), A2, A3, A4, A5,
+Status: Fixed (2026-07-25) — merged to main. Landed: A1 (gated), A2, A3, A4, A5,
 A7-tail + machine tables, A8, B1, B2, B4, B5, B6, B7, B9, B10, B11, B12. Each item
 carries a `> …` note above its section. Deferred with documented cause (not
 output-neutral / infeasible-as-specified): A6's full five-chain trait unification
