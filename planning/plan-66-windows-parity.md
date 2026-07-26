@@ -58,7 +58,7 @@ Stated once here; every letter points back.
 | Must be true | Command | Status 2026-07-26 |
 |---|---|---|
 | plan-47's Windows console target is landed (registered, non-app, io/fs/net/thread/crypto/tls-client box-proven) | `grep -n 'win_x86_64::BACKEND' src/target.rs` → registered; `planning/old-plans/plan-47-windows-x86_64.md:3` → COMPLETE | **MET** |
-| The Win11 x86-64 box is reachable for runtime proof | `grep -n 'Win11' .ai/remote_systems.md` → `:11`, ssh port 2230 | **MET (re-verify before each box-gated letter)** |
+| The Win11 x86-64 box is reachable for runtime proof | `grep -n 'Win11' .ai/remote_systems.md` → `:11`, ssh port 2230 | **MET — re-verified 2026-07-26 (ssh -p 2230 → `BOX_OK`); re-verify before each box-gated letter** |
 | The exhaustive `PlatformFamily` match exists (adding a Windows arm is a compile error at each shared-lowering site, per plan-47-A) | `grep -rn 'PlatformFamily::Windows' src/target/shared/code/ \| head` | **MET** |
 | The generic per-DLL IAT builder handles arbitrary DLLs (audio needs `ole32`/`mmdevapi`; app needs `user32`/`gdi32`) | read `group_imports_by_dll` `src/os/windows/link/mod.rs:53-62` — groups by `import.library` string, no hardcoded list | **MET (property-verified)** |
 | **The plan-13 `app::` widget toolkit is NOT a parity target** — it is unbuilt everywhere, so it is a non-goal here, never scope | `grep -rl '_mfb_rt_app_layout\|addButton' src/` → no matches | **MET (out of scope by construction)** |
@@ -433,7 +433,17 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **2026-07-26 (Prerequisites gate re-run).** All five Prerequisites rows
+  re-measured and confirmed **MET**; Win11 box re-verified reachable on ssh port
+  2230 (`ssh -p 2230 test@127.0.0.1 'echo BOX_OK'` → `BOX_OK`). Gate passed.
+- **2026-07-26 (Measured populations, audio helper count).** The row "audio
+  runtime-helper symbols a backend must emit | 14 | `grep -c 'name:'
+  src/target/shared/runtime/audio_specs.rs`" has a wrong *command*: that file's
+  field is `call:`, not `name:`, so the cited command returns **0**, not 14. The
+  **count is correct** — `grep -c 'call:' src/target/shared/runtime/audio_specs.rs`
+  → **14** (devices, openInput, openInputDevice, openOutput, openOutputDevice,
+  read, readTimeout, write, poll, pollTimeout, available, xruns, closeInput,
+  closeOutput). Sizing of letter H is unaffected.
 
 ## Summary
 
