@@ -12,10 +12,10 @@
 //! NOT writable and NOT executable. Runtime behavior (constants readable, a write
 //! faults) is validated on the Linux remotes.
 
+mod common;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // A program carrying string-literal constants (so the read-only partition is
 // non-empty) plus normal runtime work.
@@ -27,21 +27,7 @@ const PF_W: u32 = 2;
 const PF_R: u32 = 4;
 
 fn temp_project(name: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
-    fs::create_dir_all(root.join("src")).expect("create temp project");
-    fs::write(
-        root.join("project.json"),
-        format!(
-            "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\"entry\":\"main\",\"targets\":[\"native\"]}}\n"
-        ),
-    )
-    .expect("write project.json");
-    fs::write(root.join("src/main.mfb"), SOURCE).expect("write source");
-    root
+    common::temp_project(name, SOURCE)
 }
 
 fn build_linux_elf(project: &Path, target: &str, name: &str) -> Vec<u8> {

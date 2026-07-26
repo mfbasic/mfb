@@ -8,10 +8,10 @@
 //! The ELF header is inspected directly (no Linux host needed); runtime PIE
 //! behavior and ASLR randomization are validated on the Linux remotes.
 
+mod common;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const SOURCE: &str =
     "IMPORT io\n\nFUNC main AS Integer\n  io::print(\"pie\")\n  RETURN 0\nEND FUNC\n";
@@ -19,21 +19,7 @@ const SOURCE: &str =
 const PT_GNU_STACK: u32 = 0x6474_e551;
 
 fn temp_project(name: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
-    fs::create_dir_all(root.join("src")).expect("create temp project");
-    fs::write(
-        root.join("project.json"),
-        format!(
-            "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\"entry\":\"main\",\"targets\":[\"native\"]}}\n"
-        ),
-    )
-    .expect("write project.json");
-    fs::write(root.join("src/main.mfb"), SOURCE).expect("write source");
-    root
+    common::temp_project(name, SOURCE)
 }
 
 fn build_linux_elf(project: &Path, target: &str, name: &str) -> Vec<u8> {

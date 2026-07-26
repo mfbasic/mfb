@@ -20,11 +20,11 @@
 //! compare/branch. It fails the moment the seam normalization is dropped from
 //! any backend.
 
+mod common;
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The atomic-write helpers whose `fsync`/`close` results are relationally
 /// compared. `fs.createTempFile` only closes on an already-failing cleanup path
@@ -37,21 +37,7 @@ const HELPERS: &[&str] = &[
 const SOURCE: &str = "IMPORT fs\nIMPORT strings\n\nFUNC main AS Integer\n  fs::writeTextAtomic(\"/tmp/mfb_bug44/a.txt\", \"x\")\n  fs::writeBytesAtomic(\"/tmp/mfb_bug44/b.bin\", strings::toBytes(\"y\"))\n  RETURN 0\nEND FUNC\n";
 
 fn temp_project(name: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
-    fs::create_dir_all(root.join("src")).expect("create temp project");
-    fs::write(
-        root.join("project.json"),
-        format!(
-            "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\"entry\":\"main\",\"targets\":[\"native\"]}}\n"
-        ),
-    )
-    .expect("write project.json");
-    fs::write(root.join("src/main.mfb"), SOURCE).expect("write source");
-    root
+    common::temp_project(name, SOURCE)
 }
 
 fn build_ncode(project: &Path, target: &str, name: &str) -> Value {
