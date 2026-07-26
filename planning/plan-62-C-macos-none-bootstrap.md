@@ -189,7 +189,7 @@ stdout capture shows only `BEFORE` (both directions verified). `test-macapp.sh` 
 reconcile flips io from stdout to the transcript window" (GUI-opt-in). The window's visual
 appear/disappear is manual on-device confirmation (the io-routing flip is its automatable
 proxy). Full acceptance green; `macos-app-mode-*` byte-identical.
-Commit: —
+Commit: fa88d0e7e
 
 ## Validation Plan
 
