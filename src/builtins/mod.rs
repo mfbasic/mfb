@@ -369,7 +369,7 @@ pub(crate) fn resolve_call_return_type(callee: &str, arg_types: &[String]) -> Op
     try_pkg!(net::resolve_call(callee, arg_types));
     try_pkg!(os::resolve_call(callee, arg_types));
     try_pkg!(http::resolve_call(callee, arg_types));
-    try_pkg!(term::resolve_call(callee)); // no arg_types param
+    try_pkg!(term::resolve_call(callee, arg_types));
     try_pkg!(tls::resolve_call(callee, arg_types));
     try_pkg!(audio::resolve_call(callee, arg_types));
     try_pkg!(vector::resolve_call(callee, arg_types));

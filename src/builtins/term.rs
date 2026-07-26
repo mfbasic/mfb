@@ -108,7 +108,10 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn resolve_call<'a>(name: &str) -> Option<ResolvedCall<'a>> {
+/// `arg_types` is accepted for signature parity with every other package's
+/// `resolve_call` (so the `mod.rs` dispatch is uniform — bug-340 A7) but is
+/// unused: a `term::` call's return type is a function of the name alone.
+pub(crate) fn resolve_call<'a>(name: &str, _arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     let return_type = call_return_type_name(name)?;
     Some(ResolvedCall {
         return_type: Cow::Borrowed(return_type),
@@ -201,7 +204,7 @@ mod tests {
             assert!(call_param_names(name).is_some(), "param_names {name}");
             assert!(param_types(name).is_some(), "param_types {name}");
             assert!(call_return_type_name(name).is_some(), "return_type {name}");
-            assert!(resolve_call(name).is_some(), "resolve {name}");
+            assert!(resolve_call(name, &[]).is_some(), "resolve {name}");
             assert!(expected_arguments(name).is_some(), "expected {name}");
             assert!(arity(name).is_some(), "arity {name}");
             let (min, max) = arity(name).unwrap();
@@ -219,7 +222,7 @@ mod tests {
         assert_eq!(call_param_names("term.nope"), None);
         assert_eq!(param_types("term.nope"), None);
         assert_eq!(call_return_type_name("term.nope"), None);
-        assert!(resolve_call("term.nope").is_none());
+        assert!(resolve_call("term.nope", &[]).is_none());
         assert_eq!(expected_arguments("term.nope"), None);
         assert_eq!(arity("term.nope"), None);
     }
@@ -286,7 +289,7 @@ mod tests {
     #[test]
     fn resolve_call_mirrors_return_type() {
         for name in ALL {
-            let resolved = resolve_call(name).unwrap();
+            let resolved = resolve_call(name, &[]).unwrap();
             assert_eq!(
                 resolved.return_type.into_owned(),
                 call_return_type_name(name).unwrap().to_string(),
