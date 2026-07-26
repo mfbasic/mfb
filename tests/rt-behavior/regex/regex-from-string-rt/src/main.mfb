@@ -21,6 +21,17 @@ FUNC render(hits AS List OF Integer) AS String
   RETURN s & "]"
 END FUNC
 
+' bug-339 C3: exercises the zero-width-match rule shared by findAll and replace
+' after it was extracted into __regex_matchResults. An empty pattern and X* both
+' produce empty matches; the rule records one match per position without looping.
+FUNC zerowidth_run AS Integer
+  io::print("zw_fa_empty=" & render(regex::findAll("abc", "")))
+  io::print("zw_fa_astar=" & render(regex::findAll("aXbXc", "X*")))
+  io::print("zw_rp_empty=" & regex::replace("abc", "", "-"))
+  io::print("zw_rp_astar=" & regex::replace("aXbXc", "X*", "-"))
+  RETURN 0
+END FUNC
+
 FUNC main AS Integer
   LET pattern AS String = fs::readText("tests/rt-behavior/regex/regex-from-string-rt/data/pattern.txt")
   LET value AS String = fs::readText("tests/rt-behavior/regex/regex-from-string-rt/data/input.txt")
@@ -30,5 +41,6 @@ FUNC main AS Integer
   io::print("find=" & toString(regex::find(value, pattern)))
   io::print("findAll=" & render(regex::findAll(value, pattern)))
   io::print("replace=" & regex::replace(value, pattern, "$2:$1"))
+  LET _zw AS Integer = zerowidth_run()
   RETURN 0
 END FUNC

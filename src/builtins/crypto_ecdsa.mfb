@@ -3,32 +3,23 @@
 ' keygen helper, which returns the private bytes as `0x04||X||Y||K`. The public
 ' key is the leading SEC1 uncompressed point `0x04||X||Y` (1 + 2*fieldLen bytes:
 ' 65 for P-256, 97 for P-384, 133 for P-521). Both encodings are wire-compatible
-' across macOS and Linux.
-FUNC __crypto_bytePrefix(data AS List OF Byte, n AS Integer) AS List OF Byte
-  MUT out AS List OF Byte = []
-  MUT i AS Integer = 0
-  WHILE i < n
-    out = collections::append(out, collections::get(data, i))
-    i = i + 1
-  END WHILE
-  RETURN out
-END FUNC
-
+' across macOS and Linux. bug-339 B3: the SEC1 prefix copy uses __crypto_truncate
+' (native range copy); the former __crypto_bytePrefix was its byte-identical twin.
 FUNC __crypto_generateP256() AS KeyPair
   LET priv AS List OF Byte = crypto::generateP256Raw()
-  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 65)
+  LET pub AS List OF Byte = __crypto_truncate(priv, 65)
   RETURN KeyPair[priv, pub]
 END FUNC
 
 FUNC __crypto_generateP384() AS KeyPair
   LET priv AS List OF Byte = crypto::generateP384Raw()
-  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 97)
+  LET pub AS List OF Byte = __crypto_truncate(priv, 97)
   RETURN KeyPair[priv, pub]
 END FUNC
 
 FUNC __crypto_generateP521() AS KeyPair
   LET priv AS List OF Byte = crypto::generateP521Raw()
-  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 133)
+  LET pub AS List OF Byte = __crypto_truncate(priv, 133)
   RETURN KeyPair[priv, pub]
 END FUNC
 

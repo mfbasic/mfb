@@ -1,6 +1,7 @@
 IMPORT fs
 IMPORT io
 IMPORT json
+IMPORT encoding
 
 ' Consolidated runtime-behavior coverage (tests reorg). Each former per-case
 ' main is a <case>_run helper; main drives them in order so stdout is the
@@ -31,8 +32,22 @@ FUNC json_write_valid_run AS Integer
   RETURN 0
 END FUNC
 
+' ---- bug-339 D4: control-character and hex escaping ----
+' Exercises __json_isRawControlChar / __json_escapeRawControlChar / __json_hexDigit
+' after they were rewritten off the 0..31 linear scan. Covers the five named
+' escapes (\b \t \n \f \r) plus \u00XX with UPPERCASE hex (0x0B, 0x1F), and that
+' the result parses back to the identical string.
+FUNC json_control_escape_run AS Integer
+  LET raw AS String = encoding::utf8Decode([toByte(1), toByte(8), toByte(9), toByte(10), toByte(12), toByte(13), toByte(11), toByte(31), toByte(65)])
+  LET s AS String = json::stringify(JsonStr[raw])
+  io::print(s)
+  io::print("roundtrip=" & toString(json::stringify(json::parse(s)) = s))
+  RETURN 0
+END FUNC
+
 FUNC main AS Integer
   LET _json_read_valid AS Integer = json_read_valid_run()
   LET _json_write_valid AS Integer = json_write_valid_run()
+  LET _json_control_escape AS Integer = json_control_escape_run()
   RETURN 0
 END FUNC

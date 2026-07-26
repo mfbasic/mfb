@@ -2,12 +2,6 @@ IMPORT collections
 IMPORT strings
 IMPORT encoding
 
-' Carriage return (U+000D). The lexer decodes the "\r" escape (plan-27), so a
-' "\r" literal is a one-character CR string directly.
-FUNC __csv_crChar AS String
-  RETURN "\r"
-END FUNC
-
 ' csv::parse — scan CSV text into a grid of rows of String cells.
 '
 ' The dialect is RFC-4180-aligned (see src/docs/spec/stdlib/03_csv.md):
@@ -170,7 +164,7 @@ FUNC __csv_needsQuote(field AS String) AS Boolean
   IF strings::contains(field, "\"") THEN
     RETURN TRUE
   END IF
-  IF strings::contains(field, __csv_crChar()) THEN
+  IF strings::contains(field, "\r") THEN
     RETURN TRUE
   END IF
   IF strings::contains(field, "\n") THEN

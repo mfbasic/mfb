@@ -12,4 +12,8 @@ match=TRUE
 find=0
 findAll=[0,9,18]
 replace=12:alpha 345:beta 6:gamma
+zw_fa_empty=[0,1,2,3]
+zw_fa_astar=[0,1,3,5]
+zw_rp_empty=-a-b-c-
+zw_rp_astar=-a-b-c-
 [exit 0]

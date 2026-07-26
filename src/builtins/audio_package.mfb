@@ -31,6 +31,33 @@ EXPORT TYPE AudioNote
   gainOverall AS Float
 END TYPE
 
+' bug-339 C7: shared s16 saturation, previously written three times (two as a pair
+' of IFs, twice as an IF/ELSEIF — equivalent, since a value cannot exceed both
+' bounds). Clamps to the signed 16-bit range.
+FUNC __audio_clampS16(v AS Integer) AS Integer
+  IF v > 32767 THEN
+    RETURN 32767
+  END IF
+  IF v < -32768 THEN
+    RETURN -32768
+  END IF
+  RETURN v
+END FUNC
+
+' bug-339 C7: shared little-endian s16 emit, previously inlined in __audio_render
+' and duplicated in __mml_encode. `sample` must already be in signed 16-bit range;
+' the +65536 wrap maps a negative sample to its unsigned two's-complement bytes.
+FUNC __audio_appendS16LE(pcm AS List OF Byte, sample AS Integer) AS List OF Byte
+  MUT v AS Integer = sample
+  IF v < 0 THEN
+    v = v + 65536
+  END IF
+  MUT out AS List OF Byte = pcm
+  out = collections::append(out, toByte(bits::band(v, 255)))
+  out = collections::append(out, toByte(bits::band(bits::sr(v, 8), 255)))
+  RETURN out
+END FUNC
+
 ' audio::render — render a note to mono s16le PCM at 48 kHz (the frame layout the
 ' playback surface consumes: one frame is 2 bytes). A sine oscillator shaped by
 ' the note's attack/decay/sustain/release envelope; the release is the final
@@ -55,18 +82,8 @@ FUNC __audio_render(note AS AudioNote) AS List OF Byte
     ELSEIF i >= releaseStart THEN
       env = sustain * (toFloat(n - i) / toFloat(r))
     END IF
-    MUT sample AS Integer = toInt(wave * env * note.gainOverall)
-    IF sample > 32767 THEN
-      sample = 32767
-    END IF
-    IF sample < -32768 THEN
-      sample = -32768
-    END IF
-    IF sample < 0 THEN
-      sample = sample + 65536
-    END IF
-    pcm = collections::append(pcm, toByte(bits::band(sample, 255)))
-    pcm = collections::append(pcm, toByte(bits::band(bits::sr(sample, 8), 255)))
+    LET sample AS Integer = __audio_clampS16(toInt(wave * env * note.gainOverall))
+    pcm = __audio_appendS16LE(pcm, sample)
   NEXT
   RETURN pcm
 END FUNC
@@ -495,12 +512,7 @@ FUNC __mml_synth(events AS List OF MmlEvent) AS List OF Integer
           ELSEIF i >= sound - fadeOut THEN
             amp = toFloat(sound - i) / toFloat(fadeOut)
           END IF
-          si = toInt(w * amp * ev.gain * 32767.0)
-          IF si > 32767 THEN
-            si = 32767
-          ELSEIF si < -32768 THEN
-            si = -32768
-          END IF
+          si = __audio_clampS16(toInt(w * amp * ev.gain * 32767.0))
         END IF
         out = collections::append(out, si)
       NEXT
@@ -531,12 +543,7 @@ FUNC __mml_mix(tracks AS List OF List OF Integer) AS List OF Integer
         acc = acc + collections::get(tr, i)
       END IF
     NEXT
-    IF acc > 32767 THEN
-      acc = 32767
-    ELSEIF acc < -32768 THEN
-      acc = -32768
-    END IF
-    out = collections::append(out, acc)
+    out = collections::append(out, __audio_clampS16(acc))
   NEXT
   RETURN out
 END FUNC
@@ -545,12 +552,7 @@ END FUNC
 FUNC __mml_encode(samples AS List OF Integer) AS List OF Byte
   MUT pcm AS List OF Byte = []
   FOR EACH s IN samples
-    MUT v AS Integer = s
-    IF v < 0 THEN
-      v = v + 65536
-    END IF
-    pcm = collections::append(pcm, toByte(bits::band(v, 255)))
-    pcm = collections::append(pcm, toByte(bits::band(bits::sr(v, 8), 255)))
+    pcm = __audio_appendS16LE(pcm, s)
   NEXT
   RETURN pcm
 END FUNC

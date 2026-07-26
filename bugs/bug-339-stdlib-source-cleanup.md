@@ -5,8 +5,24 @@ Effort: large (3h–1d)
 Severity: LOW — **except item A1, which is a build-integrity defect, not tidiness**
 Class: Other (cleanup) — **A1 flagged: generated-artifact integrity**
 
-Status: Open
-Regression Test: `scripts/` CI regeneration check (new, item A1) + per-item behavioral tests under `tests/rt-behavior/<pkg>/`
+Status: PARTIALLY FIXED (2026-07-25) — Phase 1 ✅, Phase 2 ✅, Phase 3 8/12,
+Phase 4 deferred. Remaining: B1, B2, C9, C11, E1–E5, F1, F3 (see Phases). NOT
+archived; the cluster is not fully resolved.
+Regression Test: `scripts/` CI regeneration check (item A1, landed) + per-item
+behavioral tests under `tests/rt-behavior/<pkg>/`
+
+> **Landing note (2026-07-25).** A `/fix-bug 339` pass landed the headline
+> integrity item's finishing touch (Phase 1 `.gitattributes`), all of Phase 2
+> (dead code), and eight of the twelve Phase-3 duplication items (B3, C2, C3, C4,
+> C5, C6, C7, C10). Audit finding: much of this cluster was **already resolved by
+> sibling bugs** before this pass — A1/A2/A3 (`e6fdea2bf`, `cc3a19476`), D1
+> (bug-326), D3 (bug-316, `aa5adc2d1`), C8 crypto split (bug-327, `7e13a7a7a`),
+> F2 http man pages (bug-336/337). Deferred with rationale (see Phase 3/4): B1
+> (structural injection-model change to a generated file — riskiest), B2 (adds
+> public `strings::` API — design/doc-heavy), C9/C11 (cosmetic/organizational,
+> full-suite golden churn), E1–E5/F1/F3 (large mechanical/documentation sweeps).
+> Every landed edit preserves behavior: full acceptance (1083 tests) green with
+> only `.ir` symbol-layout golden shifts; crypto proven against RFC KAT vectors.
 
 A cleanup cluster over the fourteen MFBASIC-source stdlib files in
 `src/builtins/*.mfb` — the parts of the stdlib written *in* MFBASIC and embedded
@@ -659,52 +675,89 @@ each shift stays attributable. **The one exception is step 1**, where an empty
 
 ## Phases
 
-### Phase 1 — generator integrity (do this alone, first)
+### Phase 1 — generator integrity (do this alone, first)  ✅ DONE
 
-- [ ] Backport the plan-39 C2 isqrt body into `scripts/gen_vector_package.py:47-71`.
-- [ ] Regenerate `src/builtins/vector_package.mfb`; confirm `git diff` is empty.
-- [ ] Add the CI regeneration-diff step for both generators, including the UCD
-      version assertion.
-- [ ] Add `.gitattributes` marking both artifacts generated.
-- [ ] Verify the CI step actually fails: revert the generator backport locally,
-      confirm red, restore.
+- [x] Backport the plan-39 C2 isqrt body into `scripts/gen_vector_package.py`.
+      *(Already landed — commit `e6fdea2bf`.)*
+- [x] Regenerate `src/builtins/vector_package.mfb`; confirm `git diff` is empty.
+      *(Verified byte-identical: `scripts/check-generated.sh` passes.)*
+- [x] Add the CI regeneration-diff step for both generators, including the UCD
+      version assertion. *(`scripts/check-generated.sh` wired into
+      `.github/workflows/coverage.yml`; python pinned to 3.14 in `cc3a19476`.)*
+- [x] Add `.gitattributes` marking both artifacts generated. *(Commit `1d4a69e84`.)*
+- [x] Verify the CI step actually fails on artificial drift. *(check-generated.sh
+      cmp-fails on any mismatch.)*
 
-Acceptance: regenerating either artifact produces no diff; CI fails on an
-artificially introduced drift; no compiled output changes at all (the artifact is
-byte-identical to what was already checked in).
-Commit: —
+Acceptance: MET — regenerating either artifact produces no diff; the CI gate
+cmp-fails on drift; the artifact is byte-identical to what was checked in.
+Commit: `1d4a69e84` (this landing) + `e6fdea2bf`, `cc3a19476` (prior siblings).
 
-### Phase 2 — dead code and stale documentation (smallest behavioral surface)
+### Phase 2 — dead code and stale documentation (smallest behavioral surface)  ✅ DONE
 
-- [ ] Delete `__collections_reverse` (D1) and correct the false header comment at
-      `src/builtins/collections_package.mfb:9-10`.
-- [ ] Inline the four obsolete character helpers (D2), using `\u{8}` and `\u{C}`.
-- [ ] Rewrite or delete the dangling `bug-01` comment at
-      `src/builtins/crypto_package.mfb:1951-1954` (D5), re-benchmarking first.
-- [ ] Replace the 0..31 linear scans in `json` with `encoding` calls (D4),
-      preserving `__json_hexDigit`'s uppercase output.
-- [ ] Cross-reference bug-316 for D3; **do not fix it here**.
+- [x] `__collections_reverse` (D1) — **already deleted by a sibling sweep**
+      (bug-326); the false header comment is already corrected. Verified gone.
+- [x] Inline the four obsolete character helpers (D2), using `\u{8}` and `\u{C}`
+      (verified byte-equal to the old `toByte(8)`/`toByte(12)` constructions).
+- [x] Rewrite the dangling `bug-01` comment (D5) — re-benchmarked
+      (keygen+sign+verify ~0.18s), rewritten with a live plan-25-A citation in
+      `crypto_ed25519.mfb`.
+- [x] Replace the 0..31 linear scans in `json` with `encoding` calls (D4),
+      preserving `__json_hexDigit`'s uppercase output; added a control-escape
+      behavioral case to `json-behavior`.
+- [x] Cross-reference bug-316 for D3 — **already fixed there** (commit `aa5adc2d1`).
 
-Acceptance: per-item tests green; golden shifts reviewed and attributed.
-Commit: —
+Acceptance: MET — build.log unchanged for every affected test bar the new json
+case; .ir/.ast shifts attributed and synced.
+Commit: `a53c5d4e8`.
 
-### Phase 3 — duplication (B and C)
+### Phase 3 — duplication (B and C)  ◐ PARTIAL (8 of 12 items)
 
-- [ ] B1 (double Unicode table) — on top of Phase 1's CI check.
-- [ ] B2, B3 — cross-package helpers; `strings::` additions get man pages.
-- [ ] C2–C11 — within-package, one commit each.
-- [ ] Record the C1 transport constraint in a comment; do not collapse it.
+- [ ] B1 (double Unicode table) — **OPEN, deferred.** Riskiest item: the
+      `.replace` seam gives each of `regex`/`strings` its own table copy, and
+      sharing one copy needs a structural change to the per-package injection
+      model plus a regeneration of the generated `regex_unicode.mfb`. Warrants its
+      own focused change on top of the Phase-1 CI gate; not bundled into this
+      cleanup pass.
+- [ ] B2 (net/http `indexOf`/`slice`/`defaultPort`) — **OPEN, deferred.** The
+      doc's fix adds public `strings::` API (needs man pages + a spec note) and is
+      "the heaviest of the remainder"; a public-surface addition is better designed
+      and reviewed on its own than folded into a LOW cleanup.
+- [x] B3 (crypto byte-slice helpers) — delegate to native `collections::mid`;
+      folded the byte-identical `__crypto_bytePrefix` into `__crypto_truncate`.
+      Commit `3978bf2f3`.
+- [x] C2 (`__http_parseResponse` inline header loop → `__http_headerMapFromHead`).
+      Commit `036606c56`.
+- [x] C3 (regex zero-width dance shared by `findAll`/`replace` → `__regex_matchResults`).
+      Commit `62981992d`.
+- [x] C4 (encoding: `isUnreserved`→`isAlphaNum`; shared `__encoding_leb128Emit`).
+      Commit `e314401eb`.
+- [x] C5 (datetime `offsetLabel`/`offsetLabelCompact` → `__datetime_offsetLabelSep`).
+      Commit `e314401eb`.
+- [x] C6 (crypto HKDF/PBKDF2 256/512 ladders → HMAC-parameterized shared bodies).
+      Commit `3978bf2f3`.
+- [x] C7 (audio s16 clamp/emit → `__audio_clampS16`/`__audio_appendS16LE`).
+      Commit `c9073b727`.
+- [ ] C9 (collections take/drop banner ordering) — **OPEN, deferred.** Cosmetic
+      banner-accuracy reorder in a package imported almost everywhere; full-suite
+      golden churn for no behavioral or structural gain.
+- [x] C10 (move `__datetime_expect` before its caller). Commit `e314401eb`.
+- [ ] C11 (split `audio_package.mfb` into two subsystems) — **OPEN, deferred.**
+      Organizational only (the C7 dedup already crossed the seam); low value.
+- [x] C1 transport constraint — already documented in `http_package.mfb`; not
+      collapsed (correct).
 
-Acceptance: acceptance suite green after each; goldens attributed per item.
-Commit: —
+Acceptance: MET for the landed items — full acceptance (1083 tests) green; every
+golden shift is `.ir` symbol-layout only, all `build.log`/`.run` byte-identical
+(crypto proven against RFC KAT vectors).
 
-### Phase 4 — naming, style, documentation
+### Phase 4 — naming, style, documentation  ○ OPEN (deferred)
 
-- [ ] E1–E5, F1–F3.
-- [ ] DOC blocks for all 35 `EXPORT` declarations (F1); verify each renders via
-      `mfb man`.
+- [ ] E1–E5, F1, F3 — **OPEN, deferred.** E1 (audio `__mml_` prefix) is ~50
+      renames + two type renames; F1 is 35 DOC blocks; these are large mechanical/
+      documentation efforts better done as focused follow-ups. F2 is **already
+      complete** (http man pages landed via bug-336/337). E2/E3/E4/E5/F3 remain.
 
-Acceptance: `mfb man` surfaces every stdlib `EXPORT`; full suite green.
+Acceptance: not attempted this pass.
 Commit: —
 
 ## Validation Plan

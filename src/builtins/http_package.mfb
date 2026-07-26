@@ -59,12 +59,6 @@ FUNC __http_defaultPort(scheme AS String) AS Integer
   RETURN 80
 END FUNC
 
-' CRLF line terminator. The lexer decodes the `\r` escape (plan-27), so the
-' terminator is written directly.
-FUNC __http_crlf AS String
-  RETURN "\r\n"
-END FUNC
-
 ' ---- Request building (§B.3) ----
 
 FUNC __http_normalizeMethod(method AS String) AS String
@@ -140,7 +134,7 @@ FUNC __http_hasControlBytes(s AS String) AS Boolean
 END FUNC
 
 FUNC __http_buildRequest(method AS String, url AS net::Url, body AS String, hasBody AS Boolean, headers AS Map OF String TO String) AS String
-  LET crlf AS String = __http_crlf()
+  LET crlf AS String = "\r\n"
   ' bug-262: validate every caller header (name and value) and the URL-derived
   ' request-target / Host for control bytes before any concatenation, so a
   ' `\r\n`-bearing input FAILs rather than framing a smuggled request.
@@ -245,7 +239,7 @@ END FUNC
 ' RFC 9110. Previously the whole response was decoded per 64 KiB receive and then
 ' re-encoded, which both corrupted multibyte bodies and did the work twice.
 FUNC __http_parseResponse(raw AS List OF Byte) AS Response
-  LET crlf AS String = __http_crlf()
+  LET crlf AS String = "\r\n"
   LET separator AS List OF Byte = strings::toBytes(crlf & crlf)
   LET headerEnd AS Integer = __http_indexOfBytes(raw, separator, 0)
   MUT headSection AS String = ""
@@ -263,22 +257,10 @@ FUNC __http_parseResponse(raw AS List OF Byte) AS Response
   END IF
   MUT base AS Response = __http_parseStatusLine(collections::get(lines, 0))
 
-  ' Field names are lowercased so the standard map accessors find them
-  ' case-insensitively; duplicate fields collapse last-wins.
-  MUT headers AS Map OF String TO String = Map OF String TO String {}
-  MUT index AS Integer = 1
-  WHILE index < len(lines)
-    LET line AS String = collections::get(lines, index)
-    IF line <> "" THEN
-      LET colon AS Integer = __http_indexOf(line, ":", 0)
-      IF colon >= 0 THEN
-        LET fieldName AS String = strings::lower(strings::trim(__http_slice(line, 0, colon)))
-        LET fieldValue AS String = strings::trim(__http_slice(line, colon + 1, len(line)))
-        headers = collections::set(headers, fieldName, fieldValue)
-      END IF
-    END IF
-    index = index + 1
-  END WHILE
+  ' bug-339 C2: the header block (lines after the status line, lowercased,
+  ' trimmed, last-wins) is exactly what __http_headerMapFromHead builds — it too
+  ' skips line 0 — so parse it there instead of re-inlining the loop.
+  LET headers AS Map OF String TO String = __http_headerMapFromHead(headSection)
 
   LET bodyBytes AS List OF Byte = __http_decodeBody(base.status, headers, bodySection)
   RETURN Response[base.status, base.reason, base.httpVersion, headers, bodyBytes, base.ok]

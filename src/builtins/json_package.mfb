@@ -45,16 +45,6 @@ TYPE __json_StringNode
   index AS Integer
 END TYPE
 
-FUNC __json_backspaceChar AS String
-  LET bytes AS List OF Byte = [toByte(8)]
-  RETURN toString(bytes)
-END FUNC
-
-FUNC __json_formfeedChar AS String
-  LET bytes AS List OF Byte = [toByte(12)]
-  RETURN toString(bytes)
-END FUNC
-
 FUNC __json_get(value AS Json, path AS List OF String) AS Json
   MUT current AS Json = value
   FOR EACH key IN path
@@ -230,9 +220,9 @@ FUNC __json_escapeString(value AS String) AS String
       out = out & "\\t"
     ELSEIF ch = "\r" THEN
       out = out & "\\r"
-    ELSEIF ch = __json_backspaceChar() THEN
+    ELSEIF ch = "\u{8}" THEN
       out = out & "\\b"
-    ELSEIF ch = __json_formfeedChar() THEN
+    ELSEIF ch = "\u{C}" THEN
       out = out & "\\f"
     ELSEIF __json_isRawControlChar(ch) THEN
       out = out & __json_escapeRawControlChar(ch)
@@ -243,18 +233,19 @@ FUNC __json_escapeString(value AS String) AS String
   RETURN out
 END FUNC
 
+' bug-339 D4: classify by the character's own scalar value instead of a linear
+' probe over code points 0..31 (32 string constructions + 32 compares per call).
+' encoding::utf32Encode yields ch's scalars in one call; a raw control char is a
+' single scalar below 32.
 FUNC __json_escapeRawControlChar(ch AS String) AS String
-  RETURN __json_escapeRawControlCharAt(ch, 0)
-END FUNC
-
-FUNC __json_escapeRawControlCharAt(ch AS String, codePoint AS Integer) AS String
-  IF codePoint >= 32 THEN
-    RETURN ch
+  LET cps AS List OF Integer = encoding::utf32Encode(ch)
+  IF len(cps) = 1 THEN
+    LET cp AS Integer = collections::get(cps, 0)
+    IF cp < 32 THEN
+      RETURN __json_controlEscape(cp)
+    END IF
   END IF
-  IF ch = __json_codePointToString(codePoint) THEN
-    RETURN __json_controlEscape(codePoint)
-  END IF
-  RETURN __json_escapeRawControlCharAt(ch, codePoint + 1)
+  RETURN ch
 END FUNC
 
 FUNC __json_controlEscape(codePoint AS Integer) AS String
@@ -278,41 +269,12 @@ FUNC __json_unicodeControlEscape(codePoint AS Integer) AS String
   RETURN "\\u00" & __json_hexDigit(high) & __json_hexDigit(low)
 END FUNC
 
+' bug-339 D4: index the uppercase hex alphabet (json emits uppercase, unlike
+' encoding::__encoding_hexDigit's lowercase) instead of a 16-branch ladder.
+' value is a nibble 0..15 at every call site (__json_unicodeControlEscape splits a
+' control code point < 32), so mid's own bounds check replaces the old FAIL.
 FUNC __json_hexDigit(value AS Integer) AS String
-  IF value = 0 THEN
-    RETURN "0"
-  ELSEIF value = 1 THEN
-    RETURN "1"
-  ELSEIF value = 2 THEN
-    RETURN "2"
-  ELSEIF value = 3 THEN
-    RETURN "3"
-  ELSEIF value = 4 THEN
-    RETURN "4"
-  ELSEIF value = 5 THEN
-    RETURN "5"
-  ELSEIF value = 6 THEN
-    RETURN "6"
-  ELSEIF value = 7 THEN
-    RETURN "7"
-  ELSEIF value = 8 THEN
-    RETURN "8"
-  ELSEIF value = 9 THEN
-    RETURN "9"
-  ELSEIF value = 10 THEN
-    RETURN "A"
-  ELSEIF value = 11 THEN
-    RETURN "B"
-  ELSEIF value = 12 THEN
-    RETURN "C"
-  ELSEIF value = 13 THEN
-    RETURN "D"
-  ELSEIF value = 14 THEN
-    RETURN "E"
-  ELSEIF value = 15 THEN
-    RETURN "F"
-  END IF
-  FAIL error(77050003, "invalid JSON format")
+  RETURN strings::mid("0123456789ABCDEF", value, 1)
 END FUNC
 
 FUNC __json_parse(value AS String) AS Json
@@ -503,21 +465,14 @@ FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS St
   RETURN __json_StringNode[result, endIndex]
 END FUNC
 
+' bug-339 D4: a raw control char is a single Unicode scalar below 32. Ask for
+' ch's scalars directly (encoding::utf32Encode) rather than the old 32-step probe
+' that rebuilt and compared a string for every code point 0..31.
 FUNC __json_isRawControlChar(ch AS String) AS Boolean
-  RETURN __json_isRawControlCharAt(ch, 0)
-END FUNC
-
-' bug-302: iterative (see __json_skipWhitespace). Bounded at 32 frames rather than
-' by input length, so this one could not overflow — converted with its siblings so
-' the whole scanner family reads one way and no future edit reintroduces the shape.
-FUNC __json_isRawControlCharAt(ch AS String, codePoint AS Integer) AS Boolean
-  MUT cp AS Integer = codePoint
-  WHILE cp < 32
-    IF ch = __json_codePointToString(cp) THEN
-      RETURN TRUE
-    END IF
-    cp = cp + 1
-  END WHILE
+  LET cps AS List OF Integer = encoding::utf32Encode(ch)
+  IF len(cps) = 1 THEN
+    RETURN collections::get(cps, 0) < 32
+  END IF
   RETURN FALSE
 END FUNC
 
@@ -540,9 +495,9 @@ FUNC __json_decodeEscape(ch AS String) AS String
   ELSEIF ch = "/" THEN
     RETURN "/"
   ELSEIF ch = "b" THEN
-    RETURN __json_backspaceChar()
+    RETURN "\u{8}"
   ELSEIF ch = "f" THEN
-    RETURN __json_formfeedChar()
+    RETURN "\u{C}"
   ELSEIF ch = "n" THEN
     RETURN "\n"
   ELSEIF ch = "r" THEN

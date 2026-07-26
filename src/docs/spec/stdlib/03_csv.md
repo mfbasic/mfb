@@ -99,7 +99,7 @@ whole separator and yield identical results.
 
 The CR grapheme is the one-character carriage-return (U+000D) string, written
 directly as a `"\r"` string literal — the lexer decodes the `\r` escape.
-[[src/builtins/csv_package.mfb:__csv_crChar]]
+[[src/builtins/csv_package.mfb:__csv_needsQuote]]
 
 ## Errors
 
