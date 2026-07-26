@@ -803,101 +803,22 @@ impl CodeBuilder<'_> {
         let cp_v = self.temporary_vreg();
         let buf_v = self.temporary_vreg();
         let len_v = self.temporary_vreg();
-        let tmp_v = self.temporary_vreg();
-        let mask_v = self.temporary_vreg();
         let cp = cp_v.as_str();
         let buf = buf_v.as_str();
         let len = len_v.as_str();
-        let tmp = tmp_v.as_str();
-        let mask = mask_v.as_str();
         let buf_slot = self.allocate_stack_object("scalar_utf8_buf", 8);
 
-        let enc1 = self.label("scalar_str_enc1");
-        let enc2 = self.label("scalar_str_enc2");
-        let enc3 = self.label("scalar_str_enc3");
-        let enc4 = self.label("scalar_str_enc4");
-        let encoded = self.label("scalar_str_encoded");
-
+        // S3 (bug-333): route through the canonical UTF-8 codec in
+        // `private/unicode.rs` instead of a second open-coded encoder. The width
+        // helper sets `len`; the encode helper writes the bytes at `buf` (and
+        // advances it, which is why the buffer address is re-derived below).
         self.emit(abi::move_register(cp, source_register));
         self.emit(abi::add_immediate(buf, abi::stack_pointer(), buf_slot));
-        self.emit(abi::compare_immediate(cp, "128")); // < 0x80 -> 1 byte
-        self.emit(abi::branch_lo(&enc1));
-        self.emit(abi::compare_immediate(cp, "2048")); // < 0x800 -> 2 bytes
-        self.emit(abi::branch_lo(&enc2));
-        self.emit(abi::compare_immediate(cp, "65536")); // < 0x10000 -> 3 bytes
-        self.emit(abi::branch_lo(&enc3));
-        self.emit(abi::branch(&enc4));
+        self.emit_utf8_encoded_width(cp, len);
+        self.emit_utf8_encode_next(buf, cp);
 
-        // 1 byte: [cp].
-        self.emit(abi::label(&enc1));
-        self.emit(abi::store_u8(cp, buf, 0));
-        self.emit(abi::move_immediate(len, "Integer", "1"));
-        self.emit(abi::branch(&encoded));
-
-        // 2 bytes: [0xC0 | cp>>6, 0x80 | cp&0x3F].
-        self.emit(abi::label(&enc2));
-        self.emit(abi::shift_right_immediate(tmp, cp, 6));
-        self.emit(abi::move_immediate(mask, "Integer", "192"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 0));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, cp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 1));
-        self.emit(abi::move_immediate(len, "Integer", "2"));
-        self.emit(abi::branch(&encoded));
-
-        // 3 bytes: [0xE0 | cp>>12, 0x80 | (cp>>6)&0x3F, 0x80 | cp&0x3F].
-        self.emit(abi::label(&enc3));
-        self.emit(abi::shift_right_immediate(tmp, cp, 12));
-        self.emit(abi::move_immediate(mask, "Integer", "224"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 0));
-        self.emit(abi::shift_right_immediate(tmp, cp, 6));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, tmp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 1));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, cp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 2));
-        self.emit(abi::move_immediate(len, "Integer", "3"));
-        self.emit(abi::branch(&encoded));
-
-        // 4 bytes: [0xF0 | cp>>18, 0x80 | (cp>>12)&0x3F, 0x80 | (cp>>6)&0x3F,
-        //           0x80 | cp&0x3F].
-        self.emit(abi::label(&enc4));
-        self.emit(abi::shift_right_immediate(tmp, cp, 18));
-        self.emit(abi::move_immediate(mask, "Integer", "240"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 0));
-        self.emit(abi::shift_right_immediate(tmp, cp, 12));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, tmp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 1));
-        self.emit(abi::shift_right_immediate(tmp, cp, 6));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, tmp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 2));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, cp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 3));
-        self.emit(abi::move_immediate(len, "Integer", "4"));
-        self.emit(abi::branch(&encoded));
-
-        self.emit(abi::label(&encoded));
-        // Re-derive the buffer address after the branches (the arena call inside
-        // materialize spills it) and build the owned String.
+        // Re-derive the buffer address (the encode helper advanced `buf`, and the
+        // arena call inside materialize spills it) and build the owned String.
         let buf_addr = self.allocate_register()?;
         self.emit(abi::add_immediate(
             &buf_addr,
