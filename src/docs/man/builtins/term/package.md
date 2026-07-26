@@ -57,12 +57,15 @@ leaves the others untouched, and the matching get function reads the current
 value back. [[src/builtins/term.rs:MOVE_TO]]
 
 Beyond text, the surface can draw box-drawing rules: `term::drawHLine` stamps a
-horizontal run of a box-drawing glyph across a row and `term::drawVLine` stamps a
-vertical run down a column, both using the colours and attributes in effect and
-both presented on the next `term::sync`. The glyph weight is chosen with the
-`LineStyle` enum (`Light`, `Heavy`, `LightDash`, `HeavyDash`, `LightDot`,
-`HeavyDot`, `Double`); each variant has a horizontal form for `drawHLine` and a
-vertical form for `drawVLine`. [[src/target/shared/code/term.rs:emit_draw_line]]
+horizontal run of a box-drawing glyph across a row, `term::drawVLine` stamps a
+vertical run down a column, and `term::drawBox` draws a whole rectangle (four
+edges plus matching corners) between two opposite points — all using the colours
+and attributes in effect and all presented on the next `term::sync`. The glyph
+weight is chosen with the `LineStyle` enum (`Light`, `Heavy`, `LightDash`,
+`HeavyDash`, `LightDot`, `HeavyDot`, `Double`); each variant has a horizontal form
+for `drawHLine` and a vertical form for `drawVLine`, and `drawBox` pairs the edge
+glyphs with the matching corner glyphs (dash/dot styles reuse the Light or Heavy
+corners). [[src/target/shared/code/term.rs:emit_draw_box]]
 
 The package defines two built-in record types and one enum. `TermColor` has three
 `Byte` fields `r`, `g`, and `b` holding the red, green, and blue channels of a
