@@ -574,6 +574,21 @@ and **materializes the register-native operand to a fresh N×8 arena block**
 
 ### Sub-plan K — bignum limb-wise / Barrett reduction
 
+> **[!] K1/K2 REJECTED as written (execution correction).** The C mirror
+> (`benchmark/c/main.c:307` "schoolbook mul + **bit-serial mod**"; `bn_mod`
+> `:363` is the same `for (i = nbits-1; i>=0; i--)` bit loop) uses the **same
+> bit-serial reduction** as the MFBASIC `bnMod`. Replacing MFBASIC's algorithm
+> with limb-wise/Barrett would make it beat C by running a *different, better
+> algorithm* — not by executing the same work faster — so it changes what the
+> benchmark measures and is an unfair (illegitimate) comparison change. The
+> genuine bignum gap is per-op overhead: MFBASIC pays a bounds check on every
+> `collections::get`/`set` in the hot loop where C indexes a stack `uint32_t[]`.
+> The legitimate lever is therefore **compiler-side bounds-check elimination on
+> loop-induction-var list access (the L2 "unchecked-get" mechanism), applied to
+> the bit loop** — keeping the algorithm identical to C. K3 (bnCmp top-limb
+> hoist) is a borderline micro-opt that still diverges from C's exact code; skip.
+> Reclassify: bignum is an **L2/compiler** row, not a benchmark-source rewrite.
+
 **Covers (2):** bignum modmul (19.4, P2), modexp (10.8, P3). Source-level (`main.mfb`).
 
 **Mechanism / root cause (file:line).** The in-place `r` buffer landed (`main.mfb:701-706`,
@@ -718,6 +733,14 @@ fixtures pass):**
 | **A3-datetime** | fixed-offset fast path in `addDays`/`addMonths` | datetime civil | 973.9 → 96.5 (10×) | `de8da577a` |
 | **G2** | ASCII fast path in 5 classify predicates | scalar classify | 29.3 → **4.2 (COMPLETE**, beats Py) | `4cfb9a7f9` |
 
+Authoritative post-fix full `--run 50` (`benchmark/mfb-20260725-223351.log`) confirms the
+three rows (case 50.3, civil 77.5, classify 4.2) with **no regression** on unaddressed rows
+(copy 33, sortBy 21, listchurn nested 71, mapchurn churn 166 — all ≈ plan). **Bonus:
+`dispatch trap` 6961 → 1885 ms** — an indirect A3 benefit: fewer datetime transients cut the
+process-global arena fragmentation that amplifies trap's climb (exactly the A↔trap coupling
+the plan predicted). `parse csv` median (447↔602) and `thread sum` (44↔68) swing run-to-run
+— inherent arena-quadratic / scheduler variance (csv min still 5.57), not touched by these fixes.
+
 **Not yet done — remaining P1/P2 work is deep, heap-corruption-prone codegen that each
 warrants a dedicated focused effort with multi-arch runtime validation (per
 `.ai/compiler.md`), not a rushed pass:** C1 (map in-place removeKey — variable-length
@@ -756,6 +779,13 @@ and what execution found, with evidence.
   sweep (`arena.rs:369-457`) — a partial mitigation of A1's premise already landed; A2's
   size-class segregation is partly present as plan-25-A "segregated large-block bins"
   (`arena.rs:44-50`). A1/A2 must be re-scoped against this current code, not the citations.
+- **Legitimacy rule (K rejected).** A benchmark measures MFBASIC vs C/Python running the
+  *same* algorithm; a valid fix speeds up the compiler/runtime/stdlib so the *same source
+  operation* runs faster (F1 case-map, A3 datetime builtin, G2 classify builtin all qualify —
+  they optimize a stdlib/compiler path, not the workload's algorithm). Sub-plan **K** would
+  rewrite the benchmark's *own* `bnMod` from bit-serial to limb-wise — but the C mirror is
+  *also* bit-serial (`main.c:307,363`), so K makes MFBASIC win by algorithm, not speed:
+  rejected. Bignum's real lever is compiler bounds-check elimination (L2), reclassified.
 - **Measurement: the full `--run 50` suite is ~20+ min** (the arena quadratic makes late
   iterations of dispatch-trap/datetime/csv progressively slower), too slow for a per-fix
   loop. Per-group re-measurement uses a throwaway trimmed copy of `benchmark/mfb`
