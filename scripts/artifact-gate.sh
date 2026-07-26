@@ -11,13 +11,16 @@
 # `linux_*` target module — had no byte-identity coverage at all on the machine
 # where the work actually happens.
 set -u
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=artifact-kinds.sh
+. "$SCRIPT_DIR/artifact-kinds.sh"
 MFB="$1"; REPO="$(pwd)"
 host_arch="$(uname -m)"; case "$host_arch" in arm64) A=aarch64;; x86_64) A=x86_64;; *) A=$host_arch;; esac
 case "$(uname -s)" in Darwin) HOST_TGT="macos-$A";; Linux) HOST_TGT="linux-$A";; *) HOST_TGT="unknown-$A";; esac
 diffs=0; checked=0; ran=0; builds=0
 
-# The native artifact extensions, in the order they are reported.
-NATIVE_EXTS="nir nplan nobj ncode mir"
+# The native artifact extensions, in the order they are reported (shared table).
+NATIVE_EXTS="$ARTIFACT_NATIVE_KINDS"
 
 while IFS= read -r pj; do
   td=$(dirname "$pj")
@@ -41,20 +44,26 @@ while IFS= read -r pj; do
     done
   done
 
-  # Pass 1: target-independent dumps (AST / IR / package binary). Built once,
-  # for the host, since none of them depend on the backend.
+  # Pass 1: target-independent host dumps (ARTIFACT_HOST_KINDS). Built once, for
+  # the host, since none depend on the backend. `-ast -ir` is the unconditional
+  # base so the invocation is always a front-end-only dump (never a link); the
+  # remaining host kinds (hex) are added only when their golden is present.
+  # `-q` mirrors test-accept.sh so the two drivers issue the same build; the
+  # gate discards stdout regardless, and `-q` never changes the dump files.
   flags="-ast -ir"
-  [ -f "$g/$pkg.hex" ] && flags="$flags -br"
+  for k in $ARTIFACT_HOST_KINDS; do
+    case "$k" in ast|ir) continue ;; esac
+    [ -f "$g/$pkg.$k" ] && flags="$flags $(artifact_build_flag "$k")"
+  done
   rm -f "$td/$pkg".{ast,ir,hex,nir,nplan,nobj,ncode,mir} 2>/dev/null
-  "$MFB" build $flags "$td" >/dev/null 2>&1
+  "$MFB" build -q $flags "$td" >/dev/null 2>&1
   builds=$((builds+1))
-  for pair in "ast:ast" "ir:ir" "hex:hex"; do
-    ae="${pair%%:*}"; ge="${pair##*:}"
-    gf="$g/$pkg.$ge"; af="$td/$pkg.$ae"
+  for k in $ARTIFACT_HOST_KINDS; do
+    gf="$g/$pkg.$k"; af="$td/$pkg.$k"
     [ -f "$gf" ] || continue
     checked=$((checked+1))
-    if [ ! -f "$af" ]; then echo "MISSING $rel/$pkg.$ge"; diffs=$((diffs+1)); continue; fi
-    cmp -s "$gf" "$af" || { echo "DIFF $rel/$pkg.$ge"; diffs=$((diffs+1)); }
+    if [ ! -f "$af" ]; then echo "MISSING $rel/$pkg.$k"; diffs=$((diffs+1)); continue; fi
+    cmp -s "$gf" "$af" || { echo "DIFF $rel/$pkg.$k"; diffs=$((diffs+1)); }
   done
   rm -f "$td/$pkg".{ast,ir,hex,nir,nplan,nobj,ncode,mir} 2>/dev/null
 
@@ -73,8 +82,9 @@ while IFS= read -r pj; do
     targ=""
     [ "$tt" = "$HOST_TGT" ] || targ="-target $tt"
     rm -f "$td/$pkg".{nir,nplan,nobj,ncode,mir} 2>/dev/null
+    # `-q` mirrors test-accept.sh (parity; the gate discards stdout anyway).
     # shellcheck disable=SC2086
-    "$MFB" build $tflags $targ $mode "$td" >/dev/null 2>&1
+    "$MFB" build -q $tflags $targ $mode "$td" >/dev/null 2>&1
     builds=$((builds+1))
     for ext in $NATIVE_EXTS; do
       af="$td/$pkg.$ext"

@@ -15,6 +15,14 @@ FILTERS=("$@")
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
+# Shared codegen-dump artifact table (also sourced by scripts/artifact-gate.sh),
+# so the two drivers cannot drift about which build dumps exist. It defines the
+# host and native dump kinds this harness's native-artifact regions iterate; the
+# packaging/execution artifacts (mfp/info/audit/testrun/coverage) are this
+# harness's alone and stay in their own bespoke blocks below.
+# shellcheck source=artifact-kinds.sh
+. "$ROOT/scripts/artifact-kinds.sh"
+
 # Hermetic package key store. `mfb build` verifies an imported package's
 # attestation against the registry key pinned under
 # `$MFB_HOME/<sha256(repo-url)>/server.pub` (`local_paths_for_repo`), defaulting
@@ -275,24 +283,21 @@ while IFS= read -r project_json; do
   ir_path="$test_dir/$package_name.ir"
   hex_path="$test_dir/$package_name.hex"
   mfp_path="$test_dir/$package_name.mfp"
-  nir_path="$test_dir/$package_name.nir"
-  nplan_path="$test_dir/$package_name.nplan"
-  nobj_path="$test_dir/$package_name.nobj"
-  ncode_path="$test_dir/$package_name.ncode"
-  target_nir_path="$test_dir/$package_name.$target_name.nir"
-  target_nplan_path="$test_dir/$package_name.$target_name.nplan"
-  target_nobj_path="$test_dir/$package_name.$target_name.nobj"
-  target_ncode_path="$test_dir/$package_name.$target_name.ncode"
-  mir_path="$test_dir/$package_name.mir"
-  target_mir_path="$test_dir/$package_name.$target_name.mir"
-  # macOS app-mode (`mfb build -app`) native goldens. App-mode `-nir/-nplan/-ncode`
-  # write to the same `$package_name.{nir,nplan,ncode}` paths as console mode, so a
-  # fixture carries either console or app goldens for a given extension, never both.
-  target_app_nir_path="$test_dir/$package_name.$target_name.app.nir"
-  target_app_nplan_path="$test_dir/$package_name.$target_name.app.nplan"
-  target_app_ncode_path="$test_dir/$package_name.$target_name.app.ncode"
 
-  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$nir_path" "$nplan_path" "$nobj_path" "$ncode_path" "$mir_path" "$target_nir_path" "$target_nplan_path" "$target_nobj_path" "$target_ncode_path" "$target_mir_path" "$target_app_nir_path" "$target_app_nplan_path" "$target_app_ncode_path"
+  # Clean any stale dump artifacts a previous run left in the fixture dir. Host
+  # dumps and the package binary are cleaned by name; each native dump
+  # (ARTIFACT_NATIVE_KINDS) is cleaned in every spelling the harness produces —
+  # the non-infixed path `mfb build` writes, the target-infixed golden name, and,
+  # for the app kinds, the `-app` variant. App-mode `-nir/-nplan/-ncode` write to
+  # the same non-infixed `$package_name.{nir,nplan,ncode}` path as console mode,
+  # so a fixture carries either console or app goldens for a kind, never both.
+  rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path"
+  for ext in $ARTIFACT_NATIVE_KINDS; do
+    rm -f "$test_dir/$package_name.$ext" "$test_dir/$package_name.$target_name.$ext"
+    case " $ARTIFACT_NATIVE_APP_KINDS " in
+      *" $ext "*) rm -f "$test_dir/$package_name.$target_name.app.$ext" ;;
+    esac
+  done
   remove_output_dir "$test_dir"
 
   {
@@ -303,21 +308,13 @@ while IFS= read -r project_json; do
     if [ -f "$golden_dir/$package_name.hex" ]; then
       console_flags="$console_flags -br"
     fi
-    if [ -f "$golden_dir/$package_name.$target_name.nir" ]; then
-      console_flags="$console_flags -nir"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.nplan" ]; then
-      console_flags="$console_flags -nplan"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.nobj" ]; then
-      console_flags="$console_flags -nobj"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.ncode" ]; then
-      console_flags="$console_flags -ncode"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.mir" ]; then
-      console_flags="$console_flags -mir"
-    fi
+    # Native dumps: request each kind (ARTIFACT_NATIVE_KINDS) whose target-infixed
+    # console golden exists. Same table + flag mapping the fast gate uses.
+    for ext in $ARTIFACT_NATIVE_KINDS; do
+      if [ -f "$golden_dir/$package_name.$target_name.$ext" ]; then
+        console_flags="$console_flags $(artifact_build_flag "$ext")"
+      fi
+    done
     # plan-36: capture build.log with `-q` so the deterministic `Building …`
     # summary line (and any `-v` timings) never enter the exact-compared golden.
     # `-q` restores today's minimal output; the `Wrote … to` artifact line still
@@ -332,15 +329,11 @@ while IFS= read -r project_json; do
       echo "[exit $?]"
     fi
     app_flags=""
-    if [ -f "$golden_dir/$package_name.$target_name.app.nir" ]; then
-      app_flags="$app_flags -nir"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.app.nplan" ]; then
-      app_flags="$app_flags -nplan"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.app.ncode" ]; then
-      app_flags="$app_flags -ncode"
-    fi
+    for ext in $ARTIFACT_NATIVE_APP_KINDS; do
+      if [ -f "$golden_dir/$package_name.$target_name.app.$ext" ]; then
+        app_flags="$app_flags $(artifact_build_flag "$ext")"
+      fi
+    done
     if [ -n "$app_flags" ]; then
       echo "$ mfb build ${target_label}-app${app_flags} tests/$test_name"
       # shellcheck disable=SC2086
@@ -394,33 +387,22 @@ while IFS= read -r project_json; do
   if [ -f "$mfp_path" ]; then
     mv "$mfp_path" "$actual_dir/$package_name.mfp"
   fi
-  if [ -f "$nir_path" ]; then
-    if [ -f "$golden_dir/$package_name.$target_name.app.nir" ]; then
-      mv "$nir_path" "$actual_dir/$package_name.$target_name.app.nir"
-    else
-      mv "$nir_path" "$actual_dir/$package_name.$target_name.nir"
-    fi
-  fi
-  if [ -f "$nplan_path" ]; then
-    if [ -f "$golden_dir/$package_name.$target_name.app.nplan" ]; then
-      mv "$nplan_path" "$actual_dir/$package_name.$target_name.app.nplan"
-    else
-      mv "$nplan_path" "$actual_dir/$package_name.$target_name.nplan"
-    fi
-  fi
-  if [ -f "$nobj_path" ]; then
-    mv "$nobj_path" "$actual_dir/$package_name.$target_name.nobj"
-  fi
-  if [ -f "$ncode_path" ]; then
-    if [ -f "$golden_dir/$package_name.$target_name.app.ncode" ]; then
-      mv "$ncode_path" "$actual_dir/$package_name.$target_name.app.ncode"
-    else
-      mv "$ncode_path" "$actual_dir/$package_name.$target_name.ncode"
-    fi
-  fi
-  if [ -f "$mir_path" ]; then
-    mv "$mir_path" "$actual_dir/$package_name.$target_name.mir"
-  fi
+  # Move each native dump the build wrote (non-infixed path) to its target-infixed
+  # actual name. App kinds (ARTIFACT_NATIVE_APP_KINDS) go to the `-app` variant
+  # name when the fixture carries an app golden for that kind, else the console
+  # name — matching how the flags above were chosen.
+  for ext in $ARTIFACT_NATIVE_KINDS; do
+    src="$test_dir/$package_name.$ext"
+    [ -f "$src" ] || continue
+    dest="$actual_dir/$package_name.$target_name.$ext"
+    case " $ARTIFACT_NATIVE_APP_KINDS " in
+      *" $ext "*)
+        if [ -f "$golden_dir/$package_name.$target_name.app.$ext" ]; then
+          dest="$actual_dir/$package_name.$target_name.app.$ext"
+        fi ;;
+    esac
+    mv "$src" "$dest"
+  done
 
   audit_path="$actual_dir/$package_name.audit"
   if [ -f "$golden_dir/$package_name.audit" ]; then
@@ -507,30 +489,18 @@ while IFS= read -r project_json; do
   compare_optional_output "$test_name/$package_name.info" \
     "$golden_dir/$package_name.info" \
     "$actual_dir/$package_name.info"
-  compare_optional_output "$test_name/$package_name.$target_name.nir" \
-    "$golden_dir/$package_name.$target_name.nir" \
-    "$actual_dir/$package_name.$target_name.nir"
-  compare_optional_output "$test_name/$package_name.$target_name.nplan" \
-    "$golden_dir/$package_name.$target_name.nplan" \
-    "$actual_dir/$package_name.$target_name.nplan"
-  compare_optional_output "$test_name/$package_name.$target_name.nobj" \
-    "$golden_dir/$package_name.$target_name.nobj" \
-    "$actual_dir/$package_name.$target_name.nobj"
-  compare_optional_output "$test_name/$package_name.$target_name.ncode" \
-    "$golden_dir/$package_name.$target_name.ncode" \
-    "$actual_dir/$package_name.$target_name.ncode"
-  compare_optional_output "$test_name/$package_name.$target_name.mir" \
-    "$golden_dir/$package_name.$target_name.mir" \
-    "$actual_dir/$package_name.$target_name.mir"
-  compare_optional_output "$test_name/$package_name.$target_name.app.nir" \
-    "$golden_dir/$package_name.$target_name.app.nir" \
-    "$actual_dir/$package_name.$target_name.app.nir"
-  compare_optional_output "$test_name/$package_name.$target_name.app.nplan" \
-    "$golden_dir/$package_name.$target_name.app.nplan" \
-    "$actual_dir/$package_name.$target_name.app.nplan"
-  compare_optional_output "$test_name/$package_name.$target_name.app.ncode" \
-    "$golden_dir/$package_name.$target_name.app.ncode" \
-    "$actual_dir/$package_name.$target_name.app.ncode"
+  # Native dumps (console) and their app-mode variants, driven by the shared
+  # table so the compared set matches what the flags requested and the mv placed.
+  for ext in $ARTIFACT_NATIVE_KINDS; do
+    compare_optional_output "$test_name/$package_name.$target_name.$ext" \
+      "$golden_dir/$package_name.$target_name.$ext" \
+      "$actual_dir/$package_name.$target_name.$ext"
+  done
+  for ext in $ARTIFACT_NATIVE_APP_KINDS; do
+    compare_optional_output "$test_name/$package_name.$target_name.app.$ext" \
+      "$golden_dir/$package_name.$target_name.app.$ext" \
+      "$actual_dir/$package_name.$target_name.app.$ext"
+  done
 done < <(find "$TEST_ROOT" -name project.json | sort)
 
 if [ "${#FILTERS[@]}" -ne 0 ] && [ "$ran" -eq 0 ]; then
