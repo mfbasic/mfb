@@ -184,7 +184,8 @@ fn symlinked_source_paths_must_stay_inside_project() {
 }
 
 // ---------------------------------------------------------------------------
-// Expression-parser coverage (src/ast/expr.rs)
+// Expression-parser coverage (src/ast/expr.rs): primary/operator/lambda/with
+// forms, parse_type_name variants, and remaining argument/edge/error paths.
 // ---------------------------------------------------------------------------
 
 /// Parse a whole program, expecting success.
@@ -693,8 +694,173 @@ fn parses_qualified_identifier() {
     assert_eq!(name, "math.pi");
 }
 
+fn param_type(src: &str) -> String {
+    let file = parse_file(src);
+    let f = &file
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(f) => Some(f),
+            _ => None,
+        })
+        .expect("function");
+    f.params[0].type_name.clone().expect("param type")
+}
+
+#[test]
+fn type_names_cover_thread_map_list_and_function_forms() {
+    // Thread with message + resource + output.
+    assert_eq!(
+        param_type("SUB s(t AS Thread OF Msg RES Handle TO Out)\nEND SUB\n"),
+        "Thread OF Msg RES Handle TO Out"
+    );
+    // Thread resource-only (message defaults to Nothing).
+    assert_eq!(
+        param_type("SUB s(t AS Thread OF RES Handle TO Out)\nEND SUB\n"),
+        "Thread OF RES Handle TO Out"
+    );
+    // Thread with just message + output.
+    assert_eq!(
+        param_type("SUB s(t AS Thread OF Msg TO Out)\nEND SUB\n"),
+        "Thread OF Msg TO Out"
+    );
+    // ThreadWorker canonicalizes.
+    assert_eq!(
+        param_type("SUB s(t AS ThreadWorker OF Msg TO Out)\nEND SUB\n"),
+        "ThreadWorker OF Msg TO Out"
+    );
+    // Map type with RES value.
+    assert_eq!(
+        param_type("SUB s(m AS Map OF String TO RES File)\nEND SUB\n"),
+        "Map OF String TO RES File"
+    );
+    // List of RES.
+    assert_eq!(
+        param_type("SUB s(xs AS List OF RES File)\nEND SUB\n"),
+        "List OF RES File"
+    );
+    // Multi-arg template type.
+    assert_eq!(
+        param_type("SUB s(p AS Pair OF Integer, String)\nEND SUB\n"),
+        "Pair OF Integer, String"
+    );
+    // Function type.
+    assert_eq!(
+        param_type("SUB s(f AS FUNC(Integer, String) AS Boolean)\nEND SUB\n"),
+        "FUNC(Integer, String) AS Boolean"
+    );
+    // ISOLATED function type.
+    assert_eq!(
+        param_type("SUB s(f AS ISOLATED FUNC() AS Integer)\nEND SUB\n"),
+        "ISOLATED FUNC() AS Integer"
+    );
+    // Grouped type.
+    assert_eq!(param_type("SUB s(f AS (Integer))\nEND SUB\n"), "(Integer)");
+    // Nothing base type.
+    assert_eq!(
+        param_type("SUB s(f AS FUNC() AS Nothing)\nEND SUB\n"),
+        "FUNC() AS Nothing"
+    );
+}
+
+#[test]
+fn type_name_errors() {
+    // Map type missing TO.
+    assert!(try_parse("SUB s(m AS Map OF String Integer)\nEND SUB\n").is_err());
+    // Thread type missing TO.
+    assert!(try_parse("SUB s(t AS Thread OF Msg Out)\nEND SUB\n").is_err());
+    // ISOLATED not followed by FUNC.
+    assert!(try_parse("SUB s(f AS ISOLATED Integer)\nEND SUB\n").is_err());
+    // Function type missing (.
+    assert!(try_parse("SUB s(f AS FUNC Integer)\nEND SUB\n").is_err());
+    // Function type missing AS.
+    assert!(try_parse("SUB s(f AS FUNC(Integer))\nEND SUB\n").is_err());
+    // Grouped type missing ).
+    assert!(try_parse("SUB s(f AS (Integer)\nEND SUB\n").is_err());
+    // A bare type where a type name is required but token is bad.
+    assert!(try_parse("SUB s(f AS 123)\nEND SUB\n").is_err());
+}
+
+#[test]
+fn map_literal_with_res_value_type() {
+    // A `Map OF K TO RES File { }` literal carries the RES marker on its value.
+    let json = project_json(
+        "FUNC main AS Integer\n  LET m = Map OF Integer TO RES File { }\n  RETURN 0\nEND FUNC\n",
+    );
+    assert!(json.contains("\"valueType\": \"RES File\""));
+}
+
+#[test]
+fn map_literal_missing_to_is_error() {
+    assert!(try_parse(
+        "FUNC main AS Integer\n  LET m = Map OF Integer File { }\n  RETURN 0\nEND FUNC\n"
+    )
+    .is_err());
+}
+
+#[test]
+fn div_operator_and_lambda_bare_body() {
+    let json = project_json("FUNC f AS Integer\n  RETURN a DIV b\nEND FUNC\n");
+    assert!(json.contains("\"operator\": \"DIV\""));
+
+    // A lambda whose body is not an assignment (bare identifier).
+    let json = project_json(
+        "FUNC f AS Integer\n  LET g AS Integer = LAMBDA() -> 7\n  RETURN 0\nEND FUNC\n",
+    );
+    assert!(json.contains("\"kind\": \"lambda\""));
+}
+
+#[test]
+fn with_update_error_paths() {
+    // WITH update field is not an identifier.
+    assert!(try_parse("FUNC f AS Integer\n  RETURN WITH x { 1 := 2 }\nEND FUNC\n").is_err());
+    // Missing := between field and value.
+    assert!(try_parse("FUNC f AS Integer\n  RETURN WITH x { a b }\nEND FUNC\n").is_err());
+    // Missing closing }.
+    assert!(try_parse("FUNC f AS Integer\n  RETURN WITH x { a := 1\nEND FUNC\n").is_err());
+    // A multi-update WITH (comma loop) parses.
+    let json = project_json(
+        "FUNC f AS Integer\n  LET r = WITH x { a := 1, b := 2 }\n  RETURN 0\nEND FUNC\n",
+    );
+    assert!(json.contains("\"kind\": \"with\""));
+}
+
+#[test]
+fn call_and_constructor_argument_errors() {
+    // Constructor with a named field missing := ... actually missing close bracket.
+    assert!(try_parse("FUNC f AS Integer\n  RETURN Point[a := 1\nEND FUNC\n").is_err());
+    // Call missing closing paren.
+    assert!(try_parse("FUNC f AS Integer\n  RETURN g(1, 2\nEND FUNC\n").is_err());
+    // Constructor with positional + named args parses.
+    let json =
+        project_json("FUNC f AS Integer\n  LET p = Point[1, y := 2]\n  RETURN 0\nEND FUNC\n");
+    assert!(json.contains("\"kind\": \"constructor\""));
+    assert!(json.contains("\"kind\": \"named\""));
+}
+
+#[test]
+fn list_and_map_literal_forms() {
+    // Empty list literal.
+    let json = project_json("FUNC f AS Integer\n  LET xs = []\n  RETURN 0\nEND FUNC\n");
+    assert!(json.contains("\"kind\": \"list\", \"values\": []"));
+    // Unterminated list.
+    assert!(try_parse("FUNC f AS Integer\n  RETURN [1, 2\nEND FUNC\n").is_err());
+    // Map literal with a missing := between key and value.
+    assert!(try_parse(
+        "FUNC f AS Integer\n  RETURN Map OF String TO Integer { \"a\" 1 }\nEND FUNC\n"
+    )
+    .is_err());
+    // Multi-entry map literal (comma loop).
+    let json = project_json(
+        "FUNC f AS Integer\n  LET m = Map OF String TO Integer { \"a\" := 1, \"b\" := 2 }\n  RETURN 0\nEND FUNC\n",
+    );
+    assert!(json.contains("\"kind\": \"map\""));
+}
+
 // ---------------------------------------------------------------------------
-// Project / manifest assembly coverage (src/ast/manifest.rs)
+// Project / manifest assembly coverage (src/ast/manifest.rs): parse_project /
+// write_ast / selected_source_paths, nested directory walk and escape checks,
+// glob edge cases, and canonicalize/read failure diagnostic paths.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1071,8 +1237,194 @@ fn test_temp_dir(name: &str) -> PathBuf {
     root
 }
 
+#[test]
+fn parse_project_propagates_parse_errors() {
+    let root = test_temp_dir("parse_project_propagates_parse_errors");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src");
+    fs::write(project_dir.join("src/main.mfb"), "garbage nonsense\n").expect("main");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    assert!(parse_project("demo", &project_dir, &manifest).is_err());
+
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[test]
+fn parse_project_missing_directory_is_error() {
+    let root = test_temp_dir("parse_project_missing_directory_is_error");
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    // The project directory itself does not exist -> canonicalize fails.
+    assert!(parse_project("demo", &root.join("nope"), &manifest).is_err());
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[test]
+fn collect_reports_missing_and_empty_roots() {
+    let root = test_temp_dir("collect_reports_missing_and_empty_roots");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src");
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+
+    // A source root that does not exist.
+    let missing = manifest_with_sources(vec![source_entry("nope", None, None)]);
+    assert!(collect_selected_source_files(&project_dir, &canonical, &missing).is_err());
+
+    // A source root that has no matching .mfb files.
+    let empty = manifest_with_sources(vec![source_entry("src", None, None)]);
+    assert!(collect_selected_source_files(&project_dir, &canonical, &empty).is_err());
+
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[test]
+fn collect_handles_single_file_and_non_mfb_root() {
+    let root = test_temp_dir("collect_handles_single_file_and_non_mfb_root");
+    let project_dir = root.join("project");
+    fs::create_dir_all(&project_dir).expect("dir");
+    fs::write(project_dir.join("main.mfb"), "SUB main\nEND SUB\n").expect("main");
+    fs::write(project_dir.join("notes.txt"), "hi\n").expect("notes");
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+
+    // A direct file root that is an .mfb file is selected.
+    let file_manifest = manifest_with_sources(vec![source_entry("main.mfb", None, None)]);
+    let files =
+        collect_selected_source_files(&project_dir, &canonical, &file_manifest).expect("files");
+    assert_eq!(files.len(), 1);
+
+    // A direct file root that is not .mfb yields an empty selection -> error.
+    let txt_manifest = manifest_with_sources(vec![source_entry("notes.txt", None, None)]);
+    assert!(collect_selected_source_files(&project_dir, &canonical, &txt_manifest).is_err());
+
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[test]
+fn source_entries_default_include_when_absent() {
+    // A manifest with no `sources` key yields no entries -> empty selection error.
+    let root = test_temp_dir("source_entries_default_include_when_absent");
+    let project_dir = root.join("project");
+    fs::create_dir_all(&project_dir).expect("dir");
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    let manifest: HashMap<String, JsonValue> = HashMap::new();
+    let files =
+        collect_selected_source_files(&project_dir, &canonical, &manifest).expect("empty ok");
+    assert!(files.is_empty());
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[test]
+fn collect_walks_nested_directories() {
+    let root = test_temp_dir("collect_walks_nested_directories");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src/a/b")).expect("dirs");
+    fs::write(project_dir.join("src/top.mfb"), "SUB top\nEND SUB\n").expect("top");
+    fs::write(project_dir.join("src/a/mid.mfb"), "SUB mid\nEND SUB\n").expect("mid");
+    fs::write(project_dir.join("src/a/b/deep.mfb"), "SUB deep\nEND SUB\n").expect("deep");
+    fs::write(project_dir.join("src/a/skip.txt"), "x\n").expect("txt");
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let files = collect_selected_source_files(&project_dir, &canonical, &manifest).expect("files");
+    assert_eq!(files.len(), 3);
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[test]
+fn selected_source_paths_missing_dir_is_error() {
+    let root = test_temp_dir("selected_source_paths_missing_dir_is_error");
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    assert!(selected_source_paths(&root.join("nope"), &manifest).is_err());
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[cfg(unix)]
+#[test]
+fn nested_symlink_escaping_project_is_rejected() {
+    let root = test_temp_dir("nested_symlink_escaping_project_is_rejected");
+    let project_dir = root.join("project");
+    let outside = root.join("outside");
+    fs::create_dir_all(project_dir.join("src")).expect("src");
+    fs::create_dir_all(&outside).expect("outside");
+    fs::write(outside.join("escape.mfb"), "SUB escape\nEND SUB\n").expect("escape");
+    // A symlink *inside* a walked subdirectory pointing outside the project.
+    symlink(&outside, project_dir.join("src/link")).expect("symlink");
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[test]
+fn glob_component_edge_cases() {
+    // Trailing `*` after the value is consumed.
+    assert!(glob_matches("a*", "a"));
+    // `?` matches exactly one character.
+    assert!(glob_matches("a?c", "abc"));
+    assert!(!glob_matches("a?c", "ac"));
+    // A `*` in the middle backtracks.
+    assert!(glob_matches("a*c", "abbbc"));
+    assert!(!glob_matches("a*c", "abbb"));
+    // `**` matches zero segments.
+    assert!(glob_matches("**/x", "x"));
+    // A literal mismatch fails fast.
+    assert!(!glob_matches("abc", "xbc"));
+}
+
+#[cfg(unix)]
+#[test]
+fn broken_symlink_root_reports_canonicalize_failure() {
+    let root = test_temp_dir("broken_symlink_root_reports_canonicalize_failure");
+    let project_dir = root.join("project");
+    fs::create_dir_all(&project_dir).expect("dir");
+    // A source root that is a dangling symlink: exists() is true (the link),
+    // but canonicalize() fails on the missing target.
+    symlink(project_dir.join("missing_target"), project_dir.join("src")).expect("symlink");
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_source_file_reports_read_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = test_temp_dir("unreadable_source_file_reports_read_failure");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src");
+    let file = project_dir.join("src/main.mfb");
+    fs::write(&file, "SUB main\nEND SUB\n").expect("write");
+    // Remove all read permission so parse_file's read_to_string fails.
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).expect("chmod");
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let result = parse_project("demo", &project_dir, &manifest);
+    // Restore permissions so cleanup can proceed regardless of the outcome.
+    let _ = fs::set_permissions(&file, fs::Permissions::from_mode(0o644));
+    assert!(result.is_err());
+    fs::remove_dir_all(root).expect("remove");
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_cycle_within_project_is_skipped() {
+    let root = test_temp_dir("symlink_cycle_within_project_is_skipped");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("main");
+    // A symlink pointing back at its own parent creates a cycle; the visited-dirs
+    // guard must break it rather than recursing forever.
+    symlink(project_dir.join("src"), project_dir.join("src/loop")).expect("symlink");
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let files = collect_selected_source_files(&project_dir, &canonical, &manifest).expect("files");
+    assert_eq!(files.len(), 1);
+    fs::remove_dir_all(root).expect("remove");
+}
+
 // ---------------------------------------------------------------------------
-// plan-12 coverage: source-driven parse + serialize tests.
+// plan-12 coverage: source-driven parse + serialize (src/ast/serialize.rs).
+// One rich fixture over every AST node kind, signature_line + placeholder
+// helpers, and the null/None default branches of each renderer.
 // ---------------------------------------------------------------------------
 
 /// Parse a single source string into an `AstFile`, panicking on parse error.
@@ -1105,10 +1457,6 @@ fn function<'a>(file: &'a AstFile, name: &str) -> &'a Function {
         })
         .expect("function item")
 }
-
-// ---------------------------------------------------------------------------
-// serialize.rs — one rich fixture exercising every AST node kind.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn serialize_covers_all_item_kinds() {
@@ -1337,10 +1685,6 @@ END FUNC
     assert!(json.contains("\"target\": \"program\""));
 }
 
-// ---------------------------------------------------------------------------
-// serialize.rs — signature_line + placeholder helpers.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn function_signature_line_renders_visibility_isolated_and_params() {
     let file = parse_file(
@@ -1423,6 +1767,131 @@ fn pipeline_placeholder_in_lambda_and_map_and_boolean() {
     );
     let f = function(&file, "main");
     assert!(matches!(&f.body[0], Statement::Return { .. }));
+}
+
+#[test]
+fn serialize_covers_none_and_default_branches() {
+    let src = r#"
+LET plain = 1
+RES bare AS File
+SUB doer(a, RES h AS File)
+  LET x = 1
+  MUT y
+  EXIT SUB
+  RETURN
+  RECOVER
+  FOR i = 1 TO 3
+    y = i
+  NEXT
+  MATCH y
+    CASE ELSE
+      y = 0
+  END MATCH
+END SUB
+
+LINK "lib" AS l
+  FUNC noRet(a AS Integer)
+    SYMBOL "sym"
+    ABI (a CInt32) AS r CInt32
+  END FUNC
+END LINK
+"#;
+    let json = project_json(src);
+    // A binding/param/return with no type serializes `null`.
+    assert!(json.contains("\"type\": null"));
+    // A RES declaration with no STATE serializes state null.
+    assert!(json.contains("\"resource\": true, \"state\": null"));
+    // A SUB with no return type.
+    assert!(json.contains("\"kind\": \"sub\""));
+    assert!(json.contains("\"returnType\": null"));
+    // RETURN / RECOVER with no value.
+    assert!(json.contains("\"kind\": \"return\", \"value\": null"));
+    assert!(json.contains("\"kind\": \"recover\", \"value\": null"));
+    // EXIT SUB (no code).
+    assert!(json.contains("\"kind\": \"exit\", \"target\": \"sub\", \"code\": null"));
+    // FOR without STEP.
+    assert!(json.contains("\"step\": null"));
+    // MATCH else.
+    assert!(json.contains("\"kind\": \"else\""));
+    // A LINK func with no successOn / result / free.
+    assert!(json.contains("\"successOn\": null"));
+    assert!(json.contains("\"result\": null"));
+    assert!(json.contains("\"free\": null"));
+    // A LINK func whose MFBASIC return is absent renders returnType null.
+    assert!(json.contains("\"returnType\": null"));
+}
+
+#[test]
+fn serialize_exit_targets_func_and_do_and_while() {
+    let src = r#"
+FUNC f AS Integer
+  DO
+    EXIT DO
+    EXIT WHILE
+    EXIT FUNC
+    CONTINUE DO
+    CONTINUE WHILE
+  LOOP UNTIL TRUE
+  RETURN 0
+END FUNC
+"#;
+    let json = project_json(src);
+    assert!(json.contains("\"target\": \"do\""));
+    assert!(json.contains("\"target\": \"while\""));
+    assert!(json.contains("\"target\": \"func\""));
+    assert!(json.contains("\"loop\": \"do\""));
+    assert!(json.contains("\"loop\": \"while\""));
+}
+
+#[test]
+fn serialize_lambda_without_assign_target() {
+    let json = project_json(
+        "FUNC f AS Integer\n  LET g AS Integer = LAMBDA(x AS Integer) -> x + 1\n  RETURN 0\nEND FUNC\n",
+    );
+    // The plain-body lambda arm (no assignTarget key).
+    assert!(json.contains("\"kind\": \"lambda\", \"params\":"));
+    assert!(!json.contains("\"assignTarget\""));
+}
+
+#[test]
+fn pipeline_placeholder_walks_named_args_and_trapped_and_with() {
+    // Named call/constructor args + a WITH update + member access all recurse
+    // through both contains_placeholder and substitute_placeholder.
+    let json = project_json(
+        "FUNC main AS Integer\n  RETURN seed |> build(k := _, Point[y := _], WITH base { z := _ })\nEND FUNC\n",
+    );
+    assert!(json.contains("\"value\": \"seed\""));
+    assert!(!json.contains("\"value\": \"_\""));
+
+    // A named argument that does NOT hold the placeholder still parses (the
+    // false branch of the named-arg walk), with `_` supplied elsewhere.
+    let json =
+        project_json("FUNC main AS Integer\n  RETURN seed |> build(k := 1, v := _)\nEND FUNC\n");
+    assert!(json.contains("\"value\": \"seed\""));
+}
+
+#[test]
+fn all_comparison_and_arithmetic_operators_serialize() {
+    let src = r#"
+FUNC f AS Boolean
+  LET a = x <= y
+  LET b = x >= y
+  LET c = x <> y
+  LET d = x < y
+  LET e = x > y
+  LET g = x = y
+  LET h = x * y / z
+  LET i = -x
+  RETURN a
+END FUNC
+"#;
+    let json = project_json(src);
+    for op in ["<=", ">=", "<>", "<", ">", "=", "*", "/"] {
+        assert!(
+            json.contains(&format!("\"operator\": \"{op}\"")),
+            "missing operator {op}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1597,111 +2066,6 @@ fn doc_prose_kind_roundtrips_all_variants() {
 }
 
 // ---------------------------------------------------------------------------
-// serialize.rs — the null/None branches (defaults) of each renderer.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn serialize_covers_none_and_default_branches() {
-    let src = r#"
-LET plain = 1
-RES bare AS File
-SUB doer(a, RES h AS File)
-  LET x = 1
-  MUT y
-  EXIT SUB
-  RETURN
-  RECOVER
-  FOR i = 1 TO 3
-    y = i
-  NEXT
-  MATCH y
-    CASE ELSE
-      y = 0
-  END MATCH
-END SUB
-
-LINK "lib" AS l
-  FUNC noRet(a AS Integer)
-    SYMBOL "sym"
-    ABI (a CInt32) AS r CInt32
-  END FUNC
-END LINK
-"#;
-    let json = project_json(src);
-    // A binding/param/return with no type serializes `null`.
-    assert!(json.contains("\"type\": null"));
-    // A RES declaration with no STATE serializes state null.
-    assert!(json.contains("\"resource\": true, \"state\": null"));
-    // A SUB with no return type.
-    assert!(json.contains("\"kind\": \"sub\""));
-    assert!(json.contains("\"returnType\": null"));
-    // RETURN / RECOVER with no value.
-    assert!(json.contains("\"kind\": \"return\", \"value\": null"));
-    assert!(json.contains("\"kind\": \"recover\", \"value\": null"));
-    // EXIT SUB (no code).
-    assert!(json.contains("\"kind\": \"exit\", \"target\": \"sub\", \"code\": null"));
-    // FOR without STEP.
-    assert!(json.contains("\"step\": null"));
-    // MATCH else.
-    assert!(json.contains("\"kind\": \"else\""));
-    // A LINK func with no successOn / result / free.
-    assert!(json.contains("\"successOn\": null"));
-    assert!(json.contains("\"result\": null"));
-    assert!(json.contains("\"free\": null"));
-    // A LINK func whose MFBASIC return is absent renders returnType null.
-    assert!(json.contains("\"returnType\": null"));
-}
-
-#[test]
-fn serialize_exit_targets_func_and_do_and_while() {
-    let src = r#"
-FUNC f AS Integer
-  DO
-    EXIT DO
-    EXIT WHILE
-    EXIT FUNC
-    CONTINUE DO
-    CONTINUE WHILE
-  LOOP UNTIL TRUE
-  RETURN 0
-END FUNC
-"#;
-    let json = project_json(src);
-    assert!(json.contains("\"target\": \"do\""));
-    assert!(json.contains("\"target\": \"while\""));
-    assert!(json.contains("\"target\": \"func\""));
-    assert!(json.contains("\"loop\": \"do\""));
-    assert!(json.contains("\"loop\": \"while\""));
-}
-
-#[test]
-fn serialize_lambda_without_assign_target() {
-    let json = project_json(
-        "FUNC f AS Integer\n  LET g AS Integer = LAMBDA(x AS Integer) -> x + 1\n  RETURN 0\nEND FUNC\n",
-    );
-    // The plain-body lambda arm (no assignTarget key).
-    assert!(json.contains("\"kind\": \"lambda\", \"params\":"));
-    assert!(!json.contains("\"assignTarget\""));
-}
-
-#[test]
-fn pipeline_placeholder_walks_named_args_and_trapped_and_with() {
-    // Named call/constructor args + a WITH update + member access all recurse
-    // through both contains_placeholder and substitute_placeholder.
-    let json = project_json(
-        "FUNC main AS Integer\n  RETURN seed |> build(k := _, Point[y := _], WITH base { z := _ })\nEND FUNC\n",
-    );
-    assert!(json.contains("\"value\": \"seed\""));
-    assert!(!json.contains("\"value\": \"_\""));
-
-    // A named argument that does NOT hold the placeholder still parses (the
-    // false branch of the named-arg walk), with `_` supplied elsewhere.
-    let json =
-        project_json("FUNC main AS Integer\n  RETURN seed |> build(k := 1, v := _)\nEND FUNC\n");
-    assert!(json.contains("\"value\": \"seed\""));
-}
-
-// ---------------------------------------------------------------------------
 // lexical.rs — qualified member after `::` may be a keyword or a
 // number-adjacent identifier (e.g. `blake::2b`).
 // ---------------------------------------------------------------------------
@@ -1740,8 +2104,19 @@ fn qualified_member_missing_after_colon_is_error() {
     assert!(try_parse("FUNC main AS Integer\n  RETURN pkg::\nEND FUNC\n").is_err());
 }
 
+#[test]
+fn qualified_numeric_member_edge_cases() {
+    // A `::` member that is a bare number not followed by an adjacent identifier
+    // falls back to consume_name_or_keyword, which rejects the number.
+    assert!(try_parse("FUNC f AS Integer\n  RETURN pkg::2 + 1\nEND FUNC\n").is_err());
+    // A number and identifier separated by whitespace are not fused (not adjacent).
+    assert!(try_parse("FUNC f AS Integer\n  RETURN pkg::2 b\nEND FUNC\n").is_err());
+}
+
 // ---------------------------------------------------------------------------
-// items.rs — DOC block structural parsing arms and errors.
+// items.rs — DOC block structural parsing, LINK / native FUNC / ABI / FREE /
+// CONST error and edge paths, and malformed ABI / FREE-ABI / native param
+// error paths.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -1820,10 +2195,6 @@ END FUNC
     let json = project_json("DOC\nFUNC g()\nDESC ok\nEND DOC\nSUB main\nEND SUB\n");
     assert!(json.contains("\"signature\": []"));
 }
-
-// ---------------------------------------------------------------------------
-// items.rs — LINK / native FUNC / ABI / FREE / CONST error and edge paths.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn link_block_errors() {
@@ -1932,323 +2303,6 @@ fn func_alias_errors() {
     assert!(try_parse("FUNC alias foo::bar\n").is_err());
 }
 
-// ---------------------------------------------------------------------------
-// expr.rs — parse_type_name variants (thread/function/map/list/RES/grouped).
-// ---------------------------------------------------------------------------
-
-fn param_type(src: &str) -> String {
-    let file = parse_file(src);
-    let f = &file
-        .items
-        .iter()
-        .find_map(|item| match item {
-            Item::Function(f) => Some(f),
-            _ => None,
-        })
-        .expect("function");
-    f.params[0].type_name.clone().expect("param type")
-}
-
-#[test]
-fn type_names_cover_thread_map_list_and_function_forms() {
-    // Thread with message + resource + output.
-    assert_eq!(
-        param_type("SUB s(t AS Thread OF Msg RES Handle TO Out)\nEND SUB\n"),
-        "Thread OF Msg RES Handle TO Out"
-    );
-    // Thread resource-only (message defaults to Nothing).
-    assert_eq!(
-        param_type("SUB s(t AS Thread OF RES Handle TO Out)\nEND SUB\n"),
-        "Thread OF RES Handle TO Out"
-    );
-    // Thread with just message + output.
-    assert_eq!(
-        param_type("SUB s(t AS Thread OF Msg TO Out)\nEND SUB\n"),
-        "Thread OF Msg TO Out"
-    );
-    // ThreadWorker canonicalizes.
-    assert_eq!(
-        param_type("SUB s(t AS ThreadWorker OF Msg TO Out)\nEND SUB\n"),
-        "ThreadWorker OF Msg TO Out"
-    );
-    // Map type with RES value.
-    assert_eq!(
-        param_type("SUB s(m AS Map OF String TO RES File)\nEND SUB\n"),
-        "Map OF String TO RES File"
-    );
-    // List of RES.
-    assert_eq!(
-        param_type("SUB s(xs AS List OF RES File)\nEND SUB\n"),
-        "List OF RES File"
-    );
-    // Multi-arg template type.
-    assert_eq!(
-        param_type("SUB s(p AS Pair OF Integer, String)\nEND SUB\n"),
-        "Pair OF Integer, String"
-    );
-    // Function type.
-    assert_eq!(
-        param_type("SUB s(f AS FUNC(Integer, String) AS Boolean)\nEND SUB\n"),
-        "FUNC(Integer, String) AS Boolean"
-    );
-    // ISOLATED function type.
-    assert_eq!(
-        param_type("SUB s(f AS ISOLATED FUNC() AS Integer)\nEND SUB\n"),
-        "ISOLATED FUNC() AS Integer"
-    );
-    // Grouped type.
-    assert_eq!(param_type("SUB s(f AS (Integer))\nEND SUB\n"), "(Integer)");
-    // Nothing base type.
-    assert_eq!(
-        param_type("SUB s(f AS FUNC() AS Nothing)\nEND SUB\n"),
-        "FUNC() AS Nothing"
-    );
-}
-
-#[test]
-fn type_name_errors() {
-    // Map type missing TO.
-    assert!(try_parse("SUB s(m AS Map OF String Integer)\nEND SUB\n").is_err());
-    // Thread type missing TO.
-    assert!(try_parse("SUB s(t AS Thread OF Msg Out)\nEND SUB\n").is_err());
-    // ISOLATED not followed by FUNC.
-    assert!(try_parse("SUB s(f AS ISOLATED Integer)\nEND SUB\n").is_err());
-    // Function type missing (.
-    assert!(try_parse("SUB s(f AS FUNC Integer)\nEND SUB\n").is_err());
-    // Function type missing AS.
-    assert!(try_parse("SUB s(f AS FUNC(Integer))\nEND SUB\n").is_err());
-    // Grouped type missing ).
-    assert!(try_parse("SUB s(f AS (Integer)\nEND SUB\n").is_err());
-    // A bare type where a type name is required but token is bad.
-    assert!(try_parse("SUB s(f AS 123)\nEND SUB\n").is_err());
-}
-
-#[test]
-fn map_literal_with_res_value_type() {
-    // A `Map OF K TO RES File { }` literal carries the RES marker on its value.
-    let json = project_json(
-        "FUNC main AS Integer\n  LET m = Map OF Integer TO RES File { }\n  RETURN 0\nEND FUNC\n",
-    );
-    assert!(json.contains("\"valueType\": \"RES File\""));
-}
-
-#[test]
-fn map_literal_missing_to_is_error() {
-    assert!(try_parse(
-        "FUNC main AS Integer\n  LET m = Map OF Integer File { }\n  RETURN 0\nEND FUNC\n"
-    )
-    .is_err());
-}
-
-// ---------------------------------------------------------------------------
-// manifest.rs — parse_project / write_ast / selected_source_paths and the
-// collect_selected_source_files error paths.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn parse_project_propagates_parse_errors() {
-    let root = test_temp_dir("parse_project_propagates_parse_errors");
-    let project_dir = root.join("project");
-    fs::create_dir_all(project_dir.join("src")).expect("src");
-    fs::write(project_dir.join("src/main.mfb"), "garbage nonsense\n").expect("main");
-
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    assert!(parse_project("demo", &project_dir, &manifest).is_err());
-
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[test]
-fn parse_project_missing_directory_is_error() {
-    let root = test_temp_dir("parse_project_missing_directory_is_error");
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    // The project directory itself does not exist -> canonicalize fails.
-    assert!(parse_project("demo", &root.join("nope"), &manifest).is_err());
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[test]
-fn collect_reports_missing_and_empty_roots() {
-    let root = test_temp_dir("collect_reports_missing_and_empty_roots");
-    let project_dir = root.join("project");
-    fs::create_dir_all(project_dir.join("src")).expect("src");
-    let canonical = fs::canonicalize(&project_dir).expect("canonical");
-
-    // A source root that does not exist.
-    let missing = manifest_with_sources(vec![source_entry("nope", None, None)]);
-    assert!(collect_selected_source_files(&project_dir, &canonical, &missing).is_err());
-
-    // A source root that has no matching .mfb files.
-    let empty = manifest_with_sources(vec![source_entry("src", None, None)]);
-    assert!(collect_selected_source_files(&project_dir, &canonical, &empty).is_err());
-
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[test]
-fn collect_handles_single_file_and_non_mfb_root() {
-    let root = test_temp_dir("collect_handles_single_file_and_non_mfb_root");
-    let project_dir = root.join("project");
-    fs::create_dir_all(&project_dir).expect("dir");
-    fs::write(project_dir.join("main.mfb"), "SUB main\nEND SUB\n").expect("main");
-    fs::write(project_dir.join("notes.txt"), "hi\n").expect("notes");
-    let canonical = fs::canonicalize(&project_dir).expect("canonical");
-
-    // A direct file root that is an .mfb file is selected.
-    let file_manifest = manifest_with_sources(vec![source_entry("main.mfb", None, None)]);
-    let files =
-        collect_selected_source_files(&project_dir, &canonical, &file_manifest).expect("files");
-    assert_eq!(files.len(), 1);
-
-    // A direct file root that is not .mfb yields an empty selection -> error.
-    let txt_manifest = manifest_with_sources(vec![source_entry("notes.txt", None, None)]);
-    assert!(collect_selected_source_files(&project_dir, &canonical, &txt_manifest).is_err());
-
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[test]
-fn source_entries_default_include_when_absent() {
-    // A manifest with no `sources` key yields no entries -> empty selection error.
-    let root = test_temp_dir("source_entries_default_include_when_absent");
-    let project_dir = root.join("project");
-    fs::create_dir_all(&project_dir).expect("dir");
-    let canonical = fs::canonicalize(&project_dir).expect("canonical");
-    let manifest: HashMap<String, JsonValue> = HashMap::new();
-    let files =
-        collect_selected_source_files(&project_dir, &canonical, &manifest).expect("empty ok");
-    assert!(files.is_empty());
-    fs::remove_dir_all(root).expect("remove");
-}
-
-// ---------------------------------------------------------------------------
-// manifest.rs — nested directory walk, escape checks, and glob edge cases.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn collect_walks_nested_directories() {
-    let root = test_temp_dir("collect_walks_nested_directories");
-    let project_dir = root.join("project");
-    fs::create_dir_all(project_dir.join("src/a/b")).expect("dirs");
-    fs::write(project_dir.join("src/top.mfb"), "SUB top\nEND SUB\n").expect("top");
-    fs::write(project_dir.join("src/a/mid.mfb"), "SUB mid\nEND SUB\n").expect("mid");
-    fs::write(project_dir.join("src/a/b/deep.mfb"), "SUB deep\nEND SUB\n").expect("deep");
-    fs::write(project_dir.join("src/a/skip.txt"), "x\n").expect("txt");
-    let canonical = fs::canonicalize(&project_dir).expect("canonical");
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    let files = collect_selected_source_files(&project_dir, &canonical, &manifest).expect("files");
-    assert_eq!(files.len(), 3);
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[test]
-fn selected_source_paths_missing_dir_is_error() {
-    let root = test_temp_dir("selected_source_paths_missing_dir_is_error");
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    assert!(selected_source_paths(&root.join("nope"), &manifest).is_err());
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[cfg(unix)]
-#[test]
-fn nested_symlink_escaping_project_is_rejected() {
-    let root = test_temp_dir("nested_symlink_escaping_project_is_rejected");
-    let project_dir = root.join("project");
-    let outside = root.join("outside");
-    fs::create_dir_all(project_dir.join("src")).expect("src");
-    fs::create_dir_all(&outside).expect("outside");
-    fs::write(outside.join("escape.mfb"), "SUB escape\nEND SUB\n").expect("escape");
-    // A symlink *inside* a walked subdirectory pointing outside the project.
-    symlink(&outside, project_dir.join("src/link")).expect("symlink");
-    let canonical = fs::canonicalize(&project_dir).expect("canonical");
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[test]
-fn glob_component_edge_cases() {
-    // Trailing `*` after the value is consumed.
-    assert!(glob_matches("a*", "a"));
-    // `?` matches exactly one character.
-    assert!(glob_matches("a?c", "abc"));
-    assert!(!glob_matches("a?c", "ac"));
-    // A `*` in the middle backtracks.
-    assert!(glob_matches("a*c", "abbbc"));
-    assert!(!glob_matches("a*c", "abbb"));
-    // `**` matches zero segments.
-    assert!(glob_matches("**/x", "x"));
-    // A literal mismatch fails fast.
-    assert!(!glob_matches("abc", "xbc"));
-}
-
-// ---------------------------------------------------------------------------
-// expr.rs — remaining operator/argument/lambda/with edge and error paths.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn div_operator_and_lambda_bare_body() {
-    let json = project_json("FUNC f AS Integer\n  RETURN a DIV b\nEND FUNC\n");
-    assert!(json.contains("\"operator\": \"DIV\""));
-
-    // A lambda whose body is not an assignment (bare identifier).
-    let json = project_json(
-        "FUNC f AS Integer\n  LET g AS Integer = LAMBDA() -> 7\n  RETURN 0\nEND FUNC\n",
-    );
-    assert!(json.contains("\"kind\": \"lambda\""));
-}
-
-#[test]
-fn with_update_error_paths() {
-    // WITH update field is not an identifier.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN WITH x { 1 := 2 }\nEND FUNC\n").is_err());
-    // Missing := between field and value.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN WITH x { a b }\nEND FUNC\n").is_err());
-    // Missing closing }.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN WITH x { a := 1\nEND FUNC\n").is_err());
-    // A multi-update WITH (comma loop) parses.
-    let json = project_json(
-        "FUNC f AS Integer\n  LET r = WITH x { a := 1, b := 2 }\n  RETURN 0\nEND FUNC\n",
-    );
-    assert!(json.contains("\"kind\": \"with\""));
-}
-
-#[test]
-fn call_and_constructor_argument_errors() {
-    // Constructor with a named field missing := ... actually missing close bracket.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN Point[a := 1\nEND FUNC\n").is_err());
-    // Call missing closing paren.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN g(1, 2\nEND FUNC\n").is_err());
-    // Constructor with positional + named args parses.
-    let json =
-        project_json("FUNC f AS Integer\n  LET p = Point[1, y := 2]\n  RETURN 0\nEND FUNC\n");
-    assert!(json.contains("\"kind\": \"constructor\""));
-    assert!(json.contains("\"kind\": \"named\""));
-}
-
-#[test]
-fn list_and_map_literal_forms() {
-    // Empty list literal.
-    let json = project_json("FUNC f AS Integer\n  LET xs = []\n  RETURN 0\nEND FUNC\n");
-    assert!(json.contains("\"kind\": \"list\", \"values\": []"));
-    // Unterminated list.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN [1, 2\nEND FUNC\n").is_err());
-    // Map literal with a missing := between key and value.
-    assert!(try_parse(
-        "FUNC f AS Integer\n  RETURN Map OF String TO Integer { \"a\" 1 }\nEND FUNC\n"
-    )
-    .is_err());
-    // Multi-entry map literal (comma loop).
-    let json = project_json(
-        "FUNC f AS Integer\n  LET m = Map OF String TO Integer { \"a\" := 1, \"b\" := 2 }\n  RETURN 0\nEND FUNC\n",
-    );
-    assert!(json.contains("\"kind\": \"map\""));
-}
-
-// ---------------------------------------------------------------------------
-// items.rs — malformed ABI / FREE-ABI / native param error paths.
-// ---------------------------------------------------------------------------
-
 fn link_fn(body: &str) -> String {
     format!("LINK \"x\" AS l\n  FUNC f() AS Integer\n{body}  END FUNC\nEND LINK\n")
 }
@@ -2336,6 +2390,27 @@ END FUNC
     // Two separate desc entries (the bare DESC split them).
     assert!(json.contains("\"text\": \"one\""));
     assert!(json.contains("\"text\": \"two\""));
+}
+
+#[test]
+fn doc_example_dedent_handles_multibyte_whitespace() {
+    // bug-19: `dedent` measured indentation in BYTES but sliced every line at the
+    // byte minimum. `trim_start` is Unicode-whitespace-aware, so an EXAMPLE mixing
+    // a one-byte space with a two-byte NBSP (U+00A0) put the minimum (1) inside
+    // the NBSP line's first char and panicked "byte index 1 is not a char
+    // boundary", aborting the whole compile. Indentation is now a CHAR prefix.
+    let src =
+        "DOC\nFUNC foo()\nEXAMPLE\n a\n\u{a0}\u{a0}b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n";
+    let json = project_json(src);
+    // One char stripped from each line: " a" -> "a", "\u{a0}\u{a0}b" -> "\u{a0}b".
+    assert!(json.contains("\"example\""), "doc block parsed: {json}");
+    assert!(json.contains("a\\n\u{a0}b"), "dedent by one char: {json}");
+
+    // All-ASCII indentation is unchanged (the overwhelmingly common case).
+    let ascii = project_json(
+        "DOC\nFUNC foo()\nEXAMPLE\n    a\n      b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n",
+    );
+    assert!(ascii.contains("a\\n  b"), "ascii dedent: {ascii}");
 }
 
 // ---------------------------------------------------------------------------
@@ -2503,115 +2578,6 @@ fn native_symbol_must_be_string_and_name_required() {
         "LINK \"x\" AS l\n  FUNC (a AS Integer)\n    SYMBOL \"s\"\n    ABI (a CInt32) AS r CInt32\n  END FUNC\nEND LINK\n"
     )
     .is_err());
-}
-
-// ---------------------------------------------------------------------------
-// manifest.rs — canonicalize/read failure diagnostic paths.
-// ---------------------------------------------------------------------------
-
-#[cfg(unix)]
-#[test]
-fn broken_symlink_root_reports_canonicalize_failure() {
-    let root = test_temp_dir("broken_symlink_root_reports_canonicalize_failure");
-    let project_dir = root.join("project");
-    fs::create_dir_all(&project_dir).expect("dir");
-    // A source root that is a dangling symlink: exists() is true (the link),
-    // but canonicalize() fails on the missing target.
-    symlink(project_dir.join("missing_target"), project_dir.join("src")).expect("symlink");
-    let canonical = fs::canonicalize(&project_dir).expect("canonical");
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[cfg(unix)]
-#[test]
-fn unreadable_source_file_reports_read_failure() {
-    use std::os::unix::fs::PermissionsExt;
-    let root = test_temp_dir("unreadable_source_file_reports_read_failure");
-    let project_dir = root.join("project");
-    fs::create_dir_all(project_dir.join("src")).expect("src");
-    let file = project_dir.join("src/main.mfb");
-    fs::write(&file, "SUB main\nEND SUB\n").expect("write");
-    // Remove all read permission so parse_file's read_to_string fails.
-    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).expect("chmod");
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    let result = parse_project("demo", &project_dir, &manifest);
-    // Restore permissions so cleanup can proceed regardless of the outcome.
-    let _ = fs::set_permissions(&file, fs::Permissions::from_mode(0o644));
-    assert!(result.is_err());
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[cfg(unix)]
-#[test]
-fn symlink_cycle_within_project_is_skipped() {
-    let root = test_temp_dir("symlink_cycle_within_project_is_skipped");
-    let project_dir = root.join("project");
-    fs::create_dir_all(project_dir.join("src")).expect("src");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("main");
-    // A symlink pointing back at its own parent creates a cycle; the visited-dirs
-    // guard must break it rather than recursing forever.
-    symlink(project_dir.join("src"), project_dir.join("src/loop")).expect("symlink");
-    let canonical = fs::canonicalize(&project_dir).expect("canonical");
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    let files = collect_selected_source_files(&project_dir, &canonical, &manifest).expect("files");
-    assert_eq!(files.len(), 1);
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[test]
-fn qualified_numeric_member_edge_cases() {
-    // A `::` member that is a bare number not followed by an adjacent identifier
-    // falls back to consume_name_or_keyword, which rejects the number.
-    assert!(try_parse("FUNC f AS Integer\n  RETURN pkg::2 + 1\nEND FUNC\n").is_err());
-    // A number and identifier separated by whitespace are not fused (not adjacent).
-    assert!(try_parse("FUNC f AS Integer\n  RETURN pkg::2 b\nEND FUNC\n").is_err());
-}
-
-#[test]
-fn all_comparison_and_arithmetic_operators_serialize() {
-    let src = r#"
-FUNC f AS Boolean
-  LET a = x <= y
-  LET b = x >= y
-  LET c = x <> y
-  LET d = x < y
-  LET e = x > y
-  LET g = x = y
-  LET h = x * y / z
-  LET i = -x
-  RETURN a
-END FUNC
-"#;
-    let json = project_json(src);
-    for op in ["<=", ">=", "<>", "<", ">", "=", "*", "/"] {
-        assert!(
-            json.contains(&format!("\"operator\": \"{op}\"")),
-            "missing operator {op}"
-        );
-    }
-}
-
-#[test]
-fn doc_example_dedent_handles_multibyte_whitespace() {
-    // bug-19: `dedent` measured indentation in BYTES but sliced every line at the
-    // byte minimum. `trim_start` is Unicode-whitespace-aware, so an EXAMPLE mixing
-    // a one-byte space with a two-byte NBSP (U+00A0) put the minimum (1) inside
-    // the NBSP line's first char and panicked "byte index 1 is not a char
-    // boundary", aborting the whole compile. Indentation is now a CHAR prefix.
-    let src =
-        "DOC\nFUNC foo()\nEXAMPLE\n a\n\u{a0}\u{a0}b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n";
-    let json = project_json(src);
-    // One char stripped from each line: " a" -> "a", "\u{a0}\u{a0}b" -> "\u{a0}b".
-    assert!(json.contains("\"example\""), "doc block parsed: {json}");
-    assert!(json.contains("a\\n\u{a0}b"), "dedent by one char: {json}");
-
-    // All-ASCII indentation is unchanged (the overwhelmingly common case).
-    let ascii = project_json(
-        "DOC\nFUNC foo()\nEXAMPLE\n    a\n      b\nEND EXAMPLE\nEND DOC\n\nSUB foo()\nEND SUB\n",
-    );
-    assert!(ascii.contains("a\\n  b"), "ascii dedent: {ascii}");
 }
 
 // ---------------------------------------------------------------------------

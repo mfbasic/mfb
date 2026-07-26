@@ -640,20 +640,13 @@ impl TypeEnv {
     /// resource variants. Unknown names are NOT provably data (they may be an
     /// external package's resource type).
     pub(super) fn provably_data_type(&self, base: &str) -> bool {
-        matches!(
-            base,
-            "Boolean"
-                | "Byte"
-                | "Error"
-                | "ErrorLoc"
-                | "Fixed"
-                | "Float"
-                | "Integer"
-                | "Money"
-                | "Nothing"
-                | "Scalar"
-                | "String"
-        ) || base.starts_with("List OF ")
+        // The `PRIMITIVE_TYPES` base plus the `Error`/`ErrorLoc` delta (both are
+        // ordinary data values); this is `is_comparable_defaultable_primitive`
+        // minus `Unknown`, since an unresolved name is NOT provably data
+        // (bug-342 A9). Derived from the base so a new primitive flows here.
+        PRIMITIVE_TYPES.contains(&base)
+            || matches!(base, "Error" | "ErrorLoc")
+            || base.starts_with("List OF ")
             || base.starts_with("Map OF ")
             || base.starts_with("FUNC")
             || (self.records.contains_key(base) && self.close_op_for(base).is_none())

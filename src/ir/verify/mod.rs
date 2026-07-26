@@ -156,27 +156,30 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RESOURCE_RETURN_ORDER",
 ];
 
-/// Diagnostic prefix shared with the structural `verify_package` checks so a
-/// rejection surfaces as a `PACKAGE_BINARY_REPRESENTATION_*` diagnostic.
-const VERIFY_TYPE: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE";
-const VERIFY_MATCH: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH";
+/// Diagnostic prefixes shared with the structural `verify_package` checks so a
+/// rejection surfaces as a `PACKAGE_BINARY_REPRESENTATION_*` diagnostic. Forward
+/// to the single `crate::ir` source (bug-342 A3) so the two enforcement points
+/// spell each rule identically.
+const VERIFY_TYPE: &str = crate::ir::VERIFY_TYPE;
+const VERIFY_MATCH: &str = crate::ir::VERIFY_MATCH;
 
-/// Scalar types a value can never be member-accessed through. A `MemberAccess`
-/// whose target provably has one of these types is a type confusion.
+/// The base primitive/scalar type set (bug-342 A9). A value can never be
+/// member-accessed through one of these, so a `MemberAccess` whose target
+/// provably has one is a type confusion. Every other primitive-set predicate in
+/// this module derives from this base plus explicitly-named deltas, so adding a
+/// primitive here flows to all of them and none can silently drift.
 const PRIMITIVE_TYPES: &[&str] = &[
     "Integer", "Float", "String", "Boolean", "Byte", "Fixed", "Nothing", "Money", "Scalar",
 ];
 
-/// The base-case scalar/opaque types that are BOTH directly comparable and
-/// directly defaultable — the identical set `is_comparable_seen` and
-/// `is_defaultable` each opened with (bug-342 A9: they were separately-maintained
-/// byte-identical `|`-lists with no reason to differ). It is `PRIMITIVE_TYPES`
-/// plus `Error`/`ErrorLoc` (errors compare and default as ordinary values) and
-/// `Unknown` (treated permissively — an unresolved type is not rejected here).
-const COMPARABLE_DEFAULTABLE_PRIMITIVES: &[&str] = &[
-    "Boolean", "Byte", "Error", "ErrorLoc", "Fixed", "Float", "Integer", "Money", "Nothing",
-    "Scalar", "String", "Unknown",
-];
+/// Whether `type_` is BOTH directly comparable and directly defaultable — the
+/// identical set `is_comparable_seen` and `is_defaultable` each opened with
+/// (bug-342 A9). It is the `PRIMITIVE_TYPES` base plus two deltas: `Error`/
+/// `ErrorLoc` (errors compare and default as ordinary values) and `Unknown`
+/// (treated permissively — an unresolved type is not rejected here).
+fn is_comparable_defaultable_primitive(type_: &str) -> bool {
+    PRIMITIVE_TYPES.contains(&type_) || matches!(type_, "Error" | "ErrorLoc" | "Unknown")
+}
 
 /// Collect every semantic-verification diagnostic for a merged `IrProject`, in
 /// the traversal order the AST type checker uses (functions in declaration
@@ -487,8 +490,9 @@ pub fn collect_source_diagnostics(
 
 /// Depth cap mirroring the decoder (`MAX_DECODE_DEPTH`). `check` may run on
 /// merged IR that did not flow through the depth-bounded decoder (the project's
-/// own functions), so it re-imposes the bound independently.
-const MAX_DEPTH: usize = 256;
+/// own functions), so it re-imposes the bound independently. Forwards to the
+/// single `crate::ir` source (bug-342 A3) so it cannot drift from the decoder.
+const MAX_DEPTH: usize = crate::ir::MAX_IR_NESTING_DEPTH;
 
 struct RecordInfo {
     fields: Vec<String>,

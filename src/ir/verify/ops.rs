@@ -23,6 +23,32 @@ impl TypeEnv {
         self.check_ops(body, &mut branch, &mut branch_muts, closure_slots, depth + 1);
     }
 
+    /// The shared tail of `Assign`/`AssignGlobal` (bug-342 A10): the two arms
+    /// differ only in which mut-map and declaration table they consult. Emit
+    /// `TYPE_ASSIGN_REQUIRES_MUT` for an immutable target, then range-check the
+    /// literal and — if it did not already error — check the assignment type.
+    fn check_assign_target(
+        &self,
+        name: &str,
+        value: &IrValue,
+        locals: &HashMap<String, String>,
+        is_mut: Option<bool>,
+        declared: Option<String>,
+    ) {
+        if is_mut == Some(false) {
+            self.emit(
+                "TYPE_ASSIGN_REQUIRES_MUT",
+                format!("Binding `{name}` is immutable and cannot be assigned."),
+            );
+        }
+        if let Some(t) = declared {
+            let range_errored = self.check_literal_range_errored(resource_base_type(&t), value);
+            if !range_errored {
+                self.check_assignment_type(name, &t, value, locals);
+            }
+        }
+    }
+
     pub(super) fn check_ops(
         &self,
         ops: &[IrOp],
@@ -299,36 +325,24 @@ impl TypeEnv {
                         }
                         continue;
                     }
-                    if muts.get(name) == Some(&false) {
-                        self.emit(
-                            "TYPE_ASSIGN_REQUIRES_MUT",
-                            format!("Binding `{name}` is immutable and cannot be assigned."),
-                        );
-                    }
-                    if let Some(t) = locals.get(name).cloned() {
-                        let range_errored =
-                            self.check_literal_range_errored(resource_base_type(&t), value);
-                        if !range_errored {
-                            self.check_assignment_type(name, &t, value, locals);
-                        }
-                    }
+                    self.check_assign_target(
+                        name,
+                        value,
+                        locals,
+                        muts.get(name).copied(),
+                        locals.get(name).cloned(),
+                    );
                 }
                 IrOp::AssignGlobal { name, value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
-                    if self.global_muts.get(name) == Some(&false) {
-                        self.emit(
-                            "TYPE_ASSIGN_REQUIRES_MUT",
-                            format!("Binding `{name}` is immutable and cannot be assigned."),
-                        );
-                    }
-                    if let Some(t) = self.globals.get(name).cloned() {
-                        let range_errored =
-                            self.check_literal_range_errored(resource_base_type(&t), value);
-                        if !range_errored {
-                            self.check_assignment_type(name, &t, value, locals);
-                        }
-                    }
+                    self.check_assign_target(
+                        name,
+                        value,
+                        locals,
+                        self.global_muts.get(name).copied(),
+                        self.globals.get(name).cloned(),
+                    );
                 }
                 IrOp::StateAssign {
                     resource, value, ..
@@ -506,10 +520,7 @@ impl TypeEnv {
                 }
                 IrOp::Match { value, cases, .. } => {
                     if cases.is_empty() {
-                        self.emit(
-                            VERIFY_MATCH,
-                            "MATCH has no cases (not exhaustive)".to_string(),
-                        );
+                        self.emit(VERIFY_MATCH, crate::ir::VERIFY_MATCH_EMPTY_MSG.to_string());
                     }
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);

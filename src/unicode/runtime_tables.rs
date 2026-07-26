@@ -320,7 +320,11 @@ fn parse_value(value: &str) -> i64 {
         "UINT16_MAX" => U16_MAX as i64,
         "true" => 1,
         "false" => 0,
-        _ if value.starts_with("UTF8PROC_CATEGORY_") => category_value(value) as i64,
+        // The general-category (field 0) and bidi-class (field 2) columns are
+        // never consumed — `parse_properties` reads only fields 1,3–7,9–11,
+        // 13–15,19,20 — so a `UTF8PROC_CATEGORY_*` string never reaches here.
+        // Bidi class still maps (to 0) for symmetry; the 30-arm category lookup
+        // it used to need was dead and was removed (bug-343 A4).
         _ if value.starts_with("UTF8PROC_BIDI_CLASS_") => 0,
         _ if value.starts_with("UTF8PROC_DECOMP_TYPE_") => decomp_type_value(value) as i64,
         _ if value.starts_with("UTF8PROC_BOUNDCLASS_") => boundclass_value(value) as i64,
@@ -375,42 +379,6 @@ fn bytes_hex(bytes: &[u8]) -> String {
         output.push_str(&format!("{byte:02x}"));
     }
     output
-}
-
-fn category_value(value: &str) -> u16 {
-    match value {
-        "UTF8PROC_CATEGORY_CN" => 0,
-        "UTF8PROC_CATEGORY_LU" => 1,
-        "UTF8PROC_CATEGORY_LL" => 2,
-        "UTF8PROC_CATEGORY_LT" => 3,
-        "UTF8PROC_CATEGORY_LM" => 4,
-        "UTF8PROC_CATEGORY_LO" => 5,
-        "UTF8PROC_CATEGORY_MN" => 6,
-        "UTF8PROC_CATEGORY_MC" => 7,
-        "UTF8PROC_CATEGORY_ME" => 8,
-        "UTF8PROC_CATEGORY_ND" => 9,
-        "UTF8PROC_CATEGORY_NL" => 10,
-        "UTF8PROC_CATEGORY_NO" => 11,
-        "UTF8PROC_CATEGORY_PC" => 12,
-        "UTF8PROC_CATEGORY_PD" => 13,
-        "UTF8PROC_CATEGORY_PS" => 14,
-        "UTF8PROC_CATEGORY_PE" => 15,
-        "UTF8PROC_CATEGORY_PI" => 16,
-        "UTF8PROC_CATEGORY_PF" => 17,
-        "UTF8PROC_CATEGORY_PO" => 18,
-        "UTF8PROC_CATEGORY_SM" => 19,
-        "UTF8PROC_CATEGORY_SC" => 20,
-        "UTF8PROC_CATEGORY_SK" => 21,
-        "UTF8PROC_CATEGORY_SO" => 22,
-        "UTF8PROC_CATEGORY_ZS" => 23,
-        "UTF8PROC_CATEGORY_ZL" => 24,
-        "UTF8PROC_CATEGORY_ZP" => 25,
-        "UTF8PROC_CATEGORY_CC" => 26,
-        "UTF8PROC_CATEGORY_CF" => 27,
-        "UTF8PROC_CATEGORY_CS" => 28,
-        "UTF8PROC_CATEGORY_CO" => 29,
-        other => panic!("unknown utf8proc category `{other}`"),
-    }
 }
 
 fn decomp_type_value(value: &str) -> u16 {

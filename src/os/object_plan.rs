@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use crate::json_string;
+use crate::json::json_string;
 
 /// One container directive: a Mach-O load command or an ELF program header. The
 /// two writers spell the concept differently but emit the same

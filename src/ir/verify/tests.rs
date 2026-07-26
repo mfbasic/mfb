@@ -1,25 +1,12 @@
 use super::{check, collect_diagnostics};
 use crate::ir::{
     IrBinding, IrField, IrFunction, IrMatchCase, IrMatchPattern, IrOp, IrParam, IrProject,
-    IrSourceLoc, IrType, IrValue, IrVariant, ProjectDocs,
+    IrSourceLoc, IrType, IrValue, IrVariant,
 };
 use std::collections::HashMap;
 
 fn project(functions: Vec<IrFunction>, types: Vec<IrType>) -> IrProject {
-    IrProject {
-        name: "t".to_string(),
-        entry: None,
-        bindings: vec![],
-        types,
-        functions,
-        native_resources: vec![],
-        link_functions: vec![],
-        link_cstructs: Vec::new(),
-        link_aliases: vec![],
-        docs: ProjectDocs::default(),
-        native_libraries: Default::default(),
-        max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
-    }
+    crate::ir::test_support::project_fixture("t", functions, types)
 }
 
 /// Rule ids of every diagnostic collected for a project.
@@ -4944,8 +4931,10 @@ fn close_eval(h: &str) -> IrOp {
 fn owner_fn(name: &str, ret: &str, body: Vec<IrOp>, owners: &[&str]) -> IrFunction {
     let mut f = func_returns(name, ret, vec![], body);
     for o in owners {
-        f.resource_owners
-            .insert((*o).to_string(), crate::ir::resource_escape::ResOwner::Local);
+        f.resource_owners.insert(
+            (*o).to_string(),
+            crate::ir::resource_escape::ResOwner::Local,
+        );
     }
     f
 }

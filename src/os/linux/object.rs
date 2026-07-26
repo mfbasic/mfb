@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::json_string;
+use crate::json::json_string;
 use crate::os::object_plan::{
     align, join_json, json_string_list, push_unique, reject_duplicates, CodeUnitPlan, DataUnitPlan,
     LoadEntryPlan, ObjectImport, ObjectRelocation, SectionPlan, SegmentPlan, StringTableEntry,

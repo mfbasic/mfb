@@ -1,4 +1,5 @@
 use super::*;
+use crate::json::{join_json, ToJson};
 
 impl AstProject {
     pub fn to_json(&self) -> String {
@@ -31,27 +32,23 @@ impl AstFile {
             pad,
             json_string(&self.path),
             pad,
-            join_indented(&self.imports, indent + 2),
+            join_json(&self.imports, indent + 2),
             pad,
             pad,
-            join_indented(&self.items, indent + 2),
+            join_json(&self.items, indent + 2),
             pad,
             pad
         )
     }
 }
 
-trait ToAstJson {
-    fn to_json(&self, indent: usize) -> String;
-}
-
-impl ToAstJson for AstFile {
+impl ToJson for AstFile {
     fn to_json(&self, indent: usize) -> String {
         self.to_json(indent)
     }
 }
 
-impl ToAstJson for Import {
+impl ToJson for Import {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         match &self.alias {
@@ -72,7 +69,7 @@ impl ToAstJson for Import {
     }
 }
 
-impl ToAstJson for Item {
+impl ToJson for Item {
     fn to_json(&self, indent: usize) -> String {
         match self {
             Item::Binding(binding) => binding.to_json(indent),
@@ -87,7 +84,7 @@ impl ToAstJson for Item {
     }
 }
 
-impl ToAstJson for TestingBlock {
+impl ToJson for TestingBlock {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -103,14 +100,14 @@ impl ToAstJson for TestingBlock {
             pad,
             self.line,
             pad,
-            join_indented(&self.groups, indent + 2),
+            join_json(&self.groups, indent + 2),
             pad,
             pad
         )
     }
 }
 
-impl ToAstJson for TestGroup {
+impl ToJson for TestGroup {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -127,14 +124,14 @@ impl ToAstJson for TestGroup {
             pad,
             self.line,
             pad,
-            join_indented(&self.members, indent + 2),
+            join_json(&self.members, indent + 2),
             pad,
             pad
         )
     }
 }
 
-impl ToAstJson for TestGroupMember {
+impl ToJson for TestGroupMember {
     fn to_json(&self, indent: usize) -> String {
         match self {
             TestGroupMember::Case(case) => case.to_json(indent),
@@ -143,7 +140,7 @@ impl ToAstJson for TestGroupMember {
     }
 }
 
-impl ToAstJson for TestCase {
+impl ToJson for TestCase {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -160,14 +157,14 @@ impl ToAstJson for TestCase {
             pad,
             self.line,
             pad,
-            join_indented(&self.body, indent + 2),
+            join_json(&self.body, indent + 2),
             pad,
             pad
         )
     }
 }
 
-impl ToAstJson for DocBlock {
+impl ToJson for DocBlock {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let string_list = |values: &[String]| -> String {
@@ -265,7 +262,7 @@ impl ToAstJson for DocBlock {
     }
 }
 
-impl ToAstJson for ResourceDecl {
+impl ToJson for ResourceDecl {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -280,7 +277,7 @@ impl ToAstJson for ResourceDecl {
     }
 }
 
-impl ToAstJson for FuncAlias {
+impl ToJson for FuncAlias {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -294,7 +291,7 @@ impl ToAstJson for FuncAlias {
     }
 }
 
-impl ToAstJson for LinkBlock {
+impl ToJson for LinkBlock {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -317,17 +314,17 @@ impl ToAstJson for LinkBlock {
             pad,
             self.line,
             pad,
-            join_indented(&self.cstructs, indent + 2),
+            join_json(&self.cstructs, indent + 2),
             pad,
             pad,
-            join_indented(&self.functions, indent + 2),
+            join_json(&self.functions, indent + 2),
             pad,
             pad
         )
     }
 }
 
-impl ToAstJson for CStructDecl {
+impl ToJson for CStructDecl {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -349,14 +346,14 @@ impl ToAstJson for CStructDecl {
             pad,
             self.line,
             pad,
-            join_indented(&self.fields, indent + 2),
+            join_json(&self.fields, indent + 2),
             pad,
             pad
         )
     }
 }
 
-impl ToAstJson for CStructField {
+impl ToJson for CStructField {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -381,7 +378,7 @@ impl ToAstJson for CStructField {
 
 /// bug-300 E3: `BIND IN` blocks and their fields were absent from the `-ast` dump
 /// entirely, so a native FUNC carrying one dumped identically to one without.
-impl ToAstJson for BindIn {
+impl ToJson for BindIn {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -400,14 +397,14 @@ impl ToAstJson for BindIn {
             pad,
             self.line,
             pad,
-            join_indented(&self.fields, indent + 2),
+            join_json(&self.fields, indent + 2),
             pad,
             pad
         )
     }
 }
 
-impl ToAstJson for BindInField {
+impl ToJson for BindInField {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -453,7 +450,7 @@ impl BindState {
     }
 }
 
-impl ToAstJson for LinkFunction {
+impl ToJson for LinkFunction {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let return_type = self
@@ -525,15 +522,15 @@ impl ToAstJson for LinkFunction {
             pad,
             self.line,
             pad,
-            join_indented(&self.params, indent + 2),
+            join_json(&self.params, indent + 2),
             pad,
             pad,
             self.abi.to_json(indent + 2),
             pad,
-            join_indented(&self.consts, indent + 2),
+            join_json(&self.consts, indent + 2),
             pad,
             pad,
-            join_indented(&self.bind_in, indent + 2),
+            join_json(&self.bind_in, indent + 2),
             pad,
             pad,
             bind_state,
@@ -588,7 +585,7 @@ impl AbiSpec {
                 "{}}}"
             ),
             pad,
-            join_indented(&self.slots, indent + 2),
+            join_json(&self.slots, indent + 2),
             pad,
             pad,
             json_string(&self.return_name),
@@ -599,7 +596,7 @@ impl AbiSpec {
     }
 }
 
-impl ToAstJson for AbiSlot {
+impl ToJson for AbiSlot {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -613,7 +610,7 @@ impl ToAstJson for AbiSlot {
     }
 }
 
-impl ToAstJson for ConstPin {
+impl ToJson for ConstPin {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -626,7 +623,7 @@ impl ToAstJson for ConstPin {
     }
 }
 
-impl ToAstJson for TopLevelBinding {
+impl ToJson for TopLevelBinding {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let type_name = self
@@ -653,7 +650,7 @@ impl ToAstJson for TopLevelBinding {
     }
 }
 
-impl ToAstJson for TypeDecl {
+impl ToJson for TypeDecl {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let kind = match self.kind {
@@ -685,7 +682,7 @@ impl ToAstJson for TypeDecl {
                 pad,
                 self.line,
                 pad,
-                join_indented(&self.fields, indent + 2),
+                join_json(&self.fields, indent + 2),
                 pad,
                 pad
             ),
@@ -718,7 +715,7 @@ impl ToAstJson for TypeDecl {
                     .collect::<Vec<_>>()
                     .join(", "),
                 pad,
-                join_indented(&self.variants, indent + 2),
+                join_json(&self.variants, indent + 2),
                 pad,
                 pad
             ),
@@ -744,7 +741,7 @@ impl ToAstJson for TypeDecl {
                 pad,
                 self.line,
                 pad,
-                join_indented(&self.members, indent + 2),
+                join_json(&self.members, indent + 2),
                 pad,
                 pad
             ),
@@ -752,7 +749,7 @@ impl ToAstJson for TypeDecl {
     }
 }
 
-impl ToAstJson for TypeField {
+impl ToJson for TypeField {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let visibility = self
@@ -771,7 +768,7 @@ impl ToAstJson for TypeField {
     }
 }
 
-impl ToAstJson for UnionVariant {
+impl ToJson for UnionVariant {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -783,7 +780,7 @@ impl ToAstJson for UnionVariant {
     }
 }
 
-impl ToAstJson for EnumMember {
+impl ToJson for EnumMember {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -795,7 +792,7 @@ impl ToAstJson for EnumMember {
     }
 }
 
-impl ToAstJson for Function {
+impl ToJson for Function {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let return_type = self
@@ -850,13 +847,13 @@ impl ToAstJson for Function {
             pad,
             self.line,
             pad,
-            join_indented(&self.params, indent + 2),
+            join_json(&self.params, indent + 2),
             pad,
             pad,
             return_type,
             return_suffix,
             pad,
-            join_indented(&self.body, indent + 2),
+            join_json(&self.body, indent + 2),
             pad,
             trap,
             pad
@@ -864,7 +861,7 @@ impl ToAstJson for Function {
     }
 }
 
-impl ToAstJson for Trap {
+impl ToJson for Trap {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         format!(
@@ -880,14 +877,14 @@ impl ToAstJson for Trap {
             pad,
             self.line,
             pad,
-            join_indented(&self.body, indent + 2),
+            join_json(&self.body, indent + 2),
             pad,
             pad
         )
     }
 }
 
-impl ToAstJson for Param {
+impl ToJson for Param {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let type_name = self
@@ -912,7 +909,7 @@ impl ToAstJson for Param {
     }
 }
 
-impl ToAstJson for Statement {
+impl ToJson for Statement {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         match self {
@@ -1049,10 +1046,10 @@ impl ToAstJson for Statement {
                     pad,
                     line,
                     pad,
-                    join_indented(then_body, indent + 2),
+                    join_json(then_body, indent + 2),
                     pad,
                     pad,
-                    join_indented(else_body, indent + 2),
+                    join_json(else_body, indent + 2),
                     pad,
                     pad
                 )
@@ -1078,7 +1075,7 @@ impl ToAstJson for Statement {
                     pad,
                     line,
                     pad,
-                    join_indented(cases, indent + 2),
+                    join_json(cases, indent + 2),
                     pad,
                     pad
                 )
@@ -1120,7 +1117,7 @@ impl ToAstJson for Statement {
                     pad,
                     line,
                     pad,
-                    join_indented(body, indent + 2),
+                    join_json(body, indent + 2),
                     pad,
                     pad
                 )
@@ -1150,7 +1147,7 @@ impl ToAstJson for Statement {
                     pad,
                     line,
                     pad,
-                    join_indented(body, indent + 2),
+                    join_json(body, indent + 2),
                     pad,
                     pad
                 )
@@ -1176,7 +1173,7 @@ impl ToAstJson for Statement {
                     pad,
                     line,
                     pad,
-                    join_indented(body, indent + 2),
+                    join_json(body, indent + 2),
                     pad,
                     pad
                 )
@@ -1206,7 +1203,7 @@ impl ToAstJson for Statement {
                     pad,
                     line,
                     pad,
-                    join_indented(body, indent + 2),
+                    join_json(body, indent + 2),
                     pad,
                     pad
                 )
@@ -1215,7 +1212,7 @@ impl ToAstJson for Statement {
     }
 }
 
-impl ToAstJson for MatchCase {
+impl ToJson for MatchCase {
     fn to_json(&self, indent: usize) -> String {
         let pad = " ".repeat(indent);
         let guard = self
@@ -1240,14 +1237,14 @@ impl ToAstJson for MatchCase {
             pad,
             self.line,
             pad,
-            join_indented(&self.body, indent + 2),
+            join_json(&self.body, indent + 2),
             pad,
             pad
         )
     }
 }
 
-impl ToAstJson for MatchPattern {
+impl ToJson for MatchPattern {
     fn to_json(&self, indent: usize) -> String {
         match self {
             MatchPattern::Else => "{ \"kind\": \"else\" }".to_string(),
@@ -1274,7 +1271,7 @@ impl ToAstJson for MatchPattern {
     }
 }
 
-impl ToAstJson for Expression {
+impl ToJson for Expression {
     fn to_json(&self, indent: usize) -> String {
         match self {
             Expression::String(value) => {
@@ -1445,7 +1442,7 @@ impl ToAstJson for Expression {
                     pad,
                     expression.to_json(0),
                     pad,
-                    join_indented(handler, indent + 2),
+                    join_json(handler, indent + 2),
                     pad,
                     pad
                 )
@@ -1618,15 +1615,6 @@ fn exit_target_name(target: ExitTarget) -> &'static str {
     }
 }
 
-
-fn join_indented<T: ToAstJson>(items: &[T], indent: usize) -> String {
-    items
-        .iter()
-        .map(|item| item.to_json(indent))
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
 fn template_params_json(params: &[String], indent: usize) -> String {
     if params.is_empty() {
         return String::new();
@@ -1641,193 +1629,4 @@ fn template_params_json(params: &[String], indent: usize) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     )
-}
-
-pub(super) fn contains_placeholder(expression: &Expression) -> bool {
-    match expression {
-        Expression::Identifier(value) => value == "_",
-        Expression::Binary { left, right, .. } => {
-            contains_placeholder(left) || contains_placeholder(right)
-        }
-        Expression::Unary { operand, .. } => contains_placeholder(operand),
-        Expression::Call { arguments, .. } => arguments.iter().any(call_arg_contains_placeholder),
-        Expression::Constructor { arguments, .. } => {
-            arguments.iter().any(constructor_arg_contains_placeholder)
-        }
-        Expression::Lambda { body, .. } => contains_placeholder(body),
-        Expression::ListLiteral(values) => values.iter().any(contains_placeholder),
-        Expression::MapLiteral { entries, .. } => entries
-            .iter()
-            .any(|(key, value)| contains_placeholder(key) || contains_placeholder(value)),
-        Expression::MemberAccess { target, .. } => contains_placeholder(target),
-        Expression::Trapped { expression, .. } => contains_placeholder(expression),
-        Expression::WithUpdate { target, updates } => {
-            contains_placeholder(target)
-                || updates
-                    .iter()
-                    .any(|update| contains_placeholder(&update.value))
-        }
-        Expression::String(_)
-        | Expression::Number(_)
-        | Expression::Scalar(_)
-        | Expression::Boolean(_) => false,
-    }
-}
-
-fn constructor_arg_contains_placeholder(argument: &ConstructorArg) -> bool {
-    match argument {
-        ConstructorArg::Positional(value) => contains_placeholder(value),
-        ConstructorArg::Named { value, .. } => contains_placeholder(value),
-    }
-}
-
-fn call_arg_contains_placeholder(argument: &CallArg) -> bool {
-    match argument {
-        CallArg::Positional(value) => contains_placeholder(value),
-        CallArg::Named { value, .. } => contains_placeholder(value),
-    }
-}
-
-pub(super) fn substitute_placeholder(expression: Expression, input: &Expression) -> Expression {
-    match expression {
-        Expression::Identifier(value) if value == "_" => input.clone(),
-        Expression::Binary {
-            left,
-            operator,
-            right,
-            line,
-            column,
-        } => Expression::Binary {
-            left: Box::new(substitute_placeholder(*left, input)),
-            operator,
-            right: Box::new(substitute_placeholder(*right, input)),
-            line,
-            column,
-        },
-        Expression::Unary {
-            operator,
-            operand,
-            line,
-            column,
-        } => Expression::Unary {
-            operator,
-            operand: Box::new(substitute_placeholder(*operand, input)),
-            line,
-            column,
-        },
-        Expression::Call {
-            callee,
-            arguments,
-            line,
-            column,
-        } => Expression::Call {
-            callee,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| substitute_placeholder_call_arg(argument, input))
-                .collect(),
-            line,
-            column,
-        },
-        Expression::Lambda {
-            params,
-            body,
-            assign_target,
-        } => Expression::Lambda {
-            params,
-            body: Box::new(substitute_placeholder(*body, input)),
-            assign_target,
-        },
-        Expression::Constructor {
-            type_name,
-            arguments,
-        } => Expression::Constructor {
-            type_name,
-            arguments: arguments
-                .into_iter()
-                .map(|argument| substitute_placeholder_constructor_arg(argument, input))
-                .collect(),
-        },
-        Expression::ListLiteral(values) => Expression::ListLiteral(
-            values
-                .into_iter()
-                .map(|value| substitute_placeholder(value, input))
-                .collect(),
-        ),
-        Expression::MapLiteral {
-            key_type,
-            value_type,
-            entries,
-        } => Expression::MapLiteral {
-            key_type,
-            value_type,
-            entries: entries
-                .into_iter()
-                .map(|(key, value)| {
-                    (
-                        substitute_placeholder(key, input),
-                        substitute_placeholder(value, input),
-                    )
-                })
-                .collect(),
-        },
-        Expression::MemberAccess { target, member } => Expression::MemberAccess {
-            target: Box::new(substitute_placeholder(*target, input)),
-            member,
-        },
-        // Mirror `contains_placeholder`, which walks a `Trapped`'s inner
-        // expression: substitute there too so a `_` inside a trapped subexpression
-        // is rewritten rather than silently left behind (bug-171 finding C). The
-        // handler body holds statements (not the pipeline input) and is left as-is.
-        Expression::Trapped {
-            expression,
-            binding,
-            handler,
-            line,
-        } => Expression::Trapped {
-            expression: Box::new(substitute_placeholder(*expression, input)),
-            binding,
-            handler,
-            line,
-        },
-        Expression::WithUpdate { target, updates } => Expression::WithUpdate {
-            target: Box::new(substitute_placeholder(*target, input)),
-            updates: updates
-                .into_iter()
-                .map(|update| RecordUpdate {
-                    field: update.field,
-                    value: substitute_placeholder(update.value, input),
-                    line: update.line,
-                })
-                .collect(),
-        },
-        other => other,
-    }
-}
-
-fn substitute_placeholder_constructor_arg(
-    argument: ConstructorArg,
-    input: &Expression,
-) -> ConstructorArg {
-    match argument {
-        ConstructorArg::Positional(value) => {
-            ConstructorArg::Positional(substitute_placeholder(value, input))
-        }
-        ConstructorArg::Named { name, value, line } => ConstructorArg::Named {
-            name,
-            value: substitute_placeholder(value, input),
-            line,
-        },
-    }
-}
-
-fn substitute_placeholder_call_arg(argument: CallArg, input: &Expression) -> CallArg {
-    match argument {
-        CallArg::Positional(value) => CallArg::Positional(substitute_placeholder(value, input)),
-        CallArg::Named { name, value, line } => CallArg::Named {
-            name,
-            value: substitute_placeholder(value, input),
-            line,
-        },
-    }
 }

@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::json_string;
+use crate::json::json_string;
 
 pub(super) trait ToPlanJson {
     fn to_json(&self, indent: usize) -> String;

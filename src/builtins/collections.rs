@@ -1,4 +1,5 @@
 use crate::ast::{AstFile, AstProject};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -139,30 +140,278 @@ pub(crate) fn resolve_call<'a>(
     name: &str,
     arg_types: &'a [String],
 ) -> Option<super::general::ResolvedCall<'a>> {
-    use super::general;
     match native_member_bare(name)? {
-        "get" => general::resolve_get(arg_types),
-        "getOr" => general::resolve_get_or(arg_types),
-        "set" => general::resolve_set(arg_types),
-        "append" => general::resolve_append(arg_types),
-        "prepend" => general::resolve_prepend(arg_types),
-        "insert" => general::resolve_insert(arg_types),
-        "removeAt" => general::resolve_remove_at(arg_types),
-        "removeKey" => general::resolve_remove_key(arg_types),
-        "keys" => general::resolve_keys(arg_types),
-        "values" => general::resolve_values(arg_types),
-        "hasKey" => general::resolve_has_key(arg_types),
-        "contains" => general::resolve_contains(arg_types),
-        "forEach" => general::resolve_for_each(arg_types),
-        "transform" => general::resolve_transform(arg_types),
-        "filter" => general::resolve_filter(arg_types),
-        "reduce" => general::resolve_reduce(arg_types),
-        "sum" => general::resolve_sum(arg_types),
-        "find" => general::resolve_find_list(arg_types),
-        "mid" => general::resolve_mid_list(arg_types),
-        "replace" => general::resolve_replace_list(arg_types),
+        "get" => resolve_get(arg_types),
+        "getOr" => resolve_get_or(arg_types),
+        "set" => resolve_set(arg_types),
+        "append" => resolve_append(arg_types),
+        "prepend" => resolve_prepend(arg_types),
+        "insert" => resolve_insert(arg_types),
+        "removeAt" => resolve_remove_at(arg_types),
+        "removeKey" => resolve_remove_key(arg_types),
+        "keys" => resolve_keys(arg_types),
+        "values" => resolve_values(arg_types),
+        "hasKey" => resolve_has_key(arg_types),
+        "contains" => resolve_contains(arg_types),
+        "forEach" => resolve_for_each(arg_types),
+        "transform" => resolve_transform(arg_types),
+        "filter" => resolve_filter(arg_types),
+        "reduce" => resolve_reduce(arg_types),
+        "sum" => resolve_sum(arg_types),
+        "find" => resolve_find_list(arg_types),
+        "mid" => resolve_mid_list(arg_types),
+        "replace" => resolve_replace_list(arg_types),
         _ => None,
     }
+}
+
+/// List-overload resolvers for `find`/`mid`/`replace`, migrated to `collections::`
+/// (plan-01-functions.md §5). These keep the original bare-name overload logic so
+/// `collections::` can reuse it; the String overloads live in `strings::`.
+fn resolve_find_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if !(2..=3).contains(&arg_types.len()) {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    (arg_types.get(2).is_none_or(|type_| type_ == "Integer")
+        && (arg_types[1] == element || arg_types[1] == arg_types[0]))
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed("Integer"),
+        })
+}
+
+fn resolve_mid_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    (arg_types.len() == 3
+        && super::general::list_element(&arg_types[0]).is_some()
+        && arg_types[1] == "Integer"
+        && arg_types[2] == "Integer")
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        })
+}
+
+fn resolve_replace_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    // Arity first: `arg_types[0]`/`list_element` must not be indexed before the
+    // length is known, or an empty/short slice panics (bug-98).
+    if arg_types.len() != 3 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    (arg_types[1] == element && arg_types[2] == element).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_get<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    if let Some(element) = super::general::list_element(&arg_types[0]) {
+        return (arg_types[1] == "Integer").then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(element),
+        });
+    }
+    let (key, value) = super::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(value),
+    })
+}
+
+fn resolve_get_or<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 3 {
+        return None;
+    }
+    if let Some(element) = super::general::list_element(&arg_types[0]) {
+        return (arg_types[1] == "Integer" && arg_types[2] == element).then_some(
+            super::general::ResolvedCall {
+                return_type: Cow::Borrowed(element),
+            },
+        );
+    }
+    let (key, value) = super::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key && arg_types[2] == value).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(value),
+    })
+}
+
+fn resolve_set<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 3 {
+        return None;
+    }
+    if let Some(element) = super::general::list_element(&arg_types[0]) {
+        return (arg_types[1] == "Integer" && arg_types[2] == element).then_some(
+            super::general::ResolvedCall {
+                return_type: Cow::Borrowed(&arg_types[0]),
+            },
+        );
+    }
+    let (key, value) = super::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key && arg_types[2] == value).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_append<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    (arg_types[1] == element || arg_types[1] == arg_types[0]).then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        },
+    )
+}
+
+fn resolve_prepend<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_insert<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 3 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    (arg_types[1] == "Integer" && arg_types[2] == element).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_remove_at<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    (arg_types.len() == 2
+        && super::general::list_element(&arg_types[0]).is_some()
+        && arg_types[1] == "Integer")
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        })
+}
+
+fn resolve_remove_key<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let (key, _) = super::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+fn resolve_keys<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 1 {
+        return None;
+    }
+    let (key, _) = super::general::map_parts(&arg_types[0])?;
+    Some(super::general::ResolvedCall {
+        return_type: Cow::Owned(format!("List OF {key}")),
+    })
+}
+
+fn resolve_values<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 1 {
+        return None;
+    }
+    let (_, value) = super::general::map_parts(&arg_types[0])?;
+    Some(super::general::ResolvedCall {
+        return_type: Cow::Owned(format!("List OF {value}")),
+    })
+}
+
+fn resolve_has_key<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let (key, _) = super::general::map_parts(&arg_types[0])?;
+    (arg_types[1] == key).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed("Boolean"),
+    })
+}
+
+fn resolve_contains<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed("Boolean"),
+    })
+}
+
+fn resolve_sum<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 1 {
+        return None;
+    }
+    match arg_types[0].as_str() {
+        "List OF Integer" => Some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed("Integer"),
+        }),
+        "List OF Float" => Some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed("Float"),
+        }),
+        "List OF Fixed" => Some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed("Fixed"),
+        }),
+        _ => None,
+    }
+}
+
+fn resolve_for_each<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    let (params, returns) = super::general::function_parts(&arg_types[1])?;
+    (params.len() == 1 && params[0] == element && returns == "Nothing").then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed("Nothing"),
+        },
+    )
+}
+
+fn resolve_transform<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    let (params, returns) = super::general::function_parts(&arg_types[1])?;
+    (params.len() == 1 && params[0] == element && returns != "Nothing").then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Owned(format!("List OF {returns}")),
+        },
+    )
+}
+
+fn resolve_filter<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    let (params, returns) = super::general::function_parts(&arg_types[1])?;
+    (params.len() == 1 && params[0] == element && returns == "Boolean").then_some(
+        super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        },
+    )
+}
+
+fn resolve_reduce<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 3 {
+        return None;
+    }
+    let element = super::general::list_element(&arg_types[0])?;
+    let (params, returns) = super::general::function_parts(&arg_types[2])?;
+    (params.len() == 2
+        && params[0] == arg_types[1]
+        && params[1] == element
+        && returns == arg_types[1])
+        .then_some(super::general::ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[1]),
+        })
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
@@ -297,6 +546,10 @@ mod tests {
 
     fn strings(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn rc(r: Option<crate::builtins::general::ResolvedCall>) -> Option<String> {
+        r.map(|r| r.return_type.into_owned())
     }
 
     fn project(src: &str) -> AstProject {
@@ -550,5 +803,487 @@ mod tests {
         let ast = project("SUB main\nEND SUB\n");
         let before = ast.files.len();
         assert_eq!(augmented_project(ast).expect("a").files.len(), before);
+    }
+
+    #[test]
+    fn resolve_replace_list_arity_checks_before_indexing() {
+        // bug-98: an empty or short arg slice must not panic (index OOB) before
+        // the arity is verified.
+        let empty: Vec<String> = Vec::new();
+        assert!(resolve_replace_list(&empty).is_none());
+        let one = strings(&["List OF Integer"]);
+        assert!(resolve_replace_list(&one).is_none());
+        let two = strings(&["List OF Integer", "Integer"]);
+        assert!(resolve_replace_list(&two).is_none());
+        // The valid 3-arg form still resolves.
+        let three = strings(&["List OF Integer", "Integer", "Integer"]);
+        let ok = resolve_replace_list(&three).map(|r| r.return_type.into_owned());
+        assert_eq!(ok, Some("List OF Integer".to_string()));
+    }
+
+    #[test]
+    fn resolve_find_list_cases() {
+        assert_eq!(
+            rc(resolve_find_list(&strings(&["List OF Integer", "Integer"]))),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_find_list(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "Integer"
+            ]))),
+            Some("Integer".to_string())
+        );
+        // sublist search (arg1 == whole list type)
+        assert_eq!(
+            rc(resolve_find_list(&strings(&[
+                "List OF Integer",
+                "List OF Integer"
+            ]))),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_find_list(&strings(&["List OF Integer", "String"]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_find_list(&strings(&["Integer", "Integer"]))),
+            None
+        );
+        assert_eq!(rc(resolve_find_list(&strings(&["List OF Integer"]))), None);
+        assert_eq!(
+            rc(resolve_find_list(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "String"
+            ]))),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_mid_list_cases() {
+        assert_eq!(
+            rc(resolve_mid_list(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "Integer"
+            ]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_mid_list(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "String"
+            ]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_mid_list(&strings(&[
+                "Integer", "Integer", "Integer"
+            ]))),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_replace_list_cases() {
+        assert_eq!(
+            rc(resolve_replace_list(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "Integer"
+            ]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_replace_list(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "String"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_replace_list(&strings(&["Integer"]))), None);
+    }
+
+    #[test]
+    fn resolve_get_and_getor() {
+        assert_eq!(
+            rc(resolve_get(&strings(&["List OF Integer", "Integer"]))),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_get(&strings(&["List OF Integer", "String"]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_get(&strings(&[
+                "Map OF String TO Integer",
+                "String"
+            ]))),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_get(&strings(&[
+                "Map OF String TO Integer",
+                "Integer"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_get(&strings(&["Integer", "Integer"]))), None);
+        assert_eq!(rc(resolve_get(&strings(&["List OF Integer"]))), None);
+
+        assert_eq!(
+            rc(resolve_get_or(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "Integer"
+            ]))),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_get_or(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "String"
+            ]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_get_or(&strings(&[
+                "Map OF String TO Integer",
+                "String",
+                "Integer"
+            ]))),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_get_or(&strings(&[
+                "Map OF String TO Integer",
+                "String",
+                "String"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_get_or(&strings(&["List OF Integer"]))), None);
+    }
+
+    #[test]
+    fn resolve_set_cases() {
+        assert_eq!(
+            rc(resolve_set(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "Integer"
+            ]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_set(&strings(&[
+                "List OF Integer",
+                "String",
+                "Integer"
+            ]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_set(&strings(&[
+                "Map OF String TO Integer",
+                "String",
+                "Integer"
+            ]))),
+            Some("Map OF String TO Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_set(&strings(&[
+                "Map OF String TO Integer",
+                "Integer",
+                "Integer"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_set(&strings(&["Integer", "a", "b"]))), None);
+        assert_eq!(rc(resolve_set(&strings(&["List OF Integer"]))), None);
+    }
+
+    #[test]
+    fn resolve_append_prepend_insert() {
+        assert_eq!(
+            rc(resolve_append(&strings(&["List OF Integer", "Integer"]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_append(&strings(&[
+                "List OF Integer",
+                "List OF Integer"
+            ]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_append(&strings(&["List OF Integer", "String"]))),
+            None
+        );
+        assert_eq!(rc(resolve_append(&strings(&["Integer", "Integer"]))), None);
+        assert_eq!(rc(resolve_append(&strings(&["List OF Integer"]))), None);
+
+        assert_eq!(
+            rc(resolve_prepend(&strings(&["List OF Integer", "Integer"]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_prepend(&strings(&["List OF Integer", "String"]))),
+            None
+        );
+        assert_eq!(rc(resolve_prepend(&strings(&["Integer", "Integer"]))), None);
+        assert_eq!(rc(resolve_prepend(&strings(&["List OF Integer"]))), None);
+
+        assert_eq!(
+            rc(resolve_insert(&strings(&[
+                "List OF Integer",
+                "Integer",
+                "Integer"
+            ]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_insert(&strings(&[
+                "List OF Integer",
+                "String",
+                "Integer"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_insert(&strings(&["Integer", "a", "b"]))), None);
+        assert_eq!(rc(resolve_insert(&strings(&["List OF Integer"]))), None);
+    }
+
+    #[test]
+    fn resolve_remove_at_and_key() {
+        assert_eq!(
+            rc(resolve_remove_at(&strings(&["List OF Integer", "Integer"]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_remove_at(&strings(&["List OF Integer", "String"]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_remove_at(&strings(&["Integer", "Integer"]))),
+            None
+        );
+
+        assert_eq!(
+            rc(resolve_remove_key(&strings(&[
+                "Map OF String TO Integer",
+                "String"
+            ]))),
+            Some("Map OF String TO Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_remove_key(&strings(&[
+                "Map OF String TO Integer",
+                "Integer"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_remove_key(&strings(&["Integer", "a"]))), None);
+        assert_eq!(
+            rc(resolve_remove_key(&strings(&["Map OF String TO Integer"]))),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_keys_values() {
+        assert_eq!(
+            rc(resolve_keys(&strings(&["Map OF String TO Integer"]))),
+            Some("List OF String".to_string())
+        );
+        assert_eq!(rc(resolve_keys(&strings(&["Integer"]))), None);
+        assert_eq!(
+            rc(resolve_keys(&strings(&["Map OF String TO Integer", "x"]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_values(&strings(&["Map OF String TO Integer"]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(rc(resolve_values(&strings(&["Integer"]))), None);
+        assert_eq!(
+            rc(resolve_values(&strings(&["Map OF String TO Integer", "x"]))),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_has_key_contains() {
+        assert_eq!(
+            rc(resolve_has_key(&strings(&[
+                "Map OF String TO Integer",
+                "String"
+            ]))),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            rc(resolve_has_key(&strings(&[
+                "Map OF String TO Integer",
+                "Integer"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_has_key(&strings(&["Integer", "a"]))), None);
+        assert_eq!(
+            rc(resolve_has_key(&strings(&["Map OF String TO Integer"]))),
+            None
+        );
+
+        assert_eq!(
+            rc(resolve_contains(&strings(&["List OF Integer", "Integer"]))),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            rc(resolve_contains(&strings(&["List OF Integer", "String"]))),
+            None
+        );
+        assert_eq!(
+            rc(resolve_contains(&strings(&["Integer", "Integer"]))),
+            None
+        );
+        assert_eq!(rc(resolve_contains(&strings(&["List OF Integer"]))), None);
+    }
+
+    #[test]
+    fn resolve_sum_cases() {
+        assert_eq!(
+            rc(resolve_sum(&strings(&["List OF Integer"]))),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_sum(&strings(&["List OF Float"]))),
+            Some("Float".to_string())
+        );
+        assert_eq!(
+            rc(resolve_sum(&strings(&["List OF Fixed"]))),
+            Some("Fixed".to_string())
+        );
+        assert_eq!(rc(resolve_sum(&strings(&["List OF String"]))), None);
+        assert_eq!(rc(resolve_sum(&strings(&["List OF Integer", "x"]))), None);
+    }
+
+    #[test]
+    fn resolve_for_each_transform_filter_reduce() {
+        assert_eq!(
+            rc(resolve_for_each(&strings(&[
+                "List OF Integer",
+                "FUNC(Integer) AS Nothing"
+            ]))),
+            Some("Nothing".to_string())
+        );
+        // wrong return
+        assert_eq!(
+            rc(resolve_for_each(&strings(&[
+                "List OF Integer",
+                "FUNC(Integer) AS Boolean"
+            ]))),
+            None
+        );
+        // wrong element
+        assert_eq!(
+            rc(resolve_for_each(&strings(&[
+                "List OF Integer",
+                "FUNC(String) AS Nothing"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_for_each(&strings(&["Integer", "x"]))), None);
+        assert_eq!(rc(resolve_for_each(&strings(&["List OF Integer"]))), None);
+
+        assert_eq!(
+            rc(resolve_transform(&strings(&[
+                "List OF Integer",
+                "FUNC(Integer) AS String"
+            ]))),
+            Some("List OF String".to_string())
+        );
+        assert_eq!(
+            rc(resolve_transform(&strings(&[
+                "List OF Integer",
+                "FUNC(Integer) AS Nothing"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_transform(&strings(&["Integer", "x"]))), None);
+        assert_eq!(rc(resolve_transform(&strings(&["List OF Integer"]))), None);
+
+        assert_eq!(
+            rc(resolve_filter(&strings(&[
+                "List OF Integer",
+                "FUNC(Integer) AS Boolean"
+            ]))),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rc(resolve_filter(&strings(&[
+                "List OF Integer",
+                "FUNC(Integer) AS Integer"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_filter(&strings(&["Integer", "x"]))), None);
+        assert_eq!(rc(resolve_filter(&strings(&["List OF Integer"]))), None);
+
+        assert_eq!(
+            rc(resolve_reduce(&strings(&[
+                "List OF Integer",
+                "String",
+                "FUNC(String, Integer) AS String"
+            ]))),
+            Some("String".to_string())
+        );
+        assert_eq!(
+            rc(resolve_reduce(&strings(&[
+                "List OF Integer",
+                "String",
+                "FUNC(String, Integer) AS Integer"
+            ]))),
+            None
+        );
+        assert_eq!(rc(resolve_reduce(&strings(&["Integer", "a", "b"]))), None);
+        assert_eq!(
+            rc(resolve_reduce(&strings(&["List OF Integer", "String"]))),
+            None
+        );
+    }
+
+    #[test]
+    fn higher_order_resolvers_accept_function_valued_elements() {
+        // `transform` over a list of two-argument function values: the mapper's
+        // sole parameter *is* the element type, so the call must resolve.
+        let element = "FUNC(Integer, Integer) AS Integer";
+        let mapper = strings(&[
+            &format!("List OF {element}"),
+            &format!("FUNC({element}) AS String"),
+        ]);
+        let resolved =
+            resolve_transform(&mapper).expect("transform over function-valued elements resolves");
+        assert_eq!(resolved.return_type, "List OF String");
+
+        let predicate = strings(&[
+            &format!("List OF {element}"),
+            &format!("FUNC({element}) AS Boolean"),
+        ]);
+        let resolved =
+            resolve_filter(&predicate).expect("filter over function-valued elements resolves");
+        assert_eq!(resolved.return_type, format!("List OF {element}"));
+
+        // A mapper whose parameter is a *different* function type still fails.
+        let mismatched = strings(&[
+            &format!("List OF {element}"),
+            "FUNC(FUNC(String) AS Integer) AS String",
+        ]);
+        assert!(resolve_transform(&mismatched).is_none());
     }
 }

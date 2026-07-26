@@ -1,5 +1,51 @@
 use super::*;
 
+/// The documentation surface of a project: an optional package-level entry plus
+/// one entry per documented exported declaration (plan-09-doc.md §5).
+#[derive(Clone, Default)]
+pub(crate) struct ProjectDocs {
+    pub(crate) package: Option<IrPackageDoc>,
+    pub(crate) decls: Vec<IrDocDecl>,
+}
+
+#[derive(Clone)]
+pub(crate) struct IrPackageDoc {
+    pub(crate) name: String,
+    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind::code`.
+    pub(crate) desc: Vec<(u8, String)>,
+    /// `Some(message)` when deprecated (message may be empty); `None` otherwise.
+    pub(crate) deprecated: Option<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IrDocKind {
+    Func,
+    Sub,
+    Type,
+    Union,
+    Enum,
+    Resource,
+}
+
+#[derive(Clone)]
+pub(crate) struct IrDocDecl {
+    pub(crate) kind: IrDocKind,
+    pub(crate) name: String,
+    pub(crate) signature: String,
+    /// `GROUP` name for FUNC/SUB, or empty.
+    pub(crate) group: String,
+    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind::code`.
+    pub(crate) desc: Vec<(u8, String)>,
+    pub(crate) args: Vec<(String, String)>,
+    pub(crate) props: Vec<(String, String)>,
+    pub(crate) ret: String,
+    pub(crate) errors: Vec<(String, String)>,
+    pub(crate) example: String,
+    pub(crate) internal: bool,
+    /// `Some(message)` when deprecated (message may be empty); `None` otherwise.
+    pub(crate) deprecated: Option<String>,
+}
+
 fn doc_prose(desc: &[crate::ast::DocProse]) -> Vec<(u8, String)> {
     desc.iter()
         .map(|prose| (prose.kind.code(), prose.text.clone()))
@@ -53,7 +99,7 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
         match &doc.header_params {
             Some(wanted) => matching
                 .clone()
-                .find(|f| function_param_types(f) == normalize_types(wanted)),
+                .find(|f| crate::ast::param_types(f) == crate::ast::normalize_types(wanted)),
             None => matching.clone().next(),
         }
     };
@@ -161,16 +207,4 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
     }
 
     ProjectDocs { package, decls }
-}
-
-fn function_param_types(function: &crate::ast::Function) -> Vec<String> {
-    function
-        .params
-        .iter()
-        .map(|param| crate::ast::normalize_ws(param.type_name.as_deref().unwrap_or("")))
-        .collect()
-}
-
-fn normalize_types(types: &[String]) -> Vec<String> {
-    types.iter().map(|t| crate::ast::normalize_ws(t)).collect()
 }

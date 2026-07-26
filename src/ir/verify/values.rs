@@ -737,7 +737,7 @@ impl TypeEnv {
     }
 
     pub(super) fn is_comparable_seen(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
-        if COMPARABLE_DEFAULTABLE_PRIMITIVES.contains(&type_) {
+        if is_comparable_defaultable_primitive(type_) {
             return true;
         }
         if type_.starts_with("List OF ")

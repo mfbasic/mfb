@@ -1,0 +1,699 @@
+# plan-64: Benchmark performance — close the gap to C/Python
+
+Last updated: 2026-07-25
+Effort: xlarge (multi-day; many independently-landable `plan-64-<letter>` sub-plans)
+Platform under test: **aarch64 / macOS** (the target these logs were taken on)
+
+Source logs (one matched timestamp `20260725-075953`, **`--run 50`**):
+`benchmark/mfb-<ts>.log`, `benchmark/c-O0-<ts>.log`, `benchmark/c-O2-<ts>.log`,
+`benchmark/python-<ts>.log`. Startup is excluded (every workload is timed
+internally with `datetime::monotonicNanos()`); **median** is the metric.
+Re-measure any fix with the **same `--run 50`** as these logs.
+
+This is the master plan + Task-1 ordered priority list for the benchmark
+performance push. It scores every row in the current logs against the goals, orders
+the work, and indexes the fix sub-plans (Task 2). The coverage plan is a separate
+document, `planning/plan-65-benchmark-coverage.md`.
+
+This is a **full fresh round** — every root cause below was re-derived from the
+current tree at `file:line`, not carried forward. **The predecessor plan-44 was
+never implemented** (git log since 2026-07-14 shows only plan-45 coverage additions
+and the plan-44 archival — no fix commit landed), so every plan-44 sub-plan is a
+*hypothesis re-verified this round*, and the rows that improved since (list
+insert/removeAt/flatten, regexbench capture/replace, list window/sortBy, listchurn
+nested) improved via **unrelated bug work**, not plan-44. One plan-44 claim is
+corrected below: map `set` is **already** in-place + hash-incremental.
+
+## The goals (priority order)
+
+A benchmark's **priority = the first goal it fails**. Work lowest-numbered failures
+first.
+
+1. **G1** — mfb (MED) **< python** (MED).
+2. **G2** — mfb ≤ c-O0 + **10 ms**.
+3. **G3** — mfb ≤ c-O0 + **5 ms**.
+4. **G4** — mfb ≤ c-O2 + **5 ms**.
+
+**Override:** any mfb MED **≤ 5 ms is already complete**, regardless of G1–G4
+(measurement noise). A benchmark is otherwise complete only when it beats all four.
+Rows with **no cross-language baseline** (`Fixed`-typed / mfb-only) are excluded from
+G1–G4 scoring; regression-track only.
+
+## Scorecard summary
+
+| Bucket | Count | Meaning |
+|--------|------:|---------|
+| **P1** (fails G1, loses to Python) | 25 | highest priority |
+| **P2** (fails G2, > c-O0 + 10 ms) | 17 | |
+| **P3** (fails G3, > c-O0 + 5 ms) | 8 | |
+| **P4** (fails G4, > c-O2 + 5 ms) | 3 | lowest priority |
+| no-baseline (mfb-only) | 4 | excluded from scoring |
+| complete (passes all 4, or ≤ 5 ms) | 72 | done |
+
+Total = **129** rows (53 scored offenders across P1–P4). The suite grew since
+plan-44 (114 rows) by the plan-45 coverage groups (encoding/datetime/dispatch + map/
+mathpipe/list extensions).
+
+**Movement since plan-44** (whose scorecard predates the plan-45 rows; plan-44's own
+fixes never landed):
+
+- **New mega-offenders from the plan-45 coverage rows, run at `--run 50`:** `dispatch
+  trap` (6961), `datetime civil` (974), `datetime iso` (270), `dispatch union` (162,
+  P2). These new groups exposed catastrophic paths.
+- **`parse csv` "regressed" 8.4 → 447 — but did NOT regress algorithmically.** Its
+  min is still **5.689 ms**; the 447 ms median is the **arena mixed-transient-churn
+  quadratic** (sub-plan A) cumulatively degrading across 50 iterations. `--run 50`
+  (vs plan-44's lower count) exposes the quadratic far more. Same story for `datetime
+  civil` (min 3.179 → max 20150), `datetime iso`, `parse regex` (min 4.25 → max 111),
+  `regexbench capture` (median 4.2 but max 242).
+- **Retired since plan-44 via unrelated bug work (now complete):** `list insert`
+  9.5→2.19, `list removeAt` 9.8→1.92, `list flatten` 12.4→2.76, `regexbench capture`
+  67→4.25, `string search`, `strbuild clean`. **Improved but still offenders:**
+  `listchurn nested` 322→70.8, `list window` 117→20.6, `list sortBy` 68→21.2,
+  `regexbench replace` 139→12.6.
+- **Unchanged offenders:** `mapchurn churn` 170→164, `string case` 67→66, `list copy`
+  33.6→32.8, `scalar classify` 28→29, the whole math band.
+
+---
+
+## Task 1 — ordered priority list
+
+Within each band, worst-first by mfb median. `Δpy`/`ΔO0`/`ΔO2` are `mfb − baseline`
+(ms). **Sub-plan** maps each row to its fix (Task 2).
+
+### P1 — loses to Python (fails G1) — do these first
+
+| # | group/bench | mfb | py | Δpy | Sub-plan |
+|--:|-------------|----:|---:|----:|----------|
+| 1 | dispatch **trap** | 6961.5 | 16.6 | +6944.9 | **I** trap-block elision + **A** arena |
+| 2 | datetime **civil** | 973.9 | 0.79 | +973.1 | **A** arena (O(1) algo, pure churn) |
+| 3 | parse **csv** | 447.0 | 0.72 | +446.3 | **A** arena (algo fine, min 5.7) |
+| 4 | datetime **iso** | 270.3 | 0.01 | +270.2 | **A** arena + concat mitigation |
+| 5 | mapchurn **churn** | 164.4 | 1.18 | +163.2 | **C** in-place removeKey + index |
+| 6 | listchurn **nested** | 70.8 | 10.0 | +60.8 | **D** native groupBy + **E** COW |
+| 7 | string **case** | 66.0 | 27.96 | +38.0 | **F** single-pass ASCII case |
+| 8 | parse **regex** | 38.5 | 0.01 | +38.5 | **H** regex ctx + compiled handle |
+| 9 | list **copy** | 32.8 | 2.33 | +30.4 | **E** COW/refcount |
+| 10 | scalarbench **classify** | 29.3 | 14.24 | +15.0 | **G** integer category code |
+| 11 | mapchurn **iterate** | 24.5 | 7.50 | +17.0 | **C** native merge/mapValues |
+| 12 | regexbench **compile** | 22.6 | 0.01 | +22.5 | **H** compiled-pattern handle |
+| 13 | list **sortBy** | 21.2 | 3.73 | +17.5 | **D** native sortBy + **E** |
+| 14 | list **window** | 20.6 | 8.38 | +12.2 | **D** slice-into-result |
+| 15 | liststr **hof** | 15.3 | 2.96 | +12.3 | **B** borrow element + **D** |
+| 16 | regexbench **replace** | 12.6 | 0.03 | +12.6 | **H** scalar-cursor replace |
+| 17 | regexbench **alternation** | 11.8 | 0.01 | +11.8 | **H** prefilter restarts |
+| 18 | strbuild **splitjoin** | 11.3 | 6.41 | +4.9 | **F** memchr split/join |
+| 19 | scalarbench **listchurn** | 10.7 | 9.28 | +1.5 | **G** native toScalars |
+| 20 | io **format** | 8.46 | 6.89 | +1.6 | **L** concat-chain fusion |
+| 21 | liststr **build** | 6.81 | 0.15 | +6.7 | **F** in-place String set + **B** |
+| 22 | map **str_ops** | 6.10 | 2.81 | +3.3 | **C** map in-place + index |
+| 23 | list **chunks** | 5.53 | 1.68 | +3.86 | **D** slice-into-result |
+| 24 | map **int_ops** | 5.52 | 1.79 | +3.7 | **C** map in-place + index |
+| 25 | parse **json** | 5.06 | 0.22 | +4.8 | **H** scalar cursor |
+
+### P2 — > c-O0 + 10 ms (fails G2)
+
+| # | group/bench | mfb | c-O0 | ΔO0 | Sub-plan |
+|--:|-------------|----:|-----:|----:|----------|
+| 1 | math **pow** | 88.3 | 18.04 | +70.3 | **M** (capped) |
+| 2 | recurse **fib** | 76.9 | 55.95 | +20.9 | **N** (capped) |
+| 3 | math **tan** | 71.1 | 9.22 | +61.9 | **M** (capped) |
+| 4 | vector **int** | 56.4 | 6.53 | +49.8 | **J** vector inline |
+| 5 | math **simd** | 49.8 | 9.58 | +40.2 | **M** (capped) |
+| 6 | thread **sum** | 44.1 | 9.25 | +34.8 | **N** (capped) |
+| 7 | string **slice** | 37.2 | 23.01 | +14.2 | **F** |
+| 8 | math **log10** | 36.4 | 7.73 | +28.7 | **M** (capped) |
+| 9 | math **log** | 34.6 | 7.67 | +26.9 | **M** (capped) |
+| 10 | vector **math** | 33.1 | 4.53 | +28.6 | **J** (normalize) |
+| 11 | math **cos** | 31.7 | 7.66 | +24.1 | **M** (capped) |
+| 12 | math **sin** | 31.4 | 7.89 | +23.5 | **M** (capped) |
+| 13 | vector **float** | 21.9 | 6.27 | +15.7 | **J** |
+| 14 | math **acos** | 21.5 | 8.62 | +12.8 | **M** (capped) |
+| 15 | math **asin** | 20.7 | 9.88 | +10.8 | **M** (capped) |
+| 16 | math **exp** | 20.4 | 7.71 | +12.7 | **M** (capped) |
+| 17 | bignum **modmul** | 19.4 | 5.04 | +14.4 | **K** limb reduction |
+
+### P3 — > c-O0 + 5 ms (fails G3)
+
+| # | group/bench | mfb | c-O0 | ΔO0 | Sub-plan |
+|--:|-------------|----:|-----:|----:|----------|
+| 1 | math **atan2** | 21.9 | 13.69 | +8.2 | **M** (capped) |
+| 2 | float **nbody** | 18.9 | 11.80 | +7.1 | **M** (finiteness lever) |
+| 3 | math **atan** | 16.7 | 7.87 | +8.9 | **M** (capped) |
+| 4 | mathpipe **memo** | 11.4 | 1.81 | +9.6 | **L** bounds + MOD |
+| 5 | bignum **modexp** | 10.8 | 2.80 | +8.0 | **K** |
+| 6 | liststr **query** | 10.8 | 1.91 | +8.9 | **B** + **D** |
+| 7 | float **leibniz** | 9.39 | 3.67 | +5.7 | **M** (finiteness lever) |
+| 8 | list **partition** | 6.04 | 0.38 | +5.7 | **D** native partition |
+
+### P4 — > c-O2 + 5 ms (fails G4)
+
+| # | group/bench | mfb | c-O2 | ΔO2 | Sub-plan |
+|--:|-------------|----:|-----:|----:|----------|
+| 1 | float **mandelbrot** | 51.8 | 19.29 | +32.5 | **M** (beats c-O0; c-O2 vectorizes) |
+| 2 | math **sqrt** | 9.75 | 1.80 | +7.96 | **M** (hardware FSQRT — optimal) |
+| 3 | bits **ops** | 6.39 | 0.61 | +5.78 | **O** register fusion |
+
+### Excluded / already complete
+
+- **No baseline (mfb-only):** `math fixed` (28.56), `vector fixed` (13.87), `mathpipe
+  finance` (4.69), `mathpipe money` (2.59). Not scored; regression-track only. **J**
+  (vector inline) lifts `vector fixed` incidentally.
+- **Complete (passes all 4, or ≤ 5 ms):** 73 rows incl. `list insert/removeAt/flatten`
+  (retired since plan-44), `regexbench capture`, `string search`, `strbuild clean`,
+  `map set/lookup/intkey/listagg`, `mathpipe dft/stats`, `io write/read/buf_on/buf_off`,
+  `arena transient/mixed/growshrink`, `encoding` group, `primes`, `record update`.
+
+---
+
+## Task 2 — fix sub-plans (index)
+
+Grouped by **shared root cause** so one fix retires many benchmarks. Ordered by
+aggregate priority reach. Each gets its own `plan-64-<letter>-*.md` if large enough to
+split (A, D, E are the split candidates).
+
+| Sub-plan | Covers (benchmarks) | Priority reach | Root cause (see body) |
+|----------|---------------------|----------------|------------------------|
+| **A** arena transient-churn quadratic | csv, datetime civil/iso, dispatch-trap climb, regex spread; **gates plan-65 arena rows** | 3×P1 (+amplifies 3 more) | free-list first-fit/insert walks + flush-before-grow go **O(n²)** on mixed-size transient churn |
+| **B** borrow read-only collection element | dispatch union (P2), liststr hof/query; amplifies groupBy | 1×P2 + 1×P1 + 1×P3 | `collections::get` **deep-copies** every element (`copy_flat_block`) even for read-only MATCH/predicate use |
+| **C** map in-place removeKey + index preservation | mapchurn churn, iterate; map int_ops, str_ops | 1×severe P1 + 3×P1 | `removeKey` fresh-alloc+full-copy, resets `BUCKETS_READY=0` poisoning the paired probe; `merge`/`mapValues` deep-copy the base map |
+| **D** native-lower interpreted generics | listchurn nested, sortBy, window, chunks, partition, liststr query, any/all/findIndex | 4×P1 + 2×P3 | groupBy/sortBy/window/chunks/partition run `.mfb` bodies (per-elem native call + indirect dispatch); **groupBy is O(bucket²)** |
+| **E** COW/refcount collection buffers | list copy; amplifies sortBy, groupBy, merge | 1×P1 + broad | 40-byte header has **no refcount word**; every alias boundary deep-copies the whole block |
+| **F** string single-pass case/split/join | string case, slice, strbuild splitjoin; liststr build | 3×P1 + 1×P2 | case is 2-pass UTF-8 decode w/ no whole-string ASCII shortcut; split/join byte-at-a-time |
+| **G** scalar integer-category classification | scalarbench classify, listchurn | 2×P1 | `__strings_genCat` is a 4099-arm linear scan returning a **String** category, 710k calls/run; `toScalars` interpreted |
+| **H** json/regex source packages | parse regex/json, regexbench compile/alternation/replace | 5×P1 + regressions | full-input grapheme materialize + per-digit concat (json); recompile-per-call + dual makeCtx + O(n) restarts (regex) |
+| **I** inline-TRAP Result/Error elision | dispatch trap (floor) | 1×severe P1 | each `toInt TRAP` allocates ~3 Result/Error/ErrorLoc arena blocks it destructures one op later |
+| **J** vector Integer/Fixed op-inlining | vector int, math, float | 3×P2 | `vector_op_inlinable` inlines length/distance Float-only, `normalize` for **no** type → FUNC call + block materialize + soft isqrt |
+| **K** bignum limb-wise/Barrett reduction | bignum modmul, modexp | 1×P2 + 1×P3 | `bnMod` still **bit-serial** O(nbits×limbs) (~5M list ops/run); in-place buffer landed, algorithm did not |
+| **L** concat-chain fusion + bounds/MOD | io format; mathpipe memo | 1×P1 + 1×P3 | multi-`&` chain feeding a `LET` allocates ~7 growing intermediates (O(n²)/line); memo per-cell checked-get + MOD div |
+| **M** transcendental + float kernels | 12 math + sqrt + 3 float | 9×P2 + 3×P3 + 2×P4 | **capped** by the double-double ≤1-ULP no-libm contract; bounded lever = leibniz/nbody finiteness-check coalescing |
+| **N** integer overflow-check residual | fib, thread sum | 2×P2 | **capped** — value-carrying add can overflow → checked add + per-call tag round-trip mandatory |
+| **O** bits register-operand fusion | bits ops | 1×P4 | every op spills+reloads both operands through stack slots; no fusion across nested calls |
+
+> **Key findings that reshaped the grouping this round** (re-verified at `file:line`):
+> - **The arena quadratic (A) is now the highest-reach lever, not a footnote.** The
+>   top-4 P1s minus trap's floor — csv, datetime civil, datetime iso — are *pure*
+>   arena degradation: `datetime civil`'s math is provably O(1) Hinnant arithmetic
+>   (`datetime_package.mfb:261-305`) yet its median blows up 6300× from min→max. The
+>   free-list walks live in `src/target/shared/code/arena.rs` (`:240-264`, `:715-729`,
+>   flush `:387-407`). A also gates every plan-65 coverage arena row.
+> - **One deep-copy-on-`get` (B) spans dispatch AND the list HOFs.**
+>   `materialize_owned_element` → `copy_flat_block` (`builder_collection_queries.rs:10`,
+>   `builder_collection_layout.rs:306`) copies every element `collections::get`
+>   returns. That is the 4M-copy cost of `dispatch union` and the per-element cost of
+>   `liststr hof`/`query`. A read-only "borrow" path clears both.
+> - **plan-44 correction: map `set` is already optimal** (in-place append + incremental
+>   bucket insert, `builder_inplace_assign.rs:266`). The map defect is isolated to
+>   `removeKey` (no in-place path) + the `BUCKETS_READY=0` reset (`collection_buffer.rs:179`).
+> - **`dispatch trap` needs two sub-plans:** its 1104 ms *floor* is genuine per-iteration
+>   Result/Error-block allocation (I); its 1104→12668 *climb* is the arena quadratic (A).
+> - **Math (M) and fib/thread (N) remain structurally capped** — re-verified: dd
+>   compensated Horner (`builder_simd_float_math.rs:1854`) and mandatory checked-add
+>   (`builder_numeric.rs:844`). Ceilings, not open work; bounded levers only.
+> Highest leverage: **A** (3 severe P1 + gates coverage), **C** (map cluster, contained
+> native), **D** (list generics), **B** (shared get-copy), **H** (5 P1).
+
+### Sub-plan A — arena mixed-transient-churn quadratic (foundational)
+
+**Covers (3 P1 direct + amplifies):** parse csv (447), datetime civil (974), datetime
+iso (270); amplifies dispatch trap climb, parse regex, regexbench capture. **Gates
+every plan-65 arena-sensitive row** (the successor to plan-44-J / plan-39-A).
+
+**Mechanism.** The runtime free list (split out of `entry_and_arena.rs` by d653d5642)
+degrades super-linearly under mixed-size **transient** churn — short-lived
+`List`/`String`/record temporaries of *differing* sizes freed each iteration. Process-
+global and cumulative across the `--run` loop: a fresh row starts fast, each repeat
+gets dramatically slower. Signature = the min→max spread (csv 5.7→1477, datetime civil
+3.2→20150, min-index tracks run index).
+
+**Root cause (file:line).** `src/target/shared/code/arena.rs`:
+- **First-fit alloc walk** `lower_arena_alloc` / `arena_alloc_walk_loop` (`arena.rs:240-264`):
+  every request > `ARENA_QUICK_BIN_MAX` (2048 B, `error_constants.rs:409`) linearly
+  walks the address-ordered free list.
+- **Address-ordered insert walk** `lower_arena_insert_free` / `insert_find`
+  (`arena.rs:715-729`): every coalescing free walks to find its slot.
+- **Flush-before-grow amplifier** `arena_alloc_flush_bin`/`flush_chain`
+  (`arena.rs:387-407`): when mixed-size small transients fill the 128 quick bins and a
+  small request misses and must grow, the allocator drains *every* parked bin node
+  one-by-one through `arena_insert_free` (`:402`), each paying the O(list) `insert_find`
+  walk → **O(n²)**.
+The benchmark evidence: `csv::parse` (`csv_package.mfb:29-96`) allocates ~6000 short
+mixed-size `List OF Integer` field buffers + 6000 decoded Strings per call; `datetime
+addDays`/`civil` construct spreads of distinct-sized `Date`/`Instant`/`Duration`/`DateTime`
+records per call — all ≤2048, so they park in quick bins then drain through the flush.
+
+**Fixes (semantics-preserving — allocator internals; no observable change).**
+- **A1 (biggest):** make the flush-before-grow (`arena.rs:387-407`) coalesce the parked
+  bins in **one address-ordered merge pass** instead of N× O(list) `insert_find` calls.
+- **A2:** segregate the address-ordered free list into size-class sublists (or a
+  balanced index) so neither the alloc walk nor the insert walk is global — best-fit
+  large-bin with bounded split.
+- **A3 (workload-side mitigations, independent):** `csv::parse` — track `(start,end)`
+  scalar indices into the already-encoded `chars` and decode one sub-slice per cell
+  (only quoted fields need a rebuilt buffer), cutting distinct transient sizes;
+  `datetime addDays`/`addMonths` — a UTC/fixed-offset fast path that builds the result
+  `DateTime` straight from `civilFromDays`, skipping the `resolveLocal`+`inZone`+`Instant`
+  round-trip (`datetime_package.mfb:1005,1017`) and intern the constant `"UTC"` zone
+  label so it isn't re-inlined per construction.
+- Order: A1 → A2 (the real fix), A3 as belt-and-suspenders. **Acceptance criterion:** the
+  plan-65 arena-gated rows (`encoding base64`, `datetime iso`, `map intchurn`, the
+  crypto churn rows) bump from tiny to realistic N in the commit that lands A and stay
+  **linear** across the `--run` loop. Gate: all checksums unchanged +
+  `scripts/artifact-gate.sh`.
+
+### Sub-plan B — borrow read-only collection element (kill `copy_flat_block` on get)
+
+**Covers:** dispatch union (162, P2), liststr hof (15.3, P1), liststr query (10.8, P3);
+amplifies groupBy's bucket copy (D).
+
+**Mechanism.** `LET e = collections::get(list, i)` and every predicate/mapper argument
+lowers through `materialize_owned_element` (`builder_collection_queries.rs:10-23`) →
+`copy_flat_block` (`builder_collection_layout.rs:306`, `arena_alloc` `:333` + memcpy
+`:346`) for freeable flat/String values — a **fresh arena copy per element**, even when
+the value is only read (MATCHed / length-checked) and never stored or mutated.
+`dispatch union` (`dispatch.mfb:44`) pays ~4.09M such copies/rep; `liststr query`/`hof`
+pay one fresh String per element per predicate call.
+
+**Root cause (file:line).** `materialize_owned_element` (`builder_collection_queries.rs:10-52`,
+`lower_list_get`/`lower_collection_get` at `:25`); String freshness comment at `:4-9`;
+map-get twin at `:69`. MATCH's own variant binding already aliases the inline block
+without copying (`builder_control.rs:92`) — the copy is pure overhead for the read-only
+case.
+
+**Fixes (semantics-preserving — copy only when the element escapes).**
+- **B1:** return an aliasing **borrow** (pointer into the list's inline element) for a
+  `collections::get` whose result is consumed read-only within the statement — MATCH
+  scrutinee, field read, predicate/mapper argument. Mirrors MATCH's `UnionExtract`.
+- **B2:** fuse `MATCH collections::get(list, i)` into a direct read of the inline
+  element's tag+payload (no intermediate `e` block at all).
+- **B3:** gate the copy on escape analysis — copy only when the element is
+  stored/returned/mutated; keep the fast borrow for the common read-only case.
+- Gate: dispatch/list/liststr checksums unchanged + `scripts/artifact-gate.sh`.
+
+### Sub-plan C — map in-place removeKey + index preservation
+
+**Covers (4):** mapchurn churn (164, P1 — worst map), mapchurn iterate (24.5, P1), map
+int_ops (5.5, P1), map str_ops (6.1, P1). Consistent spreads ⇒ genuine, not arena.
+
+**Mechanism.** `set` is already in-place + hash-incremental (`builder_inplace_assign.rs:266`
+→ `lower_map_set_in_place` `map_mutate.rs:881`). The defects are `removeKey` and the
+source-generic `merge`/`mapValues`.
+
+**Root cause (file:line).**
+- **removeKey:** no `try_inplace_remove_key_assign` — the in-place dispatch
+  (`builder_control.rs:411-425`) covers only append/bulk-append/set/prepend/concat. So
+  `m = removeKey(m,k)` falls to `lower_map_remove_key` (`map_mutate.rs:1229`): O(N)
+  survivor scan (`:1294-1336`), fresh `arena_alloc` (`:1364`), full O(N) entry copy
+  (`:1410-1444`), and the product's header **resets `BUCKETS_READY=0`**
+  (`collection_buffer.rs:179-184` via `:1383`). The paired `hasKey` then probes a
+  `ready==0` map → runtime fallback `_mfb_rt_map_probe` rebuilds the whole index O(N)
+  (`builder_collection_query.rs:158-162`). Two O(N) sweeps per cycle.
+- **merge/mapValues:** `__collections_merge` (`collections_package.mfb:327-335`) opens
+  `MUT result = a` → owner-copy deep-copies the whole base map
+  (`builder_values.rs:116-134` → `copy_collection_tight` `builder_collection_layout.rs:359`)
+  to add 10 keys. `__collections_mapValues` (`:248-254`) rebuilds an N-entry map
+  element-by-element leaving `ready=0`, so the next `get` rebuilds the index.
+
+**Fixes (value semantics preserved — same survivor set + iteration order).**
+- **C1:** `try_inplace_remove_key_assign` (mirror `try_inplace_set_assign`'s ownership
+  gate) — compact the entry array + data region down by one slot in place, and
+  **build the bucket table incrementally during the compaction pass** (set `ready=1`),
+  backward-shifting the probe chain so no tombstones and probe order stays byte-identical.
+  Removes both O(N) sweeps of `mapchurn churn`.
+- **C2:** native `merge` — size the result to `|a|+|b|`, copy `a` **once with buckets
+  built** (`ready=1`), insert both in one pass; native index-preserving `mapValues`
+  (copy the source entry/bucket structure, rewrite only value payloads).
+- **C3:** preserve `BUCKETS_READY` across `copy_collection_tight` generally (rebuild-
+  during-copy) — a win for every source generic that opens `MUT result = <map>`.
+- Order: C1 (churn) → C2 (iterate/int/str_ops). Gate: map checksums + `scripts/artifact-gate.sh`.
+
+### Sub-plan D — native-lower interpreted collection generics
+
+**Covers (6):** listchurn nested (70.8, P1 — groupBy quadratic), list sortBy (21.2, P1),
+list window (20.6, P1), list chunks (5.5, P1), list partition (6.0, P3), liststr query
+(10.8, P3). Consistent spreads ⇒ genuine.
+
+**Mechanism.** ~20 members are natively lowered; the rest run MFBASIC `__collections_*`
+bodies with a per-element native call + indirect FUNC dispatch (`collections_package.mfb`).
+
+**Root cause (file:line).**
+- **groupBy — the worst.** `__collections_groupBy` (`collections_package.mfb:226-246`)
+  does two full `transform` passes then per element: `hasKey`, **`MUT bucket =
+  get(result,k)`** (`:235`, copies the whole *growing* bucket via `copy_flat_block`),
+  `append(bucket,v)`, `set(result,k,bucket)` (`:237`, rebuilds map data on size change).
+  Get-copies-the-bucket ⇒ **O(bucketSize²) per bucket** — the 7× Python gap.
+- **sortBy** (`:101-156`): correct merge but the double-buffer is realized with full
+  value copies — `MUT itemsDst = items`/`keysDst = keys` (`:110-111`) deep-copy both
+  whole lists every pass and copy back (`:151-152`), on top of get×2+set×2 per element.
+- **window/chunks** (`:300-312`/`:282-298`): `slice` is native (`lower_list_slice_range`
+  `builder_collection_queries.rs:1111`) but each piece is alloc'd, copied into `result`
+  (second copy), then freed — per-piece alloc/copy/copy/free churn.
+- **partition** (`:337-352`): single pass but per-element get + indirect predicate call
+  over 200k iters.
+
+**Fixes (semantics-preserving — same order/stability/buckets).**
+- **D1:** native `groupBy` — single pass growing each bucket **in place** in a hash-slot
+  side structure, materialized to the Map once at the end (kills the O(bucket²) copy).
+- **D2:** native `sortBy` over two scratch buffers with pointer ping-pong (no per-pass
+  value copies; one fused key+item buffer), inlined get/set.
+- **D3:** native window/chunks — slice **directly into the reserved result tail**
+  (one copy, no temp piece), pre-reserved to the known piece count.
+- **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
+  outputs, inlined comparator (with B's borrowed String element for String lists).
+- Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the
+  sortBy/groupBy buffer copies free) and **B** (borrowed element for String lists). Gate:
+  list checksums + `scripts/artifact-gate.sh`.
+
+### Sub-plan E — COW / refcount collection buffers
+
+**Covers (1 direct + broad):** list copy (32.8, P1); amplifies sortBy, groupBy, merge.
+
+**Mechanism / root cause (file:line).** The 40-byte header
+(`error_constants.rs:807-815`) has **no refcount/version word**, and there is no COW
+logic in codegen. `lower_value_owned` (`builder_values.rs:116`) unconditionally
+deep-copies any aliasing source — Local/Global/Capture/MemberAccess
+(`value_is_aliasing_source` `:207-218`) — via `copy_flat_block` → `copy_collection_tight`
+(`builder_collection_layout.rs:306,359`). `list copy` (`list.mfb:68-102`, `RETURN xs` ×
+1000 over 1000-element lists) is 1000 full-list memcpys per fn, twice, ×50.
+
+**Fixes.**
+- **E1:** add a refcount/version word to the header; make `copy_collection_tight`
+  copy-on-write — share the block on `RETURN`/param-alias, split on first mutation.
+  Retires `list copy` and makes sortBy/groupBy's buffer copies free.
+- **E2 (cheaper interim):** move-elision escape analysis — `RETURN local` of a
+  caller-dead value becomes a move; the identity shape `FUNC f(xs) RETURN xs` elides the
+  copy entirely.
+- **Risk/scope:** E1 is the largest design change in the plan (value model + every
+  mutation path); semantics must stay observably value-copy. **Recommendation:** land
+  A/B/C/D first (they cut most copy volume with contained edits); take E2 early
+  (contained) and E1 only if `list copy` + residual amplification still dominate. Gate:
+  full `tests/` value-semantics fixtures + `scripts/artifact-gate.sh`.
+
+### Sub-plan F — string single-pass case / split / join
+
+**Covers (4):** string case (66, P1), strbuild splitjoin (11.3, P1), liststr build (6.8,
+P1), string slice (37.2, P2). Consistent ⇒ genuine, not arena.
+
+**Mechanism / root cause (file:line).**
+- **case:** `lower_strings_case_map` (`builder_strings_builtins.rs:460`) is a **two-pass
+  count-then-write**, each pass calling `emit_utf8_decode_next` per codepoint (`:509`,
+  `:583`) — the string is decoded **twice** per op. The per-codepoint ASCII fast path is
+  present and firing (`:511-518`, `:585-592`), but unlike `normalizeNfc` (which got a
+  whole-string ASCII quick-check + single-pass byte copy, `:710-769`), `case_map` has
+  **no whole-string ASCII shortcut**.
+- **split/join:** `lower_strings_split` (`:1527`) and `lower_strings_join` (`:1318`) scan
+  and copy **byte-at-a-time** (no memchr/word-copy) — split's length + write passes
+  (`:1610-1646`,`:1725-1751`), the per-field copy `emit_string_split_write_entry`
+  (`builder_strings_package.rs:267-276`), join's delim/value loops (`:1476-1506`).
+- **build:** NOT `acc & …` (the accumulator is an Integer len-sum). Cost is String `set(nums,i,v&"!")`
+  (`list.mfb:912`): a String payload's width changes so `set` takes the whole-list
+  rebuild branch (`collection_mutate.rs:254+`).
+
+**Fixes.**
+- **F1:** give `case_map` the whole-string ASCII quick-check `normalizeNfc` has — scan
+  once for a byte ≥0x80; if none, one decode-free pass that range-maps a–z/A–Z ±32 and
+  copies (2 decode passes → 1 byte pass; bit-identical for ASCII).
+- **F2:** memchr-style single-byte delimiter scan + word-at-a-time (8-byte) block copy in
+  split/join; fuse split's two scans for a single-char delimiter.
+- **F3:** in-place data-tail rewrite for String `set` when the new payload fits
+  `dataCapacity` (avoids the whole-list rebuild in `build`).
+- Gate: string/list checksums + `scripts/artifact-gate.sh`.
+
+### Sub-plan G — scalar integer-category classification + native toScalars
+
+**Covers (2):** scalarbench classify (29.3, P1), scalarbench listchurn (10.7, P1).
+Consistent ⇒ genuine (NOT the arena quadratic).
+
+**Mechanism / root cause (file:line).**
+- **classify:** the five `is*` predicates (`strings_package.mfb:47-77`) each call
+  `__strings_genCat(toInt(sc))` and **String-compare** the result. `__strings_genCat`
+  (`regex_unicode.mfb:8`) is a **4099-arm linear `IF cp<=N THEN RETURN "xx"`** returning
+  a *String* category. Workload = 2000 × 71 × 5 = **710k genCat calls/run** + ~1.4M
+  String compares (ASCII exits early, but each call still returns+compares a String).
+- **listchurn:** `strings::toScalars` is not natively lowered — it maps to
+  `__strings_toScalars` (`strings.rs:245`, `strings_package.mfb:18-28`) which per pass
+  does `toBytes` + `utf32Encode` (per-byte `get`+`toInt`+`append`, `encoding_package.mfb:139-178`)
+  + a per-cp `toScalar`+`append` — **3 fresh lists** and ~450 `collections::get`/pass.
+
+**Fixes (checksum-preserving; ASCII workloads).**
+- **G1:** `genCat` returns an **Integer** category code (or a parallel `__strings_genCatCode`);
+  the five predicates compare integers, not Strings — kills every String return/compare
+  on the hot path.
+- **G2:** an ASCII fast path in each predicate (cp < 128 → direct range test) skipping
+  `genCat` entirely; convert the 4099-arm chain to a binary-search/two-level table.
+- **G3:** natively lower `toScalars` — one arena alloc + a single UTF-8 decode pass
+  writing 4-byte scalars directly (no toBytes+utf32Encode+double-append chain).
+- Gate: the five classification counts + scalar checksums unchanged.
+
+### Sub-plan H — json / regex source packages
+
+**Covers (5 P1 + regressions):** parse regex (38.5), parse json (5.06), regexbench
+compile (22.6), alternation (11.8), replace (12.6). (**parse csv is A**, not H — its
+algorithm is fine.)
+
+**Mechanism / root cause (file:line).**
+- **json** (consistent 5 ms — genuine): `__json_parse` (`json_package.mfb:318-326`)
+  materializes the whole ~24 KB input into a `List OF String` of one-grapheme strings
+  via `strings::graphemes` (`:319`), indexes it with `get`+String compares; per-digit
+  `acc = acc & ch` (`__json_collectNumber:646`); `__json_validNumber` (`:659`)
+  re-graphemes every number token (`:660`).
+- **regex:** `__regex_makeCtx` (`regex_package.mfb:228-235`) builds **both** a `List OF
+  String` (`:229`) and a `List OF Integer` (`:230-233`) of the input; `__regex_searchFrom`
+  (`:955-968`) restarts the full matcher at every start position; `__regex_setCap`
+  (`:702`) `collections::set`-copies the caps list per group; **no compiled handle** —
+  `__regex_compile` (`:1748`) is called at the top of match/find/findAll/replace
+  (`:1879/1886/1899/1932`), so `regexbench compile` (25 lines/run) parses per line;
+  `__regex_replace` (`:1931-1965`) does `strings::mid` re-walks per match (`:1950,1957,1963`)
+  + `__regex_toScalars(repl)` per match (`:1802`). (bug-315 added an iterative greedy-
+  simple-repeat path, `:859-891`, and a step budget — the O(n) start-restart is unchanged.)
+
+**Fixes (source-package; checksums csv=6003000, json=5000, regex=200 unchanged).**
+- **H1 (regex, biggest):** a **compiled-pattern handle** so compile/find/findAll/replace/
+  match parse once and reuse the program — directly retires `regexbench compile` and cuts
+  every per-call parse.
+- **H2 (regex):** drop the dual list in `makeCtx` (keep only `cps: List OF Integer`);
+  MUT the caps buffer in place instead of `set`-copying (`:702`); a first-scalar
+  prefilter in `searchFrom` (`:960`) to cut O(n) restarts on literal-anchored patterns;
+  build `replace` output from `ctx.chars` slices and hoist `toScalars(repl)` out of the
+  match loop.
+- **H3 (json):** replace `strings::graphemes` (`:319`) with `encoding::utf32Encode` →
+  `List OF Integer` (all structural chars ASCII → integer compares, the pattern csv
+  already uses); accumulate number tokens by `(start,end)` slice not `acc & ch`; validate
+  over the code-point slice instead of re-graphemeing (`:660`).
+- **Structural floor:** a source CPS matcher will not reach C POSIX-NFA / CPython `re`
+  speed; H gets it much closer — bound the expectation. Gate: parse/regexbench checksums
+  + counts.
+
+### Sub-plan I — inline-TRAP Result/Error materialization elision
+
+**Covers (1 severe P1 floor):** dispatch trap (6961 — the 1104 ms floor; the climb is A).
+
+**Mechanism / root cause (file:line).** Workload: `toInt(tok) TRAP(err)` over
+1000 tokens × 100 passes, 25% invalid → 75k successes + 25k failures/rep. The desugar
+`lower_inline_trap` (`ir/lower.rs:961`, body `:990-1064`) materializes a `Result OF
+Integer` block only to `If ResultIsOk`/destructure it one op later. The integer parse
+itself is a tight register loop (`builder_conversions.rs:171`) — not the cost. The cost
+is per-iteration arena allocation:
+- **success (75k/rep):** `materialize_current_result` → `emit_build_result_inline`
+  (`builder_arena_transfer.rs:129`, 24-byte `arena_alloc` `:31-41`) — one block per
+  successful `toInt`, freed one op later.
+- **error (25k/rep):** `emit_error_register_return` (`builder_error_emission.rs:494`)
+  builds an `ErrorLoc` (`:133`), an inline Error block (`emit_build_error_inline:184`,
+  second `arena_alloc` `:284` + 2 memcpys), then `materialize_current_result`'s error
+  branch adopts + builds a Result (third `arena_alloc`) and frees the adopted block.
+So ~3 allocs+3 memcpys per failure, 1 alloc per success — ~100k+ allocs/rep behind the
+1104 ms floor. The 1104→12668 climb is A (mixed-size fragmentation).
+
+**Fixes (semantics-preserving).**
+- **I1 (biggest):** skip the `Result`-block materialization when the inline-TRAP consumer
+  is adjacent — fuse `lower_inline_conversion_raw` with the enclosing TRAP so the raw
+  tag/value **registers** feed the Ok/Err branch directly (eliminates `emit_build_result_inline`
+  + its scope-drop free on all 100k iterations).
+- **I2:** elide `ErrorLoc` + flat-Error assembly when the handler provably ignores `err`
+  (here `RECOVER 0 - 1` never reads it) — the error path then needs only the tag.
+- **I3:** allocate these short-lived Result/Error/ErrorLoc blocks in a per-iteration
+  scoped sub-arena that resets each `FOR EACH` iteration (flattens the climb even before A).
+- Gate: dispatch trap checksum + inline-TRAP tests (`tests/`) + `scripts/artifact-gate.sh`.
+
+### Sub-plan J — vector Integer/Fixed op-inlining
+
+**Covers (3):** vector int (56.4, P2), vector math (33.1, P2), vector float (21.9, P2).
+Also lifts `vector fixed` (mfb-only). **Uncapped** — the real actionable vector lever.
+
+**Mechanism / root cause (file:line).** `vector_op_inlinable`
+(`builder_vector_inline.rs:104-111`): `scale`/`dot`/`cross(3D)` inline for all types
+(C1 landed), `length`/`distance`/`lerp` inline **Float-only** (`:108`), and `normalize`/
+`angle`/`project`/`reject`/`reflect`/`slerp`/`clamp_length`/etc inline for **no** type. For
+Integer/Fixed and for `normalize` (any type), each op makes a `#vector_<op>` FUNC call
+and **materializes the register-native operand to a fresh N×8 arena block**
+(`vector_value_as_block:184`), and Integer/Fixed length/distance run software isqrt
+(`vector_package.mfb:74`). `vector math` (200k iters) is dominated by `normalize` ×2/iter
+(`vector_package.mfb:290`), never inlined for any type — the heaviest.
+
+**Fixes (semantics-preserving — reuse the module's `lower_value` bit-identity technique).**
+- **J1 (biggest):** inline `normalize` (Float) as `scale(v, 1/length(v))` with the
+  zero-length `FAIL` guard — clears the dominant `vector math` cost.
+- **J2:** extend `length`/`distance`/`lerp` inline to Integer/Fixed (relax the
+  `element == "Float"` clause at `:108`) — Fixed sqrt is already deterministic inline
+  (`emit_fixed_sqrt`); Integer isqrt reproduced inline or fed register-native lanes to
+  skip the block materialize. Attacks `vector int` directly.
+- **J3:** inline the remaining pure-arithmetic ops (`project`/`reject`/`reflect`, 2D/4D
+  `cross`, `perpendicular`, `rotate_2d`) — each a re-lowerable arithmetic tree.
+- Gate: `tools/math-kernels/runtime_ulp.py` (normalize reuses the already-gated
+  `math::sqrt`) + scalar-vs-array bit identity + vector checksums + `scripts/artifact-gate.sh`.
+
+### Sub-plan K — bignum limb-wise / Barrett reduction
+
+**Covers (2):** bignum modmul (19.4, P2), modexp (10.8, P3). Source-level (`main.mfb`).
+
+**Mechanism / root cause (file:line).** The in-place `r` buffer landed (`main.mfb:701-706`,
+`try_inplace_set_assign`), but `bnMod` (`main.mfb:695-745`) is still **bit-serial**
+O(nbits×limbs): ~530 bit iterations × ~35-55 bounds-checked `collections::get`/`set` limb
+ops (shift-in `:717-718`, `bnCmp :722`, conditional subtract `:726-740`) ≈ ~5M list ops
+per modmul run vs C indexing a stack `uint32_t[]`.
+
+**Fixes (source-level; result is the unique remainder → checksums unchanged).**
+- **K1 (biggest):** limb-wise schoolbook reduction — process 28-bit limbs of `x` top-down
+  (`r = r*2^28 + limb`, subtract one trial-quotient digit × m). O(limbs²) ≈ 19×11 vs
+  O(nbits×limbs) ≈ 530×11 — ~28× fewer inner iterations.
+- **K2:** Barrett reduction — precompute `mu = floor(2^k/m)` once per test (m is
+  loop-invariant, `main.mfb:753/780`), reduce with two `bnMul`s + a subtract (reuse the
+  in-place `bnMul` `:646-672`).
+- **K3 (cheap, independent):** hoist `bnCmp(r,m)` — after one shift `r < 2m`, so compare
+  only the top 1-2 limbs, not a full 11-limb scan.
+- Gate: bignum modmul/modexp checksums (`main.mfb:775,807`) unchanged.
+
+### Sub-plan L — concat-chain fusion + memo bounds/MOD
+
+**Covers (2):** io format (8.5, P1), mathpipe memo (11.4, P3).
+
+**Mechanism / root cause (file:line).**
+- **io format:** `iobench.mfb:92` builds a line as a left-associated chain of ~7 `&`
+  concats into a fresh `LET` — each `lower_string_concat` (`builder_value_semantics.rs:378`)
+  arena-allocs `left+right` and copies both operands, and because `line` is a fresh `LET`
+  (not `name = name & …`) the in-place `try_inplace_concat_assign` (`builder_inplace_assign.rs:398`)
+  does **not** fire → ~7 growing intermediates + O(n²)-per-line prefix re-copy over 20000
+  lines. The Float formatter (`float_format.rs:48`) is intrinsic per-value work.
+- **memo:** per DP cell (`mathpipe.mfb:191-192`) 2 bounds-checked `collections::get`
+  (`builder_collection_query.rs:22-51`) + in-place `set` (already O(1)) + `MOD` div-check
+  (`builder_numeric.rs:901`), ×~840k cells/run.
+
+**Fixes (checksums = constant line count / DP result, unchanged).**
+- **L1:** recognize a multi-`&` chain feeding a `LET`/`writeAll` and lower it to **one
+  summed-length allocation + N copies** (no intermediates) — or build in a pre-sized `MUT`
+  accumulator so the in-place concat path fires.
+- **L2 (memo):** an unchecked-`get` variant provable in-bounds when the index is a loop
+  induction var with loop-invariant list length (reuse I1's bound-tracking); strength-
+  reduce constant `MOD 1000000007` to a conditional subtract (the sum of two values each
+  < m is < 2m).
+- Gate: io/memo checksums + `scripts/artifact-gate.sh`.
+
+### Sub-plan M — transcendental + float kernels (structurally capped)
+
+**Covers (14):** math sin/cos/tan/exp/log/log10/pow/simd/asin/acos/atan/atan2 (P2/P3),
+sqrt (P4); float leibniz/nbody (P3), mandelbrot (P4).
+
+**Mechanism + ceiling (file:line).** All `Float` math is native inline NEON f64, no libm.
+Scalar + array share one code path (`builder_math.rs:66-70,331-338` → the same kernels),
+so ULP/bit-identity is enforced by construction. Each transcendental open-codes a
+**double-double compensated Horner** (`emit_compensated_horner`,
+`builder_simd_float_math.rs:1854`, on `emit_twoprod`/`emit_twosum`) to meet the ≤1-ULP /
+deterministic / no-libm contract (`emit_exp_body:1499`, `emit_log_body:1637`,
+`emit_sin_cos_body:1116`, `emit_tan_body:1353`, `emit_atan_core:680`); pow is a full
+software fdlibm dd expansion (`builder_pow.rs:169`). This is **inherent** to computing
+these in software dd arithmetic — c-O0 calls hand-tuned vendor libm. **The 3-10× gaps are
+the structural dd-vs-libm delta; achievable semantics-preserving gain ≈ 0.** `sqrt` is a
+single hardware `float_sqrt_d` (`builder_math.rs:1091`) — IEEE-exact, optimal; residual is
+the per-call domain `fcmp`.
+
+The **pure-float rows** (leibniz/nbody/mandelbrot) are **not** dd-capped. Their overhead is
+the plan-17 per-observation-boundary finiteness check (`emit_float_result_check_fp`
+`builder_math.rs:1220`, fired by `observe_float:1273`, gated `float_arith_node:1327`),
+already boundary-coalesced (one check per observed assignment). mandelbrot already **beats
+c-O0** (loses only to c-O2 autovectorization).
+
+**Fixes (the only bounded levers).**
+- **M1:** coalesce sibling finiteness checks at a shared boundary — mandelbrot/nbody's
+  `nzr`/`nzi` are two producers per iteration; a combined `fmax(|nzr|,|nzi|)` vs +Inf
+  halves the branch count (bit-identical trap set; keep the earliest `line:char` stamp).
+  Bounded — tens of percent on leibniz/nbody, not a multiple.
+- **BLOCKED:** the transcendental band cannot reach G2 without dropping dd precision or
+  importing libm — both semantic changes. **Documented as a ceiling; track for regression.**
+- Gate: `tools/math-kernels/runtime_ulp.py` + scalar-vs-array bit identity + all math
+  checksums unchanged.
+
+### Sub-plan N — integer overflow-check residual (structurally capped)
+
+**Covers (2):** recurse fib (76.9, P2), thread sum (44.1, P2).
+
+**Root cause + ceiling (file:line).** I1 elision is **verified firing**: fib's `n-1`/`n-2`
+lower to bare `sub` under the `n<2` guard (`builder_numeric.rs:750-810,870-876`); thread's
+`i = i+1` elides under the `i < stop` strict-upper bound (`:839-842`, `builder_control.rs:758-790`).
+The residual is **irreducible under integer-overflow-trap semantics:**
+- **thread sum:** `total = total + i` — right operand is a Local, not `+1`, so
+  `integer_add_elidable` is false (`:783`) → checked add (`:844-849`); `total` can
+  genuinely overflow i64.
+- **fib:** `fib(n-1) + fib(n-2)` — both call results, overflow-capable → checked add
+  stays; every one of ~29.8M calls also pays the `RESULT_TAG` write (`builder_exits.rs:313`)
+  + post-call `compare/branch_eq` propagation (`builder_emit_helpers.rs:207-217`).
+
+**Fixes (bounded; the checked add itself is immovable).**
+- **N1:** when a fallible callee's tag is *immediately* consumed by an identically-
+  propagating enclosing return (fib's `RETURN fib()+fib()`), merge/hoist the redundant
+  per-call `compare/branch_eq` + callee `mov tag, OK`. Codegen change with tree-wide blast
+  radius; marginal (~1.37× gap for fib).
+- **BLOCKED:** eliding the value-carrying add's overflow check breaks the trap contract —
+  off the table. **Ceiling; track for regression.**
+- Gate: overflow-trap tests + fib/thread checksums + `scripts/artifact-gate.sh`.
+
+### Sub-plan O — bits register-operand fusion
+
+**Covers (1):** bits ops (6.4, P4 — beats Python 120×, only > c-O2 + 5 ms). Lowest priority.
+
+**Mechanism / root cause (file:line).** Every binary op routes through
+`lower_bits_two_integers` (`builder_bits.rs:37-68`) which **spills both operands to fresh
+stack slots and reloads them** per call (`:46-61,65-66`); shifts add a 0..63 range-check
+(`:131-134`). A fused expression round-trips every intermediate through memory over 3.2M
+ops/run.
+
+**Fixes.**
+- **O1:** skip the spill when an operand is a constant (`bits::sl(x,3)` — the shift amount
+  folds to a compile-time range check and the reload disappears); fuse
+  `lower_bits_two_integers` so a bits result already in a register feeds the parent op
+  without a store/reload. Gate: bits checksum + `scripts/artifact-gate.sh`.
+
+## Validation Plan (all sub-plans)
+
+- **Correctness first:** every fix produces identical observable output — the benchmark
+  checksums on stderr (`csv=6003000`, `json=5000`, `regex=200`, plus each group's printed
+  checksum: list/liststr/map/mapchurn/string/strbuild/scalar/dispatch/datetime/encoding/
+  vector/bits/bignum/math/float/io/thread) **unchanged** — and passes `scripts/test-accept.sh`
+  + `tests/`. No language/semantic/syntax/precision change; value-semantics and
+  integer-overflow-trap semantics preserved.
+- Re-measure the affected group with the **same `--run 50`** as the source logs
+  (`20260725-075953`); confirm the row's band improved (ideally to complete). For A and
+  the arena-gated rows, confirm **linear** scaling across the run loop (min ≈ median).
+- Codegen changes: `scripts/artifact-gate.sh` (byte-deterministic 4-target self-diff).
+  Math changes: `tools/math-kernels/runtime_ulp.py`.
+
+## Open Decisions
+
+- **A (arena quadratic) is the highest-ROI lever this round** — it retires csv + datetime
+  civil + datetime iso (3 severe P1, all pure churn), unblocks dispatch-trap's climb, and
+  gates every plan-65 arena row. Recommend landing A first. Decision: **A first**, then the
+  map cluster **C**, list generics **D**, shared **B**, then **H/F/G/I**.
+- **E (COW) is a large design change** — recommend E2 (move-elision, contained) early and
+  deferring E1 (refcount) until A/B/C/D have cut copy volume; take E1 only if `list copy` +
+  residual amplification still dominate. Decision: E2 early, E1 deferred/reassess.
+- **`dispatch trap` is split across two sub-plans** (I for the floor, A for the climb) —
+  land I and A together to fully retire it; either alone leaves it a severe offender.
+  Decision: schedule I with A.
+- **M (math) and N (fib/thread) are structurally capped** — cannot reach their bands
+  without breaking the dd-precision or overflow-trap contract. Decision: ceiling accepted;
+  land only the bounded levers (M1 finiteness coalescing, N1 tag round-trip) if cheap,
+  non-gating.
+- **H-regex has a structural floor** — a source CPS matcher will not match C/CPython; H1/H2
+  are large constant-factor wins but do not gate on parity. Decision: pursue H1 (compiled
+  handle) + H2; bound the expectation.
+- **Fixed / Money rows have no baseline** — `math fixed`, `vector fixed`, `mathpipe
+  finance`/`money`; J lifts vector fixed incidentally. Decision: track for regression only.

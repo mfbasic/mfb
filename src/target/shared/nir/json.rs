@@ -469,7 +469,7 @@ fn link_expr_json(expr: &crate::ir::IrLinkExpr) -> String {
         crate::ir::IrLinkExpr::Var(name) => {
             format!(
                 "{{ \"kind\": \"var\", \"name\": {} }}",
-                crate::json_string(name)
+                crate::json::json_string(name)
             )
         }
         crate::ir::IrLinkExpr::Int(value) => {

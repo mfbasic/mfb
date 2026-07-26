@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::json_string;
+use crate::json::json_string;
 
 pub(crate) fn init_project(location: &Path) -> Result<(), String> {
     let src_dir = location.join("src");

@@ -319,7 +319,7 @@ impl<'a> FileParser<'a> {
             let token = self.peek().clone();
             self.report(
                 "MFB_PARSE_UNEXPECTED_STATEMENT",
-                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, BIND IN, BUFFER, or FREE clauses.",
+                "A native FUNC body may only contain SYMBOL, ABI, CONST, SUCCESS_ON, ERROR_ON, RETURN, BIND STATE, BIND IN, BUFFER, or FREE clauses.",
                 &token,
             );
             self.synchronize();
@@ -644,7 +644,7 @@ impl<'a> FileParser<'a> {
     }
 
     /// Parse an ABI slot name: an identifier, or the `return` keyword (the
-    /// wrapper-result marker, plan-link-update.md §5b).
+    /// wrapper-result marker, 17_native-libraries.md).
     /// An ABI slot name is an ordinary identifier.
     ///
     /// plan-50-H deleted the `return` special case: the result is named by the
