@@ -328,18 +328,52 @@ Commit: — (audit + `scripts/exe-oracle.sh` only)
 
 ### Phase 2 — introduce neutral tokens behind identical realizers
 
-- [ ] Extend the token vocabulary (per plan-34-B's `%arg`/`%ret`/`%sysnr`/
-      scratch/invariant tokens) and have the shared lowering emit tokens instead
-      of AArch64 spellings.
-- [ ] Give each backend a realizer that turns tokens into **exactly today's
-      spellings** — AArch64 into `xN`/…, x86 into what `remap_x86_abi` produces,
-      riscv64 into what `remap_register`/`map_*` produce. No simplification yet.
-- [ ] Gate: `scripts/artifact-gate.sh` at `diffs=0` after **each** backend is
-      converted; byte-identical or revert that backend.
+Since the shared lowering is already token-clean (Phase 1), Phase 2 = tokenize
+the per-(OS,ISA) platform emitters, keeping the x86 fixpoint so everything stays
+byte-identical.
 
-Acceptance: all three backends consume tokens, not AArch64 spellings; every
-golden byte-identical; `cargo build` warning-free.
-Commit: —
+- [x] Extend the token vocabulary: added the `%local0`–`%local9` callee-saved
+      persistent-local bank (`abi.rs` `LOCAL`, `realize_abi_token` → `x19`–`x28`,
+      `regalloc/analysis.rs` occupancy 19–28).
+- [x] **macOS emitters tokenized** (`macos_aarch64/app/{term_view,bootstrap,app_io,
+      mod}.rs`, `tls.rs`): raw `x9`–`x18` → `%scratch`, `x19`–`x28` → `%local`,
+      `d0`–`d7` → `%fscratch`. macOS is aarch64-only, so this never reaches the x86
+      role-inference or the riscv remap. **Verified byte-identical**: app-ncode
+      oracle (3 fixtures × {macos-aarch64, linux-x86_64, linux-aarch64}), exe-oracle
+      (596 macos-aarch64 executables incl. `tls.rs`), `cargo test --bin mfb`
+      3248/0, `cargo fmt` clean. Commit landed.
+- [ ] **macOS `x0`–`x7` (ABI)** — still raw; fold into the fixpoint-focused pass
+      (byte-identical on aarch64 regardless of `%arg`/`%ret` choice).
+- [ ] **linux_gtk emitters** — DEFERRED. See the blocker below.
+
+#### The linux_gtk blocker (discovered in Phase 2)
+
+`linux_gtk` is the ONLY x86-reachable raw-register emitter, so it is the one that
+actually gates the fixpoint deletion — and it is a **per-USE-SITE raw-vs-token
+split**, not a mechanical rename:
+
+- Its app-function bodies (`_mfb_gtkapp_*`) run through
+  `finalize_x86_app_function`, which renames the **raw** `x9`–`x17`/`x20`–`x28`
+  to per-function vregs and runs the shared linear-scan allocator (the x86
+  aliasing fix). A token there is not recognized → different allocation.
+- Its shared-helper-**injected** sequences (e.g. `store_state`) already spell
+  their scratch with the neutral `%scratch` token and rely on it NOT being
+  vregified — and the neutral pipeline **enforces** a zero-physical-register
+  invariant (`codegen_utils.rs:562`, plan-34-D), so a raw `x10` there is a hard
+  panic.
+
+So within a single file the *same* physical register must stay raw in one
+context and be a token in another; a blanket pass breaks one or the other
+(confirmed: all-token changed x86 allocation; all-raw panicked the zero-physical
+invariant on `macos-app-mode-io`). Tokenizing linux_gtk byte-identically requires
+per-call-site classification (~686 x86-reachable literals) on a path with **no
+committed goldens or acceptance coverage** (app.ncode goldens exist only for
+macos-aarch64) — the app-ncode oracle added here is the only gate. This is the
+real residual of bug-341 D5, larger and riskier than the doc's Blast-Radius seed.
+
+Acceptance (revised): macOS emitters tokenized & byte-identical **(met)**; linux_gtk
++ `x0`–`x7` remain for the fixpoint-focused pass.
+Commit: `bug-387 Phase 2 (macos): tokenize platform-emitter scratch/parking/fp`
 
 ### Phase 3 — delete the compensation layers the tokens made dead
 
