@@ -5,7 +5,8 @@ Effort: medium (1h–2h per item; large for the cluster)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open (partial progress 2026-07-25).
+Status: Open (Themes B and E4 + A3 + D2 landed 2026-07-25; harness/fixture-move
+items C1/C3/C2/C4/A2/F5 remain — see Phases).
 
 Progress 2026-07-25:
 - **A1 — already resolved.** `.ai/compiler.md:66` already documents the current
@@ -21,6 +22,22 @@ Progress 2026-07-25:
   `bug-326-dead-code-sweep` no longer exists in the tree, so no coordination conflict.
 - **D3 — already correct.** The `src/ir/tests.rs` census `#[ignore]` stays by
   design (parity gap non-zero); the plan-20 citation is already gone. No action.
+
+Progress 2026-07-25 (Themes B/E4/A3/D2 scoped pass, `worktree-B-344`):
+- **B1 + B2 done** — 12 of 18 remaining `temp_project` copies routed through
+  `common` (8 direct, 4 `(name, SOURCE)` wrappers); `build_ncode`×3,
+  `build_linux_elf`×2, `run_bounded`×2 consolidated into `tests/common/mod.rs`
+  (`run_bounded` parameterized on a `hang_context` string, 25ms poll). Net −239
+  lines. The 6 unconsolidated `temp_project` copies are genuinely distinct helpers
+  (recorded inline). No golden touched; full workspace `cargo test` green.
+- **E4 done** — the mfb crate's sites were already clean and it already denies
+  `clippy::items_after_test_module`; fixed the one live violation
+  (`repository/src/abi.rs` byte-readers below `mod tests`) and added the same deny
+  to `repository/Cargo.toml`. Zero violations workspace-wide.
+- **A3 done** — `.run` merge-trigger convention encoded at the harness
+  (`test-accept.sh`); README inverted to point there.
+- **D2 done** — net-timeout runtime validation referenced from `.ai/compiler.md`.
+- **E1/E2 confirmed already done under bug-327**; **B3 already single-sourced**.
 
 Regression Test: the harness itself — `scripts/test-accept.sh` and
 `scripts/artifact-gate.sh` must be green before and after; new coverage added
@@ -784,14 +801,29 @@ Commit: —
 
 ### Phase 2 — consolidate duplicated scaffolding
 
-- [ ] B1: `tests/common/mod.rs` with one `temp_project`; delete the 16 copies.
-- [ ] B2: move `build_ncode`, `run_bounded`, `build_linux_elf` into
+- [x] B1: `tests/common/mod.rs` with one `temp_project`; delete the copies.
+      **Done 2026-07-25.** `tests/common/mod.rs` already existed (bug-327). Of the
+      18 remaining local `temp_project` copies, 12 were consolidated: 8 byte-
+      identical to `common::temp_project` now `use common::temp_project;`, and 4
+      `(name)`-only copies collapsed to `common::temp_project(name, SOURCE)`
+      wrappers. The other 6 are genuinely distinct helpers (differing manifests —
+      `packages`/`libraries` blocks; `(name, out_dir)` signature; a `unique_root`
+      shared with another test; `rt_syscall`'s deliberately-decoupled `"bug62"`
+      manifest name) and are left, with the reason recorded.
+- [x] B2: move `build_ncode`, `run_bounded`, `build_linux_elf` into
       `tests/common/`; parameterize the panic message; settle the 20ms/25ms poll.
-- [ ] E2: split `native_term_*` out of `tests/native_io_runtime.rs`; hoist the
-      PTY drivers and C-interposer builders into `tests/common/`.
-- [ ] E1: split `tests/repo_acceptance.rs` by concern.
-- [ ] B3: single-source the coverage ignore-regex (separate commit; confirm a CI
-      run).
+      **Done 2026-07-25.** The 3 byte-identical `build_ncode(project,target,name)`
+      copies, both `build_linux_elf` copies (comment preserved), and both
+      `run_bounded` copies now live in `common`; `run_bounded` gained a
+      `hang_context: &str` param so each caller keeps its bug-135 / bug-61 wording,
+      poll unified to 25ms. Other `build_ncode` defs have distinct signatures and
+      stay.
+- [x] E2: split `native_term_*` out — **done under bug-327** (`rt_native_io_runtime.rs`
+      / `rt_native_term_runtime.rs`; PTY + interposer helpers in `tests/common/`).
+- [x] E1: split `tests/repo_acceptance.rs` by concern — **done under bug-327**
+      (`cli_repo_{auth,governance,install,publish}.rs`).
+- [x] B3: single-source the coverage ignore-regex — **already done** (see the B3
+      note above: `scripts/coverage-common.sh` defines `IGNORE` once).
 
 Acceptance: identical pass/fail set to baseline; `cargo test` green; CI coverage
 denominator unchanged.
@@ -808,9 +840,31 @@ Commit: —
       fix the in-prompt typos.
 - [ ] A2 + F5: move the 4 misfiled fixtures and `tests/_data/`, per the golden
       procedure in Fix Design.
-- [ ] A3: encode the `.run` merge-trigger convention in the harness.
-- [ ] D1, D2 (coordinated with bug-326), D3, E4.
-- [ ] F1, F2, F3, F4, F6.
+- [x] A3: encode the `.run` merge-trigger convention in the harness. **Done
+      2026-07-25** — authoritative comment added at the `<pkg>.run` check in
+      `scripts/test-accept.sh` (where the harness acts on it), documenting that for
+      `-invalid` fixtures `.run` is a merge trigger, not an execution proof; the
+      security README now points there instead of the reverse. Behavior unchanged.
+- [x] D2 net-timeout wiring + E4; D1/D3 already done. **E4 done 2026-07-25** —
+      the doc's 4 mfb-crate sites were already clean and that crate already denies
+      `clippy::items_after_test_module` (the "five sites" note). The one live
+      violation was `repository/src/abi.rs` (its `read_u16/u8/u32/u64` byte-readers
+      sat below `mod tests`); moved them above it and added the same
+      `[lints.clippy]` deny to `repository/Cargo.toml`. Clippy now reports zero
+      violations workspace-wide. **D2 done 2026-07-25** — `check-net-connect-timeout.sh`
+      referenced from `.ai/compiler.md` so it is actually run. D1 (dead-script
+      deletions) already done; D3 already resolved.
+- [x] F1, F2, F6, F7 already done (2026-07-22). F3 path fix done; the two-timing-
+      engine consolidation and the README file-name contradiction stay **deferred**
+      (larger refactor, no correctness impact). F4 file moves stay **deferred**
+      (citation blast radius).
+
+**Still open** (intentionally out of this scoped pass): C1/C3 (the
+`artifact-gate.sh`/`test-accept.sh` shared-artifact-table refactor — modifies the
+validation instrument, needs before/after counter parity); C2 (blocked on the
+separate `test-macapp.sh` output-path fix); C4+F7-prompt (`update_man.sh` probing +
+prompt hoist); A2+F5 (the two fixture *moves*, which change harness paths and need
+a filtered `sync-goldens.sh` renames-only run); and the deferred F3/F4 tails.
 
 Acceptance: full `scripts/test-accept.sh` green with the same pass/fail set as
 baseline; `git diff` over `tests/**/golden/` shows **renames only, zero content
