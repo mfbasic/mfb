@@ -207,10 +207,8 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, title AS
   ' Row 1 and row H-2: the header and footer rules.
   term::setBackground(0, 0, 0)
   term::setForeground(90, 110, 150)
-  term::moveTo(1, 0)
-  io::write(strings::repeat("─", cols))
-  term::moveTo(rows - 2, 0)
-  io::write(strings::repeat("─", cols))
+  term::drawHLine(LineStyle.Light, 1, 0, cols - 1)
+  term::drawHLine(LineStyle.Light, rows - 2, 0, cols - 1)
 
   ' Row H-1: footer controls.
   LET rightPart AS String = "Files: " & toString(filesLoaded) & "/" & toString(filesTotal)
