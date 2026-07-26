@@ -5,8 +5,117 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup / duplication)
 
-Status: Open
+Status: Fixed (2026-07-25) — see **## Resolution (2026-07-25)** below for the
+per-item disposition. C1 correctness landed separately as bug-354; C4's hash
+probe as bug-355; the file splits (S5/C6/C7) as bug-327.
 Regression Test: none new for the duplication items — the guarantee is **byte-identical generated output**, enforced by `scripts/artifact-gate.sh` plus `scripts/test-accept.sh`. Item **C1 is the exception**: it needs a real acceptance test (see Validation Plan).
+
+## Resolution (2026-07-25)
+
+Worked in worktree 333 off `main`. Every extraction below was proven
+byte-identical the same way: build a release `mfb`, run `scripts/artifact-gate.sh`
+(1067 tests / 1332 goldens), and confirm the diff set stayed **exactly** the 9
+pre-existing flaky `audio/net/tls *_codegen_cover_rt.ncode` (sha256) goldens — no
+new golden moved. Full `scripts/test-accept.sh` is green (1083 tests) with every
+commit applied.
+
+**The report's census was stale and several of its claims were wrong** — bug-327's
+file split had already landed (`builder_collection_mutate.rs` → `collection_mutate.rs`
+/`list_mutate.rs`/`map_mutate.rs`), and four "byte-identical" or "collapse" claims
+turned out not to be byte-identical. Where the report's exact prescription would
+have shifted output, I did the byte-identical equivalent and recorded why.
+
+Landed, byte-identical (one commit each, `artifact-gate` clean after each):
+
+- **S7** — `emit_float_exponent_range_guard`; the 3 float exponent/range decodes.
+- **S4** — `emit_scalar_skip_continuations` (4 `lower_find`/`lower_mid` sites) and
+  `emit_scalar_count_loop` (2 `lower_strings_pad` sites), plus named
+  `UTF8_CONTINUATION_MASK`/`_TAG`. The report's "same six ops, 11 sites" was
+  inaccurate: the other `"192"`/`"128"` sites are **different concepts** — the
+  encoder's `0xC0`/`0x80` lead/continuation *prefixes* (an `or`) and the `< 0x80`
+  ASCII-boundary test — so they were deliberately left spelled out. The strings
+  builtins' forward-by-index / backward-retreat / trim-lead / trim-trail walks are
+  genuinely distinct shapes and were not force-fit.
+- **C3** — `emit_byte_compare_loop` for the three payload `String` arms. **Not**
+  routed through `emit_compare_bytes_branch` (that walks private scratch copies for
+  bug-175 D and would add two `move_register` ops — an output shift the report's
+  own C3 text admits). The "3 emitters → 2" collapse was declined: the two
+  `match_branch`/`matches_value_branch` emitters use different register-allocation
+  models, so merging is not byte-identical.
+- **S2** — `emit_string_to_int_sign_prologue` + `emit_int_parse_cutoff_guard` +
+  `emit_int_parse_sign_epilogue`, shared by the base-10 and radix parses; the
+  bug-49/bug-144 unsigned-cutoff hazard now lives once. "Delete base-10, call radix
+  with base=10" was declined — it replaces the specialized body and shifts output
+  (the report's own Open Decision #2 concedes this).
+- **S1** — four helpers (`emit_decimal_sign_prologue`,
+  `emit_decimal_integer_render`, `emit_decimal_alloc_and_copy_integer`,
+  `emit_decimal_fraction_render`) shared by the Fixed and Money `toString`
+  renderers (~92 shared ops). The report's single
+  `emit_scaled_decimal_to_string(scale)` is impossible byte-identically — a `scale`
+  parameter cannot unify a power-of-2 shift split with a decimal `/100000` divide.
+  Integer `toString` keeps its own emitter (its `allocate_register` x86 div/msub
+  idiom differs).
+- **C5** — `emit_entry_scan_setup`/`emit_entry_scan_advance` for the fixed-width
+  entry-table scans (`lower_map_get`/`lower_map_get_or`/`lower_has_key`). The
+  report's "6 identical sites" predates plan-57's entry-free **kind-2** dual-arm;
+  `lower_collection_contains` and the mutate scans carry that arm (entry is a byte
+  offset, span from a constant payload size) and are a different shape — not
+  force-fit.
+- **C4** — `lower_collection_append`/`prepend` fold into one
+  `lower_collection_end_insert` (index = count vs 0); `lower_list_get`/`get_or`
+  fold into one `lower_list_get_common` with an `Option<default_slot>` Miss
+  selector. `lower_map_get`/`get_or` are **not** merged — bug-355's O(1) hash probe
+  and a `use_default` path make a byte-identical Miss merge unavailable; the
+  `collection` get/getOr dispatchers are thin arg-marshalling wrappers.
+- **S6** — corrected the false "Fresh, grown, and copied collections all reset it
+  here" comment on `emit_write_collection_header_full`. Comment-only,
+  byte-identical.
+- **S3 (encoder)** — deleted the open-coded UTF-8 encoder in
+  `emit_scalar_to_string_value`; `toString(Scalar)` now routes through
+  `emit_utf8_encoded_width` + `emit_utf8_encode_next`. No committed golden covers
+  `toString(Scalar)`, so `artifact-gate` shows zero new diffs; validated at runtime
+  instead — `scalar-conversions-rt` exercises all four UTF-8 widths and passes.
+  (The report filed this "byte-identical"; the two encoders actually emit different
+  instructions — it is a functionally-equivalent refactor proven by runtime.)
+
+Resolved in split-out / prerequisite bugs:
+
+- **C1** — reconciliation fixed in **bug-354** (fold now delegates to
+  `builtins::resolve_call_return_type`). **The step-3 table collapse is declined,
+  with proof:** bug-354 measured that widening/collapsing `static_type_name` /
+  `static_type_name_with_types` into resolver delegation shifts **9 goldens**
+  (cover-crypto/audio/net × 3 targets) — those two functions also gate the
+  in-place-append fast path, numeric-result typing, and slice specialization, which
+  newly engage for `strings::`/`collections::` calls inside inlined package bodies.
+  So the collapse is **not** byte-identical, contradicting this report's own C1
+  step-3 requirement; it is superseded by bug-354's fold-wrapper approach.
+- **C4 hash probe** — **bug-355**.
+- **S5 / C6 / C7** (file splits/reorg) — **bug-327**.
+
+Declined, with evidence:
+
+- **S6 helper adoption** — the report predicted "exactly two `BUCKETS_READY` stores
+  × two sites"; the real delta also renames the header scratch register
+  (`scratch13`→`scratch22`) and reorders the count/data_len loads, and
+  `BUCKETS_READY` is a documented no-op on both list-only bypass paths. Pure golden
+  churn for marginal dedup.
+- **S3 (decoder)** — the strict-UTF-8 strengthening of `toScalar` is unreachable
+  (the ingress invariant guarantees every `String` is valid UTF-8) **and
+  untestable**: malformed UTF-8 cannot be constructed from valid source to reach
+  `toScalar`, so the trap could never be exercised by a fixture. Adding
+  unvalidatable defensive code is contrary to the runtime-completion gate
+  (`.ai/compiler.md`) and the "no unexercised defensive paths" rule; the current
+  decoder is protected by the ingress invariant plus its exact-length check. Open
+  Decision #3 already noted the case is "unreachable in practice."
+- **C2** — the report's `emit_list_grow_for_one` "everything up to the write phase"
+  is not byte-identical: append open-codes the pre-grow free block while prepend
+  calls `emit_free_pre_grow_buffer`, so the grow phases diverge (the report flags
+  this itself). The byte-identical portion (the grow *preamble* — geometric step →
+  checked alloc → header → data copy → entry copy) is real, but every scratch
+  register (`scratch8`–`scratch25`) is minted at function top and lives across the
+  room-check, grow, and write phases, so it cannot be helper-local — the helper
+  would take ~20 register parameters, trading duplication for an unreadable
+  signature. Net-negative abstraction; declined.
 
 ## Update (2026-07-20): what plan-57 changed underneath this report
 
@@ -860,18 +969,9 @@ extraction — it is in three specific places:
 
 ### Phase 1 — C1 reconciliation (the only behavior change)
 
-- [ ] Add an acceptance test exercising `typeName` over `strings::upper`,
-      `strings::split`, `strings::contains`, `math::sqrt`, `math::round`, and
-      `collections::get`. Confirm the `strings::` cases fail today with
-      `native code cannot determine typeName argument type`.
-- [ ] Derive the union of `builder_value_semantics.rs:677-707` and
-      `data_objects.rs:1084-1114` against `builtins::general/collections/strings::resolve_call`.
-      Write the table and a per-entry justification into this file.
-- [ ] Replace both hand-written tables with delegation to the `builtins::*`
-      resolvers, mirroring `type_utils.rs:32-42`.
-- [ ] Add a unit test asserting the two resolvers return the same answer for every
-      builtin name the `builtins::*` catalog knows — the missing invariant, made
-      executable.
+- [x] Reconciliation + acceptance test + parity unit test — done in **bug-354**.
+- [~] Step-3 table collapse — **declined** (bug-354 measured it shifts 9 goldens;
+      not byte-identical). See Resolution.
 
 Acceptance: the Phase 1 acceptance test passes; the parity unit test passes; the
 golden delta consists only of newly-compiling programs and new string-pool
@@ -882,19 +982,19 @@ Commit: `—`
 
 Land each as its own commit, running `scripts/artifact-gate.sh` after every one.
 
-- [ ] S1 — `emit_scaled_decimal_to_string`; retire the three copies.
-- [ ] S2 — collapse the base-10 parse onto the radix parse.
-- [ ] S4 — `emit_scalar_advance`/`_retreat`/`_count` in `private/unicode.rs`;
-      named `UTF8_CONTINUATION_MASK`/`_TAG`; convert all eleven sites.
-- [ ] S7 — `emit_float_exponent_range_guard`; convert all three sites.
-- [ ] C2 — `emit_list_grow_for_one`; keep append's inline free block as-is.
-- [ ] C3 — collapse three payload-compare emitters to two; route the String arm
-      through `emit_compare_bytes_branch`.
-- [ ] C4 — `Miss` parameter for `get`/`getOr`; index parameter for
-      `append`/`prepend`. Do **not** add the hash probe to `getOr` here.
-- [ ] C5 — `emit_entry_scan`; convert all six sites.
-- [ ] S3 (encoder half) — delete `builder_conversions.rs:716-793` in favor of
-      `emit_utf8_encoded_width` + `emit_utf8_encode_next`.
+- [x] S1 — four decimal-render helpers shared by Fixed+Money (single scaled helper impossible). Done.
+- [x] S2 — shared prologue/cutoff-guard/epilogue helpers (collapse-onto-radix declined). Done.
+- [x] S4 — `emit_scalar_skip_continuations` (4) + `emit_scalar_count_loop` (2) +
+      named `UTF8_CONTINUATION_MASK`/`_TAG`. The other sites are distinct concepts. Done.
+- [x] S7 — `emit_float_exponent_range_guard`; all three sites. Done.
+- [~] C2 — **declined** (net-negative ~20-param abstraction; free block diverges). See Resolution.
+- [x] C3 — `emit_byte_compare_loop` for all three String arms (routing through
+      `emit_compare_bytes_branch` / 3→2 collapse declined: not byte-identical). Done.
+- [x] C4 — append/prepend + list get/getOr parameterized (map get/getOr not
+      mergeable post-bug-355). Done.
+- [x] C5 — `emit_entry_scan_setup`/`_advance` for the fixed-width entry-table scans (kind-2 sites are a distinct shape). Done.
+- [x] S3 (encoder half) — deleted; routes through `emit_utf8_encoded_width` +
+      `emit_utf8_encode_next`. Zero golden churn; runtime-validated. Done.
 
 Acceptance: `scripts/artifact-gate.sh` reports **zero** golden diffs after each
 commit in this phase. Any diff means the extraction is wrong.
@@ -902,25 +1002,21 @@ Commit: `—`
 
 ### Phase 3 — the two remaining intended shifts
 
-- [ ] S6 — adopt `emit_write_list_header_from_registers` at both bypassers;
-      regenerate goldens; confirm the delta is exactly two `BUCKETS_READY` stores
-      × two sites. Fix the helper's "all reset it here" comment.
-- [ ] S3 (decoder half) — add the trap-on-malformed variant to
-      `private/unicode.rs`; route `toScalar` through it; regenerate goldens;
-      confirm the delta is confined to `toScalar` lowering.
-- [ ] Resolve Open Decision #1 (`getOr` hash probe) and land it if affirmative,
-      separately.
+- [x] S6 — helper's false comment corrected (byte-identical). Helper adoption
+      **declined** (delta larger than predicted; no-op field on list-only paths).
+- [~] S3 (decoder half) — **declined**: unreachable (ingress invariant) AND
+      untestable (malformed UTF-8 can't be constructed from valid source). See Resolution.
+- [x] Open Decision #1 (`getOr` hash probe) — resolved & landed in **bug-355**.
 
 Acceptance: goldens shift only as described; `scripts/test-accept.sh` green.
 Commit: `—`
 
 ### Phase 4 — full validation
 
-- [ ] `scripts/test-accept.sh` green on macOS.
-- [ ] `scripts/artifact-gate.sh` clean against the Phase 3 goldens.
-- [ ] Re-run the C1 reproduction end-to-end; confirm it prints `String`.
-- [ ] Confirm no `builder_*` file gained an arena-alloc or file-split change that
-      belongs to bug-322 / bug-327.
+- [x] `scripts/test-accept.sh` green on macOS (1083 tests).
+- [x] `scripts/artifact-gate.sh` clean (diff set == the 9 pre-existing flaky goldens).
+- [x] C1 reproduction prints `String` — via bug-354.
+- [x] Confirmed: no bug-322 arena-alloc or bug-327 file-split change crept in.
 
 Acceptance: full suite green; the total golden delta across the whole bug equals
 the union of the three intended shifts.
