@@ -18,7 +18,6 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::{env, fs};
 
-
 const SOURCE: &str = r#"
 IMPORT io
 

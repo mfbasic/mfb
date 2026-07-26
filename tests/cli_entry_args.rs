@@ -37,7 +37,6 @@ const ARGS_SOURCE: &str = "IMPORT io\n\n\
     \x20 RETURN 0\n\
      END FUNC\n";
 
-
 /// Build for `target` with `-ncode` and return the parsed code plan.
 fn build_ncode(name: &str, source: &str, target: &str, app: bool) -> serde_json::Value {
     let project = temp_project(name, source);

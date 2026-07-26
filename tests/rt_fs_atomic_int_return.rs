@@ -21,10 +21,10 @@
 //! any backend.
 
 mod common;
+use common::build_ncode;
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 /// The atomic-write helpers whose `fsync`/`close` results are relationally
 /// compared. `fs.createTempFile` only closes on an already-failing cleanup path
@@ -38,26 +38,6 @@ const SOURCE: &str = "IMPORT fs\nIMPORT strings\n\nFUNC main AS Integer\n  fs::w
 
 fn temp_project(name: &str) -> PathBuf {
     common::temp_project(name, SOURCE)
-}
-
-fn build_ncode(project: &Path, target: &str, name: &str) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
-        .arg("build")
-        .arg("-ncode")
-        .arg("-target")
-        .arg(target)
-        .arg(project)
-        .output()
-        .expect("run mfb build -ncode");
-    assert!(
-        output.status.success(),
-        "mfb build -ncode -target {target} failed:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
-    let path = project.join(format!("{name}.ncode"));
-    let text = fs::read_to_string(&path).expect("read ncode dump");
-    serde_json::from_str(&text).expect("parse ncode json")
 }
 
 /// A `bl`/`call` to the libc `fsync`/`close` wrapper (macOS prefixes `_`).

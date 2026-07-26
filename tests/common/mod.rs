@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub fn temp_project(name: &str, source: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -42,6 +42,89 @@ pub fn build_project(project: &Path) -> PathBuf {
         .find_map(|line| line.strip_prefix("Wrote executable to "))
         .expect("build output executable path");
     PathBuf::from(path)
+}
+
+/// Build `project` with `-ncode -target <target>` and return the parsed
+/// `<name>.ncode` dump as JSON.
+pub fn build_ncode(project: &Path, target: &str, name: &str) -> serde_json::Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+        .arg("build")
+        .arg("-ncode")
+        .arg("-target")
+        .arg(target)
+        .arg(project)
+        .output()
+        .expect("run mfb build -ncode");
+    assert!(
+        output.status.success(),
+        "mfb build -ncode -target {target} failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let path = project.join(format!("{name}.ncode"));
+    let text = fs::read_to_string(&path).expect("read ncode dump");
+    serde_json::from_str(&text).expect("parse ncode json")
+}
+
+/// Build `project` for a Linux `target` (`-q`) and return the bytes of the
+/// produced console ELF. Console builds emit one flavored executable per libc
+/// world; either is fine for a header check (they share the ELF layout).
+/// plan-46-D §4.1: the build emits into the project's `build/` directory.
+pub fn build_linux_elf(project: &Path, target: &str, name: &str) -> Vec<u8> {
+    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+        .arg("build")
+        .arg("-q")
+        .arg("-target")
+        .arg(target)
+        .arg(project)
+        .output()
+        .expect("run mfb build");
+    assert!(
+        output.status.success(),
+        "mfb build -target {target} failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let out_dir = project.join("build");
+    let glibc = out_dir.join(format!("{name}-glibc.out"));
+    let musl = out_dir.join(format!("{name}-musl.out"));
+    let path = if glibc.exists() { glibc } else { musl };
+    fs::read(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
+}
+
+/// Spawn `executable`, capture stdout, and wait up to `timeout`. On timeout the
+/// child is killed and the test panics — `hang_context` names the specific hang
+/// each caller guards against (e.g. a reintroduced linear `^` loop). Poll
+/// interval is 25 ms; it is immaterial against these multi-second timeouts.
+pub fn run_bounded(
+    executable: &Path,
+    timeout: Duration,
+    hang_context: &str,
+) -> (ExitStatus, String) {
+    let mut child = Command::new(executable)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn executable");
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            let mut stdout = String::new();
+            if let Some(mut pipe) = child.stdout.take() {
+                pipe.read_to_string(&mut stdout).ok();
+            }
+            return (status, stdout);
+        }
+        if start.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!(
+                "executable {} did not finish within {timeout:?} — {hang_context}",
+                executable.display(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
 }
 
 pub fn run_capture_with_env(executable: &Path, envs: &[(&str, String)]) -> (i32, String, String) {

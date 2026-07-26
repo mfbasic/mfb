@@ -7,10 +7,9 @@
 
 mod common;
 use common::temp_project;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::env;
-
 
 fn build_project(project: &Path) -> PathBuf {
     let output = Command::new(env!("CARGO_BIN_EXE_mfb"))

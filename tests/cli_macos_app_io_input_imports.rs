@@ -33,7 +33,6 @@ use std::process::Command;
 /// calls), but the symbols must still bind.
 const TERMINAL_PROBES: &[&str] = &["_isatty", "_tcgetattr"];
 
-
 /// A program that prompts with `io::input` and never calls `io::readLine`.
 const INPUT_ONLY_SOURCE: &str = "IMPORT io\n\n\
      FUNC main AS Integer\n\

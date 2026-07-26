@@ -26,10 +26,11 @@
 //! this test locks the codegen structure across all four backends instead. It
 //! fails the moment any of the three guards is dropped from any backend.
 
+mod common;
+use common::build_ncode;
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A program that instantiates every fs/io helper the fix touches: the buffered
@@ -123,26 +124,6 @@ fn temp_project(name: &str) -> PathBuf {
     .expect("write project.json");
     fs::write(root.join("src/main.mfb"), SOURCE).expect("write source");
     root
-}
-
-fn build_ncode(project: &Path, target: &str, name: &str) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
-        .arg("build")
-        .arg("-ncode")
-        .arg("-target")
-        .arg(target)
-        .arg(project)
-        .output()
-        .expect("run mfb build -ncode");
-    assert!(
-        output.status.success(),
-        "mfb build -ncode -target {target} failed:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
-    let path = project.join(format!("{name}.ncode"));
-    let text = fs::read_to_string(&path).expect("read ncode dump");
-    serde_json::from_str(&text).expect("parse ncode json")
 }
 
 fn op_name(op: &Value) -> &str {

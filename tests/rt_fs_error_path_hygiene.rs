@@ -24,9 +24,11 @@
 //! `*.mfb-*.tmp` behind — this failed before the fix (the temp lingered) and passes
 //! after it.
 
+mod common;
+use common::build_ncode;
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -60,26 +62,6 @@ fn temp_project(name: &str, source: &str) -> PathBuf {
     .expect("write project.json");
     fs::write(root.join("src/main.mfb"), source).expect("write source");
     root
-}
-
-fn build_ncode(project: &Path, target: &str, name: &str) -> Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
-        .arg("build")
-        .arg("-ncode")
-        .arg("-target")
-        .arg(target)
-        .arg(project)
-        .output()
-        .expect("run mfb build -ncode");
-    assert!(
-        output.status.success(),
-        "mfb build -ncode -target {target} failed:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
-    let path = project.join(format!("{name}.ncode"));
-    let text = fs::read_to_string(&path).expect("read ncode dump");
-    serde_json::from_str(&text).expect("parse ncode json")
 }
 
 fn helper<'a>(ncode: &'a Value, target: &str, symbol: &str) -> &'a Value {

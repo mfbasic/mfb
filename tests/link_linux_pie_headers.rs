@@ -9,9 +9,9 @@
 //! behavior and ASLR randomization are validated on the Linux remotes.
 
 mod common;
+use common::build_linux_elf;
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::PathBuf;
 
 const SOURCE: &str =
     "IMPORT io\n\nFUNC main AS Integer\n  io::print(\"pie\")\n  RETURN 0\nEND FUNC\n";
@@ -20,31 +20,6 @@ const PT_GNU_STACK: u32 = 0x6474_e551;
 
 fn temp_project(name: &str) -> PathBuf {
     common::temp_project(name, SOURCE)
-}
-
-fn build_linux_elf(project: &Path, target: &str, name: &str) -> Vec<u8> {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
-        .arg("build")
-        .arg("-q")
-        .arg("-target")
-        .arg(target)
-        .arg(project)
-        .output()
-        .expect("run mfb build");
-    assert!(
-        output.status.success(),
-        "mfb build -target {target} failed:\n{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr),
-    );
-    // Console builds emit one flavored executable per libc world; either is fine
-    // for a header check (they share the ELF layout).
-    // plan-46-D §4.1: the build emits into the project's `build/` directory.
-    let out_dir = project.join("build");
-    let glibc = out_dir.join(format!("{name}-glibc.out"));
-    let musl = out_dir.join(format!("{name}-musl.out"));
-    let path = if glibc.exists() { glibc } else { musl };
-    fs::read(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
 }
 
 fn u16le(bytes: &[u8], at: usize) -> u16 {

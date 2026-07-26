@@ -16,13 +16,12 @@
 //! the loop is ever reintroduced.
 
 mod common;
+use common::run_bounded;
 use common::temp_project;
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
 use std::env;
-
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus};
+use std::time::Duration;
 
 fn build_project(project: &Path) -> PathBuf {
     let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
@@ -47,37 +46,12 @@ fn build_project(project: &Path) -> PathBuf {
 /// Run `executable` with a wall-clock bound. Panics if it does not finish in
 /// time (the bug-61 `^` hang would trip this). Returns its exit status and
 /// captured stdout.
-fn run_bounded(executable: &Path, timeout: Duration) -> (ExitStatus, String) {
-    let mut child = Command::new(executable)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("spawn executable");
-    let start = Instant::now();
-    loop {
-        if let Some(status) = child.try_wait().expect("try_wait") {
-            let mut stdout = String::new();
-            if let Some(mut pipe) = child.stdout.take() {
-                pipe.read_to_string(&mut stdout).ok();
-            }
-            return (status, stdout);
-        }
-        if start.elapsed() > timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!(
-                "execution exceeded {timeout:?} — the bounded-base `^` loop appears \
-                 to iterate the full exponent (bug-61 hang reintroduced)"
-            );
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-}
 
 fn build_and_run(name: &str, source: &str) -> (ExitStatus, String) {
     run_bounded(
         &build_project(&temp_project(name, source)),
         Duration::from_secs(30),
+        "the bug-61 hang was reintroduced (bounded-base `^` loop iterated the full exponent)",
     )
 }
 
