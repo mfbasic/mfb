@@ -10,4 +10,6 @@ $ tests/rt-behavior/json/json-behavior/build/json_behavior.out
 [1,2,3]
 {"name":"Ada","enabled":true}
 "Ada"
+"\u0001\b\t\n\f\r\u000B\u001FA"
+roundtrip=TRUE
 [exit 0]

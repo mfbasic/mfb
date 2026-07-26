@@ -385,10 +385,12 @@ END FUNC
 
 ' Montgomery-style ladder over the extended-coordinate point `q`, constant-time
 ' via a masked conditional swap of the packed (p||q) pair.
-' NOTE: impractically slow under the current arena allocator (bug-01): a single
-' scalar multiplication is ~15000 small `List OF Integer` allocations, and each
-' `Integer` element costs a 40-byte collection entry, so one operation takes
-' minutes. Blocked on the bug-01 allocator fix; see planning/bug-01.
+' Performance: one scalar multiplication is ~15000 small `List OF Integer`
+' allocations. This was impractically slow under the original arena allocator, but
+' the allocator work has since landed (plan-25-A and successors) and a full
+' keygen + sign + verify now completes in well under a second (bug-339 D5
+' re-benchmark, 2026-07-25). The old "blocked on the bug-01 allocator fix" note
+' referenced a document that no longer exists in the tree; removed.
 FUNC __crypto_scalarmult(q AS List OF Integer, s AS List OF Byte) AS List OF Integer
   LET p AS List OF Integer = __crypto_point4(__crypto_gf0(), __crypto_gf1(), __crypto_gf1(), __crypto_gf0())
   MUT pair AS List OF Integer = __crypto_concatInt(p, q)

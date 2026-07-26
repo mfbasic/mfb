@@ -59,12 +59,6 @@ FUNC __http_defaultPort(scheme AS String) AS Integer
   RETURN 80
 END FUNC
 
-' CRLF line terminator. The lexer decodes the `\r` escape (plan-27), so the
-' terminator is written directly.
-FUNC __http_crlf AS String
-  RETURN "\r\n"
-END FUNC
-
 ' ---- Request building (§B.3) ----
 
 FUNC __http_normalizeMethod(method AS String) AS String
@@ -140,7 +134,7 @@ FUNC __http_hasControlBytes(s AS String) AS Boolean
 END FUNC
 
 FUNC __http_buildRequest(method AS String, url AS net::Url, body AS String, hasBody AS Boolean, headers AS Map OF String TO String) AS String
-  LET crlf AS String = __http_crlf()
+  LET crlf AS String = "\r\n"
   ' bug-262: validate every caller header (name and value) and the URL-derived
   ' request-target / Host for control bytes before any concatenation, so a
   ' `\r\n`-bearing input FAILs rather than framing a smuggled request.
@@ -245,7 +239,7 @@ END FUNC
 ' RFC 9110. Previously the whole response was decoded per 64 KiB receive and then
 ' re-encoded, which both corrupted multibyte bodies and did the work twice.
 FUNC __http_parseResponse(raw AS List OF Byte) AS Response
-  LET crlf AS String = __http_crlf()
+  LET crlf AS String = "\r\n"
   LET separator AS List OF Byte = strings::toBytes(crlf & crlf)
   LET headerEnd AS Integer = __http_indexOfBytes(raw, separator, 0)
   MUT headSection AS String = ""
