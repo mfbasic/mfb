@@ -385,7 +385,7 @@ const TERM_VIEW_HEIGHT: u32 = 640;
 // frame, reached off the pinned arena-state register (plan-01-term.md §6.2). The
 // app `term::on`/`term::off` helpers update the same slots the console backend
 // does so `isOn`, the §4.2.1 gate, and auto-restore stay backend-uniform.
-const TERM_ARENA_STATE_REG: &str = "x19";
+const TERM_ARENA_STATE_REG: &str = abi::LOCAL[0];
 /// Internal helper symbols for the synthesized surface.
 const TERM_VIEW_DRAW_RECT_SYMBOL: &str = "_mfb_macapp_term_drawRect";
 const TERM_VIEW_IS_FLIPPED_SYMBOL: &str = "_mfb_macapp_term_isFlipped";
@@ -414,10 +414,10 @@ const LIB_FOUNDATION: &str = "Foundation";
 const LIB_SYSTEM: &str = "libSystem";
 
 /// Persistent (callee-saved) registers held across the external calls in `_main`.
-const REG_APP: &str = "x19"; // NSApplication instance
-const REG_WINDOW: &str = "x20"; // NSWindow instance
-const REG_SCRATCH_OBJ: &str = "x21"; // transient object (class / NSString)
-const REG_HEADLESS: &str = "x22"; // getenv("MFB_MACAPP_HEADLESS") result
+const REG_APP: &str = abi::LOCAL[0]; // NSApplication instance
+const REG_WINDOW: &str = abi::LOCAL[1]; // NSWindow instance
+const REG_SCRATCH_OBJ: &str = abi::LOCAL[2]; // transient object (class / NSString)
+const REG_HEADLESS: &str = abi::LOCAL[3]; // getenv("MFB_MACAPP_HEADLESS") result
 
 // `_main` stack frame: [sp+0]=argc, [sp+8]=argv (worker arg block),
 // [sp+16]=pthread_t, [sp+24..32]=input pipe fds (read, write).
@@ -574,8 +574,12 @@ fn build_nsstring_from_cstring(asm: &mut Asm, class_tmp: &str, cstr_symbol: &str
 /// Materialize a small non-negative integer as a double in `dst` (an FP
 /// register): `movz` the value into a scratch GPR, then `scvtf`.
 fn emit_double_immediate(asm: &mut Asm, dst: &str, value: u32) {
-    asm.push(abi::move_immediate("x9", "Integer", &value.to_string()));
-    asm.push(abi::signed_convert_to_float_d(dst, "x9"));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        &value.to_string(),
+    ));
+    asm.push(abi::signed_convert_to_float_d(dst, abi::SCRATCH[0]));
 }
 
 /// Read-only C-string data objects (selectors, window title, env-var name) the
