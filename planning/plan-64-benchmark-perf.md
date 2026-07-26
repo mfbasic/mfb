@@ -399,7 +399,7 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   20.6 → 4.58 ms (~4.5x; beats Python 8.38).** checksum 99100 proven unchanged; full `cargo
   test` green; artifact-gate zero new diffs; 74 window/list acceptance fixtures pass; edge
   cases (size==n, size>n empty, size==1) verified. `lower_collection_window_call`.
-  Commit: `<pending>`. (chunks/D3-chunks + stride>1 remain on the `.mfb`.)
+  Commit: `9409d7941`. (chunks/D3-chunks + stride>1 remain on the `.mfb`.)
 - **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
   outputs, inlined comparator (with B's borrowed String element for String lists).
 - Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the
