@@ -333,12 +333,19 @@ FUNC __collections_merge OF K, V(a AS Map OF K TO V, b AS Map OF K TO V, preferB
 END FUNC
 
 FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS Partition OF T
+  ' `predicate` is evaluated once per element through `collections::transform`,
+  ' whose callback loop checks the result tag and PROPAGATES a runtime failure —
+  ' a directly-called `IF predicate(item)` silently swallows it (the same reason
+  ' `sortBy`/`groupBy` build their keys via `transform`). The native
+  ' `lower_collection_partition_call` covers the fixed-width fast path; this body
+  ' serves the String/Scalar/Byte and inline-TRAP cases.
+  LET flags AS List OF Boolean = collections::transform(value, predicate)
   MUT matched AS List OF T = []
   MUT unmatched AS List OF T = []
   MUT i AS Integer = 0
   WHILE i < len(value)
     LET item AS T = collections::get(value, i)
-    IF predicate(item) THEN
+    IF collections::get(flags, i) THEN
       matched = collections::append(matched, item)
     ELSE
       unmatched = collections::append(unmatched, item)

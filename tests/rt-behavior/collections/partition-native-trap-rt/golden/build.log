@@ -1,0 +1,19 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/partition-native-trap-rt
+Wrote AST to tests/rt-behavior/collections/partition-native-trap-rt/partition_native_trap_rt.ast
+Wrote IR to tests/rt-behavior/collections/partition-native-trap-rt/partition_native_trap_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/partition-native-trap-rt
+Wrote executable to tests/rt-behavior/collections/partition-native-trap-rt/build/partition_native_trap_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/partition-native-trap-rt/build/partition_native_trap_rt.out
+int matched=3 unmatched=3
+int m0=2 u0=1
+float matched=2 unmatched=2
+empty matched=0 unmatched=0
+str matched=2 unmatched=2 m0=a
+int trap caught: predicate hit 20
+int trap matched=0
+str trap caught: predicate hit b
+str trap matched=0
+after matched=2 m0=8
+[exit 0]

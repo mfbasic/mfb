@@ -332,11 +332,46 @@ source-generic `merge`/`mapValues`.
   element-by-element leaving `ready=0`, so the next `get` rebuilds the index.
 
 **Fixes (value semantics preserved — same survivor set + iteration order).**
-- **C1:** `try_inplace_remove_key_assign` (mirror `try_inplace_set_assign`'s ownership
-  gate) — compact the entry array + data region down by one slot in place, and
-  **build the bucket table incrementally during the compaction pass** (set `ready=1`),
-  backward-shifting the probe chain so no tombstones and probe order stays byte-identical.
-  Removes both O(N) sweeps of `mapchurn churn`.
+- **[~] C1 — implementation-ready design (investigated at file:line this session; NOT yet
+  implemented). Plan CORRECTION: no new in-place path is needed.** The original design
+  (`try_inplace_remove_key_assign` compacting in place) is more than required — the existing
+  native `lower_map_remove_key` (`map_mutate.rs:1229`) **already** does a fresh-alloc copy that
+  **reserves the bucket region** (`emit_reserve_map_buckets(true, …)` at `:1364`, sizing
+  `2*capacity*8` after the data region). It just leaves `BUCKETS_READY=0`
+  (`emit_write_list_header_from_registers` → `collection_buffer.rs:181`), so the paired
+  `hasKey` then rebuilds the whole index via `_mfb_rt_map_probe` — a **second** O(N) sweep per
+  churn cycle. **The win (2 O(N) sweeps → 1) requires FUSING the bucket-index build into the
+  existing copy loop** (a *separate* post-copy build loop is no net win — it just moves the O(N)
+  from `hasKey` to `removeKey`). Concretely: (a) after the alloc+header write, **zero** the
+  reserved bucket region (`2*capacity*8` bytes at `result + HEADER + capacity*ENTRY_SIZE +
+  dataCapacity`; arena memory is poisoned, not zero); (b) set `BUCKETS_READY=1`; (c) in the
+  copy loop's `copy_keep` arm, **after** `emit_copy_one_map_entry` writes survivor entry at dest
+  index `scratch13`, call `MAP_BUCKET_PUT_SYMBOL(result, destIndex)` — which hashes the just-written
+  key and places `destIndex` in its bucket slot. **The intricacy is register spilling:**
+  `MAP_BUCKET_PUT` is a `bl` (clobbers all caller-saved), and the copy loop keeps ~7 live values
+  in registers across iterations (`scratch11` src-index, `scratch10` count, `scratch12` src-entry,
+  `scratch17` dst-entry-base, `scratch20` src-data, `scratch21` dst-data, `scratch13` dst-count) —
+  all must be spilled to stack slots across the call and reloaded (the [[arena-alloc-clobbers-x14-x15]]
+  hazard). Capture `destIndex` before `emit_copy_one_map_entry` increments `scratch13`. Then
+  `mapchurn churn`'s next `set` maintains the index incrementally (`set-in-place` bucket_put fires
+  only when `ready==1`, `map_mutate.rs:886-909`) and `hasKey` is O(1). **Gate: the `mapchurn`
+  benchmark checksum (fast, catches any bucket-corruption as a wrong lookup) + full `cargo test`
+  + map acceptance fixtures + `artifact-gate.sh`.** ~80-120 LOC, its own debug/verify budget;
+  map-corruption risk, but checksum-catchable. Removes one of the two O(N) sweeps of
+  `mapchurn churn` (165 → ~90 ms est.).
+  - **⚠️ WIN IS UNMEASURED — likely partly self-negating (found while designing the impl).**
+    The fused `MAP_BUCKET_PUT` hashes all N survivors — the **same N hashes** the eliminated
+    `hasKey` rebuild (`_mfb_rt_map_probe`) does; it only *moves* them into the copy loop. The net
+    saving is just the rebuild's *separate-loop iteration* overhead (bound check + entry load +
+    index bump per entry), MINUS the **new** per-entry spill/reload of ~10 loop-live registers
+    that fusing a `bl` into the currently call-free copy loop forces (scratch8/9/10/11/12/13/17/
+    20/21/nb — the loop keeps them ALL in registers across iterations today). That spill overhead
+    could eat most or all of the win — the same "measure before landing" trap as L1 (and K, G3).
+    **Do NOT implement blind: build it behind a quick throwaway toggle, measure `mapchurn churn`
+    `--run 50` vs baseline FIRST, and only keep it if the row actually drops.** If the fused-spill
+    overhead negates it, the real lever is a `_mfb_rt_map_probe` that is itself cheaper, or an
+    in-place removeKey that avoids the copy sweep entirely (the harder original design) — not this
+    fusion.
 - **[x] C2-mapValues — LANDED.** Native `collections::mapValues` for a same-type 8-byte
   fixed-width value (V==U in Integer/Float/Fixed/Money; gate parses `#collections_mapValues$K$V$U`;
   else `.mfb`): copy the map's key/bucket structure once and rewrite each value payload in place
@@ -456,8 +491,30 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   loop). **Result: `list chunks` 5.5 → 0.91 ms (~6x; COMPLETE, <=5ms, beats Python 1.68).**
   checksum 20000 proven unchanged; cargo test green; artifact-gate clean; acceptance passes.
   `lower_collection_chunks_call`. Commit: `13fcc99d0`.
-- **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
-  outputs, inlined comparator (with B's borrowed String element for String lists).
+- **[x] D4-partition — LANDED `af75ab381`.** Native `collections::partition` for 8-byte fixed-width
+  elements (Integer/Float/Fixed/Money; gate parses `#collections_partition$T`, else `.mfb`).
+  One predicate pass into two `lower_reserved_list` outputs (matched/unmatched, each pre-sized
+  to source so neither regrows), then the `Partition$T` record is built once via the existing
+  `emit_build_inlined_record` (inlines both flat lists) — no per-element `get`-copy, no
+  interpreted `Partition[...]` construction. A failing predicate frees BOTH partial lists then
+  routes to the inline-TRAP capture (mirrors `filter`'s `emit_callback_failure_exit`, doubled).
+  **Result: `list partition` 6.09 → ~3.6 ms (min, `--run 50` microbench) — clears the ≤5 ms
+  complete bar** (was P3, c-O0 0.38). `lower_collection_partition_call`
+  (`builder_collection_queries.rs`), dispatch gate `builder_values.rs`. Fixture
+  `tests/rt-behavior/collections/partition-native-trap-rt`. **Also fixed a pre-existing
+  silent-wrong-value bug** in the `.mfb` `__collections_partition` (see Corrections): it called
+  `IF predicate(item)` directly, which **swallows a runtime callback FAIL** (unlike
+  `sortBy`/`groupBy`, which build keys via `collections::transform` and so propagate) — now it
+  evaluates the predicate through `transform`, so a failing predicate propagates/traps for the
+  String/Scalar/Byte fallback and every inline-TRAP receiver. `any`/`all`/`findIndex`/
+  `findLastIndex` were the plan's other D4 candidates but are already complete (≤2.3 ms, not
+  offenders) — moot, no native lowering added. **Gates:** full `cargo test` green (exit 0);
+  `artifact-gate.sh` 0 diffs (1072 tests / 1342 goldens); the 3 partition-compiling fixtures pass
+  (partition-native-trap-rt, collections-artifact-coverage-rt, builtin-pair-partition-valid). The
+  full `test-accept.sh` run reported 2 mismatches, both `rt-behavior/money/money_inexact_float_warn`
+  "missing actual" — a **false failure from a concurrent foreign agent's `test-accept` sharing the
+  same `target/accept-actual` dir** (that fixture does not use partition and passes when re-run
+  isolated). Not a regression.
 - Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the
   sortBy/groupBy buffer copies free) and **B** (borrowed element for String lists). Gate:
   list checksums + `scripts/artifact-gate.sh`.
@@ -757,9 +814,21 @@ per modmul run vs C indexing a stack `uint32_t[]`.
   (`builder_numeric.rs:901`), ×~840k cells/run.
 
 **Fixes (checksums = constant line count / DP result, unchanged).**
-- **L1:** recognize a multi-`&` chain feeding a `LET`/`writeAll` and lower it to **one
-  summed-length allocation + N copies** (no intermediates) — or build in a pre-sized `MUT`
-  accumulator so the in-place concat path fires.
+- **[!] L1 (io format) REJECTED — attempted, measured, reverted this session.** Implemented
+  the concat-chain fusion exactly as designed: `flatten_string_concat` + `lower_string_concat_flat`
+  (one summed-length alloc + N straight copies, byte-identical — verified across 3/7-operand
+  chains, empty operands, 3002-byte strings). **It made no measurable difference: the
+  concat-construction microbench (20000×`toString(i) & " " & toString(f,3) & " row" & toString(i)
+  & "\n"`, `--run 50`) measured 3.657 ms WITH fusion vs 3.645 ms on the fusion-free main binary —
+  noise.** The premise is false for this row: the lines are **short** (~20 bytes, 7 tiny
+  operands), so the O(n²) prefix recopy is trivial (≤140 byte-copies/line) and the 6 eliminated
+  intermediate allocs are dwarfed by the **three per-line `toString`/float-format calls**, which
+  are the actual cost — and the plan already notes the Float formatter (`float_format.rs:48`) is
+  **intrinsic** per-value work. So `io format` is effectively capped by the formatter, not the
+  concat chain; L1 fusion (correct, and a real win for LONG chains) does not move it. Reverted to
+  avoid churning the string-concat codegen path (and its `.ncodesum` goldens) for zero benefit —
+  same discipline as the K/G3 rejections (measure before landing). A future long-chain workload
+  could revisit the fusion.
 - **L2 (memo):** an unchecked-`get` variant provable in-bounds when the index is a loop
   induction var with loop-invariant list length (reuse I1's bound-tracking); strength-
   reduce constant `MOD 1000000007` to a conditional subtract (the sum of two values each
@@ -870,8 +939,9 @@ fixtures pass):**
 | **D3-window** | native `window` (8-byte elems, const size) — direct nested-block build | list window | 20.6 → **4.6 (4.5×)** | `9409d7941` |
 | **D3-chunks** | native `chunks` (8-byte elems, const size) — direct nested-block build | list chunks | 5.5 → **0.9 (COMPLETE**, beats Py) | `13fcc99d0` |
 | **D1-groupBy** | native `groupBy` (8-byte T/V, Integer key) — inline hash + top-level buckets, kills O(bucket²) | listchurn nested | 70.8 → **13.3 (5.3×)** | `34024b800` |
+| **D4-partition** | native `partition` (8-byte elems) — filter-into-two reserved lists + `emit_build_inlined_record`; **+ fixed a pre-existing `.mfb` callback-FAIL swallow** (route predicate through `transform`) | list partition | 6.09 → **~3.6 (COMPLETE**, ≤5 ms) | `af75ab381` |
 
-**8 sub-plans landed this session, all on main** (D fully done: D1/D2/D3). Native-codegen technique proven and reused
+**9 sub-plans landed (D fully done: D1/D2/D3/D4).** Native-codegen technique proven and reused
 across D2/C2/D3: monomorphized-target dispatch gate (`#collections_<fn>$…`), FUNC-pointer
 callbacks (`emit_direct_callable_branch` + `emit_callback_failure_exit`), and direct kind-2 /
 nested-block construction (`emit_write_list_header_from_registers`, VALUE_OFFSET/LENGTH entries),
@@ -893,9 +963,8 @@ pass; correctness bar per `.ai/compiler.md` governs):**
   it one op later; eliding it needs a new IR op or a codegen peephole on the
   `Bind Result; If ResultIsOk{ResultValue} else{ResultError}` shape — **tree-wide blast
   radius** (every `TRAP`).
-- **D1** (native groupBy, `listchurn nested` 70.8 ms, real O(bucket²)) — multi-hundred-line
-  native lowering emitting FUNC-pointer `keyFn`/`valFn` calls + in-place bucket-grown map;
-  no source restructure avoids the value-semantic `get`-copy.
+- ~~**D1** (native groupBy)~~ — **LANDED** `34024b800` (listchurn nested 70.8 → 13.3). ~~**D4**
+  (native partition)~~ — **LANDED** `af75ab381` (list partition 6.09 → ~3.6, COMPLETE).
 - **C1** (map in-place removeKey, `mapchurn churn` 166 ms) — variable-length String-key
   data-region compaction + offset fixups + incremental bucket maintenance; still O(N)/op
   (win is only no-alloc + O(1) paired `hasKey`), new in-place path needs its own tests.
@@ -958,6 +1027,28 @@ and what execution found, with evidence.
   (`main()` cut to the target group) built with the current compiler — repo-touchless,
   ~seconds. A full clean `--run 50` is the final gate once the catastrophic groups (A/C/I)
   are fixed and the whole suite is fast again.
+- **D4 surfaced a pre-existing silent-wrong-value bug in `__collections_partition`.** The
+  `.mfb` body called `IF predicate(item)` directly. A directly-called infallible-typed
+  `FUNC(T) AS Boolean` that FAILs at runtime does **not** propagate its Error through a bare
+  `IF` — the failure is silently swallowed and a wrong split is returned (verified: a failing
+  predicate under an inline `TRAP` was NOT caught, the row kept computing). `sortBy`/`groupBy`
+  never hit this because they build their keys via `collections::transform`, whose callback
+  loop checks the result tag and propagates. Fixed by routing partition's predicate through
+  `collections::transform(value, predicate)` too, then splitting on the resulting
+  `List OF Boolean`. Confirmed pre-existing (the String fallback path, untouched by the native
+  lowering, exhibited it). The new native `lower_collection_partition_call` already tag-checks
+  each predicate call (so the non-trapped native path propagates correctly on its own); the
+  `.mfb` fix covers the String/Scalar/Byte fallback and every inline-TRAP receiver, which route
+  through the interpreted body. Fixture: `partition-native-trap-rt` proves catch+recover on both
+  the native and fallback receivers. Golden churn: partition's `.ir` in `collections-artifact-coverage-rt`
+  regenerated (behavior byte-identical — `isBig` matches nothing in that fixture, split unchanged).
+- **L1 (io format concat fusion) is a mis-attribution — rejected with measurement.** The plan
+  blamed the ~7-`&` chain's O(n²) prefix recopy. Built the fusion; it measured **3.657 vs 3.645 ms
+  (noise)** because the lines are short and the cost is the three per-line `toString`/float-format
+  calls (intrinsic; `float_format.rs:48`), not the concat. `io format` is formatter-capped, not
+  concat-bound. Reverted (no benefit, only string-concat golden churn). This makes the fourth
+  wrong per-row attribution the execution found (after K, G3, and D1's "not done" staleness) —
+  the plan's `file:line` root-causes must each be **measured** before landing, not trusted.
 
 ## Open Decisions
 
