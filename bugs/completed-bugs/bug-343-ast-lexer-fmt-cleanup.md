@@ -5,7 +5,16 @@ Effort: medium (1h–2h per item; large for the cluster)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open
+Status: Fixed (2026-07-25) — all 17 items landed. A1/A2/A3/A4/A5/A6, B1/B2/B3,
+C1/C2, D1–D7 complete. Two latent regressions from this bug's own earlier A3/A4
+commits were found and fixed during the sweep: they had left `[[src/escape.rs:*]]`
+and `[[src/unicode_backend.rs:*]]`/`[[src/unicode_runtime_tables.rs:*]]` citations
+pointing at the moved files, turning both `man_citations_resolve` and
+`spec_citations_resolve` red. Validation: `cargo test` green (3240 + all
+integration suites, 0 failed); `mfb fmt` byte-identical across all 1112 committed
+`.mfb` sources before/after; artifact gate at the known-flaky-only baseline (the 9
+`{audio,net,tls}` codegen_cover_rt `.ncode` sums, unrelated union-drop
+nondeterminism); no clippy warnings in any touched file.
 Regression Test: existing acceptance goldens (no new expected output); new unit
 tests only where an item collapses two implementations into one (B1, B3).
 
@@ -562,12 +571,18 @@ Rejected alternatives, so they are not re-litigated:
       known-open issue, unrelated to this bug). Acceptance for every item below:
       no diff appears OUTSIDE this flaky codegen set (no AST/IR/hex/deterministic
       diff, no new fixture).
-- [ ] Capture the current `mfb fmt --check` result over all committed `.mfb`
-      sources (expected: already-failing on `TESTING` blocks per bug-338) as the
-      before-state.
-- [ ] Grep for goldens asserting the D4 clause-error text; record the verdict
-      here.
-- [ ] Land D5 (drop `PartialEq` on `Sig`) as the gate smoke test.
+- [x] `mfb fmt` before/after proof for B3 (the one item that can move fmt output):
+      formatted throwaway copies of all **1112** committed `.mfb` sources with the
+      pre-B3 and post-B3 binaries and compared sha256 — **byte-identical across
+      every file**. (Used `mfb fmt` output rather than `--check` pass/fail so the
+      comparison catches any byte change, not just accept/reject.)
+- [x] D4 golden audit: exactly ONE golden asserts the native-FUNC-body message —
+      `tests/syntax/native/native-abi-return-slot-invalid/golden/build.log`.
+      Updated it in lockstep with the message and acceptance-verified that fixture.
+      (`native-free-invalid` asserts the *FREE-block* message, which was not
+      changed.)
+- [x] D5 (drop `PartialEq` on `Sig`) — already landed by the prior agent
+      (commit 3666afac3); re-verified `Sig` derives only `Clone, Copy`.
 
 Acceptance: gate at `diffs=0` after D5; the fmt before-state and the D4 golden
 audit are recorded in this file.
@@ -575,32 +590,35 @@ Commit: —
 
 ### Phase 2 — placement and duplication
 
-- [ ] A6: `src/json.rs` owning `json_string`; re-point the ~15 consumers. One
-      commit, no other change.
-- [ ] B2: one `ToJson` + one `join_json` in `src/json.rs`; `ast`/`ir` adopt it.
-- [ ] A1: `src/ast/pipeline.rs`; `expr.rs` imports directly; delete
-      `src/ast/mod.rs:31`.
-- [ ] A2 + B1: one `param_types`, one `normalize_types`, one `normalize_ws`, in
-      one home; re-point all consumers.
-- [ ] B3: export the DOC recognizers from `lexer.rs` beside `lookup_keyword`;
-      `fmt.rs` consumes them. `DOC_UNTERMINATED` behavior unchanged.
-- [ ] A3, A4, A5: module moves/renames.
+- [x] A6: `src/json.rs` owning `json_string`; re-pointed all 15 consumers.
+- [x] B2: one `ToJson` + one `join_json` in `src/json.rs`; `ast`/`ir` adopted it.
+- [x] A1: `src/ast/pipeline.rs`; `expr.rs` imports directly; the `mod.rs`
+      laundering line is deleted.
+- [x] A2 + B1: one `param_types`, one `normalize_types`, one `normalize_ws` in
+      `src/ast/overloads.rs`; re-pointed doc/ir/resolver; `overload_types_match`
+      is now a two-line composition. Unit tests added.
+- [x] B3: `is_end_line` + `is_doc_attr_rest` exported from `lexer.rs` beside
+      `lookup_keyword`; `fmt.rs` consumes them. `DOC_UNTERMINATED` unchanged.
+- [x] A3, A4, A5: A3/A4 relocations landed by the prior agent; A5 (scope_privates
+      -> `src/ast/`) landed here, plus the A3/A4 man+spec citation sweeps they
+      missed, plus A4's `category_value` dead-code deletion.
 
-Acceptance: gate `diffs=0` after each commit; `cargo test` green;
-`mfb fmt --check` before/after lists byte-identical.
-Commit: —
+Acceptance: gate at the known-flaky-only baseline after each commit; `cargo test`
+green; `mfb fmt` byte-identical before/after.
 
 ### Phase 3 — docs, ordering, and full validation
 
-- [ ] C1: one banner per subject in `src/ast/tests.rs`; sections contiguous.
-- [ ] C2: add the LINK banner; restore the DOC group in `src/fmt.rs`.
-- [ ] D1, D2, D3, D4, D6, D7.
-- [ ] Full `scripts/test-accept.sh` run; `cargo fmt` (second pass in
-      `repository/`, which is not a workspace member); `cargo clippy`.
+- [x] C1: one banner per subject in `src/ast/tests.rs`; sections contiguous
+      (verified: 152 tests, identical names, every code line byte-identical).
+- [x] C2: added the LINK banner; restored the DOC group in `src/fmt.rs`.
+- [x] D1 (prior), D2 (prior), D3 (14 AST sites), D4, D6 (new `tooling/fmt`
+      man topic), D7.
+- [x] Full `scripts/test-accept.sh` run; `cargo clippy` (no new warnings in any
+      touched file); rustfmt applied to the six files this bug's edits pushed
+      over the width (unrelated pre-existing drift left alone).
 
-Acceptance: full acceptance suite green; artifact gate `diffs=0`; zero modified
-files under `tests/**/golden/` except the audited D4 string, if any.
-Commit: —
+Acceptance: full acceptance suite green; artifact gate at known-flaky baseline;
+zero modified files under `tests/**/golden/` except the audited D4 string.
 
 ## Validation Plan
 
