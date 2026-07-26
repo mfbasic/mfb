@@ -22,33 +22,17 @@
 
 #![cfg(target_os = "macos")]
 
+mod common;
+use common::temp_project;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The terminal probes the composed console readLine body calls. They are
 /// no-ops against the fd-0 window pipe (`isatty(0)` = 0 skips the termios
 /// calls), but the symbols must still bind.
 const TERMINAL_PROBES: &[&str] = &["_isatty", "_tcgetattr"];
 
-fn temp_project(name: &str, source: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("mfb_{name}_{nonce}"));
-    fs::create_dir_all(root.join("src")).expect("create temp project");
-    fs::write(
-        root.join("project.json"),
-        format!(
-            "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\"entry\":\"main\",\"targets\":[\"native\"]}}\n"
-        ),
-    )
-    .expect("write project.json");
-    fs::write(root.join("src/main.mfb"), source).expect("write source");
-    root
-}
 
 /// A program that prompts with `io::input` and never calls `io::readLine`.
 const INPUT_ONLY_SOURCE: &str = "IMPORT io\n\n\

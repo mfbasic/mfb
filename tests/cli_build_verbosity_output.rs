@@ -12,28 +12,12 @@
 //! across all three levels (verbosity never reaches codegen), and the
 //! `Wrote executable to <path>` line stays verbatim on stdout in every mode.
 
+mod common;
+use common::temp_project;
 use std::path::PathBuf;
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, fs};
 
-fn temp_project(name: &str, source: &str) -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock before epoch")
-        .as_nanos();
-    let root = env::temp_dir().join(format!("mfb_{name}_{nonce}"));
-    fs::create_dir_all(root.join("src")).expect("create temp project");
-    fs::write(
-        root.join("project.json"),
-        format!(
-            "{{\"name\":\"{name}\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"kind\":\"executable\",\"sources\":[{{\"root\":\"src\",\"role\":\"main\",\"include\":[\"**/*.mfb\"]}}],\"entry\":\"main\",\"targets\":[\"native\"]}}\n"
-        ),
-    )
-    .expect("write project.json");
-    fs::write(root.join("src/main.mfb"), source).expect("write source");
-    root
-}
 
 const SOURCE: &str = r#"
 IMPORT io
