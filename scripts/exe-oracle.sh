@@ -38,6 +38,11 @@ while IFS= read -r pj; do
     built=$((built+1))
   done < <(printf '%s\n' "$out" | sed -n 's/^Wrote executable to //p')
   rm -rf "$td/build" 2>/dev/null
+  # `mfb build` writes a compiled `<pkg>.mfp` at the fixture root for package
+  # fixtures; tracked `.mfp` only ever live under `golden/` or `packages/`
+  # subdirs, so removing the fixture-root ones (maxdepth 1) leaves the tree clean
+  # without touching any committed file.
+  find "$td" -maxdepth 1 -name '*.mfp' -delete 2>/dev/null
 done < <(find "$ROOT/tests" -name project.json | sort)
 
 sort "$tmp" -o "$tmp"
