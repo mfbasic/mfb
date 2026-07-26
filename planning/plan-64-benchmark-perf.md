@@ -751,17 +751,39 @@ process-global arena fragmentation that amplifies trap's climb (exactly the A↔
 the plan predicted). `parse csv` median (447↔602) and `thread sum` (44↔68) swing run-to-run
 — inherent arena-quadratic / scheduler variance (csv min still 5.57), not touched by these fixes.
 
-**Not yet done — remaining P1/P2 work is deep, heap-corruption-prone codegen that each
-warrants a dedicated focused effort with multi-arch runtime validation (per
-`.ai/compiler.md`), not a rushed pass:** C1 (map in-place removeKey — variable-length
-String-key data-region compaction + incremental bucket maintenance; new in-place path
-needs its own tests), D1–D4 (native-lower list generics: groupBy/sortBy/window/chunks/
-partition), B (borrow read-only `get` element — escape analysis), A1/A2 (arena allocator
-machine-code: single-pass flush coalesce + size-class segregation — the highest blast
-radius in the plan; the residual `datetime civil` max 938 ms and all of csv/iso/dispatch-
-trap-climb wait on this). Source/algorithmic: A3-csv (needs a range-decode), K (bignum
-schoolbook long division — checksum-critical), L, G1/G3, F2/F3. Capped (ceilings only):
-M (transcendentals), N (fib/thread overflow-check).
+**Not yet done — every remaining item was investigated at `file:line` this session and each
+is a substantial dedicated effort with a specific, documented complication (not a rushed
+pass; correctness bar per `.ai/compiler.md` governs):**
+- **I** (inline-TRAP Result/Error elision) — **dispatch trap 1885 ms, the #1 offender.**
+  `lower_inline_trap` (`ir/lower.rs:963`) materializes a `Result OF T` block then destructures
+  it one op later; eliding it needs a new IR op or a codegen peephole on the
+  `Bind Result; If ResultIsOk{ResultValue} else{ResultError}` shape — **tree-wide blast
+  radius** (every `TRAP`).
+- **D1** (native groupBy, `listchurn nested` 70.8 ms, real O(bucket²)) — multi-hundred-line
+  native lowering emitting FUNC-pointer `keyFn`/`valFn` calls + in-place bucket-grown map;
+  no source restructure avoids the value-semantic `get`-copy.
+- **C1** (map in-place removeKey, `mapchurn churn` 166 ms) — variable-length String-key
+  data-region compaction + offset fixups + incremental bucket maintenance; still O(N)/op
+  (win is only no-alloc + O(1) paired `hasKey`), new in-place path needs its own tests.
+- **L2 / bounds-check elimination** — the *real* lever for `scalar listchurn`, `mathpipe memo`,
+  AND bignum (see K/G3 rejections): drop the bounds check on `get(list, i)` when `i` is a
+  loop-induction var < loop-invariant `len(list)`. **Correctness-critical dataflow** — an
+  unsound unchecked get is silent memory unsafety, not a checksum-catchable wrong answer.
+- **J1/J2** (vector `normalize`/Integer-`length` inline, `vector math` 33 ms) — `normalize`
+  is per-lane `v.f / len` **plus a `len=0.0 → FAIL error(77050002)` guard** (`vector_package.mfb:353`);
+  the guard is control flow the pure-expression inline mechanism can't express, and
+  Integer/Fixed `length` needs `isqrt` not `sqrt`. J3 (project/reject/reflect) IS pure
+  arithmetic but is not on the `vector math` hot path.
+- **A1/A2** (arena allocator machine-code) — **highest blast radius in the plan** (a bug
+  corrupts every heap); the residual `datetime civil` max 938 ms + csv/iso/dispatch-trap-climb
+  wait on it. **B** (borrow-on-get) — deep escape analysis. **F2/F3** (string split/join/set
+  in-place) — intricate shift+offset-fixup for ≤1 ms benchmark impact. **C-C1**/A3-csv
+  (needs a range-decode primitive).
+- **Rejected with proof this session: K** (bignum — algorithm change unfair vs C's bit-serial
+  mod) and **G3** (native `toScalars` — measured *slower* 411 vs 388 ms, and toScalars isn't
+  `listchurn`'s bottleneck). Both really want L2.
+- **Capped (ceilings, track-only): M** (transcendentals — dd-vs-libm), **N** (fib/thread
+  overflow-check).
 
 ## Corrections (execution — /follow-plan)
 
