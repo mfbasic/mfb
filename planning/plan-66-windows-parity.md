@@ -369,7 +369,7 @@ Commit: 78622bb8d
   pending its entry-side capture.)
 
 Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **NEARLY MET** — pid/cpuCount/getEnv(+family)/executablePath/hostName/userName all box-proven; only `args` (needs entry capture) and `environ` remain.
-Commit: 52e5fb79c (t1); 69599dfc9 (env); eae84d465 (string trio); environ — this commit; env family — this commit
+Commit: 52e5fb79c (t1); 69599dfc9 (env); eae84d465 (string trio); 95b305201 (environ); env family — this commit
 
 ### Phase C — `io::` input + buffering
 - [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.
