@@ -196,6 +196,11 @@ pub(crate) const ERR_AUDIO_DEVICE_SYMBOL: &str = "_mfb_str_error_audio_device";
 pub(crate) const ERR_INVALID_CONTEXT_CODE: &str = "77050019";
 pub(crate) const ERR_INVALID_CONTEXT_MESSAGE: &str = "Operation was invoked from a thread that is not permitted to perform it (e.g. reading stdin from a thread that has not called `thread::openStdIn`).";
 pub(crate) const ERR_INVALID_CONTEXT_SYMBOL: &str = "_mfb_str_error_invalid_context";
+// plan-62-E: `term::*` and the console-reading `io::` calls require the `Console`
+// presentation mode in an `--app` build; outside it they raise this trappable error.
+pub(crate) const ERR_WRONG_MODE_CODE: &str = "77050020";
+pub(crate) const ERR_WRONG_MODE_MESSAGE: &str = "Operation requires the Console presentation mode: `term::` and console input (`io::input`/`io::readLine`/`io::readChar`) are only valid while `app::getMode()` is `Mode.Console`.";
+pub(crate) const ERR_WRONG_MODE_SYMBOL: &str = "_mfb_str_error_wrong_mode";
 
 // -- Network (7707) ---------------------------------------------------------
 pub(crate) const ERR_ADDRESS_INVALID_CODE: &str = "77070001";

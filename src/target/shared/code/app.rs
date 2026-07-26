@@ -38,6 +38,49 @@ pub(super) fn lower_app_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
+/// plan-62-E: prepend an `ErrWrongMode` gate to an app-mode `term::` / console-read
+/// `io::` helper body. When `presentation_mode_offset` is `Some` (the program uses
+/// `app::`, so a non-`Console` mode is reachable), the gate loads the presentation
+/// mode and, if it is not `Console` (`0`), raises the trappable `ErrWrongMode`
+/// before the helper does any work; otherwise it falls through. When `None` (the
+/// program can never leave `Console`), nothing is emitted, so a non-`app::` program
+/// is byte-identical.
+///
+/// The gate is spliced in right after the helper's `"entry"` label and *before* its
+/// manual prologue (`subtract_stack`), so the early error return runs with no frame
+/// allocated and an intact link register — a bare `return_()` is safe there.
+pub(super) fn prepend_wrong_mode_gate(
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    symbol: &str,
+    presentation_mode_offset: Option<usize>,
+) {
+    let Some(offset) = presentation_mode_offset else {
+        return;
+    };
+    let ok = format!("{symbol}_mode_ok");
+    let mut gate = vec![
+        abi::load_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, offset),
+        abi::compare_immediate(abi::SCRATCH[0], "0"), // Console == 0
+        abi::branch_eq(&ok),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_WRONG_MODE_CODE),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+    ];
+    push_error_message_address(symbol, ERR_WRONG_MODE_SYMBOL, &mut gate, relocations);
+    gate.push(abi::return_());
+    gate.push(abi::label(&ok));
+    // Splice after the `"entry"` label (index 0), before the manual prologue.
+    let at = if instructions
+        .first()
+        .is_some_and(|instruction| instruction.op == CodeOp::Label)
+    {
+        1
+    } else {
+        0
+    };
+    instructions.splice(at..at, gate);
+}
+
 /// `app::getMode()` — load the presentation-mode word (`0`/`1`) into the result
 /// value register as a `Mode` value (the enum is i64-carried by its discriminant).
 fn emit_get_mode(presentation_mode_offset: usize, instructions: &mut Vec<CodeInstruction>) {

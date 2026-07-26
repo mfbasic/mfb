@@ -27,7 +27,6 @@ use crate::target::linux_gtk as gtk;
 use crate::target::shared::code::AppHookBody;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
-    PresentationMode,
     NativeCodePlan, ProgramEntrySpec, RelocIntent, TEMP_DIRECTORY_SCRATCH_BYTES,
 };
 use crate::target::shared::nir::NirModule;
@@ -1239,7 +1238,7 @@ mod tests {
             let spec = AppEntrySpec {
                 language_entry_accepts_args: false,
                 uses_term: false,
-                initial_mode: PresentationMode::Console,
+                initial_mode: code::PresentationMode::Console,
             };
             let _ = riscv64().emit_app_program_entry(&spec, &HashMap::new());
         }

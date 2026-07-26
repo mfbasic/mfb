@@ -250,6 +250,83 @@ else
   fi
 fi
 
+# Case 3c (plan-62-E): mode gating. In an app build, `term::*` and the console-read
+# `io::` calls require the `Console` presentation mode; outside it they raise the
+# trappable `ErrWrongMode`. `io::print`/`io::write` are never gated. Proven headlessly
+# through the worker's exit code.
+#
+#   - term::moveTo in None traps ErrWrongMode; the same call in Console does not.
+proj="$work/wrongmode_term"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "wrongmode_term", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT term
+IMPORT errorCode
+FUNC main AS Integer
+  app::setMode(Mode.None)
+  term::moveTo(1, 1) TRAP(err)
+    IF err.code = errorCode::ErrWrongMode THEN
+      app::setMode(Mode.Console)
+      term::moveTo(1, 1) TRAP(err2)
+        RETURN 61       ' Console must NOT trap
+      END TRAP
+      RETURN 0          ' None trapped, Console succeeded
+    END IF
+    RETURN 60           ' trapped, wrong code
+  END TRAP
+  RETURN 50             ' None must trap
+END FUNC
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app wrongmode_term"
+else
+  result=$(run_headless "$(bundle "$proj" wrongmode_term)/Contents/MacOS/wrongmode_term")
+  if [ "$result" = "code=0" ]; then
+    pass "term:: raises ErrWrongMode outside Console, works in Console ($result)"
+  else
+    fail "expected term wrong-mode gate (code=0), got '$result'"
+  fi
+fi
+
+#   - io::readLine in None traps ErrWrongMode; io::print is never gated (it printed).
+proj="$work/wrongmode_io"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "wrongmode_io", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT io
+IMPORT errorCode
+FUNC main AS Integer
+  app::setMode(Mode.None)
+  LET line AS String = io::readLine() TRAP(err)
+    IF err.code = errorCode::ErrWrongMode THEN
+      RETURN 0
+    END IF
+    RETURN 60
+  END TRAP
+  RETURN 50
+END FUNC
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app wrongmode_io"
+else
+  result=$(run_headless "$(bundle "$proj" wrongmode_io)/Contents/MacOS/wrongmode_io")
+  if [ "$result" = "code=0" ]; then
+    pass "io::readLine raises ErrWrongMode outside Console ($result)"
+  else
+    fail "expected io wrong-mode gate (code=0), got '$result'"
+  fi
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than

@@ -37,11 +37,18 @@ References (read first):
 
 See plan-62-A §Prerequisites. Additionally:
 
-| Must be true | Command | Status 2026-07-24 |
+| Must be true | Command | Status 2026-07-25 |
 |---|---|---|
-| plan-62-C landed (macOS None mode works) | `rg -n 'initial_mode' src/target/macos_aarch64/app/bootstrap.rs` | **NOT MET (C pending)** |
-| plan-62-D landed (GTK None mode works) | `rg -n 'g_application_hold' src/target/linux_gtk/` | **NOT MET (D pending)** |
-| The runtime error mechanism is trappable | `rg -n 'TRAP' src/docs/spec/` — confirm runtime errors are catchable | **verify before Phase 1** |
+| plan-62-C landed (macOS None mode works) | `rg -n 'initial_mode' src/target/macos_aarch64/app/mod.rs` | **MET for Phase 1** (windowless None startup, commit fed1e931d); C Phase 2 (runtime reconcile) is display-bound — see Corrections. E's gate does NOT depend on it (see below). |
+| plan-62-D landed (GTK None mode works) | `rg -n 'g_application_hold' src/target/linux_gtk/` | **NOT MET (D pending — GTK box work)**; E's gate is platform-shared and reads the same slot, so the macOS gate proves the mechanism. |
+| The runtime error mechanism is trappable | `rg -n 'TRAP' src/docs/spec/` | **MET** — verified: `term::moveTo` / `io::readLine` in `None` raise `ErrWrongMode`, caught by a statement `TRAP(err)` with `err.code = errorCode::ErrWrongMode` (macOS headless, exit 0). |
+
+> **Correction (2026-07-25):** the plan orders E after C+D because "E is testable only
+> once a non-`Console` mode exists." Mechanically E's gate reads the `PRESENTATION_MODE`
+> slot, which **plan-62-B** already writes (`app::setMode(Mode.None)`), so E is fully
+> implementable and testable on B + C-Phase-1 alone — it does not need C's window
+> reconcile or D. Implemented and verified now; the C-Phase-2/D dependency was
+> over-stated.
 
 > **NOTE — re-run every command before continuing and before stopping; report every row if you
 > stop.** E is testable only once a non-`Console` mode actually exists (C + D) — gating against
@@ -144,27 +151,41 @@ arbitrary.
 
 ### Phase 1 — the `WRONG_MODE` error + `term::` gate
 
-- [ ] Confirm the runtime-error path is trappable; if not, decide fatal-abort vs. adding
-      trappability (Open Decision 1) and record it.
-- [ ] Add `WRONG_MODE` to `error_constants.rs`.
-- [ ] Emit a `PRESENTATION_MODE_OFFSET != Console` check (app builds only) at the head of the
-      shared term lowering, covering all 17 term functions including `on`.
+- [x] Confirmed trappable: `ErrWrongMode` is a normal `Result::Error` (tag/value/message
+      registers), caught by a statement `TRAP(err)` and matched via `err.code =
+      errorCode::ErrWrongMode` — verified on macOS. Open Decision 1 resolved: trappable.
+- [x] Added `ErrWrongMode` = `77050020` to the diagnostics registry (`02_error-codes.md`,
+      the build input that generates `errorCode::ErrWrongMode`) and `error_constants.rs`
+      (`ERR_WRONG_MODE_{CODE,MESSAGE,SYMBOL}` + the message→symbol table row + the
+      per-used-call data-object emission in `data_objects.rs`).
+- [x] Emit the mode gate at the app-mode term dispatch (`lower_runtime_helper`) via
+      `app::prepend_wrong_mode_gate`, covering all 17 term functions incl. `on`. Gated on
+      `presentation_mode_offset.is_some()` (i.e. the program uses `app::`, so a non-`Console`
+      mode is reachable) — a program that never uses `app::` emits no gate and is unchanged.
+      The gate is spliced before the helper's manual prologue, so the early error return is
+      frame-safe.
 
-Acceptance: in a `--app` build, `term::moveTo(1,1)` while in `None` raises `WRONG_MODE`
-(trappable); the same call in `Console` behaves as today; a console (non-app) build is
-byte-identical to today (no check emitted). Runtime golden + a `TRAP` test.
+Acceptance: in a `--app` build, `term::moveTo(1,1)` while in `None` raises `ErrWrongMode`
+(trappable); the same call in `Console` behaves as today; a non-`app::` build emits no check.
+**VERIFIED** on macOS headless (`test-macapp.sh` case "term:: raises ErrWrongMode outside
+Console, works in Console", exit 0).
 Commit: —
 
 ### Phase 2 — the io-read gate + the io-write assertion
 
-- [ ] Emit the same `!= Console` check (app builds only) at the head of `io::input`/`readLine`/
-      `readChar`.
-- [ ] Add a test asserting `io::print` reaches the transcript in `Console` and stdout in `None`
-      (locking the C/D view-presence behavior against the mode state).
+- [x] Emit the same `!= Console` check at the app-mode `io::input`/`readLine`/`readChar`
+      dispatch (after the helper tuple is built), via `app::prepend_wrong_mode_gate`. The
+      writing side (`io::print`/`io::write`) is deliberately NOT gated (it degrades to the fd
+      sink).
+- [~] `io::print` routing: **stdout in `None` is VERIFIED** (macOS headless + windowless
+      non-headless — `io::print` reaches stdout with no transcript). The `Console` →
+      transcript half is asserted by plan-62-C Phase 2's reconcile (it sets the transcript
+      associated object); the pin-it-with-a-test lands with that reconcile.
 
-Acceptance: `io::input()` in `None` raises `WRONG_MODE` rather than hanging; in `Console` it
-reads as today; `io::print` routing is proven for both modes. Runtime goldens on macOS device
-and the GTK box.
+Acceptance: `io::readLine()` in `None` raises `ErrWrongMode` rather than hanging; in `Console`
+it reads as today. **VERIFIED** on macOS headless (`test-macapp.sh` case "io::readLine raises
+ErrWrongMode outside Console", exit 0). The `io::print`-routing assertion for `Console` rides
+with C Phase 2.
 Commit: —
 
 ## Validation Plan
@@ -192,6 +213,30 @@ Commit: —
 ## Corrections
 
 <!-- Filled in during execution. -->
+
+- 2026-07-25 — **E is implementable/testable on B + C-Phase-1, not gated on C-Phase-2/D.**
+  The gate reads the `PRESENTATION_MODE` slot that plan-62-B writes; `app::setMode(Mode.None)`
+  creates a non-`Console` mode headlessly. Implemented and verified for macOS now; the gate
+  is platform-shared (`prepend_wrong_mode_gate` at the shared `lower_runtime_helper` dispatch),
+  so it applies to GTK too once D's None mode is proven on the box.
+
+- 2026-07-25 — **The gate lives at the shared `lower_runtime_helper` dispatch, not inside each
+  backend's term/io helper.** `app::prepend_wrong_mode_gate` splices the mode check right after
+  the helper's `"entry"` label and before its manual prologue (`subtract_stack`), so the early
+  error return runs with no frame allocated and an intact link register. Gated on
+  `presentation_mode_offset.is_some()` (uses `app::`) — one insertion point covers every
+  backend and every gated call; a non-`app::` program is byte-identical.
+
+- 2026-07-25 — **Fixed a pre-existing bug-256-class defect found here: an `io::readLine`/
+  `readChar`/`input`-only program (no `io::print`/`io::write`) failed to link on ANY build**
+  (`_mfb_str_error_output` dangling). Every console-read helper drains pending stdout
+  (`STDOUT_DRAIN_SYMBOL`), which raises `ErrOutput`, but the `_mfb_str_error_output` data
+  object was emitted only when `io::print`/`io::write` was used. `data_objects.rs` now emits
+  it for any io-read too. Confirmed pre-existing (reproduces on a plain console `readLine`-only
+  program, no `app::` involved).
+
+- 2026-07-25 — **`ErrWrongMode` = `77050020`** (next free `7-705` code, after `ErrInvalidContext`
+  `0019`). Trappable via `err.code`; message registered so a program can distinguish it.
 
 ## Summary
 

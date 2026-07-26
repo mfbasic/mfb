@@ -138,6 +138,7 @@ registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 | `7-705-0017` | `77050017` | `ErrAudioUnavailable`         | Audio backend library or device is unavailable (no `libasound.so.2`, no audio device, or capture authorization denied). |
 | `7-705-0018` | `77050018` | `ErrAudioDevice`              | Audio device open, configuration, or stream operation failed. |
 | `7-705-0019` | `77050019` | `ErrInvalidContext`          | Operation was invoked from a thread that is not permitted to perform it (e.g. reading stdin from a thread that has not called `thread::openStdIn`). |
+| `7-705-0020` | `77050020` | `ErrWrongMode`               | Operation requires a presentation mode the program is not in: in an `--app` build, `term::*` and the console-reading `io::` calls (`io::input`/`io::readLine`/`io::readChar`) require `app::Mode.Console` (plan-62-E). |
 | `7-703-0009` | `77030009` | `ErrResourceMoved`            | Resource handle was moved to another thread by `thread::transfer` and is no longer usable by the sender. |
 | `7-703-0010` | `77030010` | `ErrNativeBufferOverrun`      | Native `LINK` `OUT CBuffer` callee wrote past its declared `SIZE` (buffer overrun detected). |
 

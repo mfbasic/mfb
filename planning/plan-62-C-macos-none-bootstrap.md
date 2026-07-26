@@ -36,9 +36,9 @@ References (read first):
 
 See plan-62-A §Prerequisites. Additionally:
 
-| Must be true | Command | Status 2026-07-24 |
+| Must be true | Command | Status 2026-07-25 |
 |---|---|---|
-| plan-62-B landed (state slot + helpers + `AppEntrySpec.initial_mode` + reconcile seam) | `rg -n 'initial_mode' src/target/shared/code/types.rs` | **NOT MET (B pending)** |
+| plan-62-B landed (state slot + helpers + reconcile seam) | `rg -n 'emit_app_mode_reconcile' src/target/shared/code/types.rs` | **MET** (commit d12ac331a; `AppEntrySpec.initial_mode` was deferred from B to here — C is its first reader — per B Corrections) |
 | A macOS aarch64 device is reachable for on-device proof | host is macOS (`darwin`) | **MET** |
 
 > **NOTE — re-run every command before continuing and before stopping; report every row if you
@@ -151,19 +151,22 @@ only the *window* is per-mode. `NSApp` and the run loop persist across modes.
 
 ### Phase 1 — thread `initial_mode` into the bootstrap; conditional startup surface
 
-- [ ] Give `emit_main_bootstrap` an `initial_mode` param; pass it from `emit_app_program_entry`
-      (`mod.rs:542`).
-- [ ] Guard window+transcript creation on `initial_mode == Console`; add a `None` path that
-      skips them and reaches `[NSApp run]` with the worker deferred to
-      `applicationDidFinishLaunching:`.
-- [ ] Factor "build the Console window+transcript" into one emitted routine (startup calls it;
-      the reconcile hook will too).
+- [x] Gave `emit_main_bootstrap` an `initial_mode` param; passed from `emit_app_program_entry`
+      (via `AppEntrySpec.initial_mode`, added here — its first reader).
+- [x] Guarded window+transcript creation on `initial_mode == Console`; the `None` path skips
+      the surface but still installs the app delegate (extracted to `emit_gui_delegate`, so the
+      worker spawns from `applicationDidFinishLaunching:`) and reaches the real `[NSApp run]`.
+      Console is emitted byte-for-byte as before (no reorder), so its goldens are unchanged.
+- [x] Extracted `emit_gui_delegate` (the delegate synth the `None` path shares). The full
+      Console window+transcript build is not yet extracted into a reconcile-callable routine —
+      deferred to Phase 2 where the reconcile needs it.
 
-Acceptance: a `--app` program starting in `Console` (no `setMode`) is byte-identical to today
-(goldens unchanged); a program whose static default is `None` (references `setMode`) launches,
-shows no window, and stays alive; `io::print` before any `setMode` reaches stdout. Proven
-on-device.
-Commit: —
+Acceptance: a `--app` program starting in `Console` is byte-identical to today
+(`macos-app-mode-*` goldens unchanged — verified); a `None`-default program launches, shows no
+window, and stays alive under real `[NSApp run]` (verified on-device: "alive" after 3s,
+non-headless); `io::print` before any `setMode` reaches stdout (verified: worker spawns via
+delegate, prints "windowless-running" to stdout). **VERIFIED on-device.**
+Commit: fed1e931d
 
 ### Phase 2 — the runtime `setMode` reconcile (largest blast radius: cross-thread window mutation)
 
@@ -202,6 +205,32 @@ Commit: —
 ## Corrections
 
 <!-- Filled in during execution. -->
+
+- 2026-07-25 — **`AppEntrySpec.initial_mode` is added HERE (plan-62-C), not B.** B deferred it
+  to avoid an unread field (AGENTS.md); C is its first reader (the startup-window decision). B
+  carries the static default into program entry via `ProgramEntrySpec::seed_presentation_mode_offset`
+  instead; C adds the `AppEntrySpec` field. The rv64 `#[should_panic]` `AppEntrySpec`
+  construction was updated to set it.
+
+- 2026-07-25 — **Finer split than "guard the whole surface block."** The first attempt guarded
+  the entire window+transcript block (`bootstrap.rs:32-485`) on `Console`, but that block also
+  contains the **app-delegate synthesis**, whose `applicationDidFinishLaunching:` is what spawns
+  the worker. Gating it out left a `None` program with a live `[NSApp run]` but no worker (it
+  never printed / never ran). Fix: extract the delegate synthesis into `emit_gui_delegate` and
+  call it from BOTH the `Console` path (byte-identically) and the `None` path, so a windowless
+  `None` program still spawns its worker. Verified: a `None` program's worker runs and
+  `io::print`s to stdout.
+
+- 2026-07-25 — **Console byte-identical without reordering.** To keep `macos-app-mode-*` goldens
+  unchanged, the `Console` block is emitted in its exact original order (the `getenv
+  MFB_MACAPP_HEADLESS` stays where it was); the `None` path re-reads the env var separately
+  rather than hoisting it above the window build. Verified byte-identical via `test-accept.sh`.
+
+- 2026-07-25 — **Phase 2 (the runtime `setMode` reconcile) is display-bound.** It builds/tears
+  down an NSWindow on the main thread via `performSelectorOnMainThread`; the window
+  appear/disappear is only confirmable visually on-device (the plan's own "manual on-device
+  confirmation"). Its io-routing consequence (None→Console flips a subsequent `io::print` from
+  stdout to the transcript) IS automatable via stdout capture. See Phase 2 status.
 
 ## Summary
 

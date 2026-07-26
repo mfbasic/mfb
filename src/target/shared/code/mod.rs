@@ -1629,8 +1629,9 @@ fn lower_runtime_helper(
     // (frame, instructions, relocations, stack_slots) tuple each arm computes.
     // Build that tuple here, then construct the single CodeFunction after the
     // match (the shape the net.*/tls.* inner-match arms already used).
-    let (frame, instructions, relocations, stack_slots) = if builtins::term::is_term_call(spec.call)
-    {
+    let (frame, mut instructions, mut relocations, stack_slots) = if builtins::term::is_term_call(
+        spec.call,
+    ) {
         let term_state_offset = term_state_offset.ok_or_else(|| {
             format!("native code plan emits '{symbol}' without reserving term state")
         })?;
@@ -1645,7 +1646,21 @@ fn lower_runtime_helper(
             None
         };
         match app_term_helper {
-            Some(result) => pad_no_slots(result?),
+            Some(result) => {
+                // plan-62-E: every app-mode `term::` helper (including `on`) is gated
+                // on the `Console` presentation mode — outside it, `term::` raises the
+                // trappable `ErrWrongMode` before touching the (absent) grid. No-op
+                // when the program cannot leave `Console` (`presentation_mode_offset`
+                // is `None`), so a program that never uses `app::` is unchanged.
+                let mut body = pad_no_slots(result?);
+                app::prepend_wrong_mode_gate(
+                    &mut body.1,
+                    &mut body.2,
+                    symbol,
+                    arena_layout.presentation_mode_offset,
+                );
+                body
+            }
             None => term::lower_term_helper(
                 spec.call,
                 symbol,
@@ -2017,6 +2032,21 @@ fn lower_runtime_helper(
             }
         }
     };
+    // plan-62-E: the console-reading `io::` helpers (`input`/`readLine`/`readChar`)
+    // are gated on the `Console` presentation mode in an app build that uses `app::`
+    // — outside `Console` the window input pipe has no producer, so an ungated read
+    // would block forever; instead they raise the trappable `ErrWrongMode`. The
+    // writing side (`io::print`/`io::write`) is never gated — it degrades to the fd
+    // sink. No-op when the program cannot leave `Console` (`presentation_mode_offset`
+    // is `None`). `term::` is gated separately at its own dispatch above.
+    if matches!(spec.call, "io.input" | "io.readLine" | "io.readChar") {
+        app::prepend_wrong_mode_gate(
+            &mut instructions,
+            &mut relocations,
+            symbol,
+            arena_layout.presentation_mode_offset,
+        );
+    }
     Ok(CodeFunction {
         name: format!("runtime.{}", spec.call),
         symbol: symbol.to_string(),
@@ -2682,6 +2712,11 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_INVALID_CONTEXT_CODE,
             ERR_INVALID_CONTEXT_MESSAGE,
             ERR_INVALID_CONTEXT_SYMBOL,
+        ),
+        (
+            ERR_WRONG_MODE_CODE,
+            ERR_WRONG_MODE_MESSAGE,
+            ERR_WRONG_MODE_SYMBOL,
         ),
         (
             ERR_ADDRESS_INVALID_CODE,

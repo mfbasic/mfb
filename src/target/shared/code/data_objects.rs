@@ -126,9 +126,27 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
         push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
         // plan-15 D1: reading stdin from an unsubscribed thread traps ErrInvalidContext.
         push_string_value(&mut values, ERR_INVALID_CONTEXT_MESSAGE.to_string());
+        // bug-256 class (found during plan-62-E): every console-read helper begins by
+        // draining pending stdout (`STDOUT_DRAIN_SYMBOL`), which raises `ErrOutput`
+        // on a write failure — so its `_mfb_str_error_output` data object must exist
+        // whenever a read helper is emitted, even if the program never calls
+        // `io::print`/`io::write`. Without this, an `io::readLine`-only program (any
+        // build) failed to link with a dangling `_mfb_str_error_output` relocation.
+        push_string_value(&mut values, ERR_OUTPUT_MESSAGE.to_string());
     }
     if module_uses_call(module, "io.pollInput") {
         push_string_value(&mut values, ERR_INPUT_MESSAGE.to_string());
+    }
+    // plan-62-E: in an app build that uses `app::` (so a non-`Console` presentation
+    // mode is reachable), every `term::` and console-read `io::` helper carries an
+    // `ErrWrongMode` gate. Registering the message emits its
+    // `_mfb_str_error_wrong_mode` data object so the gate's relocation resolves
+    // (the bug-256 class). Over-approximated to any `app::`-using app build; an
+    // unreferenced pooled string is harmless dead data.
+    if module.build_mode.is_app()
+        && module_uses_any_call(module, &["app.getMode", "app.setMode"])
+    {
+        push_string_value(&mut values, ERR_WRONG_MODE_MESSAGE.to_string());
     }
     if module_uses_any_call(
         module,
