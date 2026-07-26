@@ -92,6 +92,34 @@ $ md5 of the 15 `fn exact` bodies in src/builtins/  ->  one hash, 15 files
 
 ## Group A — `src/builtins/`: the argument-type chain and its copy-paste
 
+> **A1 done (2026-07-25) — the six-package omission closed, and it WAS masking a
+> real resolution difference (the doc's Open Decision, answered by the gate).**
+> The four omitted packages with a concrete signature now feed
+> `builtin_argument_types` from a machine-readable table, read directly with **no
+> string parse**: `term` via its existing `param_types`, and `datetime`/`encoding`/
+> `money` via a new `argument_types(name) -> Option<&[&str]>` (the term shape).
+> `collections` and `vector` stay absent on purpose — every one of their members is
+> generic or overloaded (a flat positional list would be wrong; prose like `"two
+> vectors of the same type"` would parse to garbage), so the monomorphizer types
+> them instead. Adding them the naive way (their `expected_arguments` string) is
+> exactly the forbidden "tempting wrong fix" and was NOT done.
+>
+> **Gate result (the Open Decision, empirically):** the omission masked imprecise
+> argument types. Full `scripts/test-accept.sh` (1083 tests): **12 artifact-golden
+> diffs, ZERO runtime/`.run` diffs** — every diff is `Integer`→`Byte` (24×, the
+> `term::setForeground`/`setBackground` colour literals) or `List OF Unknown`→
+> `List OF Integer` (6×, `encoding::utf32Decode`'s list argument), i.e. the args
+> now carry the type they always had. Runtime output byte-identical suite-wide;
+> `scripts/artifact-gate.sh` clean cross-target apart from the pre-existing
+> union-drop `*_codegen_cover_rt.ncode` flake. The 12 goldens were regenerated (a
+> proven-correct precision improvement, per the doc's "inspect and explain per
+> fixture"). New unit tests pin each machine table. NOTE: the *full* deletion of
+> the diagnostic-string parse for the other 16 packages is NOT done here — that
+> needs a machine table for every one of them (a larger, separate change); A7's
+> "derive `expected_arguments` from `param_types`" is moreover infeasible for the
+> overload-bearing modules without changing diagnostic text (a hard non-goal),
+> since a flat slice cannot reproduce a `"String, String[, Integer]"` form.
+
 ### A1 — `expected_arguments` is a human diagnostic string that IR lowering parses as a positional signature
 
 *The most consequential item in this document.*

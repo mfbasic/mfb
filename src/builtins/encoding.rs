@@ -146,6 +146,27 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     }
 }
 
+/// The machine-readable positional argument-type signature (bug-340 A1). Every
+/// `encoding::` member is unary, so each entry is a one-element slice — except
+/// `utf8Decode`, which is overloaded on `List OF Byte | List OF Integer` and so
+/// has no single positional signature (`None`, as before). IR lowering reads this
+/// directly instead of parsing the `expected_arguments` diagnostic string.
+pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
+    match name {
+        UTF8_ENCODE | UTF8_ENCODE_BYTES | UTF8_ENCODE_INTS | UTF16_ENCODE | UTF32_ENCODE
+        | PERCENT_ENCODE | PERCENT_DECODE | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE
+        | FORM_URL_DECODE | PUNYCODE_ENCODE | PUNYCODE_DECODE | HEX_DECODE | BASE32_DECODE
+        | BASE64_DECODE | BASE64URL_DECODE => Some(&["String"]),
+        UTF8_DECODE => None,
+        UTF8_DECODE_BYTES => Some(&[BYTES]),
+        UTF8_DECODE_INTS | UTF16_DECODE | UTF32_DECODE => Some(&[INTS]),
+        HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE | ULEB128_DECODE
+        | SLEB128_DECODE | VARINT_DECODE => Some(&[BYTES]),
+        ULEB128_ENCODE | SLEB128_ENCODE | VARINT_ENCODE => Some(&["Integer"]),
+        _ => None,
+    }
+}
+
 pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
     if arg_types.len() != 1 {
         return None;
@@ -392,6 +413,20 @@ mod tests {
         assert_eq!(expected_arguments(ULEB128_DECODE), Some(BYTES));
         assert_eq!(expected_arguments(ULEB128_ENCODE), Some("Integer"));
         assert!(expected_arguments("encoding.nope").is_none());
+    }
+
+    #[test]
+    fn argument_types_machine_table() {
+        // bug-340 A1: the machine-readable positional signature IR lowering reads.
+        // Every member is unary, so each is a one-element slice — except the
+        // overloaded `utf8Decode`, which has no single signature.
+        assert_eq!(argument_types(UTF8_ENCODE), Some(&["String"][..]));
+        assert_eq!(argument_types(UTF8_DECODE), None);
+        assert_eq!(argument_types(UTF8_DECODE_BYTES), Some(&[BYTES][..]));
+        assert_eq!(argument_types(UTF32_DECODE), Some(&[INTS][..]));
+        assert_eq!(argument_types(HEX_ENCODE), Some(&[BYTES][..]));
+        assert_eq!(argument_types(ULEB128_ENCODE), Some(&["Integer"][..]));
+        assert!(argument_types("encoding.nope").is_none());
     }
 
     #[test]

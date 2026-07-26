@@ -1860,7 +1860,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 614, "value": { "kind": "call", "type": "String", "target": "#encoding_utf32Decode", "args": [{ "kind": "list", "type": "List OF Unknown", "values": [{ "kind": "local", "name": "value" }] }] } }
+    { "op": "return", "line": 614, "value": { "kind": "call", "type": "String", "target": "#encoding_utf32Decode", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "local", "name": "value" }] }] } }
     ]
   },
   {

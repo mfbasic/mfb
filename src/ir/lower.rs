@@ -2016,6 +2016,22 @@ fn call_argument_expected_type(
 }
 
 fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
+    // bug-340 A1: packages carrying a machine-readable positional-signature table
+    // are read directly — the diagnostic-string parse below is not consulted for
+    // them. `term` (`param_types`) plus `datetime`/`encoding`/`money`
+    // (`argument_types`) were previously OMITTED from this dispatch entirely, so
+    // their calls silently received no argument types at all. `collections` and
+    // `vector` remain absent on purpose: every one of their members is generic or
+    // overloaded and has no single positional signature (a flat list would be
+    // wrong), so the monomorphizer types them instead.
+    let machine_table = builtins::term::param_types(callee)
+        .or_else(|| builtins::datetime::argument_types(callee))
+        .or_else(|| builtins::encoding::argument_types(callee))
+        .or_else(|| builtins::money::argument_types(callee));
+    if let Some(types) = machine_table {
+        return Some(types.iter().map(|type_| (*type_).to_string()).collect());
+    }
+
     let expected = builtins::general::expected_arguments(callee)
         .or_else(|| builtins::strings::expected_arguments(callee))
         .or_else(|| builtins::math::expected_arguments(callee))

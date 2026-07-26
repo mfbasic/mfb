@@ -71,6 +71,20 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     Some(text)
 }
 
+/// The machine-readable positional argument-type signature (bug-340 A1): the
+/// concrete per-parameter types IR lowering hands to `call_argument_expected_type`.
+/// `getRounding` takes no arguments (nothing to type), so it — like an overloaded
+/// or generic call — returns `None`. This is the same shape `term::param_types`
+/// uses and the reason `money` no longer has to be recovered by parsing the
+/// `expected_arguments` diagnostic string.
+pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
+    match name {
+        SET_ROUNDING => Some(&["Rounding"]),
+        ROUND => Some(&["Money", "Integer"]),
+        _ => None,
+    }
+}
+
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     let span = match name {
         SET_ROUNDING => (1, 1),
@@ -135,5 +149,15 @@ mod tests {
         assert!(!is_builtin_type("Money"));
         assert!(is_money_call(ROUND));
         assert!(!is_money_call("money.nope"));
+    }
+
+    #[test]
+    fn argument_types_machine_table() {
+        // bug-340 A1: the machine-readable positional signature IR lowering reads.
+        assert_eq!(argument_types(ROUND), Some(&["Money", "Integer"][..]));
+        assert_eq!(argument_types(SET_ROUNDING), Some(&["Rounding"][..]));
+        // getRounding takes no arguments -> nothing to type.
+        assert_eq!(argument_types(GET_ROUNDING), None);
+        assert_eq!(argument_types("money.nope"), None);
     }
 }
