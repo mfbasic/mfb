@@ -384,7 +384,7 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
     (key & mask) for keyToIdx, top-level bucket lists grown via `lower_list_append_in_place`,
     materialized once via `lower_map_set_in_place` in a loop. checksum 160042000 proven unchanged;
     cargo test green; artifact-gate clean; 2 groupBy acceptance fixtures pass; edge cases (empty,
-    100-elem bucket grow, negative keys, String-value fallback) verified. Commit: `<pending>`.
+    100-elem bucket grow, negative keys, String-value fallback) verified. Commit: `34024b800`.
     (Original design retained below.)
   - **[~] D1 — implementation-ready (pieces confirmed this session; ~250 LOC, biggest
     remaining native win).** Gate the monomorphized `#collections_groupBy$T$K$V` to T/K/V
