@@ -281,6 +281,32 @@ pub(crate) const VEC_SCRATCH: [&str; 8] = [
 /// vreg path instead.
 pub(crate) const MATH_POOL: &str = "%mathpool";
 
+/// Callee-saved *persistent-local* register tokens (bug-387). The hand-written
+/// per-(OS,ISA) platform emitters — the GUI/app backends and the TLS block
+/// trampolines — run below the register allocator (like [`SCRATCH`]) and
+/// hand-assign the AArch64 callee-saved bank `x19`–`x28` as general persistent
+/// locals with hand-tracked liveness: a value parked across an `_objc_msgSend` /
+/// libc / GTK call. That bank is *not* the caller-saved [`SCRATCH`] pool, and its
+/// registers were spelled raw (`"x19"`…`"x28"`) — the last AArch64 spellings the
+/// neutral stream carried, and the load-bearing reason the x86 CFG remap could
+/// not be deleted. These tokens give that hand-assigned callee-saved scratch an
+/// architecture-neutral spelling: [`realize_abi_token`] maps `LOCAL[i]` to
+/// `x{19+i}`, exactly the register the emitters have always used (byte-identical),
+/// and each backend then remaps that to its own callee-saved file (x86-64 via
+/// `map_scratch_register`, riscv64 via `map_scratch_register`). Index order is the
+/// AArch64 callee-saved bank: `x19`–`x28`.
+///
+/// `LOCAL[0]` (`x19`) overlaps the pinned [`ARENA`] register and `LOCAL[1]`/
+/// `LOCAL[9]` (`x20`/`x28`) overlap [`CURRENT_THREAD`]/[`CLOSURE_ENV`]; this is
+/// sound because a GUI callback or TLS trampoline that parks a value there is not
+/// simultaneously holding the arena base, current-thread, or closure-environment
+/// pointer live in that register — exactly the same discipline that lets the
+/// entry stub reuse `x20`/`x28` as high [`SCRATCH`] indices.
+pub(crate) const LOCAL: [&str; 10] = [
+    "%local0", "%local1", "%local2", "%local3", "%local4", "%local5", "%local6", "%local7",
+    "%local8", "%local9",
+];
+
 /// The Nth C-call floating-point argument register — the AAPCS64 `d0`–`d7` bank,
 /// which [`FP_SCRATCH`] realizes to (the aliasing is deliberate; see its doc).
 /// Errors past the register bank, mirroring [`argument_register`].
@@ -354,6 +380,18 @@ pub(crate) fn realize_abi_token(value: &str) -> Option<&'static str> {
         "%vscratch7" => "v7",
         // The SIMD math-kernel constant-pool base (plan-34-D).
         "%mathpool" => "x2",
+        // Callee-saved persistent-local pool (`LOCAL`), the AArch64 callee-saved
+        // bank the platform emitters hand-assign (bug-387).
+        "%local0" => "x19",
+        "%local1" => "x20",
+        "%local2" => "x21",
+        "%local3" => "x22",
+        "%local4" => "x23",
+        "%local5" => "x24",
+        "%local6" => "x25",
+        "%local7" => "x26",
+        "%local8" => "x27",
+        "%local9" => "x28",
         _ => return None,
     })
 }

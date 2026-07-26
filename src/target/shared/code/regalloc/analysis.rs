@@ -192,6 +192,14 @@ fn aarch64_scratch_occupancy_index(name: &str) -> Option<u32> {
             };
         }
     }
+    // Callee-saved persistent-local pool (bug-387): `%local0`–`%local9` realize
+    // `x19`–`x28`, so their occupancy is modeled at indices 19–28 exactly like the
+    // high `%scratch` bank they neighbor.
+    if let Some(rest) = name.strip_prefix("%local") {
+        if let Ok(n) = rest.parse::<u32>() {
+            return (n <= 9).then_some(19 + n);
+        }
+    }
     match name {
         "%sysnr" => Some(8),
         "%sysnr_darwin" => Some(16),
