@@ -31,6 +31,7 @@ use crate::target::shared::plan::NativePlan;
 
 const KERNEL32: &str = "kernel32.dll";
 const ADVAPI32: &str = "advapi32.dll";
+const SHELL32: &str = "shell32.dll";
 const WS2_32: &str = "ws2_32.dll";
 // ioctlsocket command to toggle blocking mode: FIONBIO = 0x8004667E.
 const FIONBIO: &str = "2147767422";
@@ -434,6 +435,108 @@ impl code::CodegenPlatform for Platform {
         // The PE loader `call`s the image entry, so it arrives at `sp % 16 == 8`;
         // the shared preamble realigns with one `sub rsp, 8`.
         true
+    }
+
+    fn defers_arg_capture(&self) -> bool {
+        // A raw PE entry receives no argc/argv; os::args is built from
+        // GetCommandLineW after the arena is mapped (emit_build_argv_utf8). plan-66-B.
+        true
+    }
+
+    fn emit_build_argv_utf8(
+        &self,
+        entry_symbol: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // Build a POSIX UTF-8 argv from GetCommandLineW → CommandLineToArgvW, then
+        // marshal each UTF-16 arg into the arena, leaving `argc` in ARG[0] and the
+        // `char**` in ARG[1]. Frame (subtract_stack(0x70)): shadow [0x00..0x20),
+        // marshal stack args [0x20..0x40), [0x40] argc (int, out), [0x48] wide argv
+        // (LocalAlloc'd by CommandLineToArgvW), [0x50] UTF-8 argv array, [0x58] loop
+        // index, [0x60] current wide arg ptr, [0x68] current UTF-8 buffer. plan-66-B.
+        const ARGC: usize = 0x40;
+        const WARGV: usize = 0x48;
+        const U8ARGV: usize = 0x50;
+        const IDX: usize = 0x58;
+        const WARG: usize = 0x60;
+        const U8ARG: usize = 0x68;
+        const ARG_CAP: &str = "131072";
+        let from = entry_symbol;
+        let n = instructions.len();
+        let l = |s: &str| format!("{from}_argv_{s}_{n}");
+        let (loop_top, loop_done) = (l("lt"), l("ld"));
+        instructions.push(abi::subtract_stack(0x70));
+        call_external(from, "GetCommandLineW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // lpCmdLine
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ARGC), // &argc
+        ]);
+        call_external(from, "CommandLineToArgvW", SHELL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), WARGV),
+            // arena-alloc the UTF-8 argv array: (argc+1) * 8 bytes.
+            abi::load_u32(abi::return_register(), abi::stack_pointer(), ARGC),
+            abi::add_immediate(abi::return_register(), abi::return_register(), 1),
+            abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::store_u64(abi::RET[1], abi::stack_pointer(), U8ARGV),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), IDX),
+            // for (idx = 0; idx < argc; idx++) argv8[idx] = utf8(wargv[idx]).
+            abi::label(&loop_top),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), IDX),
+            abi::load_u32(abi::ARG[1], abi::stack_pointer(), ARGC),
+            abi::compare_registers(abi::ARG[0], abi::ARG[1]),
+            abi::branch_ge(&loop_done),
+            // wargv[idx] → WARG slot for the marshal helper.
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), WARGV),
+            abi::shift_left_immediate(abi::ARG[3], abi::ARG[0], 3),
+            abi::add_registers(abi::ARG[2], abi::ARG[2], abi::ARG[3]),
+            abi::load_u64(abi::ARG[2], abi::ARG[2], 0),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), WARG),
+        ]);
+        arena_alloc_to_slot(from, ARG_CAP, U8ARG, instructions, relocations);
+        emit_wide_slot_to_utf8(from, WARG, U8ARG, ARG_CAP, instructions, relocations);
+        instructions.extend([
+            // argv8[idx] = u8arg.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), U8ARGV),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::ARG[2], abi::ARG[1], 3),
+            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), U8ARG),
+            abi::store_u64(abi::ARG[2], abi::ARG[0], 0),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::branch(&loop_top),
+            abi::label(&loop_done),
+            // argv8[argc] = NULL.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), U8ARGV),
+            abi::load_u32(abi::ARG[1], abi::stack_pointer(), ARGC),
+            abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3),
+            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+            abi::store_u64(abi::ZERO, abi::ARG[0], 0),
+            // LocalFree(wargv) — CommandLineToArgvW returns a single LocalAlloc block.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WARGV),
+        ]);
+        call_external(from, "LocalFree", KERNEL32, instructions, relocations);
+        instructions.extend([
+            // Leave argc in ARG[0], argv in ARG[1] for the shared entry stores.
+            abi::load_u32(abi::ARG[0], abi::stack_pointer(), ARGC),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), U8ARGV),
+            abi::add_stack(0x70),
+        ]);
+        Ok(())
     }
 
     // --- the machine floor -------------------------------------------------

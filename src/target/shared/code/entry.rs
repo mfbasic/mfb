@@ -57,7 +57,10 @@ pub(crate) fn lower_program_entry(
     // `SCRATCH[0]`/`SCRATCH[1]` only, so `ARG[0]`/`ARG[1]` stay live for the
     // arg-materialization path below. Gated on os.args
     // usage, so a program that never calls it keeps a byte-identical entry.
-    if capture_args {
+    // Windows defers capture until after the arena is mapped (its argv is built +
+    // marshaled into the arena from GetCommandLineW, not delivered at entry) —
+    // plan-66-B. Every other platform captures the OS-supplied argc/argv here.
+    if capture_args && !platform.defers_arg_capture() {
         if args_in_registers {
             push_symbol_address(
                 entry_symbol,
@@ -185,6 +188,36 @@ pub(crate) fn lower_program_entry(
         &mut relocations,
     );
     instructions.push(abi::store_u64(ARENA_STATE_REGISTER, abi::SCRATCH[0], 0));
+    // Deferred (Windows) `os::args` capture: now that the arena is mapped and
+    // `ARENA_STATE_REGISTER` is pinned, build the UTF-8 argv and store it into the
+    // os::args globals (plan-66-B). `emit_build_argv_utf8` leaves argc in `ARG[0]`
+    // and argv in `ARG[1]`; the stores mirror the pre-arena path exactly, so a
+    // program that never calls `os::args` (capture_args=false) keeps a
+    // byte-identical entry.
+    if capture_args && platform.defers_arg_capture() {
+        platform.emit_build_argv_utf8(
+            entry_symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        push_symbol_address(
+            entry_symbol,
+            super::os::OS_ARGC_GLOBAL_SYMBOL,
+            abi::SCRATCH[0],
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::store_u64(abi::ARG[0], abi::SCRATCH[0], 0));
+        push_symbol_address(
+            entry_symbol,
+            super::os::OS_ARGV_GLOBAL_SYMBOL,
+            abi::SCRATCH[0],
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::store_u64(abi::ARG[1], abi::SCRATCH[0], 0));
+    }
     // Install SIGINT/SIGTERM handlers (console programs). `signal()` clobbers
     // `x0`/`x1`, so argc/argv are parked below the frame across the calls; `x19`
     // pins the entry frame, so temporarily lowering `sp` is safe.

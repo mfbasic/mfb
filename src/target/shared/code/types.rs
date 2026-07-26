@@ -281,6 +281,32 @@ pub(crate) trait CodegenPlatform {
     fn entry_args_in_registers(&self) -> bool {
         true
     }
+    /// Whether `os::args` capture must be deferred until after the arena is mapped
+    /// (plan-66-B). A raw Windows PE entry receives no argc/argv, so the shared
+    /// pre-arena `capture_args` store (which parks the incoming registers) would
+    /// save garbage; instead the Windows backend builds a UTF-8 `argv` from
+    /// GetCommandLineW/CommandLineToArgvW — which needs `arena_alloc`, hence *after*
+    /// the arena setup — via `emit_build_argv_utf8`. Every other platform captures
+    /// pre-arena and returns false here (byte-identical entry).
+    fn defers_arg_capture(&self) -> bool {
+        false
+    }
+    /// Windows-only (plan-66-B): build a POSIX-shaped UTF-8 `argv` (a
+    /// NUL-terminated `char**` of UTF-8 C-strings, `argv[0]` = program) from
+    /// GetCommandLineW → CommandLineToArgvW, marshaling each arg UTF-16→UTF-8 into
+    /// the arena. Leaves `argc` in `ARG[0]` and the `argv` pointer in `ARG[1]` for
+    /// the shared entry to store into the `os::args` globals. Runs after the arena
+    /// is mapped; `ARENA_STATE_REGISTER` is pinned so it may clobber all caller-saved
+    /// registers.
+    fn emit_build_argv_utf8(
+        &self,
+        _entry_symbol: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("os::args UTF-8 argv build is only implemented on windows-x86_64".to_string())
+    }
     /// Whether the raw program entry arrives 8-bytes-misaligned relative to the
     /// 16-byte ABI stack and needs one `sub sp, 8` before the shared preamble.
     ///

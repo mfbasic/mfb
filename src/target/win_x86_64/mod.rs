@@ -99,6 +99,9 @@ const RUNTIME_CALLS: &[&str] = &[
     "os.executablePath",
     // os::environ (plan-66-B): a POSIX char** synthesized from GetEnvironmentStringsW.
     "os.environ",
+    // os::args (plan-66-B): UTF-8 argv built in the entry from GetCommandLineW /
+    // CommandLineToArgvW after the arena is mapped (defers_arg_capture).
+    "os.args",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",

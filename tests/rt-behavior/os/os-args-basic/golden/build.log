@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/rt-behavior/os/os-args-basic
+Wrote AST to tests/rt-behavior/os/os-args-basic/os_args_basic.ast
+Wrote IR to tests/rt-behavior/os/os-args-basic/os_args_basic.ir
+[exit 0]
+$ mfb build tests/rt-behavior/os/os-args-basic
+Wrote executable to tests/rt-behavior/os/os-args-basic/build/os_args_basic.out
+[exit 0]
+$ tests/rt-behavior/os/os-args-basic/build/os_args_basic.out
+argc=0
+[exit 0]

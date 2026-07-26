@@ -13,6 +13,7 @@ use crate::target::shared::plan::{self, NativePlan, NativePlanPlatform, Platform
 use crate::target::shared::runtime::RuntimeHelperSpec;
 
 const KERNEL32: &str = "kernel32.dll";
+const SHELL32: &str = "shell32.dll";
 const WS2_32: &str = "ws2_32.dll";
 const BCRYPT: &str = "bcrypt.dll";
 const SECUR32: &str = "secur32.dll";
@@ -257,6 +258,16 @@ impl NativePlanPlatform for Platform {
                 import("ReleaseSRWLockExclusive", KERNEL32, required_by),
                 import("GetEnvironmentStringsW", KERNEL32, required_by),
                 import("FreeEnvironmentStringsW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            // args: the program entry builds a UTF-8 argv from GetCommandLineW →
+            // CommandLineToArgvW (shell32) after the arena is mapped, marshaling each
+            // arg and LocalFree-ing the wide array. capture_args == uses(os.args), so
+            // these imports ride the os.args call. plan-66-B.
+            "os.args" => vec![
+                import("GetCommandLineW", KERNEL32, required_by),
+                import("CommandLineToArgvW", SHELL32, required_by),
+                import("LocalFree", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
             ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
