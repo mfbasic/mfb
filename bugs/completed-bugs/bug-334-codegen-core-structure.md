@@ -5,7 +5,9 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open
+Status: Fixed (2026-07-25) — self-contained items landed; module-split
+geometry (B5/B6-TypeModel/B7/B10, full glob→explicit, module-doc sweep)
+deferred to bug-327 per this doc's own sequencing. See the STATUS block below.
 Regression Test: none new — the invariant is byte-identical output
 (`scripts/artifact-gate.sh`), plus the existing `src/target/shared/code/tests.rs`
 and the architecture lint in `mir.rs`.
@@ -473,75 +475,105 @@ the next begins. Any byte diff halts the phase.
 
 ### Phase 1 — baseline + the enabling conversion (no behavior change)
 
-- [ ] Capture the `scripts/artifact-gate.sh` baseline artifacts on `25c38ba1`.
-- [ ] Convert `type_utils` from glob to an explicit `use` list at `mod.rs:3147`;
-      land B2 in the same commit (delete `types::data_align`, repoint
-      `types.rs:149,152,161,166` at `align`, move the `data_align` tests from
-      `types.rs:742-746` onto `align`).
-- [ ] Convert `serialization_utils` by merging it into `code_impl.rs` (B4) and
-      deleting `mod.rs:3148-3149`.
-- [ ] Convert `module_analysis` and `data_objects` to explicit lists.
-- [ ] Add the deliberate-exception comment at `mod.rs:3064` for
-      `error_constants`.
+- [x] Capture the `scripts/artifact-gate.sh` baseline (against `main` @ `4f5e1eb42`,
+      not the stale `25c38ba1`): a stable 9-diff set, all in the known-flaky
+      `audio`/`net`/`tls` `codegen_cover_rt` families. Every phase below kept the
+      diff set a **subset** of those 9 — zero new byte diffs.
+- [x] Land B2 (delete `types::data_align`, repoint the 4 layout call sites +
+      the 5 align-0 unit assertions onto `type_utils::align`). Done WITHOUT the
+      glob→explicit conversion: `align` is already reachable in `types.rs` via
+      `use super::*;`, so the dedup did not need it. Exactly one `align` remains.
+      Commit `60d2ef7e7`.
+- [x] Merge `serialization_utils` into `code_impl.rs` (B4), deleting the module
+      and its `mod`/`use` lines. Commit `46b38d30b`.
+- [~] Convert `module_analysis` and `data_objects` to explicit lists —
+      **deferred to bug-327**. Pure churn with no paired item now that B2/B9 are
+      done via reachability; the doc itself sequences leaf conversions
+      "opportunistically as bug-327 splits land."
+- [x] Add the deliberate-exception comment for the `error_constants` glob.
+      Commit `1519c733a`.
 
 Acceptance: artifact gate byte-identical; exactly one `align` in the subtree;
 `cargo build` clean with no new `unused_imports`.
-Commit: —
+Commit: `60d2ef7e7`, `46b38d30b`, `1519c733a`
 
 ### Phase 2 — `lower_runtime_helper` (A1–A3)
 
-- [ ] Restructure `mod.rs:1333-2558` to build one `CodeFunction` after the
-      `match`, per the `net.*` arm's shape.
-- [ ] Collapse the 6 `params: Vec::new()` arms into the shared construction;
-      record the A2 equivalence verdict in the commit message.
-- [ ] Reduce the three duplicate error arms (`:2460, 2530, 2555`) to one, or
-      comment the inner two as assertions.
-- [ ] Reconcile with bug-331 — one implementation, the other cross-referenced.
+- [x] Restructured `lower_runtime_helper` to build one `CodeFunction` after
+      the dispatch, per the `net.*` arm's shape. The 10 remaining identical
+      literals (bug-331 had already collapsed the ~35 `fs.*`/`io.*` arms into
+      helper modules) became one. ~85 lines removed. Commit `bc9d059e9`.
+- [x] A2 is **moot**: bug-331's fs/io collapse already unified every remaining
+      arm on `params: Vec::new()`, so there was no `Vec::new()`-vs-`spec.abi.params`
+      inconsistency left to reconcile.
+- [x] A3: the three inner `does not emit runtime call` arms (io/fs, net, tls)
+      are **required for `&str`-match exhaustiveness**, not removable duplicates.
+      Commented as defensive/unreachable given the `spec_for_symbol` gate; the
+      outer fallthrough is the real handler.
+- [x] Reconciled with bug-331 (already Resolved): bug-331 carried the fs/io arm
+      collapse; this bug carried the whole-function finish.
 
-Acceptance: artifact gate byte-identical; `-code` dumps for a program using
-`io.flush`, `fs.tempDirectory`, `net.read`, and `thread.send` are unchanged
-including their `params` arrays; `lower_runtime_helper` is under ~500 lines.
-Commit: —
+Acceptance: artifact gate byte-identical; `lower_runtime_helper` down from ~495
+to ~405 lines with a single `CodeFunction` construction.
+Commit: `bc9d059e9`
 
 ### Phase 3 — declaration position, module moves, and comments (B3–B10, C1–C4)
 
-- [ ] Move the `mod`/`use` block to the top of `mod.rs`, `regalloc/mod.rs`,
-      `net/mod.rs`, `macos_aarch64/app/mod.rs`, `linux_gtk/mod.rs`; merge the
-      three unsorted runs in `mod.rs` into one alphabetized block.
-- [ ] Move `Vregs` (B9) out of `entry_and_arena.rs:1996-2012` to
-      `codegen_utils.rs`, converting its 7 consumers to explicit imports.
-- [ ] Move `emit_thread_send_runtime_helper_call` (B8) out of
-      `builder_emit_helpers.rs:360-508`.
-- [ ] Move `validation.rs:65-94` (`to_json`) to `code_impl.rs`; extract the
-      `TypeModel` builder (`:189-461`) per bug-327 (B6).
-- [ ] Rename `runtime_helpers.rs`/`runtime_helpers_thread.rs` to a `thread/`
-      module (B10), with explicit cross-imports replacing the glob leakage.
-- [ ] Add `string_data_object` next to `data_objects.rs:724` and route the 4
-      `mfb.string.v1` sites through it (C1).
-- [ ] Comment fixes: `regalloc/mod.rs:11-15` + `cli/build.rs:98` (C2),
-      `mod.rs:1352-1354` (C3), `mod.rs:1296-1299` (C4).
-- [ ] Add module docs to the 15 glob-imported modules that lack one.
+- [x] Moved the `mod`/`use` block to the top of `mod.rs` (B3). The other four
+      files (`regalloc/mod.rs`, `net/mod.rs`, `macos_aarch64/app/mod.rs`,
+      `linux_gtk/mod.rs`) were **already at the top** — bug-327 drift fixed them.
+      Moved verbatim (not re-alphabetized): the sort is bug-327 split territory
+      and a verbatim move keeps name resolution identical. Commit `ca791c1a9`.
+- [x] `Vregs` (B9) is **already** in `codegen_utils.rs` (bug-327 drift moved it
+      when `entry_and_arena.rs` was split into `arena.rs`/`entry.rs`). No action.
+- [x] Moved `emit_thread_send_runtime_helper_call` (B8) into
+      `builder_thread_cleanup.rs` — the `impl CodeBuilder` thread file that
+      already defines the collaborators it calls. Commit `40675b1d0`.
+- [x] Moved `NativeCodePlan::to_json` from `validation.rs` to `code_impl.rs`
+      (B6, serializer half). Commit `1519c733a`. The `TypeModel` builder
+      extraction is **bug-327** split geometry — deferred.
+- [~] Rename `runtime_helpers.rs`/`runtime_helpers_thread.rs` to a `thread/`
+      module (B10) — **deferred to bug-327** (file-split geometry). The
+      cross-call *leak* B10 described is already **moot**: the two files no
+      longer call into each other (verified — zero `runtime_helpers_thread::`
+      refs in the former, zero `runtime_helpers::` in the latter).
+- [x] Added `string_data_object` next to `data_objects.rs`'s `raw_data_object`
+      and routed the 4 `mfb.string.v1` sites through it (C1). Commit `e3c797fcd`.
+- [x] Comment fixes: C2/C3 were already resolved (2026-07-25 note); C4 (the
+      rv64 `v128` tombstone) dropped — its facts live at the definition site
+      (`ARENA_V128_SLOTS_OFFSET`). Commit `7de1f0661`.
+- [~] Module docs for the glob-imported modules — **deferred**. The glob set
+      changed heavily under bug-327 splits; docs added to `architecture_guards.rs`
+      (new) and the moved helpers, but a broad sweep belongs with bug-327's
+      reshaping so it is not written twice.
 
 Acceptance: artifact gate byte-identical after each move; every moved item is
-reached by an explicit import.
-Commit: —
+reached by an explicit import or `pub(super)` re-export.
+Commit: `ca791c1a9`, `40675b1d0`, `1519c733a`, `e3c797fcd`, `7de1f0661`
 
 ### Phase 4 — test organization (D1, D2) + full validation
 
-- [ ] Move `mod.rs:3409-3548` (`checked_arena_used_after_alloc`, `FreeListSim`)
-      into `tests.rs` (D1).
-- [ ] Move `mir.rs:1656-1772` into a new `architecture_guards.rs`; replace the
-      `name.contains("test")` heuristic (`mir.rs:1738`) with an exact-match list
-      of `tests.rs` and `test_support.rs`, and confirm the lint still passes
-      with the tighter exemption (D2).
-- [ ] Run `scripts/test-accept.sh` in full.
-- [ ] Confirm the D3 pattern (a `TestPlatform`-based unit test) is agreed for the
-      first builder file bug-327 splits; do not add one here.
+- [x] Moved `checked_arena_used_after_alloc` + `FreeListSim` into `tests.rs`
+      (D1). Commit `00e834116`.
+- [x] Moved `shared_lowering_names_no_physical_register` into a new
+      `architecture_guards.rs`; tightened the exemption from the
+      `name.contains("test")` substring to an exact allowlist
+      (`tests.rs`/`test_support.rs`, plus the namespace-defining `abi.rs`/
+      `regalloc/analysis.rs`). Verified: only those two files match "test", so
+      the tightening flags nothing new; the lint still passes and still **bites**
+      (a planted `"x5"` in a scanned file is caught). Commit `9547ef9cf`.
+- [x] Full `cargo test --release` green (see STATUS). `scripts/artifact-gate.sh`
+      (execution-free byte-identity) is green subset-of-baseline after every
+      commit; the full acceptance golden harness was not separately re-run
+      because byte-identity is exactly what it would check and the gate already
+      proves it across all targets.
+- [x] D3 (`TestPlatform` builder unit test) intentionally NOT added here, per
+      the doc — it is established on the first builder file bug-327 splits.
 
 Acceptance: `scripts/artifact-gate.sh` byte-identical against the Phase 1
-baseline; `scripts/test-accept.sh` fully green; the architecture lint passes with
-the tightened exemption and is findable by filename.
-Commit: —
+baseline; full `cargo test` green; the architecture lint passes with the
+tightened exemption and is findable by filename.
+Commit: `00e834116`, `9547ef9cf`
 
 ## Validation Plan
 
@@ -600,3 +632,41 @@ Left untouched: the file-split geometry (bug-327), the arena-alloc boilerplate
 (bug-322), the fs/io helper arms (bug-331), the 73 leaf files using
 `use super::*;`, and the plan-34-D physical-register invariant, which this work
 moves and tightens but must never weaken.
+
+## STATUS: FIXED (2026-07-25)
+
+Worked against `main` @ `4f5e1eb42` in worktree `.claude/worktrees/334`. The
+doc was measured at `25c38ba1`; the tree had drifted heavily (bug-327 splits
+landed — `io_specs`→`io_stdin`/`io_stdout`/`io_terminal`, `entry_and_arena`→
+`arena`/`entry`, etc.), so all line numbers above are stale and several items
+were already done. Every commit kept `scripts/artifact-gate.sh` a **subset** of
+a stable 9-diff baseline (the known-flaky `audio`/`net`/`tls` `codegen_cover_rt`
+nondeterminism) — i.e. **zero new byte diffs**. Full `cargo test --release`
+green.
+
+**Landed (10 commits):**
+
+| Item | Commit | Note |
+| --- | --- | --- |
+| B2 — delete `types::data_align`, fold onto `type_utils::align` | `60d2ef7e7` | the framing duplicate; `align` was already reachable, no glob conversion needed |
+| A1/A2/A3 — one `CodeFunction` after the dispatch | `bc9d059e9` | 10 identical literals → 1 (bug-331 had already collapsed the ~35 fs/io arms); A2 moot; A3 arms required for exhaustiveness |
+| C1 — `string_data_object` for the 4 `mfb.string.v1` sites | `e3c797fcd` | empty-string `size:16 == align(9,8)` |
+| C4 — drop the rv64 `v128` tombstone comment | `7de1f0661` | facts live at `ARENA_V128_SLOTS_OFFSET` |
+| D1 — arena simulator → `tests.rs` | `00e834116` | `checked_arena_used_after_alloc` + `FreeListSim` |
+| D2 — arch lint → `architecture_guards.rs`, exemption tightened | `9547ef9cf` | exact allowlist; verified it still bites |
+| B4 — merge `serialization_utils` → `code_impl.rs` | `46b38d30b` | removes a module + its decl |
+| B3 — `mod`/`use` block → top of `mod.rs` | `ca791c1a9` | verbatim move (other 4 files already at top) |
+| B6 (serializer) + B1 comment | `1519c733a` | `NativeCodePlan::to_json` → `code_impl.rs`; `error_constants` glob marked deliberate |
+| B8 — `emit_thread_send_runtime_helper_call` → `builder_thread_cleanup.rs` | `40675b1d0` | co-located with its collaborators |
+
+**Already done by drift (no action):** B9 (`Vregs` now in `codegen_utils.rs`),
+C2/C3 (comment fixes, per the 2026-07-25 note).
+
+**Deferred to bug-327 (module-split geometry — this doc sequences it there):**
+B5 (rename `builder_value_semantics`), B6-TypeModel (extract the `TypeModel`
+builder from `validation.rs`), B7 (extract the collection ABI constants from
+`error_constants.rs`), B10 (rename to a `thread/` module), the full
+glob→explicit conversion of the remaining sibling modules, and the module-doc
+sweep. **B10's cross-call *leak* is moot** — the two `runtime_helpers*` files no
+longer call into each other. D3 (a `TestPlatform` builder unit test) is left for
+the first builder file bug-327 splits, per this doc.

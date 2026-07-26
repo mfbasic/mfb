@@ -350,44 +350,25 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(
+        self.emit_entry_scan_setup(
+            &scratch8,
             &scratch10,
-            &scratch8,
-            COLLECTION_OFFSET_COUNT,
-        ));
-        self.emit(abi::move_immediate(&scratch11, "Integer", "0"));
-        self.emit(abi::add_immediate(
+            &scratch11,
             &scratch12,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_registers(&scratch11, &scratch10));
-        self.emit(abi::branch_ge(&not_found));
-        self.emit(abi::load_u64(
             &scratch13,
-            &scratch12,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::load_u64(
             &scratch14,
-            &scratch12,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
+            &loop_label,
+            &not_found,
+        );
         self.emit_collection_payload_matches_value_branch(
             &key_type, "", &scratch8, &scratch13, &scratch14, &scratch9, &found, &next,
         )?;
         self.emit(abi::label(&found));
         self.emit(abi::move_immediate(&result, "Boolean", "true"));
         self.emit(abi::branch(&done));
-        self.emit(abi::label(&next));
-        self.emit(abi::add_immediate(
-            &scratch12,
-            &scratch12,
-            COLLECTION_ENTRY_SIZE,
-        ));
-        self.emit(abi::add_immediate(&scratch11, &scratch11, 1));
-        self.emit(abi::branch(&loop_label));
+        self.emit_entry_scan_advance(&scratch12, &scratch11, &next, &loop_label);
         self.emit(abi::label(&not_found));
         self.emit(abi::move_immediate(&result, "Boolean", "false"));
         self.emit(abi::label(&done));

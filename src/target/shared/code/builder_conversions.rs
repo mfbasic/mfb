@@ -129,26 +129,19 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
 
         self.emit(abi::move_register(bits, source_register));
-        self.emit(abi::shift_right_immediate(exponent, bits, 52));
-        self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(exponent, exponent, mask));
-        self.emit(abi::compare_immediate(exponent, "2047"));
-        self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::compare_immediate(exponent, "1086"));
-        self.emit(abi::branch_lt(&ok));
-        self.emit(abi::branch_eq(&check_edge));
-        self.emit(abi::branch(&overflow));
-
-        self.emit(abi::label(&check_edge));
-        self.emit(abi::shift_right_immediate(sign, bits, 63));
-        self.emit(abi::compare_immediate(sign, "1"));
-        self.emit(abi::branch_eq(&edge_sign_ok));
-        self.emit(abi::branch(&overflow));
-        self.emit(abi::label(&edge_sign_ok));
-        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
-        self.emit(abi::and_registers(mantissa, bits, mask));
-        self.emit(abi::compare_immediate(mantissa, "0"));
-        self.emit(abi::branch_ne(&overflow));
+        self.emit_float_exponent_range_guard(
+            bits,
+            exponent,
+            mask,
+            sign,
+            mantissa,
+            Some("1086"),
+            &ok,
+            &check_edge,
+            &edge_sign_ok,
+            &invalid,
+            &overflow,
+        );
 
         self.emit(abi::label(&ok));
         self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], bits));
@@ -166,6 +159,109 @@ impl CodeBuilder<'_> {
             location: result,
             text: "toInt(Float)".to_string(),
         })
+    }
+
+    /// Sign/length prologue shared by the base-10 and radix string→Integer parses:
+    /// load the length, reject empty, point `cursor` at the first byte, zero
+    /// `index`/`acc`/`negative`, consume an optional leading `+`/`-`, and reject a
+    /// sign with no digits. The caller mints every register (and moves `source`
+    /// into `string`, which sits at a different point in the two parsers) and every
+    /// label, so this emits only the shared op run and stays byte-identical.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_string_to_int_sign_prologue(
+        &mut self,
+        string: &str,
+        length: &str,
+        index: &str,
+        cursor: &str,
+        byte: &str,
+        acc: &str,
+        negative: &str,
+        invalid: &str,
+        first_not_minus: &str,
+        sign_done: &str,
+    ) {
+        self.emit(abi::load_u64(length, string, 0));
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(invalid));
+        self.emit(abi::add_immediate(cursor, string, 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::move_immediate(acc, "Integer", "0"));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "45"));
+        self.emit(abi::branch_ne(first_not_minus));
+        self.emit(abi::move_immediate(negative, "Integer", "1"));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(sign_done));
+        self.emit(abi::label(first_not_minus));
+        self.emit(abi::compare_immediate(byte, "43"));
+        self.emit(abi::branch_ne(sign_done));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::label(sign_done));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(invalid));
+    }
+
+    /// The UNSIGNED cutoff/cutlim overflow guard shared by both integer parses,
+    /// emitted once so its hazard note lives in a single place. `cutoff`/`cutlim`
+    /// bound the unsigned magnitude, so the compares are unsigned (`branch_hi`):
+    /// parsing i64::MIN's magnitude drives `acc` to exactly 2^63 — negative as a
+    /// signed i64 — which a signed compare would wrongly admit, wrapping silently
+    /// (bug-49 / bug-144). Equality is sign-agnostic; positive inputs stay below
+    /// 2^63 where unsigned and signed order agree.
+    pub(super) fn emit_int_parse_cutoff_guard(
+        &mut self,
+        acc: &str,
+        cutoff: &str,
+        digit: &str,
+        cutlim: &str,
+        overflow: &str,
+        cutoff_equal: &str,
+        digit_ok: &str,
+    ) {
+        self.emit(abi::compare_registers(acc, cutoff));
+        self.emit(abi::branch_hi(overflow));
+        self.emit(abi::branch_eq(cutoff_equal));
+        self.emit(abi::branch(digit_ok));
+        self.emit(abi::label(cutoff_equal));
+        self.emit(abi::compare_registers(digit, cutlim));
+        self.emit(abi::branch_hi(overflow));
+        self.emit(abi::label(digit_ok));
+    }
+
+    /// Sign-application epilogue shared by both integer parses: negate `acc` into
+    /// `result` when the sign was `-`, else copy it, then the trap tails. The
+    /// caller mints `result` and every label, so this is byte-identical to the two
+    /// hand-written copies.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_int_parse_sign_epilogue(
+        &mut self,
+        result: &str,
+        acc: &str,
+        negative: &str,
+        loop_done: &str,
+        positive: &str,
+        done: &str,
+        invalid: &str,
+        overflow: &str,
+    ) -> Result<(), String> {
+        self.emit(abi::label(loop_done));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(positive));
+        self.emit(abi::subtract_registers(result, abi::ZERO, acc));
+        self.emit(abi::branch(done));
+        self.emit(abi::label(positive));
+        self.emit(abi::move_register(result, acc));
+        self.emit(abi::branch(done));
+        self.emit(abi::label(invalid));
+        self.emit_invalid_format_return()?;
+        self.emit(abi::label(overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(done));
+        Ok(())
     }
 
     pub(super) fn emit_string_to_int_value(
@@ -210,28 +306,18 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
 
         self.emit(abi::move_register(string, source_register));
-        self.emit(abi::load_u64(length, string, 0));
-        self.emit(abi::compare_immediate(length, "0"));
-        self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::add_immediate(cursor, string, 8));
-        self.emit(abi::move_immediate(index, "Integer", "0"));
-        self.emit(abi::move_immediate(acc, "Integer", "0"));
-        self.emit(abi::move_immediate(negative, "Integer", "0"));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "45"));
-        self.emit(abi::branch_ne(&first_not_minus));
-        self.emit(abi::move_immediate(negative, "Integer", "1"));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::branch(&sign_done));
-        self.emit(abi::label(&first_not_minus));
-        self.emit(abi::compare_immediate(byte, "43"));
-        self.emit(abi::branch_ne(&sign_done));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::label(&sign_done));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(&invalid));
+        self.emit_string_to_int_sign_prologue(
+            string,
+            length,
+            index,
+            cursor,
+            byte,
+            acc,
+            negative,
+            &invalid,
+            &first_not_minus,
+            &sign_done,
+        );
         self.emit(abi::move_immediate(cutoff, "Integer", "922337203685477580"));
         self.emit(abi::move_immediate(cutlim, "Integer", "7"));
         self.emit(abi::compare_immediate(negative, "0"));
@@ -250,40 +336,31 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(byte, "57"));
         self.emit(abi::branch_hi(&invalid));
         self.emit(abi::subtract_immediate(digit, byte, 48));
-        // UNSIGNED overflow guard (bug-144): parsing i64::MIN's magnitude drives
-        // `acc` to exactly 2^63, which as an i64 register is negative. A signed
-        // `>` would then see 2^63 as less than the positive `cutoff` and admit a
-        // further digit, wrapping silently. `cutoff`/`cutlim` bound the unsigned
-        // magnitude, so the compares must be unsigned (`branch_hi`); equality is
-        // sign-agnostic, and positive inputs stay below 2^63 where unsigned and
-        // signed order agree. Mirrors the base-N path (bug-49).
-        self.emit(abi::compare_registers(acc, cutoff));
-        self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::branch_eq(&cutoff_equal));
-        self.emit(abi::branch(&digit_ok));
-        self.emit(abi::label(&cutoff_equal));
-        self.emit(abi::compare_registers(digit, cutlim));
-        self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::label(&digit_ok));
+        self.emit_int_parse_cutoff_guard(
+            acc,
+            cutoff,
+            digit,
+            cutlim,
+            &overflow,
+            &cutoff_equal,
+            &digit_ok,
+        );
         self.emit(abi::multiply_registers(acc, acc, ten));
         self.emit(abi::add_registers(acc, acc, digit));
         self.emit(abi::add_immediate(index, index, 1));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::branch(&loop_start));
 
-        self.emit(abi::label(&loop_done));
-        self.emit(abi::compare_immediate(negative, "0"));
-        self.emit(abi::branch_eq(&positive));
-        self.emit(abi::subtract_registers(&result, abi::ZERO, acc));
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&positive));
-        self.emit(abi::move_register(&result, acc));
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&invalid));
-        self.emit_invalid_format_return()?;
-        self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
-        self.emit(abi::label(&done));
+        self.emit_int_parse_sign_epilogue(
+            &result,
+            acc,
+            negative,
+            &loop_done,
+            &positive,
+            &done,
+            &invalid,
+            &overflow,
+        )?;
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
@@ -357,28 +434,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(base, "36"));
         self.emit(abi::branch_gt(&invalid));
 
-        self.emit(abi::load_u64(length, string, 0));
-        self.emit(abi::compare_immediate(length, "0"));
-        self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::add_immediate(cursor, string, 8));
-        self.emit(abi::move_immediate(index, "Integer", "0"));
-        self.emit(abi::move_immediate(acc, "Integer", "0"));
-        self.emit(abi::move_immediate(negative, "Integer", "0"));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "45"));
-        self.emit(abi::branch_ne(&first_not_minus));
-        self.emit(abi::move_immediate(negative, "Integer", "1"));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::branch(&sign_done));
-        self.emit(abi::label(&first_not_minus));
-        self.emit(abi::compare_immediate(byte, "43"));
-        self.emit(abi::branch_ne(&sign_done));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::label(&sign_done));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(&invalid));
+        self.emit_string_to_int_sign_prologue(
+            string,
+            length,
+            index,
+            cursor,
+            byte,
+            acc,
+            negative,
+            &invalid,
+            &first_not_minus,
+            &sign_done,
+        );
 
         // Overflow cutoff: limit = negative ? 2^63 : i64::MAX. With base >= 2,
         // cutoff = limit / base and cutlim = limit - cutoff*base are computed
@@ -421,41 +488,32 @@ impl CodeBuilder<'_> {
         // Reject a digit that is not valid for `base` (e.g. '9' in base 2).
         self.emit(abi::compare_registers(digit, base));
         self.emit(abi::branch_ge(&invalid));
-        // acc = acc*base + digit, with the standard cutoff overflow guard.
-        // `cutoff`/`cutlim` are derived from an UNSIGNED `limit` (2^63 for the
-        // negative case), so the comparisons must be UNSIGNED too: for a
-        // power-of-two base the accumulator can reach exactly 2^63, which as an
-        // i64 register is negative and would fool a signed compare into skipping
-        // the trap (bug-49). `branch_hi` is unsigned `>`; equality is
-        // sign-agnostic. For positive inputs acc < 2^63, where unsigned and
-        // signed order agree, so this is regression-free.
-        self.emit(abi::compare_registers(acc, cutoff));
-        self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::branch_eq(&cutoff_equal));
-        self.emit(abi::branch(&digit_ok));
-        self.emit(abi::label(&cutoff_equal));
-        self.emit(abi::compare_registers(digit, cutlim));
-        self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::label(&digit_ok));
+        // acc = acc*base + digit, with the shared cutoff overflow guard.
+        self.emit_int_parse_cutoff_guard(
+            acc,
+            cutoff,
+            digit,
+            cutlim,
+            &overflow,
+            &cutoff_equal,
+            &digit_ok,
+        );
         self.emit(abi::multiply_registers(acc, acc, base));
         self.emit(abi::add_registers(acc, acc, digit));
         self.emit(abi::add_immediate(index, index, 1));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::branch(&loop_start));
 
-        self.emit(abi::label(&loop_done));
-        self.emit(abi::compare_immediate(negative, "0"));
-        self.emit(abi::branch_eq(&positive));
-        self.emit(abi::subtract_registers(&result, abi::ZERO, acc));
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&positive));
-        self.emit(abi::move_register(&result, acc));
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&invalid));
-        self.emit_invalid_format_return()?;
-        self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
-        self.emit(abi::label(&done));
+        self.emit_int_parse_sign_epilogue(
+            &result,
+            acc,
+            negative,
+            &loop_done,
+            &positive,
+            &done,
+            &invalid,
+            &overflow,
+        )?;
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
@@ -745,101 +803,22 @@ impl CodeBuilder<'_> {
         let cp_v = self.temporary_vreg();
         let buf_v = self.temporary_vreg();
         let len_v = self.temporary_vreg();
-        let tmp_v = self.temporary_vreg();
-        let mask_v = self.temporary_vreg();
         let cp = cp_v.as_str();
         let buf = buf_v.as_str();
         let len = len_v.as_str();
-        let tmp = tmp_v.as_str();
-        let mask = mask_v.as_str();
         let buf_slot = self.allocate_stack_object("scalar_utf8_buf", 8);
 
-        let enc1 = self.label("scalar_str_enc1");
-        let enc2 = self.label("scalar_str_enc2");
-        let enc3 = self.label("scalar_str_enc3");
-        let enc4 = self.label("scalar_str_enc4");
-        let encoded = self.label("scalar_str_encoded");
-
+        // S3 (bug-333): route through the canonical UTF-8 codec in
+        // `private/unicode.rs` instead of a second open-coded encoder. The width
+        // helper sets `len`; the encode helper writes the bytes at `buf` (and
+        // advances it, which is why the buffer address is re-derived below).
         self.emit(abi::move_register(cp, source_register));
         self.emit(abi::add_immediate(buf, abi::stack_pointer(), buf_slot));
-        self.emit(abi::compare_immediate(cp, "128")); // < 0x80 -> 1 byte
-        self.emit(abi::branch_lo(&enc1));
-        self.emit(abi::compare_immediate(cp, "2048")); // < 0x800 -> 2 bytes
-        self.emit(abi::branch_lo(&enc2));
-        self.emit(abi::compare_immediate(cp, "65536")); // < 0x10000 -> 3 bytes
-        self.emit(abi::branch_lo(&enc3));
-        self.emit(abi::branch(&enc4));
+        self.emit_utf8_encoded_width(cp, len);
+        self.emit_utf8_encode_next(buf, cp);
 
-        // 1 byte: [cp].
-        self.emit(abi::label(&enc1));
-        self.emit(abi::store_u8(cp, buf, 0));
-        self.emit(abi::move_immediate(len, "Integer", "1"));
-        self.emit(abi::branch(&encoded));
-
-        // 2 bytes: [0xC0 | cp>>6, 0x80 | cp&0x3F].
-        self.emit(abi::label(&enc2));
-        self.emit(abi::shift_right_immediate(tmp, cp, 6));
-        self.emit(abi::move_immediate(mask, "Integer", "192"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 0));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, cp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 1));
-        self.emit(abi::move_immediate(len, "Integer", "2"));
-        self.emit(abi::branch(&encoded));
-
-        // 3 bytes: [0xE0 | cp>>12, 0x80 | (cp>>6)&0x3F, 0x80 | cp&0x3F].
-        self.emit(abi::label(&enc3));
-        self.emit(abi::shift_right_immediate(tmp, cp, 12));
-        self.emit(abi::move_immediate(mask, "Integer", "224"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 0));
-        self.emit(abi::shift_right_immediate(tmp, cp, 6));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, tmp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 1));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, cp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 2));
-        self.emit(abi::move_immediate(len, "Integer", "3"));
-        self.emit(abi::branch(&encoded));
-
-        // 4 bytes: [0xF0 | cp>>18, 0x80 | (cp>>12)&0x3F, 0x80 | (cp>>6)&0x3F,
-        //           0x80 | cp&0x3F].
-        self.emit(abi::label(&enc4));
-        self.emit(abi::shift_right_immediate(tmp, cp, 18));
-        self.emit(abi::move_immediate(mask, "Integer", "240"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 0));
-        self.emit(abi::shift_right_immediate(tmp, cp, 12));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, tmp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 1));
-        self.emit(abi::shift_right_immediate(tmp, cp, 6));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, tmp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 2));
-        self.emit(abi::move_immediate(mask, "Integer", "63"));
-        self.emit(abi::and_registers(tmp, cp, mask));
-        self.emit(abi::move_immediate(mask, "Integer", "128"));
-        self.emit(abi::or_registers(tmp, tmp, mask));
-        self.emit(abi::store_u8(tmp, buf, 3));
-        self.emit(abi::move_immediate(len, "Integer", "4"));
-        self.emit(abi::branch(&encoded));
-
-        self.emit(abi::label(&encoded));
-        // Re-derive the buffer address after the branches (the arena call inside
-        // materialize spills it) and build the owned String.
+        // Re-derive the buffer address (the encode helper advanced `buf`, and the
+        // arena call inside materialize spills it) and build the owned String.
         let buf_addr = self.allocate_register()?;
         self.emit(abi::add_immediate(
             &buf_addr,
@@ -1261,25 +1240,19 @@ impl CodeBuilder<'_> {
         let edge_negative = self.label("float_to_fixed_edge_negative");
         let range_ok = self.label("float_to_fixed_range_ok");
         self.emit(abi::move_register(bits, source));
-        self.emit(abi::shift_right_immediate(exponent, bits, 52));
-        self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(exponent, exponent, mask));
-        self.emit(abi::compare_immediate(exponent, "2047"));
-        self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::compare_immediate(exponent, "1054"));
-        self.emit(abi::branch_lt(&range_ok));
-        self.emit(abi::branch_eq(&edge));
-        self.emit(abi::branch(&overflow));
-        self.emit(abi::label(&edge));
-        self.emit(abi::shift_right_immediate(sign, bits, 63));
-        self.emit(abi::compare_immediate(sign, "1"));
-        self.emit(abi::branch_eq(&edge_negative));
-        self.emit(abi::branch(&overflow));
-        self.emit(abi::label(&edge_negative));
-        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
-        self.emit(abi::and_registers(mantissa, bits, mask));
-        self.emit(abi::compare_immediate(mantissa, "0"));
-        self.emit(abi::branch_ne(&overflow));
+        self.emit_float_exponent_range_guard(
+            bits,
+            exponent,
+            mask,
+            sign,
+            mantissa,
+            Some("1054"),
+            &range_ok,
+            &edge,
+            &edge_negative,
+            &invalid,
+            &overflow,
+        );
         self.emit(abi::label(&range_ok));
         self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], bits));
         self.emit_f64_const(abi::FP_SCRATCH[1], const_bits, 4_294_967_296.0);
@@ -1532,15 +1505,77 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Shared IEEE-754 `double` exponent/range guard behind the float→Integer and
+    /// float→Fixed conversions and the plain overflow pre-check. `bits` already
+    /// holds the raw f64 bit pattern — the caller performs the GPR (`move_register`)
+    /// or FP (`float_move_x_from_d`) move into it, since that is the one op that
+    /// genuinely differs across the three sites. The caller also mints `exponent`,
+    /// `mask`, `sign`, `mantissa` (in its own order) and every label, so this emits
+    /// only the shared op sequence and stays byte-identical to the hand-written
+    /// copies it replaced.
+    ///
+    /// `threshold = None` is the `emit_double_overflow_check` shape: emit just the
+    /// NaN/Inf exponent test (all-ones exponent → `invalid`); `sign`, `mantissa`,
+    /// and the three range/edge labels are unused. `threshold = Some(t)` adds the
+    /// range check — `< t` → `range_ok`, `> t` → `overflow` — and, for the boundary
+    /// exponent `== t`, the edge block that accepts only the exact minimum-magnitude
+    /// value (sign set, zero mantissa) and traps everything else to `overflow`.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_float_exponent_range_guard(
+        &mut self,
+        bits: &str,
+        exponent: &str,
+        mask: &str,
+        sign: &str,
+        mantissa: &str,
+        threshold: Option<&str>,
+        range_ok: &str,
+        edge: &str,
+        edge_sign_ok: &str,
+        invalid: &str,
+        overflow: &str,
+    ) {
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
+        self.emit(abi::and_registers(exponent, exponent, mask));
+        self.emit(abi::compare_immediate(exponent, "2047"));
+        self.emit(abi::branch_eq(invalid));
+        let Some(threshold) = threshold else {
+            return;
+        };
+        self.emit(abi::compare_immediate(exponent, threshold));
+        self.emit(abi::branch_lt(range_ok));
+        self.emit(abi::branch_eq(edge));
+        self.emit(abi::branch(overflow));
+        self.emit(abi::label(edge));
+        self.emit(abi::shift_right_immediate(sign, bits, 63));
+        self.emit(abi::compare_immediate(sign, "1"));
+        self.emit(abi::branch_eq(edge_sign_ok));
+        self.emit(abi::branch(overflow));
+        self.emit(abi::label(edge_sign_ok));
+        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
+        self.emit(abi::and_registers(mantissa, bits, mask));
+        self.emit(abi::compare_immediate(mantissa, "0"));
+        self.emit(abi::branch_ne(overflow));
+    }
+
     pub(super) fn emit_double_overflow_check(&mut self, source: &str, overflow_label: &str) {
         let bits = self.temporary_vreg();
         let exponent = self.temporary_vreg();
         let mask = self.temporary_vreg();
         self.emit(abi::float_move_x_from_d(&bits, source));
-        self.emit(abi::shift_right_immediate(&exponent, &bits, 52));
-        self.emit(abi::move_immediate(&mask, "Integer", "2047"));
-        self.emit(abi::and_registers(&exponent, &exponent, &mask));
-        self.emit(abi::compare_immediate(&exponent, "2047"));
-        self.emit(abi::branch_eq(overflow_label));
+        self.emit_float_exponent_range_guard(
+            &bits,
+            &exponent,
+            &mask,
+            "",
+            "",
+            None,
+            "",
+            "",
+            "",
+            overflow_label,
+            "",
+        );
     }
 }

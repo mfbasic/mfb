@@ -338,3 +338,141 @@ fn no_overflow_label_returns_through_the_result_tag_register() {
          here, not an error code — use emit_error_code_return): {offenders:?}"
     );
 }
+
+fn checked_arena_used_after_alloc(
+    block_base: u64,
+    current_offset: u64,
+    capacity: u64,
+    size: u64,
+    align: u64,
+) -> Result<(u64, u64), u64> {
+    let invalid_argument = ERR_INVALID_ARGUMENT_CODE
+        .parse::<u64>()
+        .expect("invalid argument code");
+    let out_of_memory = ERR_OUT_OF_MEMORY_CODE
+        .parse::<u64>()
+        .expect("out of memory code");
+    if align == 0 || !align.is_power_of_two() {
+        return Err(invalid_argument);
+    }
+    let size = size.max(1);
+    let payload_base = block_base
+        .checked_add(ARENA_BLOCK_HEADER_SIZE as u64)
+        .ok_or(out_of_memory)?;
+    let raw = payload_base
+        .checked_add(current_offset)
+        .ok_or(out_of_memory)?;
+    let mask = align - 1;
+    let aligned = raw
+        .checked_add(mask)
+        .map(|value| value & !mask)
+        .ok_or(out_of_memory)?;
+    let end = aligned.checked_add(size).ok_or(out_of_memory)?;
+    let used = end.checked_sub(payload_base).ok_or(out_of_memory)?;
+    if used > capacity {
+        return Err(out_of_memory);
+    }
+    Ok((aligned, used))
+}
+
+/// Executable reference model of the per-arena coalescing free-list, mirroring
+/// the integer arithmetic of the emitted `arena_alloc` / `arena_insert_free`
+/// assembly so the algorithm can be unit-tested without running native code. The
+/// list is kept sorted by `start`; `nodes` holds `(start, size)` pairs.
+#[derive(Default, Clone)]
+struct FreeListSim {
+    nodes: Vec<(u64, u64)>,
+}
+
+impl FreeListSim {
+    /// `(size, align)` normalization shared by alloc and free: size 0 → 1, then
+    /// round up to the 16-byte granule; align is raised to at least 16 so every
+    /// chunk stays 16-aligned.
+    fn normalize(size: u64, align: u64) -> (u64, u64) {
+        let size = size.max(1);
+        let size = (size + (ARENA_MIN_CHUNK - 1)) & !(ARENA_MIN_CHUNK - 1);
+        let align = align.max(ARENA_MIN_CHUNK);
+        (size, align)
+    }
+
+    /// Insert a fresh OS block's usable region (or any chunk) and coalesce.
+    fn insert_free(&mut self, ptr: u64, size: u64) {
+        let (size, _) = Self::normalize(size, ARENA_MIN_CHUNK);
+        // address-ordered insertion slot
+        let slot = self.nodes.partition_point(|(start, _)| *start < ptr);
+        self.nodes.insert(slot, (ptr, size));
+        // coalesce with the node before and after, if adjacent
+        if slot + 1 < self.nodes.len() {
+            let (nstart, nsize) = self.nodes[slot + 1];
+            if ptr + size == nstart {
+                self.nodes[slot].1 += nsize;
+                self.nodes.remove(slot + 1);
+            }
+        }
+        if slot > 0 {
+            let (pstart, psize) = self.nodes[slot - 1];
+            if pstart + psize == self.nodes[slot].0 {
+                self.nodes[slot - 1].1 += self.nodes[slot].1;
+                self.nodes.remove(slot);
+            }
+        }
+    }
+
+    /// First-fit + split. Returns the aligned pointer, or `None` if nothing fits
+    /// (the caller would map a new block and retry).
+    fn alloc(&mut self, size: u64, align: u64) -> Option<u64> {
+        let (size, align) = Self::normalize(size, align);
+        let mask = align - 1;
+        for index in 0..self.nodes.len() {
+            let (start, csize) = self.nodes[index];
+            let aligned = (start + mask) & !mask;
+            if aligned + size <= start + csize {
+                let end = start + csize;
+                let front = aligned - start;
+                let tail = end - (aligned + size);
+                self.nodes.remove(index);
+                let mut insert_at = index;
+                if front > 0 {
+                    self.nodes.insert(insert_at, (start, front));
+                    insert_at += 1;
+                }
+                if tail > 0 {
+                    self.nodes.insert(insert_at, (aligned + size, tail));
+                }
+                return Some(aligned);
+            }
+        }
+        None
+    }
+
+    fn free(&mut self, ptr: u64, size: u64) {
+        let (size, _) = Self::normalize(size, ARENA_MIN_CHUNK);
+        self.insert_free(ptr, size);
+    }
+
+    /// Total free bytes and the list length — used to assert coalescing keeps the
+    /// list short and never loses or duplicates bytes.
+    fn free_bytes(&self) -> u64 {
+        self.nodes.iter().map(|(_, size)| *size).sum()
+    }
+
+    /// Invariant: strictly ascending, non-overlapping, never two coalescable
+    /// (address-adjacent) neighbors left un-merged.
+    fn assert_invariants(&self) {
+        for window in self.nodes.windows(2) {
+            let (astart, asize) = window[0];
+            let (bstart, _) = window[1];
+            assert!(astart < bstart, "free list not ascending: {:?}", self.nodes);
+            assert!(
+                astart + asize <= bstart,
+                "free list overlaps: {:?}",
+                self.nodes
+            );
+            assert!(
+                astart + asize != bstart,
+                "adjacent free chunks left un-coalesced: {:?}",
+                self.nodes
+            );
+        }
+    }
+}
