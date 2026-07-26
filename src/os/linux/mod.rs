@@ -7,8 +7,6 @@ mod appimage;
 pub(crate) mod flavor;
 mod link;
 mod object;
-/// SquashFS 4.0 image writer (plan-51-B), the second half of an AppImage.
-pub(crate) mod squashfs;
 
 use crate::arch::aarch64::encode::EncodedImage;
 use crate::target::shared::plan::NativePlan;

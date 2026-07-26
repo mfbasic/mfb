@@ -14,8 +14,12 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use crate::os::linux::squashfs::{self, SquashNode, SquashTree};
+/// SquashFS 4.0 image writer (plan-51-B), the second half of an AppImage. A
+/// private child of `appimage`, its only consumer (bug-335 A6).
+mod squashfs;
+
 use crate::os::BUILD_DIR;
+use squashfs::{SquashNode, SquashTree};
 
 /// The upstream release tag the embedded runtimes come from.
 ///
