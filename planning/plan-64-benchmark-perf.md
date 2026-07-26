@@ -410,9 +410,14 @@ P1), string slice (37.2, P2). Consistent ⇒ genuine, not arena.
   rebuild branch (`collection_mutate.rs:254+`).
 
 **Fixes.**
-- **F1:** give `case_map` the whole-string ASCII quick-check `normalizeNfc` has — scan
-  once for a byte ≥0x80; if none, one decode-free pass that range-maps a–z/A–Z ±32 and
-  copies (2 decode passes → 1 byte pass; bit-identical for ASCII).
+- **[x] F1 — LANDED:** gave `case_map` the whole-string ASCII quick-check `normalizeNfc`
+  has — scan once for a byte ≥0x80; if none, one decode-free pass that range-maps a–z/A–Z
+  ±32 (reusing the existing `emit_ascii_case_transform` helper) with a `byte_len + 9`
+  allocation identical to the slow path. Any byte ≥0x80 falls through to the two-pass slow
+  path. **Result: `string case` 66.0 → 50.6 ms** (`string_case` checksum 7411120 unchanged;
+  full `cargo test` green; `artifact-gate.sh` zero new diffs vs baseline — the 17 pre-existing
+  diffs are the known union-drop resource-union nondeterminism; 9 case-mapping acceptance
+  fixtures pass). `builder_strings_builtins.rs` `lower_strings_case_map`. Commit: `<pending>`.
 - **F2:** memchr-style single-byte delimiter scan + word-at-a-time (8-byte) block copy in
   split/join; fuse split's two scans for a single-char delimiter.
 - **F3:** in-place data-tail rewrite for String `set` when the new payload fits
@@ -675,6 +680,39 @@ ops/run.
   the arena-gated rows, confirm **linear** scaling across the run loop (min ≈ median).
 - Codegen changes: `scripts/artifact-gate.sh` (byte-deterministic 4-target self-diff).
   Math changes: `tools/math-kernels/runtime_ulp.py`.
+
+## Corrections (execution — /follow-plan)
+
+Recorded as the plan is executed; each is a divergence between the plan as written
+and what execution found, with evidence.
+
+- **Plan structure — no Prerequisites gate, no per-task checkboxes, no `Commit:`
+  lines.** plan-64 is a *master index* (Task-1 priority list + Task-2 sub-plan bodies),
+  not the phased-checkbox template `/follow-plan` expects, and none of the promised
+  `plan-64-<letter>-*.md` split files exist. The Prerequisites gate is therefore
+  vacuously passed. Execution tracks completion per sub-plan by tagging the relevant
+  fix bullet `[x] … — LANDED` with its result + commit hash, in the same commit as the
+  work.
+- **Execution order refined by blast radius, not pure ROI.** The plan's "A first"
+  ordering is by ROI. `/follow-plan` §3 says phases run uncertainty-first / blast-radius
+  last; sub-plan **A1/A2 (the arena allocator machine-code emission) is the single
+  highest-blast-radius surface in the plan** (a bug corrupts every program's heap).
+  Execution banks the *contained, semantics-preserving* wins first (F1 done; C1, then B,
+  D, etc.), each fully gated, and attempts the deep allocator rewrite (A1/A2) after the
+  contained value is banked. A3 (the csv/datetime *source* mitigations) directly retires
+  plan-64's own arena-bound benchmark rows; A1/A2 is foundational for plan-65 coverage.
+- **The arena allocator has evolved since the plan's `file:line` citations** (arena.rs
+  is 960 lines, not the plan's `:715-729`/`:387-407`-era file). The flush-before-grow is
+  now gated to SMALL requests with a one-shot `flushed` retry + a post-flush re-park
+  sweep (`arena.rs:369-457`) — a partial mitigation of A1's premise already landed; A2's
+  size-class segregation is partly present as plan-25-A "segregated large-block bins"
+  (`arena.rs:44-50`). A1/A2 must be re-scoped against this current code, not the citations.
+- **Measurement: the full `--run 50` suite is ~20+ min** (the arena quadratic makes late
+  iterations of dispatch-trap/datetime/csv progressively slower), too slow for a per-fix
+  loop. Per-group re-measurement uses a throwaway trimmed copy of `benchmark/mfb`
+  (`main()` cut to the target group) built with the current compiler — repo-touchless,
+  ~seconds. A full clean `--run 50` is the final gate once the catastrophic groups (A/C/I)
+  are fixed and the whole suite is fast again.
 
 ## Open Decisions
 
