@@ -15,7 +15,9 @@ IMPORT thread
 '   ./examples/browser/app/build/browser.out
 '
 ' Layout (top to bottom):
-'   row 0            top bar:  [<spinner|🔒|🔓>] Address: <url>
+'   row 0            top bar:  [<spinner|🔒|🔓>] followed by the page title
+'                    (right-aligned) in Display Mode, or "HREF: <url>" while
+'                    editing in Address Mode
 '   row 1            a single horizontal rule
 '   rows 2..H-3      the content area (the page title + parsed text, or an error)
 '   row H-2          a single horizontal rule
@@ -181,19 +183,25 @@ END FUNC
 ' tracks that with a dirty flag. term::sync then emits only the cells that
 ' differ from the previous frame, so an unchanged region costs no terminal I/O.
 
-' Draw the address bar, both rules, the footer, and place the cursor.
-SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, loadState AS String, secure AS Boolean, spinner AS Integer, filesLoaded AS Integer, filesTotal AS Integer)
+' Draw the top bar, both rules, the footer, and place the cursor. The top bar
+' shows the URL being edited in Address Mode ("[ind] HREF: <url>") and the page
+' title, right-aligned, in Display Mode ("[ind]            <title>").
+SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, filesLoaded AS Integer, filesTotal AS Integer)
   LET cols AS Integer = size.columns
   LET rows AS Integer = size.rows
   LET ind AS String = indicatorText(loadState, secure, spinner)
-  LET prefix AS String = "[" & ind & "] Address: "
+  LET hrefPrefix AS String = "[" & ind & "] HREF: "
 
   ' Row 0: top bar.
   term::setBackground(30, 40, 60)
   term::setForeground(225, 233, 255)
   term::setBold(TRUE)
   term::moveTo(0, 0)
-  io::write(fit(prefix & url, cols))
+  IF addressMode THEN
+    io::write(fit(hrefPrefix & url, cols))
+  ELSE
+    io::write(composeFooter("[" & ind & "] ", title, cols))
+  END IF
   term::setBold(FALSE)
 
   ' Row 1 and row H-2: the header and footer rules.
@@ -220,7 +228,7 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, loadStat
   ' Cursor: visible at the end of the URL while editing, hidden otherwise. Each
   ' scalar (the emoji included) is one cell on the term:: grid.
   IF addressMode THEN
-    LET curCol AS Integer = minOf(len(prefix) + len(url), cols - 1)
+    LET curCol AS Integer = minOf(len(hrefPrefix) + len(url), cols - 1)
     term::moveTo(0, curCol)
     term::showCursor()
   ELSE
@@ -249,7 +257,7 @@ END SUB
 FUNC main AS Integer
   ' A full-screen TUI needs an interactive terminal on both ends.
   IF NOT io::isOutputTerminal() OR NOT io::isInputTerminal() THEN
-    io::printError("text-web: run this from an interactive terminal.")
+    io::printError("browser: run this from an interactive terminal.")
     RETURN 1
   END IF
 
@@ -259,6 +267,7 @@ FUNC main AS Integer
   MUT running AS Boolean = TRUE
   MUT addressMode AS Boolean = FALSE
   MUT url AS String = ""
+  MUT pageTitle AS String = ""
   MUT content AS String = welcomeText()
   MUT scroll AS Integer = 0
   MUT loadState AS String = "idle"
@@ -324,7 +333,7 @@ FUNC main AS Integer
         contentDirty = TRUE
       END IF
 
-      drawChrome(size, addressMode, url, loadState, secure, spinner, filesLoaded, filesTotal)
+      drawChrome(size, addressMode, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
       IF contentDirty THEN
         drawContent(size, wrapped, scroll)
         contentDirty = FALSE
@@ -343,16 +352,17 @@ FUNC main AS Integer
         ' frame, start backend::fetch, then spin at ~10 fps until it finishes.
         addressMode = FALSE
         loadState = "loading"
+        pageTitle = ""
         LET target AS String = strings::trim(url)
         LET loadingLines AS List OF String = wrapContent("Loading " & target & " ...", cols)
-        drawChrome(size, FALSE, url, loadState, secure, spinner, filesLoaded, filesTotal)
+        drawChrome(size, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
         drawContent(size, loadingLines, 0)
         term::sync()
 
         LET worker AS Thread OF String TO LoadResult = thread::start(backend::fetch, target)
         DO WHILE thread::isRunning(worker)
           spinner = spinner + 1
-          drawChrome(size, FALSE, url, loadState, secure, spinner, filesLoaded, filesTotal)
+          drawChrome(size, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
           term::sync()
           ' Wait up to one frame for a key; Q aborts the load and quits.
           IF ready(100) THEN
@@ -369,12 +379,9 @@ FUNC main AS Integer
           ' Not aborted: take the result. (On abort the handle drops here,
           ' cancelling and detaching the worker so quitting is immediate.)
           LET page AS LoadResult = thread::waitFor(worker)
-          ' Show the page title (if any) as a heading above the body text.
-          IF page.title <> "" THEN
-            content = page.title & "\n\n" & page.content
-          ELSE
-            content = page.content
-          END IF
+          ' The title goes in the top bar (Display Mode); the body fills content.
+          pageTitle = page.title
+          content = page.content
           secure = page.secure
           filesLoaded = page.filesLoaded
           filesTotal = page.filesTotal
@@ -420,7 +427,7 @@ FUNC main AS Integer
   TRAP(e)
     term::showCursor()
     term::off()
-    io::printError("text-web: " & e.message)
+    io::printError("browser: " & e.message)
     RETURN 1
   END TRAP
 END FUNC
