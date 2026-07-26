@@ -347,6 +347,17 @@ while IFS= read -r project_json; do
       "$MFB_EXE" build -q $target_arg -app $app_flags "tests/$test_name"
       echo "[exit $?]"
     fi
+    # A `<pkg>.run` golden forces the full `mfb build` (link + merge) path and
+    # only executes the produced binary when the build SUCCEEDS. That makes it two
+    # different things depending on the fixture:
+    #   - a rt-behavior fixture builds cleanly, so `.run` is an execution proof;
+    #   - a `-invalid` fixture (notably several under tests/syntax/**, e.g. the
+    #     security pkg-0N confusion cases) is EXPECTED to fail the build, so its
+    #     `.run` never reaches the executable — it is a MERGE TRIGGER that drives
+    #     the fixture past `-ast -ir` into the full merge where the finding trips,
+    #     with the diagnostic captured in build.log. `.run` contents are never
+    #     compared. This is the source of truth for the convention; the security
+    #     README (tests/rt-behavior/security/README.md) points here.
     if [ -f "$golden_dir/$package_name.run" ]; then
       echo "$ mfb build ${target_label}tests/$test_name"
       build_output=$("$MFB_EXE" build -q $target_arg "tests/$test_name" 2>&1)

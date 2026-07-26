@@ -24,6 +24,11 @@ diagnostic. PKG-03 and PKG-07 only trip on the full merge (after `-ast -ir`
 succeeds via the lossy external-type path), so those two carry a `.run` trigger plus
 `.ast`/`.ir` goldens; the rest fail at resolve time and carry only `build.log`.
 
+Here a `.run` golden is a **merge trigger, not an execution proof**: the build is
+expected to fail, so the harness never reaches the executable. The authoritative
+description of that dual meaning lives where the harness acts on it —
+`scripts/test-accept.sh`, at the `<pkg>.run` check — not in this README.
+
 | Directory | Finding | Severity | Asserts |
 | --- | --- | --- | --- |
 | `pkg-01-tampered-signature` | PKG-01 | CRIT | signed package tampered post-sign → `uses … - [Tampered]`, build refuses (non-zero) |
