@@ -331,3 +331,25 @@ impl ToCodeJson for CodeStackSlot {
         )
     }
 }
+
+/// Serialize a slice of `ToCodeJson` values into a comma-joined JSON fragment
+/// (used by the `-code`/`-mir` array serializers). Merged here from the former
+/// 17-line `serialization_utils` module (bug-334 B4): its only consumer is the
+/// `ToCodeJson` machinery in this file and its two siblings.
+pub(super) fn join_json<T: ToCodeJson>(values: &[T], indent: usize) -> String {
+    values
+        .iter()
+        .map(|value| value.to_json(indent))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Serialize a slice of strings into a `", "`-joined list of JSON string
+/// literals (the callee-saved register list).
+pub(super) fn json_string_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| json_string(value))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
