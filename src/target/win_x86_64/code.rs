@@ -821,6 +821,50 @@ impl code::CodegenPlatform for Platform {
         Err(unsupported("environment"))
     }
 
+    fn emit_enable_vt_output(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // term::on calls this before its first ANSI write. Classic conhost does not
+        // interpret VT sequences unless ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x04) is
+        // set on the stdout console mode; Windows Terminal sets it by default, but
+        // enabling it is harmless there. Resolve STD_OUTPUT (GetStdHandle(-11)), read
+        // the current mode, OR in the VT bit, and write it back. Best-effort: if
+        // GetConsoleMode fails (stdout redirected to a file/pipe, not a console),
+        // skip the SetConsoleMode so a non-console stdout is left untouched. Uses a
+        // self-contained frame (shadow space + a mode slot + a saved-handle slot).
+        let n = instructions.len();
+        let skip = format!("{from}_vt_skip_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            // GetStdHandle(STD_OUTPUT_HANDLE = -11), built without a negative immediate.
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[0], abi::ARG[0], 11),
+        ]);
+        call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x28), // save handle
+            abi::move_register(abi::ARG[0], abi::return_register()),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // zero the DWORD mode slot
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 0x20), // &mode
+        ]);
+        call_external(from, "GetConsoleMode", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&skip), // not a console → leave stdout untouched
+            abi::load_u32(abi::ARG[1], abi::stack_pointer(), 0x20), // current mode
+            abi::move_immediate(abi::ARG[2], "Integer", "4"), // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            abi::or_registers(abi::ARG[1], abi::ARG[1], abi::ARG[2]),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x28), // handle
+        ]);
+        call_external(from, "SetConsoleMode", KERNEL32, instructions, relocations);
+        instructions.extend([abi::label(&skip), abi::add_stack(0x30)]);
+        Ok(())
+    }
+
     fn emit_fs_path_operation(
         &self,
         from: &str,

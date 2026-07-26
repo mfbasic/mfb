@@ -79,6 +79,26 @@ const RUNTIME_CALLS: &[&str] = &[
     "io.isOutputTerminal",
     "io.isErrorTerminal",
     "term.terminalSize",
+    // term:: styling / TUI (plan-66-D). The shared arms emit ANSI escape sequences
+    // through the shadow-grid diff (already platform-neutral); term::on enables
+    // ENABLE_VIRTUAL_TERMINAL_PROCESSING (emit_enable_vt_output) so conhost renders
+    // them. Raw-mode/terminalSize machinery shipped in plan-47-G.
+    "term.on",
+    "term.off",
+    "term.isOn",
+    "term.setForeground",
+    "term.setBackground",
+    "term.setBold",
+    "term.setUnderline",
+    "term.showCursor",
+    "term.hideCursor",
+    "term.clear",
+    "term.sync",
+    "term.moveTo",
+    "term.getForeground",
+    "term.getBackground",
+    "term.getBold",
+    "term.getUnderline",
     "thread.start",
     "thread.waitFor",
     "thread.send",

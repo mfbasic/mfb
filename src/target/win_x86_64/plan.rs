@@ -172,11 +172,19 @@ impl NativePlanPlatform for Platform {
             // Terminal size AND the raw-mode line-discipline seam (the term module
             // links the raw-mode helper, whose isatty/tcgetattr/tcsetattr now route
             // to GetConsoleMode/SetConsoleMode via emit_terminal_control_call).
-            "term.terminalSize" | "term.on" | "term.off" | "term.isOn" => vec![
+            // term.on/off/sync/terminalSize each resolve the console handle
+            // (GetStdHandle), query size (GetConsoleScreenBufferInfo), and — for the
+            // styling family (plan-66-D) — write ANSI via WriteFile. term.on also
+            // enables ENABLE_VIRTUAL_TERMINAL_PROCESSING (GetConsoleMode/
+            // SetConsoleMode). The pure state setters/getters (setForeground, moveTo,
+            // getBold, …) and isOn make no OS call and declare no imports. The merged
+            // IAT dedups the shared kernel32 set.
+            "term.terminalSize" | "term.on" | "term.off" | "term.sync" => vec![
                 import("GetStdHandle", KERNEL32, required_by),
                 import("GetConsoleMode", KERNEL32, required_by),
                 import("SetConsoleMode", KERNEL32, required_by),
                 import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
             ],
             // datetime:: (plan-66-A). No libc clocks on Windows: the monotonic
             // clock is QueryPerformanceCounter/Frequency, the wall clock is

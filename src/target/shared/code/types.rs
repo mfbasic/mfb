@@ -304,6 +304,22 @@ pub(crate) trait CodegenPlatform {
     fn libc(&self) -> Option<crate::manifest::libraries::Libc> {
         None
     }
+    /// Enable terminal styling output on a platform that gates ANSI/VT escape
+    /// interpretation behind an explicit mode bit. `term::on` calls this once,
+    /// before writing its first escape sequence. The default emits nothing — a
+    /// POSIX terminal interprets ANSI unconditionally, so macOS/Linux/riscv stay
+    /// byte-identical. The Windows backend overrides it to set
+    /// `ENABLE_VIRTUAL_TERMINAL_PROCESSING` on the stdout console handle so the
+    /// shared ANSI-emitting `term::` arms render (plan-66-D).
+    fn emit_enable_vt_output(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Copy the saved terminal state at `base + original_offset` to
     /// `base + modified_offset`, then edit the copy into single-key raw mode:
     /// clear `ECHO`/`ICANON` in the local-flags field when requested and set

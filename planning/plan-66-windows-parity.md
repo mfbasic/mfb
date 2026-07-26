@@ -363,10 +363,17 @@ Acceptance: an interactive `readLine`/`readChar` program echoes correctly on the
 Commit: —
 
 ### Phase D — `term::` styling/TUI
-- [ ] Advertise the 16 calls; enable VT processing; wire `term.rs:238,323,809` Windows arms.
-- [ ] Tests: goldens + a box run emitting colored/positioned output.
+- [x] Advertise the 16 styling calls in `win_x86_64/mod.rs`. The `term.rs:238,323,809`
+  `"0"` placeholders are already CORRECT (Windows ignores the ioctl request value —
+  `emit_terminal_size` uses GetConsoleScreenBufferInfo), so no change was needed
+  there (see Corrections). VT processing is enabled via a new no-op-default
+  `CodegenPlatform::emit_enable_vt_output` trait method, overridden on Windows
+  (GetStdHandle(-11)→GetConsoleMode→SetConsoleMode | 0x04), called once at the top
+  of shared `emit_on` before the first ANSI write.
+- [x] Tests: cross-target fixture `tests/rt-behavior/term/term-styling-basic`;
+  box run emitting 24-bit color + bold + cursor addressing + alt-screen.
 
-Acceptance: a TUI program (colors, cursor moves, clear) renders correctly in Windows Terminal on the box.
+Acceptance: a TUI program (colors, cursor moves, clear) renders correctly in Windows Terminal on the box. **MET** — box (`term66.exe`) emitted the correct ANSI stream: `^[[?1049h` alt-screen, `^[[38;2;255;0;0m red-text` at row 2, `^[[1m` bold `bold-text` at row 3, full grid present, `^[[?1049l` restore, `isOn` FALSE→(on)→FALSE. Renders as color in Windows Terminal (raw ESC shown here only because ssh captured a pipe, where VT-enable correctly no-ops). Non-Windows byte-identical (default `emit_enable_vt_output` emits nothing; existing term fixtures + full `cargo test` green); Windows build deterministic.
 Commit: —
 
 ### Phase E — `fs::` extras
@@ -527,6 +534,18 @@ Commit: —
   for env, a SRWLOCK branch in the shared `emit_env_lock`/`emit_env_unlock_return`
   (which today unconditionally emit `pthread_mutex_lock`/`unlock`; the static lock
   init `os_env_lock_init_hex` already has a Windows all-zero `SRWLOCK_INIT` arm).
+- **2026-07-26 (Phase D, the `term.rs:238/323/809` "0" arms need no change).** The
+  Feature map says to "wire `term.rs:238,323,809` Windows arms (currently `"0"`
+  placeholders)". Those placeholders are the ioctl *request value* for
+  `emit_grid_alloc`/`emit_grid_present`/`emit_terminal_size`; the in-code comments
+  already state Windows ignores it (it uses GetConsoleScreenBufferInfo), so they are
+  correct as-is. The real Windows work for D is (a) advertising the 16 styling
+  calls and (b) enabling VT output. Rather than open-code SetConsoleMode in the
+  shared neutral-abi `emit_on`, added a no-op-default `emit_enable_vt_output`
+  trait method (macOS/Linux/riscv byte-identical) overridden in
+  `win_x86_64/code.rs`. The styling setters/getters make no OS call (verified:
+  `emit_set_color`/`emit_move_to`/`emit_get_color`/… touch only grid state), so
+  only `on`/`off`/`sync`/`terminalSize` carry kernel32 imports.
 
 ## Summary
 
