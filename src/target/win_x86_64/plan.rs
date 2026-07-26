@@ -13,11 +13,11 @@ use crate::target::shared::plan::{self, NativePlan, NativePlanPlatform, Platform
 use crate::target::shared::runtime::RuntimeHelperSpec;
 
 const KERNEL32: &str = "kernel32.dll";
-const SHELL32: &str = "shell32.dll";
 const WS2_32: &str = "ws2_32.dll";
 const BCRYPT: &str = "bcrypt.dll";
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
+const ADVAPI32: &str = "advapi32.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -138,10 +138,7 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            // canonicalPath and isWithin both canonicalize via GetFullPathNameW
-            // (isWithin canonicalizes base+path then does a prefix containment check
-            // in the shared helper). plan-66-E adds isWithin here.
-            "fs.canonicalPath" | "fs.isWithin" => vec![
+            "fs.canonicalPath" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetFullPathNameW", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
@@ -155,33 +152,6 @@ impl NativePlanPlatform for Platform {
                 import("CreateFileW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            // createTempFile opens an O_EXCL file at a randomized name
-            // (emit_open_file + emit_random_bytes over BCryptGenRandom). plan-66-E.
-            // (openWithin is deferred — its no-symlink realpath path is an
-            // `unreachable!` on Windows; see Corrections.)
-            // Atomic writes (plan-66-E): mkstemps (emit_mkstemps: BCryptGenRandom +
-            // CreateFileW CREATE_NEW over a marshaled template) → WriteFile →
-            // FlushFileBuffers → CloseHandle → MoveFileExW rename; a failed rename
-            // unlinks the temp (DeleteFileW). emit_write references GetStdHandle even
-            // on the file-handle path (the console branch's reloc is always emitted).
-            "fs.writeTextAtomic" | "fs.writeBytesAtomic" => vec![
-                import("BCryptGenRandom", BCRYPT, required_by),
-                import("MultiByteToWideChar", KERNEL32, required_by),
-                import("CreateFileW", KERNEL32, required_by),
-                import("GetStdHandle", KERNEL32, required_by),
-                import("WriteFile", KERNEL32, required_by),
-                import("FlushFileBuffers", KERNEL32, required_by),
-                import("CloseHandle", KERNEL32, required_by),
-                import("MoveFileExW", KERNEL32, required_by),
-                import("DeleteFileW", KERNEL32, required_by),
-                import("GetLastError", KERNEL32, required_by),
-            ],
-            "fs.createTempFile" => vec![
-                import("MultiByteToWideChar", KERNEL32, required_by),
-                import("CreateFileW", KERNEL32, required_by),
-                import("GetLastError", KERNEL32, required_by),
-                import("BCryptGenRandom", BCRYPT, required_by),
-            ],
             "fs.close" => vec![import("CloseHandle", KERNEL32, required_by)],
             "fs.readLine" | "fs.eof" => vec![
                 import("ReadFile", KERNEL32, required_by),
@@ -194,35 +164,6 @@ impl NativePlanPlatform for Platform {
                 import("GetLastError", KERNEL32, required_by),
             ],
             "fs.flush" => vec![import("FlushFileBuffers", KERNEL32, required_by)],
-            // io:: console input (plan-66-C): reads resolve fd 0 → GetStdHandle +
-            // ReadFile; pollInput waits on the stdin handle (WaitForSingleObject);
-            // the input echo + flush ride WriteFile. isBuffered/setBuffered make no
-            // OS call (no imports → fall through).
-            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.pollInput"
-            | "io.flush" => vec![
-                import("GetStdHandle", KERNEL32, required_by),
-                import("ReadFile", KERNEL32, required_by),
-                import("WriteFile", KERNEL32, required_by),
-                import("WaitForSingleObject", KERNEL32, required_by),
-                import("GetConsoleMode", KERNEL32, required_by),
-                import("SetConsoleMode", KERNEL32, required_by),
-                // The stdin-broadcast log: its buffer uses the process heap and its
-                // reader/consumer sync uses SRWLOCK + CONDITION_VARIABLE (the pthread
-                // primitives mapped through the thread seam). plan-66-C.
-                import("GetProcessHeap", KERNEL32, required_by),
-                import("HeapAlloc", KERNEL32, required_by),
-                import("HeapFree", KERNEL32, required_by),
-                import("InitializeSRWLock", KERNEL32, required_by),
-                import("AcquireSRWLockExclusive", KERNEL32, required_by),
-                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
-                import("InitializeConditionVariable", KERNEL32, required_by),
-                import("WakeConditionVariable", KERNEL32, required_by),
-                import("WakeAllConditionVariable", KERNEL32, required_by),
-                import("SleepConditionVariableSRW", KERNEL32, required_by),
-                import("CreateThread", KERNEL32, required_by),
-                import("CloseHandle", KERNEL32, required_by),
-                import("GetLastError", KERNEL32, required_by),
-            ],
             // Terminal queries (plan-47-G): GetConsoleMode succeeding IS isatty;
             // GetConsoleScreenBufferInfo gives the window size.
             "io.isInputTerminal" | "io.isOutputTerminal" | "io.isErrorTerminal" => vec![
@@ -232,89 +173,11 @@ impl NativePlanPlatform for Platform {
             // Terminal size AND the raw-mode line-discipline seam (the term module
             // links the raw-mode helper, whose isatty/tcgetattr/tcsetattr now route
             // to GetConsoleMode/SetConsoleMode via emit_terminal_control_call).
-            // term.on/off/sync/terminalSize each resolve the console handle
-            // (GetStdHandle), query size (GetConsoleScreenBufferInfo), and — for the
-            // styling family (plan-66-D) — write ANSI via WriteFile. term.on also
-            // enables ENABLE_VIRTUAL_TERMINAL_PROCESSING (GetConsoleMode/
-            // SetConsoleMode). The pure state setters/getters (setForeground, moveTo,
-            // getBold, …) and isOn make no OS call and declare no imports. The merged
-            // IAT dedups the shared kernel32 set.
-            "term.terminalSize" | "term.on" | "term.off" | "term.sync" => vec![
+            "term.terminalSize" | "term.on" | "term.off" | "term.isOn" => vec![
                 import("GetStdHandle", KERNEL32, required_by),
                 import("GetConsoleMode", KERNEL32, required_by),
                 import("SetConsoleMode", KERNEL32, required_by),
                 import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
-                import("WriteFile", KERNEL32, required_by),
-            ],
-            // datetime:: (plan-66-A). No libc clocks on Windows: the monotonic
-            // clock is QueryPerformanceCounter/Frequency, the wall clock is
-            // GetSystemTimePreciseAsFileTime, and the local UTC offset is the
-            // FILETIME delta across a UTC→local SYSTEMTIME round-trip.
-            "datetime.monotonicNanos" => vec![
-                import("QueryPerformanceCounter", KERNEL32, required_by),
-                import("QueryPerformanceFrequency", KERNEL32, required_by),
-            ],
-            "datetime.nowNanos" => vec![import(
-                "GetSystemTimePreciseAsFileTime",
-                KERNEL32,
-                required_by,
-            )],
-            "datetime.localOffset" => vec![
-                import("FileTimeToSystemTime", KERNEL32, required_by),
-                import("SystemTimeToTzSpecificLocalTime", KERNEL32, required_by),
-                import("SystemTimeToFileTime", KERNEL32, required_by),
-            ],
-            // os:: (plan-66-B). name/arch are const strings (no import). pid and
-            // cpuCount are single kernel32 calls.
-            "os.pid" => vec![import("GetCurrentProcessId", KERNEL32, required_by)],
-            "os.cpuCount" => vec![import("GetSystemInfo", KERNEL32, required_by)],
-            // The env family serializes on the SRWLOCK env lock and marshals
-            // names/values UTF-8↔UTF-16 around Get/SetEnvironmentVariableW.
-            // getEnv/getEnvOr/hasEnv read (emit_env_get); setEnv/unsetEnv write
-            // (emit_env_set); setEnv also reads GetLastError via emit_errno. The
-            // merged IAT dedups the shared set. plan-66-B.
-            "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv" => vec![
-                import("AcquireSRWLockExclusive", KERNEL32, required_by),
-                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
-                import("MultiByteToWideChar", KERNEL32, required_by),
-                import("WideCharToMultiByte", KERNEL32, required_by),
-                import("GetEnvironmentVariableW", KERNEL32, required_by),
-                import("SetEnvironmentVariableW", KERNEL32, required_by),
-                import("GetLastError", KERNEL32, required_by),
-            ],
-            // The *W string queries: GetComputerNameExW / GetUserNameW (advapi32) /
-            // GetModuleFileNameW, each marshaled UTF-16→UTF-8. plan-66-B.
-            "os.hostName" => vec![
-                import("GetComputerNameExW", KERNEL32, required_by),
-                import("WideCharToMultiByte", KERNEL32, required_by),
-            ],
-            "os.userName" => vec![
-                import("GetUserNameW", "advapi32.dll", required_by),
-                import("WideCharToMultiByte", KERNEL32, required_by),
-            ],
-            "os.executablePath" => vec![
-                import("GetModuleFileNameW", KERNEL32, required_by),
-                import("WideCharToMultiByte", KERNEL32, required_by),
-            ],
-            // environ synthesizes a POSIX char** from GetEnvironmentStringsW (freed
-            // with FreeEnvironmentStringsW), marshaling each entry to UTF-8, under
-            // the SRWLOCK env lock. plan-66-B.
-            "os.environ" => vec![
-                import("AcquireSRWLockExclusive", KERNEL32, required_by),
-                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
-                import("GetEnvironmentStringsW", KERNEL32, required_by),
-                import("FreeEnvironmentStringsW", KERNEL32, required_by),
-                import("WideCharToMultiByte", KERNEL32, required_by),
-            ],
-            // args: the program entry builds a UTF-8 argv from GetCommandLineW →
-            // CommandLineToArgvW (shell32) after the arena is mapped, marshaling each
-            // arg and LocalFree-ing the wide array. capture_args == uses(os.args), so
-            // these imports ride the os.args call. plan-66-B.
-            "os.args" => vec![
-                import("GetCommandLineW", KERNEL32, required_by),
-                import("CommandLineToArgvW", SHELL32, required_by),
-                import("LocalFree", KERNEL32, required_by),
-                import("WideCharToMultiByte", KERNEL32, required_by),
             ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
@@ -409,6 +272,9 @@ impl NativePlanPlatform for Platform {
                 import("AcquireCredentialsHandleW", SECUR32, required_by),
                 import("FreeCredentialsHandle", SECUR32, required_by),
                 import("InitializeSecurityContextW", SECUR32, required_by),
+                // Server handshake (tls.listen/accept): AcceptSecurityContext has
+                // no A/W variant (it takes no string args).
+                import("AcceptSecurityContext", SECUR32, required_by),
                 import("DeleteSecurityContext", SECUR32, required_by),
                 import("FreeContextBuffer", SECUR32, required_by),
                 import("QueryContextAttributesW", SECUR32, required_by),
@@ -419,13 +285,37 @@ impl NativePlanPlatform for Platform {
                 import("CertVerifyCertificateChainPolicy", CRYPT32, required_by),
                 import("CertFreeCertificateChain", CRYPT32, required_by),
                 import("CertFreeCertificateContext", CRYPT32, required_by),
+                // Server credential build: PEM → DER (CryptStringToBinaryA), the
+                // cert context, the PKCS#8→PKCS#1 decode, and the property that
+                // binds the private key to the cert.
+                import("CryptStringToBinaryA", CRYPT32, required_by),
+                import("CertCreateCertificateContext", CRYPT32, required_by),
+                import("CertSetCertificateContextProperty", CRYPT32, required_by),
+                import("CryptDecodeObjectEx", CRYPT32, required_by),
+                // Legacy CryptoAPI ephemeral private-key import (advapi32): the
+                // CryptImportKey-into-VERIFYCONTEXT + CERT_KEY_CONTEXT recipe.
+                import("CryptAcquireContextW", ADVAPI32, required_by),
+                import("CryptImportKey", ADVAPI32, required_by),
+                import("CryptDestroyKey", ADVAPI32, required_by),
+                import("CryptReleaseContext", ADVAPI32, required_by),
                 import("getaddrinfo", WS2_32, required_by),
                 import("freeaddrinfo", WS2_32, required_by),
                 import("socket", WS2_32, required_by),
                 import("connect", WS2_32, required_by),
+                // Server socket: bind/listen/accept + the SO_REUSEADDR toggle and
+                // the connection-wait poll.
+                import("bind", WS2_32, required_by),
+                import("listen", WS2_32, required_by),
+                import("accept", WS2_32, required_by),
+                import("setsockopt", WS2_32, required_by),
+                import("WSAPoll", WS2_32, required_by),
                 import("send", WS2_32, required_by),
                 import("recv", WS2_32, required_by),
                 import("closesocket", WS2_32, required_by),
+                // The PEM cert/key files are read via the Win32 file API.
+                import("CreateFileW", KERNEL32, required_by),
+                import("ReadFile", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],

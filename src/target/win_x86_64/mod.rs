@@ -51,20 +51,6 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.deleteDirectory",
     "fs.listDirectory",
     "fs.canonicalPath",
-    // fs:: extras (plan-66-E). open/openFileNoFollow reuse emit_open_file;
-    // createDirectories = recursive CreateDirectoryW; createTempFile = emit_open_file
-    // + emit_random_bytes (NOT emit_mkstemps — see Corrections); setBuffered/
-    // isBuffered/isWithin are platform-independent resource/path logic. Atomic
-    // writes (writeTextAtomic/writeBytesAtomic) still pending the emit_mkstemps impl.
-    "fs.open",
-    "fs.openFileNoFollow",
-    "fs.createDirectories",
-    "fs.createTempFile",
-    "fs.writeTextAtomic",
-    "fs.writeBytesAtomic",
-    "fs.setBuffered",
-    "fs.isBuffered",
-    "fs.isWithin",
     // File-resource surface.
     "fs.openFile",
     "fs.close",
@@ -75,72 +61,11 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.writeAll",
     "fs.writeAllBytes",
     "fs.flush",
-    // datetime:: OS-seam intrinsics (plan-66-A): monotonic/wall clocks over
-    // QueryPerformanceCounter + GetSystemTimePreciseAsFileTime, local offset over
-    // the FILETIME/SYSTEMTIME conversion round-trip. Bodies in
-    // shared/code/datetime.rs (PlatformFamily::Windows arm), imports in plan.rs.
-    "datetime.nowNanos",
-    "datetime.monotonicNanos",
-    "datetime.localOffset",
-    // os:: introspection (plan-66-B). name/arch are const-string arms (no import);
-    // pid = GetCurrentProcessId; cpuCount = GetSystemInfo.
-    "os.name",
-    "os.arch",
-    "os.pid",
-    "os.cpuCount",
-    // os:: environment (plan-66-B): Get/SetEnvironmentVariableW under the SRWLOCK
-    // env lock, with UTF-8↔UTF-16 marshaling (emit_env_get/emit_env_set).
-    "os.getEnv",
-    "os.getEnvOr",
-    "os.hasEnv",
-    "os.setEnv",
-    "os.unsetEnv",
-    // os:: *W string queries (plan-66-B): host/user name + executable path.
-    "os.hostName",
-    "os.userName",
-    "os.executablePath",
-    // os::environ (plan-66-B): a POSIX char** synthesized from GetEnvironmentStringsW.
-    "os.environ",
-    // os::args (plan-66-B): UTF-8 argv built in the entry from GetCommandLineW /
-    // CommandLineToArgvW after the arena is mapped (defers_arg_capture).
-    "os.args",
-    // io:: console input + buffering (plan-66-C). Reads ride emit_read_file (fd 0 →
-    // GetStdHandle(STD_INPUT)+ReadFile); pollInput rides emit_poll_input
-    // (WaitForSingleObject on the stdin handle); isBuffered/setBuffered are
-    // platform-independent buffer-flag logic; flush drains the stdout buffer.
-    "io.input",
-    "io.readLine",
-    "io.readChar",
-    "io.readByte",
-    "io.pollInput",
-    "io.flush",
-    "io.isBuffered",
-    "io.setBuffered",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",
     "io.isErrorTerminal",
     "term.terminalSize",
-    // term:: styling / TUI (plan-66-D). The shared arms emit ANSI escape sequences
-    // through the shadow-grid diff (already platform-neutral); term::on enables
-    // ENABLE_VIRTUAL_TERMINAL_PROCESSING (emit_enable_vt_output) so conhost renders
-    // them. Raw-mode/terminalSize machinery shipped in plan-47-G.
-    "term.on",
-    "term.off",
-    "term.isOn",
-    "term.setForeground",
-    "term.setBackground",
-    "term.setBold",
-    "term.setUnderline",
-    "term.showCursor",
-    "term.hideCursor",
-    "term.clear",
-    "term.sync",
-    "term.moveTo",
-    "term.getForeground",
-    "term.getBackground",
-    "term.getBold",
-    "term.getUnderline",
     "thread.start",
     "thread.waitFor",
     "thread.send",
@@ -190,14 +115,16 @@ const RUNTIME_CALLS: &[&str] = &[
     "crypto.p256Verify",
     "crypto.p384Verify",
     "crypto.p521Verify",
-    // TLS client over Schannel (plan-47-J). Server (listen/accept) is not yet
-    // advertised on Windows.
+    // TLS client + server over Schannel (plan-47-J).
     "tls.connect",
     "tls.read",
     "tls.readText",
     "tls.write",
     "tls.writeText",
     "tls.close",
+    "tls.listen",
+    "tls.accept",
+    "tls.closeListener",
 ];
 
 impl NativeBackend for Backend {
