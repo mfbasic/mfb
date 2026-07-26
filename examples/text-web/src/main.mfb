@@ -248,22 +248,19 @@ FUNC isTextKey(key AS String) AS Boolean
 END FUNC
 
 ' ----- drawing -----
+'
+' The frame is split into "chrome" (the address bar, the two rules, and the
+' footer) and the "content" region (the page text). Chrome is one row each and
+' cheap, so it is repainted every frame. The content region can be many rows and
+' its wrapped text is expensive to lay out, so it is repainted only when the
+' page, the scroll offset, or the terminal size actually changes — the main loop
+' tracks that with a dirty flag. term::sync then emits only the cells that
+' differ from the previous frame, so an unchanged region costs no terminal I/O.
 
-' Paint one whole frame from the current state and present it.
-SUB renderFrame(size AS TermSize, addressMode AS Boolean, url AS String, wrapped AS List OF String, scroll AS Integer, loadState AS String, secure AS Boolean, spinner AS Integer, filesLoaded AS Integer, filesTotal AS Integer)
+' Draw the address bar, both rules, the footer, and place the cursor.
+SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, loadState AS String, secure AS Boolean, spinner AS Integer, filesLoaded AS Integer, filesTotal AS Integer)
   LET cols AS Integer = size.columns
   LET rows AS Integer = size.rows
-
-  term::clear()
-
-  IF cols < 1 OR rows < 5 THEN
-    term::moveTo(0, 0)
-    io::write(fit("Window too small", maxOf(1, cols)))
-    term::sync()
-    EXIT SUB
-  END IF
-
-  LET contentH AS Integer = maxOf(1, rows - 4)
   LET ind AS String = indicatorText(loadState, secure, spinner)
   LET prefix AS String = "[" & ind & "] Address: "
 
@@ -275,30 +272,15 @@ SUB renderFrame(size AS TermSize, addressMode AS Boolean, url AS String, wrapped
   io::write(fit(prefix & url, cols))
   term::setBold(FALSE)
 
-  ' Row 1: header rule.
+  ' Row 1 and row H-2: the header and footer rules.
   term::setBackground(0, 0, 0)
   term::setForeground(90, 110, 150)
   term::moveTo(1, 0)
   io::write(strings::repeat("─", cols))
-
-  ' Content rows.
-  term::setForeground(210, 214, 220)
-  FOR r = 0 TO contentH - 1
-    LET idx AS Integer = scroll + r
-    MUT lineStr AS String = ""
-    IF idx >= 0 AND idx < len(wrapped) THEN
-      lineStr = collections::get(wrapped, idx)
-    END IF
-    term::moveTo(2 + r, 0)
-    io::write(fit(lineStr, cols))
-  NEXT
-
-  ' Footer rule.
-  term::setForeground(90, 110, 150)
   term::moveTo(rows - 2, 0)
   io::write(strings::repeat("─", cols))
 
-  ' Footer controls.
+  ' Row H-1: footer controls.
   LET rightPart AS String = "Files: " & toString(filesLoaded) & "/" & toString(filesTotal)
   MUT leftPart AS String = "[Q]uit  [G]o"
   IF addressMode THEN leftPart = "[Esc] Cancel  [Enter] Go"
@@ -319,8 +301,24 @@ SUB renderFrame(size AS TermSize, addressMode AS Boolean, url AS String, wrapped
   ELSE
     term::hideCursor()
   END IF
+END SUB
 
-  term::sync()
+' Repaint the whole content region (rows 2 .. H-3). Every row is rewritten,
+' blanks included, so a shorter page leaves no stale lines behind.
+SUB drawContent(size AS TermSize, wrapped AS List OF String, scroll AS Integer)
+  LET cols AS Integer = size.columns
+  LET contentH AS Integer = maxOf(1, size.rows - 4)
+  term::setBackground(0, 0, 0)
+  term::setForeground(210, 214, 220)
+  FOR r = 0 TO contentH - 1
+    LET idx AS Integer = scroll + r
+    MUT lineStr AS String = ""
+    IF idx >= 0 AND idx < len(wrapped) THEN
+      lineStr = collections::get(wrapped, idx)
+    END IF
+    term::moveTo(2 + r, 0)
+    io::write(fit(lineStr, cols))
+  NEXT
 END SUB
 
 FUNC main AS Integer
@@ -344,31 +342,86 @@ FUNC main AS Integer
   MUT filesLoaded AS Integer = 0
   MUT filesTotal AS Integer = 0
 
+  ' Cached layout. `wrapped` holds `content` laid out at `wrapWidth` columns;
+  ' it is recomputed only when the page text or the width changes (needRewrap).
+  ' `contentDirty` marks the content region for repaint (a load, a scroll, or a
+  ' resize); the chrome is cheap and repainted every frame. lastCols/lastRows
+  ' detect a resize.
+  MUT wrapped AS List OF String = []
+  MUT wrapWidth AS Integer = -1
+  MUT needRewrap AS Boolean = TRUE
+  MUT contentDirty AS Boolean = TRUE
+  MUT lastCols AS Integer = -1
+  MUT lastRows AS Integer = -1
+
   DO WHILE running
     ' Track the live terminal size; stop cleanly if the terminal detaches.
     LET size AS TermSize = term::terminalSize() TRAP(e)
       EXIT DO
     END TRAP
+    LET cols AS Integer = size.columns
+    LET rows AS Integer = size.rows
 
-    LET wrapped AS List OF String = wrapContent(content, size.columns)
-    LET maxScroll AS Integer = maxOf(0, len(wrapped) - contentHeight(size))
-    IF scroll > maxScroll THEN scroll = maxScroll
-    IF scroll < 0 THEN scroll = 0
+    IF cols < 1 OR rows < 5 THEN
+      ' Too small for the full layout: show a hint and wait for a key or resize.
+      term::clear()
+      term::moveTo(0, 0)
+      io::write(fit("Window too small", maxOf(1, cols)))
+      term::sync()
+      lastCols = cols
+      lastRows = rows
+      contentDirty = TRUE
+    ELSE
+      ' A resize invalidates the whole surface: clear and repaint everything.
+      IF cols <> lastCols OR rows <> lastRows THEN
+        term::clear()
+        contentDirty = TRUE
+        lastCols = cols
+        lastRows = rows
+      END IF
 
-    renderFrame(size, addressMode, url, wrapped, scroll, loadState, secure, spinner, filesLoaded, filesTotal)
+      ' Re-wrap only when the page text or the column width changed.
+      IF needRewrap OR cols <> wrapWidth THEN
+        wrapped = wrapContent(content, cols)
+        wrapWidth = cols
+        needRewrap = FALSE
+        contentDirty = TRUE
+      END IF
+
+      ' Keep the scroll offset in range; a change repaints the content region.
+      LET maxScroll AS Integer = maxOf(0, len(wrapped) - contentHeight(size))
+      IF scroll > maxScroll THEN
+        scroll = maxScroll
+        contentDirty = TRUE
+      END IF
+      IF scroll < 0 THEN
+        scroll = 0
+        contentDirty = TRUE
+      END IF
+
+      drawChrome(size, addressMode, url, loadState, secure, spinner, filesLoaded, filesTotal)
+      IF contentDirty THEN
+        drawContent(size, wrapped, scroll)
+        contentDirty = FALSE
+      END IF
+      term::sync()
+    END IF
+
     spinner = spinner + 1
 
     LET key AS String = readKey()
 
     IF addressMode THEN
       IF key = "ENTER" THEN
-        ' Leave Address Mode and attempt the load. Show a spinner frame first,
+        ' Leave Address Mode and attempt the load. Show a loading frame first,
         ' since http::read blocks the UI until the exchange completes.
         addressMode = FALSE
         loadState = "loading"
         LET full AS String = ensureScheme(strings::trim(url))
-        LET loading AS List OF String = wrapContent("Loading " & full & " ...", size.columns)
-        renderFrame(size, FALSE, url, loading, 0, loadState, secure, spinner, filesLoaded, filesTotal)
+        LET loading AS List OF String = wrapContent("Loading " & full & " ...", cols)
+        drawChrome(size, FALSE, url, loadState, secure, spinner, filesLoaded, filesTotal)
+        drawContent(size, loading, 0)
+        term::sync()
 
         LET page AS LoadResult = loadUrl(url)
         content = page.content
@@ -376,6 +429,8 @@ FUNC main AS Integer
         filesLoaded = page.filesLoaded
         filesTotal = page.filesTotal
         scroll = 0
+        needRewrap = TRUE
+        contentDirty = TRUE
         IF page.ok THEN
           loadState = "ok"
         ELSE
@@ -396,9 +451,13 @@ FUNC main AS Integer
       ELSEIF key = "g" OR key = "G" THEN
         addressMode = TRUE
       ELSEIF key = "UP" THEN
-        IF scroll > 0 THEN scroll = scroll - 1
+        IF scroll > 0 THEN
+          scroll = scroll - 1
+          contentDirty = TRUE
+        END IF
       ELSEIF key = "DOWN" THEN
         scroll = scroll + 1
+        contentDirty = TRUE
       END IF
     END IF
   LOOP
