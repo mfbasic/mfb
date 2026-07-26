@@ -161,7 +161,7 @@ build/link VERIFIED** (cross-built glibc+musl AppImages; on box 2227 the None Ap
 `libgtk-4`/`libgio-2.0`[hold/release]/`libglib`[g_idle_add] correctly). **On-box RUNTIME is
 display-blocked** (2227 has no display server); the equivalent behavior is on-device-proven on
 macOS (plan-62-C), which D mirrors.
-Commit: —
+Commit: 39e0b0a97
 
 ### Phase 2 — the runtime `setMode` reconcile + hold balancing (largest blast radius)
 
@@ -183,7 +183,7 @@ AppImages). **On-box RUNTIME is display-blocked** (no display on the reachable b
 identical macOS reconcile (plan-62-C) is on-device-proven via the io-routing flip, and D's GTK
 reconcile mirrors it. **This is the sole plan-62 acceptance criterion not runtime-verified, and
 only because no reachable GTK box currently has a display session.**
-Commit: —
+Commit: 39e0b0a97
 
 ## Validation Plan
 
