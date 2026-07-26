@@ -31,10 +31,11 @@ mod stl {
     pub const CBPK: usize = 152; // its size (out)
     pub const KBLOB: usize = 160; // CAPI PRIVATEKEYBLOB* (LocalAlloc'd)
     pub const CBKB: usize = 168; // its size (out)
-    pub const HPROV: usize = 176; // HCRYPTPROV (ephemeral, VERIFYCONTEXT)
+    pub const HPROV: usize = 176; // HCRYPTPROV (named keyset container)
     pub const HKEY: usize = 184; // HCRYPTKEY (imported private key)
-    pub const KEYCTX: usize = 192; // CERT_KEY_CONTEXT (24)
-    pub const SIZE: usize = 216;
+    pub const CONTNAME: usize = 192; // wide container name "M"+hex(WORK ptr) (48)
+    pub const KPI: usize = 240; // CRYPT_KEY_PROV_INFO (48)
+    pub const SIZE: usize = 288;
 }
 
 /// A Win64 external call that does NOT sign-extend its return — for the pointer-
@@ -198,6 +199,42 @@ fn emit_pem_to_der(
         abi::store_u64("%v11", abi::stack_pointer(), der_len_off),
     ]);
     Ok(())
+}
+
+/// Build a unique wide (UTF-16LE) key-container name at WORK.CONTNAME: 'M'
+/// followed by the 16 hex digits of the WORK arena pointer (distinct per
+/// listener) and a NUL. No external calls, so plain vregs are fine.
+fn emit_container_name(symbol: &str, work_off: usize, ins: &mut Vec<CodeInstruction>) {
+    let loop_l = format!("{symbol}_cn_loop");
+    let digit_l = format!("{symbol}_cn_digit");
+    let emit_l = format!("{symbol}_cn_emit");
+    let done_l = format!("{symbol}_cn_done");
+    ins.extend([
+        abi::load_u64("%v18", abi::stack_pointer(), work_off), // block base
+        abi::move_register("%v11", "%v18"),                    // hexify the ptr value
+        abi::move_immediate("%v9", "Integer", "77"),           // 'M'
+        abi::store_u16("%v9", "%v18", stl::CONTNAME),
+        abi::add_immediate("%v13", "%v18", stl::CONTNAME + 2), // dst cursor
+        abi::move_immediate("%v12", "Integer", "0"),           // i
+        abi::label(&loop_l),
+        abi::compare_immediate("%v12", "16"),
+        abi::branch_eq(&done_l),
+        abi::shift_right_immediate("%v14", "%v11", 60),        // top nibble
+        abi::compare_immediate("%v14", "10"),
+        abi::branch_lt(&digit_l),
+        abi::add_immediate("%v15", "%v14", 55),                // 'A' - 10
+        abi::branch(&emit_l),
+        abi::label(&digit_l),
+        abi::add_immediate("%v15", "%v14", 48),                // '0'
+        abi::label(&emit_l),
+        abi::store_u16("%v15", "%v13", 0),
+        abi::add_immediate("%v13", "%v13", 2),
+        abi::shift_left_immediate("%v11", "%v11", 4),
+        abi::add_immediate("%v12", "%v12", 1),
+        abi::branch(&loop_l),
+        abi::label(&done_l),
+        abi::store_u16(abi::ZERO, "%v13", 0),                  // NUL terminator
+    ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -406,21 +443,32 @@ pub(super) fn lower_tls_listen(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&tls_fail_fd),
     ]);
-    // CryptAcquireContextW(&WORK.HPROV, NULL, NULL, PROV_RSA_AES=24, CRYPT_VERIFYCONTEXT)
-    ins.extend([
-        abi::load_u64("%v10", abi::stack_pointer(), WORK),
-        abi::add_immediate(abi::return_register(), "%v10", stl::HPROV),
-        abi::move_immediate(abi::ARG[1], "Integer", "0"),
-        abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::move_immediate(abi::ARG[3], "Integer", "24"),          // PROV_RSA_AES
-        abi::move_immediate(abi::ARG[4], "Integer", "4026531840"),  // CRYPT_VERIFYCONTEXT 0xF0000000
-    ]);
-    win_call(symbol, "CryptAcquireContextW", 5, false, imports, platform, &mut ins, &mut rel)?;
-    ins.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_eq(&tls_fail_fd),
-    ]);
-    // CryptImportKey(hProv, blob, cbBlob, 0, 0, &WORK.HKEY)
+    // Build a unique wide container name "M"+hex(WORK ptr) at WORK.CONTNAME. A CNG
+    // ephemeral key / VERIFYCONTEXT-imported key is not retrievable by Schannel; a
+    // named keyset container makes CryptGetUserKey(AT_KEYEXCHANGE) find the imported
+    // key, which is what CERT_KEY_PROV_INFO drives.
+    emit_container_name(symbol, WORK, &mut ins);
+    // Delete any stale keyset of this name (best effort), then create it fresh.
+    for (flag, check) in [("16", false), ("8", true)] {
+        // CryptAcquireContextW(&HPROV, CONTNAME, NULL, PROV_RSA_AES, flag)
+        ins.extend([
+            abi::load_u64("%v10", abi::stack_pointer(), WORK),
+            abi::add_immediate(abi::return_register(), "%v10", stl::HPROV),
+            abi::add_immediate(abi::ARG[1], "%v10", stl::CONTNAME),
+            abi::move_immediate(abi::ARG[2], "Integer", "0"),
+            abi::move_immediate(abi::ARG[3], "Integer", "24"), // PROV_RSA_AES
+            abi::move_immediate(abi::ARG[4], "Integer", flag), // 16=DELETEKEYSET, 8=NEWKEYSET
+        ]);
+        win_call(symbol, "CryptAcquireContextW", 5, false, imports, platform, &mut ins, &mut rel)?;
+        if check {
+            ins.extend([
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_eq(&tls_fail_fd),
+            ]);
+        }
+    }
+    // CryptImportKey(hProv, blob, cbBlob, 0, 0, &WORK.HKEY) — persists as the
+    // container's AT_KEYEXCHANGE key pair (the blob algid is CALG_RSA_KEYX).
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), WORK),
         abi::load_u64(abi::return_register(), "%v10", stl::HPROV),
@@ -435,21 +483,23 @@ pub(super) fn lower_tls_listen(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&tls_fail_fd),
     ]);
-    // CERT_KEY_CONTEXT { cbSize=24; hCryptProv=WORK.HPROV; dwKeySpec=AT_KEYEXCHANGE }.
-    // Schannel calls CryptGetUserKey(hProv, AT_KEYEXCHANGE) to recover the key.
+    // CRYPT_KEY_PROV_INFO { pwszContainerName=&CONTNAME; pwszProvName=NULL;
+    //   dwProvType=PROV_RSA_AES; dwFlags=0; cProvParam=0; rgProvParam=NULL;
+    //   dwKeySpec=AT_KEYEXCHANGE }. The rest of the struct is zero from the block init.
     ins.extend([
         abi::load_u64("%v10", abi::stack_pointer(), WORK),
+        abi::add_immediate("%v9", "%v10", stl::CONTNAME),
+        abi::store_u64("%v9", "%v10", stl::KPI),
+        abi::store_u64(abi::ZERO, "%v10", stl::KPI + 8),
         abi::move_immediate("%v9", "Integer", "24"),
-        abi::store_u32("%v9", "%v10", stl::KEYCTX),
-        abi::load_u64("%v9", "%v10", stl::HPROV),
-        abi::store_u64("%v9", "%v10", stl::KEYCTX + 8),
-        abi::move_immediate("%v9", "Integer", "1"), // AT_KEYEXCHANGE
-        abi::store_u32("%v9", "%v10", stl::KEYCTX + 16),
-        // CertSetCertificateContextProperty(cert, CERT_KEY_CONTEXT_PROP_ID, 0, &keyCtx)
+        abi::store_u32("%v9", "%v10", stl::KPI + 16),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u32("%v9", "%v10", stl::KPI + 40),
+        // CertSetCertificateContextProperty(cert, CERT_KEY_PROV_INFO_PROP_ID=2, 0, &kpi)
         abi::load_u64(abi::return_register(), "%v10", stl::CERTPTR),
-        abi::move_immediate(abi::ARG[1], "Integer", "5"),
+        abi::move_immediate(abi::ARG[1], "Integer", "2"),
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
-        abi::add_immediate(abi::ARG[3], "%v10", stl::KEYCTX),
+        abi::add_immediate(abi::ARG[3], "%v10", stl::KPI),
     ]);
     win_call(symbol, "CertSetCertificateContextProperty", 4, false, imports, platform, &mut ins, &mut rel)?;
     ins.extend([
@@ -466,6 +516,13 @@ pub(super) fn lower_tls_listen(
         abi::store_u32("%v9", "%v18", stl::SC_CRED + 4),
         abi::add_immediate("%v9", "%v18", stl::CERTPTR),
         abi::store_u64("%v9", "%v18", stl::SC_CRED + 8),
+        // grbitEnabledProtocols = SP_PROT_TLS1_2_SERVER (0x400). The server key is a
+        // legacy CryptoAPI key (CryptImportKey/PROV_RSA_AES); TLS 1.3 requires RSA-PSS
+        // signing, which a CAPI key cannot do, so AcceptSecurityContext fails on the
+        // first ClientHello (proven with openssl s_client: server writes 0 bytes).
+        // Pinning TLS 1.2 lets the CAPI key sign with PKCS#1 v1.5. plan-66-F.
+        abi::move_immediate("%v9", "Integer", "1024"),
+        abi::store_u32("%v9", "%v18", stl::SC_CRED + 56),
         abi::move_immediate("%v9", "Integer", "4194304"), // SCH_USE_STRONG_CRYPTO 0x400000
         abi::store_u32("%v9", "%v18", stl::SC_CRED + 72),
     ]);
@@ -514,9 +571,6 @@ pub(super) fn lower_tls_listen(
     // Error paths.
     // Credential-build failure with the listen fd open: close it, report ErrTlsFailed.
     ins.push(abi::label(&tls_fail_fd));
-    // TEMP DEBUG: exit with GetLastError of the failing credential-build call.
-    platform.emit_libc_call("GetLastError", symbol, imports, &mut ins, &mut rel)?;
-    platform.emit_libc_call("ExitProcess", symbol, imports, &mut ins, &mut rel)?;
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
     platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
@@ -566,6 +620,7 @@ pub(super) fn lower_tls_accept(
     let hs_read = format!("{symbol}_hs_read");
     let hs_asc = format!("{symbol}_hs_asc");
     let hs_done = format!("{symbol}_hs_done");
+    let hs_finish = format!("{symbol}_hs_finish");
     let have_ctx = format!("{symbol}_have_ctx");
     let arg1_done = format!("{symbol}_arg1_done");
     let no_send = format!("{symbol}_no_send");
@@ -714,7 +769,7 @@ pub(super) fn lower_tls_accept(
     ins.push(abi::label(&no_send));
     ins.extend([
         abi::compare_immediate("%v15", SEC_E_OK),
-        abi::branch_eq(&hs_done),
+        abi::branch_eq(&hs_finish),
         // SEC_I_CONTINUE_NEEDED: handle SECBUFFER_EXTRA in INBUF[1] or recv anew.
         abi::load_u64("%v10", abi::stack_pointer(), STATE),
         abi::load_u32("%v9", "%v10", st::INBUF + 16 + 4),
@@ -737,6 +792,31 @@ pub(super) fn lower_tls_accept(
         abi::load_u64("%v10", abi::stack_pointer(), STATE),
         abi::store_u64(abi::ZERO, "%v10", st::RECV_LEN),
         abi::branch(&hs_read),
+        // Handshake complete: the final ASC consumed the client's last flight from
+        // RECV. If application data arrived coalesced (INBUF[1] EXTRA), keep it at
+        // the front of RECV for the first read; otherwise reset RECV_LEN to 0 so
+        // read does not re-decrypt consumed handshake bytes.
+        abi::label(&hs_finish),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u32("%v9", "%v10", st::INBUF + 16 + 4),
+        abi::compare_immediate("%v9", SECBUFFER_EXTRA),
+        abi::branch_ne(&format!("{symbol}_fin_noextra")),
+        abi::load_u32("%v11", "%v10", st::INBUF + 16),
+        abi::load_u64("%v12", "%v10", st::RECV_LEN),
+        abi::subtract_registers("%v13", "%v12", "%v11"),
+        abi::add_immediate("%v14", "%v10", st::RECV),
+        abi::add_registers("%v14", "%v14", "%v13"),
+        abi::add_immediate("%v6", "%v10", st::RECV),
+    ]);
+    move_bytes("%v14", "%v6", "%v11", &format!("{symbol}_finextra"), &mut ins);
+    ins.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::load_u32("%v11", "%v10", st::INBUF + 16),
+        abi::store_u64("%v11", "%v10", st::RECV_LEN),
+        abi::branch(&hs_done),
+        abi::label(&format!("{symbol}_fin_noextra")),
+        abi::load_u64("%v10", abi::stack_pointer(), STATE),
+        abi::store_u64(abi::ZERO, "%v10", st::RECV_LEN),
         abi::label(&hs_done),
     ]);
 
@@ -848,6 +928,17 @@ pub(super) fn lower_tls_close_listener(
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
     win_call(symbol, "CryptReleaseContext", 2, false, imports, platform, &mut ins, &mut rel)?;
+    // Delete the persisted keyset container (best effort):
+    // CryptAcquireContextW(&HPROV, CONTNAME, NULL, PROV_RSA_AES, CRYPT_DELETEKEYSET).
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), WORK),
+        abi::add_immediate(abi::return_register(), "%v9", stl::HPROV),
+        abi::add_immediate(abi::ARG[1], "%v9", stl::CONTNAME),
+        abi::move_immediate(abi::ARG[2], "Integer", "0"),
+        abi::move_immediate(abi::ARG[3], "Integer", "24"),
+        abi::move_immediate(abi::ARG[4], "Integer", "16"), // CRYPT_DELETEKEYSET
+    ]);
+    win_call(symbol, "CryptAcquireContextW", 5, false, imports, platform, &mut ins, &mut rel)?;
     // closesocket(fd)
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
     platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
