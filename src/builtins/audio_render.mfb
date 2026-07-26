@@ -45,7 +45,7 @@ FUNC __audio_clampS16(v AS Integer) AS Integer
 END FUNC
 
 ' bug-339 C7: shared little-endian s16 emit, previously inlined in __audio_render
-' and duplicated in __mml_encode. `sample` must already be in signed 16-bit range;
+' and duplicated in __audio_mmlEncode. `sample` must already be in signed 16-bit range;
 ' the +65536 wrap maps a negative sample to its unsigned two's-complement bytes.
 FUNC __audio_appendS16LE(pcm AS List OF Byte, sample AS Integer) AS List OF Byte
   MUT v AS Integer = sample

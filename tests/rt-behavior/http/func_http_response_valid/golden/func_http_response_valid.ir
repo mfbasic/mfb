@@ -69,7 +69,7 @@
     "kind": "type",
     "line": 405,
     "visibility": "public",
-    "name": "RouteMatch",
+    "name": "#http_RouteMatch",
     "fields": [
     { "visibility": null, "line": 406, "name": "matched", "type": "Boolean" },
     { "visibility": null, "line": 407, "name": "params", "type": "Map OF String TO String" }
@@ -1916,7 +1916,7 @@
     { "name": "pattern", "line": 801, "type": "String", "default": null },
     { "name": "path", "line": 801, "type": "String", "default": null }
     ],
-    "returns": "RouteMatch",
+    "returns": "#http_RouteMatch",
     "body": [
     { "op": "bind", "line": 802, "mutable": true, "name": "params", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [] } },
     { "op": "bind", "line": 803, "mutable": false, "name": "pSegs", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "#http_segments", "args": [{ "kind": "local", "name": "pattern" }] } },
@@ -2039,7 +2039,7 @@
       "else": [
       ]
     },
-    { "op": "return", "line": 857, "value": { "kind": "constructor", "type": "RouteMatch", "args": [{ "kind": "local", "name": "ok" }, { "kind": "local", "name": "params" }] } }
+    { "op": "return", "line": 857, "value": { "kind": "constructor", "type": "#http_RouteMatch", "args": [{ "kind": "local", "name": "ok" }, { "kind": "local", "name": "params" }] } }
     ]
   },
   {
@@ -2095,7 +2095,7 @@
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "idx" }, "right": { "kind": "local", "name": "n" } },
       "body": [
       { "op": "bind", "line": 879, "mutable": false, "name": "r", "type": "Route", "value": { "kind": "call", "type": "Route", "target": "collections.get", "args": [{ "kind": "local", "name": "routes" }, { "kind": "local", "name": "idx" }] } },
-      { "op": "bind", "line": 880, "mutable": false, "name": "m", "type": "RouteMatch", "value": { "kind": "call", "type": "RouteMatch", "target": "#http_matchPath", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "r" }, "member": "pattern" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "req" }, "member": "path" }] } },
+      { "op": "bind", "line": 880, "mutable": false, "name": "m", "type": "#http_RouteMatch", "value": { "kind": "call", "type": "#http_RouteMatch", "target": "#http_matchPath", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "r" }, "member": "pattern" }, { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "req" }, "member": "path" }] } },
       {
         "op": "if",
         "line": 881,

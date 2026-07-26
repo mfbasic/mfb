@@ -402,7 +402,7 @@ END TYPE
 ' Internal route-match result: the shared core cannot mutate a record field, so
 ' matching produces the bound params here and `dispatch` rebuilds the Request
 ' with `WITH`.
-TYPE RouteMatch
+TYPE __http_RouteMatch
   matched AS Boolean
   params  AS Map OF String TO String
 END TYPE
@@ -798,7 +798,7 @@ SUB __http_validatePattern(pattern AS String)
   END WHILE
 END SUB
 
-FUNC __http_matchPath(pattern AS String, path AS String) AS RouteMatch
+FUNC __http_matchPath(pattern AS String, path AS String) AS __http_RouteMatch
   MUT params AS Map OF String TO String = Map OF String TO String {}
   LET pSegs AS List OF String = __http_segments(pattern)
   LET uSegs AS List OF String = __http_segments(path)
@@ -854,7 +854,7 @@ FUNC __http_matchPath(pattern AS String, path AS String) AS RouteMatch
   IF ok = TRUE AND ui < un THEN
     ok = FALSE
   END IF
-  RETURN RouteMatch[ok, params]
+  RETURN __http_RouteMatch[ok, params]
 END FUNC
 
 ' Invoke a route's handler on the request, converting any handler failure into
@@ -877,7 +877,7 @@ FUNC __http_dispatch(req AS Request, routes AS List OF Route) AS Response
   MUT idx AS Integer = 0
   WHILE idx < n
     LET r AS Route = collections::get(routes, idx)
-    LET m AS RouteMatch = __http_matchPath(r.pattern, req.path)
+    LET m AS __http_RouteMatch = __http_matchPath(r.pattern, req.path)
     IF m.matched = TRUE THEN
       LET boundReq AS Request = WITH req { params := m.params }
       RETURN __http_invokeHandler(r, boundReq)

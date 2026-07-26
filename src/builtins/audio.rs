@@ -49,7 +49,7 @@ const RENDER: &str = "audio.render";
 const INTERNAL_RENDER: &str = "__audio_render";
 const PLAY: &str = "audio.play";
 const INTERNAL_PLAY: &str = "__audio_play";
-const INTERNAL_PLAY_TRACKS: &str = "__audio_play_tracks";
+const INTERNAL_PLAY_TRACKS: &str = "__audio_playTracks";
 
 /// Internal call names produced by `implementation_name` during IR lowering.
 /// They never appear as a source callee, so `resolve_call` does not accept them;
