@@ -456,7 +456,7 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   loop). **Result: `list chunks` 5.5 → 0.91 ms (~6x; COMPLETE, <=5ms, beats Python 1.68).**
   checksum 20000 proven unchanged; cargo test green; artifact-gate clean; acceptance passes.
   `lower_collection_chunks_call`. Commit: `13fcc99d0`.
-- **[x] D4-partition — LANDED.** Native `collections::partition` for 8-byte fixed-width
+- **[x] D4-partition — LANDED `af75ab381`.** Native `collections::partition` for 8-byte fixed-width
   elements (Integer/Float/Fixed/Money; gate parses `#collections_partition$T`, else `.mfb`).
   One predicate pass into two `lower_reserved_list` outputs (matched/unmatched, each pre-sized
   to source so neither regrows), then the `Partition$T` record is built once via the existing
@@ -473,7 +473,13 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   evaluates the predicate through `transform`, so a failing predicate propagates/traps for the
   String/Scalar/Byte fallback and every inline-TRAP receiver. `any`/`all`/`findIndex`/
   `findLastIndex` were the plan's other D4 candidates but are already complete (≤2.3 ms, not
-  offenders) — moot, no native lowering added.
+  offenders) — moot, no native lowering added. **Gates:** full `cargo test` green (exit 0);
+  `artifact-gate.sh` 0 diffs (1072 tests / 1342 goldens); the 3 partition-compiling fixtures pass
+  (partition-native-trap-rt, collections-artifact-coverage-rt, builtin-pair-partition-valid). The
+  full `test-accept.sh` run reported 2 mismatches, both `rt-behavior/money/money_inexact_float_warn`
+  "missing actual" — a **false failure from a concurrent foreign agent's `test-accept` sharing the
+  same `target/accept-actual` dir** (that fixture does not use partition and passes when re-run
+  isolated). Not a regression.
 - Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the
   sortBy/groupBy buffer copies free) and **B** (borrowed element for String lists). Gate:
   list checksums + `scripts/artifact-gate.sh`.
@@ -886,7 +892,7 @@ fixtures pass):**
 | **D3-window** | native `window` (8-byte elems, const size) — direct nested-block build | list window | 20.6 → **4.6 (4.5×)** | `9409d7941` |
 | **D3-chunks** | native `chunks` (8-byte elems, const size) — direct nested-block build | list chunks | 5.5 → **0.9 (COMPLETE**, beats Py) | `13fcc99d0` |
 | **D1-groupBy** | native `groupBy` (8-byte T/V, Integer key) — inline hash + top-level buckets, kills O(bucket²) | listchurn nested | 70.8 → **13.3 (5.3×)** | `34024b800` |
-| **D4-partition** | native `partition` (8-byte elems) — filter-into-two reserved lists + `emit_build_inlined_record`; **+ fixed a pre-existing `.mfb` callback-FAIL swallow** (route predicate through `transform`) | list partition | 6.09 → **~3.6 (COMPLETE**, ≤5 ms) | _(this session)_ |
+| **D4-partition** | native `partition` (8-byte elems) — filter-into-two reserved lists + `emit_build_inlined_record`; **+ fixed a pre-existing `.mfb` callback-FAIL swallow** (route predicate through `transform`) | list partition | 6.09 → **~3.6 (COMPLETE**, ≤5 ms) | `af75ab381` |
 
 **9 sub-plans landed (D fully done: D1/D2/D3/D4).** Native-codegen technique proven and reused
 across D2/C2/D3: monomorphized-target dispatch gate (`#collections_<fn>$…`), FUNC-pointer
@@ -911,7 +917,7 @@ pass; correctness bar per `.ai/compiler.md` governs):**
   `Bind Result; If ResultIsOk{ResultValue} else{ResultError}` shape — **tree-wide blast
   radius** (every `TRAP`).
 - ~~**D1** (native groupBy)~~ — **LANDED** `34024b800` (listchurn nested 70.8 → 13.3). ~~**D4**
-  (native partition)~~ — **LANDED this session** (list partition 6.09 → ~3.6, COMPLETE).
+  (native partition)~~ — **LANDED** `af75ab381` (list partition 6.09 → ~3.6, COMPLETE).
 - **C1** (map in-place removeKey, `mapchurn churn` 166 ms) — variable-length String-key
   data-region compaction + offset fixups + incremental bucket maintenance; still O(N)/op
   (win is only no-alloc + O(1) paired `hasKey`), new in-place path needs its own tests.
