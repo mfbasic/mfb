@@ -40,15 +40,18 @@ const H_COLS: usize = 8;
 const H_CUR_ROW: usize = 16;
 const H_CUR_COL: usize = 24;
 const H_DIRTY: usize = 32;
-const HDR_SIZE: usize = 40;
+// Header size / cell field offsets are shared with `term.rs`'s drawing helpers
+// (drawHLine/drawVLine stamp glyphs straight into the same back buffer), so they
+// are `pub(super)` to keep a single source of truth for the layout.
+pub(super) const HDR_SIZE: usize = 40;
 
 // Cell layout (16 bytes).
 const CELL_SIZE: usize = 16;
-const C_GLYPH: usize = 0;
-const C_FG: usize = 4;
-const C_BG: usize = 8;
-const C_BOLD: usize = 12;
-const C_UN: usize = 13;
+pub(super) const C_GLYPH: usize = 0;
+pub(super) const C_FG: usize = 4;
+pub(super) const C_BG: usize = 8;
+pub(super) const C_BOLD: usize = 12;
+pub(super) const C_UN: usize = 13;
 
 /// Worst-case escape bytes emitted per changed cell. Sizes the per-block output
 /// buffer.

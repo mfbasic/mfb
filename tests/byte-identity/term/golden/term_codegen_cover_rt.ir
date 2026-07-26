@@ -8,6 +8,21 @@
     "accepts_args": false
   },
   "types": [
+  {
+    "kind": "enum",
+    "line": 30,
+    "visibility": "export",
+    "name": "LineStyle",
+    "members": [
+    { "name": "Light" },
+    { "name": "Heavy" },
+    { "name": "LightDash" },
+    { "name": "HeavyDash" },
+    { "name": "LightDot" },
+    { "name": "HeavyDot" },
+    { "name": "Double" }
+    ]
+  }
   ],
   "functions": [
   {

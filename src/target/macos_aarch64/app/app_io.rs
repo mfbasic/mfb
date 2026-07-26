@@ -618,6 +618,8 @@ pub(crate) fn emit_app_term_helper(
             TV_CUR_UNDERLINE_OFFSET,
         ),
         "term.moveTo" => emit_app_move_to(symbol, term_state_offset),
+        "term.drawHLine" => emit_app_draw_line(symbol, term_state_offset, true),
+        "term.drawVLine" => emit_app_draw_line(symbol, term_state_offset, false),
         "term.clear" => emit_app_clear(symbol, term_state_offset),
         "term.sync" => emit_app_term_sync(symbol, term_state_offset),
         "term.showCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "1"),
@@ -965,6 +967,113 @@ fn emit_app_clear(symbol: &str, term_state_offset: usize) -> AppHookBody {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::label(&done));
     emit_term_ok_return(&mut asm, frame, &[(abi::LOCAL[1], 8), (abi::LOCAL[2], 16)]);
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::drawHLine`/`drawVLine` app body: resolve the `LineStyle` ordinal to a
+/// `unichar` glyph, park it plus the fixed line and span endpoints in the TermView
+/// state, then marshal `mfbDrawLine:` onto the main thread (waitUntilDone:YES) so
+/// the cell buffer is mutated there (bug-165), matching `mfbClear:`. `is_horizontal`
+/// selects the glyph table at emit time; the main-thread IMP clamps the span to the
+/// current grid. The repaint is present-driven (plan-35-D §3).
+fn emit_app_draw_line(symbol: &str, term_state_offset: usize, is_horizontal: bool) -> AppHookBody {
+    let mut asm = Asm::new(symbol);
+    // Frame: lr@0, x20(tv)@8, x21(state)@16, x22(sel)@24, ord@32, fixed@40, lo@48,
+    // hi@56.
+    let frame = 64;
+    let done = format!("{symbol}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 32)); // ordinal
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), 40)); // fixed
+    asm.push(abi::store_u64("x2", abi::stack_pointer(), 48)); // lo endpoint
+    asm.push(abi::store_u64("x3", abi::stack_pointer(), 56)); // hi endpoint
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    // tv = objc_getAssociatedObject([NSApplication sharedApplication], &TERMVIEW_KEY)
+    asm.external_data(abi::LOCAL[1], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0")); // termView or nil
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+    // state = objc_getAssociatedObject(tv, &TVSTATE_KEY)
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // state or nil
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_eq(&done));
+    // Resolve the glyph from the parked ordinal; ordinal 0 (Light) is the
+    // fall-through default. The table is chosen at emit time (this body is emitted
+    // separately for drawHLine and drawVLine).
+    let table: &[u32; 7] = if is_horizontal {
+        &code::TERM_HLINE_CODEPOINTS
+    } else {
+        &code::TERM_VLINE_CODEPOINTS
+    };
+    let gdone = format!("{symbol}_gdone");
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 32)); // ordinal
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[1],
+        "Integer",
+        &table[0].to_string(),
+    ));
+    for (ordinal, codepoint) in table.iter().enumerate().skip(1) {
+        let next = format!("{symbol}_g{ordinal}");
+        asm.push(abi::compare_immediate(abi::SCRATCH[0], &ordinal.to_string()));
+        asm.push(abi::branch_ne(&next));
+        asm.push(abi::move_immediate(
+            abi::SCRATCH[1],
+            "Integer",
+            &codepoint.to_string(),
+        ));
+        asm.push(abi::branch(&gdone));
+        asm.push(abi::label(&next));
+    }
+    asm.push(abi::label(&gdone));
+    asm.push(abi::store_u64(abi::SCRATCH[1], abi::LOCAL[2], TV_DRAW_GLYPH_OFFSET));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 40));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_DRAW_FIXED_OFFSET));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 48));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_DRAW_LO_OFFSET));
+    asm.push(abi::load_u64(abi::SCRATCH[0], abi::stack_pointer(), 56));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_DRAW_HI_OFFSET));
+    asm.push(abi::move_immediate(
+        abi::SCRATCH[0],
+        "Integer",
+        if is_horizontal { "1" } else { "0" },
+    ));
+    asm.push(abi::store_u64(abi::SCRATCH[0], abi::LOCAL[2], TV_DRAW_HORIZ_OFFSET));
+    // [tv performSelectorOnMainThread:@selector(mfbDrawLine:) withObject:nil
+    //     waitUntilDone:YES]
+    asm.load_selector(SEL_MFB_DRAW_LINE.0);
+    asm.push(abi::move_register(abi::LOCAL[3], "x1")); // mfbDrawLine: sel
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", abi::LOCAL[3]));
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // withObject: nil
+    asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&done));
+    emit_term_ok_return(
+        &mut asm,
+        frame,
+        &[(abi::LOCAL[1], 8), (abi::LOCAL[2], 16), (abi::LOCAL[3], 24)],
+    );
     (
         CodeFrame {
             stack_size: 0,

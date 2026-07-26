@@ -245,6 +245,15 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
     asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
     asm.push(abi::move_register("x0", abi::LOCAL[6]));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbDrawLine:), imp, "v@:@") — main-thread
+    // draw-line (term::drawHLine/drawVLine). Like mfbClear:, the IMP mutates the
+    // cell buffer, so it runs on the main thread; it reads the draw parameters the
+    // worker parked in the TermView state and ignores the object arg.
+    asm.load_selector(SEL_MFB_DRAW_LINE.0);
+    asm.local_address("x2", MFB_DRAW_LINE_SYMBOL);
+    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
     // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:") — so the
     // TermView can become first responder and receive keyDown: in TUI mode.
     asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);

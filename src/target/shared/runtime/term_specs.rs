@@ -72,6 +72,18 @@ pub(crate) const TERM_MOVE_TO_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
+pub(crate) const TERM_DRAW_HLINE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.drawHLine",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
+pub(crate) const TERM_DRAW_VLINE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.drawVLine",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
 pub(crate) const TERM_GET_FOREGROUND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Term,
     call: "term.getForeground",

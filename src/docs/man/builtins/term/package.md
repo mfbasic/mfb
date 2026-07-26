@@ -56,14 +56,23 @@ alter text already on the screen; each setting is independent, so changing one
 leaves the others untouched, and the matching get function reads the current
 value back. [[src/builtins/term.rs:MOVE_TO]]
 
-The package defines two built-in record types. `TermColor` has three `Byte`
-fields `r`, `g`, and `b` holding the red, green, and blue channels of a color,
-and is returned by `term::getForeground` and `term::getBackground`. `TermSize`
-has two `Integer` fields `columns` (the width of the surface in character cells)
-and `rows` (its height), and is returned by `term::terminalSize`; the surface
-size can change between calls (for example when the terminal window is resized),
-so a program that depends on it should query it again rather than caching the
-result. [[src/builtins/term.rs:builtin_type_fields]]
+Beyond text, the surface can draw box-drawing rules: `term::drawHLine` stamps a
+horizontal run of a box-drawing glyph across a row and `term::drawVLine` stamps a
+vertical run down a column, both using the colours and attributes in effect and
+both presented on the next `term::sync`. The glyph weight is chosen with the
+`LineStyle` enum (`Light`, `Heavy`, `LightDash`, `HeavyDash`, `LightDot`,
+`HeavyDot`, `Double`); each variant has a horizontal form for `drawHLine` and a
+vertical form for `drawVLine`. [[src/target/shared/code/term.rs:emit_draw_line]]
+
+The package defines two built-in record types and one enum. `TermColor` has three
+`Byte` fields `r`, `g`, and `b` holding the red, green, and blue channels of a
+color, and is returned by `term::getForeground` and `term::getBackground`.
+`TermSize` has two `Integer` fields `columns` (the width of the surface in
+character cells) and `rows` (its height), and is returned by `term::terminalSize`;
+the surface size can change between calls (for example when the terminal window is
+resized), so a program that depends on it should query it again rather than caching
+the result. `LineStyle` selects the box-drawing weight for `term::drawHLine` and
+`term::drawVLine`. [[src/builtins/term.rs:builtin_type_fields]]
 
 ## Errors
 

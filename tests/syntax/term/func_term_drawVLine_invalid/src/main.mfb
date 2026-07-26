@@ -1,0 +1,9 @@
+IMPORT term
+
+FUNC main AS Integer
+  term::drawVLine(LineStyle.Light, 0, 0)
+  term::drawVLine(0, 0, 0, 0)
+  term::drawVLine(LineStyle.Light, "a", 0, 0)
+  term::drawVLine(LineStyle.Light, 0, 0, 0, 0)
+  RETURN 0
+END FUNC
