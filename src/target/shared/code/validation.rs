@@ -61,36 +61,6 @@ impl NativeCodePlan {
         }
         Ok(())
     }
-
-    pub(crate) fn to_json(&self) -> String {
-        format!(
-            concat!(
-                "{{\n",
-                "  \"format\": \"mfb-native-code-plan\",\n",
-                "  \"version\": 1,\n",
-                "  \"target\": {},\n",
-                "  \"buildMode\": {},\n",
-                "  \"arch\": {},\n",
-                "  \"project\": {},\n",
-                "  \"entrySymbol\": {},\n",
-                "  \"imports\": [{}\n  ],\n",
-                "  \"dataObjects\": [{}\n  ],\n",
-                "  \"functions\": [{}\n  ]\n",
-                "}}\n"
-            ),
-            json_string(&self.target),
-            json_string(self.build_mode.as_str()),
-            json_string(&self.arch),
-            json_string(&self.project),
-            self.entry_symbol
-                .as_ref()
-                .map(|symbol| json_string(symbol))
-                .unwrap_or_else(|| "null".to_string()),
-            join_json(&self.imports, 2),
-            join_json(&self.data_objects, 2),
-            join_json(&self.functions, 2)
-        )
-    }
 }
 
 impl CodeFunction {
