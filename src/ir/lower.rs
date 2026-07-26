@@ -59,6 +59,8 @@ pub fn lower_project_with_external_functions(
         .expect("built-in datetime package source must parse");
     let augmented = builtins::money::augmented_project(&augmented)
         .expect("built-in money package source must parse");
+    let augmented = builtins::term::augmented_project(&augmented)
+        .expect("built-in term package source must parse");
     // `vector` imports only intrinsic `math` (plan-06-vector.md §5).
     let augmented = builtins::vector::augmented_project(&augmented)
         .expect("built-in vector package source must parse");

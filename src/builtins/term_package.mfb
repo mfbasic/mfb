@@ -1,0 +1,38 @@
+' ===========================================================================
+' Built-in `term::` package source.
+'
+' Declares the `LineStyle` enum that selects which box-drawing weight
+' `term::drawHLine` / `term::drawVLine` stamp into the surface. The two drawing
+' callables are lowered directly in native codegen (console + app backends) —
+' this source only provides the enum type so `LineStyle.Light` … `LineStyle.Double`
+' resolve. The term records `TermColor` / `TermSize` remain native builtin types
+' (declared in `term.rs`), so this file carries the enum alone.
+'
+' Each variant maps to a horizontal glyph (drawHLine) and a vertical glyph
+' (drawVLine); the discriminants are the 0-based positions used by native
+' codegen to select the glyph: `Light = 0`, `Heavy = 1`, `LightDash = 2`,
+' `HeavyDash = 3`, `LightDot = 4`, `HeavyDot = 5`, `Double = 6`.
+' ===========================================================================
+
+DOC
+  ENUM LineStyle
+  DESC Selects the box-drawing weight `term::drawHLine` and `term::drawVLine`
+  DESC stamp into the surface. Each variant has a horizontal form (used by
+  DESC drawHLine) and a vertical form (used by drawVLine).
+  PROP Light Thin single line (─ │).
+  PROP Heavy Thick single line (━ ┃).
+  PROP LightDash Thin triple-dash line (┄ ┆).
+  PROP HeavyDash Thick triple-dash line (┅ ┇).
+  PROP LightDot Thin quadruple-dot line (┈ ┊).
+  PROP HeavyDot Thick quadruple-dot line (┉ ┋).
+  PROP Double Double line (═ ║).
+END DOC
+EXPORT ENUM LineStyle
+  Light           ' ─ │
+  Heavy           ' ━ ┃
+  LightDash       ' ┄ ┆
+  HeavyDash       ' ┅ ┇
+  LightDot        ' ┈ ┊
+  HeavyDot        ' ┉ ┋
+  Double          ' ═ ║
+END ENUM

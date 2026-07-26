@@ -104,6 +104,8 @@ pub(crate) const RUNTIME_CALLS: &[&str] = &[
     "term.clear",
     "term.sync",
     "term.moveTo",
+    "term.drawHLine",
+    "term.drawVLine",
     "term.getForeground",
     "term.getBackground",
     "term.getBold",

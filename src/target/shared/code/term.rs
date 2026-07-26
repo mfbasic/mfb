@@ -254,6 +254,8 @@ pub(super) fn lower_term_helper(
             ));
         }
         "term.moveTo" => emit_move_to(symbol, term_state_offset, &mut instructions),
+        "term.drawHLine" => emit_draw_line(symbol, term_state_offset, true, &mut instructions),
+        "term.drawVLine" => emit_draw_line(symbol, term_state_offset, false, &mut instructions),
         "term.getForeground" => emit_get_color(
             symbol,
             term_state_offset,
@@ -692,6 +694,206 @@ fn emit_move_to(symbol: &str, term_state_offset: usize, instructions: &mut Vec<C
         abi::label(&col_hi),
         abi::store_u64("%v12", "%v9", 16), // cursorRow
         abi::store_u64("%v13", "%v9", 24), // cursorCol
+    ]);
+    instructions.push(abi::label(&inactive));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// `LineStyle` ordinal (0..=6, in `term_package.mfb` order) → the box-drawing
+/// code point for the horizontal (`drawHLine`) and vertical (`drawVLine`) forms.
+const HLINE_CODEPOINTS: [u32; 7] = [0x2500, 0x2501, 0x2504, 0x2505, 0x2508, 0x2509, 0x2550];
+const VLINE_CODEPOINTS: [u32; 7] = [0x2502, 0x2503, 0x2506, 0x2507, 0x250A, 0x250B, 0x2551];
+
+/// Pack a code point's UTF-8 bytes little-endian into the u32 grid `glyph`
+/// encoding (`byte0 | byte1<<8 | byte2<<16`, the same layout `term_grid` writes
+/// and `term::sync` reads back). Every box-drawing glyph here is a 3-byte run.
+fn packed_glyph(codepoint: u32) -> u32 {
+    let ch = char::from_u32(codepoint).expect("box-drawing code point is valid");
+    let mut buf = [0u8; 4];
+    let bytes = ch.encode_utf8(&mut buf).as_bytes();
+    let mut packed = 0u32;
+    for (index, byte) in bytes.iter().enumerate() {
+        packed |= (*byte as u32) << (8 * index as u32);
+    }
+    packed
+}
+
+/// `term::drawHLine`/`drawVLine` (console): stamp a fixed box-drawing glyph across
+/// a run of back-buffer cells with the current colours/attributes; the run is
+/// shown on the next `term::sync`. A no-op while TUI mode is off or the grid is
+/// unallocated — the same gate every writer honours (§4.2.1).
+///
+/// Arguments arrive in registers as `ARG[0]` = the `LineStyle` ordinal, then the
+/// fixed line and the two span endpoints:
+///   drawHLine(line, row, colA, colB) — fixed `row`, span over columns.
+///   drawVLine(line, col, rowA, rowB) — fixed `col`, span over rows.
+/// `is_horizontal` selects, at emit time, which grid dimension bounds the fixed
+/// coordinate, which bounds the span, how a cell index is formed, and which glyph
+/// table is used. Endpoints may be given in either order (normalised to lo<=hi)
+/// and are clamped to the grid; a fixed coordinate off the grid, or a span with no
+/// on-grid cell, draws nothing (rather than clamping onto an edge line).
+fn emit_draw_line(
+    symbol: &str,
+    term_state_offset: usize,
+    is_horizontal: bool,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let inactive = format!("{symbol}_inactive");
+    let ord = "%v9";
+    let fixed = "%v10";
+    let lo = "%v11";
+    let hi = "%v12";
+    let gp = "%v13";
+    let rows = "%v14";
+    let cols = "%v15";
+    let back = "%v16";
+    let glyph = "%v17";
+    let fg = "%v18";
+    let bg = "%v19";
+    let bold = "%v20";
+    let un = "%v21";
+    let idx = "%v22";
+    let cell = "%v23";
+    let pos = "%v24";
+    let tmp = "%v25";
+
+    emit_gate_inactive(term_state_offset, &inactive, instructions);
+    // Snapshot the arguments; `lo`/`hi` provisionally hold (endpointA, endpointB)
+    // and are swapped below when given high-to-low.
+    instructions.extend([
+        abi::move_register(ord, abi::ARG[0]),
+        abi::move_register(fixed, abi::ARG[1]),
+        abi::move_register(lo, abi::ARG[2]),
+        abi::move_register(hi, abi::ARG[3]),
+        abi::load_u64(
+            gp,
+            ARENA_STATE_REGISTER,
+            term_state_offset + term_grid::TERM_STATE_GRID_OFFSET,
+        ),
+        abi::compare_immediate(gp, "0"),
+        abi::branch_eq(&inactive),
+        abi::load_u64(rows, gp, 0),
+        abi::load_u64(cols, gp, 8),
+        abi::add_immediate(back, gp, term_grid::HDR_SIZE),
+    ]);
+    // The grid dimension bounding the fixed coordinate vs. the span endpoints.
+    let fixed_limit = if is_horizontal { rows } else { cols };
+    let span_limit = if is_horizontal { cols } else { rows };
+    // The fixed coordinate must be on the grid: [0, fixed_limit-1], else nothing.
+    instructions.extend([
+        abi::compare_immediate(fixed, "0"),
+        abi::branch_lt(&inactive),
+        abi::compare_registers(fixed, fixed_limit),
+        abi::branch_ge(&inactive),
+    ]);
+    // Normalise the span so lo <= hi.
+    let span_ok = format!("{symbol}_dl_span_ok");
+    instructions.extend([
+        abi::compare_registers(lo, hi),
+        abi::branch_le(&span_ok),
+        abi::move_register(tmp, lo),
+        abi::move_register(lo, hi),
+        abi::move_register(hi, tmp),
+        abi::label(&span_ok),
+    ]);
+    // Clamp lo up to 0 and hi down to span_limit-1.
+    let lo_ok = format!("{symbol}_dl_lo_ok");
+    let hi_ok = format!("{symbol}_dl_hi_ok");
+    instructions.extend([
+        abi::compare_immediate(lo, "0"),
+        abi::branch_ge(&lo_ok),
+        abi::move_immediate(lo, "Integer", "0"),
+        abi::label(&lo_ok),
+        abi::subtract_immediate(tmp, span_limit, 1),
+        abi::compare_registers(hi, tmp),
+        abi::branch_le(&hi_ok),
+        abi::move_register(hi, tmp),
+        abi::label(&hi_ok),
+        // Whole line clamped off the grid (lo > hi) → nothing.
+        abi::compare_registers(lo, hi),
+        abi::branch_gt(&inactive),
+        // Current attributes stamped into each cell (mirrors `emit_grid_write`).
+        abi::load_u64(
+            fg,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_FG_OFFSET,
+        ),
+        abi::load_u64(
+            bg,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_BG_OFFSET,
+        ),
+        abi::load_u64(
+            bold,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_BOLD_OFFSET,
+        ),
+        abi::load_u64(
+            un,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_UNDERLINE_OFFSET,
+        ),
+    ]);
+    // Select the glyph from the ordinal (0..=6); ordinal 0 (`Light`) is the
+    // fall-through default so an out-of-range value can never strand `glyph`.
+    let table = if is_horizontal {
+        &HLINE_CODEPOINTS
+    } else {
+        &VLINE_CODEPOINTS
+    };
+    let glyph_done = format!("{symbol}_dl_glyph_done");
+    instructions.push(abi::move_immediate(
+        glyph,
+        "Integer",
+        &packed_glyph(table[0]).to_string(),
+    ));
+    for (ordinal, codepoint) in table.iter().enumerate().skip(1) {
+        let next = format!("{symbol}_dl_g{ordinal}");
+        instructions.extend([
+            abi::compare_immediate(ord, &ordinal.to_string()),
+            abi::branch_ne(&next),
+            abi::move_immediate(glyph, "Integer", &packed_glyph(*codepoint).to_string()),
+            abi::branch(&glyph_done),
+            abi::label(&next),
+        ]);
+    }
+    instructions.push(abi::label(&glyph_done));
+    // pos = lo..=hi, stamping the glyph into each cell. Cell index:
+    //   H → fixed*cols + pos ; V → pos*cols + fixed  (`cols` is the row stride).
+    let loop_top = format!("{symbol}_dl_loop");
+    let loop_done = format!("{symbol}_dl_done");
+    instructions.extend([
+        abi::move_register(pos, lo),
+        abi::label(&loop_top),
+        abi::compare_registers(pos, hi),
+        abi::branch_gt(&loop_done),
+    ]);
+    if is_horizontal {
+        instructions.extend([
+            abi::multiply_registers(idx, fixed, cols),
+            abi::add_registers(idx, idx, pos),
+        ]);
+    } else {
+        instructions.extend([
+            abi::multiply_registers(idx, pos, cols),
+            abi::add_registers(idx, idx, fixed),
+        ]);
+    }
+    instructions.extend([
+        abi::shift_left_immediate(idx, idx, 4), // * CELL_SIZE (16)
+        abi::add_registers(cell, back, idx),
+        abi::store_u32(glyph, cell, term_grid::C_GLYPH),
+        abi::store_u32(fg, cell, term_grid::C_FG),
+        abi::store_u32(bg, cell, term_grid::C_BG),
+        abi::store_u8(bold, cell, term_grid::C_BOLD),
+        abi::store_u8(un, cell, term_grid::C_UN),
+        abi::add_immediate(pos, pos, 1),
+        abi::branch(&loop_top),
+        abi::label(&loop_done),
     ]);
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
