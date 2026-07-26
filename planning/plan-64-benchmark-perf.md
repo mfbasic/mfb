@@ -383,7 +383,7 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   stashed-baseline rebuild; full `cargo test` green; `artifact-gate.sh` zero new diffs
   (native lowering is post-IR); 57 sort/collections acceptance fixtures pass; String-key
   fallback + TRAP'd failing keyFn both verified. `lower_collection_sortby_call`
-  (`builder_collection_queries.rs`), dispatch gate `builder_values.rs`. Commit: `<pending>`.
+  (`builder_collection_queries.rs`), dispatch gate `builder_values.rs`. Commit: `ec79ef661`.
 - **D3:** native window/chunks — slice **directly into the reserved result tail**
   (one copy, no temp piece), pre-reserved to the known piece count.
 - **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
