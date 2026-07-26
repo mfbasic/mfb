@@ -9,8 +9,10 @@ pub(super) fn generate_coverage_report(project_dir: &Path) {
         eprintln!("warning: coverage map missing; skipping coverage report");
         return;
     };
-    let counts = crate::testing::coverage::read_counts(&project_dir.join(crate::testing::COVDATA_FILE));
-    let failed = crate::testing::coverage::read_failed(&project_dir.join(crate::testing::COVFAIL_FILE));
+    let counts =
+        crate::testing::coverage::read_counts(&project_dir.join(crate::testing::COVDATA_FILE));
+    let failed =
+        crate::testing::coverage::read_failed(&project_dir.join(crate::testing::COVFAIL_FILE));
     let html = crate::testing::coverage::generate_html(project_dir, &slots, &counts, &failed);
     let out = project_dir.join(crate::testing::COVERAGE_HTML);
     match std::fs::write(&out, html) {

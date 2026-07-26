@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
 use crate::binary_repr;
+use crate::cli::help::PKG_HELP;
 use crate::doc;
 use crate::manifest::package::{
     package_file_url_path, project_json_with_package, project_json_with_updated_version,
@@ -23,7 +24,6 @@ use crate::manifest::{
     parse_project_json, project_kind, validate_packages_array, validate_project_manifest,
 };
 use crate::target;
-use crate::cli::help::PKG_HELP;
 
 use super::repo::REPO_HELP_HINT;
 

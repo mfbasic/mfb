@@ -281,7 +281,8 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let test_lowering = crate::testing::lower_testing_blocks(&mut ast, options.mode, &project_abs);
     if options.mode.coverage() {
         let covmap = project_abs.join(crate::testing::COVMAP_FILE);
-        if let Err(err) = crate::testing::coverage::write_covmap(&covmap, &test_lowering.cov_slots) {
+        if let Err(err) = crate::testing::coverage::write_covmap(&covmap, &test_lowering.cov_slots)
+        {
             eprintln!("warning: failed to write coverage map: {err}");
         }
     }

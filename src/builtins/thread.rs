@@ -477,7 +477,6 @@ fn thread_body_len(rest: &str) -> Option<usize> {
     Some(msg_len + 4 + out_len)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

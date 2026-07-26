@@ -214,9 +214,18 @@ mod tests {
         assert_eq!(arity(INPUT), Some((0, 1)));
         assert_eq!(arity("io.nope"), None);
 
-        assert_eq!(call_param_names(SET_BUFFERED).map(|groups| groups[0][0]), Some("enabled"));
-        assert_eq!(call_param_names(INPUT).map(|groups| groups[0][0]), Some("prompt"));
-        assert_eq!(call_param_names(POLL_INPUT).map(|groups| groups[0][0]), Some("timeoutMs"));
+        assert_eq!(
+            call_param_names(SET_BUFFERED).map(|groups| groups[0][0]),
+            Some("enabled")
+        );
+        assert_eq!(
+            call_param_names(INPUT).map(|groups| groups[0][0]),
+            Some("prompt")
+        );
+        assert_eq!(
+            call_param_names(POLL_INPUT).map(|groups| groups[0][0]),
+            Some("timeoutMs")
+        );
         assert!(call_param_names(FLUSH).is_some()); // niladic: an empty group list
         assert!(call_param_names("io.nope").is_none());
 

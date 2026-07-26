@@ -126,8 +126,8 @@ mod tests {
     }
 
     fn project(src: &str) -> crate::ast::AstProject {
-        let file =
-            crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src).expect("parse source");
+        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+            .expect("parse source");
         crate::ast::AstProject {
             name: "test".to_string(),
             files: vec![file],
