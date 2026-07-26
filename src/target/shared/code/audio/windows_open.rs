@@ -1,13 +1,22 @@
 // openOutput / openInput / openOutputDevice / openInputDevice / close.
+//
+// Open Decision 1 is honoured device-permitting: an EXCLUSIVE, event-driven
+// s16le stream (no resampling) is attempted first. If the device refuses that
+// format (AUDCLNT_E_UNSUPPORTED_FORMAT — the common case for a shared consumer
+// endpoint), the sanctioned fallback is SHARED mode at the device's own MIX
+// FORMAT (`GetMixFormat`): the engine's native geometry always initializes.
+// `write`/`read` then convert between the caller's s16le frames and the mix
+// format's 32-bit-float frames (`W_SHARED` selects the path; `W_MIX_CH`/
+// `W_MIX_BPF` carry the mix geometry). AUTOCONVERTPCM is deliberately NOT used:
+// on the Win11 test box it fast-fails (0xC0000409) inside WASAPI.
 
-/// Build the `WAVEFORMATEX` at `state->W_WFX`: s16le PCM at the requested
-/// channels/rate. Written as five 32-bit stores (the 16-bit fields packed into
-/// the low/high halves of a dword; the final store zeroes `cbSize` plus two pad
-/// bytes).
+/// Build the caller's `WAVEFORMATEX` (s16le PCM) at `state->W_WFX`, as five 32-bit
+/// stores (16-bit fields packed into dword halves; the last store zeroes `cbSize`
+/// plus two pad bytes).
 fn emit_build_wfx(ins: &mut Vec<CodeInstruction>) {
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate("%v10", "%v9", W_WFX), // wfx ptr
+        abi::add_immediate("%v10", "%v9", W_WFX),
         // +0: wFormatTag(=1) | nChannels<<16
         abi::load_u64("%v11", abi::stack_pointer(), CH_OFF),
         abi::shift_left_immediate("%v11", "%v11", 16),
@@ -53,15 +62,13 @@ fn emit_activate_client(
     ]);
 }
 
-/// `client->Initialize(shareMode, flags, dur, periodicity, &wfx, NULL)`, storing
-/// the (sign-extended) HRESULT at `HR_OFF`. `flags` is a decimal string;
-/// `periodicity_is_dur` chooses `dur` (EXCLUSIVE) or 0 (SHARED+event).
-fn emit_init_call(
-    exclusive: bool,
-    flags: &str,
-    periodicity_is_dur: bool,
-    ins: &mut Vec<CodeInstruction>,
-) {
+/// `client->Initialize(shareMode, EVENTCALLBACK, bufDur, periodicity, pFormat, NULL)`.
+/// `exclusive` selects the share mode and (per WASAPI's rules) the durations:
+/// EXCLUSIVE passes `dur` for both buffer and periodicity; SHARED passes 0/0 (the
+/// engine picks its own period — a non-zero value fast-fails). `mix_ptr` selects
+/// the format: `false` → the inline `state->W_WFX`; `true` → the pointer at
+/// `state->W_OUT0` (the `GetMixFormat` result). The HRESULT lands at `HR_OFF`.
+fn emit_initialize(exclusive: bool, mix_ptr: bool, ins: &mut Vec<CodeInstruction>) {
     spill_obj(W_CLIENT, ins);
     ins.extend([
         abi::move_immediate(
@@ -73,39 +80,47 @@ fn emit_init_call(
                 SHAREMODE_SHARED
             },
         ),
-        // flags (may exceed 12 bits): materialize by shift+add if large.
-    ]);
-    // AUTOCONVERTPCM|SRC|EVENTCALLBACK combine to 0x88040000 for SHARED; build via
-    // shift so no oversized immediate is emitted.
-    if flags == "shared" {
-        ins.extend([
-            abi::move_immediate(abi::ARG[2], "Integer", "262144"), // EVENTCALLBACK only TEST
-        ]);
-    } else {
-        ins.push(abi::move_immediate(abi::ARG[2], "Integer", flags));
-    }
-    ins.extend([
-        // hnsBufferDuration: EXCLUSIVE uses `dur`; SHARED + EVENTCALLBACK requires
-        // 0 (the engine picks its own period — a non-zero value fast-fails).
+        abi::move_immediate(abi::ARG[2], "Integer", STREAMFLAGS_EVENTCALLBACK),
+        // hnsBufferDuration / hnsPeriodicity
         if exclusive {
             abi::load_u64(abi::ARG[3], abi::stack_pointer(), TOTAL_OFF)
         } else {
             abi::move_register(abi::ARG[3], abi::ZERO)
         },
-        // ARG[4] = periodicity (stack arg 0)
-        if periodicity_is_dur {
+        if exclusive {
             abi::load_u64(abi::ARG[4], abi::stack_pointer(), TOTAL_OFF)
         } else {
             abi::move_register(abi::ARG[4], abi::ZERO)
         },
-        // ARG[5] = &wfx (stack arg 1)
+        // pFormat (stack arg 1)
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[5], "%v9", W_WFX),
-        // ARG[6] = AudioSessionGuid = NULL (stack arg 2)
+        if mix_ptr {
+            abi::load_u64(abi::ARG[5], "%v9", W_OUT0)
+        } else {
+            abi::add_immediate(abi::ARG[5], "%v9", W_WFX)
+        },
+        // AudioSessionGuid = NULL (stack arg 2)
         abi::move_register(abi::ARG[6], abi::ZERO),
     ]);
     com_call(SLOT_AC_INITIALIZE, 7, ins);
     ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HR_OFF));
+}
+
+/// `client->Release()` then a fresh `device->Activate` — used before the SHARED
+/// retry, since a client that failed `Initialize` cannot be reinitialized.
+fn emit_reactivate_client(
+    symbol: &str,
+    dev_fail: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
+    spill_obj(W_CLIENT, ins);
+    com_call(SLOT_RELEASE, 1, ins);
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+        abi::store_u64(abi::ZERO, "%v9", W_CLIENT),
+    ]);
+    emit_activate_client(symbol, dev_fail, ins, rel);
 }
 
 fn lower_open(
@@ -120,8 +135,7 @@ fn lower_open(
     let dev_fail = format!("{symbol}_dev_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let init_ok = format!("{symbol}_init_ok");
-    let retry = format!("{symbol}_retry");
-    let try_shared = format!("{symbol}_try_shared");
+    let use_shared = format!("{symbol}_use_shared");
     let done = format!("{symbol}_done");
 
     let mut ins = vec![abi::label("entry")];
@@ -185,8 +199,7 @@ fn lower_open(
         abi::store_u64(abi::ZERO, "%v15", W_XRUNS),
         abi::store_u64(abi::ZERO, "%v15", W_SHARED),
     ]);
-    // CoInitializeEx(NULL, COINIT_MULTITHREADED) — result ignored (safe to call
-    // repeatedly; even RPC_E_CHANGED_MODE leaves COM usable on the thread).
+    // CoInitializeEx(NULL, COINIT_MULTITHREADED) — result ignored.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate(abi::ARG[1], "Integer", COINIT_MULTITHREADED),
@@ -227,26 +240,11 @@ fn lower_open(
         ]);
         com_call(SLOT_GET_DEFAULT_ENDPOINT, 4, &mut ins);
     }
-    // DEBUG: dump get-device hr, then the device pointer.
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HR_OFF));
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
     ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v9", "%v9", W_DEVICE),
-        abi::store_u64("%v9", abi::stack_pointer(), HR_OFF),
-    ]);
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
-    ins.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), HR_OFF),
-    ]);
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v9", "%v9", W_DEVICE),
-        abi::compare_immediate("%v9", "0"),
-        abi::branch_eq(&dev_fail),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&dev_fail),
     ]);
     emit_activate_client(symbol, &dev_fail, &mut ins, &mut rel);
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
     emit_build_wfx(&mut ins);
     // dur = bufferFrames * REFTIMES_PER_SEC / sampleRate  -> TOTAL_OFF
     ins.extend([
@@ -257,90 +255,69 @@ fn lower_open(
         abi::unsigned_divide_registers("%v9", "%v9", "%v10"),
         abi::store_u64("%v9", abi::stack_pointer(), TOTAL_OFF),
     ]);
-    // DEBUG: dump dur (TOTAL_OFF) then the wfx pointer before Initialize.
-    emit_dbg(symbol, TOTAL_OFF, platform_imports, platform, &mut ins, &mut rel);
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate("%v9", "%v9", W_WFX),
-        abi::store_u64("%v9", abi::stack_pointer(), HR_OFF),
-    ]);
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
     // --- EXCLUSIVE attempt (Open Decision 1: s16le, no resampling) ----------
-    emit_init_call(false, "shared", false, &mut ins); // TEST: shared-first
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
+    emit_initialize(true, false, &mut ins);
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HR_OFF),
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ge(&init_ok),
+        abi::branch_lt(&use_shared),
+        // EXCLUSIVE succeeded: direct s16le, mix geometry == user geometry.
+        abi::load_u64("%v15", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64("%v9", abi::stack_pointer(), CH_OFF),
+        abi::store_u64("%v9", "%v15", W_MIX_CH),
+        abi::load_u64("%v9", abi::stack_pointer(), BPF_OFF),
+        abi::store_u64("%v9", "%v15", W_MIX_BPF),
+        abi::store_u64(abi::ZERO, "%v15", W_SHARED),
+        abi::branch(&init_ok),
+        abi::label(&use_shared),
     ]);
-    // AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED (0x88890019) -> aligned retry, else SHARED.
-    branch_if_hr(0x8889, 0x0019, &retry, &mut ins);
-    ins.push(abi::branch(&try_shared));
-    ins.push(abi::label(&retry));
-    // GetBufferSize(&W_BUFFER) -> aligned frame count.
+    // --- SHARED fallback at the device MIX FORMAT (clearly a last resort) -----
+    emit_reactivate_client(symbol, &dev_fail, &mut ins, &mut rel);
+    // GetMixFormat(&state->W_OUT0)
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::store_u64(abi::ZERO, "%v9", W_BUFFER),
+        abi::store_u64(abi::ZERO, "%v9", W_OUT0),
     ]);
     spill_obj(W_CLIENT, &mut ins);
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::add_immediate(abi::ARG[1], "%v9", W_BUFFER),
+        abi::add_immediate(abi::ARG[1], "%v9", W_OUT0),
     ]);
-    com_call(SLOT_AC_GET_BUFFER_SIZE, 2, &mut ins);
-    // dur = (REFTIMES_PER_SEC * alignedFrames + sr - 1) / sr  (round up) -> TOTAL_OFF
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::load_u32("%v9", "%v9", W_BUFFER),
-        abi::move_immediate("%v10", "Integer", REFTIMES_PER_SEC),
-        abi::multiply_registers("%v9", "%v9", "%v10"),
-        abi::load_u64("%v10", abi::stack_pointer(), SR_OFF),
-        abi::add_registers("%v9", "%v9", "%v10"),
-        abi::subtract_immediate("%v9", "%v9", 1),
-        abi::unsigned_divide_registers("%v9", "%v9", "%v10"),
-        abi::store_u64("%v9", abi::stack_pointer(), TOTAL_OFF),
-    ]);
-    // Release the client and re-Activate a fresh one for the aligned Initialize.
-    spill_obj(W_CLIENT, &mut ins);
-    com_call(SLOT_RELEASE, 1, &mut ins);
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::store_u64(abi::ZERO, "%v9", W_CLIENT),
-    ]);
-    emit_activate_client(symbol, &dev_fail, &mut ins, &mut rel);
-    emit_init_call(true, STREAMFLAGS_EVENTCALLBACK, true, &mut ins);
-    ins.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_ge(&init_ok),
-    ]);
-    // --- SHARED fallback (last resort; AUTOCONVERTPCM keeps s16le) ----------
-    ins.push(abi::label(&try_shared));
-    // DEBUG: dump the client ptr about to be Released.
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::load_u64("%v9", "%v9", W_CLIENT),
-        abi::store_u64("%v9", abi::stack_pointer(), HR_OFF),
-    ]);
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
-    spill_obj(W_CLIENT, &mut ins);
-    com_call(SLOT_RELEASE, 1, &mut ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HR_OFF));
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::store_u64(abi::ZERO, "%v9", W_CLIENT),
-    ]);
-    emit_activate_client(symbol, &dev_fail, &mut ins, &mut rel);
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
-    emit_init_call(false, "shared", false, &mut ins);
-    emit_dbg(symbol, HR_OFF, platform_imports, platform, &mut ins, &mut rel);
+    com_call(SLOT_AC_GET_MIX_FORMAT, 2, &mut ins);
     ins.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&dev_fail),
+        // Read the mix WAVEFORMATEX: nChannels @+2 (u16), nSamplesPerSec @+4 (u32),
+        // nBlockAlign @+12 (u16), wBitsPerSample @+14 (u16).
         abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::move_immediate("%v10", "Integer", "1"),
-        abi::store_u64("%v10", "%v9", W_SHARED),
+        abi::load_u64("%v10", "%v9", W_OUT0), // mix wfx ptr
+        abi::load_u16("%v11", "%v10", 2),     // mixChannels
+        abi::store_u64("%v11", "%v9", W_MIX_CH),
+        abi::load_u16("%v11", "%v10", 12), // mixBlockAlign (frame stride)
+        abi::store_u64("%v11", "%v9", W_MIX_BPF),
+        abi::move_immediate("%v11", "Integer", "1"),
+        abi::store_u64("%v11", "%v9", W_SHARED),
+        // No resampling: the mix rate must equal the requested rate.
+        abi::load_u32("%v11", "%v10", 4), // mix rate
+        abi::load_u64("%v12", abi::stack_pointer(), SR_OFF),
+        abi::compare_registers("%v11", "%v12"),
+        abi::branch_ne(&dev_fail),
+        // Only a 32-bit-float mix format is convertible by the integer s16<->f32 path.
+        abi::load_u16("%v11", "%v10", 14), // mix bits per sample
+        abi::compare_immediate("%v11", "32"),
+        abi::branch_ne(&dev_fail),
     ]);
+    // Initialize SHARED with the mix format (pointer at W_OUT0).
+    emit_initialize(false, true, &mut ins);
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), HR_OFF),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&dev_fail),
+        // CoTaskMemFree(mixWfx)
+        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
+        abi::load_u64(abi::return_register(), "%v9", W_OUT0),
+    ]);
+    ole_call(symbol, "CoTaskMemFree", 1, platform_imports, platform, &mut ins, &mut rel)?;
     ins.push(abi::label(&init_ok));
     // Negotiated buffer frame count.
     ins.extend([
@@ -353,8 +330,7 @@ fn lower_open(
         abi::add_immediate(abi::ARG[1], "%v9", W_BUFFER),
     ]);
     com_call(SLOT_AC_GET_BUFFER_SIZE, 2, &mut ins);
-    // CreateEventW(NULL, FALSE, FALSE, NULL) — auto-reset; NOT sign-extended
-    // (the return is a 64-bit HANDLE).
+    // CreateEventW(NULL, FALSE, FALSE, NULL) — auto-reset; NOT sign-extended.
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
@@ -435,15 +411,10 @@ fn lower_open(
 /// `WIDEID_OFF` (endpoint ids are ASCII, so a byte->wchar zero-extend is exact).
 /// Clamps to 255 wchars.
 fn emit_widen_device_id(ins: &mut Vec<CodeInstruction>) {
-    let copy = "widen_dev_copy".to_string();
-    let done = "widen_dev_done".to_string();
-    let clamp_ok = "widen_dev_clamp".to_string();
-    // Unique labels per emission site are not needed: lower_open emits this at most
-    // once. Use a per-call suffix via instruction count to stay collision-free.
     let n = ins.len();
-    let copy = format!("{copy}_{n}");
-    let done = format!("{done}_{n}");
-    let clamp_ok = format!("{clamp_ok}_{n}");
+    let copy = format!("widen_dev_copy_{n}");
+    let done = format!("widen_dev_done_{n}");
+    let clamp_ok = format!("widen_dev_clamp_{n}");
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), DEVID_OFF),
         abi::load_u64("%v10", "%v9", 0),      // len
@@ -471,24 +442,13 @@ fn emit_widen_device_id(ins: &mut Vec<CodeInstruction>) {
     ]);
 }
 
-/// Release the COM interfaces the open acquired (in reverse order) and close the
-/// event handle, each null-guarded. Correct at any error exit after `STATE_OFF` is
-/// stored (every slot is zeroed at entry / never set before its acquisition). A
-/// null `STATE_OFF` means nothing was allocated yet, so the whole block is skipped.
+/// Release the four COM interfaces the open acquired (reverse order), each
+/// null-guarded. A null `STATE_OFF` (nothing allocated yet) skips the whole block.
 fn emit_open_cleanup(ins: &mut Vec<CodeInstruction>) {
-    let n = ins.len();
-    let no_state = format!("ocl_nostate_{n}");
     emit_release_field(W_SERVICE, ins);
     emit_release_field(W_CLIENT, ins);
     emit_release_field(W_DEVICE, ins);
     emit_release_field(W_ENUM, ins);
-    // CloseHandle(state->W_EVENT) if non-null. (Directly, not via a method.)
-    ins.extend([
-        abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
-        abi::compare_immediate("%v9", "0"),
-        abi::branch_eq(&no_state),
-    ]);
-    ins.push(abi::label(&no_state));
 }
 
 /// Release the COM object at `state->field` if non-null, then null the slot.

@@ -63,6 +63,7 @@ const SLOT_DEV_GET_ID: usize = 5;
 const SLOT_AC_INITIALIZE: usize = 3;
 const SLOT_AC_GET_BUFFER_SIZE: usize = 4;
 const SLOT_AC_GET_CURRENT_PADDING: usize = 6;
+const SLOT_AC_GET_MIX_FORMAT: usize = 8;
 const SLOT_AC_START: usize = 10;
 const SLOT_AC_STOP: usize = 11;
 const SLOT_AC_SET_EVENT_HANDLE: usize = 13;
@@ -91,8 +92,10 @@ const W_SHARED: usize = 64; // 1 = SHARED fallback, 0 = EXCLUSIVE
 const W_OUT0: usize = 72; // COM out-ptr scratch (pointer results / counts)
 const W_OUT1: usize = 80; // COM out-ptr scratch (data pointer)
 const W_OUT2: usize = 88; // COM out-ptr scratch (flags)
-const W_WFX: usize = 120; // WAVEFORMATEX (18 bytes, +pad) -> 120..144
-const W_SIZE: usize = 160;
+const W_WFX: usize = 120; // WAVEFORMATEX (18 bytes, +pad) -> 120..138
+const W_MIX_CH: usize = 144; // SHARED-mix: device mix channel count
+const W_MIX_BPF: usize = 152; // SHARED-mix: device mix bytes-per-frame (frame stride)
+const W_SIZE: usize = 176;
 
 const SLOT_ENUM_GET_DEVICE: usize = 5; // IMMDeviceEnumerator::GetDevice
 
@@ -218,39 +221,6 @@ fn spill_obj(field: usize, ins: &mut Vec<CodeInstruction>) {
         abi::load_u64("%v9", "%v9", field),
         abi::store_u64("%v9", abi::stack_pointer(), OBJ_OFF),
     ]);
-}
-
-/// `compare(HR_OFF, hr); branch_eq(target)` where `hr` is a negative-i32 HRESULT
-/// built by shift+add (the encoder rejects the negative literal). The stored HR is
-/// sign-extended, so build a matching sign-extended comparand.
-fn branch_if_hr(hi: usize, lo: usize, target: &str, ins: &mut Vec<CodeInstruction>) {
-    ins.extend([
-        abi::move_immediate("%v14", "Integer", &hi.to_string()),
-        abi::shift_left_immediate("%v14", "%v14", 16),
-        abi::add_immediate("%v14", "%v14", lo),
-        abi::sign_extend_word("%v14", "%v14"),
-        abi::load_u64("%v9", abi::stack_pointer(), HR_OFF),
-        abi::compare_registers("%v9", "%v14"),
-        abi::branch_eq(target),
-    ]);
-}
-
-/// DEBUG: write the 8 bytes at frame slot `off` to stdout.
-#[allow(dead_code)]
-fn emit_dbg(
-    symbol: &str,
-    off: usize,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
-    ins: &mut Vec<CodeInstruction>,
-    rel: &mut Vec<CodeRelocation>,
-) {
-    ins.extend([
-        abi::move_immediate(abi::ARG[0], "Integer", "1"),
-        abi::add_immediate(abi::ARG[1], abi::stack_pointer(), off),
-        abi::move_immediate(abi::ARG[2], "Integer", "8"),
-    ]);
-    let _ = platform.emit_write(symbol, platform_imports, ins, rel);
 }
 
 pub(super) fn lower_audio_windows(
