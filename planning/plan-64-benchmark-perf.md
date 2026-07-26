@@ -779,9 +779,21 @@ per modmul run vs C indexing a stack `uint32_t[]`.
   (`builder_numeric.rs:901`), ×~840k cells/run.
 
 **Fixes (checksums = constant line count / DP result, unchanged).**
-- **L1:** recognize a multi-`&` chain feeding a `LET`/`writeAll` and lower it to **one
-  summed-length allocation + N copies** (no intermediates) — or build in a pre-sized `MUT`
-  accumulator so the in-place concat path fires.
+- **[!] L1 (io format) REJECTED — attempted, measured, reverted this session.** Implemented
+  the concat-chain fusion exactly as designed: `flatten_string_concat` + `lower_string_concat_flat`
+  (one summed-length alloc + N straight copies, byte-identical — verified across 3/7-operand
+  chains, empty operands, 3002-byte strings). **It made no measurable difference: the
+  concat-construction microbench (20000×`toString(i) & " " & toString(f,3) & " row" & toString(i)
+  & "\n"`, `--run 50`) measured 3.657 ms WITH fusion vs 3.645 ms on the fusion-free main binary —
+  noise.** The premise is false for this row: the lines are **short** (~20 bytes, 7 tiny
+  operands), so the O(n²) prefix recopy is trivial (≤140 byte-copies/line) and the 6 eliminated
+  intermediate allocs are dwarfed by the **three per-line `toString`/float-format calls**, which
+  are the actual cost — and the plan already notes the Float formatter (`float_format.rs:48`) is
+  **intrinsic** per-value work. So `io format` is effectively capped by the formatter, not the
+  concat chain; L1 fusion (correct, and a real win for LONG chains) does not move it. Reverted to
+  avoid churning the string-concat codegen path (and its `.ncodesum` goldens) for zero benefit —
+  same discipline as the K/G3 rejections (measure before landing). A future long-chain workload
+  could revisit the fusion.
 - **L2 (memo):** an unchecked-`get` variant provable in-bounds when the index is a loop
   induction var with loop-invariant list length (reuse I1's bound-tracking); strength-
   reduce constant `MOD 1000000007` to a conditional subtract (the sum of two values each
@@ -995,6 +1007,13 @@ and what execution found, with evidence.
   through the interpreted body. Fixture: `partition-native-trap-rt` proves catch+recover on both
   the native and fallback receivers. Golden churn: partition's `.ir` in `collections-artifact-coverage-rt`
   regenerated (behavior byte-identical — `isBig` matches nothing in that fixture, split unchanged).
+- **L1 (io format concat fusion) is a mis-attribution — rejected with measurement.** The plan
+  blamed the ~7-`&` chain's O(n²) prefix recopy. Built the fusion; it measured **3.657 vs 3.645 ms
+  (noise)** because the lines are short and the cost is the three per-line `toString`/float-format
+  calls (intrinsic; `float_format.rs:48`), not the concat. `io format` is formatter-capped, not
+  concat-bound. Reverted (no benefit, only string-concat golden churn). This makes the fourth
+  wrong per-row attribution the execution found (after K, G3, and D1's "not done" staleness) —
+  the plan's `file:line` root-causes must each be **measured** before landing, not trusted.
 
 ## Open Decisions
 
