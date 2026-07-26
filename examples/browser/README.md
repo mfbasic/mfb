@@ -1,16 +1,17 @@
 # browser — a terminal web viewer
 
 A tiny full-screen terminal "web browser" built on the `term::` TUI surface and
-the `http::` client. It shows a page's raw source in a scrollable content area,
-with an address bar, a padlock secure-indicator, and an animated loading spinner.
+the `http::` client. It fetches a page, parses the HTML down to the title and
+readable text, and shows it in a scrollable content area, with an address bar, a
+padlock secure-indicator, and an animated loading spinner.
 
 This example is split into two projects so the loading spinner can keep spinning
-while a page loads:
+while a page loads and parses:
 
-| Project    | Kind         | What it is                                                        |
-| ---------- | ------------ | ----------------------------------------------------------------- |
-| `app/`     | executable   | The TUI: layout, input handling, scrolling, drawing.              |
-| `backend/` | package      | The network worker: the blocking `http::` fetch + redirect logic. |
+| Project    | Kind         | What it is                                                                 |
+| ---------- | ------------ | -------------------------------------------------------------------------- |
+| `app/`     | executable   | The TUI: layout, input handling, scrolling, drawing.                       |
+| `backend/` | package      | The network worker: the blocking `http::` fetch, redirect following, and HTML parsing. |
 
 ## Why two projects?
 
@@ -65,3 +66,19 @@ Run it from an interactive terminal.
 The top-bar indicator is a spinner while loading, 🔒 once a page has loaded over
 https, and 🔓 otherwise. Redirects (301/302/303/307/308) are followed
 automatically, up to 10 hops.
+
+## Parsing
+
+`backend::parseHtml` is a forgiving single-pass tag stripper, not an XML/DOM
+parser: it drops `<script>`/`<style>`/comments, breaks lines on block-level
+tags, decodes character references (`encoding::htmlUnescape`), and collapses
+whitespace — so real, often-malformed HTML turns into readable text. The
+`<title>` is captured separately and shown as a heading. A non-HTML body (JSON,
+plain text) is shown verbatim.
+
+Parsing runs on the worker thread, so only the small cleaned result crosses back
+to the UI. It also caps how many text segments it collects (`maxParts`): the
+runtime arena's free list is quadratic under the short-lived-String churn that
+extracting segments creates (a known open issue — see the benchmark's arena
+regression gate), so an unbounded parse of a multi-megabyte page would hang.
+Past the cap the page is rendered as a truncated preview.

@@ -17,7 +17,7 @@ IMPORT thread
 ' Layout (top to bottom):
 '   row 0            top bar:  [<spinner|🔒|🔓>] Address: <url>
 '   row 1            a single horizontal rule
-'   rows 2..H-3      the content area (the raw page, or an error/help text)
+'   rows 2..H-3      the content area (the page title + parsed text, or an error)
 '   row H-2          a single horizontal rule
 '   row H-1          footer:   [Q]uit  [G]o            Files: <loaded>/<total>
 '
@@ -369,7 +369,12 @@ FUNC main AS Integer
           ' Not aborted: take the result. (On abort the handle drops here,
           ' cancelling and detaching the worker so quitting is immediate.)
           LET page AS LoadResult = thread::waitFor(worker)
-          content = page.content
+          ' Show the page title (if any) as a heading above the body text.
+          IF page.title <> "" THEN
+            content = page.title & "\n\n" & page.content
+          ELSE
+            content = page.content
+          END IF
           secure = page.secure
           filesLoaded = page.filesLoaded
           filesTotal = page.filesTotal
