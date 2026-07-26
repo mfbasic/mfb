@@ -381,6 +381,32 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   sortBy/groupBy buffer copies free) and **B** (borrowed element for String lists). Gate:
   list checksums + `scripts/artifact-gate.sh`.
 
+> **D2 native sortBy — implementation-ready design (execution, this session).** This is the
+> most completable D-item: flat `List OF T` output (no nested/record construction like
+> groupBy/window/partition), a well-defined stable bottom-up merge sort. Investigated:
+> `__collections_sortBy` (`collections_package.mfb`) copies both whole lists per pass
+> (`MUT itemsDst = items`/`keysDst = keys`, unavoidable in source — every position is
+> overwritten so the copy is pure waste) then get×2+set×2 per element, over ⌈log₂n⌉ passes.
+> - **Scope gate:** native only when **both `T` (item) and `U` (key from `keyFn`) are
+>   fixed-width** (`list_element_is_fixed_width` = Integer/Float/Fixed/Money/Scalar/Byte);
+>   else return `None` → the `.mfb` fallback (String keys/items keep working). The
+>   `list sortBy` benchmark is `List OF Integer` by an Integer key, so it is covered.
+> - **Plan:** (1) `keys = lower_collection_transform_call(value, keyFn)` (already native).
+>   (2) Two ping-pong buffer pairs sized `n`: `(items,keys)` and scratch `(itemsB,keysB)`,
+>   each a kind-2 fixed-width block (`HEADER + n*width`, no lookup array; alloc like
+>   `lower_strings_to_bytes`/`lower_simd_alloc_list`, `dataLength = n*width`). Copy `value`
+>   into the first `items` buffer once. (3) Bottom-up merge: `for width in 1,2,4,… < n`,
+>   merge adjacent runs from src→dst using **direct addressing** `load/store [base + i*w]`
+>   (no per-element bounds check — indices are algorithm-controlled), key compare
+>   `keys[j] < keys[i]` via the type's native compare (signed for Integer/Fixed/Money,
+>   `fcmp` for Float, unsigned for Byte/Scalar), **taking `i` on ties** to preserve the
+>   `.mfb`'s stable order; then swap src/dst. (4) Return whichever buffer holds the result
+>   (track parity of the pass count, or final-copy into `items`). ~150 lines; dispatch case
+>   in `builder_values.rs` beside `transform`/`filter`. **Gate:** `list_sortBy` checksum
+>   unchanged + full `cargo test` + `artifact-gate.sh` + acceptance sort fixtures + a
+>   String-key sortBy fixture to prove the `.mfb` fallback still fires. **Not yet
+>   implemented** — a focused ~150-line codegen push with its own debug/verify budget.
+
 ### Sub-plan E — COW / refcount collection buffers
 
 **Covers (1 direct + broad):** list copy (32.8, P1); amplifies sortBy, groupBy, merge.
