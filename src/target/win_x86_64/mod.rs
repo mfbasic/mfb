@@ -60,6 +60,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.openFileNoFollow",
     "fs.createDirectories",
     "fs.createTempFile",
+    "fs.writeTextAtomic",
+    "fs.writeBytesAtomic",
     "fs.setBuffered",
     "fs.isBuffered",
     "fs.isWithin",

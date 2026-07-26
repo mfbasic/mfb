@@ -159,6 +159,23 @@ impl NativePlanPlatform for Platform {
             // (emit_open_file + emit_random_bytes over BCryptGenRandom). plan-66-E.
             // (openWithin is deferred — its no-symlink realpath path is an
             // `unreachable!` on Windows; see Corrections.)
+            // Atomic writes (plan-66-E): mkstemps (emit_mkstemps: BCryptGenRandom +
+            // CreateFileW CREATE_NEW over a marshaled template) → WriteFile →
+            // FlushFileBuffers → CloseHandle → MoveFileExW rename; a failed rename
+            // unlinks the temp (DeleteFileW). emit_write references GetStdHandle even
+            // on the file-handle path (the console branch's reloc is always emitted).
+            "fs.writeTextAtomic" | "fs.writeBytesAtomic" => vec![
+                import("BCryptGenRandom", BCRYPT, required_by),
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("GetStdHandle", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("FlushFileBuffers", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("MoveFileExW", KERNEL32, required_by),
+                import("DeleteFileW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             "fs.createTempFile" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("CreateFileW", KERNEL32, required_by),

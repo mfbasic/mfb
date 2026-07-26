@@ -1689,12 +1689,112 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_mkstemps(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // POSIX mkstemps over Win32 (plan-66-E). On entry: return_register() = a
+        // mutable UTF-8 template C-string ending in "XXXXXX<suffix>", ARG[1] = suffix
+        // byte length. Replace the 6 X markers with random lowercase letters, then
+        // CreateFileW(CREATE_NEW) — retrying on a name collision — and return the
+        // handle (a small positive value that the shared caller's sign-extend +
+        // `>= 0` check treats as a valid fd) or -1. The template is modified in place
+        // so the caller can rename the temp path afterward. Frame (subtract_stack(
+        // 0x60)): shadow [0x00..0x20), CreateFileW stack args [0x20..0x38), [0x38]
+        // template ptr, [0x40] X-markers ptr, [0x48] wide buffer, [0x50] retry count,
+        // [0x58] 8-byte random scratch.
+        const TMPL: usize = 0x38;
+        const XSTART: usize = 0x40;
+        const WIDE: usize = 0x48;
+        const RETRY: usize = 0x50;
+        const RAND: usize = 0x58;
+        const X_MARKER_COUNT: usize = 6;
+        let n = instructions.len();
+        let l = |s: &str| format!("{from}_mkstemps_{s}_{n}");
+        let (strlen_loop, strlen_done) = (l("sl"), l("sd"));
+        let (retry_loop, fill_loop, fill_done, success, giveup, done) =
+            (l("rl"), l("fl"), l("fd"), l("ok"), l("gu"), l("dn"));
+        instructions.push(abi::subtract_stack(0x60));
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), TMPL),
+            // X-markers start = strlen(template) - suffix_len - 6.
+            abi::move_register(abi::ARG[0], abi::return_register()),
+            abi::label(&strlen_loop),
+            abi::load_u8(abi::ARG[2], abi::ARG[0], 0),
+            abi::compare_immediate(abi::ARG[2], "0"),
+            abi::branch_eq(&strlen_done),
+            abi::add_immediate(abi::ARG[0], abi::ARG[0], 1),
+            abi::branch(&strlen_loop),
+            abi::label(&strlen_done),
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]), // - suffix_len
+            abi::subtract_immediate(abi::ARG[0], abi::ARG[0], X_MARKER_COUNT), // - 6
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), XSTART),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), RETRY),
+        ]);
+        arena_alloc_to_slot(from, "65536", WIDE, instructions, relocations);
+        instructions.push(abi::label(&retry_loop));
+        // 6 random bytes into the RAND scratch, then map each to 'a'+(byte % 26).
+        instructions.extend([
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), RAND),
+            abi::move_immediate(abi::ARG[1], "Integer", "6"),
+        ]);
+        self.emit_random_bytes(from, platform_imports, instructions, relocations)?;
+        instructions.extend([
+            abi::move_immediate(abi::ARG[0], "Integer", "0"), // i
+            abi::label(&fill_loop),
+            abi::compare_immediate(abi::ARG[0], "6"),
+            abi::branch_ge(&fill_done),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), RAND),
+            abi::add_registers(abi::ARG[1], abi::ARG[1], abi::ARG[0]),
+            abi::load_u8(abi::ARG[2], abi::ARG[1], 0), // random byte
+            abi::move_immediate(abi::ARG[3], "Integer", "26"),
+            abi::unsigned_divide_registers(abi::ARG[1], abi::ARG[2], abi::ARG[3]), // q
+            abi::multiply_subtract_registers(abi::ARG[2], abi::ARG[1], abi::ARG[3], abi::ARG[2]), // r = b - q*26
+            abi::add_immediate(abi::ARG[2], abi::ARG[2], 97), // 'a' + r
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), XSTART),
+            abi::add_registers(abi::ARG[1], abi::ARG[1], abi::ARG[0]),
+            abi::store_u8(abi::ARG[2], abi::ARG[1], 0),
+            abi::add_immediate(abi::ARG[0], abi::ARG[0], 1),
+            abi::branch(&fill_loop),
+            abi::label(&fill_done),
+        ]);
+        // Marshal template UTF-8 → UTF-16, then
+        // CreateFileW(lpFileName, GENERIC_READ|GENERIC_WRITE, 0, NULL, CREATE_NEW,
+        //   FILE_ATTRIBUTE_NORMAL, NULL). Stage the three stack args (5th/6th/7th)
+        // with ARG[0] as a temp BEFORE loading the four register args.
+        emit_utf8_slot_to_wide(from, TMPL, WIDE, "32768", instructions, relocations);
+        instructions.extend([
+            abi::move_immediate(abi::ARG[0], "Integer", "1"), // CREATE_NEW
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::ARG[0], "Integer", "128"), // FILE_ATTRIBUTE_NORMAL
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x28),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // hTemplateFile = NULL
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WIDE), // lpFileName
+            abi::move_immediate(abi::ARG[1], "Integer", "3221225472"), // GENERIC_READ|GENERIC_WRITE
+            abi::move_immediate(abi::ARG[2], "Integer", "0"), // dwShareMode
+            abi::move_immediate(abi::ARG[3], "Integer", "0"), // lpSecurityAttributes NULL
+        ]);
+        call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            // INVALID_HANDLE_VALUE = -1; a real handle is a small positive value.
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_gt(&success),
+            // collision or error: retry up to 100 times, then give up.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), RETRY),
+            abi::add_immediate(abi::ARG[0], abi::ARG[0], 1),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), RETRY),
+            abi::compare_immediate(abi::ARG[0], "100"),
+            abi::branch_lt(&retry_loop),
+            abi::label(&giveup),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
+            abi::branch(&done),
+            abi::label(&success),
+            abi::label(&done),
+            abi::add_stack(0x60),
+        ]);
+        Ok(())
     }
 
     fn emit_random_bytes(

@@ -1,0 +1,41 @@
+{
+  "project": "fs_atomic_write",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.createDirectories", "arguments": [{ "kind": "string", "value": "target/fs-atomic-write" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeTextAtomic", "arguments": [{ "kind": "string", "value": "target/fs-atomic-write/t.txt" }, { "kind": "string", "value": "atomic-text-世界" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "text_ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "target/fs-atomic-write/t.txt" }] }, "right": { "kind": "string", "value": "atomic-text-世界" } }] } }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "72" }, { "kind": "number", "value": "105" }, { "kind": "number", "value": "33" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeBytesAtomic", "arguments": [{ "kind": "string", "value": "target/fs-atomic-write/b.txt" }, { "kind": "identifier", "value": "bytes" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bytes_ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "target/fs-atomic-write/b.txt" }] }, "right": { "kind": "string", "value": "Hi!" } }] } }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 16,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "TRAP=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 18 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

@@ -375,7 +375,7 @@ Commit: 78622bb8d
   correct incl. `os::args` with real quoted + Unicode arguments.
 
 Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **MET** — all 15 calls box-proven on 2230, incl. `os::args alpha beta "gamma with spaces" 世界` → four args parsed and UTF-8-marshaled. Non-args + non-Windows entries byte-identical; full `cargo test` green.
-Commit: 52e5fb79c (t1); 69599dfc9 (env); eae84d465 (string trio); 95b305201 (environ); args — this commit
+Commit: 52e5fb79c (t1); 69599dfc9 (env); eae84d465 (string trio); 95b305201 (environ); aa138536a (args)
 
 ### Phase C — `io::` input + buffering
 - [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.
@@ -398,7 +398,7 @@ Commit: —
 Acceptance: a TUI program (colors, cursor moves, clear) renders correctly in Windows Terminal on the box. **MET** — box (`term66.exe`) emitted the correct ANSI stream: `^[[?1049h` alt-screen, `^[[38;2;255;0;0m red-text` at row 2, `^[[1m` bold `bold-text` at row 3, full grid present, `^[[?1049l` restore, `isOn` FALSE→(on)→FALSE. Renders as color in Windows Terminal (raw ESC shown here only because ssh captured a pipe, where VT-enable correctly no-ops). Non-Windows byte-identical (default `emit_enable_vt_output` emits nothing; existing term fixtures + full `cargo test` green); Windows build deterministic.
 Commit: 7eab44bd9
 
-### Phase E — `fs::` extras  (IN PROGRESS — 7/10 calls landed)
+### Phase E — `fs::` extras  (9/10 landed — acceptance MET)
 - [~] Advertise + implement the 10 extras. **Landed & box-proven:** `open`,
   `openFileNoFollow` (both via `lower_fs_open_helper`/`emit_open_file`),
   `createDirectories` (recursive CreateDirectoryW), `createTempFile` (filled
@@ -407,16 +407,26 @@ Commit: 7eab44bd9
   uses `emit_open_file`+`emit_random_bytes`, see Corrections), `setBuffered`,
   `isBuffered` (platform-independent resource flag), `isWithin` (fixed the
   hardcoded `/` separator → platform-aware `\` on Windows, a real bug found on the
-  box). **Deferred:** `openWithin` (its no-symlink realpath path is
-  `unreachable!("47-F owns the Windows realpath/no-symlink path")`),
-  `writeTextAtomic`/`writeBytesAtomic` (use the `emit_mkstemps` stub — the actual
-  `emit_mkstemps` consumer, not createTempFile).
-- [x] Tests: fixture `tests/rt-behavior/fs/fs-temp-file-buffered` (createTempFile +
-  set/isBuffered, system-temp only so no repo pollution); box run of
-  createDirectories/createTempFile/open+readText/isWithin all correct.
+  box). `writeTextAtomic`/`writeBytesAtomic` now land via a real `emit_mkstemps`
+  (Windows): fill the template's `XXXXXX` markers with random lowercase letters
+  (BCryptGenRandom + mod 26) and CreateFileW(CREATE_NEW) with a 100-try
+  collision-retry loop, returning the handle-as-fd; the shared helper then
+  writes/flushes/closes and MoveFileExW-renames. Box-proven (Unicode text + a byte
+  list). **Deferred (1):** `openWithin` — its `unreachable!("47-F owns the Windows
+  realpath/no-symlink path")` guards a *symlink-security* contract (reject a
+  post-canonicalization symlink swap out of `root`). The POSIX model
+  (canonicalize-then-open-with-`O_NOFOLLOW_ANY`/`RESOLVE_NO_SYMLINKS`) has no direct
+  Windows analog; the correct Windows design is open-then-verify:
+  GetFinalPathNameByHandleW on the opened handle → containment check against the
+  canonical root → close+reject on escape. That is a distinct, security-sensitive
+  change (a half-correct check is a hole), so it is deferred to its own focused
+  work rather than rushed here.
+- [x] Tests: fixtures `fs-temp-file-buffered` (createTempFile + set/isBuffered) and
+  `fs-atomic-write` (writeTextAtomic/writeBytesAtomic under `target/`); box runs of
+  createDirectories/createTempFile/open+readText/isWithin/atomic-writes all correct.
 
-Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **PARTIAL** — temp-file + nested-mkdir + open/read + isWithin box-proven; atomic writes deferred (need `emit_mkstemps`).
-Commit: 71f2a3fab
+Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **MET** — writeTextAtomic (Unicode) + createTempFile + createDirectories nested + open/read + isWithin all box-proven; only `openWithin` (a separate security-sensitive design) is deferred.
+Commit: 71f2a3fab (7/10); atomic writes — this commit
 
 ### Phase F — `tls::` server
 - [ ] Advertise the 3 calls; fill Schannel server arms (`tls/mod.rs:338,352`).
