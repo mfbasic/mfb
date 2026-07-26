@@ -1,0 +1,7 @@
+# Machine-generated stdlib sources (bug-339 A1/A2). Each is produced by a
+# generator under scripts/ and verified byte-for-byte by scripts/check-generated.sh
+# in CI. Do not hand-edit; move any change into the generator instead.
+#   src/builtins/vector_package.mfb  <- scripts/gen_vector_package.py
+#   src/builtins/regex_unicode.mfb   <- scripts/gen_regex_unicode.py
+src/builtins/vector_package.mfb linguist-generated=true
+src/builtins/regex_unicode.mfb linguist-generated=true
