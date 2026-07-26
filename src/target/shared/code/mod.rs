@@ -1078,6 +1078,7 @@ pub(crate) fn lower_module_for_platform(
             let app_spec = AppEntrySpec {
                 language_entry_accepts_args: entry.accepts_args,
                 uses_term,
+                initial_mode,
             };
             let app_entry = platform
                 .emit_app_program_entry(&app_spec, &platform_imports)

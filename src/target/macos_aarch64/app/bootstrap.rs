@@ -3,7 +3,7 @@
 
 use super::*;
 
-pub(super) fn emit_main_bootstrap() -> CodeFunction {
+pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunction {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
     // Reserve the frame and stash argc/argv (passed in x0/x1 by the kernel) before
@@ -29,6 +29,13 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", REG_APP));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
+    // plan-62-C: a `Console`-default program builds the full window + transcript
+    // surface (emitted byte-for-byte as before, so a program that never touches
+    // `app::` is unchanged). A `None`-default program starts windowless — it skips
+    // the surface but still synthesizes the app delegate (so the worker spawns from
+    // `applicationDidFinishLaunching:`) and enters the real `[NSApp run]` loop,
+    // staying alive with no window (see the `else` arm below).
+    if initial_mode == PresentationMode::Console {
     // window = [[NSWindow alloc] initWithContentRect:styleMask:backing:defer:]
     asm.external_data(REG_WINDOW, CLASS_NS_WINDOW, LIB_APPKIT);
     asm.load_selector(SEL_ALLOC.0);
@@ -294,45 +301,9 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
     asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
     // --- end term:: TermView surface ---------------------------------------
 
-    // Synthesize an NSApplication delegate so closing the window quits the app
-    // (plan §5.7): a runtime MFBAppDelegate : NSObject whose
-    // applicationShouldTerminateAfterLastWindowClosed: returns YES.
-    // cls = objc_allocateClassPair(NSObject, "MFBAppDelegate", 0)
-    asm.external_data(abi::LOCAL[4], CLASS_NS_OBJECT, LIB_OBJC);
-    asm.local_address("x1", STR_DELEGATE_CLASS.0);
-    asm.push(abi::move_immediate("x2", "Integer", "0"));
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], "x0")); // new class
-                                                       // class_addMethod(cls, @selector(applicationShouldTerminate...), imp, "c@:@")
-    asm.load_selector(SEL_APP_SHOULD_TERMINATE.0);
-    asm.local_address("x2", SHOULD_TERMINATE_SYMBOL);
-    asm.local_address("x3", STR_DELEGATE_TYPES.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // class_addMethod(cls, @selector(applicationDidFinishLaunching:), imp, "v@:@")
-    // — spawns the worker once launch is complete (plan-01-term.md §6.4).
-    asm.load_selector(SEL_APP_DID_FINISH_LAUNCHING.0);
-    asm.local_address("x2", DID_FINISH_LAUNCHING_SYMBOL);
-    asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_class_addMethod", LIB_OBJC);
-    // objc_registerClassPair(cls)
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_registerClassPair", LIB_OBJC);
-    // delegate = [[cls alloc] init]; [app setDelegate:delegate]
-    asm.load_selector(SEL_ALLOC.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], "x0"));
-    asm.load_selector(SEL_INIT.0);
-    asm.push(abi::move_register("x0", abi::LOCAL[4]));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
-    asm.push(abi::move_register(abi::LOCAL[4], "x0")); // delegate instance
-    asm.load_selector(SEL_SET_DELEGATE.0);
-    asm.push(abi::move_register("x2", abi::LOCAL[4]));
-    asm.push(abi::move_register("x0", REG_APP));
-    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // Synthesize + install the NSApplication delegate (worker spawn + quit-on-close).
+    // Extracted so the windowless `None` path can install it too (plan-62-C).
+    emit_gui_delegate(&mut asm);
 
     // Input-line buffer: an NSMutableString accumulating typed characters until
     // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
@@ -483,6 +454,20 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x2", REG_SCRATCH_OBJ)); // transcript text view
     asm.push(abi::move_register("x0", REG_WINDOW));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+    } else {
+        // plan-62-C: `None`-default program — no window/transcript surface. Read the
+        // headless env var (the worker/run split below needs it), then, in the GUI
+        // (non-headless) case, install the app delegate so the worker still spawns
+        // from `applicationDidFinishLaunching:` under the real `[NSApp run]` loop —
+        // the app stays alive windowless. Headless skips the delegate (it spawns the
+        // worker inline and `pause()`s, with no run loop to fire the delegate).
+        asm.local_address("x0", STR_HEADLESS_ENV.0);
+        asm.call_external("_getenv", LIB_SYSTEM);
+        asm.push(abi::move_register(REG_HEADLESS, "x0"));
+        asm.push(abi::compare_immediate(REG_HEADLESS, "0"));
+        asm.push(abi::branch_ne("after_show"));
+        emit_gui_delegate(&mut asm);
+    }
     asm.push(abi::label("after_show"));
 
     // The GUI worker must NOT run during -[NSApplication finishLaunching]:
@@ -542,6 +527,53 @@ pub(super) fn emit_main_bootstrap() -> CodeFunction {
         instructions: asm.ins,
         relocations: asm.rel,
     }
+}
+
+/// Synthesize and install the runtime `MFBAppDelegate : NSObject` on `REG_APP`
+/// (plan §5.7, plan-01-term.md §6.4): `applicationShouldTerminateAfterLastWindowClosed:`
+/// returns YES (quit on last window close) and `applicationDidFinishLaunching:`
+/// spawns the worker thread once launch completes. Extracted from the bootstrap so
+/// both the `Console` surface path and the windowless `None` path install it (a
+/// `None` program has no window, so the terminate handler never fires — but the
+/// launch handler is exactly what spawns its worker under `[NSApp run]`).
+/// Requires `REG_APP` to hold the shared `NSApplication`; clobbers `abi::LOCAL[4]`.
+fn emit_gui_delegate(asm: &mut Asm) {
+    // cls = objc_allocateClassPair(NSObject, "MFBAppDelegate", 0)
+    asm.external_data(abi::LOCAL[4], CLASS_NS_OBJECT, LIB_OBJC);
+    asm.local_address("x1", STR_DELEGATE_CLASS.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::move_register("x0", abi::LOCAL[4]));
+    asm.call_external("_objc_allocateClassPair", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[4], "x0")); // new class
+                                                       // class_addMethod(cls, @selector(applicationShouldTerminate...), imp, "c@:@")
+    asm.load_selector(SEL_APP_SHOULD_TERMINATE.0);
+    asm.local_address("x2", SHOULD_TERMINATE_SYMBOL);
+    asm.local_address("x3", STR_DELEGATE_TYPES.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[4]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(applicationDidFinishLaunching:), imp, "v@:@")
+    // — spawns the worker once launch is complete (plan-01-term.md §6.4).
+    asm.load_selector(SEL_APP_DID_FINISH_LAUNCHING.0);
+    asm.local_address("x2", DID_FINISH_LAUNCHING_SYMBOL);
+    asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+    asm.push(abi::move_register("x0", abi::LOCAL[4]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // objc_registerClassPair(cls)
+    asm.push(abi::move_register("x0", abi::LOCAL[4]));
+    asm.call_external("_objc_registerClassPair", LIB_OBJC);
+    // delegate = [[cls alloc] init]; [app setDelegate:delegate]
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[4]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[4], "x0"));
+    asm.load_selector(SEL_INIT.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[4]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[4], "x0")); // delegate instance
+    asm.load_selector(SEL_SET_DELEGATE.0);
+    asm.push(abi::move_register("x2", abi::LOCAL[4]));
+    asm.push(abi::move_register("x0", REG_APP));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
 }
 
 /// `void *_mfb_macapp_worker(void *arg)` pthread start routine: establishes an

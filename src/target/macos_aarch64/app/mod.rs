@@ -23,7 +23,7 @@ use term_view::*;
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
-    RelocIntent,
+    PresentationMode, RelocIntent,
 };
 
 const MAIN_SYMBOL: &str = "_main";
@@ -541,7 +541,7 @@ impl Asm {
 /// [`code::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunction>, String> {
     Ok(vec![
-        emit_main_bootstrap(),
+        emit_main_bootstrap(spec.initial_mode),
         emit_worker_shim(spec),
         emit_append_helper(),
         emit_finish_helper(spec.uses_term),

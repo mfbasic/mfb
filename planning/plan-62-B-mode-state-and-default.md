@@ -191,7 +191,7 @@ Acceptance: an `--app` program that does `app::setMode(Mode.None)` then reads `a
 observes `None`; one that never calls `setMode` observes `Console`. **VERIFIED** on macOS device
 headlessly (`scripts/test-macapp.sh` cases "app:: default presentation mode is Console",
 "app::setMode/getMode round-trip", both `code=0`). No window change asserted.
-Commit: —
+Commit: d12ac331a
 
 ### Phase 2 — the static initial-mode default + `AppEntrySpec` field
 
@@ -212,7 +212,7 @@ Acceptance: `getMode()` at the very first program statement returns `Console` fo
 no-`setMode` program and `None` for a program that references `setMode` anywhere. **VERIFIED**
 on macOS device (`scripts/test-macapp.sh` case "app:: static default is None when setMode is
 referenced", `code=0`; the Console case is the default test above).
-Commit: —
+Commit: d12ac331a
 
 ## Validation Plan
 

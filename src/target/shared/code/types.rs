@@ -913,11 +913,12 @@ pub(crate) struct AppEntrySpec {
     /// Whether the program uses `term::` (so the app-mode finish path should
     /// auto-`term::off()` to restore the transcript, plan-01-term.md §6.5).
     pub(crate) uses_term: bool,
-    // plan-62-B note: the static initial presentation mode is carried into program
-    // entry via `ProgramEntrySpec::seed_presentation_mode_offset` (it seeds the
-    // per-arena slot). An `AppEntrySpec::initial_mode` field for the per-backend
-    // *bootstrap's* startup-window decision is added by plan-62-C, the letter that
-    // first reads it — adding it here would be an unread field.
+    /// The presentation mode the program starts in (plan-62-B §3.3 / plan-62-C):
+    /// `Console` unless the program references `app::setMode` anywhere, in which
+    /// case `None`. The per-backend bootstrap reads it to decide whether to build a
+    /// window surface at startup — `Console` builds the transcript window, `None`
+    /// starts windowless while still running the toolkit event loop.
+    pub(crate) initial_mode: PresentationMode,
 }
 
 /// Everything the per-backend program-entry emitter needs (plan-00-G). Program
