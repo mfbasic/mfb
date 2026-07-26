@@ -711,6 +711,32 @@ impl CodeBuilder<'_> {
                 if native == Some("filter") && args.len() == 2 {
                     return self.lower_collection_filter_call(args);
                 }
+                // plan-64 D2: native sortBy only for 8-byte fixed-width items and
+                // signed 8-byte keys (Integer/Fixed/Money). Anything else — String,
+                // Scalar, Byte, or a Float key (NaN ordering) — falls through to the
+                // `.mfb` `__collections_sortBy` below.
+                // plan-64 D2: `collections::sortBy` is a monomorphized generic —
+                // the target is `#collections_sortBy$<T>$<U>` (item type T, key type
+                // U). Lower it natively only for an 8-byte fixed-width item and a
+                // signed 8-byte key (Integer/Fixed/Money); every other instantiation
+                // (String/Scalar/Byte items, Float or non-numeric keys) falls through
+                // to the monomorphized `.mfb` function call below.
+                if let Some(params) = target.strip_prefix("#collections_sortBy$") {
+                    if args.len() == 2 {
+                        let mut parts = params.split('$');
+                        let item_ok = parts
+                            .next()
+                            .map(|t| matches!(t, "Integer" | "Float" | "Fixed" | "Money"))
+                            .unwrap_or(false);
+                        let key_ok = parts
+                            .next()
+                            .map(|u| matches!(u, "Integer" | "Fixed" | "Money"))
+                            .unwrap_or(false);
+                        if item_ok && key_ok {
+                            return self.lower_collection_sortby_call(args);
+                        }
+                    }
+                }
                 if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
                 }

@@ -371,8 +371,19 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
 **Fixes (semantics-preserving — same order/stability/buckets).**
 - **D1:** native `groupBy` — single pass growing each bucket **in place** in a hash-slot
   side structure, materialized to the Map once at the end (kills the O(bucket²) copy).
-- **D2:** native `sortBy` over two scratch buffers with pointer ping-pong (no per-pass
-  value copies; one fused key+item buffer), inlined get/set.
+- **[x] D2 — LANDED (native sortBy).** Bottom-up **stable** merge sort with the two
+  ping-pong buffer pairs allocated once and swapped by slot pointer per pass — no per-pass
+  full copy (the `.mfb`'s dominant cost). Gated to **8-byte fixed-width items**
+  (Integer/Float/Fixed/Money) and **signed 8-byte keys** (Integer/Fixed/Money) by parsing
+  the monomorphized target `#collections_sortBy$<T>$<U>`; String/Scalar/Byte items and
+  Float/non-numeric keys fall through to the `.mfb` `__collections_sortBy`. Keys filled by
+  calling `keyFn` per element (failure → `emit_callback_failure_exit`, verified under TRAP);
+  direct `[base + i*8]` addressing; stable (left run on ties). **Result: `list sortBy`
+  21.2 → 4.46 ms (~4.75×; ≈ Python 3.73).** checksum 99800 **proven unchanged** vs a
+  stashed-baseline rebuild; full `cargo test` green; `artifact-gate.sh` zero new diffs
+  (native lowering is post-IR); 57 sort/collections acceptance fixtures pass; String-key
+  fallback + TRAP'd failing keyFn both verified. `lower_collection_sortby_call`
+  (`builder_collection_queries.rs`), dispatch gate `builder_values.rs`. Commit: `<pending>`.
 - **D3:** native window/chunks — slice **directly into the reserved result tail**
   (one copy, no temp piece), pre-reserved to the known piece count.
 - **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
