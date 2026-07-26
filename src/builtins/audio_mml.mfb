@@ -28,8 +28,10 @@ TYPE MmlEvent
   fadeOut     AS Integer
 END TYPE
 
+' bug-339 E2: ASCII digit test as the range compare used by regex/datetime/json,
+' replacing a 10-way OR chain. ch is a single scanned MML character.
 FUNC __mml_isDigit(ch AS String) AS Boolean
-  RETURN ch = "0" OR ch = "1" OR ch = "2" OR ch = "3" OR ch = "4" OR ch = "5" OR ch = "6" OR ch = "7" OR ch = "8" OR ch = "9"
+  RETURN ch >= "0" AND ch <= "9"
 END FUNC
 
 ' Parse an all-digits string to a non-negative Integer, or -1 if empty or not a

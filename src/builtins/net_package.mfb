@@ -25,7 +25,7 @@ END TYPE
 FUNC __net_indexOf(s AS String, needle AS String, start AS Integer) AS Integer
   LET tail AS String = __net_slice(s, start, len(s))
   IF strings::contains(tail, needle) = FALSE THEN
-    RETURN 0 - 1
+    RETURN -1
   END IF
   RETURN strings::find(s, needle, start)
 END FUNC
@@ -34,7 +34,7 @@ END FUNC
 ' put the userinfo boundary at the last `@` in the authority, not the first
 ' (bug-306 S3).
 FUNC __net_lastIndexOf(s AS String, needle AS String) AS Integer
-  MUT best AS Integer = 0 - 1
+  MUT best AS Integer = -1
   MUT at AS Integer = 0
   MUT scanning AS Boolean = TRUE
   WHILE scanning

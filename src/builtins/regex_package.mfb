@@ -1,21 +1,21 @@
-REM MFBASIC regex package — implements src/docs/spec/stdlib/01_regex.md (mfb spec stdlib regex).
-REM
-REM Strategy: parse the pattern into an AST of __regex_Node values, then run a
-REM continuation-passing backtracking matcher (leftmost-first / preference order,
-REM regex.md §4). The Unicode general-category table lives in regex_unicode.mfb
-REM (__regex_genCat); everything else is here. All matching is over Unicode scalars,
-REM represented as single-scalar Strings, with a parallel code-point list.
-REM
-REM Error codes (regex.md §14): ErrInvalidFormat 77050003, ErrNotFound 77050004,
-REM ErrIndexOutOfRange 77050001.
+' MFBASIC regex package — implements src/docs/spec/stdlib/01_regex.md (mfb spec stdlib regex).
+'
+' Strategy: parse the pattern into an AST of __regex_Node values, then run a
+' continuation-passing backtracking matcher (leftmost-first / preference order,
+' regex.md §4). The Unicode general-category table lives in regex_unicode.mfb
+' (__regex_genCat); everything else is here. All matching is over Unicode scalars,
+' represented as single-scalar Strings, with a parallel code-point list.
+'
+' Error codes (regex.md §14): ErrInvalidFormat 77050003, ErrNotFound 77050004,
+' ErrIndexOutOfRange 77050001.
 
 IMPORT collections
 IMPORT strings
 IMPORT encoding
 
-REM ---------------------------------------------------------------------------
-REM Types
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Types
+' ---------------------------------------------------------------------------
 
 TYPE __regex_Flags
   ci AS Boolean
@@ -25,7 +25,7 @@ TYPE __regex_Flags
   verbose AS Boolean
 END TYPE
 
-REM Character-class items.
+' Character-class items.
 TYPE __regex_Range
   lo AS String
   hi AS String
@@ -47,7 +47,7 @@ UNION __regex_ClassItem
   __regex_Prop
 END UNION
 
-REM Regex AST nodes.
+' Regex AST nodes.
 TYPE __regex_Lit
   ch AS String
   fold AS Boolean
@@ -91,7 +91,7 @@ UNION __regex_Node
   __regex_Group
 END UNION
 
-REM Match continuations.
+' Match continuations.
 TYPE __regex_ContDone
   dummy AS Boolean
 END TYPE
@@ -135,7 +135,7 @@ TYPE __regex_Program
   names AS Map OF String TO Integer
 END TYPE
 
-REM Parser return values.
+' Parser return values.
 TYPE __regex_Parse
   node AS __regex_Node
   nxt AS Integer
@@ -181,9 +181,9 @@ TYPE __regex_Name
   nxt AS Integer
 END TYPE
 
-REM ---------------------------------------------------------------------------
-REM Scalar / code-point helpers
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Scalar / code-point helpers
+' ---------------------------------------------------------------------------
 
 FUNC __regex_chr(value AS Integer) AS String
   MUT v AS Integer = value
@@ -196,12 +196,12 @@ FUNC __regex_chr(value AS Integer) AS String
   IF v > 1114111 THEN
     v = 1114111
   END IF
-  REM The clamp above guarantees a valid Unicode scalar, so utf32Decode is total
-  REM here (it FAILs only on surrogate/out-of-range, both excluded by the clamp).
+  ' The clamp above guarantees a valid Unicode scalar, so utf32Decode is total
+  ' here (it FAILs only on surrogate/out-of-range, both excluded by the clamp).
   RETURN encoding::utf32Decode([v])
 END FUNC
 
-REM Code point of a single scalar string via the shared UTF-32 encoder.
+' Code point of a single scalar string via the shared UTF-32 encoder.
 FUNC __regex_scalarToCp(ch AS String) AS Integer
   IF ch = "" THEN
     RETURN 0
@@ -234,9 +234,9 @@ FUNC __regex_makeCtx(value AS String) AS __regex_Ctx
   RETURN __regex_Ctx[chars, cps, len(chars)]
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Character classification (regex.md §8)
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Character classification (regex.md §8)
+' ---------------------------------------------------------------------------
 
 FUNC __regex_catIsLetter(cat AS String) AS Boolean
   RETURN strings::startsWith(cat, "L")
@@ -285,7 +285,7 @@ FUNC __regex_isWord(cp AS Integer) AS Boolean
   RETURN __regex_isWordCp(cp, __regex_genCat(cp))
 END FUNC
 
-REM \d \D \w \W \s \S — kind 1..6.
+' \d \D \w \W \s \S — kind 1..6.
 FUNC __regex_shorthandMatch(kind AS Integer, cp AS Integer) AS Boolean
   LET cat AS String = __regex_genCat(cp)
   IF kind = 1 THEN
@@ -463,7 +463,7 @@ FUNC __regex_isScriptName(low AS String) AS Boolean
   RETURN __regex_scriptCanon(low) <> ""
 END FUNC
 
-REM Property test against a canonical property name (see __regex_canonProp).
+' Property test against a canonical property name (see __regex_canonProp).
 FUNC __regex_propTest(name AS String, cp AS Integer) AS Boolean
   LET cat AS String = __regex_genCat(cp)
   IF name = "L" THEN
@@ -493,7 +493,7 @@ FUNC __regex_propTest(name AS String, cp AS Integer) AS Boolean
   IF name = "Alphabetic" THEN
     RETURN strings::startsWith(cat, "L") OR cat = "Nl"
   END IF
-  REM POSIX class sentinels emitted by __regex_posixProp.
+  ' POSIX class sentinels emitted by __regex_posixProp.
   IF name = "posixAlnum" THEN
     RETURN strings::startsWith(cat, "L") OR cat = "Nl" OR cat = "Nd"
   END IF
@@ -527,7 +527,7 @@ FUNC __regex_propTest(name AS String, cp AS Integer) AS Boolean
   RETURN __regex_scriptTest(name, cp)
 END FUNC
 
-REM Resolve a \p{...} property text to a canonical name, or "" if invalid.
+' Resolve a \p{...} property text to a canonical name, or "" if invalid.
 FUNC __regex_canonProp(name AS String) AS String
   IF strings::contains(name, "=") THEN
     LET parts AS List OF String = strings::split(name, "=")
@@ -581,9 +581,9 @@ FUNC __regex_canonProp(name AS String) AS String
   RETURN ""
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Class membership
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Class membership
+' ---------------------------------------------------------------------------
 
 FUNC __regex_classMatchOne(items AS List OF __regex_ClassItem, ch AS String, cp AS Integer) AS Boolean
   FOR EACH item IN items
@@ -643,9 +643,9 @@ FUNC __regex_classMatch(cls AS __regex_Class, pos AS Integer, ctx AS __regex_Ctx
   RETURN hit
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Anchors (regex.md §11.4)
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Anchors (regex.md §11.4)
+' ---------------------------------------------------------------------------
 
 FUNC __regex_wordBoundary(pos AS Integer, ctx AS __regex_Ctx) AS Boolean
   MUT before AS Boolean = FALSE
@@ -690,9 +690,9 @@ FUNC __regex_anchorMatch(anchor AS __regex_Anchor, pos AS Integer, ctx AS __rege
   RETURN NOT __regex_wordBoundary(pos, ctx)
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Matcher (regex.md §4, §5, §6)
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Matcher (regex.md §4, §5, §6)
+' ---------------------------------------------------------------------------
 
 FUNC __regex_fail AS __regex_Result
   LET e AS List OF Integer = []
@@ -711,19 +711,19 @@ FUNC __regex_charEq(a AS String, b AS String, fold AS Boolean) AS Boolean
 END FUNC
 
 FUNC __regex_matchNode(node AS __regex_Node, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
-  REM bug-315: every node visit is one step. This is the single dispatch every
-  REM alternative, repetition and continuation passes through, so counting here
-  REM bounds the whole search regardless of which construct is blowing up.
+  ' bug-315: every node visit is one step. This is the single dispatch every
+  ' alternative, repetition and continuation passes through, so counting here
+  ' bounds the whole search regardless of which construct is blowing up.
   __regex_steps = __regex_steps + 1
   IF __regex_steps > __REGEX_STEP_BUDGET THEN
     FAIL error(77050003, "regex: pattern too complex for this input (backtracking limit exceeded)")
   END IF
-  REM bug-315: and a recursion-depth guard. A greedy repeat over a SIMPLE child is
-  REM consumed iteratively below and never reaches this, but a repeat over a GROUP
-  REM -- `(ab)*` -- still recurses once per repetition, and the native stack was
-  REM exhausted somewhere between 800 and 1000 frames, killing the process with an
-  REM uncatchable SIGSEGV. This turns that into an ordinary catchable failure well
-  REM before the stack runs out.
+  ' bug-315: and a recursion-depth guard. A greedy repeat over a SIMPLE child is
+  ' consumed iteratively below and never reaches this, but a repeat over a GROUP
+  ' -- `(ab)*` -- still recurses once per repetition, and the native stack was
+  ' exhausted somewhere between 800 and 1000 frames, killing the process with an
+  ' uncatchable SIGSEGV. This turns that into an ordinary catchable failure well
+  ' before the stack runs out.
   IF depth > __REGEX_DEPTH_LIMIT THEN
     FAIL error(77050003, "regex: pattern too complex for this input (nesting limit exceeded)")
   END IF
@@ -780,32 +780,32 @@ FUNC __regex_matchAlt(opts AS List OF __regex_Node, i AS Integer, pos AS Integer
   RETURN __regex_matchAlt(opts, i + 1, pos, caps, c, ctx, depth + 1)
 END FUNC
 
-REM bug-315: is this node a "simple" one-scalar matcher -- Lit, Any or Class? Such
-REM a child consumes exactly one scalar, sets no captures and needs no continuation,
-REM so a greedy repeat over it can be consumed with a LOOP instead of one native
-REM stack frame per iteration. That recursion is what made `^a*$` SIGSEGV somewhere
-REM between 800 and 1000 scalars.
-REM bug-315: a global backtracking budget. The matcher is a pure backtracker with
-REM no memoization, so a nested/ambiguous quantifier such as `^(a+)+$` explores
-REM exponentially many input partitions -- `aaaa...X` at 24 scalars already ran for
-REM minutes. The engine accepts untrusted patterns AND untrusted text, so that is a
-REM denial-of-service vector, not just a slow case.
-REM
-REM A budget cannot be threaded through the immutable continuation state: a failed
-REM branch's work would be forgotten on backtrack, which is precisely the work that
-REM needs counting. It has to be module-level and monotonic, reset once per search.
+' bug-315: is this node a "simple" one-scalar matcher -- Lit, Any or Class? Such
+' a child consumes exactly one scalar, sets no captures and needs no continuation,
+' so a greedy repeat over it can be consumed with a LOOP instead of one native
+' stack frame per iteration. That recursion is what made `^a*$` SIGSEGV somewhere
+' between 800 and 1000 scalars.
+' bug-315: a global backtracking budget. The matcher is a pure backtracker with
+' no memoization, so a nested/ambiguous quantifier such as `^(a+)+$` explores
+' exponentially many input partitions -- `aaaa...X` at 24 scalars already ran for
+' minutes. The engine accepts untrusted patterns AND untrusted text, so that is a
+' denial-of-service vector, not just a slow case.
+'
+' A budget cannot be threaded through the immutable continuation state: a failed
+' branch's work would be forgotten on backtrack, which is precisely the work that
+' needs counting. It has to be module-level and monotonic, reset once per search.
 MUT __regex_steps AS Integer = 0
 
-REM Ceiling on backtracking steps for one search. Generous enough that no realistic
-REM pattern reaches it -- a linear scan over a 50 000-scalar subject costs about
-REM that many steps -- while still bounding the exponential cases to well under a
-REM second.
+' Ceiling on backtracking steps for one search. Generous enough that no realistic
+' pattern reaches it -- a linear scan over a 50 000-scalar subject costs about
+' that many steps -- while still bounding the exponential cases to well under a
+' second.
 LET __REGEX_STEP_BUDGET AS Integer = 2000000
 
-REM Ceiling on matcher recursion depth. Measured: the native stack is exhausted
-REM between 800 and 1000 nested frames, so 600 fails cleanly with margin. Only
-REM constructs that genuinely recurse per repetition reach it -- a greedy repeat
-REM over a single-scalar child is iterative and unaffected at any input length.
+' Ceiling on matcher recursion depth. Measured: the native stack is exhausted
+' between 800 and 1000 nested frames, so 600 fails cleanly with margin. Only
+' constructs that genuinely recurse per repetition reach it -- a greedy repeat
+' over a single-scalar child is iterative and unaffected at any input length.
 LET __REGEX_DEPTH_LIMIT AS Integer = 600
 
 FUNC __regex_isSimpleNode(node AS __regex_Node) AS Boolean
@@ -821,9 +821,9 @@ FUNC __regex_isSimpleNode(node AS __regex_Node) AS Boolean
   END MATCH
 END FUNC
 
-REM Does a simple node match the single scalar at `pos`? Mirrors the Lit/Any/Class
-REM arms of __regex_matchNode exactly, so the iterative path below accepts precisely
-REM what the recursive one did.
+' Does a simple node match the single scalar at `pos`? Mirrors the Lit/Any/Class
+' arms of __regex_matchNode exactly, so the iterative path below accepts precisely
+' what the recursive one did.
 FUNC __regex_simpleMatchAt(node AS __regex_Node, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
   IF pos >= ctx.n THEN
     RETURN FALSE
@@ -846,20 +846,20 @@ END FUNC
 FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx, depth AS Integer) AS __regex_Result
   LET canMore AS Boolean = (rep.hi < 0) OR (count < rep.hi)
   LET mustMore AS Boolean = count < rep.lo
-  REM bug-315: a greedy repeat over a SIMPLE one-scalar child is consumed with a
-  REM loop rather than one native frame per iteration. The recursive form grew stack
-  REM depth proportional to the number of repetitions, so `^a*$` crashed with
-  REM SIGSEGV between 800 and 1000 scalars -- an uncatchable process death on
-  REM ordinary paragraph-length input.
-  REM
-  REM Semantics are unchanged: consume as far as the bound allows, then give back
-  REM one scalar at a time, trying the continuation at each length from longest to
-  REM shortest. That is exactly the order the recursion explored, so the FIRST match
-  REM found is the same one -- greedy leftmost, longest-first.
+  ' bug-315: a greedy repeat over a SIMPLE one-scalar child is consumed with a
+  ' loop rather than one native frame per iteration. The recursive form grew stack
+  ' depth proportional to the number of repetitions, so `^a*$` crashed with
+  ' SIGSEGV between 800 and 1000 scalars -- an uncatchable process death on
+  ' ordinary paragraph-length input.
+  '
+  ' Semantics are unchanged: consume as far as the bound allows, then give back
+  ' one scalar at a time, trying the continuation at each length from longest to
+  ' shortest. That is exactly the order the recursion explored, so the FIRST match
+  ' found is the same one -- greedy leftmost, longest-first.
   IF rep.greedy AND __regex_isSimpleNode(rep.child) THEN
     MUT p AS Integer = pos
     MUT k AS Integer = count
-    REM Consume greedily up to `hi` (or unbounded when hi < 0).
+    ' Consume greedily up to `hi` (or unbounded when hi < 0).
     MUT more AS Boolean = (rep.hi < 0) OR (k < rep.hi)
     WHILE more
       IF __regex_simpleMatchAt(rep.child, p, ctx) = FALSE THEN
@@ -870,8 +870,8 @@ FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, c
         more = (rep.hi < 0) OR (k < rep.hi)
       END IF
     END WHILE
-    REM Give back one at a time until the continuation matches or we fall below the
-    REM minimum. `k = count` is the floor: nothing was consumed by this call.
+    ' Give back one at a time until the continuation matches or we fall below the
+    ' minimum. `k = count` is the floor: nothing was consumed by this call.
     MUT backtracking AS Boolean = TRUE
     WHILE backtracking
       IF k >= rep.lo THEN
@@ -948,13 +948,13 @@ END FUNC
 FUNC __regex_tryAt(prog AS __regex_Program, ctx AS __regex_Ctx, start AS Integer) AS __regex_Result
   MUT caps AS List OF Integer = __regex_initCaps(prog.groups)
   caps = __regex_setCap(caps, 0, start)
-  REM bug-315: depth 0 seeds the recursion-depth guard threaded through the matcher.
+  ' bug-315: depth 0 seeds the recursion-depth guard threaded through the matcher.
   RETURN __regex_matchNode(prog.root, start, caps, __regex_ContCap[0, __regex_ContDone[TRUE]], ctx, 0)
 END FUNC
 
 FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS Integer) AS __regex_Result
-  REM bug-315: one budget per search, not per start offset -- the scan over start
-  REM positions is itself part of the work an adversarial pattern multiplies.
+  ' bug-315: one budget per search, not per start offset -- the scan over start
+  ' positions is itself part of the work an adversarial pattern multiplies.
   __regex_steps = 0
   MUT s AS Integer = from
   WHILE s <= ctx.n
@@ -967,9 +967,9 @@ FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS Int
   RETURN __regex_fail()
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Lexical helpers for the parser
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Lexical helpers for the parser
+' ---------------------------------------------------------------------------
 
 FUNC __regex_isDigit(ch AS String) AS Boolean
   RETURN ch >= "0" AND ch <= "9"
@@ -1022,19 +1022,19 @@ FUNC __regex_parseIntClamp(s AS String) AS Integer
   END TRAP
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Escape parsing
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Escape parsing
+' ---------------------------------------------------------------------------
 
-REM Parse \xHH or \x{H..H}; i points just after the 'x'.
+' Parse \xHH or \x{H..H}; i points just after the 'x'.
 FUNC __regex_parseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) AS __regex_LitScalar
   IF i >= n THEN
     FAIL error(77050003, "invalid regex")
   END IF
   IF collections::get(pat, i) = "{" THEN
-    REM Collect the run between `{` and `}`, then let toInt(_, 16) validate the
-    REM hex digits (it FAILs on any non-hex char). The 1-6 digit bound and the
-    REM surrogate/range clamp stay regex's own checks (regex.md §8.2).
+    ' Collect the run between `{` and `}`, then let toInt(_, 16) validate the
+    ' hex digits (it FAILs on any non-hex char). The 1-6 digit bound and the
+    ' surrogate/range clamp stay regex's own checks (regex.md §8.2).
     MUT j AS Integer = i + 1
     MUT hexText AS String = ""
     WHILE j < n AND collections::get(pat, j) <> "}"
@@ -1066,8 +1066,8 @@ FUNC __regex_parseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) A
   RETURN __regex_LitScalar[__regex_chr(value), i + 2]
 END FUNC
 
-REM A literal/control escape; i points at the backslash. allowSpace permits
-REM "\ " (x mode). Rejects backreferences and unknown letter/digit escapes.
+' A literal/control escape; i points at the backslash. allowSpace permits
+' "\ " (x mode). Rejects backreferences and unknown letter/digit escapes.
 FUNC __regex_parseLiteralEscape(pat AS List OF String, n AS Integer, i AS Integer, allowSpace AS Boolean) AS __regex_LitScalar
   IF i + 1 >= n THEN
     FAIL error(77050003, "invalid regex")
@@ -1109,7 +1109,7 @@ FUNC __regex_parseLiteralEscape(pat AS List OF String, n AS Integer, i AS Intege
   FAIL error(77050003, "invalid regex")
 END FUNC
 
-REM Parse \p{...} / \pX / \P...; i points just after the p/P. neg=TRUE for \P.
+' Parse \p{...} / \pX / \P...; i points just after the p/P. neg=TRUE for \P.
 FUNC __regex_parseProp(pat AS List OF String, n AS Integer, i AS Integer, neg AS Boolean) AS __regex_PropParse
   IF i >= n THEN
     FAIL error(77050003, "invalid regex")
@@ -1137,9 +1137,9 @@ FUNC __regex_parseProp(pat AS List OF String, n AS Integer, i AS Integer, neg AS
   RETURN __regex_PropParse[canon, neg, i + 1]
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Character class parsing (regex.md §9)
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Character class parsing (regex.md §9)
+' ---------------------------------------------------------------------------
 
 FUNC __regex_shortKind(e AS String) AS Integer
   IF e = "d" THEN
@@ -1163,7 +1163,7 @@ FUNC __regex_shortKind(e AS String) AS Integer
   RETURN 0
 END FUNC
 
-REM POSIX [:name:] inside a class; idx points at the leading '['.
+' POSIX [:name:] inside a class; idx points at the leading '['.
 FUNC __regex_parsePosix(pat AS List OF String, n AS Integer, idx AS Integer) AS __regex_Endpoint
   MUT j AS Integer = idx + 2
   MUT neg AS Boolean = FALSE
@@ -1190,7 +1190,7 @@ FUNC __regex_parsePosix(pat AS List OF String, n AS Integer, idx AS Integer) AS 
   RETURN __regex_Endpoint[1, "", item, j + 2]
 END FUNC
 
-REM Map a POSIX class name to a property usable by __regex_propTest (or a special).
+' Map a POSIX class name to a property usable by __regex_propTest (or a special).
 FUNC __regex_posixProp(name AS String) AS String
   IF name = "alpha" THEN
     RETURN "Alphabetic"
@@ -1234,7 +1234,7 @@ FUNC __regex_posixProp(name AS String) AS String
   RETURN ""
 END FUNC
 
-REM One class endpoint; kind 0 = literal scalar (rangeable), 1 = item.
+' One class endpoint; kind 0 = literal scalar (rangeable), 1 = item.
 FUNC __regex_parseClassEndpoint(pat AS List OF String, n AS Integer, idx AS Integer) AS __regex_Endpoint
   LET c AS String = collections::get(pat, idx)
   IF c = "\\" THEN
@@ -1324,9 +1324,9 @@ FUNC __regex_parseClass(pat AS List OF String, n AS Integer, i AS Integer, flags
   RETURN __regex_Parse[node, idx, g, names]
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Counted quantifier syntax
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Counted quantifier syntax
+' ---------------------------------------------------------------------------
 
 FUNC __regex_isCountedAt(pat AS List OF String, n AS Integer, i AS Integer) AS Boolean
   MUT j AS Integer = i + 1
@@ -1383,9 +1383,9 @@ FUNC __regex_parseCounted(pat AS List OF String, n AS Integer, i AS Integer) AS 
   RETURN __regex_Count[lo, hi, j + 1]
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Flag spec parsing
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Flag spec parsing
+' ---------------------------------------------------------------------------
 
 FUNC __regex_parseFlagSpec(pat AS List OF String, n AS Integer, i AS Integer, base AS __regex_Flags) AS __regex_FlagSpec
   MUT fi AS Boolean = base.ci
@@ -1447,9 +1447,9 @@ FUNC __regex_parseFlagSpec(pat AS List OF String, n AS Integer, i AS Integer, ba
   RETURN __regex_FlagSpec[fl, any, term, j]
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Group / paren parsing
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Group / paren parsing
+' ---------------------------------------------------------------------------
 
 FUNC __regex_parseName(pat AS List OF String, n AS Integer, i AS Integer) AS __regex_Name
   IF i >= n OR __regex_isNameStart(collections::get(pat, i)) = FALSE THEN
@@ -1546,9 +1546,9 @@ FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags
   FAIL error(77050003, "invalid regex")
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Atom / quantifier / concat / alternation
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Atom / quantifier / concat / alternation
+' ---------------------------------------------------------------------------
 
 FUNC __regex_parseEscapeAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
   IF i + 1 >= n THEN
@@ -1756,9 +1756,9 @@ FUNC __regex_compile(pattern AS String) AS __regex_Program
   RETURN __regex_Program[parsed.node, parsed.groups, parsed.names]
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Replacement expansion (regex.md §13)
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Replacement expansion (regex.md §13)
+' ---------------------------------------------------------------------------
 
 FUNC __regex_allDigits(s AS String) AS Boolean
   IF len(s) = 0 THEN
@@ -1871,9 +1871,9 @@ FUNC __regex_expand(repl AS String, r AS __regex_Result, value AS String, prog A
   RETURN out
 END FUNC
 
-REM ---------------------------------------------------------------------------
-REM Public functions
-REM ---------------------------------------------------------------------------
+' ---------------------------------------------------------------------------
+' Public functions
+' ---------------------------------------------------------------------------
 
 FUNC __regex_match(value AS String, pattern AS String) AS Boolean
   LET prog AS __regex_Program = __regex_compile(pattern)

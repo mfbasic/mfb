@@ -963,7 +963,7 @@ FUNC __encoding_sleb128Encode(value AS Integer) AS List OF Byte
     IF remaining = 0 AND signBit = 0 THEN
       more = FALSE
     ELSE
-      IF remaining = 0 - 1 AND signBit <> 0 THEN
+      IF remaining = -1 AND signBit <> 0 THEN
         more = FALSE
       END IF
     END IF
@@ -1000,7 +1000,7 @@ FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
     IF byteValue < 128 THEN
       done = TRUE
       IF shift < 64 AND bits::band(byteValue, 64) <> 0 THEN
-        result = bits::bor(result, bits::sl(0 - 1, shift))
+        result = bits::bor(result, bits::sl(-1, shift))
       END IF
     END IF
   END WHILE
@@ -1141,7 +1141,7 @@ FUNC __encoding_punyDecodeLabel(label AS String) AS String
   MUT basicEnd AS Integer = 0
   MUT i AS Integer = 0
   ' Find the last delimiter: everything before it is literal ASCII.
-  MUT lastDelim AS Integer = 0 - 1
+  MUT lastDelim AS Integer = -1
   i = 0
   WHILE i < total
     IF toInt(collections::get(data, i)) = 45 THEN

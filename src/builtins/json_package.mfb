@@ -538,8 +538,8 @@ FUNC __json_parseHexQuad(chars AS List OF String, index AS Integer) AS Integer
   IF index + 3 >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  REM Strict 4-digit `\uXXXX` escape: concatenate exactly four chars and let
-  REM toInt(_, 16) validate the hex digits, keeping json's own error.
+  ' Strict 4-digit `\uXXXX` escape: concatenate exactly four chars and let
+  ' toInt(_, 16) validate the hex digits, keeping json's own error.
   LET quad AS String = collections::get(chars, index) & collections::get(chars, index + 1) & collections::get(chars, index + 2) & collections::get(chars, index + 3)
   LET value AS Integer = toInt(quad, 16) TRAP(err)
     FAIL error(77050003, "invalid JSON format")
@@ -556,10 +556,10 @@ FUNC __json_isLowSurrogate(value AS Integer) AS Boolean
 END FUNC
 
 FUNC __json_codePointToString(value AS Integer) AS String
-  REM Keep json's own guard so a malformed code point raises json's error (and
-  REM message), not encoding's. Every caller already excludes the surrogate range
-  REM (control chars 0..31, BMP scalars, and combined surrogate pairs >= 65536),
-  REM so the valid path never reaches utf32Decode's surrogate FAIL.
+  ' Keep json's own guard so a malformed code point raises json's error (and
+  ' message), not encoding's. Every caller already excludes the surrogate range
+  ' (control chars 0..31, BMP scalars, and combined surrogate pairs >= 65536),
+  ' so the valid path never reaches utf32Decode's surrogate FAIL.
   IF value < 0 THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
@@ -767,8 +767,11 @@ FUNC __json_isWhitespace(ch AS String) AS Boolean
   RETURN FALSE
 END FUNC
 
+' bug-339 E2: the ASCII digit test, spelled as the range compare used by regex and
+' datetime (was a strings::contains substring search). ch is always a single
+' scanned character here. Distinct from strings::isDigit, which is Unicode-Nd.
 FUNC __json_isDigit(ch AS String) AS Boolean
-  RETURN strings::contains("0123456789", ch)
+  RETURN ch >= "0" AND ch <= "9"
 END FUNC
 
 FUNC __json_isNonZeroDigit(ch AS String) AS Boolean

@@ -63,7 +63,7 @@
       "line": 27,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "call", "type": "Boolean", "target": "strings.contains", "args": [{ "kind": "local", "name": "tail" }, { "kind": "local", "name": "needle" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
       "then": [
-      { "op": "return", "line": 28, "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "return", "line": 28, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
       ],
       "else": [
       ]
@@ -82,7 +82,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "line": 37, "mutable": true, "name": "best", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 37, "mutable": true, "name": "best", "type": "Integer", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } },
     { "op": "bind", "line": 38, "mutable": true, "name": "at", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     { "op": "bind", "line": 39, "mutable": true, "name": "scanning", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
     {
