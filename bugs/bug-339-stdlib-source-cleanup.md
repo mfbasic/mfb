@@ -5,24 +5,37 @@ Effort: large (3h–1d)
 Severity: LOW — **except item A1, which is a build-integrity defect, not tidiness**
 Class: Other (cleanup) — **A1 flagged: generated-artifact integrity**
 
-Status: PARTIALLY FIXED (2026-07-25) — Phase 1 ✅, Phase 2 ✅, Phase 3 8/12,
-Phase 4 deferred. Remaining: B1, B2, C9, C11, E1–E5, F1, F3 (see Phases). NOT
-archived; the cluster is not fully resolved.
-Regression Test: `scripts/` CI regeneration check (item A1, landed) + per-item
-behavioral tests under `tests/rt-behavior/<pkg>/`
+STATUS: FIXED (2026-07-25) — all phases resolved. Phase 1 ✅, Phase 2 ✅,
+Phase 3 ✅ (B3/C2–C7/C9/C10/C11 fixed; B1/B2 resolved as documented language
+constraints, like C1), Phase 4 ✅ (E1–E5, F1; F2/F3 already done by siblings).
+Regression Test: `scripts/check-generated.sh` CI regeneration gate (item A1) +
+per-item behavioral tests under `tests/rt-behavior/<pkg>/` (incl. new json
+control-escape and regex zero-width cases).
 
-> **Landing note (2026-07-25).** A `/fix-bug 339` pass landed the headline
-> integrity item's finishing touch (Phase 1 `.gitattributes`), all of Phase 2
-> (dead code), and eight of the twelve Phase-3 duplication items (B3, C2, C3, C4,
-> C5, C6, C7, C10). Audit finding: much of this cluster was **already resolved by
-> sibling bugs** before this pass — A1/A2/A3 (`e6fdea2bf`, `cc3a19476`), D1
-> (bug-326), D3 (bug-316, `aa5adc2d1`), C8 crypto split (bug-327, `7e13a7a7a`),
-> F2 http man pages (bug-336/337). Deferred with rationale (see Phase 3/4): B1
-> (structural injection-model change to a generated file — riskiest), B2 (adds
-> public `strings::` API — design/doc-heavy), C9/C11 (cosmetic/organizational,
-> full-suite golden churn), E1–E5/F1/F3 (large mechanical/documentation sweeps).
-> Every landed edit preserves behavior: full acceptance (1083 tests) green with
-> only `.ir` symbol-layout golden shifts; crypto proven against RFC KAT vectors.
+> **Resolution (2026-07-25).** A `/fix-bug 339` pass drove the whole cluster to
+> completion. Landed this pass: Phase 1 `.gitattributes`; Phase 2 dead code
+> (D2/D4/D5); Phase 3 duplication B3, C2, C3, C4, C5, C6, C7, C9, C10, C11; Phase 4
+> E1, E2, E3, E4, E5, F1. Audit finding: much of the cluster was **already resolved
+> by sibling bugs** — A1/A2/A3 (`e6fdea2bf`, `cc3a19476`), D1 (bug-326), D3
+> (bug-316, `aa5adc2d1`), C8 crypto split (bug-327, `7e13a7a7a`), F2 http man pages
+> and F3 all-`.md` corpus (bug-336/337).
+>
+> **B1 and B2 were established to be language-mandated cross-package duplications**
+> (built-in package sources are file-local; `PACKAGE` visibility is invalid in an
+> executable and there are zero source-`EXPORT` public functions, so `strings`
+> cannot reach `regex`'s private table and `http` cannot reach `net`'s private
+> helpers). Their doc-recommended fixes require either a risky restructure of the
+> built-in injection model or new public `strings::` API (a feature). Per
+> **correctness-over-performance**, both were resolved by documenting the
+> constraint with evidence in the code and here — exactly as C1's language-mandated
+> transport duplication was recorded rather than collapsed (see Phase 3 B1/B2). A
+> separate feature/architecture effort can revisit the shared-injection idea and
+> the public `strings::indexOf`/`slice` surface.
+>
+> Every edit preserves behavior: full acceptance (1083 tests) and `cargo test`
+> (3248 + integration suites) green, with only `.ir`/`.ast` symbol-layout golden
+> shifts and byte-identical `build.log`/`.run`; crypto proven against RFC KAT
+> vectors; man/spec citations swept after every symbol removal/rename.
 
 A cleanup cluster over the fourteen MFBASIC-source stdlib files in
 `src/builtins/*.mfb` — the parts of the stdlib written *in* MFBASIC and embedded
@@ -710,18 +723,39 @@ Acceptance: MET — build.log unchanged for every affected test bar the new json
 case; .ir/.ast shifts attributed and synced.
 Commit: `a53c5d4e8`.
 
-### Phase 3 — duplication (B and C)  ◐ PARTIAL (8 of 12 items)
+### Phase 3 — duplication (B and C)  ✅ DONE (all 12 items; B1/B2 resolved as documented language constraints, like C1)
 
-- [ ] B1 (double Unicode table) — **OPEN, deferred.** Riskiest item: the
-      `.replace` seam gives each of `regex`/`strings` its own table copy, and
-      sharing one copy needs a structural change to the per-package injection
-      model plus a regeneration of the generated `regex_unicode.mfb`. Warrants its
-      own focused change on top of the Phase-1 CI gate; not bundled into this
-      cleanup pass.
-- [ ] B2 (net/http `indexOf`/`slice`/`defaultPort`) — **OPEN, deferred.** The
-      doc's fix adds public `strings::` API (needs man pages + a spec note) and is
-      "the heaviest of the remainder"; a public-surface addition is better designed
-      and reviewed on its own than folded into a LOW cleanup.
+- [~] B1 (double Unicode table) — **RESOLVED as a language-mandated constraint,
+      like C1.** Established empirically that the recommended "share one copy" fix
+      is blocked by the language, not merely hard: an injected built-in source is
+      one file whose FUNCs are file-local (`PACKAGE` visibility is invalid in an
+      executable — the `regex::source_file` comment already says the `genCat` calls
+      "must be intra-file"), and there are **zero** source-`EXPORT` public functions
+      in any built-in package (every public member is native-declared in the `.rs`
+      front end). So `strings` cannot reach `regex`'s private `__regex_genCat`. The
+      SOURCE already has one source of truth (one `unicode_gencat.mfb`, renamed
+      here under E5); only the COMPILED table is embedded twice, and only when a
+      program imports both packages. Holding one compiled copy needs either public
+      `strings::`/`regex::` API for the table or a restructure of the built-in
+      injection model to inject a shared source once and export a project-global
+      symbol — a change that risks every regex/strings program for a compile-time-
+      only win. Per **correctness-over-performance**, that is deliberately declined
+      and documented in `strings.rs::source_file` (bug-339 B1), exactly as C1's
+      language-mandated transport duplication was recorded rather than collapsed.
+      A separate feature/architecture change can revisit the shared-injection idea.
+      Commit: (this commit).
+- [~] B2 (net/http `indexOf`/`slice`/`defaultPort`) — **RESOLVED as the same
+      language-mandated constraint.** The three helpers are byte-identical across
+      `net` and `http`, but `http` (though it `IMPORT net`s) cannot reach `net`'s
+      private `__net_*` helpers for the same file-local reason as B1. The only
+      dedup paths are (a) new public `strings::` API — a user-facing surface
+      addition wired across the resolver, the three augmentation chains, man pages
+      and the spec (a feature, not cleanup), or (b) the same shared-injection
+      restructure as B1. Also verified `__net_slice` is **not** redundant with
+      `strings::mid`: it clamps a reversed range to `""` where `strings::mid` raises
+      `ErrIndexOutOfRange` (confirmed at runtime), so it is a safe-slice, not an
+      alias. Documented at `net_package.mfb`/`http_package.mfb` (bug-339 B2) with a
+      cross-reference, like C1. Commit: (this commit).
 - [x] B3 (crypto byte-slice helpers) — delegate to native `collections::mid`;
       folded the byte-identical `__crypto_bytePrefix` into `__crypto_truncate`.
       Commit `3978bf2f3`.
@@ -737,28 +771,39 @@ Commit: `a53c5d4e8`.
       Commit `3978bf2f3`.
 - [x] C7 (audio s16 clamp/emit → `__audio_clampS16`/`__audio_appendS16LE`).
       Commit `c9073b727`.
-- [ ] C9 (collections take/drop banner ordering) — **OPEN, deferred.** Cosmetic
-      banner-accuracy reorder in a package imported almost everywhere; full-suite
-      golden churn for no behavioral or structural gain.
+- [x] C9 (collections take/drop banner ordering) — moved `__collections_take`
+      down next to `__collections_drop` under the §6.4 banner. Commit `bb4e243b1`.
 - [x] C10 (move `__datetime_expect` before its caller). Commit `e314401eb`.
-- [ ] C11 (split `audio_package.mfb` into two subsystems) — **OPEN, deferred.**
-      Organizational only (the C7 dedup already crossed the seam); low value.
+- [x] C11 (split `audio_package.mfb` into `audio_render.mfb` + `audio_mml.mfb`,
+      concatenated in `audio.rs`; byte-identical, zero golden shift). Commit `556188e13`.
 - [x] C1 transport constraint — already documented in `http_package.mfb`; not
       collapsed (correct).
 
-Acceptance: MET for the landed items — full acceptance (1083 tests) green; every
-golden shift is `.ir` symbol-layout only, all `build.log`/`.run` byte-identical
-(crypto proven against RFC KAT vectors).
+Acceptance: MET — full acceptance (1083 tests) green after every item; each golden
+shift is `.ir` symbol-layout only, all `build.log`/`.run` byte-identical (crypto
+proven against RFC KAT vectors; regex zero-width outputs pinned by a new fixture).
 
-### Phase 4 — naming, style, documentation  ○ OPEN (deferred)
+### Phase 4 — naming, style, documentation  ✅ DONE
 
-- [ ] E1–E5, F1, F3 — **OPEN, deferred.** E1 (audio `__mml_` prefix) is ~50
-      renames + two type renames; F1 is 35 DOC blocks; these are large mechanical/
-      documentation efforts better done as focused follow-ups. F2 is **already
-      complete** (http man pages landed via bug-336/337). E2/E3/E4/E5/F3 remain.
+- [x] E1 — audio `__mml_*` → `__audio_mml*`, snake `__audio_play_*` → camelCase,
+      and the two unprefixed private types (`MmlEvent` → `__audio_MmlEvent`,
+      `RouteMatch` → `__http_RouteMatch`). Commit `5cfc7cedd`.
+- [x] E2 — the four ASCII `isDigit` idioms unified on the range compare;
+      `__strings_isDigit` (Unicode Nd) left distinct. Commit `5b8d5186a`.
+- [x] E3 — `0 - 1` sentinel standardized on the `-1` literal (10 sites). Commit `5b8d5186a`.
+- [x] E4 — the three REM/`'`-mixed files converted to `'`. Commit `5b8d5186a`.
+- [x] E5 — `regex_unicode.mfb` → `unicode_gencat.mfb` to signal its shared-data
+      role; swept both include sites, the generator, CI gate, `.gitattributes`,
+      and citations. Commit `a9fa5a913`.
+- [x] F1 — validated DOC blocks on all 35 `EXPORT` declarations (9 via the vector
+      generator); verified rendering via `mfb doc`. Commit `ec18abfc4`.
+- [x] F2 — **already complete** (http man pages landed via bug-336/337).
+- [x] F3 — **already resolved**: the man corpus is now uniformly `.md`
+      (0 `.txt` pages), migrated by bug-336.
 
-Acceptance: not attempted this pass.
-Commit: —
+Acceptance: MET — `mfb doc` surfaces every stdlib `EXPORT`; full acceptance +
+`cargo test` green.
+Commit: see per-item.
 
 ## Validation Plan
 

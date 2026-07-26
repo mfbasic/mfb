@@ -263,6 +263,18 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
     // function `__regex_genCat` is renamed to `__strings_genCat` so the two
     // companions never collide on a project-global symbol when both `regex` and
     // `strings` are imported.
+    //
+    // bug-339 B1: the SOURCE has a single source of truth (this one file). What is
+    // embedded twice is the COMPILED table — once per package — when a program
+    // imports both `regex` and `strings`. That is language-mandated, not an
+    // oversight: an injected built-in source is one file whose FUNCs are
+    // file-local (PACKAGE visibility is invalid in an executable — see
+    // `regex::source_file`), so each package must carry its own file-local copy of
+    // `genCat`. Holding ONE compiled copy would require exporting the table as a
+    // project-global symbol from a shared source injected exactly once — a
+    // restructure of the built-in injection/augmentation model that risks every
+    // regex/strings program for a compile-time-only win, so it is deliberately not
+    // done here. The `.replace` seam is the load-bearing part and must stay.
     let table = include_str!("unicode_gencat.mfb").replace("__regex_genCat", "__strings_genCat");
     let combined = format!("{}\n{}", include_str!("strings_package.mfb"), table);
     crate::ast::parse_source_internal(
