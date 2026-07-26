@@ -51,6 +51,18 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.deleteDirectory",
     "fs.listDirectory",
     "fs.canonicalPath",
+    // fs:: extras (plan-66-E). open/openFileNoFollow reuse emit_open_file;
+    // createDirectories = recursive CreateDirectoryW; createTempFile = emit_open_file
+    // + emit_random_bytes (NOT emit_mkstemps — see Corrections); setBuffered/
+    // isBuffered/isWithin are platform-independent resource/path logic. Atomic
+    // writes (writeTextAtomic/writeBytesAtomic) still pending the emit_mkstemps impl.
+    "fs.open",
+    "fs.openFileNoFollow",
+    "fs.createDirectories",
+    "fs.createTempFile",
+    "fs.setBuffered",
+    "fs.isBuffered",
+    "fs.isWithin",
     // File-resource surface.
     "fs.openFile",
     "fs.close",

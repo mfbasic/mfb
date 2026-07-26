@@ -137,7 +137,10 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            "fs.canonicalPath" => vec![
+            // canonicalPath and isWithin both canonicalize via GetFullPathNameW
+            // (isWithin canonicalizes base+path then does a prefix containment check
+            // in the shared helper). plan-66-E adds isWithin here.
+            "fs.canonicalPath" | "fs.isWithin" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetFullPathNameW", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
@@ -150,6 +153,16 @@ impl NativePlanPlatform for Platform {
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("CreateFileW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
+            ],
+            // createTempFile opens an O_EXCL file at a randomized name
+            // (emit_open_file + emit_random_bytes over BCryptGenRandom). plan-66-E.
+            // (openWithin is deferred — its no-symlink realpath path is an
+            // `unreachable!` on Windows; see Corrections.)
+            "fs.createTempFile" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+                import("BCryptGenRandom", BCRYPT, required_by),
             ],
             "fs.close" => vec![import("CloseHandle", KERNEL32, required_by)],
             "fs.readLine" | "fs.eof" => vec![

@@ -374,13 +374,26 @@ Commit: —
   box run emitting 24-bit color + bold + cursor addressing + alt-screen.
 
 Acceptance: a TUI program (colors, cursor moves, clear) renders correctly in Windows Terminal on the box. **MET** — box (`term66.exe`) emitted the correct ANSI stream: `^[[?1049h` alt-screen, `^[[38;2;255;0;0m red-text` at row 2, `^[[1m` bold `bold-text` at row 3, full grid present, `^[[?1049l` restore, `isOn` FALSE→(on)→FALSE. Renders as color in Windows Terminal (raw ESC shown here only because ssh captured a pipe, where VT-enable correctly no-ops). Non-Windows byte-identical (default `emit_enable_vt_output` emits nothing; existing term fixtures + full `cargo test` green); Windows build deterministic.
-Commit: —
+Commit: 7eab44bd9
 
-### Phase E — `fs::` extras
-- [ ] Advertise + implement the 10 calls (+ `emit_mkstemps` at `code.rs:1137`).
-- [ ] Tests: goldens + a box run of createTempFile/atomic-write/createDirectories.
+### Phase E — `fs::` extras  (IN PROGRESS — 7/10 calls landed)
+- [~] Advertise + implement the 10 extras. **Landed & box-proven:** `open`,
+  `openFileNoFollow` (both via `lower_fs_open_helper`/`emit_open_file`),
+  `createDirectories` (recursive CreateDirectoryW), `createTempFile` (filled
+  `temp_file_open_flags`' Windows arm = `(CREATE_NEW<<32)|GENERIC_READ|GENERIC_WRITE`
+  = 7516192768 — the plan's "`emit_mkstemps` stub" mapping was wrong; createTempFile
+  uses `emit_open_file`+`emit_random_bytes`, see Corrections), `setBuffered`,
+  `isBuffered` (platform-independent resource flag), `isWithin` (fixed the
+  hardcoded `/` separator → platform-aware `\` on Windows, a real bug found on the
+  box). **Deferred:** `openWithin` (its no-symlink realpath path is
+  `unreachable!("47-F owns the Windows realpath/no-symlink path")`),
+  `writeTextAtomic`/`writeBytesAtomic` (use the `emit_mkstemps` stub — the actual
+  `emit_mkstemps` consumer, not createTempFile).
+- [x] Tests: fixture `tests/rt-behavior/fs/fs-temp-file-buffered` (createTempFile +
+  set/isBuffered, system-temp only so no repo pollution); box run of
+  createDirectories/createTempFile/open+readText/isWithin all correct.
 
-Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box.
+Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **PARTIAL** — temp-file + nested-mkdir + open/read + isWithin box-proven; atomic writes deferred (need `emit_mkstemps`).
 Commit: —
 
 ### Phase F — `tls::` server
@@ -546,6 +559,26 @@ Commit: —
   `win_x86_64/code.rs`. The styling setters/getters make no OS call (verified:
   `emit_set_color`/`emit_move_to`/`emit_get_color`/… touch only grid state), so
   only `on`/`off`/`sync`/`terminalSize` carry kernel32 imports.
+- **2026-07-26 (Phase E, `emit_mkstemps` maps to atomic-writes, not createTempFile).**
+  The Feature map says `createTempFile` is the `emit_mkstemps` stub consumer. It is
+  not: `lower_fs_create_temp_file_helper` uses `emit_open_file` + `emit_random_bytes`
+  (a random UUID name opened O_EXCL), and its Windows gap was a separate
+  `unreachable!` in `temp_file_open_flags` (`fs/atomic.rs:255`), now filled. The
+  real `emit_mkstemps` consumer is `lower_fs_atomic_write_helper`
+  (writeTextAtomic/writeBytesAtomic) — those remain deferred until `emit_mkstemps`
+  is implemented on Windows (GetTempFileNameW/CreateFileW + MoveFileExW rename).
+- **2026-07-26 (Phase E, `fs::isWithin` real bug — hardcoded POSIX separator).**
+  `lower_fs_is_within_helper` (`fs/paths.rs`) hardcoded the containment-boundary
+  separator as `"47"` (`/`). Windows `GetFullPathNameW` canonicalizes to `\` (92),
+  so a child genuinely inside base read as *outside* (`isWithin` → FALSE on the
+  box). Fixed with a platform-aware `within_sep` (92 on Windows, 47 elsewhere);
+  non-Windows codegen is byte-identical (the immediate is still `"47"`). Found only
+  by the box run — no golden would have caught it.
+- **2026-07-26 (Phase E, `openWithin` deferred).** `openWithin`'s shared helper
+  takes a no-symlink realpath path whose Windows arm is
+  `unreachable!("47-F owns the Windows realpath/no-symlink path")` — net-new work,
+  deferred with the atomic writes. Un-advertised so it is a compile-time rejection,
+  never a broken build.
 
 ## Summary
 
