@@ -1492,7 +1492,13 @@ fn lower_runtime_helper(
         ));
     };
     let app_mode = build_mode.is_app();
-    if builtins::term::is_term_call(spec.call) {
+    // Every runtime helper lowers to the same CodeFunction shape — an empty
+    // `params` list and the spec's return type — differing only in the
+    // (frame, instructions, relocations, stack_slots) tuple each arm computes.
+    // Build that tuple here, then construct the single CodeFunction after the
+    // match (the shape the net.*/tls.* inner-match arms already used).
+    let (frame, instructions, relocations, stack_slots) = if builtins::term::is_term_call(spec.call)
+    {
         let term_state_offset = term_state_offset.ok_or_else(|| {
             format!("native code plan emits '{symbol}' without reserving term state")
         })?;
@@ -1506,7 +1512,7 @@ fn lower_runtime_helper(
         } else {
             None
         };
-        let (frame, instructions, relocations, stack_slots) = match app_term_helper {
+        match app_term_helper {
             Some(result) => pad_no_slots(result?),
             None => term::lower_term_helper(
                 spec.call,
@@ -1515,83 +1521,26 @@ fn lower_runtime_helper(
                 platform_imports,
                 platform,
             )?,
-        };
-        return Ok(CodeFunction {
-            name: format!("runtime.{}", spec.call),
-            symbol: symbol.to_string(),
-            params: Vec::new(),
-            returns: spec.abi.returns.to_string(),
-            frame,
-            stack_slots,
-            instructions,
-            relocations,
-        });
-    }
-    if crypto_ec::ec_call(spec.call).is_some() {
-        let (frame, instructions, relocations, stack_slots) =
-            crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?;
-        return Ok(CodeFunction {
-            name: format!("runtime.{}", spec.call),
-            symbol: symbol.to_string(),
-            params: Vec::new(),
-            returns: spec.abi.returns.to_string(),
-            frame,
-            stack_slots,
-            instructions,
-            relocations,
-        });
-    }
-    match spec.call {
-        "crypto.randomBytes" => {
-            let (frame, instructions, relocations, stack_slots) =
-                crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
         }
-        "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
-            let (frame, instructions, relocations, stack_slots) =
-                datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if builtins::os::is_os_call(call) => {
-            let (frame, instructions, relocations, stack_slots) = os::lower_os_helper(
+    } else if crypto_ec::ec_call(spec.call).is_some() {
+        crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?
+    } else {
+        match spec.call {
+            "crypto.randomBytes" => {
+                crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
+            }
+            "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
+                datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
+            }
+            call if builtins::os::is_os_call(call) => os::lower_os_helper(
                 spec.call,
                 symbol,
                 build_mode,
                 module_name,
                 platform_imports,
                 platform,
-            )?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if call.starts_with("io.") || call.starts_with("fs.") => {
-            let (frame, instructions, relocations, stack_slots) = match call {
+            )?,
+            call if call.starts_with("io.") || call.starts_with("fs.") => match call {
                 "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                     let stderr = matches!(spec.call, "io.printError" | "io.writeError");
                     let newline = matches!(spec.call, "io.print" | "io.printError");
@@ -1788,61 +1737,40 @@ fn lower_runtime_helper(
                     lower_fs_canonical_path_helper(symbol, platform_imports, platform)?
                 }
                 "fs.isWithin" => lower_fs_is_within_helper(symbol, platform_imports, platform)?,
+                // Defensive: unreachable — `spec_for_symbol` at the top already
+                // rejects any io.*/fs.* symbol that has no spec. Kept only because
+                // matching a `&str` is not exhaustive without a catch-all.
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
                     ));
                 }
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "thread.start"
-        | "thread.isRunning"
-        | "thread.waitFor"
-        | "thread.cancel"
-        | "thread.drop"
-        | "thread.send"
-        | "thread.poll"
-        | "thread.read"
-        | "thread.receive"
-        | "thread.emit"
-        | "thread.transferResource"
-        | "thread.acceptResource"
-        | "thread.emitResource"
-        | "thread.readResource"
-        | "thread.isCancelled"
-        | "thread.openStdIn"
-        | "thread.closeStdIn" => {
-            let (frame, instructions, relocations, stack_slots) = lower_thread_helper(
+            },
+            "thread.start"
+            | "thread.isRunning"
+            | "thread.waitFor"
+            | "thread.cancel"
+            | "thread.drop"
+            | "thread.send"
+            | "thread.poll"
+            | "thread.read"
+            | "thread.receive"
+            | "thread.emit"
+            | "thread.transferResource"
+            | "thread.acceptResource"
+            | "thread.emitResource"
+            | "thread.readResource"
+            | "thread.isCancelled"
+            | "thread.openStdIn"
+            | "thread.closeStdIn" => lower_thread_helper(
                 symbol,
                 spec.call,
                 uses_rng,
                 arena_layout.global_slots,
                 platform_imports,
                 platform,
-            )?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if call.starts_with("net.") => {
-            let (frame, instructions, relocations, stack_slots) = match call {
+            )?,
+            call if call.starts_with("net.") => match call {
                 "net.lookup" => net::lower_net_lookup_helper(symbol, platform_imports, platform)?,
                 "net.connectTcp" => {
                     net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
@@ -1897,39 +1825,18 @@ fn lower_runtime_helper(
                 "net.sendTextTo" => {
                     net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
                 }
+                // Defensive: unreachable (see the io.*/fs.* arm); required only for
+                // `&str` match exhaustiveness.
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
                     ));
                 }
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if call.starts_with("audio.") => {
-            let (frame, instructions, relocations, stack_slots) =
-                audio::lower_audio_helper(call, symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if call.starts_with("tls.") => {
-            let (frame, instructions, relocations, stack_slots) = match call {
+            },
+            call if call.starts_with("audio.") => {
+                audio::lower_audio_helper(call, symbol, platform_imports, platform)?
+            }
+            call if call.starts_with("tls.") => match call {
                 "tls.connect" => tls::lower_tls_connect_helper(symbol, platform_imports, platform)?,
                 "tls.listen" => tls::lower_tls_listen_helper(symbol, platform_imports, platform)?,
                 "tls.accept" => tls::lower_tls_accept_helper(symbol, platform_imports, platform)?,
@@ -1949,27 +1856,31 @@ fn lower_runtime_helper(
                 "tls.closeListener" => {
                     tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
                 }
+                // Defensive: unreachable (see the io.*/fs.* arm); required only for
+                // `&str` match exhaustiveness.
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
                     ));
                 }
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
+            },
+            other => {
+                return Err(format!(
+                    "native code plan does not emit runtime call '{other}'"
+                ));
+            }
         }
-        other => Err(format!(
-            "native code plan does not emit runtime call '{other}'"
-        )),
-    }
+    };
+    Ok(CodeFunction {
+        name: format!("runtime.{}", spec.call),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: spec.abi.returns.to_string(),
+        frame,
+        stack_slots,
+        instructions,
+        relocations,
+    })
 }
 
 /// Whether a runtime helper symbol belongs to the TLS **server** side
