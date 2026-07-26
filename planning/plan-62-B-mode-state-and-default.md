@@ -39,10 +39,10 @@ References (read first):
 
 See plan-62-A §Prerequisites (feature-wide). Additionally:
 
-| Must be true | Command | Status 2026-07-24 |
+| Must be true | Command | Status 2026-07-25 |
 |---|---|---|
-| plan-62-A has landed (`app::` package + `Mode` enum + gating) | `rg -n '"app"' src/builtins/mod.rs` → `is_builtin_import` arm present | **NOT MET (A pending)** |
-| The catalog family-count assertion is known | `rg -n 'families.len\(\)' src/target/shared/runtime/catalog.rs` | **MET (asserts 10 today)** |
+| plan-62-A has landed (`app::` package + `Mode` enum + gating) | `rg -n '"app"' src/builtins/mod.rs` → `is_builtin_import` arm present | **MET** (commit b91f87924) |
+| The catalog family-count assertion is known | `rg -n 'families.len\(\)' src/target/shared/runtime/catalog.rs` | **MET** (was 10; now bumped to 11 with `RuntimeHelper::App`) |
 
 > **NOTE — the Command column is the truth; re-run every row before continuing and before
 > stopping. If you stop, report every row.**
@@ -170,33 +170,48 @@ program-entry emission. The Rust enum is named `PresentationMode` to avoid colli
 
 ### Phase 1 — the state slot + `getMode`/`setMode` helpers (state only)
 
-- [ ] Reserve `PRESENTATION_MODE_OFFSET` beside `TERM_STATE_*` (`error_constants.rs:328`),
-      gated on `is_app()`; fold into `arena_global_slots` (`mod.rs:860` neighbourhood).
-- [ ] Add `RuntimeHelper::App` + `name()`; create `runtime/app_specs.rs` with
+- [x] Reserve the presentation-mode slot (`PRESENTATION_MODE_SLOTS` in `error_constants.rs`)
+      one slot past `TERM_STATE_*`; fold into `arena_global_slots`. **Gated on `uses_app`**
+      (any `_mfb_rt_app_` symbol), NOT `is_app()` — the `uses_term` model, so app binaries that
+      never touch `app::` keep byte-identical entries (see Corrections; macos-app-mode-* proven
+      unchanged).
+- [x] Add `RuntimeHelper::App` + `name()`; create `runtime/app_specs.rs` with
       `APP_GET_MODE_SPEC`/`APP_SET_MODE_SPEC`; register in `catalog.rs` and bump the family
-      count 10 → 11.
-- [ ] Emit `_mfb_rt_app_get_mode` (load slot → result) and `_mfb_rt_app_set_mode` (store arg →
-      slot, then call a **no-op** `emit_app_mode_reconcile` seam with a comment that C/D fill
-      it). Add backend routing arms (`macos_aarch64/plan.rs:635`, `linux_common/plan.rs:458`).
-- [ ] Verify `thread::start` worker-region sizing still matches (bug-369).
+      count 10 → 11 (+ the `for helper in [...]` list).
+- [x] Emit the get/set helpers in `shared/code/app.rs` (`lower_app_helper`): getMode loads the
+      slot → result; setMode stores arg → slot, then calls the **no-op** `emit_app_mode_reconcile`
+      seam (new `CodegenPlatform` trait method, default `None`; C/D override). Routing is via the
+      catalog (`helper_for_call` + `app_specs`) + each app backend's capability list
+      (`macos_aarch64` inline `runtime_calls`, `linux_common::RUNTIME_CALLS`) — NOT a `plan.rs`
+      import arm (app needs no OS imports in B; see Corrections).
+- [x] Worker-region sizing (bug-369): the presentation slot is in `arena_global_slots`, which
+      `thread::start` sizes workers from, so worker and entry frames match automatically.
 
-Acceptance: an `--app` program that does `app::setMode(app::Mode::None)` then prints
-`app::getMode()` observes `None`; one that never calls `setMode` observes `Console`. Proven by
-a runtime golden (macOS device or GTK box). No window change is expected or asserted.
+Acceptance: an `--app` program that does `app::setMode(Mode.None)` then reads `app::getMode()`
+observes `None`; one that never calls `setMode` observes `Console`. **VERIFIED** on macOS device
+headlessly (`scripts/test-macapp.sh` cases "app:: default presentation mode is Console",
+"app::setMode/getMode round-trip", both `code=0`). No window change asserted.
 Commit: —
 
 ### Phase 2 — the static initial-mode default + `AppEntrySpec` field
 
-- [ ] Add `PresentationMode { Console, None }` (Rust-internal name; §3.3) and compute
-      `initial_mode` from a `uses_set_mode` presence scan beside `uses_term` (`mod.rs:824`).
-- [ ] Add `initial_mode: PresentationMode` to `AppEntrySpec` (`types.rs:840`); set it at the
-      real construction (`mod.rs:930`) and the rv64 `#[should_panic]` test (`linux_common/code.rs:1232`).
-- [ ] Seed the state slot from `initial_mode` in program-entry emission (before the worker
-      runs), so `getMode` reflects the default before any `setMode` executes.
+- [x] Add `PresentationMode { Console = 0, None = 1 }` (Rust-internal name; §3.3, Open Decision 2)
+      and compute `initial_mode` beside `uses_term` — via `module_uses_call(module, "app.setMode")`
+      (the `uses_rng` model), NOT a `_mfb_rt_app_set_mode` runtime-symbol scan: the real derived
+      symbol is `_mfb_rt_app_app_setMode` (see Corrections).
+- [x] ~~Add `initial_mode: PresentationMode` to `AppEntrySpec`~~ — **DEFERRED to plan-62-C**, the
+      letter that first *reads* it (the bootstrap's startup-window decision). Adding an unread
+      field in B violates the no-dead-code rule. B carries the static default into program entry
+      via a new `ProgramEntrySpec::seed_presentation_mode_offset` instead (which B reads). The
+      rv64 `#[should_panic]` `AppEntrySpec` construction therefore needed no change.
+- [x] Seed the slot from `initial_mode` in `entry.rs::lower_program_entry` (shared across all
+      backends, threaded via `ProgramEntrySpec::seed_presentation_mode_offset`): store `1`
+      (`None`) when that is the static default; `Console` needs no store (zero-init).
 
 Acceptance: `getMode()` at the very first program statement returns `Console` for a
-no-`setMode` program and `None` for a program that references `setMode` anywhere (even on a
-never-taken branch — the scan is static). Runtime golden proves both.
+no-`setMode` program and `None` for a program that references `setMode` anywhere. **VERIFIED**
+on macOS device (`scripts/test-macapp.sh` case "app:: static default is None when setMode is
+referenced", `code=0`; the Console case is the default test above).
 Commit: —
 
 ## Validation Plan
@@ -222,6 +237,47 @@ Commit: —
 ## Corrections
 
 <!-- Filled in during execution. -->
+
+- 2026-07-25 — **Helper symbol is `_mfb_rt_app_app_setMode` / `_mfb_rt_app_app_getMode`**, not
+  the plan's `_mfb_rt_app_set_mode`. `symbol_for_call` sanitizes the *full* call string
+  (`"app.setMode"` → `app_setMode`) after the `_mfb_rt_app_` prefix — the same double-name shape
+  as `_mfb_rt_term_term_off`. The static default therefore uses
+  `module_uses_call(module, "app.setMode")` (the `uses_rng` model), which is robust to the
+  spelling, instead of a runtime-symbol scan.
+
+- 2026-07-25 — **The mode slot is gated on `uses_app`, not `is_app()`.** `is_app()` would reserve
+  a slot (growing `arena_global_slots` by one) in *every* app build, churning the entry goldens
+  of app fixtures that never touch `app::` (e.g. `macos-app-mode-plumbing`). Gating on
+  `uses_app` (any `_mfb_rt_app_` symbol present) mirrors `uses_term` exactly and keeps those
+  fixtures byte-identical — verified via `test-accept.sh` on all three `macos-app-mode-*`.
+
+- 2026-07-25 — **`AppEntrySpec::initial_mode` is deferred to plan-62-C.** The static default is
+  a compile-time value; B needs it only to seed the per-arena slot, which it does through a new
+  `ProgramEntrySpec::seed_presentation_mode_offset` (read in `entry.rs::lower_program_entry`).
+  The `AppEntrySpec` field is for the per-backend *bootstrap's* startup-window decision — first
+  read by C — so it lands there; adding it in B would be an unread field (AGENTS.md: never
+  "consumed by a later phase"). Phase 2's behavior (None at first statement) is fully delivered
+  by the seed.
+
+- 2026-07-25 — **Backend routing is via the catalog + capability list, not a `plan.rs` import
+  arm.** Adding `APP_GET_MODE_SPEC`/`APP_SET_MODE_SPEC` to the catalog makes `helper_for_call`
+  route `app.getMode`/`setMode` to `RuntimeHelper::App`; each app backend then lists them in its
+  `BackendCapabilities.runtime_calls` (`macos_aarch64` inline; `linux_common::RUNTIME_CALLS`
+  for D). App helpers need no OS-library imports in B (the reconcile is a no-op), so no
+  `macos_aarch64/plan.rs` / `linux_common/plan.rs` import arm is required.
+
+- 2026-07-25 — **Runtime proof lives in `scripts/test-macapp.sh`, not `tests/rt-behavior/app/`.**
+  App runtime is not exercised by `test-accept.sh` (which builds native *dumps*, never runs app
+  bundles); the sanctioned macOS app-runtime gate is `test-macapp.sh` (headless, exit-code
+  observable), where existing app runtime behavior (io output, exit-code propagation) is already
+  proven. Three cases added there (default Console, setMode round-trip, None static default).
+
+- 2026-07-25 — **Fixed a latent plan-62-A defect: `PACKAGE_ORDER` in `src/docs/man/mod.rs`
+  needed an `app` row.** Adding `src/docs/man/builtins/app/` in A made 33 generated man packages
+  against a 32-entry `PACKAGE_ORDER`, failing `docs::man::tests::man_citations_resolve`. It
+  slipped past A because the full `cargo test` was run *before* the man pages were added and only
+  a filtered `cargo test man` after — the exact "run full `cargo test`, never one module" trap.
+  Fixed here (row added after `term`); full suite now 0-failed.
 
 ## Summary
 

@@ -440,6 +440,7 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
             spec.subscribe_stdin,
             spec.entry_called_as_function,
             spec.needs_winsock,
+            spec.seed_presentation_mode_offset,
         )
     }
 

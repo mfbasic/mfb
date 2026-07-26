@@ -378,6 +378,7 @@ impl code::CodegenPlatform for Platform {
             spec.subscribe_stdin,
             spec.entry_called_as_function,
             spec.needs_winsock,
+            spec.seed_presentation_mode_offset,
         )
     }
 

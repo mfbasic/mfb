@@ -45,6 +45,10 @@ use std::path::{Path, PathBuf};
 /// `contains` membership test — order is not semantically significant, but no
 /// entry may be added or dropped without changing what the backends accept.
 pub(crate) const RUNTIME_CALLS: &[&str] = &[
+    // plan-62-B: the app:: presentation-mode helpers (app builds only; the CLI
+    // gate keeps them out of console builds).
+    "app.getMode",
+    "app.setMode",
     "crypto.randomBytes",
     "crypto.generateP256Raw",
     "crypto.generateP384Raw",

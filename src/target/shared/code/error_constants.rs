@@ -356,6 +356,14 @@ pub(crate) const TERM_STATE_RAW_TERMIOS_OFFSET: usize = 144;
 /// Total reserved slots: through the raw `termios` buffer (144 + 72 = 216 bytes).
 pub(crate) const TERM_STATE_SLOTS: usize = (TERM_STATE_RAW_TERMIOS_OFFSET + 72) / 8;
 
+/// plan-62-B: the per-arena presentation-mode word (`app::Mode` discriminant:
+/// `0 = Console`, `1 = None`). Reserved as one 8-byte slot in the program-entry
+/// frame just past the `term::` state region, addressed off the pinned arena-state
+/// register — the same threading model as `term::` state. Only reserved in app
+/// builds (a console build has no `app::Mode`), so a console binary is unchanged.
+/// `_mfb_rt_app_get_mode` loads it and `_mfb_rt_app_set_mode` stores it.
+pub(crate) const PRESENTATION_MODE_SLOTS: usize = 1;
+
 // ===========================================================================
 // Arena state layout (ascending offset) & allocator
 // ===========================================================================

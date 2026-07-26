@@ -50,6 +50,7 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("csv", "mfb man csv [function]"),
     ("regex", "mfb man regex [function]"),
     ("term", "mfb man term [function]"),
+    ("app", "mfb man app [function]"),
     ("datetime", "mfb man datetime [function]"),
     ("money", "mfb man money [function]"),
     ("audio", "mfb man audio [function]"),

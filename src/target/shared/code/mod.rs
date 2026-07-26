@@ -82,6 +82,7 @@ mod builder_control;
 mod builder_conversions;
 mod builder_emit_helpers;
 mod builder_fixed_math;
+mod app;
 mod builder_fmod;
 mod builder_fs_paths;
 mod builder_inplace_assign;
@@ -961,6 +962,41 @@ pub(crate) fn lower_module_for_platform(
         None
     };
     let term_state_slots = if uses_term { TERM_STATE_SLOTS } else { 0 };
+    // plan-62-B: the `app::` presentation-mode word sits one slot past the
+    // `term::` state region, addressed off the same pinned arena-state register.
+    // Reserved only when the program actually uses `app::` (the `uses_term` model,
+    // NOT every app build) so an app binary that never touches `app::` keeps its
+    // exact entry frame and goldens. `app::` is `--app`-gated, so this is
+    // implicitly false in console builds.
+    let uses_app = runtime_symbols
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_app_"));
+    let presentation_mode_offset = if uses_app {
+        Some(ENTRY_GLOBALS_OFFSET + (globals_base + link_slot_count + term_state_slots) * 8)
+    } else {
+        None
+    };
+    let presentation_mode_slots = if uses_app { PRESENTATION_MODE_SLOTS } else { 0 };
+    // plan-62-B §3.3: the static initial presentation mode. A program that
+    // references `app::setMode` anywhere starts windowless (`None`); one that
+    // never does keeps the default terminal-in-a-window surface (`Console`). Keyed
+    // on `setMode` specifically — a read-only `getMode` must not force `None`
+    // startup. Scanned off the NIR module (like `uses_rng`), robust to the helper
+    // symbol's `_mfb_rt_app_app_setMode` spelling.
+    let initial_mode = if module_uses_call(module, "app.setMode") {
+        PresentationMode::None
+    } else {
+        PresentationMode::Console
+    };
+    // Seed the slot to `None` at worker entry when that is the static default;
+    // `Console` needs no store (the arena-state region zero-inits to `0` =
+    // `Console`, verified by the default-mode runtime test). `None` implies
+    // `setMode` is used, which implies `uses_app`, so the offset is always present
+    // here. This is the single reader of `initial_mode` in plan-62-B.
+    let seed_presentation_mode_offset = match initial_mode {
+        PresentationMode::None => presentation_mode_offset,
+        PresentationMode::Console => None,
+    };
     // Every writable slot addressed off the pinned arena-state register: the
     // program's own globals, the `LINK`/`FREE` pointer slots, and the `term::`
     // state. The region is PER-ARENA, so a worker thread needs exactly as many
@@ -968,7 +1004,8 @@ pub(crate) fn lower_module_for_platform(
     // this same number in `lower_thread_start_helper` (bug-369). Before that, a
     // worker's arena block was only `ARENA_STATE_SIZE` bytes, so every global read
     // in a worker ran off the end of the block into neighbouring arena memory.
-    let arena_global_slots = globals_base + link_slot_count + term_state_slots;
+    let arena_global_slots =
+        globals_base + link_slot_count + term_state_slots + presentation_mode_slots;
     let link_init_symbol = if link_count > 0 {
         Some(nir::LINK_INIT_SYMBOL)
     } else {
@@ -1073,6 +1110,10 @@ pub(crate) fn lower_module_for_platform(
                     // (bug-240).
                     entry_called_as_function: true,
                     needs_winsock: uses_net,
+                    // plan-62-B: the worker owns the per-arena presentation-mode
+                    // slot the program's `app::` calls read/write, so it seeds the
+                    // `None` static default here.
+                    seed_presentation_mode_offset,
                 },
                 &platform_imports,
             )?);
@@ -1110,6 +1151,9 @@ pub(crate) fn lower_module_for_platform(
                     // the platform's raw entry delivers them.
                     entry_called_as_function: false,
                     needs_winsock: uses_net,
+                    // Console builds have no `app::` (the package is `--app`-gated),
+                    // so this is always `None` here and the entry is unchanged.
+                    seed_presentation_mode_offset,
                 },
                 &platform_imports,
             )?);
@@ -1339,6 +1383,7 @@ pub(crate) fn lower_module_for_platform(
             &module.project,
             ArenaLayout {
                 term_state_offset,
+                presentation_mode_offset,
                 global_slots: arena_global_slots,
             },
             uses_rng,
@@ -1612,6 +1657,20 @@ fn lower_runtime_helper(
         crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?
     } else {
         match spec.call {
+            "app.getMode" | "app.setMode" => {
+                // plan-62-B: state read/write off the per-arena presentation-mode
+                // slot; setMode additionally calls the (no-op in B) per-backend
+                // surface-reconcile seam. App builds only — the slot is reserved
+                // only when `is_app()`, so its absence here is an internal error.
+                let presentation_mode_offset =
+                    arena_layout.presentation_mode_offset.ok_or_else(|| {
+                        format!(
+                            "native code plan emits '{symbol}' without reserving the \
+                             presentation-mode slot"
+                        )
+                    })?;
+                app::lower_app_helper(spec.call, symbol, presentation_mode_offset, platform)?
+            }
             "crypto.randomBytes" => {
                 crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
             }

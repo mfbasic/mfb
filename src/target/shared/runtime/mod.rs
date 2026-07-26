@@ -2,6 +2,7 @@ use crate::builtins;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RuntimeHelper {
+    App,
     Audio,
     Crypto,
     Datetime,
@@ -19,6 +20,7 @@ pub enum RuntimeHelper {
 impl RuntimeHelper {
     pub fn name(self) -> &'static str {
         match self {
+            RuntimeHelper::App => "app",
             RuntimeHelper::Audio => "audio",
             RuntimeHelper::Crypto => "crypto",
             RuntimeHelper::Datetime => "datetime",
@@ -79,6 +81,7 @@ pub(crate) struct RuntimeHelperAbi {
     pub(crate) returns: &'static str,
 }
 
+mod app_specs;
 mod audio_specs;
 mod catalog;
 mod crypto_specs;
@@ -95,6 +98,7 @@ mod usage;
 pub(crate) use catalog::{spec_for_call, spec_for_symbol, supported_helper_specs};
 pub(crate) use usage::{is_native_direct_call, required_helpers};
 
+use app_specs::*;
 use audio_specs::*;
 use crypto_specs::*;
 use datetime_specs::*;
@@ -107,7 +111,9 @@ use thread_specs::*;
 use tls_specs::*;
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
-    if builtins::audio::is_audio_runtime_call(name) {
+    if builtins::app::is_app_call(name) {
+        Some(RuntimeHelper::App)
+    } else if builtins::audio::is_audio_runtime_call(name) {
         Some(RuntimeHelper::Audio)
     } else if builtins::crypto::is_native_crypto_call(name) {
         Some(RuntimeHelper::Crypto)

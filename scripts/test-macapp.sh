@@ -152,6 +152,104 @@ else
   fi
 fi
 
+# Case 3b (plan-62-B): app:: presentation-mode state. getMode/setMode read and
+# write the per-arena presentation-mode slot; the static default is Console unless
+# the program references app::setMode (then None). Proven headlessly through the
+# worker's exit code (0 = all assertions held).
+#
+#   - default Console: a program that never references setMode observes Console at
+#     startup (the slot zero-inits to 0 = Console).
+proj="$work/appdefault"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "appdefault", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+FUNC main() AS Integer
+  IF app::getMode() = Mode.Console THEN
+    RETURN 0
+  END IF
+  RETURN 1
+END FUNC
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app appdefault"
+else
+  result=$(run_headless "$(bundle "$proj" appdefault)/Contents/MacOS/appdefault")
+  if [ "$result" = "code=0" ]; then
+    pass "app:: default presentation mode is Console ($result)"
+  else
+    fail "expected app default Console (code=0), got '$result'"
+  fi
+fi
+
+#   - setMode round-trip: setMode(None) then getMode observes None; setMode(Console)
+#     then getMode observes Console.
+proj="$work/approundtrip"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "approundtrip", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+FUNC main() AS Integer
+  app::setMode(Mode.None)
+  IF app::getMode() = Mode.Console THEN
+    RETURN 1
+  END IF
+  app::setMode(Mode.Console)
+  IF app::getMode() = Mode.None THEN
+    RETURN 2
+  END IF
+  RETURN 0
+END FUNC
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app approundtrip"
+else
+  result=$(run_headless "$(bundle "$proj" approundtrip)/Contents/MacOS/approundtrip")
+  if [ "$result" = "code=0" ]; then
+    pass "app::setMode/getMode round-trip through the mode slot ($result)"
+  else
+    fail "expected app round-trip (code=0), got '$result'"
+  fi
+fi
+
+#   - None static default: a program that references setMode anywhere starts in
+#     None, observable at the very first statement (the entry seeds the slot to 1).
+proj="$work/appnone"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "appnone", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+FUNC main() AS Integer
+  IF app::getMode() = Mode.None THEN
+    app::setMode(Mode.Console)
+    RETURN 0
+  END IF
+  RETURN 1
+END FUNC
+MFB
+if ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app appnone"
+else
+  result=$(run_headless "$(bundle "$proj" appnone)/Contents/MacOS/appnone")
+  if [ "$result" = "code=0" ]; then
+    pass "app:: static default is None when setMode is referenced ($result)"
+  else
+    fail "expected app None static default (code=0), got '$result'"
+  fi
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than

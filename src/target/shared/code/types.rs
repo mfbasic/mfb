@@ -829,6 +829,24 @@ pub(crate) trait CodegenPlatform {
     ) -> Option<Result<AppHookBody, String>> {
         None
     }
+
+    /// plan-62-B seam: the per-backend surface reconcile invoked by
+    /// `_mfb_rt_app_app_setMode` *after* it stores the new mode into the
+    /// presentation-mode slot. In plan-62-B this is a no-op (the default `None`):
+    /// `setMode` is state-only, no window is built or torn down. plan-62-C (macOS
+    /// AppKit) and plan-62-D (GTK4) override it to marshal to the UI thread and
+    /// reconcile the window surface (implicit `term::off`, then build/teardown) to
+    /// the mode now in the slot. Instructions are appended in place; `None` means
+    /// no reconcile (state-only), `Some(Ok(()))` means the backend emitted it.
+    fn emit_app_mode_reconcile(
+        &self,
+        _symbol: &str,
+        _presentation_mode_offset: usize,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        None
+    }
 }
 
 /// Inputs the app-mode `_main` bootstrap needs about the program it hosts
@@ -866,10 +884,28 @@ impl<'a> ArenaInitSymbols<'a> {
 pub(crate) struct ArenaLayout {
     /// Byte offset of the `term::` TUI state, when the program uses `term::`.
     pub(crate) term_state_offset: Option<usize>,
+    /// Byte offset of the `app::` presentation-mode word (plan-62-B), when this is
+    /// an app build. Reserved just past the `term::` state region.
+    pub(crate) presentation_mode_offset: Option<usize>,
     /// Total slots in the region: program globals + `LINK`/`FREE` pointer slots +
-    /// `term::` state. `thread::start` sizes a worker's arena block from this so
-    /// the worker's region matches the entry frame's (bug-369).
+    /// `term::` state + the app presentation-mode slot. `thread::start` sizes a
+    /// worker's arena block from this so the worker's region matches the entry
+    /// frame's (bug-369).
     pub(crate) global_slots: usize,
+}
+
+/// The compiler-internal name for the runtime `app::Mode` presentation mode
+/// (plan-62-B §3.3). Named distinctly from `NativeBuildMode::Console` — that is
+/// the *compile-time* "not an --app build" axis, while this is the *runtime*
+/// "what surface is this --app window presenting" axis (plan-62-A §3.1). The
+/// discriminants are the stored slot values and match the `app_package.mfb` enum
+/// declaration order, so `getMode`'s loaded word IS the enum value with no remap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PresentationMode {
+    /// The terminal-in-a-window surface (the default). `app::Mode.Console`, `0`.
+    Console = 0,
+    /// Windowless. `app::Mode.None`, `1`.
+    None = 1,
 }
 
 pub(crate) struct AppEntrySpec {
@@ -877,6 +913,11 @@ pub(crate) struct AppEntrySpec {
     /// Whether the program uses `term::` (so the app-mode finish path should
     /// auto-`term::off()` to restore the transcript, plan-01-term.md §6.5).
     pub(crate) uses_term: bool,
+    // plan-62-B note: the static initial presentation mode is carried into program
+    // entry via `ProgramEntrySpec::seed_presentation_mode_offset` (it seeds the
+    // per-arena slot). An `AppEntrySpec::initial_mode` field for the per-backend
+    // *bootstrap's* startup-window decision is added by plan-62-C, the letter that
+    // first reads it — adding it here would be an unread field.
 }
 
 /// Everything the per-backend program-entry emitter needs (plan-00-G). Program
@@ -928,6 +969,12 @@ pub(crate) struct ProgramEntrySpec<'a> {
     /// POSIX has no analog and leaves the entry byte-identical, so a program that
     /// never touches sockets gains no `ws2_32` import.
     pub(crate) needs_winsock: bool,
+    /// plan-62-B §3.3: when `Some(offset)`, seed the per-arena presentation-mode
+    /// word at `[arena_state + offset]` to `None` (`1`) before the language entry
+    /// runs — the static default for a program that references `app::setMode`. A
+    /// `Console`-default program leaves it `None` here (the region zero-inits to
+    /// `0` = `Console`), so its entry stays byte-identical.
+    pub(crate) seed_presentation_mode_offset: Option<usize>,
 }
 
 #[derive(Clone, Copy)]

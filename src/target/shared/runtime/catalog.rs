@@ -7,6 +7,8 @@ use super::*;
 /// across call sites (inlining), so the same spec would resolve to two different
 /// addresses. A `static` has exactly one address (bug-382).
 static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
+    APP_GET_MODE_SPEC,
+    APP_SET_MODE_SPEC,
     AUDIO_DEVICES_SPEC,
     AUDIO_OPEN_INPUT_SPEC,
     AUDIO_OPEN_INPUT_DEVICE_SPEC,
@@ -262,6 +264,7 @@ mod tests {
         // is ever emitted for them). A variant missing here with no catalogued
         // spec is the dead-catalog situation bug-326 removed for `strings`.
         for helper in [
+            RuntimeHelper::App,
             RuntimeHelper::Audio,
             RuntimeHelper::Crypto,
             RuntimeHelper::Datetime,
@@ -279,6 +282,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 10, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 11, "unexpected extra catalogued family");
     }
 }

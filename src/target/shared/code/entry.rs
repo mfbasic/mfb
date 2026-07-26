@@ -20,6 +20,7 @@ pub(crate) fn lower_program_entry(
     subscribe_stdin: bool,
     entry_called_as_function: bool,
     needs_winsock: bool,
+    seed_presentation_mode_offset: Option<usize>,
 ) -> Result<CodeFunction, String> {
     // bug-175 I: the `entry_exit_range_error` handler (and its label) is emitted
     // only for an `Integer` entry, but the range-check branch to it is emitted for
@@ -248,6 +249,16 @@ pub(crate) fn lower_program_entry(
             abi::branch_link(RNG_SEED_SYMBOL),
         ]);
         relocations.push(internal_branch(entry_symbol, RNG_SEED_SYMBOL));
+    }
+    // plan-62-B §3.3: seed the per-arena presentation-mode word to `None` (`1`)
+    // when that is the program's static default (it references `app::setMode`).
+    // `Console`-default programs pass `None` here and rely on the zero-init region,
+    // so their entry is byte-identical. ARG[0] is free scratch at this point (the
+    // seed_rng block above and the LINK/global-init calls below both treat it as
+    // clobbered), and ARENA_STATE_REGISTER is already pinned.
+    if let Some(offset) = seed_presentation_mode_offset {
+        instructions.push(abi::move_immediate(abi::ARG[0], "Integer", "1"));
+        instructions.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, offset));
     }
     // Capture the arena start time (offset 40) and seed the dedicated memory-fill
     // RNG (offsets 16/24). Always on — entropy fill is a requirement (plan-01 §6),

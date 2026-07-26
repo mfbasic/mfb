@@ -31,6 +31,10 @@ impl NativeBackend for Backend {
             native_object_plan: true,
             native_code_plan: true,
             runtime_calls: &[
+                // plan-62-B: the app:: presentation-mode helpers (app builds only;
+                // the CLI gate keeps them out of console builds).
+                "app.getMode",
+                "app.setMode",
                 "crypto.randomBytes",
                 "crypto.generateP256Raw",
                 "crypto.generateP384Raw",

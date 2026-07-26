@@ -215,7 +215,7 @@ Acceptance: a `--app` program that does `IMPORT app` and binds `LET m AS Mode = 
 typechecks; `Mode.None` resolves; the golden `tests/syntax/app/app_mode_surface_valid`
 captures it (exit 0, AST+IR written, IR shows the `Mode` enum with `Console`/`None`).
 **VERIFIED** via `scripts/test-accept.sh` on the app fixtures + `app::` Rust unit tests.
-Commit: — (Phases 1–3 landed together; hash recorded in the next commit)
+Commit: b91f87924 (Phases 1–3 landed together)
 
 ### Phase 2 — the `getMode`/`setMode` surface (the 17-file registration sweep)
 
@@ -240,7 +240,7 @@ Acceptance: a program naming `app::getMode()` and `app::setMode(Mode.None)` type
 covers wrong arity (`app::setMode()` → `TYPE_CALL_ARITY_MISMATCH`), wrong type
 (`app::setMode(1)` → `TYPE_CALL_ARGUMENT_MISMATCH`, Integer≠Mode), and `getMode` over-arity.
 **VERIFIED**.
-Commit: —
+Commit: b91f87924
 
 ### Phase 3 — the `--app` gate (blast radius: rejects a whole build — but a pure diagnostic)
 
@@ -257,7 +257,7 @@ Acceptance: `IMPORT app` compiled under app mode builds (exit 0, AST+IR); compil
 mode it fails with a diagnostic naming app mode (exit 1, before lowering — no AST/IR written);
 both captured by fixtures. **VERIFIED** (empirically: console `-ast -ir` → gate error;
 `-app -ast -ir` and `"mode":"app"` `-ast -ir` → success).
-Commit: —
+Commit: b91f87924
 
 ## Validation Plan
 
