@@ -1,8 +1,12 @@
-//! Coverage-focused unit tests for the IR support modules (plan-12): the binary
-//! encode/decode round-trip over the *full* op/value/link/resource surface and
-//! its malformed-input error paths; the package identity/merge rewrites over
-//! every op and value shape; and the `to_json` / `annotated_type` / `loc`
-//! projections for the op and value variants the main corpus does not reach.
+//! The IR variant corpus and the tests built on it (plan-12; renamed from
+//! `coverage_tests` by bug-342 C2, which named a tooling motivation rather than a
+//! subject). `variant_corpus` is the single project exercising every `IrType` /
+//! `IrOp` / `IrValue` / `IrMatchPattern` kind plus the LINK/resource surface —
+//! a strict superset of what `ir::tests`'s round-trip suite needs, so both suites
+//! build from this one builder. The tests here cover the binary encode/decode
+//! round-trip over that full surface and its malformed-input error paths, the
+//! package identity/merge rewrites over every op and value shape, and the
+//! `to_json` / `annotated_type` / `loc` projections.
 //!
 //! These build IR directly (rather than lowering source) so they can exercise
 //! decode error branches and node shapes a well-formed lowering never produces.
@@ -30,20 +34,7 @@ fn c(type_: &str, value: &str) -> IrValue {
 }
 
 fn empty_project(name: &str) -> IrProject {
-    IrProject {
-        name: name.to_string(),
-        entry: None,
-        bindings: vec![],
-        types: vec![],
-        functions: vec![],
-        native_resources: vec![],
-        link_functions: vec![],
-        link_cstructs: Vec::new(),
-        link_aliases: vec![],
-        docs: ProjectDocs::default(),
-        native_libraries: Default::default(),
-        max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
-    }
+    crate::ir::test_support::project_fixture(name, vec![], vec![])
 }
 
 fn fn_body(name: &str, body: Vec<IrOp>) -> IrFunction {
@@ -398,7 +389,7 @@ fn link_function() -> IrLinkFunction {
 
 /// A project touching every serializable field: entry, bindings, all type kinds,
 /// a function with params/defaults/body/resource_owners, native LINK tables.
-fn full_project() -> IrProject {
+pub(crate) fn variant_corpus() -> IrProject {
     let mut resource_owners = HashMap::new();
     resource_owners.insert("db".to_string(), ResOwner::Local);
     resource_owners.insert("f".to_string(), ResOwner::Float("files".to_string()));
@@ -555,7 +546,7 @@ fn decode_err(bytes: &[u8]) -> String {
 
 #[test]
 fn binary_round_trip_over_full_surface() {
-    let project = full_project();
+    let project = variant_corpus();
     let bytes = encode_binary_repr(&project);
     let decoded = decode_binary_repr(&bytes).expect("decode");
     // The decoded project drops native_resources/docs by contract (they live in
@@ -790,7 +781,7 @@ fn binary_round_trip_while_op_with_non_while_loop_kind() {
 // --- binary malformed-input error paths ------------------------------------
 
 fn full_bytes() -> Vec<u8> {
-    encode_binary_repr(&full_project())
+    encode_binary_repr(&variant_corpus())
 }
 
 #[test]
@@ -936,7 +927,7 @@ fn decode_rejects_depth_limit() {
 
 #[test]
 fn decode_surfaces_every_tag_error_branch() {
-    // `full_project` encodes a Match (pattern tags), loops (loop-kind tags),
+    // `variant_corpus` encodes a Match (pattern tags), loops (loop-kind tags),
     // resource_owners (ResOwner tags), and a LINK function (LINK-expr tags).
     // Sweeping each byte to a series of out-of-range values lands on each tag
     // position at some point, exercising every "unknown/invalid tag" decode
@@ -980,7 +971,7 @@ fn decode_surfaces_every_tag_error_branch() {
 
 #[test]
 fn verify_package_accepts_well_formed() {
-    verify_package(&full_project()).expect("full project is structurally valid");
+    verify_package(&variant_corpus()).expect("full project is structurally valid");
 }
 
 #[test]
@@ -1388,7 +1379,7 @@ fn json_covers_every_op_and_value() {
 
 #[test]
 fn json_covers_all_type_kinds() {
-    let project = full_project();
+    let project = variant_corpus();
     let json = project.to_json();
     assert!(json.contains("\"kind\": \"type\""));
     assert!(json.contains("\"kind\": \"union\""));
