@@ -456,8 +456,24 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   loop). **Result: `list chunks` 5.5 → 0.91 ms (~6x; COMPLETE, <=5ms, beats Python 1.68).**
   checksum 20000 proven unchanged; cargo test green; artifact-gate clean; acceptance passes.
   `lower_collection_chunks_call`. Commit: `13fcc99d0`.
-- **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
-  outputs, inlined comparator (with B's borrowed String element for String lists).
+- **[x] D4-partition — LANDED.** Native `collections::partition` for 8-byte fixed-width
+  elements (Integer/Float/Fixed/Money; gate parses `#collections_partition$T`, else `.mfb`).
+  One predicate pass into two `lower_reserved_list` outputs (matched/unmatched, each pre-sized
+  to source so neither regrows), then the `Partition$T` record is built once via the existing
+  `emit_build_inlined_record` (inlines both flat lists) — no per-element `get`-copy, no
+  interpreted `Partition[...]` construction. A failing predicate frees BOTH partial lists then
+  routes to the inline-TRAP capture (mirrors `filter`'s `emit_callback_failure_exit`, doubled).
+  **Result: `list partition` 6.09 → ~3.6 ms (min, `--run 50` microbench) — clears the ≤5 ms
+  complete bar** (was P3, c-O0 0.38). `lower_collection_partition_call`
+  (`builder_collection_queries.rs`), dispatch gate `builder_values.rs`. Fixture
+  `tests/rt-behavior/collections/partition-native-trap-rt`. **Also fixed a pre-existing
+  silent-wrong-value bug** in the `.mfb` `__collections_partition` (see Corrections): it called
+  `IF predicate(item)` directly, which **swallows a runtime callback FAIL** (unlike
+  `sortBy`/`groupBy`, which build keys via `collections::transform` and so propagate) — now it
+  evaluates the predicate through `transform`, so a failing predicate propagates/traps for the
+  String/Scalar/Byte fallback and every inline-TRAP receiver. `any`/`all`/`findIndex`/
+  `findLastIndex` were the plan's other D4 candidates but are already complete (≤2.3 ms, not
+  offenders) — moot, no native lowering added.
 - Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the
   sortBy/groupBy buffer copies free) and **B** (borrowed element for String lists). Gate:
   list checksums + `scripts/artifact-gate.sh`.
@@ -870,8 +886,9 @@ fixtures pass):**
 | **D3-window** | native `window` (8-byte elems, const size) — direct nested-block build | list window | 20.6 → **4.6 (4.5×)** | `9409d7941` |
 | **D3-chunks** | native `chunks` (8-byte elems, const size) — direct nested-block build | list chunks | 5.5 → **0.9 (COMPLETE**, beats Py) | `13fcc99d0` |
 | **D1-groupBy** | native `groupBy` (8-byte T/V, Integer key) — inline hash + top-level buckets, kills O(bucket²) | listchurn nested | 70.8 → **13.3 (5.3×)** | `34024b800` |
+| **D4-partition** | native `partition` (8-byte elems) — filter-into-two reserved lists + `emit_build_inlined_record`; **+ fixed a pre-existing `.mfb` callback-FAIL swallow** (route predicate through `transform`) | list partition | 6.09 → **~3.6 (COMPLETE**, ≤5 ms) | _(this session)_ |
 
-**8 sub-plans landed this session, all on main** (D fully done: D1/D2/D3). Native-codegen technique proven and reused
+**9 sub-plans landed (D fully done: D1/D2/D3/D4).** Native-codegen technique proven and reused
 across D2/C2/D3: monomorphized-target dispatch gate (`#collections_<fn>$…`), FUNC-pointer
 callbacks (`emit_direct_callable_branch` + `emit_callback_failure_exit`), and direct kind-2 /
 nested-block construction (`emit_write_list_header_from_registers`, VALUE_OFFSET/LENGTH entries),
@@ -893,9 +910,8 @@ pass; correctness bar per `.ai/compiler.md` governs):**
   it one op later; eliding it needs a new IR op or a codegen peephole on the
   `Bind Result; If ResultIsOk{ResultValue} else{ResultError}` shape — **tree-wide blast
   radius** (every `TRAP`).
-- **D1** (native groupBy, `listchurn nested` 70.8 ms, real O(bucket²)) — multi-hundred-line
-  native lowering emitting FUNC-pointer `keyFn`/`valFn` calls + in-place bucket-grown map;
-  no source restructure avoids the value-semantic `get`-copy.
+- ~~**D1** (native groupBy)~~ — **LANDED** `34024b800` (listchurn nested 70.8 → 13.3). ~~**D4**
+  (native partition)~~ — **LANDED this session** (list partition 6.09 → ~3.6, COMPLETE).
 - **C1** (map in-place removeKey, `mapchurn churn` 166 ms) — variable-length String-key
   data-region compaction + offset fixups + incremental bucket maintenance; still O(N)/op
   (win is only no-alloc + O(1) paired `hasKey`), new in-place path needs its own tests.
@@ -958,6 +974,21 @@ and what execution found, with evidence.
   (`main()` cut to the target group) built with the current compiler — repo-touchless,
   ~seconds. A full clean `--run 50` is the final gate once the catastrophic groups (A/C/I)
   are fixed and the whole suite is fast again.
+- **D4 surfaced a pre-existing silent-wrong-value bug in `__collections_partition`.** The
+  `.mfb` body called `IF predicate(item)` directly. A directly-called infallible-typed
+  `FUNC(T) AS Boolean` that FAILs at runtime does **not** propagate its Error through a bare
+  `IF` — the failure is silently swallowed and a wrong split is returned (verified: a failing
+  predicate under an inline `TRAP` was NOT caught, the row kept computing). `sortBy`/`groupBy`
+  never hit this because they build their keys via `collections::transform`, whose callback
+  loop checks the result tag and propagates. Fixed by routing partition's predicate through
+  `collections::transform(value, predicate)` too, then splitting on the resulting
+  `List OF Boolean`. Confirmed pre-existing (the String fallback path, untouched by the native
+  lowering, exhibited it). The new native `lower_collection_partition_call` already tag-checks
+  each predicate call (so the non-trapped native path propagates correctly on its own); the
+  `.mfb` fix covers the String/Scalar/Byte fallback and every inline-TRAP receiver, which route
+  through the interpreted body. Fixture: `partition-native-trap-rt` proves catch+recover on both
+  the native and fallback receivers. Golden churn: partition's `.ir` in `collections-artifact-coverage-rt`
+  regenerated (behavior byte-identical — `isBig` matches nothing in that fixture, split unchanged).
 
 ## Open Decisions
 
