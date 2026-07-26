@@ -335,7 +335,7 @@ tick in the same commit as the work.
 Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets. **MET** — box (`dt66.exe`): `mono_nonneg=TRUE now_recent=TRUE off_stable=TRUE(-28800=PST) oor_invalidArg=TRUE`; artifact-gate 21 diffs are all pre-existing flaky `codegen_cover_rt` noise in untouched paths (see Corrections), 0 attributable to this change; full `cargo test` green.
 Commit: 78622bb8d
 
-### Phase B — `os::`  (IN PROGRESS — 12/15 calls landed)
+### Phase B — `os::`  (IN PROGRESS — 13/15 calls landed)
 - [~] Advertise `os.*`; implement the 15 calls. **Landed & box-proven:**
   *track 1 (52e5fb79c)* `os.name`, `os.arch` (const-string arms), `os.pid`
   (GetCurrentProcessId), `os.cpuCount` (GetSystemInfo, `dwNumberOfProcessors` at
@@ -353,15 +353,23 @@ Commit: 78622bb8d
   WideCharToMultiByte → UTF-8 C-string) + a shared `lower_os_wide_string_windows`
   that builds the String or raises ErrUnsupported. Replaced the `paths.rs:89` /
   introspect `unreachable!`s. Box-proven (exe path contains the binary name).
-  **Remaining (3):** `environ` (`emit_environ_pointer` stub → GetEnvironmentStringsW,
+  *track 4 (environ)* `emit_environ_pointer` now synthesizes a POSIX `char**` from
+  GetEnvironmentStringsW: two passes over the wide `K=V\0…\0\0` block (count, then
+  marshal each entry UTF-16→UTF-8 into the arena and fill the pointer array),
+  skipping the hidden `=drive` entries (leading `=`), NULL-terminating, and
+  FreeEnvironmentStringsW at the end; all loop state in stack slots. Box-proven incl.
+  a Unicode value and a `a=b=c` value (splits only at first `=`).
+  **Remaining (1):** `args` (**entry-side capture is missing**; needs a Windows-entry
+  GetCommandLineW/CommandLineToArgvW marshal — see Corrections). ~~`environ`~~
+  (`emit_environ_pointer` stub → GetEnvironmentStringsW,
   minus `=C:=…` drive entries), `args` (**entry-side capture is missing** — see
   Corrections; the deferred hard one).
 - [x] Tests: host-neutral fixtures `os-introspect-basic`, `os-env-roundtrip`,
-  `os-identity-queries` (host/user/exe non-empty + exe contains program name); box
-  runs all correct. (environ/args box run pending.)
+  `os-identity-queries`, `os-environ-roundtrip`; box runs all correct. (args box run
+  pending its entry-side capture.)
 
 Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **NEARLY MET** — pid/cpuCount/getEnv(+family)/executablePath/hostName/userName all box-proven; only `args` (needs entry capture) and `environ` remain.
-Commit: 52e5fb79c (track 1); 69599dfc9 (env); eae84d465 (string trio); env family — this commit
+Commit: 52e5fb79c (t1); 69599dfc9 (env); eae84d465 (string trio); environ — this commit; env family — this commit
 
 ### Phase C — `io::` input + buffering
 - [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.

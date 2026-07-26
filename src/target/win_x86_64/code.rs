@@ -897,12 +897,141 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_environ_pointer(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("environment"))
+        // Synthesize a POSIX `char**` (NULL-terminated array of UTF-8 "KEY=VALUE"
+        // C-strings) from GetEnvironmentStringsW, so the shared `lower_environ`
+        // walker is reused unchanged. The wide block is "K=V\0K=V\0…\0\0". Windows
+        // prepends hidden per-drive `=C:=…` entries whose key is empty; the shared
+        // walker splits on the first `=`, so those must be skipped (a leading `=`).
+        // Two passes over the block: count non-drive entries, then marshal each into
+        // the arena and fill the pointer array. Registers do not survive the
+        // arena_alloc / WideCharToMultiByte calls, so all loop state lives in stack
+        // slots. plan-66-B.
+        //
+        // Frame (subtract_stack(0x70)): shadow [0x00..0x20), marshal stack args
+        // [0x20..0x40), [0x40] block base, [0x48] array base, [0x50] cursor,
+        // [0x58] index, [0x60] per-entry UTF-8 buffer, [0x68] next cursor.
+        const BLOCK: usize = 0x40;
+        const ARRAY: usize = 0x48;
+        const CURSOR: usize = 0x50;
+        const IDX: usize = 0x58;
+        const U8BUF: usize = 0x60;
+        const NEXT: usize = 0x68;
+        // Fixed per-entry UTF-8 buffer: a single VAR=VALUE caps at ~32767 wchars →
+        // ≤ ~128 KiB UTF-8; use 128 KiB with a matching WideCharToMultiByte cap so
+        // the call can never overrun the buffer.
+        const ENTRY_CAP: &str = "131072";
+        let n = instructions.len();
+        let l = |s: &str| format!("{from}_environ_{s}_{n}");
+        let (count_loop, count_scan, count_scan_done, count_next, count_done) =
+            (l("cl"), l("cs"), l("csd"), l("cn"), l("cd"));
+        let (fill_loop, fill_scan, fill_scan_done, fill_skip, fill_done) =
+            (l("fl"), l("fs"), l("fsd"), l("fk"), l("fd"));
+        instructions.push(abi::subtract_stack(0x70));
+        call_external(from, "GetEnvironmentStringsW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), BLOCK),
+            abi::move_register(abi::ARG[0], abi::return_register()), // cursor (entry start)
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // count
+            // --- Pass 1: count non-drive entries (no calls, so ARG regs survive) ---
+            abi::label(&count_loop),
+            abi::load_u16(abi::ARG[3], abi::ARG[0], 0), // first wide char
+            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::branch_eq(&count_done), // double-NUL → end of block
+            abi::move_register(abi::ARG[2], abi::ARG[0]), // scan
+            abi::label(&count_scan),
+            abi::load_u16(abi::ARG[3], abi::ARG[2], 0),
+            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::branch_eq(&count_scan_done),
+            abi::add_immediate(abi::ARG[2], abi::ARG[2], 2),
+            abi::branch(&count_scan),
+            abi::label(&count_scan_done),
+            // reload the first char; skip if '=' (0x3D = 61, a hidden drive entry).
+            abi::load_u16(abi::ARG[3], abi::ARG[0], 0),
+            abi::compare_immediate(abi::ARG[3], "61"),
+            abi::branch_eq(&count_next),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1), // count++
+            abi::label(&count_next),
+            abi::add_immediate(abi::ARG[0], abi::ARG[2], 2), // next entry
+            abi::branch(&count_loop),
+            abi::label(&count_done),
+        ]);
+        // --- Allocate the (count+1) pointer array ---
+        instructions.extend([
+            abi::add_immediate(abi::return_register(), abi::ARG[1], 1),
+            abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3), // *8
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::store_u64(abi::RET[1], abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), BLOCK),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), IDX),
+            // --- Pass 2: marshal each non-drive entry into the array ---
+            abi::label(&fill_loop),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
+            abi::load_u16(abi::ARG[1], abi::ARG[0], 0), // first char
+            abi::compare_immediate(abi::ARG[1], "0"),
+            abi::branch_eq(&fill_done),
+            abi::move_register(abi::ARG[2], abi::ARG[0]), // scan
+            abi::label(&fill_scan),
+            abi::load_u16(abi::ARG[3], abi::ARG[2], 0),
+            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::branch_eq(&fill_scan_done),
+            abi::add_immediate(abi::ARG[2], abi::ARG[2], 2),
+            abi::branch(&fill_scan),
+            abi::label(&fill_scan_done),
+            abi::add_immediate(abi::ARG[3], abi::ARG[2], 2), // next cursor = NUL + 2
+            abi::store_u64(abi::ARG[3], abi::stack_pointer(), NEXT),
+            // skip drive entries (leading '=', ARG[1] still holds the first char).
+            abi::compare_immediate(abi::ARG[1], "61"),
+            abi::branch_eq(&fill_skip),
+        ]);
+        arena_alloc_to_slot(from, ENTRY_CAP, U8BUF, instructions, relocations);
+        // WideCharToMultiByte(CP_UTF8, 0, [CURSOR], -1, [U8BUF], ENTRY_CAP, NULL, NULL).
+        emit_wide_slot_to_utf8(from, CURSOR, U8BUF, ENTRY_CAP, instructions, relocations);
+        instructions.extend([
+            // array[idx] = u8buf; idx++.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::ARG[2], abi::ARG[1], 3),
+            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), U8BUF),
+            abi::store_u64(abi::ARG[2], abi::ARG[0], 0),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::label(&fill_skip),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), NEXT),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
+            abi::branch(&fill_loop),
+            abi::label(&fill_done),
+            // NULL-terminate the array at [idx].
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3),
+            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+            abi::store_u64(abi::ZERO, abi::ARG[0], 0),
+            // FreeEnvironmentStringsW(block).
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), BLOCK),
+        ]);
+        call_external(from, "FreeEnvironmentStringsW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), ARRAY),
+            abi::add_stack(0x70),
+        ]);
+        Ok(())
     }
 
     fn emit_enable_vt_output(

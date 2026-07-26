@@ -249,6 +249,16 @@ impl NativePlanPlatform for Platform {
                 import("GetModuleFileNameW", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
             ],
+            // environ synthesizes a POSIX char** from GetEnvironmentStringsW (freed
+            // with FreeEnvironmentStringsW), marshaling each entry to UTF-8, under
+            // the SRWLOCK env lock. plan-66-B.
+            "os.environ" => vec![
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                import("GetEnvironmentStringsW", KERNEL32, required_by),
+                import("FreeEnvironmentStringsW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
             // sync primitives (they share the queue/broadcast machinery), so the

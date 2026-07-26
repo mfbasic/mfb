@@ -97,6 +97,8 @@ const RUNTIME_CALLS: &[&str] = &[
     "os.hostName",
     "os.userName",
     "os.executablePath",
+    // os::environ (plan-66-B): a POSIX char** synthesized from GetEnvironmentStringsW.
+    "os.environ",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",
