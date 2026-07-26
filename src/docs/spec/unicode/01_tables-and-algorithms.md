@@ -211,7 +211,7 @@ alignments are fixed per table (u16 tables align 2, u32 / record tables align
 
 [[src/target/shared/code/error_constants.rs:UNICODE_STAGE1_SYMBOL]]
 
-The emitter reads each table's `.len()` from `unicode_runtime_tables::tables()`
+The emitter reads each table's `.len()` from `unicode::runtime_tables::tables()`
 to compute object sizes; the runtime helpers likewise pass `tables().*.len()` as
 the binary-search entry count, so embedded data and emitted code share one source
 of truth. [[src/target/shared/code/private/unicode.rs:emit_unicode_u32_mapping_lookup]]

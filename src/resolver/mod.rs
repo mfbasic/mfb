@@ -113,13 +113,7 @@ fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
 /// Whether a function overload's parameter types match the type list a `DOC`
 /// header named (whitespace-normalized, in order).
 fn overload_types_match(function: &Function, wanted: &[String]) -> bool {
-    if function.params.len() != wanted.len() {
-        return false;
-    }
-    function.params.iter().zip(wanted).all(|(param, want)| {
-        crate::ast::normalize_ws(param.type_name.as_deref().unwrap_or(""))
-            == crate::ast::normalize_ws(want)
-    })
+    crate::ast::param_types(function) == crate::ast::normalize_types(wanted)
 }
 
 fn call_arg_value(argument: &crate::ast::CallArg) -> &Expression {

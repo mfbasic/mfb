@@ -481,7 +481,7 @@ fn immediate_and_shift_decoding() {
     assert_eq!(super::operand::immediate("42".to_string()).unwrap(), 42);
     assert!(super::operand::immediate("nope".to_string())
         .unwrap_err()
-        .contains("invalid rv64 immediate"));
+        .contains("invalid immediate"));
 
     assert_eq!(super::operand::shift("0".to_string()).unwrap(), 0);
     assert_eq!(super::operand::shift("63".to_string()).unwrap(), 63);
@@ -490,7 +490,7 @@ fn immediate_and_shift_decoding() {
         .contains("out of range"));
     assert!(super::operand::shift("x".to_string())
         .unwrap_err()
-        .contains("invalid rv64 shift immediate"));
+        .contains("invalid shift immediate"));
 }
 
 #[test]

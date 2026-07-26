@@ -258,7 +258,9 @@ impl CodeBuilder<'_> {
                                 }));
                         } else if aliases_union_variant || by_ref_capture_slot {
                             // Non-owning — no cleanup (the parent binding frees it).
-                        } else if let crate::ir::resource_escape::ResOwner::Float(collection) = &resource_owner {
+                        } else if let crate::ir::resource_escape::ResOwner::Float(collection) =
+                            &resource_owner
+                        {
                             // Ownership floated to an outer collection's scope:
                             // register the record in that owned-list. This binding
                             // is now an alias and registers no static cleanup.

@@ -1,5 +1,22 @@
 use super::*;
-use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+
+/// An empty image with `_main` as the entry: the base every test spreads over
+/// with `..none()`, spelling only the fields it actually exercises (bug-335 C2).
+fn none() -> EncodedImage {
+    EncodedImage {
+        text: Vec::new(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+        rpaths: Vec::new(),
+    }
+}
 
 fn versioned_exit_image() -> EncodedImage {
     // _main: movz w0, #0 ; bl _exit  (exit(0) through a versioned reference).
@@ -28,10 +45,7 @@ fn versioned_exit_image() -> EncodedImage {
             kind: ImportKind::Function,
             version: Some("GLIBC_2.17".to_string()),
         }],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     }
 }
 
@@ -157,10 +171,7 @@ fn glob_dat_image(libc: &str) -> EncodedImage {
                 version: None,
             },
         ],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     }
 }
 
@@ -178,12 +189,11 @@ fn x86_static_image() -> EncodedImage {
         }],
         relocations: Vec::new(),
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     }
 }
+
+// ===== Static ELF layout + sizing =====
 
 #[test]
 fn encode_static_elf_x86_emits_two_pt_load_segments() {
@@ -437,10 +447,7 @@ fn x86_dynamic_image() -> EncodedImage {
                 version: None,
             },
         ],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     }
 }
 
@@ -518,10 +525,7 @@ fn write_executable_rejects_unbound_external_symbol() {
             kind: ImportKind::Function,
             version: None,
         }],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     let err = write_executable(dir.path(), "unbound", "aarch64", LinuxFlavor::Glibc, &image)
@@ -550,10 +554,7 @@ fn write_executable_rejects_unsupported_relocation() {
             library: None,
         }],
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     let err = write_executable(dir.path(), "unsup", "aarch64", LinuxFlavor::Glibc, &image)
@@ -674,10 +675,7 @@ fn write_executable_aarch64_static_internal_relocs() {
             },
         ],
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     write_executable(dir.path(), "aast", "aarch64", LinuxFlavor::Glibc, &image)
@@ -714,10 +712,7 @@ fn write_executable_x86_static_data_pc32() {
             library: None,
         }],
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     write_executable(dir.path(), "x86dp", "x86_64", LinuxFlavor::Glibc, &image)
@@ -753,10 +748,7 @@ fn expect_unbound(kind: &str, expect_fragment: &str) {
             kind: ImportKind::Function,
             version: None,
         }],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     let arch = if kind.starts_with("riscv") {
@@ -866,10 +858,7 @@ fn write_executable_rejects_undefined_internal_symbol() {
             library: None,
         }],
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     let err = write_executable(dir.path(), "undef", "aarch64", LinuxFlavor::Glibc, &image)
@@ -975,6 +964,8 @@ fn riscv_reloc(offset: usize, target: &str, kind: &str) -> EncodedRelocation {
         library: None,
     }
 }
+
+// ===== RISC-V relocation pairing + reach =====
 
 #[test]
 fn riscv_pcrel_lo12_pairs_with_adjacent_auipc() {
@@ -1224,6 +1215,8 @@ fn mfb_note(bytes: &[u8]) -> Option<(usize, Vec<u8>)> {
 /// plan-43: every static ELF the linker emits — for each arch and both static
 /// encoders — carries the unconditional `MFBasic\0` `PT_NOTE`, whose descriptor
 /// is the shared payload, placed in the header/text gap the text `PT_LOAD` maps.
+// ===== Provenance note + RELRO hardening =====
+
 #[test]
 fn static_elf_carries_the_mfbasic_provenance_note() {
     let image = x86_static_image();
@@ -1322,7 +1315,6 @@ fn has_gnu_stack(bytes: &[u8]) -> bool {
 }
 
 /// The `(p_vaddr, p_memsz)` of a program header of `p_type`, if present.
-#[cfg(test)]
 fn phdr_range(bytes: &[u8], p_type: u32) -> Option<(u64, u64)> {
     let phoff = u64::from_le_bytes(bytes[32..40].try_into().unwrap()) as usize;
     let phnum = u16::from_le_bytes([bytes[56], bytes[57]]) as usize;
@@ -1381,7 +1373,6 @@ fn dynamic_elf_relro_covers_the_dynamic_segment() {
 /// the assertions below prove the tag is actually *wired* — a `$ORIGIN/vendor`
 /// sitting in `.dynstr` with no tag pointing at it would look identical to a
 /// substring search and would be ignored by the loader.
-#[cfg(test)]
 fn elf_runpaths(bytes: &[u8]) -> Vec<String> {
     const PT_DYNAMIC: u32 = 2;
     const DT_NULL: u64 = 0;
@@ -1452,6 +1443,8 @@ fn elf_runpaths(bytes: &[u8]) -> Vec<String> {
 
 // plan-46-D §4.2: a build with no vendor libraries emits no DT_RUNPATH, so every
 // existing binary stays byte-identical.
+// ===== RUNPATH / vendoring =====
+
 #[test]
 fn a_non_vendor_elf_emits_no_runpath() {
     let image = versioned_exit_image();

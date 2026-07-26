@@ -1091,3 +1091,81 @@ impl BinaryReprProject {
         bytes
     }
 }
+
+// === Doc-section encoding (bug-335 B1) =====================================
+// The `doc` section writer and the IR→PackageDocs lowering. Their decoders
+// (`read_doc_table`, `doc_kind_name`) stay in reader.rs; these are the write
+// halves, kept beside their sole caller (`lower_project_*` / `encode`).
+
+pub(super) fn encode_doc_table(docs: &PackageDocs) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    match &docs.package {
+        Some(package) => {
+            bytes.push(1);
+            put_bytes(&mut bytes, package.name.as_bytes());
+            put_prose_list(&mut bytes, &package.desc);
+            put_optional_str(&mut bytes, &package.deprecated);
+        }
+        None => bytes.push(0),
+    }
+    put_u32(&mut bytes, docs.decls.len() as u32);
+    for decl in &docs.decls {
+        let kind = match decl.kind.as_str() {
+            "sub" => DOC_KIND_SUB,
+            "type" => DOC_KIND_TYPE,
+            "union" => DOC_KIND_UNION,
+            "enum" => DOC_KIND_ENUM,
+            "resource" => DOC_KIND_RESOURCE,
+            _ => DOC_KIND_FUNC,
+        };
+        put_u16(&mut bytes, kind);
+        put_bytes(&mut bytes, decl.name.as_bytes());
+        put_bytes(&mut bytes, decl.signature.as_bytes());
+        put_bytes(&mut bytes, decl.group.as_bytes());
+        put_prose_list(&mut bytes, &decl.desc);
+        put_pair_list(&mut bytes, &decl.args);
+        put_pair_list(&mut bytes, &decl.props);
+        put_bytes(&mut bytes, decl.ret.as_bytes());
+        put_pair_list(&mut bytes, &decl.errors);
+        put_bytes(&mut bytes, decl.example.as_bytes());
+        bytes.push(u8::from(decl.internal));
+        put_optional_str(&mut bytes, &decl.deprecated);
+    }
+    bytes
+}
+
+pub(super) fn docs_from_ir(docs: &crate::ir::ProjectDocs) -> PackageDocs {
+    use crate::ir::IrDocKind;
+    let package = docs.package.as_ref().map(|package| PackageDocEntry {
+        name: package.name.clone(),
+        desc: package.desc.clone(),
+        deprecated: package.deprecated.clone(),
+    });
+    let decls = docs
+        .decls
+        .iter()
+        .map(|decl| DeclDocEntry {
+            kind: match decl.kind {
+                IrDocKind::Func => "func",
+                IrDocKind::Sub => "sub",
+                IrDocKind::Type => "type",
+                IrDocKind::Union => "union",
+                IrDocKind::Enum => "enum",
+                IrDocKind::Resource => "resource",
+            }
+            .to_string(),
+            name: decl.name.clone(),
+            signature: decl.signature.clone(),
+            group: decl.group.clone(),
+            desc: decl.desc.clone(),
+            args: decl.args.clone(),
+            props: decl.props.clone(),
+            ret: decl.ret.clone(),
+            errors: decl.errors.clone(),
+            example: decl.example.clone(),
+            internal: decl.internal,
+            deprecated: decl.deprecated.clone(),
+        })
+        .collect();
+    PackageDocs { package, decls }
+}

@@ -1,6 +1,9 @@
 use super::commands::bind_info;
 use super::*;
-use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+// `read_u32` and `symbol_vmaddr` moved to the shared linker-encode module
+// (bug-335 A3/A4); the tests still exercise them directly.
+use crate::os::link_encode::{read_u32, symbol_vmaddr};
 
 fn import(library: &str, symbol: &str) -> EncodedImport {
     EncodedImport {
@@ -10,6 +13,25 @@ fn import(library: &str, symbol: &str) -> EncodedImport {
         version: None,
     }
 }
+
+/// An empty image with `_main` as the entry: the base every test spreads over
+/// with `..none()`, spelling only the fields it actually exercises (bug-335 C2).
+fn none() -> EncodedImage {
+    EncodedImage {
+        text: Vec::new(),
+        data: Vec::new(),
+        rodata_size: 0,
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+        rpaths: Vec::new(),
+    }
+}
+
+// ===== Relocation patching + symbol resolution =====
 
 #[test]
 fn patches_external_data_relocations_to_got_entry() {
@@ -43,10 +65,7 @@ fn patches_external_data_relocations_to_got_entry() {
             },
         ],
         imports: vec![import("libSystem", "_mach_task_self_")],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let text_vmaddr = VM_BASE + 0x4000;
     let locations =
@@ -83,10 +102,7 @@ fn bind_info_uses_uleb_ordinal_past_fifteen() {
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: vec![import("lib16", "_late")],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     assert_eq!(library_ordinal(&libraries, "lib16").unwrap(), 16);
     let bind = bind_info(&image, &libraries);
@@ -113,10 +129,7 @@ fn import_libraries_assigns_one_ordinal_per_distinct_library() {
             import("Network", "_nw_path_monitor_create"),
             import("libSystem", "_write"),
         ],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let libraries = import_libraries(&image).expect("libraries");
     assert_eq!(libraries.len(), 2);
@@ -126,6 +139,8 @@ fn import_libraries_assigns_one_ordinal_per_distinct_library() {
     let bind = bind_info(&image, &libraries);
     assert!(bind.contains(&0x12)); // SET_DYLIB_ORDINAL_IMM(2)
 }
+
+// ===== Load-time initializers (__mod_init_func) =====
 
 #[test]
 fn rejects_initializer_without_text_symbol() {
@@ -280,6 +295,8 @@ fn runs_initializer_before_entry_with_imports() {
     );
 }
 
+// ===== Code signing + provenance note =====
+
 #[test]
 fn writes_mfb_sign_section_to_mach_o() {
     let image = EncodedImage {
@@ -366,10 +383,7 @@ fn mach_o_carries_the_mfbasic_provenance_note_inside_the_signed_region() {
         symbols: vec![text_symbol("_main", 0)],
         relocations: Vec::new(),
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     let path = write_executable(dir.path(), "noted", &image).expect("link mach-o");
@@ -521,10 +535,7 @@ fn links_and_runs_program_importing_from_two_dylibs() {
             import("libSystem", "_exit"),
             import("Network", "_nw_path_monitor_create"),
         ],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
 
     let dir = std::env::temp_dir().join(format!("mfb_nwlink_{}", std::process::id()));
@@ -600,10 +611,7 @@ fn patches_internal_and_data_relocations() {
             },
         ],
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let text_vmaddr = VM_BASE + 0x4000;
     let data_vmaddr = text_vmaddr + 0x4000;
@@ -639,10 +647,7 @@ fn patch_relocations_rejects_unsupported_kind() {
             library: None,
         }],
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let err = patch_relocations(
         &mut text,
@@ -683,10 +688,7 @@ fn patch_relocations_rejects_out_of_range_offset() {
             library: None,
         }],
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let err = patch_relocations(
         &mut text,
@@ -719,10 +721,7 @@ fn patch_relocations_rejects_unbound_external_symbols() {
             library: Some("libSystem".to_string()),
         }],
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     for kind in ["branch26", "page21", "pageoff12"] {
         let image = make(kind);
@@ -770,10 +769,7 @@ fn patches_external_got_page_relocations() {
             },
         ],
         imports: vec![import("libSystem", "environ")],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let mut locations = ImportLocations::default();
     locations
@@ -802,13 +798,10 @@ fn symbol_vmaddr_rejects_unknown_symbol() {
         symbols: Vec::new(),
         relocations: Vec::new(),
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
-    let err =
-        symbol_vmaddr(&image, "_nope", VM_BASE, VM_BASE, VM_BASE, 0).expect_err("unknown symbol");
+    let err = symbol_vmaddr(&image, "_nope", VM_BASE, VM_BASE, Some((VM_BASE, 0)))
+        .expect_err("unknown symbol");
     assert!(err.contains("does not resolve"), "{err}");
 }
 
@@ -824,10 +817,7 @@ fn symbol_vmaddr_splits_constants_from_writable_data() {
         symbols: vec![data_symbol("_const", 0x40), data_symbol("_arena", 0x1000)],
         relocations: Vec::new(),
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let text_vmaddr = VM_BASE;
     let rodata_vmaddr = VM_BASE + 0x4000;
@@ -838,9 +828,8 @@ fn symbol_vmaddr_splits_constants_from_writable_data() {
             &image,
             "_const",
             text_vmaddr,
-            rodata_vmaddr,
             data_vmaddr,
-            0x1000
+            Some((rodata_vmaddr, 0x1000))
         )
         .unwrap(),
         rodata_vmaddr + 0x40,
@@ -852,9 +841,8 @@ fn symbol_vmaddr_splits_constants_from_writable_data() {
             &image,
             "_arena",
             text_vmaddr,
-            rodata_vmaddr,
             data_vmaddr,
-            0x1000
+            Some((rodata_vmaddr, 0x1000))
         )
         .unwrap(),
         data_vmaddr,
@@ -900,18 +888,7 @@ fn library_ordinal_rejects_absent_library() {
 
 #[test]
 fn data_const_helpers_size_by_slots() {
-    let none = EncodedImage {
-        text: Vec::new(),
-        data: Vec::new(),
-        rodata_size: 0,
-        symbols: Vec::new(),
-        relocations: Vec::new(),
-        imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
-    };
+    let none = none();
     assert_eq!(data_const_size(&none), 0);
     assert_eq!(data_const_section_count(0, 0, false), 0);
     assert_eq!(data_const_section_count(1, 0, false), 1);
@@ -947,10 +924,7 @@ fn rejects_entry_symbol_not_in_text() {
         symbols: vec![data_symbol("_main", 0)],
         relocations: Vec::new(),
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     let err = write_executable(dir.path(), "bad", &image).expect_err("entry not text");
@@ -1010,6 +984,7 @@ fn app_info_plist_escapes_xml_metacharacters_in_version() {
 // inner Mach-O is byte-identical to the console `<name>.out`, that Info.plist
 // is present, and that launching `Contents/MacOS/<name>` runs and exits 0.
 #[cfg(target_os = "macos")]
+// ===== App-mode bundle (.app) end-to-end =====
 #[test]
 fn writes_and_launches_app_bundle() {
     let words: [u32; 3] = [
@@ -1032,10 +1007,7 @@ fn writes_and_launches_app_bundle() {
         }],
         relocations: Vec::new(),
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = std::env::temp_dir().join(format!("mfb_appbundle_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -1146,10 +1118,7 @@ fn links_and_launches_app_bundle_importing_libobjc() {
             },
         ],
         imports: vec![import("libobjc", "_objc_getClass")],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = std::env::temp_dir().join(format!("mfb_objclink_{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("temp dir");
@@ -1288,10 +1257,7 @@ fn write_app_bundle_creates_layout_and_plist_host_neutral() {
         symbols: vec![text_symbol("_main", 0)],
         relocations: Vec::new(),
         imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-        rpaths: Vec::new(),
+        ..none()
     };
     let dir = tempfile::tempdir().unwrap();
     let bundle =
@@ -1378,7 +1344,6 @@ fn code_offset_and_layout_helpers_vary_with_presence() {
 }
 
 /// A hand-built image that exits 0, used by the `LC_RPATH` tests below.
-#[cfg(test)]
 fn exit_zero_image(rpaths: Vec<String>) -> EncodedImage {
     let words: [u32; 3] = [
         0xD280_0000, // movz x0, #0
@@ -1413,7 +1378,6 @@ fn exit_zero_image(rpaths: Vec<String>) -> EncodedImage {
 /// `sizeofcmds`/`ncmds` that disagrees with the bytes actually emitted — the
 /// plan-46-D §2.2 triple-maintenance hazard, which is invisible to a round-trip
 /// test and fatal at exec.
-#[cfg(test)]
 fn mach_o_rpaths(bytes: &[u8]) -> (u32, u32, Vec<String>) {
     let ncmds = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
     let sizeofcmds = u32::from_le_bytes(bytes[20..24].try_into().unwrap());
@@ -1442,6 +1406,8 @@ fn mach_o_rpaths(bytes: &[u8]) -> (u32, u32, Vec<String>) {
 
 // plan-46-D §4.3: an image that vendors nothing carries no LC_RPATH at all, so
 // every existing binary stays byte-identical.
+// ===== RPATH / vendoring =====
+
 #[test]
 fn a_non_vendor_image_emits_no_rpath() {
     let image = exit_zero_image(Vec::new());

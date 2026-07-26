@@ -614,32 +614,49 @@ impl Encoder {
         Ok(())
     }
 
+    /// Emit a three-register data-processing instruction: `opcode | Rm<<16 |
+    /// Rn<<5 | Rd`. The register-field placement is identical across the ~21
+    /// AArch64 arithmetic/logical/shift/FP-2-source ops that differ only in the
+    /// opcode base, so they all funnel through here rather than restating the bit
+    /// packing (bug-341-B6). GPR and FP register numbers share the same 5-bit
+    /// fields, so the same helper serves both.
+    fn emit_rrr(&mut self, opcode: u32, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(opcode | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// Emit a two-register instruction: `opcode | Rn<<5 | Rd` (register-to-register
+    /// moves, FP 1-source ops, and the GPR<->FP conversion group). Companion to
+    /// [`Self::emit_rrr`] for the ops with no `Rm` field (bug-341-B6).
+    fn emit_rr(&mut self, opcode: u32, rd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(opcode | ((rn as u32) << 5) | rd as u32)
+    }
+
     fn emit_add(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x8b00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x8b00_0000, rd, rn, rm)
     }
 
     fn emit_adds(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xab00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xab00_0000, rd, rn, rm)
     }
 
     fn emit_sub(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xcb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xcb00_0000, rd, rn, rm)
     }
 
     fn emit_subs(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xeb00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xeb00_0000, rd, rn, rm)
     }
 
     fn emit_and(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x8a00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x8a00_0000, rd, rn, rm)
     }
 
     fn emit_orr(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xaa00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xaa00_0000, rd, rn, rm)
     }
 
     fn emit_eor(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0xca00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0xca00_0000, rd, rn, rm)
     }
 
     fn emit_mvn(&mut self, rd: u8, rm: u8) -> Result<(), String> {
@@ -647,15 +664,15 @@ impl Encoder {
     }
 
     fn emit_mul(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9b00_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9b00_7c00, rd, rn, rm)
     }
 
     fn emit_smulh(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9b40_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9b40_7c00, rd, rn, rm)
     }
 
     fn emit_umulh(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9bc0_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9bc0_7c00, rd, rn, rm)
     }
 
     /// Explicit-carry add (plan-00-G §4): `dst = lhs + rhs + carry_in`,
@@ -712,27 +729,27 @@ impl Encoder {
     }
 
     fn emit_rorv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9ac0_2c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9ac0_2c00, rd, rn, rm)
     }
 
     /// 32-bit `RORV Wd, Wn, Wm` — rotate right by `Wm mod 32`; zero-extends Wd.
     fn emit_rorv_w(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x1ac0_2c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x1ac0_2c00, rd, rn, rm)
     }
 
     /// 64-bit `LSLV Xd, Xn, Xm` — logical shift left by `Xm mod 64`.
     fn emit_lslv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9ac0_2000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9ac0_2000, rd, rn, rm)
     }
 
     /// 64-bit `LSRV Xd, Xn, Xm` — logical shift right by `Xm mod 64`.
     fn emit_lsrv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9ac0_2400 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9ac0_2400, rd, rn, rm)
     }
 
     /// 64-bit `ASRV Xd, Xn, Xm` — arithmetic shift right by `Xm mod 64`.
     fn emit_asrv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9ac0_2800 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+        self.emit_rrr(0x9ac0_2800, rd, rn, rm)
     }
 
     /// 64-bit `CLZ Xd, Xn` — count leading zeros.
@@ -931,55 +948,55 @@ impl Encoder {
     }
 
     fn emit_fmov_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e66_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e66_0000, rd, dn)
     }
 
     fn emit_fmov_d_from_x(&mut self, dd: u8, rn: u8) -> Result<(), String> {
-        self.emit_word(0x9e67_0000 | ((rn as u32) << 5) | dd as u32)
+        self.emit_rr(0x9e67_0000, dd, rn)
     }
 
     /// `FMOV Dd, Dn` — scalar double register-to-register move.
     fn emit_fmov_d_from_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_4000 | ((dn as u32) << 5) | dd as u32)
+        self.emit_rr(0x1e60_4000, dd, dn)
     }
 
     fn emit_fadd_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_2800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_2800, dd, dn, dm)
     }
 
     fn emit_fsub_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_3800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_3800, dd, dn, dm)
     }
 
     fn emit_fmul_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_0800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_0800, dd, dn, dm)
     }
 
     fn emit_fdiv_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_1800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_1800, dd, dn, dm)
     }
 
     /// `FMINNM Dd, Dn, Dm` — FP data-processing (2-source) `.d`, opcode `0111`.
     fn emit_fminnm_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_7800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_7800, dd, dn, dm)
     }
 
     /// `FMAXNM Dd, Dn, Dm` — FP data-processing (2-source) `.d`, opcode `0110`.
     fn emit_fmaxnm_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
-        self.emit_word(0x1e60_6800 | ((dm as u32) << 16) | ((dn as u32) << 5) | dd as u32)
+        self.emit_rrr(0x1e60_6800, dd, dn, dm)
     }
 
     fn emit_fneg_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x1e61_4000 | ((dn as u32) << 5) | dd as u32)
+        self.emit_rr(0x1e61_4000, dd, dn)
     }
 
     fn emit_fabs_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
         // FABS (scalar, double): opcode field 000001 in the FP-1-source group.
-        self.emit_word(0x1e60_c000 | ((dn as u32) << 5) | dd as u32)
+        self.emit_rr(0x1e60_c000, dd, dn)
     }
 
     fn emit_fsqrt_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x1e61_c000 | ((dn as u32) << 5) | dd as u32)
+        self.emit_rr(0x1e61_c000, dd, dn)
     }
 
     fn emit_fcmp_d(&mut self, dn: u8, dm: u8) -> Result<(), String> {
@@ -991,23 +1008,23 @@ impl Encoder {
     }
 
     fn emit_scvtf_d_from_x(&mut self, dd: u8, rn: u8) -> Result<(), String> {
-        self.emit_word(0x9e62_0000 | ((rn as u32) << 5) | dd as u32)
+        self.emit_rr(0x9e62_0000, dd, rn)
     }
 
     fn emit_fcvtzs_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e78_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e78_0000, rd, dn)
     }
 
     fn emit_fcvtms_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e70_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e70_0000, rd, dn)
     }
 
     fn emit_fcvtps_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e68_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e68_0000, rd, dn)
     }
 
     fn emit_fcvtas_x_from_d(&mut self, rd: u8, dn: u8) -> Result<(), String> {
-        self.emit_word(0x9e64_0000 | ((dn as u32) << 5) | rd as u32)
+        self.emit_rr(0x9e64_0000, rd, dn)
     }
 
     fn emit_ldr_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {
@@ -1147,30 +1164,23 @@ impl Encoder {
         let offset = self.text.len();
         self.emit_word(0x9400_0000)?;
         // A `bl` is the neutral `Call` intent; the AArch64 table realizes it as
-        // `branch26` (plan-00-D). Binding still splits a direct internal call
-        // from an import-stub call.
+        // `branch26` (plan-00-D). The internal/external binding split is shared
+        // across backends (bug-341-B5).
         let call_kind = crate::arch::aarch64::reloc::reloc_kind(RelocIntent::Call).to_string();
-        if self.symbols.iter().any(|symbol| symbol.name == target) {
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target,
-                kind: call_kind,
-                binding: "internal".to_string(),
-                library: None,
-            });
-        } else if let Some(library) = self.imports.get(&target) {
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target,
-                kind: call_kind,
-                binding: "external".to_string(),
-                library: Some(library.clone()),
-            });
-        } else {
-            return Err(format!(
-                "AArch64 branch target symbol '{target}' does not resolve"
-            ));
-        }
+        let (binding, library) = crate::arch::image::resolve_call_binding(
+            &self.symbols,
+            &self.imports,
+            &target,
+            "AArch64",
+        )?
+        .into_relocation_fields();
+        self.relocations.push(EncodedRelocation {
+            offset,
+            target,
+            kind: call_kind,
+            binding,
+            library,
+        });
         Ok(())
     }
 
@@ -1190,33 +1200,23 @@ impl Encoder {
         // data address otherwise. The AArch64 table maps both back to
         // `page21`/`pageoff12`, so the encoded relocation is byte-identical.
         let high_part = kind == "adrp";
-        if let Some(library) = self.imports.get(&symbol) {
-            let intent = if high_part {
-                RelocIntent::GotLoadHi
-            } else {
-                RelocIntent::GotLoadLo
-            };
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target: symbol,
-                kind: crate::arch::aarch64::reloc::reloc_kind(intent).to_string(),
-                binding: "external".to_string(),
-                library: Some(library.clone()),
-            });
-        } else {
-            let intent = if high_part {
-                RelocIntent::DataAddrHi
-            } else {
-                RelocIntent::DataAddrLo
-            };
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target: symbol,
-                kind: crate::arch::aarch64::reloc::reloc_kind(intent).to_string(),
-                binding: "data".to_string(),
-                library: None,
-            });
-        }
+        // The internal/external split is shared (bug-341-B5); the hi/lo intent
+        // (and thus the reloc kind) is the AArch64-specific part.
+        let binding = crate::arch::image::resolve_data_binding(&self.imports, &symbol);
+        let intent = match (high_part, &binding) {
+            (true, crate::arch::image::Binding::External(_)) => RelocIntent::GotLoadHi,
+            (false, crate::arch::image::Binding::External(_)) => RelocIntent::GotLoadLo,
+            (true, _) => RelocIntent::DataAddrHi,
+            (false, _) => RelocIntent::DataAddrLo,
+        };
+        let (binding, library) = binding.into_relocation_fields();
+        self.relocations.push(EncodedRelocation {
+            offset,
+            target: symbol,
+            kind: crate::arch::aarch64::reloc::reloc_kind(intent).to_string(),
+            binding,
+            library,
+        });
         Ok(())
     }
 
@@ -1262,5 +1262,67 @@ impl Encoder {
             self.text[patch.offset..patch.offset + 4].copy_from_slice(&word.to_le_bytes());
         }
         Ok(())
+    }
+}
+
+impl crate::arch::encode_plan::InstructionEncoder for Encoder {
+    fn new(data: Vec<u8>, imports: HashMap<String, String>) -> Self {
+        Encoder {
+            text: Vec::new(),
+            data,
+            symbols: Vec::new(),
+            relocations: Vec::new(),
+            imports,
+            labels: HashMap::new(),
+            patches: Vec::new(),
+        }
+    }
+
+    fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
+        super::sizing::instruction_size(instruction)
+    }
+
+    fn label_name(instruction: &CodeInstruction) -> Result<String, String> {
+        super::operand::field(instruction, "name")
+    }
+
+    fn emit_one(&mut self, instruction: &CodeInstruction) -> Result<(), String> {
+        self.emit_instruction(instruction)
+    }
+
+    fn resolve_patches(&mut self) -> Result<(), String> {
+        self.patch_labels()
+    }
+
+    fn text_len(&self) -> usize {
+        self.text.len()
+    }
+
+    fn reserve_text(&mut self, len: usize) {
+        self.text.resize(len, 0);
+    }
+
+    fn truncate_text(&mut self, len: usize) {
+        self.text.truncate(len);
+    }
+
+    fn push_symbol(&mut self, symbol: EncodedSymbol) {
+        self.symbols.push(symbol);
+    }
+
+    fn insert_label(&mut self, name: String, offset: usize) -> Option<usize> {
+        self.labels.insert(name, offset)
+    }
+
+    fn clear_labels(&mut self) {
+        self.labels.clear();
+    }
+
+    fn clear_patches(&mut self) {
+        self.patches.clear();
+    }
+
+    fn into_parts(self) -> (Vec<u8>, Vec<u8>, Vec<EncodedSymbol>, Vec<EncodedRelocation>) {
+        (self.text, self.data, self.symbols, self.relocations)
     }
 }

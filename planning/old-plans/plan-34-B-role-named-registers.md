@@ -6,10 +6,21 @@ the natural seam (see Open Decisions)
 Depends on: plan-34-A (retires `"x19"`/`"x30"`/`"x31"`, so the operand namespace this plan
 rewrites contains only call-boundary registers and scratch)
 
-> **STATUS: COMPLETE (2026-07-10).** All four phases landed. Commits: Phase 2 hoist
-> (earlier); Phase 3b token vocabulary + `realize_abi_token` seam (`f5b9dbb5`); the
-> ~1600-site boundary-literal migration (`cdc4129f`); Phase 4 x86 flip + inference
-> deletion (`c098504f`); spec (`98f25463`).
+> **STATUS: Phases 2–3b COMPLETE; Phase 4 REVERTED (annotated 2026-07-25, bug-341-D2).**
+> Commits: Phase 2 hoist (earlier); Phase 3b token vocabulary + `realize_abi_token`
+> seam (`f5b9dbb5`); the ~1600-site boundary-literal migration (`cdc4129f`); spec
+> (`98f25463`).
+>
+> **Phase 4 did NOT stick.** The x86 flip + inference-pass deletion landed as
+> `c098504f` but broke every x86-64 program and was reverted at `a23aee06` — see
+> `bugs/completed-bugs/bug-85-x86-entry-runtime-arg-staging-tokens.md`, which
+> leaves the follow-up explicitly OPEN. The revert is still visible in current
+> code: `src/arch/x86_64/select.rs` retains `abi_boundary_of` / `map_abi_register`
+> / `remap_x86_abi` (the inference seam Phase 4 meant to delete), and
+> `src/arch/aarch64/select.rs` still realizes tokens through the Phase-3b
+> `realize_abi_token` seam. So this plan is **not** fully complete; the
+> token-realized-directly end state needs its own redesign (the neutral-stream
+> leak, bug-341-D5), not a re-attempt of `c098504f`.
 >
 > **Design divergence from the original Phase 3a/3b split.** The plan expected the
 > class-(c) scratch sites (~313) to be **vregged** (byte-changing, multi-session,

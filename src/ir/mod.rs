@@ -22,7 +22,7 @@ use crate::ast::{
     TypeDeclKind, TypeField, UnionVariant, Visibility,
 };
 use crate::builtins;
-use crate::json_string;
+use crate::json::json_string;
 use crate::numeric;
 use std::collections::{HashMap, HashSet};
 use std::fs;

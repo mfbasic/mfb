@@ -1,6 +1,11 @@
-use crate::arch::aarch64::encode::{EncodedImage, EncodedRelocation, EncodedSection, ImportKind};
+use crate::arch::image::{EncodedImage, EncodedRelocation, EncodedSection, ImportKind};
+use crate::os::link_encode::{
+    adrp_page21, patch_aarch64_reloc, put_u16, put_u32, put_u64, read_u32, write_u32,
+    AArch64RelocCtx,
+};
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER, MFB_NOTE_TYPE};
+use crate::os::object_plan::align;
 use crate::os::BUILD_DIR;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -176,86 +181,24 @@ fn patch_relocations(
     data_vmaddr: u64,
     import_locations: &ImportLocations,
 ) -> Result<(), String> {
+    // The six AArch64 arms are shared with the Mach-O linker (bug-335 A3). The
+    // ELF layout keeps read-only constants and writable data in one region, so
+    // no `rodata` window; `patch_aarch64_reloc` returns `false` for the x86-64
+    // and RISC-V kinds below, which this match then handles.
+    let aarch64 = AArch64RelocCtx {
+        image,
+        text_vmaddr,
+        data_vmaddr,
+        rodata: None,
+        stubs: &import_locations.stubs,
+        got_entries: &import_locations.got_entries,
+        label: "linux-aarch64 linker",
+    };
     for relocation in &image.relocations {
+        if patch_aarch64_reloc(text, relocation, &aarch64)? {
+            continue;
+        }
         match relocation.binding.as_str() {
-            "internal" if relocation.kind == "branch26" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word)?;
-            }
-            "data" if relocation.kind == "page21" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let pc = text_vmaddr + relocation.offset as u64;
-                let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset)? & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                )?;
-            }
-            "data" if relocation.kind == "pageoff12" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset)?;
-                let rd = word & 0x1f;
-                let rn = (word >> 5) & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                )?;
-            }
-            "external" if relocation.kind == "branch26" => {
-                let Some(&target) = import_locations.stubs.get(&relocation.target) else {
-                    return Err(format!(
-                        "linux-aarch64 linker cannot bind external symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word)?;
-            }
-            // Imported data global addressed through its GOT slot (plan-linker.md
-            // §6.1): the slot is filled by a GLOB_DAT dynamic relocation.
-            "external" if relocation.kind == "page21" => {
-                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
-                    return Err(format!(
-                        "linux-aarch64 linker cannot bind external data symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let pc = text_vmaddr + relocation.offset as u64;
-                let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset)? & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                )?;
-            }
-            "external" if relocation.kind == "pageoff12" => {
-                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
-                    return Err(format!(
-                        "linux-aarch64 linker cannot bind external data symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset)?;
-                let rd = word & 0x1f;
-                let rn = (word >> 5) & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                )?;
-            }
             // --- x86-64 (plan-00-H): RIP-relative rel32 patches ----------------
             // A `call rel32` (internal call) or `lea reg,[rip+disp32]` (internal
             // data address). In both the encoder records `offset` at the disp32
@@ -568,34 +511,6 @@ fn put_dynamic(bytes: &mut Vec<u8>, tag: u64, value: u64) {
     put_u64(bytes, value);
 }
 
-fn branch_imm26(source: usize, target: usize) -> Result<u32, String> {
-    let delta = target as isize - source as isize;
-    // A `BL`/`B` imm26 is a signed 26-bit word offset: ±2^25 words = ±128 MiB.
-    // Masking without a reach check silently wraps an over-range branch into a
-    // wrong instruction (bug-168); mirror `riscv_hi_lo` and return an error.
-    if delta % 4 != 0 || !(-(1 << 27)..(1 << 27)).contains(&delta) {
-        return Err(format!(
-            "linux-aarch64 linker: branch displacement {delta} exceeds the ±128 MiB reach of BL/B"
-        ));
-    }
-    Ok(((delta / 4) as i32 as u32) & 0x03ff_ffff)
-}
-
-/// Encode an `ADRP` page displacement, reach-checked (bug-168). The immediate is
-/// a signed 21-bit count of 4 KiB pages (±2^20 pages = ±4 GiB); an over-range
-/// delta must error rather than truncate to a wrong page. Returns `(immlo,
-/// immhi)` ready to splice into the instruction word.
-fn adrp_page21(pc: u64, target: u64) -> Result<(u32, u32), String> {
-    let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
-    if !(-(1 << 20)..(1 << 20)).contains(&page_delta) {
-        return Err(format!(
-            "linux-aarch64 linker: ADRP page displacement {page_delta} exceeds the ±4 GiB reach of ADRP"
-        ));
-    }
-    let encoded = page_delta as u32;
-    Ok((encoded & 0b11, (encoded >> 2) & 0x7ffff))
-}
-
 /// Compute a RIP-relative `rel32` displacement, erroring when it exceeds the ±2
 /// GiB reach of a 32-bit displacement (bug-168) instead of silently wrapping.
 /// `site` is the address of the 4-byte disp32 field; rip is `site + 4`.
@@ -606,39 +521,4 @@ fn rel32(target: u64, site: u64) -> Result<i32, String> {
             "linux-x86_64 linker: RIP-relative displacement {delta} exceeds the ±2 GiB reach of rel32"
         )
     })
-}
-
-fn align(value: usize, alignment: usize) -> usize {
-    (value + alignment - 1) & !(alignment - 1)
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
-    let slice = bytes.get(offset..offset + 4).ok_or_else(|| {
-        format!(
-            "linux linker: relocation offset {offset} + 4 exceeds text length {}",
-            bytes.len()
-        )
-    })?;
-    Ok(u32::from_le_bytes(slice.try_into().expect("slice length")))
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) -> Result<(), String> {
-    let len = bytes.len();
-    let slice = bytes.get_mut(offset..offset + 4).ok_or_else(|| {
-        format!("linux linker: relocation offset {offset} + 4 exceeds text length {len}")
-    })?;
-    slice.copy_from_slice(&value.to_le_bytes());
-    Ok(())
-}
-
-fn put_u16(bytes: &mut Vec<u8>, value: u16) {
-    bytes.extend_from_slice(&value.to_le_bytes());
-}
-
-fn put_u32(bytes: &mut Vec<u8>, value: u32) {
-    bytes.extend_from_slice(&value.to_le_bytes());
-}
-
-fn put_u64(bytes: &mut Vec<u8>, value: u64) {
-    bytes.extend_from_slice(&value.to_le_bytes());
 }

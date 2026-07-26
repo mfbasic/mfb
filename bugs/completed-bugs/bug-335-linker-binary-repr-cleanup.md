@@ -5,7 +5,42 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open
+Status: RESOLVED 2026-07-25 (commits 22d750dfb..47b4d6230, 8 commits).
+
+> **Resolution.** All items landed byte-identical (scripts/artifact-gate.sh:
+> the same 9 pre-existing audio/net/tls `.ncodesum` diffs before and after,
+> zero new; full scripts/test-accept.sh green at 1083 tests for the A-group
+> linker changes; `cargo test` 3235 passed). Per group:
+> - **A1/A2/A5** → `src/os/object_plan.rs` (neutral `LoadEntryPlan`; shared
+>   `align` = div_ceil + zero-guard). **A4/A5** → `src/os/link_encode.rs`
+>   (branch_imm26, adrp_page21, put_u16/u32/u64, read_u32, write_u32; unified
+>   neutral error prefixes — no test asserts the old ones). **A3** → shared
+>   `patch_aarch64_reloc` + `AArch64RelocCtx` (rodata window Option; the ELF
+>   x86-64/RISC-V arms fall through). **A6/A7** → squashfs relocated to
+>   `appimage/squashfs/{mod,tests}.rs`.
+> - **B1/B2/B4** → encoders moved to writer.rs/sections.rs beside their data;
+>   4 spec anchors re-pointed to sections.rs; reader.rs banners added. **B3**
+>   → `SectionKind` enum + require()/optional() (13 fetch blocks → 1 line
+>   each; ids reordered). **B5** → read_string_pool reuses cursor_string.
+>   **B6** → mod.rs regrouped (types → fns → internal); the stranded
+>   `BinaryReprResourceExport` moved into the public-types block.
+> - **C1** → binary_repr/tests.rs split into a tests/ directory. **C2/C3/C5**
+>   → per-suite `none()` fixture + `..none()`, section banners, 4 redundant
+>   `#[cfg(test)]` removed. **C4** → no change (the other unbound test is not
+>   identical; folding it would change coverage).
+> - **D1/D2** → already fixed by bug-326 (verified: both carry `#[cfg(test)]`,
+>   no `never used` warning). **D3** stale `#[allow(dead_code)]` + malformed
+>   comment fixed. **D4** `build_binary_repr_bytes` → `pub(crate)`. **D5**
+>   degenerate single-arm match collapsed.
+>
+> The HAZARD (macOS read_u32/write_u32 panic) was already fixed by bug-351
+> before this cleanup. The linker SPEC drift (findings #13–#18) stays out of
+> scope as documented. Not part of this work but observed: `spec_citations_-
+> resolve` / `man_citations_resolve` are RED at HEAD from **bug-343**'s
+> escape.rs/unicode_*.rs renames (dangling citations to files this cleanup
+> never touched) — owned by that effort, not regressed here.
+
+Original status: Open
 Regression Test: none new — the guard is the existing suites
 (`src/os/linux/link/tests.rs`, `src/os/macos/link/tests.rs`,
 `src/binary_repr/tests.rs`) plus `scripts/artifact-gate.sh` and

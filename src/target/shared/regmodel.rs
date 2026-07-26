@@ -21,13 +21,13 @@ pub(crate) enum RegClass {
 /// The register questions the allocator core asks an ISA. Implemented per backend
 /// (`Aarch64RegisterModel`, and the x86_64 / riscv64 siblings).
 ///
-/// Five methods — `class_of`, `caller_saved`, `emit_move`, `closure_env`, and
-/// `current_thread` — have no caller in the allocator today and carry a targeted
+/// Four methods — `class_of`, `emit_move`, `closure_env`, and `current_thread` —
+/// have no caller in the allocator today and carry a targeted
 /// `#[allow(dead_code)]`. They are kept deliberately, not by oversight
 /// (bug-326-A4):
 ///
 /// - `closure_env` is cited from the specification
-///   (`src/docs/spec/memory/09_closures.md:83`,
+///   (`src/docs/spec/memory/09_closures.md`,
 ///   `[[src/target/shared/regmodel.rs:closure_env]]`); deleting it breaks that
 ///   anchor.
 /// - `closure_env` and `current_thread` are the *only* statement anywhere of
@@ -35,10 +35,12 @@ pub(crate) enum RegClass {
 ///   both solely through `%closure_env` / `%thread`, so if these went, the
 ///   `x28`/`r13`/`s10` and `x20`/`rbx`/`s2` assignments would exist only inside
 ///   `abi::realize_abi_token`'s literal table.
-/// - `caller_saved` is unread because `regalloc::analysis` hand-rolls its own
-///   per-ISA clobber masks. That is a genuine duplication — the same ISA fact
-///   stated twice, with the authoritative-looking copy the unused one — but the
-///   fix is to route the allocator through this model, not to delete the model.
+///
+/// `caller_saved` was formerly in this set (bug-326 kept it as the authoritative
+/// copy of the per-ISA caller/callee-saved partition while `regalloc::analysis`
+/// still hand-rolled its own clobber masks); bug-350 routed the allocator through
+/// it, so it is now the single **live** source — consumed by
+/// `analysis::caller_saved_mask` — and needs no allow.
 ///
 /// A method here that is *neither* spec-anchored nor the sole statement of an
 /// ISA fact should be deleted rather than gaining an allow.
@@ -56,8 +58,9 @@ pub(crate) trait RegisterModel {
     fn is_callee_saved(&self, reg: &str) -> bool;
 
     /// Caller-saved (clobbered-across-call) registers for `class`. A value live
-    /// across a `bl` must not be colored into one of these.
-    #[allow(dead_code)] // see the note on `RegisterModel` above
+    /// across a `bl` must not be colored into one of these. Live (bug-350): the
+    /// authoritative per-ISA clobber partition `analysis::caller_saved_mask`
+    /// reads to build every call's clobber mask.
     fn caller_saved(&self, class: RegClass) -> &'static [&'static str];
 
     /// Emit a spill of `reg` (of `class`) to the stack slot at `[sp, #offset]`.

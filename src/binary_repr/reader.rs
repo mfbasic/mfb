@@ -8,6 +8,10 @@ use super::*;
 /// *repeated* ids, not a deep acyclic chain, so a separate depth cap is required.
 pub(super) const MAX_TYPE_GRAPH_DEPTH: usize = 256;
 
+// === Doc + package-meta section decoding ===================================
+// Read-side of the self-describing `doc` (17) and `package-meta` (18) sections;
+// their encoders live in writer.rs / reader's adjacent `encode_package_meta`.
+
 pub(super) fn doc_kind_name(kind: u16) -> &'static str {
     match kind {
         DOC_KIND_SUB => "sub",
@@ -81,43 +85,6 @@ pub(super) fn read_package_meta(bytes: &[u8]) -> Result<String, String> {
     Ok(description)
 }
 
-pub(super) fn encode_doc_table(docs: &PackageDocs) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    match &docs.package {
-        Some(package) => {
-            bytes.push(1);
-            put_bytes(&mut bytes, package.name.as_bytes());
-            put_prose_list(&mut bytes, &package.desc);
-            put_optional_str(&mut bytes, &package.deprecated);
-        }
-        None => bytes.push(0),
-    }
-    put_u32(&mut bytes, docs.decls.len() as u32);
-    for decl in &docs.decls {
-        let kind = match decl.kind.as_str() {
-            "sub" => DOC_KIND_SUB,
-            "type" => DOC_KIND_TYPE,
-            "union" => DOC_KIND_UNION,
-            "enum" => DOC_KIND_ENUM,
-            "resource" => DOC_KIND_RESOURCE,
-            _ => DOC_KIND_FUNC,
-        };
-        put_u16(&mut bytes, kind);
-        put_bytes(&mut bytes, decl.name.as_bytes());
-        put_bytes(&mut bytes, decl.signature.as_bytes());
-        put_bytes(&mut bytes, decl.group.as_bytes());
-        put_prose_list(&mut bytes, &decl.desc);
-        put_pair_list(&mut bytes, &decl.args);
-        put_pair_list(&mut bytes, &decl.props);
-        put_bytes(&mut bytes, decl.ret.as_bytes());
-        put_pair_list(&mut bytes, &decl.errors);
-        put_bytes(&mut bytes, decl.example.as_bytes());
-        bytes.push(u8::from(decl.internal));
-        put_optional_str(&mut bytes, &decl.deprecated);
-    }
-    bytes
-}
-
 pub(super) fn read_doc_table(bytes: &[u8]) -> Result<PackageDocs, String> {
     let mut offset = 0;
     let has_package = *bytes
@@ -180,40 +147,84 @@ pub(super) fn read_doc_table(bytes: &[u8]) -> Result<PackageDocs, String> {
     Ok(PackageDocs { package, decls })
 }
 
-pub(super) fn docs_from_ir(docs: &crate::ir::ProjectDocs) -> PackageDocs {
-    use crate::ir::IrDocKind;
-    let package = docs.package.as_ref().map(|package| PackageDocEntry {
-        name: package.name.clone(),
-        desc: package.desc.clone(),
-        deprecated: package.deprecated.clone(),
-    });
-    let decls = docs
-        .decls
-        .iter()
-        .map(|decl| DeclDocEntry {
-            kind: match decl.kind {
-                IrDocKind::Func => "func",
-                IrDocKind::Sub => "sub",
-                IrDocKind::Type => "type",
-                IrDocKind::Union => "union",
-                IrDocKind::Enum => "enum",
-                IrDocKind::Resource => "resource",
-            }
-            .to_string(),
-            name: decl.name.clone(),
-            signature: decl.signature.clone(),
-            group: decl.group.clone(),
-            desc: decl.desc.clone(),
-            args: decl.args.clone(),
-            props: decl.props.clone(),
-            ret: decl.ret.clone(),
-            errors: decl.errors.clone(),
-            example: decl.example.clone(),
-            internal: decl.internal,
-            deprecated: decl.deprecated.clone(),
-        })
-        .collect();
-    PackageDocs { package, decls }
+// === Container framing + identity/signature validation =====================
+
+/// A typed handle over the frozen wire section ids (declared in mod.rs). It
+/// carries the fetch policy — `require` for a mandatory section, `optional` for
+/// one whose absence is a normal, defaulting case — so the container decoder
+/// reads as one line per section instead of a hand-written `get`/`ok_or_else`
+/// (or `match`) block each (bug-335 B3).
+#[derive(Clone, Copy)]
+enum SectionKind {
+    Manifest,
+    StringPool,
+    TypeTable,
+    ConstPool,
+    ImportTable,
+    ExportTable,
+    GlobalTable,
+    FunctionTable,
+    NativeLibraryTable,
+    ResourceTable,
+    AbiIndex,
+    BinaryRepr,
+    DocTable,
+    PackageMeta,
+}
+
+impl SectionKind {
+    fn id(self) -> u16 {
+        match self {
+            SectionKind::Manifest => SECTION_MANIFEST,
+            SectionKind::StringPool => SECTION_STRING_POOL,
+            SectionKind::TypeTable => SECTION_TYPE_TABLE,
+            SectionKind::ConstPool => SECTION_CONST_POOL,
+            SectionKind::ImportTable => SECTION_IMPORT_TABLE,
+            SectionKind::ExportTable => SECTION_EXPORT_TABLE,
+            SectionKind::GlobalTable => SECTION_GLOBAL_TABLE,
+            SectionKind::FunctionTable => SECTION_FUNCTION_TABLE,
+            SectionKind::NativeLibraryTable => SECTION_NATIVE_LIBRARY_TABLE,
+            SectionKind::ResourceTable => SECTION_RESOURCE_TABLE,
+            SectionKind::AbiIndex => SECTION_ABI_INDEX,
+            SectionKind::BinaryRepr => SECTION_BINARY_REPR,
+            SectionKind::DocTable => SECTION_DOC_TABLE,
+            SectionKind::PackageMeta => SECTION_PACKAGE_META,
+        }
+    }
+
+    /// The phrase spliced into the "MFPC is missing the … section" diagnostic a
+    /// required section raises when absent.
+    fn label(self) -> &'static str {
+        match self {
+            SectionKind::Manifest => "manifest",
+            SectionKind::StringPool => "string pool",
+            SectionKind::TypeTable => "type table",
+            SectionKind::ConstPool => "const pool",
+            SectionKind::ImportTable => "import table",
+            SectionKind::ExportTable => "export table",
+            SectionKind::GlobalTable => "global table",
+            SectionKind::FunctionTable => "function table",
+            SectionKind::NativeLibraryTable => "native library table",
+            SectionKind::ResourceTable => "resource table",
+            SectionKind::AbiIndex => "ABI_INDEX",
+            SectionKind::BinaryRepr => "Binary Representation",
+            SectionKind::DocTable => "doc",
+            SectionKind::PackageMeta => "package metadata",
+        }
+    }
+
+    /// Fetch a mandatory section, erroring with the section's label when absent.
+    fn require<'a>(self, sections: &HashMap<u16, &'a [u8]>) -> Result<&'a [u8], String> {
+        sections
+            .get(&self.id())
+            .copied()
+            .ok_or_else(|| format!("MFPC is missing the {} section", self.label()))
+    }
+
+    /// Fetch an optional section; `None` when the package does not carry it.
+    fn optional<'a>(self, sections: &HashMap<u16, &'a [u8]>) -> Option<&'a [u8]> {
+        sections.get(&self.id()).copied()
+    }
 }
 
 /// Deterministic per-package identity prefix segment (`<id>` in
@@ -416,93 +427,49 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
         }
     }
 
-    let string_values = read_string_pool(
-        sections
-            .get(&SECTION_STRING_POOL)
-            .copied()
-            .ok_or_else(|| "MFPC is missing the string pool section".to_string())?,
-    )?;
     let strings = StringPool {
-        values: string_values,
+        values: read_string_pool(SectionKind::StringPool.require(&sections)?)?,
     };
-    let types = read_type_entries(
-        sections
-            .get(&SECTION_TYPE_TABLE)
-            .copied()
-            .ok_or_else(|| "MFPC is missing the type table section".to_string())?,
-        &strings.values,
-    )?;
+    let types = read_type_entries(SectionKind::TypeTable.require(&sections)?, &strings.values)?;
     let type_names = type_entry_names(&types, &strings.values)?;
-    let constants = read_const_pool(
-        sections
-            .get(&SECTION_CONST_POOL)
-            .copied()
-            .ok_or_else(|| "MFPC is missing the const pool section".to_string())?,
-    )?;
+    let constants = read_const_pool(SectionKind::ConstPool.require(&sections)?)?;
     let functions = read_function_table(
-        sections
-            .get(&SECTION_FUNCTION_TABLE)
-            .copied()
-            .ok_or_else(|| "MFPC is missing the function table section".to_string())?,
+        SectionKind::FunctionTable.require(&sections)?,
         // Function bodies are carried by SECTION_BINARY_REPR (structured Binary Representation), not a
         // flat code section; the function table records zero-length code regions.
         &[],
         &strings.values,
         &type_names,
     )?;
-    let binary_repr = sections
-        .get(&SECTION_BINARY_REPR)
-        .copied()
-        .ok_or_else(|| "MFPC is missing the Binary Representation section".to_string())?
-        .to_vec();
-    let exports = read_export_table(
-        sections
-            .get(&SECTION_EXPORT_TABLE)
-            .copied()
-            .ok_or_else(|| "MFPC is missing the export table section".to_string())?,
-    )?;
-    let resources = match sections.get(&SECTION_RESOURCE_TABLE).copied() {
+    let binary_repr = SectionKind::BinaryRepr.require(&sections)?.to_vec();
+    let exports = read_export_table(SectionKind::ExportTable.require(&sections)?)?;
+    let resources = match SectionKind::ResourceTable.optional(&sections) {
         Some(section) => read_resource_table(section)?,
         None => ResourceTable::new(),
     };
-    let globals = match sections.get(&SECTION_GLOBAL_TABLE).copied() {
+    let globals = match SectionKind::GlobalTable.optional(&sections) {
         Some(section) => read_global_table(section)?,
         None => Vec::new(),
     };
-    let docs = match sections.get(&SECTION_DOC_TABLE).copied() {
+    let docs = match SectionKind::DocTable.optional(&sections) {
         Some(section) => read_doc_table(section)?,
         None => PackageDocs::default(),
     };
     // Section 18 is optional; its absence is the normal case and decodes to an
     // empty description, following the DOC absence idiom directly above.
-    let description = match sections.get(&SECTION_PACKAGE_META).copied() {
+    let description = match SectionKind::PackageMeta.optional(&sections) {
         Some(section) => read_package_meta(section)?,
         None => String::new(),
     };
     // Section 10 is present only for a binding package (plan-46-B); its absence is
     // the normal case and decodes to an empty table.
-    let native_libraries = match sections.get(&SECTION_NATIVE_LIBRARY_TABLE).copied() {
+    let native_libraries = match SectionKind::NativeLibraryTable.optional(&sections) {
         Some(section) => read_native_library_table(section, &strings.values)?,
         None => NativeLibraryTable::default(),
     };
-    let manifest = read_manifest(
-        sections
-            .get(&SECTION_MANIFEST)
-            .copied()
-            .ok_or_else(|| "MFPC is missing the manifest section".to_string())?,
-    )?;
-    let imports = read_import_table(
-        sections
-            .get(&SECTION_IMPORT_TABLE)
-            .copied()
-            .ok_or_else(|| "MFPC is missing the import table section".to_string())?,
-    )?;
-    let abi = read_abi_index(
-        sections
-            .get(&SECTION_ABI_INDEX)
-            .copied()
-            .ok_or_else(|| "MFPC is missing the ABI_INDEX section".to_string())?,
-    )?;
+    let manifest = read_manifest(SectionKind::Manifest.require(&sections)?)?;
+    let imports = read_import_table(SectionKind::ImportTable.require(&sections)?)?;
+    let abi = read_abi_index(SectionKind::AbiIndex.require(&sections)?)?;
     validate_manifest_counts(&manifest, &imports, &exports)?;
     validate_abi_index(
         &abi,
@@ -535,6 +502,8 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
         exports,
     })
 }
+
+// === Type-table + type-name decoding =======================================
 
 pub(super) fn decode_type_export(
     name: &str,
@@ -655,19 +624,9 @@ pub(super) fn read_string_pool(bytes: &[u8]) -> Result<Vec<String>, String> {
     let count = cursor_u32(bytes, &mut offset)? as usize;
     let mut strings = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 4));
     for _ in 0..count {
-        let length = cursor_u32(bytes, &mut offset)? as usize;
-        let end = offset
-            .checked_add(length)
-            .ok_or_else(|| "invalid string pool entry length".to_string())?;
-        if end > bytes.len() {
-            return Err("truncated string pool entry".to_string());
-        }
-        strings.push(
-            std::str::from_utf8(&bytes[offset..end])
-                .map_err(|_| "string pool entry is not valid UTF-8".to_string())?
-                .to_string(),
-        );
-        offset = end;
+        // Each entry is a length-prefixed string, exactly what `cursor_string`
+        // decodes (B5); `read_import_table` already reads this way.
+        strings.push(cursor_string(bytes, &mut offset)?);
     }
     if offset != bytes.len() {
         return Err("invalid trailing bytes in string pool".to_string());
@@ -929,6 +888,8 @@ pub(super) fn primitive_type_name(id: u32) -> Option<&'static str> {
     }
 }
 
+// === Per-section table decoders =============================================
+
 pub(super) fn read_function_table(
     bytes: &[u8],
     code: &[u8],
@@ -1164,9 +1125,7 @@ pub(super) fn read_export_table(bytes: &[u8]) -> Result<Vec<DecodedExport>, Stri
     let mut exports = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 12));
     for _ in 0..count {
         let name = cursor_u32(bytes, &mut offset)?;
-        let kind = match cursor_u16(bytes, &mut offset)? {
-            kind => decode_callable_export_kind(kind)?,
-        };
+        let kind = decode_callable_export_kind(cursor_u16(bytes, &mut offset)?)?;
         let _flags = cursor_u16(bytes, &mut offset)?;
         let function_id = cursor_u32(bytes, &mut offset)?;
         exports.push(DecodedExport {
@@ -1180,6 +1139,8 @@ pub(super) fn read_export_table(bytes: &[u8]) -> Result<Vec<DecodedExport>, Stri
     }
     Ok(exports)
 }
+
+// === ABI index decode + validation + shared lookups =========================
 
 pub(super) fn read_abi_index(bytes: &[u8]) -> Result<AbiIndex, String> {
     let mut offset = 0;
@@ -1447,16 +1408,6 @@ pub(super) fn decode_export_kind(value: u16) -> Result<BinaryReprExportKind, Str
     }
 }
 
-pub(super) fn encode_export_kind(kind: BinaryReprExportKind) -> u16 {
-    match kind {
-        BinaryReprExportKind::Func => 1,
-        BinaryReprExportKind::Sub => 2,
-        BinaryReprExportKind::Type => 3,
-        BinaryReprExportKind::Union => 4,
-        BinaryReprExportKind::Enum => 5,
-    }
-}
-
 pub(super) fn type_name(types: &HashMap<u32, String>, id: u32) -> Result<&str, String> {
     if let Some(name) = primitive_type_name(id) {
         return Ok(name);
@@ -1472,267 +1423,4 @@ pub(super) fn string_at(strings: &[String], id: u32) -> Result<&str, String> {
         .get(id as usize)
         .map(String::as_str)
         .ok_or_else(|| format!("unknown string id {id}"))
-}
-
-pub(super) fn function_sig_hash(
-    function: &Function,
-    export_kind: BinaryReprExportKind,
-    strings: &[String],
-    types: &TypeTable,
-    constants: &ConstPool,
-) -> Result<[u8; ABI_HASH_LEN], String> {
-    let mut serializer = AbiSerializer::new(strings, types, constants);
-    serializer.bytes.extend_from_slice(b"MFBABI\0");
-    serializer.put_u16(ABI_FORMAT_VERSION);
-    serializer.put_str("function");
-    serializer.put_u16(encode_export_kind(export_kind));
-    serializer.put_u16(function.flags & (FUNCTION_FLAG_ISOLATED | FUNCTION_FLAG_SUB));
-    serializer.put_u32(function.params.len() as u32);
-    for param in &function.params {
-        serializer.serialize_type(param.type_id)?;
-        if param.default_const == u32::MAX {
-            serializer.put_u8(0);
-        } else {
-            serializer.put_u8(1);
-            serializer.serialize_const(param.default_const)?;
-        }
-    }
-    serializer.serialize_type(function.return_type)?;
-    Ok(hash_bytes(&serializer.bytes))
-}
-
-pub(super) fn type_sig_hash(
-    type_id: u32,
-    export_kind: BinaryReprExportKind,
-    strings: &[String],
-    types: &TypeTable,
-    constants: &ConstPool,
-) -> Result<[u8; ABI_HASH_LEN], String> {
-    let mut serializer = AbiSerializer::new(strings, types, constants);
-    serializer.bytes.extend_from_slice(b"MFBABI\0");
-    serializer.put_u16(ABI_FORMAT_VERSION);
-    serializer.put_str("type");
-    serializer.put_u16(encode_export_kind(export_kind));
-    serializer.serialize_type(type_id)?;
-    Ok(hash_bytes(&serializer.bytes))
-}
-
-impl<'a> AbiSerializer<'a> {
-    pub(super) fn new(
-        strings: &'a [String],
-        types: &'a TypeTable,
-        constants: &'a ConstPool,
-    ) -> Self {
-        Self {
-            strings,
-            types,
-            constants,
-            bytes: Vec::new(),
-            type_refs: HashMap::new(),
-            next_ref: 0,
-            depth: 0,
-        }
-    }
-
-    pub(super) fn serialize_type(&mut self, id: u32) -> Result<(), String> {
-        // Depth cap (bug-153): reject a deep acyclic type chain before it
-        // overflows the native stack. The `type_refs` cycle guard only rejects
-        // repeated ids, so a separate counter is needed. Balanced decrement on
-        // the success path; an over-deep graph aborts the whole serialization.
-        self.depth += 1;
-        if self.depth > MAX_TYPE_GRAPH_DEPTH {
-            return Err(format!(
-                "type graph too deep (exceeds {MAX_TYPE_GRAPH_DEPTH})"
-            ));
-        }
-        let result = self.serialize_type_inner(id);
-        self.depth -= 1;
-        result
-    }
-
-    fn serialize_type_inner(&mut self, id: u32) -> Result<(), String> {
-        if let Some(primitive) = primitive_type_name(id) {
-            self.put_u8(1);
-            self.put_u32(id);
-            self.put_str(primitive);
-            return Ok(());
-        }
-
-        if let Some(ref_id) = self.type_refs.get(&id).copied() {
-            self.put_u8(2);
-            self.put_u32(ref_id);
-            return Ok(());
-        }
-
-        let entry = id
-            .checked_sub(FIRST_TABLE_TYPE_ID)
-            .and_then(|index| self.types.entries.get(index as usize))
-            .ok_or_else(|| format!("unknown type id {id}"))?;
-        let ref_id = self.next_ref;
-        self.next_ref = self
-            .next_ref
-            .checked_add(1)
-            .ok_or_else(|| "ABI type graph has too many nodes".to_string())?;
-        self.type_refs.insert(id, ref_id);
-
-        self.put_u8(3);
-        self.put_u32(ref_id);
-        self.put_u16(entry.kind);
-        match entry.kind {
-            1 => self.serialize_record_type(entry),
-            2 => self.serialize_union_type(entry),
-            3 => self.serialize_enum_type(entry),
-            4 => {
-                self.put_str("list");
-                self.serialize_type(checked_u32_at(&entry.payload, 0)?)
-            }
-            5 => {
-                self.put_str("map");
-                self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
-                self.serialize_type(checked_u32_at(&entry.payload, 4)?)
-            }
-            6 => {
-                self.put_str("result");
-                self.serialize_type(checked_u32_at(&entry.payload, 0)?)
-            }
-            7 => {
-                self.put_str("thread");
-                self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
-                self.serialize_type(checked_u32_at(&entry.payload, 4)?)?;
-                // The resource plane (if present) is part of the signature hash.
-                if entry.payload.len() >= 12 {
-                    self.serialize_type(checked_u32_at(&entry.payload, 8)?)?;
-                }
-                Ok(())
-            }
-            8 => self.serialize_function_type(entry),
-            // bug-277: a resource carrying `STATE T` (kind 11) is a composite of
-            // two type ids and must hash structurally like kinds 4/5/7. Under the
-            // opaque fallback it hashed its interned name `State#<baseId>#<stateId>`,
-            // which embeds table-position-dependent ids: an unrelated renumber
-            // changed the hash with no semantic change, and a change to the STATE
-            // record's own shape left the hash identical.
-            11 => {
-                self.put_str("state");
-                self.serialize_type(checked_u32_at(&entry.payload, 0)?)?;
-                self.serialize_type(checked_u32_at(&entry.payload, 4)?)
-            }
-            // bug-277: a resource carrying `STATE T` (kind 11) is a composite of
-            // two type ids and must hash structurally like kinds 4/5/7. Under the
-            // opaque fallback it hashed its interned name `State#<baseId>#<stateId>`,
-            // which embeds table-position-dependent ids: an unrelated renumber
-            // changed the hash with no semantic change, and a change to the STATE
-            // record's own shape left the hash identical.
-            _ => {
-                self.put_str("opaque");
-                self.put_str(string_at(self.strings, entry.name)?);
-                Ok(())
-            }
-        }
-    }
-
-    pub(super) fn serialize_record_type(&mut self, entry: &TypeEntry) -> Result<(), String> {
-        self.put_str("record");
-        let mut offset = 0;
-        let field_count = cursor_u32(&entry.payload, &mut offset)?;
-        self.put_u32(field_count);
-        for _ in 0..field_count {
-            let name = cursor_u32(&entry.payload, &mut offset)?;
-            let type_id = cursor_u32(&entry.payload, &mut offset)?;
-            let _visibility = cursor_u32(&entry.payload, &mut offset)?;
-            self.put_str(string_at(self.strings, name)?);
-            self.serialize_type(type_id)?;
-            self.put_u32(_visibility);
-        }
-        Ok(())
-    }
-
-    pub(super) fn serialize_union_type(&mut self, entry: &TypeEntry) -> Result<(), String> {
-        self.put_str("union");
-        let mut offset = 0;
-        let variant_count = cursor_u32(&entry.payload, &mut offset)?;
-        self.put_u32(variant_count);
-        for _ in 0..variant_count {
-            let name = cursor_u32(&entry.payload, &mut offset)?;
-            self.put_str(string_at(self.strings, name)?);
-            let field_count = cursor_u32(&entry.payload, &mut offset)?;
-            self.put_u32(field_count);
-            for _ in 0..field_count {
-                let field_name = cursor_u32(&entry.payload, &mut offset)?;
-                let field_type = cursor_u32(&entry.payload, &mut offset)?;
-                self.put_str(string_at(self.strings, field_name)?);
-                self.serialize_type(field_type)?;
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn serialize_enum_type(&mut self, entry: &TypeEntry) -> Result<(), String> {
-        self.put_str("enum");
-        let mut offset = 0;
-        let member_count = cursor_u32(&entry.payload, &mut offset)?;
-        self.put_u32(member_count);
-        for _ in 0..member_count {
-            let name = cursor_u32(&entry.payload, &mut offset)?;
-            let ordinal = cursor_u32(&entry.payload, &mut offset)?;
-            self.put_str(string_at(self.strings, name)?);
-            self.put_u32(ordinal);
-        }
-        Ok(())
-    }
-
-    pub(super) fn serialize_function_type(&mut self, entry: &TypeEntry) -> Result<(), String> {
-        self.put_str("function-type");
-        let mut offset = 0;
-        let isolated = cursor_u32(&entry.payload, &mut offset)?;
-        let param_count = cursor_u32(&entry.payload, &mut offset)?;
-        let return_type = cursor_u32(&entry.payload, &mut offset)?;
-        self.put_u32(isolated);
-        self.put_u32(param_count);
-        self.serialize_type(return_type)?;
-        for _ in 0..param_count {
-            self.serialize_type(cursor_u32(&entry.payload, &mut offset)?)?;
-        }
-        Ok(())
-    }
-
-    pub(super) fn serialize_const(&mut self, id: u32) -> Result<(), String> {
-        let constant = self
-            .constants
-            .entries
-            .get(id as usize)
-            .ok_or_else(|| format!("unknown const id {id}"))?;
-        self.put_u16(constant.kind);
-        match constant.kind {
-            6 => {
-                let string_id = checked_u32_at(&constant.payload, 0)?;
-                self.put_str(string_at(self.strings, string_id)?);
-            }
-            _ => {
-                self.put_u32(constant.payload.len() as u32);
-                self.bytes.extend_from_slice(&constant.payload);
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn put_u8(&mut self, value: u8) {
-        self.bytes.push(value);
-    }
-
-    pub(super) fn put_u16(&mut self, value: u16) {
-        put_u16(&mut self.bytes, value);
-    }
-
-    pub(super) fn put_u32(&mut self, value: u32) {
-        put_u32(&mut self.bytes, value);
-    }
-
-    pub(super) fn put_str(&mut self, value: &str) {
-        put_bytes(&mut self.bytes, value.as_bytes());
-    }
-}
-
-pub(super) fn is_exported_function(function: &Function) -> bool {
-    function.kind == FUNCTION_BINARY_REPR && function.flags & FUNCTION_FLAG_PRIVATE == 0
 }

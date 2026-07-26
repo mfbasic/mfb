@@ -1,20 +1,8 @@
 //! x86-64 operand decoding: instruction fields, register names, immediates.
 
-use super::*;
-
-pub(super) fn field(instruction: &CodeInstruction, name: &str) -> Result<String, String> {
-    instruction
-        .fields
-        .iter()
-        .find(|(field, _)| *field == name)
-        .map(|(_, value)| value.clone())
-        .ok_or_else(|| {
-            format!(
-                "instruction '{}' missing field '{name}'",
-                instruction.op.mnemonic()
-            )
-        })
-}
+// `field`/`immediate`/`shift` are ISA-neutral and shared (bug-341-B7); the
+// register-name decoders below are x86-64-specific.
+pub(super) use crate::arch::encode_operand::{field, immediate, shift};
 
 /// x86-64 general-purpose register number (0..=15) for the canonical 64-bit
 /// register names. The numbering is the architectural encoding:
@@ -60,24 +48,4 @@ pub(super) fn fp_reg(name: String) -> Result<u8, String> {
         .and_then(|rest| rest.parse::<u8>().ok())
         .filter(|n| *n < 16)
         .ok_or_else(|| format!("not an xmm register: '{name}'"))
-}
-
-pub(super) fn immediate(value: String) -> Result<u64, String> {
-    match value.as_str() {
-        "true" => Ok(1),
-        "false" => Ok(0),
-        _ => value
-            .parse::<u64>()
-            .map_err(|_| format!("invalid immediate '{value}'")),
-    }
-}
-
-pub(super) fn shift(value: String) -> Result<u8, String> {
-    let value = value
-        .parse::<u8>()
-        .map_err(|_| format!("invalid shift immediate '{value}'"))?;
-    if value >= 64 {
-        return Err(format!("shift immediate {value} is out of range"));
-    }
-    Ok(value)
 }

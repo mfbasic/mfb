@@ -898,7 +898,8 @@ fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
     // has no AST to re-run escape analysis on, so this must ride the format for
     // the package-path RES/ownership rules and resource codegen to stay correct
     // (format v4). Sorted by binding name for a deterministic encoding.
-    let mut owners: Vec<(&String, &crate::ir::resource_escape::ResOwner)> = f.resource_owners.iter().collect();
+    let mut owners: Vec<(&String, &crate::ir::resource_escape::ResOwner)> =
+        f.resource_owners.iter().collect();
     owners.sort_by(|a, b| a.0.cmp(b.0));
     put_vec(out, &owners, |o, (name, owner)| {
         put_str(o, name);

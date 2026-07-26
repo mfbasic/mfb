@@ -1,5 +1,9 @@
-use crate::arch::aarch64::encode::{EncodedImage, EncodedSection};
+use crate::arch::image::{EncodedImage, EncodedSection};
+use crate::os::link_encode::{
+    adrp_page21, patch_aarch64_reloc, put_u16, put_u32, put_u64, AArch64RelocCtx,
+};
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_DESCRIPTOR_SIZE, MFB_NOTE_OWNER};
+use crate::os::object_plan::align;
 use crate::os::BUILD_DIR;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -256,111 +260,24 @@ fn patch_relocations(
     rodata_size: usize,
     import_locations: &ImportLocations,
 ) -> Result<(), String> {
+    // The six AArch64 arms are shared with the ELF linker (bug-335 A3); the
+    // macOS `__DATA_CONST` constant/writable split (bug-187) rides in as the
+    // `rodata` window.
+    let ctx = AArch64RelocCtx {
+        image,
+        text_vmaddr,
+        data_vmaddr,
+        rodata: Some((rodata_vmaddr, rodata_size)),
+        stubs: &import_locations.stubs,
+        got_entries: &import_locations.got_entries,
+        label: "macOS linker",
+    };
     for relocation in &image.relocations {
-        match relocation.binding.as_str() {
-            "internal" if relocation.kind == "branch26" => {
-                let target = symbol_vmaddr(
-                    image,
-                    &relocation.target,
-                    text_vmaddr,
-                    rodata_vmaddr,
-                    data_vmaddr,
-                    rodata_size,
-                )?;
-                let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word)?;
-            }
-            "data" if relocation.kind == "page21" => {
-                let target = symbol_vmaddr(
-                    image,
-                    &relocation.target,
-                    text_vmaddr,
-                    rodata_vmaddr,
-                    data_vmaddr,
-                    rodata_size,
-                )?;
-                let pc = text_vmaddr + relocation.offset as u64;
-                let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset)? & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                )?;
-            }
-            "data" if relocation.kind == "pageoff12" => {
-                let target = symbol_vmaddr(
-                    image,
-                    &relocation.target,
-                    text_vmaddr,
-                    rodata_vmaddr,
-                    data_vmaddr,
-                    rodata_size,
-                )?;
-                let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset)?;
-                let rd = word & 0x1f;
-                let rn = (word >> 5) & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                )?;
-            }
-            "external" if relocation.kind == "branch26" => {
-                let Some(&target) = import_locations.stubs.get(&relocation.target) else {
-                    return Err(format!(
-                        "macOS linker cannot bind external symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word)?;
-            }
-            "external" if relocation.kind == "page21" => {
-                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
-                    return Err(format!(
-                        "macOS linker cannot bind external data symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let pc = text_vmaddr + relocation.offset as u64;
-                let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset)? & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                )?;
-            }
-            "external" if relocation.kind == "pageoff12" => {
-                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
-                    return Err(format!(
-                        "macOS linker cannot bind external data symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset)?;
-                let rd = word & 0x1f;
-                let rn = (word >> 5) & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                )?;
-            }
-            _ => {
-                return Err(format!(
-                    "macOS linker does not support relocation {} {}",
-                    relocation.binding, relocation.kind
-                ));
-            }
+        if !patch_aarch64_reloc(text, relocation, &ctx)? {
+            return Err(format!(
+                "macOS linker does not support relocation {} {}",
+                relocation.binding, relocation.kind
+            ));
         }
     }
     Ok(())
@@ -553,98 +470,6 @@ fn emit_import_stub(text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) -> Re
     );
     put_u32(text, 0xd61f_0200);
     Ok(())
-}
-
-/// Runtime VM address of a symbol. Text symbols sit in `__TEXT`. Data symbols are
-/// split (bug-187): a constant (`offset < rodata_size`) lives in the read-only
-/// `__DATA_CONST,__const` block at `rodata_vmaddr`; a writable datum (the arena
-/// global and other runtime globals) lives in `__DATA` at `data_vmaddr`, indexed
-/// past the read-only prefix.
-fn symbol_vmaddr(
-    image: &EncodedImage,
-    symbol_name: &str,
-    text_vmaddr: u64,
-    rodata_vmaddr: u64,
-    data_vmaddr: u64,
-    rodata_size: usize,
-) -> Result<u64, String> {
-    let symbol = image
-        .symbols
-        .iter()
-        .find(|symbol| symbol.name == symbol_name)
-        .ok_or_else(|| format!("symbol '{symbol_name}' does not resolve"))?;
-    Ok(match symbol.section {
-        EncodedSection::Text => text_vmaddr + symbol.offset as u64,
-        EncodedSection::Data if symbol.offset < rodata_size => rodata_vmaddr + symbol.offset as u64,
-        EncodedSection::Data => data_vmaddr + (symbol.offset - rodata_size) as u64,
-    })
-}
-
-fn align(value: usize, alignment: usize) -> usize {
-    value.div_ceil(alignment) * alignment
-}
-
-fn branch_imm26(source: usize, target: usize) -> Result<u32, String> {
-    let delta = target as isize - source as isize;
-    // A `BL`/`B` imm26 is a signed 26-bit word offset: ±2^25 words = ±128 MiB.
-    // Masking without a reach check silently wraps an over-range branch into a
-    // wrong instruction (bug-168); error instead, matching the riscv path.
-    if delta % 4 != 0 || !(-(1 << 27)..(1 << 27)).contains(&delta) {
-        return Err(format!(
-            "macOS linker: branch displacement {delta} exceeds the ±128 MiB reach of BL/B"
-        ));
-    }
-    Ok(((delta / 4) as i32 as u32) & 0x03ff_ffff)
-}
-
-/// Encode an `ADRP` page displacement, reach-checked (bug-168). The immediate is
-/// a signed 21-bit count of 4 KiB pages (±2^20 pages = ±4 GiB); an over-range
-/// delta must error rather than truncate to a wrong page. Returns `(immlo,
-/// immhi)`.
-fn adrp_page21(pc: u64, target: u64) -> Result<(u32, u32), String> {
-    let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
-    if !(-(1 << 20)..(1 << 20)).contains(&page_delta) {
-        return Err(format!(
-            "macOS linker: ADRP page displacement {page_delta} exceeds the ±4 GiB reach of ADRP"
-        ));
-    }
-    let encoded = page_delta as u32;
-    Ok((encoded & 0b11, (encoded >> 2) & 0x7ffff))
-}
-
-// Bounds-checked so an out-of-range relocation offset (an internal codegen
-// defect — offsets are in-bounds by construction, and `EncodedImage` is never
-// deserialized) surfaces as a diagnostic rather than a panic, matching the
-// Linux twin (`src/os/linux/link/mod.rs:read_u32`/`write_u32`, bug-225/bug-351).
-fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, String> {
-    let slice = bytes.get(offset..offset + 4).ok_or_else(|| {
-        format!(
-            "macos linker: relocation offset {offset} + 4 exceeds text length {}",
-            bytes.len()
-        )
-    })?;
-    Ok(u32::from_le_bytes(slice.try_into().expect("slice length")))
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) -> Result<(), String> {
-    let len = bytes.len();
-    let slice = bytes.get_mut(offset..offset + 4).ok_or_else(|| {
-        format!("macos linker: relocation offset {offset} + 4 exceeds text length {len}")
-    })?;
-    slice.copy_from_slice(&value.to_le_bytes());
-    Ok(())
-}
-
-fn put_u32(bytes: &mut Vec<u8>, value: u32) {
-    bytes.extend_from_slice(&value.to_le_bytes());
-}
-
-fn put_u16(bytes: &mut Vec<u8>, value: u16) {
-    bytes.extend_from_slice(&value.to_le_bytes());
-}
-
-fn put_u64(bytes: &mut Vec<u8>, value: u64) {
-    bytes.extend_from_slice(&value.to_le_bytes());
 }
 
 fn put_uleb128(bytes: &mut Vec<u8>, mut value: u64) {

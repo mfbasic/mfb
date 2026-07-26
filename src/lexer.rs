@@ -949,12 +949,7 @@ impl Lexer<'_> {
             self.advance();
         }
         let trimmed = rest.trim();
-        let attrs = if trimmed.is_empty() {
-            Vec::new()
-        } else if trimmed
-            .chars()
-            .all(|ch| ch.is_ascii_alphabetic() || ch == ' ' || ch == '\t')
-        {
+        let attrs = if is_doc_attr_rest(trimmed) {
             trimmed.split_whitespace().map(str::to_string).collect()
         } else {
             // Not a doc-block keyword line; roll back and let `DOC` lex normally.
@@ -987,18 +982,13 @@ impl Lexer<'_> {
             }
 
             let words: Vec<&str> = text.split_whitespace().collect();
-            let is_end = |kw: &str| {
-                words.len() == 2
-                    && words[0].eq_ignore_ascii_case("END")
-                    && words[1].eq_ignore_ascii_case(kw)
-            };
-            if !in_example && is_end("DOC") {
+            if !in_example && is_end_line(&words, "DOC") {
                 terminated = true;
                 break;
             }
             if !in_example && words.len() == 1 && words[0].eq_ignore_ascii_case("EXAMPLE") {
                 in_example = true;
-            } else if in_example && is_end("EXAMPLE") {
+            } else if in_example && is_end_line(&words, "EXAMPLE") {
                 in_example = false;
             }
             lines.push(DocRawLine {
@@ -1120,6 +1110,29 @@ impl Lexer<'_> {
 /// (such as `mfb fmt`) that re-tokenize raw text without building a full lexer.
 pub fn lookup_keyword(value: &str) -> Option<Keyword> {
     keyword(value)
+}
+
+/// Whether `words` (a line split on whitespace) is exactly `END <keyword>`,
+/// case-insensitively — the DOC/EXAMPLE block terminator both the lexer's DOC
+/// capture and `mfb fmt` recognize. Exposed for source tools (such as `mfb fmt`)
+/// that re-tokenize raw text without building a full lexer.
+pub fn is_end_line(words: &[&str], keyword: &str) -> bool {
+    words.len() == 2
+        && words[0].eq_ignore_ascii_case("END")
+        && words[1].eq_ignore_ascii_case(keyword)
+}
+
+/// Whether `rest` — the text following the `DOC` keyword on its line — contains
+/// only attribute words (e.g. `INTERNAL`), the check that distinguishes a
+/// `DOC … END DOC` block header from an ordinary `DOC` token. Exposed for source
+/// tools (such as `mfb fmt`) that re-tokenize raw text without building a full
+/// lexer.
+pub fn is_doc_attr_rest(rest: &str) -> bool {
+    let rest = rest.trim();
+    rest.is_empty()
+        || rest
+            .chars()
+            .all(|ch| ch.is_ascii_alphabetic() || ch == ' ' || ch == '\t')
 }
 
 fn keyword(value: &str) -> Option<Keyword> {
@@ -1521,6 +1534,27 @@ END DOC
         assert_eq!(lookup_keyword("notakeyword"), None);
         // `WEND` was removed from the language (bug-357) and is not reserved.
         assert_eq!(lookup_keyword("wend"), None);
+    }
+
+    #[test]
+    fn is_end_line_matches_only_two_word_end_keyword() {
+        assert!(is_end_line(&["END", "DOC"], "DOC"));
+        assert!(is_end_line(&["end", "doc"], "DOC")); // case-insensitive
+        assert!(is_end_line(&["END", "EXAMPLE"], "EXAMPLE"));
+        assert!(!is_end_line(&["END", "DOC"], "EXAMPLE")); // keyword must match
+        assert!(!is_end_line(&["END"], "DOC")); // one word
+        assert!(!is_end_line(&["END", "DOC", "X"], "DOC")); // three words
+        assert!(!is_end_line(&["DOC"], "DOC")); // not an END line
+    }
+
+    #[test]
+    fn is_doc_attr_rest_accepts_empty_and_attribute_words_only() {
+        assert!(is_doc_attr_rest("")); // bare `DOC`
+        assert!(is_doc_attr_rest("   ")); // whitespace only
+        assert!(is_doc_attr_rest("INTERNAL")); // one attribute
+        assert!(is_doc_attr_rest("INTERNAL DEPRECATED")); // several
+        assert!(!is_doc_attr_rest("(Int)")); // punctuation → an ordinary DOC token
+        assert!(!is_doc_attr_rest("foo123")); // digits are not attribute chars
     }
 
     #[test]
