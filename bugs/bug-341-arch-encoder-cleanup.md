@@ -1,14 +1,89 @@
 # bug-341: `src/arch/` cleanup cluster — five dead `RegisterModel` methods behind blanket allows, a triplicated `encode()`, the ISA-neutral image types living inside AArch64, and an x86 encoder test suite with 138 assertion-free calls
 
-Last updated: 2026-07-18
+Last updated: 2026-07-25
 Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup) / Dead-code
 
-Status: Open
+Status: Fixed (2026-07-25)
 Regression Test: the three encoder test suites
 (`src/arch/{aarch64,x86_64,riscv64}/encode/tests.rs`) plus
-`scripts/artifact-gate.sh` at `diffs=0`.
+`scripts/artifact-gate.sh` at its baseline.
+
+## Resolution (2026-07-25)
+
+Landed as a series of independently-verified commits on `worktree-341`. Every
+byte-affecting change was gated on `scripts/artifact-gate.sh` staying at its
+**9 pre-existing diffs** (the documented union-drop / resource-union codegen
+non-determinism in `audio`/`net`/`tls` `*_codegen_cover_rt` goldens — measured
+identical at the pre-work base `cfd17c678`, so those 9 are inherited, not
+introduced). Full `cargo test` (3237) stayed green throughout; B3 additionally
+passed a full `scripts/test-accept.sh` run (1083 tests).
+
+Done:
+
+- **C1** — all 78 `let _ = bytes(…)` and 64 `assert!(!enc(…).is_empty())`
+  converted to byte-exact assertions (201 distinct sequences), each confirmed
+  against LLVM's independent x86 decoder (`clang -c -target x86_64` +
+  `objdump -d --x86-asm-syntax=intel`), not snapshotted. No wrong encodings
+  found.
+- **C2** — the two `fresh_encoder`s fold onto the one shared
+  `InstructionEncoder::new` (B1).
+- **B1** — one shared `encode_plan(plan, arch_name)` over an `InstructionEncoder`
+  trait; the three `encode()`s are one-line delegations.
+- **B2** — the six ISA-neutral image types moved to `src/arch/image.rs`.
+- **B4** — x86_64/riscv64 import the neutral `RegisterModel` directly; the
+  AArch64 re-export shim is gone.
+- **B5** — one `resolve_call_binding` / `resolve_data_binding` (in
+  `arch::image`); the per-arch `kind` stays in the emitter.
+- **B6** — the 32 one-line AArch64 wrappers funnel through `emit_rrr`/`emit_rr`.
+- **B7** — `field`/`immediate`/`shift` shared in `src/arch/encode_operand.rs`;
+  the rv64 `"rv64 "` diagnostic prefix dropped (Open Decision → no prefix).
+- **B3** — aarch64/riscv64 `instruction_size` now emits into a throwaway encoder
+  and returns the length, so size == emit-length **by construction** (the x86
+  structure); the hand-written tables and their sizing-only helpers are deleted.
+  Validated behind a temporary `debug_assert` comparing the retired table against
+  the derivation on every instruction sized across 3237 unit tests + 1083
+  acceptance tests (zero drift), then the assert and tables were removed.
+- **D2** — the `select_aarch64` comment and the archived plan-34-B now state the
+  seam is permanent (Phase 4 was reverted per bug-85).
+
+Already done by prior cleanup bugs (verified at HEAD, no action needed):
+
+- **D3** (dead alias tokens) and **D4** (rv64 `FT0` + its `const _`) — already
+  removed; the aliases survive only in explanatory doc comments.
+
+Adjudicated / re-scoped (the original leads were stale at HEAD):
+
+- **A1** — the premise (five dead methods) no longer holds. `caller_saved` is
+  **live**: bug-350 routed `call_clobber_mask` through it
+  (`analysis::caller_saved_mask`), so its stale `#[allow(dead_code)]` was the
+  only real residual (removed, with the trait doc corrected). `closure_env` /
+  `current_thread` are spec-anchored (`memory/09_closures.md`) and the sole
+  statement of each ISA's role-token register — bug-326-A4 keeps them
+  deliberately; deleting them would break the `[[…:closure_env]]` anchor.
+  `class_of` / `emit_move` retained per bug-326-A4.
+- **D1** (`arch/ops.rs:548` "aarch64" error text) and **A6** (x86 `ZERO_REGISTER`
+  doc) — owned by bug-300-E2/E5, which has landed; nothing to do here.
+- **A2** (x86-64 caller-saved mask) — its correctness triage landed as **bug-350**
+  (`e67feb346`); `call_clobber_mask` already consults `RegisterModel::caller_saved`.
+
+Deliberately NOT done (as the document itself scopes):
+
+- **D3 follow-up** (match the x86 dispatch on `CodeOp` instead of the mnemonic
+  string) — NOT a Goal criterion. It is a 134-arm rewrite of the whole x86
+  emitter dispatch (153 `CodeOp` variants) whose only benefit is
+  compiler-enforced exhaustiveness against dead-alias recurrence — and the dead
+  aliases (D3) are already removed. Deferred rather than risk the x86 emitter's
+  byte-identity for non-required hardening.
+- **D5** (the neutral-stream leak) — explicitly out of scope; needs its own plan.
+
+Adjacent fix made in passing: bug-343's A3/A4 file moves
+(`src/escape.rs` → `src/ir/resource_escape.rs`, `src/unicode_*.rs` →
+`src/unicode/`) had left 40 spec/man citations dangling, so
+`spec_citations_resolve` / `man_citations_resolve` were RED at HEAD (and on
+`main`). Repointed them (commit `d8dbc121c`) so the suite is green — otherwise
+this work could not be validated.
 
 A cluster of dead code, duplication, and drifted abstraction in `src/arch/` —
 the layer that turns the neutral MIR stream into actual machine code. Every item

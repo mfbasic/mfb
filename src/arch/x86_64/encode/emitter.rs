@@ -134,55 +134,46 @@ impl Encoder {
         intent: RelocIntent,
     ) -> Result<(), String> {
         let kind = crate::arch::x86_64::reloc::reloc_kind(intent).to_string();
+        // The internal/external/data binding split is shared across backends
+        // (bug-341-B5); the reloc `kind` is the x86-specific part.
         match intent {
             RelocIntent::Call => {
-                if self.symbols.iter().any(|symbol| symbol.name == target) {
-                    self.relocations.push(EncodedRelocation {
-                        offset,
-                        target,
-                        kind,
-                        binding: "internal".to_string(),
-                        library: None,
-                    });
-                } else if let Some(library) = self.imports.get(&target) {
-                    self.relocations.push(EncodedRelocation {
-                        offset,
-                        target,
-                        kind,
-                        binding: "external".to_string(),
-                        library: Some(library.clone()),
-                    });
-                } else {
-                    return Err(format!(
-                        "x86-64 branch target symbol '{target}' does not resolve"
-                    ));
-                }
+                let (binding, library) = crate::arch::image::resolve_call_binding(
+                    &self.symbols,
+                    &self.imports,
+                    &target,
+                    "x86-64",
+                )?
+                .into_relocation_fields();
+                self.relocations.push(EncodedRelocation {
+                    offset,
+                    target,
+                    kind,
+                    binding,
+                    library,
+                });
             }
             // A data address: an imported symbol routes through the GOT
             // (`got_pc32`), an internal symbol is referenced directly
             // (`data_pc32`). `record_reloc` is only called with the *Lo intent
             // (select_x86 emits a single RIP-relative reference).
             _ => {
-                if let Some(library) = self.imports.get(&target) {
-                    // Re-derive as a GOT load so the kind string matches.
-                    let kind =
-                        crate::arch::x86_64::reloc::reloc_kind(RelocIntent::GotLoadLo).to_string();
-                    self.relocations.push(EncodedRelocation {
-                        offset,
-                        target,
-                        kind,
-                        binding: "external".to_string(),
-                        library: Some(library.clone()),
-                    });
-                } else {
-                    self.relocations.push(EncodedRelocation {
-                        offset,
-                        target,
-                        kind,
-                        binding: "data".to_string(),
-                        library: None,
-                    });
-                }
+                let binding = crate::arch::image::resolve_data_binding(&self.imports, &target);
+                // Re-derive an import as a GOT load so the kind string matches.
+                let kind = match &binding {
+                    crate::arch::image::Binding::External(_) => {
+                        crate::arch::x86_64::reloc::reloc_kind(RelocIntent::GotLoadLo).to_string()
+                    }
+                    _ => kind,
+                };
+                let (binding, library) = binding.into_relocation_fields();
+                self.relocations.push(EncodedRelocation {
+                    offset,
+                    target,
+                    kind,
+                    binding,
+                    library,
+                });
             }
         }
         Ok(())
@@ -2309,4 +2300,66 @@ fn enc_sub_borrow(instruction: &CodeInstruction) -> Result<Encoded, String> {
         bytes.extend_from_slice(&enc_setcc_to(borrow_out, 0x92));
     }
     Ok(Encoded::plain(bytes))
+}
+
+impl crate::arch::encode_plan::InstructionEncoder for Encoder {
+    fn new(data: Vec<u8>, imports: HashMap<String, String>) -> Self {
+        Encoder {
+            text: Vec::new(),
+            data,
+            symbols: Vec::new(),
+            relocations: Vec::new(),
+            imports,
+            labels: HashMap::new(),
+            patches: Vec::new(),
+        }
+    }
+
+    fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
+        super::sizing::instruction_size(instruction)
+    }
+
+    fn label_name(instruction: &CodeInstruction) -> Result<String, String> {
+        super::operand::field(instruction, "name")
+    }
+
+    fn emit_one(&mut self, instruction: &CodeInstruction) -> Result<(), String> {
+        self.emit_instruction(instruction)
+    }
+
+    fn resolve_patches(&mut self) -> Result<(), String> {
+        self.patch_labels()
+    }
+
+    fn text_len(&self) -> usize {
+        self.text.len()
+    }
+
+    fn reserve_text(&mut self, len: usize) {
+        self.text.resize(len, 0);
+    }
+
+    fn truncate_text(&mut self, len: usize) {
+        self.text.truncate(len);
+    }
+
+    fn push_symbol(&mut self, symbol: EncodedSymbol) {
+        self.symbols.push(symbol);
+    }
+
+    fn insert_label(&mut self, name: String, offset: usize) -> Option<usize> {
+        self.labels.insert(name, offset)
+    }
+
+    fn clear_labels(&mut self) {
+        self.labels.clear();
+    }
+
+    fn clear_patches(&mut self) {
+        self.patches.clear();
+    }
+
+    fn into_parts(self) -> (Vec<u8>, Vec<u8>, Vec<EncodedSymbol>, Vec<EncodedRelocation>) {
+        (self.text, self.data, self.symbols, self.relocations)
+    }
 }

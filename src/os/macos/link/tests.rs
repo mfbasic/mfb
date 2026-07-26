@@ -1,6 +1,6 @@
 use super::commands::bind_info;
 use super::*;
-use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
 // `read_u32` and `symbol_vmaddr` moved to the shared linker-encode module
 // (bug-335 A3/A4); the tests still exercise them directly.
 use crate::os::link_encode::{read_u32, symbol_vmaddr};

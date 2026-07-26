@@ -1,4 +1,4 @@
-use crate::arch::aarch64::encode::{EncodedImage, EncodedSection};
+use crate::arch::image::{EncodedImage, EncodedSection};
 use crate::os::link_encode::{
     adrp_page21, patch_aarch64_reloc, put_u16, put_u32, put_u64, AArch64RelocCtx,
 };

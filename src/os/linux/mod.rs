@@ -8,7 +8,7 @@ pub(crate) mod flavor;
 mod link;
 mod object;
 
-use crate::arch::aarch64::encode::EncodedImage;
+use crate::arch::image::EncodedImage;
 use crate::target::shared::plan::NativePlan;
 use flavor::LinuxFlavor;
 use std::fs;
@@ -93,7 +93,7 @@ pub(crate) fn remove_appdir(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::aarch64::encode::{EncodedSection, EncodedSymbol};
+    use crate::arch::image::{EncodedSection, EncodedSymbol};
     use crate::target::shared::plan::{
         NativePlan, PlanCall, PlannedFunction, StorageClass, StorageType,
     };
