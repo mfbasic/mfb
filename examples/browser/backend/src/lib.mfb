@@ -1,0 +1,99 @@
+' backend — the browser example's network worker.
+'
+' http::read is blocking: it freezes the calling thread until the whole exchange
+' finishes. To keep the UI (and its loading spinner) alive, the app runs the
+' fetch on a separate OS thread via thread::start(backend::fetch, url) and polls
+' thread::isRunning while animating. This package holds the fetch itself so it
+' can be an exported ISOLATED worker — thread::start rejects a worker defined in
+' the caller's own package.
+
+IMPORT collections
+IMPORT http
+IMPORT net
+IMPORT strings
+IMPORT thread
+
+' The outcome of one load attempt: a decoded page body, or an error message.
+' filesLoaded / filesTotal count the resources fetched for the page. Today a
+' page is a single document, so a successful load is 1/1. Every field is a
+' plain copyable value, so a LoadResult is thread-sendable as the worker result.
+EXPORT TYPE LoadResult
+  ok AS Boolean
+  content AS String
+  secure AS Boolean
+  filesLoaded AS Integer
+  filesTotal AS Integer
+END TYPE
+
+' Give a bare host an https scheme so net::toUrl accepts it.
+FUNC ensureScheme(u AS String) AS String
+  IF strings::contains(u, "://") THEN RETURN u
+  RETURN "https://" & u
+END FUNC
+
+' A response the client should follow to a new location. http:: returns 3xx
+' as-is (it never follows), so the worker follows them itself.
+FUNC isRedirect(resp AS http::Response) AS Boolean
+  LET s AS Integer = resp.status
+  RETURN s = 301 OR s = 302 OR s = 303 OR s = 307 OR s = 308
+END FUNC
+
+' Index of the last "/" in s, or -1 if none (strings has no reverse find).
+FUNC lastSlash(s AS String) AS Integer
+  MUT idx AS Integer = -1
+  MUT i AS Integer = 0
+  LET n AS Integer = len(s)
+  DO WHILE i < n
+    IF strings::mid(s, i, 1) = "/" THEN idx = i
+    i = i + 1
+  LOOP
+  RETURN idx
+END FUNC
+
+' Resolve a Location header against the request URL, covering the three shapes a
+' redirect uses in practice: an absolute URL, a root-relative path ("/x"), and a
+' path relative to the current document's directory.
+FUNC resolveLocation(base AS net::Url, loc AS String) AS String
+  LET target AS String = strings::trim(loc)
+  IF strings::contains(target, "://") THEN RETURN target
+  LET authority AS String = base.scheme & "://" & base.host & ":" & toString(base.port)
+  IF strings::startsWith(target, "/") THEN RETURN authority & target
+  MUT dir AS String = base.path
+  LET slash AS Integer = lastSlash(dir)
+  IF slash >= 0 THEN
+    dir = strings::mid(dir, 0, slash + 1)
+  ELSE
+    dir = "/"
+  END IF
+  RETURN authority & dir & target
+END FUNC
+
+' Fetch a URL, following up to 10 redirects to reach the final document. Any
+' failure — a malformed URL, DNS/TLS/transport error, a non-UTF-8 body, or a
+' redirect loop — is caught and returned as an error LoadResult.
+'
+' The ISOLATED worker entry point started by thread::start. Its first parameter
+' is the runtime-provided ThreadWorker handle (unused here — the result is
+' returned, not sent as a message); the second is the URL to load.
+EXPORT ISOLATED FUNC fetch(worker AS ThreadWorker OF String TO LoadResult, rawUrl AS String) AS LoadResult
+  LET trimmed AS String = strings::trim(rawUrl)
+  IF trimmed = "" THEN
+    RETURN LoadResult[FALSE, "No address entered. Press G and type a URL.", FALSE, 0, 0]
+  END IF
+  MUT href AS String = ensureScheme(trimmed)
+  FOR hop = 0 TO 10
+    LET u AS net::Url = net::toUrl(href)
+    LET resp AS http::Response = http::read(u)
+    LET loc AS String = collections::getOr(resp.headers, "location", "")
+    IF NOT isRedirect(resp) OR loc = "" THEN
+      ' Final response (or a 3xx with no Location): show its body.
+      RETURN LoadResult[TRUE, toString(resp.body), u.scheme = "https", 1, 1]
+    END IF
+    href = resolveLocation(u, loc)
+  NEXT
+  RETURN LoadResult[FALSE, "Too many redirects while loading " & rawUrl, FALSE, 0, 1]
+
+  TRAP(e)
+    RETURN LoadResult[FALSE, "Error loading " & rawUrl & "\n\n" & e.message, FALSE, 0, 1]
+  END TRAP
+END FUNC
