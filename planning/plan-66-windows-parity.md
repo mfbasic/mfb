@@ -394,7 +394,7 @@ Commit: 7eab44bd9
   createDirectories/createTempFile/open+readText/isWithin all correct.
 
 Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **PARTIAL** — temp-file + nested-mkdir + open/read + isWithin box-proven; atomic writes deferred (need `emit_mkstemps`).
-Commit: —
+Commit: 71f2a3fab
 
 ### Phase F — `tls::` server
 - [ ] Advertise the 3 calls; fill Schannel server arms (`tls/mod.rs:338,352`).
