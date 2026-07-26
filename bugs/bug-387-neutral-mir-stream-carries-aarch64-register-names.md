@@ -5,7 +5,11 @@ Effort: x-large (1d–3d)
 Severity: LOW
 Class: Footgun / Other (drifted abstraction)
 
-Status: Open
+Status: Open — Phase 1 (audit + byte-identity oracle) and Phase 2 for the **macOS**
+platform emitters landed on `main` (byte-identical, verified); the x86-reachable
+`linux_gtk` tokenization + the `remap_x86_abi` fixpoint deletion are deferred (see
+Phases 2–3 and the linux_gtk blocker). Paused at the user's direction after the
+per-use-site raw-vs-token complexity on the untested GTK-x86 path was found.
 Regression Test: the three encoder suites
 (`src/arch/{aarch64,x86_64,riscv64}/encode/tests.rs`) plus
 `scripts/artifact-gate.sh` at `diffs=0` and one full `scripts/test-accept.sh`
