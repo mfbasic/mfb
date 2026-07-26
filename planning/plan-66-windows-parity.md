@@ -333,14 +333,27 @@ tick in the same commit as the work.
   Corrections; box run + build-determinism are the Windows byte guard.)
 
 Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets. **MET** — box (`dt66.exe`): `mono_nonneg=TRUE now_recent=TRUE off_stable=TRUE(-28800=PST) oor_invalidArg=TRUE`; artifact-gate 21 diffs are all pre-existing flaky `codegen_cover_rt` noise in untouched paths (see Corrections), 0 attributable to this change; full `cargo test` green.
-Commit: —
+Commit: 78622bb8d
 
-### Phase B — `os::`
-- [ ] Advertise `os.*`; implement the 15 calls in `win_x86_64/code.rs` (+ `emit_environ_pointer` at `:821`); import rows.
-- [ ] Tests: goldens + a box run of an env/args/pid program vs the macOS output.
+### Phase B — `os::`  (IN PROGRESS — 4/15 calls landed)
+- [~] Advertise `os.*`; implement the 15 calls. **Landed & box-proven (track 1,
+  52e5fb79c):** `os.name`, `os.arch` (const-string arms already returned
+  windows/x86_64), `os.pid` (GetCurrentProcessId), `os.cpuCount` (GetSystemInfo,
+  `dwNumberOfProcessors` at SYSTEM_INFO+0x20 — replaced an `unreachable!`).
+  **Remaining:** the env family (`getEnv`/`getEnvOr`/`hasEnv`/`setEnv`/`unsetEnv`
+  — need a `PlatformFamily::Windows` arm using GetEnvironmentVariableW/
+  SetEnvironmentVariableW + a SRWLOCK env-lock branch in `emit_env_lock`/
+  `emit_env_unlock_return`), `environ` (`emit_environ_pointer` stub at
+  `code.rs:821` → GetEnvironmentStringsW, minus the `=C:=…` drive entries),
+  `hostName`/`userName`/`executablePath` (`*W` + WideCharToMultiByte marshal;
+  `cpuCount`-style — `executablePath` currently `unreachable!` at `paths.rs:89`),
+  and `args` (**entry-side capture is missing** — see Corrections).
+- [x] Tests: host-neutral fixture `tests/rt-behavior/os/os-introspect-basic`
+  (pid/cpuCount/name/arch), box run all TRUE. (Full env/args/exePath box run
+  pending the remaining calls.)
 
-Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box.
-Commit: —
+Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **PARTIAL** — pid/cpuCount box-proven; getEnv/args/executablePath/hostName/userName not yet implemented.
+Commit: 52e5fb79c (track 1)
 
 ### Phase C — `io::` input + buffering
 - [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.
@@ -491,6 +504,29 @@ Commit: —
   `known-red-test-baseline`, `union-drop-codegen-nondeterminism`). "0 diffs on
   existing targets" is read as "0 *new* diffs attributable to this plan", verified
   per letter by confirming no diffing golden is in the letter's changed paths.
+- **2026-07-26 (Phase B, `os::args` entry-capture premise is FALSE).** The Feature
+  map says `args` uses "`GetCommandLineW`+`CommandLineToArgvW`, already used at
+  entry". A census (`grep -rn 'GetCommandLineW\|CommandLineToArgvW' src/`) finds
+  **no matches anywhere in the tree**; `src/os/windows/object.rs:97` explicitly
+  defers it ("47-D installs the real GetCommandLineW startup" — as future work).
+  `lower_args` (`introspect.rs:278`) reads `_mfb_rt_os_argc`/`_mfb_rt_os_argv`
+  globals populated by `lower_program_entry`; Windows does not override
+  `entry_args_in_registers()` (defaults true), so the entry today stores
+  `ARG[0]`/`ARG[1]` (garbage on a raw PE entry) into those globals. So `os::args`
+  needs **real entry-side work** (GetCommandLineW → CommandLineToArgvW → per-arg
+  UTF-16→UTF-8 → the argc/argv globals), not just advertising. Scope of Phase B
+  grows by that entry change; `lower_args` itself is unchanged once argv holds
+  UTF-8 C-strings. This is a Feature-map defect (a false "already used"), corrected
+  here; `args` remains in Phase B scope.
+- **2026-07-26 (Phase B, other unreachable/marshal facts).** `cpuCount`
+  (`introspect.rs:89`) and `executablePath`/`resourcePath` (`paths.rs:89`) hit
+  `unreachable!("47-D owns …")` on Windows — 47-D never actually implemented them,
+  so each Windows arm is net-new here (cpuCount done in track 1). The env family
+  and the hostName/userName/executablePath string queries need the
+  UTF-16→UTF-8 marshal (`emit_wide_to_utf8`, already in `win_x86_64/code.rs`) and,
+  for env, a SRWLOCK branch in the shared `emit_env_lock`/`emit_env_unlock_return`
+  (which today unconditionally emit `pthread_mutex_lock`/`unlock`; the static lock
+  init `os_env_lock_init_hex` already has a Windows all-zero `SRWLOCK_INIT` arm).
 
 ## Summary
 
