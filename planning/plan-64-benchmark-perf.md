@@ -255,6 +255,23 @@ records per call — all ≤2048, so they park in quick bins then drain through 
   `DateTime` straight from `civilFromDays`, skipping the `resolveLocal`+`inZone`+`Instant`
   round-trip (`datetime_package.mfb:1005,1017`) and intern the constant `"UTC"` zone
   label so it isn't re-inlined per construction.
+  - **[x] A3-datetime — LANDED.** Correction: the round-trip is in `__datetime_civil`
+    (`datetime_package.mfb:552`), which `addDays`/`addMonths` call — not in `addDays`
+    itself (`addDays` already goes `civilFromDays`-direct). Added a fixed-offset fast
+    path guarded by `dt.zone.kind <> 2` (kind 2 = system/DST zone): for a fixed-offset
+    zone a whole-day/month shift leaves the wall-clock time + offset unchanged and
+    `civilFromDays`/`daysFromCivil` are inverse on valid dates, so
+    `__datetime_civil(...)` provably returns `DateTime[civilFromDays(newDays), dt.time,
+    dt.zone, dt.offset]` — built directly, skipping the `Instant`/`Date`/`Time`
+    transients. A system zone keeps the round-trip. **Result: `datetime civil`
+    973.9 → 96.5 ms** (min 3.2→1.0, max 20150→938; median 10×). `datetime_civil`/`iso`
+    checksums 4058221/16948 **proven unchanged** vs a stashed-baseline rebuild; full
+    `cargo test` green; the 11 datetime `.ir` snapshot goldens regenerated
+    (`sync-goldens.sh`) — no `.ncode`/behavior change (11 acceptance fixtures pass);
+    `artifact-gate.sh` back to the 17 pre-existing flaky diffs. The residual max 938
+    ms is the arena quadratic itself (A1/A2), not yet linear — A3 is the mitigation, not
+    the full fix. `datetime_package.mfb` `__datetime_addDays`/`__datetime_addMonths`.
+  - **[ ] A3-csv** and the `"UTC"` intern remain.
 - Order: A1 → A2 (the real fix), A3 as belt-and-suspenders. **Acceptance criterion:** the
   plan-65 arena-gated rows (`encoding base64`, `datetime iso`, `map intchurn`, the
   crypto churn rows) bump from tiny to realistic N in the commit that lands A and stay
@@ -417,7 +434,7 @@ P1), string slice (37.2, P2). Consistent ⇒ genuine, not arena.
   path. **Result: `string case` 66.0 → 50.6 ms** (`string_case` checksum 7411120 unchanged;
   full `cargo test` green; `artifact-gate.sh` zero new diffs vs baseline — the 17 pre-existing
   diffs are the known union-drop resource-union nondeterminism; 9 case-mapping acceptance
-  fixtures pass). `builder_strings_builtins.rs` `lower_strings_case_map`. Commit: `<pending>`.
+  fixtures pass). `builder_strings_builtins.rs` `lower_strings_case_map`. Commit: `ced444de6`.
 - **F2:** memchr-style single-byte delimiter scan + word-at-a-time (8-byte) block copy in
   split/join; fuse split's two scans for a single-char delimiter.
 - **F3:** in-place data-tail rewrite for String `set` when the new payload fits
