@@ -25,6 +25,20 @@ zero coverage**, one **whole direction of two covered packages is unbenchmarked*
 This plan adds throughput benchmarks for those hot paths, tracked as critical MFB features,
 without duplicating the existing per-member or pattern-throughput rows.
 
+## Prerequisites
+
+Themes 1 (crypto) and 2 (serialize) have **no** prerequisites — every member they use ships
+today (verified against `mfb man`). Theme 3 (set) has one, and it gates only Theme 3:
+
+| # | Prerequisite | Check | Status (2026-07-25) |
+|---|---|---|---|
+| P1 | `crypto::` / `json::` / `csv::` members exist | `mfb man crypto sha256` / `mfb man json stringify` / `mfb man csv stringify` all resolve | **MET** — Themes 1 & 2 landed |
+| P2 | **Theme 3 only** — `Set OF T` operations exist (literal + add/contains/remove/union/intersect from plan-63-B/C) | `grep -n 'Set(Box<Type>)' src/syntaxcheck/mod.rs` returns a hit (plan-63-A type shape landed) **and** the B/C ops exist | **NOT MET** — the grep returns no hit; plan-63-A/B/C/D are all still in `planning/` (none archived), no `Set OF T` literal/op codegen in `src/`. Theme 3 cannot be authored. |
+
+**P2 is a cross-plan dependency on plan-63-B/C, which is a precondition, never scope.** Theme 3
+stays deferred until plan-63-B/C land Set operations; re-run the P2 check then. Themes 1 & 2 are
+independent of P2 and are complete (see Status).
+
 ## Design rules (match the existing suite)
 
 - One self-contained workload per language (`benchmark/mfb/src/*.mfb`, `benchmark/c/*.c`,
