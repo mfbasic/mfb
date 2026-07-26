@@ -407,6 +407,20 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
     hashOcc/bucketPtrs/keyOrder) are freed via `free_intermediate_collection` (capacity/dataCapacity
     sized). Benchmark `bucketKey(n)=n MOD 100` → dense keys, but the gate is by TYPE so the table
     must handle arbitrary Integers.
+  - **Attempted this session (~150 LOC written, reverted — confirmed it needs a dedicated pass).
+    Concrete lessons for the next attempt:** (a) extraction is clean — gate `is_reevaluation_safe(args[0])`
+    and call `lower_collection_transform_call([args[0], keyFn])` / `([args[0], valFn])` for keys/vals
+    (reuses transform's callback + failure handling; no manual 2-callback loop). (b) tableSize via a
+    doubling loop, `alloc_scratch` closure for the four kind-2 `List OF Integer` buffers (write valid
+    headers so the free reclaims them), zero `hashOcc` explicitly. (c) **In the `found` branch, spill
+    `bucketIdx` to its own slot BEFORE `lower_list_append_in_place`** — the call clobbers caller-saved
+    regs, so `occ-1` must be reloaded from a slot to write the realloc'd pointer back to `bucketPtrs[bidx]`.
+    (d) The `insert` branch is the missing bulk: alloc a 1-element `List OF V` (`HEADER+8`, count=1,
+    store `vals[i]`), store its ptr to `bucketPtrs[numBuckets]`, `keyOrder[numBuckets]=key`,
+    `hashKeys[slot]=key`, `hashOcc[slot]=numBuckets+1`, `numBuckets++`. (e) Final: `lower_map_literal(map,[])`
+    then loop `b<numBuckets` → `lower_map_set_in_place(result, keyOrder[b], bucketPtrs[b])` **then free
+    `bucketPtrs[b]`** (the set inlines/copies the list, so the original bucket is dead). Then free the
+    six scratch buffers. Realistic size once assembled: ~250 LOC; needs its own build/debug budget.
 - **[x] D2 — LANDED (native sortBy).** Bottom-up **stable** merge sort with the two
   ping-pong buffer pairs allocated once and swapped by slot pointer per pass — no per-pass
   full copy (the `.mfb`'s dominant cost). Gated to **8-byte fixed-width items**
