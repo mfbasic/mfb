@@ -439,11 +439,28 @@ Commit: 7eab44bd9
 Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **MET** — writeTextAtomic (Unicode) + createTempFile + createDirectories nested + open/read + isWithin all box-proven; only `openWithin` (a separate security-sensitive design) is deferred.
 Commit: 71f2a3fab (7/10); 28078edae (atomic writes, 9/10)
 
-### Phase F — `tls::` server
-- [ ] Advertise the 3 calls; fill Schannel server arms (`tls/mod.rs:338,352`).
+### Phase F — `tls::` server  (NOT STARTED — scoped; the largest console letter)
+- [ ] Advertise the 3 calls; fill the Schannel server arms
+  (`tls/mod.rs:338,352,420`). **Scoping (from reading the code):**
+  `tls.listen(host, port, certPath, keyPath, backlog)` takes a PEM cert+key, so the
+  server is credential-bearing. Design: **listen** = bind/listen a Winsock socket
+  (reuse the plan-47-I net listener) + build the server credential — the crux: PEM →
+  DER (`CryptStringToBinaryA`) → `CertCreateCertificateContext`; PEM key → DER
+  (`CryptDecodeObjectEx`) → CNG key import → `CertSetCertificateContextProperty`
+  (associate key) → `AcquireCredentialsHandleW(SECPKG_CRED_INBOUND)` with the cert in
+  `SCHANNEL_CRED.paCred`. **accept** = TCP-accept + a server handshake loop reusing
+  the client's token machinery in `schannel_impl.rs` (`emit_send_token`/recv/buffer
+  descs), swapping `InitializeSecurityContextW`→`AcceptSecurityContextW` and
+  `SECPKG_CRED_OUTBOUND`→`_INBOUND`. **closeListener** = closesocket +
+  FreeCredentialsHandle. This is ~1000+ LOC of intricate, security-sensitive
+  SSPI/CryptoAPI codegen (the macOS server analog `tls/macos/server.rs` is 1788
+  LOC); deferred to its own focused sub-plan (like H/J) — a subtly-wrong TLS
+  handshake or cert-key association is a security hole and must not be rushed. The
+  Schannel *client* (connect/read/write/close) is already box-proven (plan-47-J) and
+  supplies the reusable handshake/IO scaffolding.
 - [ ] Tests: goldens + a box run: Windows tls server ↔ a client, handshake + echo.
 
-Acceptance: a Windows-built tls listen/accept/echo server completes a handshake with a client on the box.
+Acceptance: a Windows-built tls listen/accept/echo server completes a handshake with a client on the box. **NOT MET** — deferred as a focused security-sensitive sub-plan; design scoped above.
 Commit: —
 
 ### Phase G — COM/GUID codegen spike (audio premise)
