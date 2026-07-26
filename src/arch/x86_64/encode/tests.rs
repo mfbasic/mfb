@@ -12,15 +12,9 @@ use crate::target::shared::code::{
 use std::collections::HashMap;
 
 fn fresh_encoder() -> Encoder {
-    Encoder {
-        text: Vec::new(),
-        data: Vec::new(),
-        symbols: Vec::new(),
-        relocations: Vec::new(),
-        imports: HashMap::new(),
-        labels: HashMap::new(),
-        patches: Vec::new(),
-    }
+    // Delegates to the one shared constructor (bug-341-C2); the struct literal
+    // lives only in `InstructionEncoder::new` now (bug-341-B1).
+    <Encoder as crate::arch::encode_plan::InstructionEncoder>::new(Vec::new(), HashMap::new())
 }
 
 /// Encode a single instruction and return its bytes, asserting the reported size
@@ -688,9 +682,16 @@ fn rev_word_and_quad() {
         bytes("rev_w", &[("dst", "rbx"), ("src", "rax")]),
         [0x89, 0xC3, 0x0F, 0xCB]
     );
-    // rev_w with an extended register drives the REX + high-bswap arm.
-    let _ = bytes("rev_w", &[("dst", "r8"), ("src", "r9")]);
-    let _ = bytes("rev_x", &[("dst", "r8"), ("src", "r9")]);
+    // rev_w r8, r9 : mov r8d,r9d ; bswap r8d (32-bit REX.R/B + high bswap).
+    assert_eq!(
+        bytes("rev_w", &[("dst", "r8"), ("src", "r9")]),
+        [0x45, 0x89, 0xC8, 0x41, 0x0F, 0xC8]
+    );
+    // rev_x r8, r9 : mov r8,r9 ; bswap r8 (64-bit REX.W.R/B + high bswap).
+    assert_eq!(
+        bytes("rev_x", &[("dst", "r8"), ("src", "r9")]),
+        [0x4D, 0x89, 0xC8, 0x49, 0x0F, 0xC8]
+    );
 }
 
 #[test]
@@ -770,7 +771,11 @@ fn lsrv_variable_shift() {
         [0x51, 0x48, 0x89, 0xD9, 0x48, 0x89, 0xC2, 0x48, 0xD3, 0xE2, 0x59]
     );
     // Extended dst drives REX.B on the shift.
-    let _ = bytes("lslv", &[("dst", "r8"), ("lhs", "r8"), ("rhs", "rbx")]);
+    // lslv r8, r8, rbx : push rcx ; mov rcx,rbx ; shl r8,cl ; pop rcx.
+    assert_eq!(
+        bytes("lslv", &[("dst", "r8"), ("lhs", "r8"), ("rhs", "rbx")]),
+        [0x51, 0x48, 0x89, 0xD9, 0x49, 0xD3, 0xE0, 0x59]
+    );
 }
 
 #[test]
@@ -786,7 +791,11 @@ fn rorv_word_variable() {
         bytes("rorv_w", &[("dst", "rdx"), ("lhs", "rax"), ("rhs", "rbx")]),
         [0x51, 0x89, 0xD9, 0x89, 0xC2, 0xD3, 0xCA, 0x59]
     );
-    let _ = bytes("rorv_w", &[("dst", "r8"), ("lhs", "r9"), ("rhs", "rbx")]);
+    // rorv_w r8, r9, rbx : push rcx ; mov ecx,ebx ; mov r8d,r9d ; ror r8d,cl ; pop rcx.
+    assert_eq!(
+        bytes("rorv_w", &[("dst", "r8"), ("lhs", "r9"), ("rhs", "rbx")]),
+        [0x51, 0x89, 0xD9, 0x45, 0x89, 0xC8, 0x41, 0xD3, 0xC8, 0x59]
+    );
 }
 
 #[test]
@@ -915,22 +924,40 @@ fn float_scalar_moves_and_arith() {
         [0xF2, 0x0F, 0x10, 0xC1, 0xF2, 0x0F, 0x58, 0xC2]
     );
     // fsub_d dst==rhs non-commutative: stages through xmm15.
-    let _ = bytes(
-        "fsub_d",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")],
+    // movsd xmm15,xmm1 ; subsd xmm15,xmm0 ; movsd xmm0,xmm15 (xmm1-xmm0).
+    assert_eq!(
+        bytes(
+            "fsub_d",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [
+            0xF2, 0x44, 0x0F, 0x10, 0xF9, 0xF2, 0x44, 0x0F, 0x5C, 0xF8, 0xF2, 0x41, 0x0F, 0x10,
+            0xC7
+        ]
     );
-    // fsub_d dst==lhs and disjoint arms.
-    let _ = bytes(
-        "fsub_d",
-        &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")],
+    // fsub_d dst==lhs in place: subsd xmm0,xmm1.
+    assert_eq!(
+        bytes(
+            "fsub_d",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0xF2, 0x0F, 0x5C, 0xC1]
     );
-    let _ = bytes(
-        "fdiv_d",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // fdiv_d disjoint: movsd xmm0,xmm1 ; divsd xmm0,xmm2.
+    assert_eq!(
+        bytes(
+            "fdiv_d",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0xF2, 0x0F, 0x10, 0xC1, 0xF2, 0x0F, 0x5E, 0xC2]
     );
-    let _ = bytes(
-        "fmul_d",
-        &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")],
+    // fmul_d dst==lhs in place: mulsd xmm0,xmm1.
+    assert_eq!(
+        bytes(
+            "fmul_d",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0xF2, 0x0F, 0x59, 0xC1]
     );
 }
 
@@ -946,13 +973,37 @@ fn float_sqrt_compare_neg_abs() {
         bytes("fcmp_d", &[("lhs", "xmm0"), ("rhs", "xmm1")]),
         [0x66, 0x0F, 0x2E, 0xC1]
     );
-    // fcmp_zero_d drives the xorps + ucomisd sequence.
-    let _ = bytes("fcmp_zero_d", &[("src", "xmm0")]);
-    // fneg_d / fabs_d, both in-place and copy-first.
-    let _ = bytes("fneg_d", &[("dst", "xmm0"), ("src", "xmm0")]);
-    let _ = bytes("fneg_d", &[("dst", "xmm0"), ("src", "xmm1")]);
-    let _ = bytes("fabs_d", &[("dst", "xmm0"), ("src", "xmm0")]);
-    let _ = bytes("fabs_d", &[("dst", "xmm0"), ("src", "xmm1")]);
+    // fcmp_zero_d src=xmm0 : xorps xmm15,xmm15 ; ucomisd xmm0,xmm15.
+    assert_eq!(
+        bytes("fcmp_zero_d", &[("src", "xmm0")]),
+        [0x45, 0x0F, 0x57, 0xFF, 0x66, 0x41, 0x0F, 0x2E, 0xC7]
+    );
+    // fneg_d in place: pcmpeqd xmm15 ; psllq xmm15,63 (sign mask) ; xorpd xmm0,xmm15.
+    assert_eq!(
+        bytes("fneg_d", &[("dst", "xmm0"), ("src", "xmm0")]),
+        [
+            0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xF7, 0x3F, 0x66, 0x41, 0x0F,
+            0x57, 0xC7
+        ]
+    );
+    // fneg_d copy-first: movsd xmm0,xmm1 then the sign-flip above.
+    assert_eq!(
+        bytes("fneg_d", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [
+            0xF2, 0x0F, 0x10, 0xC1, 0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xF7,
+            0x3F, 0x66, 0x41, 0x0F, 0x57, 0xC7
+        ]
+    );
+    // fabs_d in place: psllq xmm0,1 ; psrlq xmm0,1 (clear the sign bit).
+    assert_eq!(
+        bytes("fabs_d", &[("dst", "xmm0"), ("src", "xmm0")]),
+        [0x66, 0x0F, 0x73, 0xF0, 0x01, 0x66, 0x0F, 0x73, 0xD0, 0x01]
+    );
+    // fabs_d copy-first: movsd xmm0,xmm1 ; psllq xmm0,1 ; psrlq xmm0,1.
+    assert_eq!(
+        bytes("fabs_d", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [0xF2, 0x0F, 0x10, 0xC1, 0x66, 0x0F, 0x73, 0xF0, 0x01, 0x66, 0x0F, 0x73, 0xD0, 0x01]
+    );
 }
 
 #[test]
@@ -968,9 +1019,27 @@ fn float_int_conversions() {
         [0xF2, 0x48, 0x0F, 0x2C, 0xC0]
     );
     // Directed-rounding floor/ceil and ties-away drive the roundsd sequences.
-    let _ = bytes("fcvtms_x_from_d", &[("dst", "rax"), ("src", "xmm0")]);
-    let _ = bytes("fcvtps_x_from_d", &[("dst", "rax"), ("src", "xmm0")]);
-    let _ = bytes("fcvtas_x_from_d", &[("dst", "rax"), ("src", "xmm0")]);
+    // fcvtms (floor): roundsd xmm15,xmm0,1 ; cvttsd2si rax,xmm15.
+    assert_eq!(
+        bytes("fcvtms_x_from_d", &[("dst", "rax"), ("src", "xmm0")]),
+        [0x66, 0x44, 0x0F, 0x3A, 0x0B, 0xF8, 0x01, 0xF2, 0x49, 0x0F, 0x2C, 0xC7]
+    );
+    // fcvtps (ceil): roundsd xmm15,xmm0,2 ; cvttsd2si rax,xmm15.
+    assert_eq!(
+        bytes("fcvtps_x_from_d", &[("dst", "rax"), ("src", "xmm0")]),
+        [0x66, 0x44, 0x0F, 0x3A, 0x0B, 0xF8, 0x02, 0xF2, 0x49, 0x0F, 0x2C, 0xC7]
+    );
+    // fcvtas (ties-away): push rcx ; cvttsd2si rax,xmm0 ; cvtsi2sd xmm15,rax ;
+    // subsd xmm15,xmm0 ; addsd xmm15,xmm15 ; roundsd xmm15,xmm15,3 ;
+    // cvttsd2si rcx,xmm15 ; sub rax,rcx ; pop rcx.
+    assert_eq!(
+        bytes("fcvtas_x_from_d", &[("dst", "rax"), ("src", "xmm0")]),
+        [
+            0x51, 0xF2, 0x48, 0x0F, 0x2C, 0xC0, 0xF2, 0x4C, 0x0F, 0x2A, 0xF8, 0xF2, 0x44, 0x0F,
+            0x5C, 0xF8, 0xF2, 0x45, 0x0F, 0x58, 0xFF, 0x66, 0x45, 0x0F, 0x3A, 0x0B, 0xFF, 0x03,
+            0xF2, 0x49, 0x0F, 0x2C, 0xCF, 0x48, 0x29, 0xC8, 0x59
+        ]
+    );
 }
 
 #[test]
@@ -1019,18 +1088,28 @@ fn f2i_nearest_never_clobbers_its_own_dst() {
 #[test]
 fn float_scalar_mem() {
     // movsd xmm0, [rbx+8] load; movsd [rbx+8], xmm0 store.
-    let _ = bytes(
-        "ldr_d",
-        &[("dst", "xmm0"), ("base", "rbx"), ("offset", "8")],
+    assert_eq!(
+        bytes(
+            "ldr_d",
+            &[("dst", "xmm0"), ("base", "rbx"), ("offset", "8")]
+        ),
+        [0xF2, 0x0F, 0x10, 0x83, 0x08, 0x00, 0x00, 0x00]
     );
-    let _ = bytes(
-        "str_d",
-        &[("src", "xmm0"), ("base", "rbx"), ("offset", "8")],
+    assert_eq!(
+        bytes(
+            "str_d",
+            &[("src", "xmm0"), ("base", "rbx"), ("offset", "8")]
+        ),
+        [0xF2, 0x0F, 0x11, 0x83, 0x08, 0x00, 0x00, 0x00]
     );
-    // Extended register + rsp base drives the REX + SIB paths.
-    let _ = bytes(
-        "ldr_d",
-        &[("dst", "xmm8"), ("base", "rsp"), ("offset", "0")],
+    // Extended register + rsp base drives the REX + SIB paths:
+    // movsd xmm8, [rsp] (REX.R + SIB, disp32=0).
+    assert_eq!(
+        bytes(
+            "ldr_d",
+            &[("dst", "xmm8"), ("base", "rsp"), ("offset", "0")]
+        ),
+        [0xF2, 0x44, 0x0F, 0x10, 0x84, 0x24, 0x00, 0x00, 0x00, 0x00]
     );
 }
 
@@ -1050,16 +1129,26 @@ fn float_mem_bad_offset_errors() {
 
 #[test]
 fn v128_load_store_and_bad_offset() {
-    let _ = bytes(
-        "ldr_q",
-        &[("dst", "xmm0"), ("base", "rbx"), ("offset", "16")],
+    // movups xmm0, [rbx+16] load; movups [rbx+16], xmm0 store.
+    assert_eq!(
+        bytes(
+            "ldr_q",
+            &[("dst", "xmm0"), ("base", "rbx"), ("offset", "16")]
+        ),
+        [0x0F, 0x10, 0x83, 0x10, 0x00, 0x00, 0x00]
     );
-    let _ = bytes(
-        "str_q",
-        &[("src", "xmm0"), ("base", "rbx"), ("offset", "16")],
+    assert_eq!(
+        bytes(
+            "str_q",
+            &[("src", "xmm0"), ("base", "rbx"), ("offset", "16")]
+        ),
+        [0x0F, 0x11, 0x83, 0x10, 0x00, 0x00, 0x00]
     );
-    // Extended register drives REX.
-    let _ = bytes("ldr_q", &[("dst", "xmm8"), ("base", "r9"), ("offset", "0")]);
+    // Extended register drives REX: movups xmm8, [r9] (REX.R.B, disp32=0).
+    assert_eq!(
+        bytes("ldr_q", &[("dst", "xmm8"), ("base", "r9"), ("offset", "0")]),
+        [0x45, 0x0F, 0x10, 0x81, 0x00, 0x00, 0x00, 0x00]
+    );
     let ins = CodeInstruction::new("ldr_q")
         .field("dst", "xmm0")
         .field("base", "rbx")
@@ -1074,143 +1163,355 @@ fn v128_load_store_and_bad_offset() {
 
 #[test]
 fn v128_three_operand_arith() {
-    // Drive every vec3_op mnemonic through the disjoint arm.
-    for op in [
-        "fadd_v", "fmul_v", "fsub_v", "fdiv_v", "fmin_v", "fmax_v", "add_v", "sub_v", "and_v",
-        "orr_v", "eor_v",
+    // Drive every vec3_op mnemonic through the disjoint arm: each is
+    // `movaps xmm0,xmm1` (0F 28 C1) then the packed op `<pfx> 0F <opc> C2`.
+    for (op, want) in [
+        ("fadd_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x58, 0xC2]), // addpd
+        ("fmul_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x59, 0xC2]), // mulpd
+        ("fsub_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x5C, 0xC2]), // subpd
+        ("fdiv_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x5E, 0xC2]), // divpd
+        ("fmin_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x5D, 0xC2]), // minpd
+        ("fmax_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x5F, 0xC2]), // maxpd
+        ("add_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0xD4, 0xC2]),  // paddq
+        ("sub_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0xFB, 0xC2]),  // psubq
+        ("and_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0xDB, 0xC2]),  // pand
+        ("orr_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0xEB, 0xC2]),  // por
+        ("eor_v", [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0xEF, 0xC2]),  // pxor
     ] {
-        let _ = bytes(op, &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]);
+        assert_eq!(
+            bytes(op, &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]),
+            want,
+            "vec3 disjoint {op}"
+        );
     }
-    // Commutative dst==rhs and non-commutative dst==rhs (staged) arms of vec3.
-    let _ = bytes(
-        "fadd_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")],
+    // Commutative dst==rhs: fadd_v xmm0,xmm1,xmm0 → addpd xmm0,xmm1 in place.
+    assert_eq!(
+        bytes(
+            "fadd_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0x66, 0x0F, 0x58, 0xC1]
     );
-    let _ = bytes(
-        "fsub_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")],
+    // Non-commutative dst==rhs staged: movaps xmm15,xmm0 ; movaps xmm0,xmm1 ;
+    // subpd xmm0,xmm15 (= xmm1 - xmm0).
+    assert_eq!(
+        bytes(
+            "fsub_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0x44, 0x0F, 0x28, 0xF8, 0x0F, 0x28, 0xC1, 0x66, 0x41, 0x0F, 0x5C, 0xC7]
     );
-    let _ = bytes(
-        "fadd_v",
-        &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")],
+    // dst==lhs in place: fadd_v xmm0,xmm0,xmm1 → addpd xmm0,xmm1.
+    assert_eq!(
+        bytes(
+            "fadd_v",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0x66, 0x0F, 0x58, 0xC1]
     );
 }
 
 #[test]
 fn v128_unary_and_neg_abs() {
-    let _ = bytes("fsqrt_v", &[("dst", "xmm0"), ("src", "xmm1")]);
-    // fneg_v / fabs_v both in-place and copy-first.
-    let _ = bytes("fneg_v", &[("dst", "xmm0"), ("src", "xmm0")]);
-    let _ = bytes("fneg_v", &[("dst", "xmm0"), ("src", "xmm1")]);
-    let _ = bytes("fabs_v", &[("dst", "xmm0"), ("src", "xmm0")]);
-    let _ = bytes("fabs_v", &[("dst", "xmm0"), ("src", "xmm1")]);
-    let _ = bytes("neg_v", &[("dst", "xmm0"), ("src", "xmm1")]);
-    // abs_v both aliasing and disjoint.
-    let _ = bytes("abs_v", &[("dst", "xmm0"), ("src", "xmm0")]);
-    let _ = bytes("abs_v", &[("dst", "xmm0"), ("src", "xmm1")]);
+    // fsqrt_v xmm0, xmm1 : sqrtpd xmm0,xmm1.
+    assert_eq!(
+        bytes("fsqrt_v", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [0x66, 0x0F, 0x51, 0xC1]
+    );
+    // fneg_v in place: pcmpeqd xmm15 ; psllq xmm15,63 ; xorpd xmm0,xmm15.
+    assert_eq!(
+        bytes("fneg_v", &[("dst", "xmm0"), ("src", "xmm0")]),
+        [
+            0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xF7, 0x3F, 0x66, 0x41, 0x0F,
+            0x57, 0xC7
+        ]
+    );
+    // fneg_v copy-first inserts movaps xmm0,xmm1 before the xorpd.
+    assert_eq!(
+        bytes("fneg_v", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [
+            0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xF7, 0x3F, 0x0F, 0x28, 0xC1,
+            0x66, 0x41, 0x0F, 0x57, 0xC7
+        ]
+    );
+    // fabs_v in place: pcmpeqd xmm15 ; psrlq xmm15,1 ; andpd xmm0,xmm15.
+    assert_eq!(
+        bytes("fabs_v", &[("dst", "xmm0"), ("src", "xmm0")]),
+        [
+            0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xD7, 0x01, 0x66, 0x41, 0x0F,
+            0x54, 0xC7
+        ]
+    );
+    // fabs_v copy-first inserts movaps xmm0,xmm1 before the andpd.
+    assert_eq!(
+        bytes("fabs_v", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [
+            0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xD7, 0x01, 0x0F, 0x28, 0xC1,
+            0x66, 0x41, 0x0F, 0x54, 0xC7
+        ]
+    );
+    // neg_v xmm0, xmm1 : pxor xmm15,xmm15 ; psubq xmm15,xmm1 ; movaps xmm0,xmm15.
+    assert_eq!(
+        bytes("neg_v", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0xFB, 0xF9, 0x41, 0x0F, 0x28, 0xC7]
+    );
+    // abs_v aliasing: pxor xmm15 ; pcmpgtq xmm15,xmm0 (sign mask) ;
+    // pxor xmm0,xmm15 ; psubq xmm0,xmm15 (two's-complement abs).
+    assert_eq!(
+        bytes("abs_v", &[("dst", "xmm0"), ("src", "xmm0")]),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF8, 0x66, 0x41, 0x0F,
+            0xEF, 0xC7, 0x66, 0x41, 0x0F, 0xFB, 0xC7
+        ]
+    );
+    // abs_v disjoint inserts movaps xmm0,xmm1 after the mask.
+    assert_eq!(
+        bytes("abs_v", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF9, 0x0F, 0x28, 0xC1,
+            0x66, 0x41, 0x0F, 0xEF, 0xC7, 0x66, 0x41, 0x0F, 0xFB, 0xC7
+        ]
+    );
 }
 
 #[test]
 fn v128_integer_compares() {
-    // cmgt_v: dst==rhs && dst!=lhs staged arm, dst==lhs arm, disjoint arm.
-    let _ = bytes(
-        "cmgt_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")],
+    // cmgt_v dst==rhs && dst!=lhs staged: movaps xmm15,xmm0 ; movaps xmm0,xmm1 ;
+    // pcmpgtq xmm0,xmm15 (= xmm1 > xmm0).
+    assert_eq!(
+        bytes(
+            "cmgt_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0x44, 0x0F, 0x28, 0xF8, 0x0F, 0x28, 0xC1, 0x66, 0x41, 0x0F, 0x38, 0x37, 0xC7]
     );
-    let _ = bytes(
-        "cmgt_v",
-        &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")],
+    // cmgt_v dst==lhs in place: pcmpgtq xmm0,xmm1.
+    assert_eq!(
+        bytes(
+            "cmgt_v",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0x66, 0x0F, 0x38, 0x37, 0xC1]
     );
-    let _ = bytes(
-        "cmgt_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // cmgt_v disjoint: movaps xmm0,xmm1 ; pcmpgtq xmm0,xmm2.
+    assert_eq!(
+        bytes(
+            "cmgt_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x38, 0x37, 0xC2]
     );
-    // cmeq_v commutative in-place + disjoint.
-    let _ = bytes(
-        "cmeq_v",
-        &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")],
+    // cmeq_v commutative in-place (dst==lhs): pcmpeqq xmm0,xmm1.
+    assert_eq!(
+        bytes(
+            "cmeq_v",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0x66, 0x0F, 0x38, 0x29, 0xC1]
     );
-    let _ = bytes(
-        "cmeq_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")],
+    // cmeq_v dst==rhs commutes to the same pcmpeqq xmm0,xmm1.
+    assert_eq!(
+        bytes(
+            "cmeq_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0x66, 0x0F, 0x38, 0x29, 0xC1]
     );
-    let _ = bytes(
-        "cmeq_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // cmeq_v disjoint: movaps xmm0,xmm1 ; pcmpeqq xmm0,xmm2.
+    assert_eq!(
+        bytes(
+            "cmeq_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x38, 0x29, 0xC2]
     );
-    // cmge_v with dst==rhs and dst!=rhs.
-    let _ = bytes(
-        "cmge_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")],
+    // cmge_v dst==rhs: movaps xmm15,xmm1 ; pcmpgtq xmm0,xmm15 ; pcmpeqd xmm15 ;
+    // pxor xmm0,xmm15 (= NOT(rhs>lhs) = lhs>=rhs).
+    assert_eq!(
+        bytes(
+            "cmge_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [
+            0x44, 0x0F, 0x28, 0xF9, 0x66, 0x41, 0x0F, 0x38, 0x37, 0xC7, 0x66, 0x45, 0x0F, 0x76,
+            0xFF, 0x66, 0x41, 0x0F, 0xEF, 0xC7
+        ]
     );
-    let _ = bytes(
-        "cmge_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // cmge_v disjoint inserts movaps xmm0,xmm2 before the pcmpgtq.
+    assert_eq!(
+        bytes(
+            "cmge_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [
+            0x44, 0x0F, 0x28, 0xF9, 0x0F, 0x28, 0xC2, 0x66, 0x41, 0x0F, 0x38, 0x37, 0xC7, 0x66,
+            0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0xEF, 0xC7
+        ]
     );
 }
 
 #[test]
 fn v128_float_compares() {
-    // fcmgt_v / fcmge_v drive vec_cmppd_swapped's three arms.
-    let _ = bytes(
-        "fcmgt_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")],
-    ); // dst==rhs
-    let _ = bytes(
-        "fcmgt_v",
-        &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")],
-    ); // dst==lhs
-    let _ = bytes(
-        "fcmge_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
-    ); // disjoint
-       // fcmeq_v with dst==rhs, dst==lhs, disjoint.
-    let _ = bytes(
-        "fcmeq_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")],
+    // fcmgt_v dst==rhs: fcmgt(lhs,rhs)=rhs<lhs → cmpltpd xmm0,xmm1 (pred 1).
+    assert_eq!(
+        bytes(
+            "fcmgt_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0x66, 0x0F, 0xC2, 0xC1, 0x01]
     );
-    let _ = bytes(
-        "fcmeq_v",
-        &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")],
+    // fcmgt_v dst==lhs staged: movaps xmm15,xmm0 ; movaps xmm0,xmm1 ;
+    // cmpltpd xmm0,xmm15.
+    assert_eq!(
+        bytes(
+            "fcmgt_v",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0x44, 0x0F, 0x28, 0xF8, 0x0F, 0x28, 0xC1, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x01]
     );
-    let _ = bytes(
-        "fcmeq_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // fcmge_v disjoint: movaps xmm0,xmm2 ; cmplepd xmm0,xmm1 (pred 2).
+    assert_eq!(
+        bytes(
+            "fcmge_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0x0F, 0x28, 0xC2, 0x66, 0x0F, 0xC2, 0xC1, 0x02]
+    );
+    // fcmeq_v dst==rhs staged: movaps xmm15,xmm0 ; movaps xmm0,xmm1 ;
+    // cmpeqpd xmm0,xmm15 (pred 0).
+    assert_eq!(
+        bytes(
+            "fcmeq_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0x44, 0x0F, 0x28, 0xF8, 0x0F, 0x28, 0xC1, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x00]
+    );
+    // fcmeq_v dst==lhs in place (commutative): cmpeqpd xmm0,xmm1.
+    assert_eq!(
+        bytes(
+            "fcmeq_v",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0x66, 0x0F, 0xC2, 0xC1, 0x00]
+    );
+    // fcmeq_v disjoint: movaps xmm0,xmm1 ; cmpeqpd xmm0,xmm2.
+    assert_eq!(
+        bytes(
+            "fcmeq_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0xC2, 0xC2, 0x00]
     );
 }
 
 #[test]
 fn v128_zero_compares() {
-    for op in [
-        "fcmgt_zero_v",
-        "fcmge_zero_v",
-        "fcmlt_zero_v",
-        "fcmle_zero_v",
-        "fcmeq_zero_v",
+    // Each op zeroes xmm15 (pxor) and compares against it. gt/ge move the zero
+    // into dst then cmplt/cmple dst,src; lt/le/eq compare dst(=src) against
+    // xmm15. `same` is dst==src==xmm0, `diff` copies src=xmm1 in first.
+    for (op, same, diff) in [
+        (
+            "fcmgt_zero_v", // pxor xmm15 ; movaps xmm0,xmm15 ; cmpltpd xmm0,{xmm0|xmm1}
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x41, 0x0F, 0x28, 0xC7, 0x66, 0x0F, 0xC2, 0xC0, 0x01,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x41, 0x0F, 0x28, 0xC7, 0x66, 0x0F, 0xC2, 0xC1, 0x01,
+            ][..],
+        ),
+        (
+            "fcmge_zero_v", // ... cmplepd (pred 2)
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x41, 0x0F, 0x28, 0xC7, 0x66, 0x0F, 0xC2, 0xC0, 0x02,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x41, 0x0F, 0x28, 0xC7, 0x66, 0x0F, 0xC2, 0xC1, 0x02,
+            ][..],
+        ),
+        (
+            "fcmlt_zero_v", // pxor xmm15 ; [movaps xmm0,xmm1;] cmpltpd xmm0,xmm15
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x01,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x0F, 0x28, 0xC1, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x01,
+            ][..],
+        ),
+        (
+            "fcmle_zero_v", // ... cmplepd xmm0,xmm15 (pred 2)
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x02,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x0F, 0x28, 0xC1, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x02,
+            ][..],
+        ),
+        (
+            "fcmeq_zero_v", // ... cmpeqpd xmm0,xmm15 (pred 0)
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x00,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x0F, 0x28, 0xC1, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x00,
+            ][..],
+        ),
     ] {
-        // Both aliasing and disjoint src.
-        let _ = bytes(op, &[("dst", "xmm0"), ("src", "xmm0")]);
-        let _ = bytes(op, &[("dst", "xmm0"), ("src", "xmm1")]);
+        assert_eq!(
+            bytes(op, &[("dst", "xmm0"), ("src", "xmm0")]),
+            same,
+            "{op} same"
+        );
+        assert_eq!(
+            bytes(op, &[("dst", "xmm0"), ("src", "xmm1")]),
+            diff,
+            "{op} diff"
+        );
     }
 }
 
 #[test]
 fn v128_rounding() {
-    for op in ["frintp_v", "frintm_v", "frintz_v", "frintn_v"] {
-        let _ = bytes(op, &[("dst", "xmm0"), ("src", "xmm1")]);
+    // roundpd xmm0,xmm1,mode — ceil(2)/floor(1)/trunc(3)/nearest(0).
+    for (op, want) in [
+        ("frintp_v", [0x66, 0x0F, 0x3A, 0x09, 0xC1, 0x02]), // ceil
+        ("frintm_v", [0x66, 0x0F, 0x3A, 0x09, 0xC1, 0x01]), // floor
+        ("frintz_v", [0x66, 0x0F, 0x3A, 0x09, 0xC1, 0x03]), // trunc
+        ("frintn_v", [0x66, 0x0F, 0x3A, 0x09, 0xC1, 0x00]), // nearest-even
+    ] {
+        assert_eq!(bytes(op, &[("dst", "xmm0"), ("src", "xmm1")]), want, "{op}");
     }
-    // frinta_v (ties-away emulation via push/pop).
-    let _ = bytes("frinta_v", &[("dst", "xmm0"), ("src", "xmm1")]);
+    // frinta_v (ties-away): roundpd xmm0,xmm1,3 ; movapd xmm15,xmm0 ;
+    // subpd xmm15,xmm1 ; addpd xmm15,xmm15 ; roundpd xmm15,xmm15,3 ;
+    // subpd xmm0,xmm15.
+    assert_eq!(
+        bytes("frinta_v", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [
+            0x66, 0x0F, 0x3A, 0x09, 0xC1, 0x03, 0x66, 0x44, 0x0F, 0x28, 0xF8, 0x66, 0x44, 0x0F,
+            0x5C, 0xF9, 0x66, 0x45, 0x0F, 0x58, 0xFF, 0x66, 0x45, 0x0F, 0x3A, 0x09, 0xFF, 0x03,
+            0x66, 0x41, 0x0F, 0x5C, 0xC7
+        ]
+    );
 }
 
 #[test]
 fn v128_shifts_dup_extract() {
-    // shl_v / ushr_v in-place and copy-first.
-    let _ = bytes("shl_v", &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "3")]);
-    let _ = bytes("shl_v", &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "3")]);
-    let _ = bytes(
-        "ushr_v",
-        &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "3")],
+    // shl_v in place: psllq xmm0,3.
+    assert_eq!(
+        bytes("shl_v", &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "3")]),
+        [0x66, 0x0F, 0x73, 0xF0, 0x03]
+    );
+    // shl_v copy-first: movaps xmm0,xmm1 ; psllq xmm0,3.
+    assert_eq!(
+        bytes("shl_v", &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "3")]),
+        [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x73, 0xF0, 0x03]
+    );
+    // ushr_v copy-first: movaps xmm0,xmm1 ; psrlq xmm0,3.
+    assert_eq!(
+        bytes(
+            "ushr_v",
+            &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "3")]
+        ),
+        [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x73, 0xD0, 0x03]
     );
     // Bad shift errors.
     let ins = CodeInstruction::new("shl_v")
@@ -1218,16 +1519,26 @@ fn v128_shifts_dup_extract() {
         .field("src", "xmm0")
         .field("shift", "z");
     assert!(encode_instruction(&ins).is_err());
-    // dup_v_from_x.
-    let _ = bytes("dup_v_from_x", &[("dst", "xmm0"), ("src", "rax")]);
-    // umov_x_from_v lane 0 (movq) and lane 1 (pextrq).
-    let _ = bytes(
-        "umov_x_from_v",
-        &[("dst", "rax"), ("src", "xmm0"), ("index", "0")],
+    // dup_v_from_x xmm0, rax : movq xmm0,rax ; punpcklqdq xmm0,xmm0 (broadcast).
+    assert_eq!(
+        bytes("dup_v_from_x", &[("dst", "xmm0"), ("src", "rax")]),
+        [0x66, 0x48, 0x0F, 0x6E, 0xC0, 0x66, 0x0F, 0x6C, 0xC0]
     );
-    let _ = bytes(
-        "umov_x_from_v",
-        &[("dst", "rax"), ("src", "xmm0"), ("index", "1")],
+    // umov_x_from_v lane 0 (movq rax,xmm0).
+    assert_eq!(
+        bytes(
+            "umov_x_from_v",
+            &[("dst", "rax"), ("src", "xmm0"), ("index", "0")]
+        ),
+        [0x66, 0x48, 0x0F, 0x7E, 0xC0]
+    );
+    // umov_x_from_v lane 1 (pextrq rax,xmm0,1).
+    assert_eq!(
+        bytes(
+            "umov_x_from_v",
+            &[("dst", "rax"), ("src", "xmm0"), ("index", "1")]
+        ),
+        [0x66, 0x48, 0x0F, 0x3A, 0x16, 0xC0, 0x01]
     );
     let ins = CodeInstruction::new("umov_x_from_v")
         .field("dst", "rax")
@@ -1238,42 +1549,107 @@ fn v128_shifts_dup_extract() {
 
 #[test]
 fn v128_bit_select_fma_convert() {
-    let _ = bytes(
-        "bsl_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // bsl_v: movaps xmm15,xmm0 ; pand xmm0,xmm1 ; pandn xmm15,xmm2 ; por xmm0,xmm15.
+    assert_eq!(
+        bytes(
+            "bsl_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [
+            0x44, 0x0F, 0x28, 0xF8, 0x66, 0x0F, 0xDB, 0xC1, 0x66, 0x44, 0x0F, 0xDF, 0xFA, 0x66,
+            0x41, 0x0F, 0xEB, 0xC7
+        ]
     );
-    let _ = bytes(
-        "bit_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // bit_v: movaps xmm15,xmm0 ; pxor xmm15,xmm1 ; pand xmm15,xmm2 ; pxor xmm0,xmm15.
+    assert_eq!(
+        bytes(
+            "bit_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [
+            0x44, 0x0F, 0x28, 0xF8, 0x66, 0x44, 0x0F, 0xEF, 0xF9, 0x66, 0x44, 0x0F, 0xDB, 0xFA,
+            0x66, 0x41, 0x0F, 0xEF, 0xC7
+        ]
     );
-    let _ = bytes(
-        "fmla_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // fmla_v xmm0,xmm1,xmm2 : vfmadd231pd xmm0,xmm1,xmm2.
+    assert_eq!(
+        bytes(
+            "fmla_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0xC4, 0xE2, 0xF1, 0xB8, 0xC2]
     );
-    let _ = bytes(
-        "fmls_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")],
+    // fmls_v xmm0,xmm1,xmm2 : vfnmadd231pd xmm0,xmm1,xmm2.
+    assert_eq!(
+        bytes(
+            "fmls_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0xC4, 0xE2, 0xF1, 0xBC, 0xC2]
     );
-    // Extended-register FMA to drive the VEX ~R/~B bits.
-    let _ = bytes(
-        "fmla_v",
-        &[("dst", "xmm8"), ("lhs", "xmm1"), ("rhs", "xmm9")],
+    // Extended-register FMA drives the VEX ~R/~B bits: vfmadd231pd xmm8,xmm1,xmm9.
+    assert_eq!(
+        bytes(
+            "fmla_v",
+            &[("dst", "xmm8"), ("lhs", "xmm1"), ("rhs", "xmm9")]
+        ),
+        [0xC4, 0x42, 0xF1, 0xB8, 0xC1]
     );
-    // Lane-serial conversions.
-    let _ = bytes("fcvtzs_v", &[("dst", "xmm0"), ("src", "xmm1")]);
-    let _ = bytes("scvtf_v", &[("dst", "xmm0"), ("src", "xmm1")]);
-    // sshr_v with k in range, k==0, and dst==src.
-    let _ = bytes(
-        "sshr_v",
-        &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "20")],
+    // Lane-serial fcvtzs_v: push rax/rdx ; cvttsd2si both lanes (lane 1 via
+    // pshufd) ; reassemble via movq/punpcklqdq ; pop rdx/rax.
+    assert_eq!(
+        bytes("fcvtzs_v", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [
+            0x50, 0x52, 0xF2, 0x48, 0x0F, 0x2C, 0xC1, 0x66, 0x44, 0x0F, 0x70, 0xF9, 0xEE, 0xF2,
+            0x49, 0x0F, 0x2C, 0xD7, 0x66, 0x48, 0x0F, 0x6E, 0xC0, 0x66, 0x4C, 0x0F, 0x6E, 0xFA,
+            0x66, 0x41, 0x0F, 0x6C, 0xC7, 0x5A, 0x58
+        ]
     );
-    let _ = bytes(
-        "sshr_v",
-        &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "0")],
+    // Lane-serial scvtf_v: symmetric, movq out then cvtsi2sd both lanes,
+    // reassemble via unpcklpd.
+    assert_eq!(
+        bytes("scvtf_v", &[("dst", "xmm0"), ("src", "xmm1")]),
+        [
+            0x50, 0x52, 0x66, 0x48, 0x0F, 0x7E, 0xC8, 0x66, 0x44, 0x0F, 0x70, 0xF9, 0xEE, 0x66,
+            0x4C, 0x0F, 0x7E, 0xFA, 0xF2, 0x48, 0x0F, 0x2A, 0xC0, 0xF2, 0x4C, 0x0F, 0x2A, 0xFA,
+            0x66, 0x41, 0x0F, 0x14, 0xC7, 0x5A, 0x58
+        ]
     );
-    let _ = bytes(
-        "sshr_v",
-        &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "20")],
+    // sshr_v k=20 copy-first: build sign mask (pxor/pcmpgtq/psllq 44) ;
+    // movaps xmm0,xmm1 ; psrlq xmm0,20 ; por xmm0,mask.
+    assert_eq!(
+        bytes(
+            "sshr_v",
+            &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "20")]
+        ),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF9, 0x66, 0x41, 0x0F,
+            0x73, 0xF7, 0x2C, 0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x73, 0xD0, 0x14, 0x66, 0x41, 0x0F,
+            0xEB, 0xC7
+        ]
+    );
+    // sshr_v k=0 copy-first: the mask is re-zeroed (pxor twice) so por is a no-op.
+    assert_eq!(
+        bytes(
+            "sshr_v",
+            &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "0")]
+        ),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF9, 0x66, 0x45, 0x0F,
+            0xEF, 0xFF, 0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x73, 0xD0, 0x00, 0x66, 0x41, 0x0F, 0xEB,
+            0xC7
+        ]
+    );
+    // sshr_v k=20 in place (dst==src) skips the movaps copy.
+    assert_eq!(
+        bytes(
+            "sshr_v",
+            &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "20")]
+        ),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF8, 0x66, 0x41, 0x0F,
+            0x73, 0xF7, 0x2C, 0x66, 0x0F, 0x73, 0xD0, 0x14, 0x66, 0x41, 0x0F, 0xEB, 0xC7
+        ]
     );
     let ins = CodeInstruction::new("sshr_v")
         .field("dst", "xmm0")
@@ -1305,9 +1681,13 @@ fn v128_bit_select_fma_convert() {
         "psrlq dst,64 present: {k64:02x?}"
     );
     // ushr/shl by 64 zero the lane on both ISAs (an x86 count > 63 is defined to).
-    let _ = bytes(
-        "ushr_v",
-        &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "64")],
+    // movaps xmm0,xmm1 ; psrlq xmm0,64.
+    assert_eq!(
+        bytes(
+            "ushr_v",
+            &[("dst", "xmm0"), ("src", "xmm1"), ("shift", "64")]
+        ),
+        [0x0F, 0x28, 0xC1, 0x66, 0x0F, 0x73, 0xD0, 0x40]
     );
     // Past 64 the immediate is malformed and must be rejected, not truncated.
     for op in ["sshr_v", "ushr_v", "shl_v"] {
@@ -1324,72 +1704,122 @@ fn v128_bit_select_fma_convert() {
 
 #[test]
 fn div_aliasing_and_preservation() {
-    // udiv into a register whose divisor aliases rdx drives the stack-staged path.
-    let _ = bytes("udiv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdx")]);
-    // sdiv with rax dividend and non-rax dst drives the preserve-dividend path.
-    let _ = bytes("sdiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rsi")]);
-    // Both aliasing + preservation at once.
-    let _ = bytes("udiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rax")]);
+    // udiv whose divisor aliases rdx stages it in a stack slot:
+    // sub rsp,8 ; mov [rsp],rdx ; mov rax,rsi ; xor rdx,rdx ; div [rsp] ;
+    // mov rbx,rax ; add rsp,8.
+    assert_eq!(
+        bytes("udiv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdx")]),
+        [
+            0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x14, 0x24, 0x48, 0x89, 0xF0,
+            0x48, 0x31, 0xD2, 0x48, 0xF7, 0x34, 0x24, 0x48, 0x89, 0xC3, 0x48, 0x81, 0xC4, 0x08,
+            0x00, 0x00, 0x00
+        ]
+    );
+    // sdiv with rax dividend and non-rax dst preserves rax across the divide:
+    // sub rsp,8 ; mov [rsp],rax ; mov rax,rax ; cqo ; idiv rsi ; mov rbx,rax ;
+    // mov rax,[rsp] ; add rsp,8.
+    assert_eq!(
+        bytes("sdiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rsi")]),
+        [
+            0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x04, 0x24, 0x48, 0x89, 0xC0,
+            0x48, 0x99, 0x48, 0xF7, 0xFE, 0x48, 0x89, 0xC3, 0x48, 0x8B, 0x04, 0x24, 0x48, 0x81,
+            0xC4, 0x08, 0x00, 0x00, 0x00
+        ]
+    );
+    // Both aliasing + preservation at once (lhs==rhs==rax): two stack slots.
+    assert_eq!(
+        bytes("udiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rax")]),
+        [
+            0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x04, 0x24, 0x48, 0x81, 0xEC,
+            0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x04, 0x24, 0x48, 0x89, 0xC0, 0x48, 0x31, 0xD2,
+            0x48, 0xF7, 0x34, 0x24, 0x48, 0x89, 0xC3, 0x48, 0x81, 0xC4, 0x08, 0x00, 0x00, 0x00,
+            0x48, 0x8B, 0x04, 0x24, 0x48, 0x81, 0xC4, 0x08, 0x00, 0x00, 0x00
+        ]
+    );
 }
 
 #[test]
 fn msub_extended_registers() {
-    // Cover the extended-register REX arms of enc_mov/enc_imul in msub.
-    let _ = bytes(
-        "msub",
-        &[
-            ("dst", "r8"),
-            ("lhs", "r9"),
-            ("rhs", "r10"),
-            ("minuend", "r11"),
-        ],
+    // Cover the extended-register REX arms of enc_mov/enc_imul in msub:
+    // mov rax,r9 ; imul rax,r10 ; mov r8,r11 ; sub r8,rax.
+    assert_eq!(
+        bytes(
+            "msub",
+            &[
+                ("dst", "r8"),
+                ("lhs", "r9"),
+                ("rhs", "r10"),
+                ("minuend", "r11"),
+            ]
+        ),
+        [0x4C, 0x89, 0xC8, 0x49, 0x0F, 0xAF, 0xC2, 0x4D, 0x89, 0xD8, 0x49, 0x29, 0xC0]
     );
 }
 
 #[test]
 fn add_carry_extended_and_sub_borrow() {
-    // add_carry with an extended carry_out drives the REX byte in enc_setcc_to.
-    let _ = bytes(
-        "add_carry",
-        &[
-            ("dst", "rbx"),
-            ("carry_out", "r8"),
-            ("lhs", "rbx"),
-            ("rhs", "rdi"),
-            ("carry_in", "xzr"),
-        ],
+    // add_carry with an extended carry_out drives the REX byte in enc_setcc_to:
+    // add rbx,rdi ; setb r8b ; movzx r8,r8b.
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "r8"),
+                ("lhs", "rbx"),
+                ("rhs", "rdi"),
+                ("carry_in", "xzr"),
+            ]
+        ),
+        [0x48, 0x01, 0xFB, 0x41, 0x0F, 0x92, 0xC0, 0x4D, 0x0F, 0xB6, 0xC0]
     );
-    // sub_borrow with a borrow-in register drives the sbb path.
-    let _ = bytes(
-        "sub_borrow",
-        &[
-            ("dst", "rbx"),
-            ("borrow_out", "rsi"),
-            ("lhs", "rbx"),
-            ("rhs", "rdi"),
-            ("borrow_in", "r10"),
-        ],
+    // sub_borrow with a borrow-in register drives the sbb path:
+    // bt r10,0 ; sbb rbx,rdi ; setb sil ; movzx rsi,sil.
+    assert_eq!(
+        bytes(
+            "sub_borrow",
+            &[
+                ("dst", "rbx"),
+                ("borrow_out", "rsi"),
+                ("lhs", "rbx"),
+                ("rhs", "rdi"),
+                ("borrow_in", "r10"),
+            ]
+        ),
+        [
+            0x49, 0x0F, 0xBA, 0xE2, 0x00, 0x48, 0x19, 0xFB, 0x40, 0x0F, 0x92, 0xC6, 0x48, 0x0F,
+            0xB6, 0xF6
+        ]
     );
-    // add_carry where dst != lhs drives the mov-in arm.
-    let _ = bytes(
-        "add_carry",
-        &[
-            ("dst", "rbx"),
-            ("carry_out", "rsi"),
-            ("lhs", "rcx"),
-            ("rhs", "rdi"),
-            ("carry_in", "xzr"),
-        ],
+    // add_carry where dst != lhs drives the mov-in arm:
+    // mov rbx,rcx ; add rbx,rdi ; setb sil ; movzx rsi,sil.
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "rsi"),
+                ("lhs", "rcx"),
+                ("rhs", "rdi"),
+                ("carry_in", "xzr"),
+            ]
+        ),
+        [0x48, 0x89, 0xCB, 0x48, 0x01, 0xFB, 0x40, 0x0F, 0x92, 0xC6, 0x48, 0x0F, 0xB6, 0xF6]
     );
-    let _ = bytes(
-        "sub_borrow",
-        &[
-            ("dst", "rbx"),
-            ("borrow_out", "rsi"),
-            ("lhs", "rcx"),
-            ("rhs", "rdi"),
-            ("borrow_in", "xzr"),
-        ],
+    // sub_borrow dst != lhs, no borrow-in: mov rbx,rcx ; sub rbx,rdi ; setb sil ;
+    // movzx rsi,sil.
+    assert_eq!(
+        bytes(
+            "sub_borrow",
+            &[
+                ("dst", "rbx"),
+                ("borrow_out", "rsi"),
+                ("lhs", "rcx"),
+                ("rhs", "rdi"),
+                ("borrow_in", "xzr"),
+            ]
+        ),
+        [0x48, 0x89, 0xCB, 0x48, 0x29, 0xFB, 0x40, 0x0F, 0x92, 0xC6, 0x48, 0x0F, 0xB6, 0xF6]
     );
 }
 
@@ -1432,9 +1862,13 @@ fn immediate_true_false_and_shift_range() {
 
 #[test]
 fn imm32_overflow_and_disp32_overflow() {
-    // add_imm with u64::MAX, which sign-extends to -1 → fits imm32 as a mask.
+    // add_imm with u64::MAX, which sign-extends to -1 → fits imm32 as a mask:
+    // add rax, -1 (48 81 C0 FF FF FF FF).
     let mask = u64::MAX.to_string();
-    let _ = bytes("add_imm", &[("dst", "rax"), ("src", "rax"), ("imm", &mask)]);
+    assert_eq!(
+        bytes("add_imm", &[("dst", "rax"), ("src", "rax"), ("imm", &mask)]),
+        [0x48, 0x81, 0xC0, 0xFF, 0xFF, 0xFF, 0xFF]
+    );
     // A truly out-of-range immediate errors.
     let huge = (u64::MAX / 2).to_string();
     let ins = CodeInstruction::new("add_imm")
@@ -1797,8 +2231,12 @@ fn rev_w_rev_x() {
         bytes("rev_w", &[("dst", "rbx"), ("src", "rsi")]),
         [0x89, 0xF3, 0x0F, 0xCB]
     );
-    // rev_w with extended reg exercises the 32-bit REX + high bswap arms.
-    assert!(!enc("rev_w", &[("dst", "r8"), ("src", "r9")]).is_empty());
+    // rev_w with extended reg exercises the 32-bit REX + high bswap arms:
+    // mov r8d,r9d ; bswap r8d.
+    assert_eq!(
+        enc("rev_w", &[("dst", "r8"), ("src", "r9")]),
+        [0x45, 0x89, 0xC8, 0x41, 0x0F, 0xC8]
+    );
 }
 
 #[test]
@@ -1810,34 +2248,82 @@ fn rbit_reverse_bits() {
     let same = enc("rbit", &[("dst", "rbx"), ("src", "rbx")]);
     assert!(same.len() < b.len());
     // extended-register form exercises the REX.B paths inside the closures.
-    assert!(!enc("rbit", &[("dst", "r8"), ("src", "r8")]).is_empty());
+    // push rax/rdx ; three (mask & shift) rounds over 0x55.../0x33.../0x0f...
+    // constants ; bswap r8 ; pop rdx/rax.
+    assert_eq!(
+        enc("rbit", &[("dst", "r8"), ("src", "r8")]),
+        [
+            0x50, 0x52, 0x4C, 0x89, 0xC2, 0x48, 0xB8, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55,
+            0x55, 0x48, 0x21, 0xC2, 0x48, 0xC1, 0xE2, 0x01, 0x49, 0xC1, 0xE8, 0x01, 0x49, 0x21,
+            0xC0, 0x49, 0x09, 0xD0, 0x4C, 0x89, 0xC2, 0x48, 0xB8, 0x33, 0x33, 0x33, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x48, 0x21, 0xC2, 0x48, 0xC1, 0xE2, 0x02, 0x49, 0xC1, 0xE8, 0x02,
+            0x49, 0x21, 0xC0, 0x49, 0x09, 0xD0, 0x4C, 0x89, 0xC2, 0x48, 0xB8, 0x0F, 0x0F, 0x0F,
+            0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x48, 0x21, 0xC2, 0x48, 0xC1, 0xE2, 0x04, 0x49, 0xC1,
+            0xE8, 0x04, 0x49, 0x21, 0xC0, 0x49, 0x09, 0xD0, 0x49, 0x0F, 0xC8, 0x5A, 0x58
+        ]
+    );
 }
 
 #[test]
 fn msub_disjoint_and_dst_aliases_lhs() {
-    // dst aliases lhs (not rax minuend) keeps product-first order.
-    assert!(!enc(
-        "msub",
-        &[
-            ("dst", "rbx"),
-            ("lhs", "rbx"),
-            ("rhs", "rdi"),
-            ("minuend", "rcx")
-        ]
-    )
-    .is_empty());
+    // dst aliases lhs (not rax minuend) keeps product-first order:
+    // mov rax,rbx ; imul rax,rdi ; mov rbx,rcx ; sub rbx,rax.
+    assert_eq!(
+        enc(
+            "msub",
+            &[
+                ("dst", "rbx"),
+                ("lhs", "rbx"),
+                ("rhs", "rdi"),
+                ("minuend", "rcx")
+            ]
+        ),
+        [0x48, 0x89, 0xD8, 0x48, 0x0F, 0xAF, 0xC7, 0x48, 0x89, 0xCB, 0x48, 0x29, 0xC3]
+    );
 }
 
 #[test]
 fn div_aliasing_and_dividend_preservation() {
-    // Divisor mapped onto rax → stage in a stack slot (memory divide).
-    assert!(!enc("udiv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rax")]).is_empty());
-    // Divisor mapped onto rdx → same memory path.
-    assert!(!enc("sdiv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdx")]).is_empty());
-    // Dividend IS rax and quotient wanted elsewhere → preserve rax across div.
-    assert!(!enc("udiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rdi")]).is_empty());
-    // Both preserve-dividend AND rhs-alias paths at once.
-    assert!(!enc("udiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rdx")]).is_empty());
+    // Divisor mapped onto rax → stage in a stack slot (memory divide):
+    // sub rsp,8 ; mov [rsp],rax ; mov rax,rsi ; xor rdx,rdx ; div [rsp] ;
+    // mov rbx,rax ; add rsp,8.
+    assert_eq!(
+        enc("udiv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rax")]),
+        [
+            0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x04, 0x24, 0x48, 0x89, 0xF0,
+            0x48, 0x31, 0xD2, 0x48, 0xF7, 0x34, 0x24, 0x48, 0x89, 0xC3, 0x48, 0x81, 0xC4, 0x08,
+            0x00, 0x00, 0x00
+        ]
+    );
+    // Divisor mapped onto rdx → same memory path, signed (cqo ; idiv [rsp]).
+    assert_eq!(
+        enc("sdiv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdx")]),
+        [
+            0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x14, 0x24, 0x48, 0x89, 0xF0,
+            0x48, 0x99, 0x48, 0xF7, 0x3C, 0x24, 0x48, 0x89, 0xC3, 0x48, 0x81, 0xC4, 0x08, 0x00,
+            0x00, 0x00
+        ]
+    );
+    // Dividend IS rax and quotient wanted elsewhere → preserve rax across div
+    // (single stack slot, direct `div rdi`).
+    assert_eq!(
+        enc("udiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rdi")]),
+        [
+            0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x04, 0x24, 0x48, 0x89, 0xC0,
+            0x48, 0x31, 0xD2, 0x48, 0xF7, 0xF7, 0x48, 0x89, 0xC3, 0x48, 0x8B, 0x04, 0x24, 0x48,
+            0x81, 0xC4, 0x08, 0x00, 0x00, 0x00
+        ]
+    );
+    // Both preserve-dividend AND rhs-alias paths at once → two stack slots.
+    assert_eq!(
+        enc("udiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rdx")]),
+        [
+            0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x04, 0x24, 0x48, 0x81, 0xEC,
+            0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x14, 0x24, 0x48, 0x89, 0xC0, 0x48, 0x31, 0xD2,
+            0x48, 0xF7, 0x34, 0x24, 0x48, 0x89, 0xC3, 0x48, 0x81, 0xC4, 0x08, 0x00, 0x00, 0x00,
+            0x48, 0x8B, 0x04, 0x24, 0x48, 0x81, 0xC4, 0x08, 0x00, 0x00, 0x00
+        ]
+    );
 }
 
 #[test]
@@ -1847,41 +2333,78 @@ fn shifts_var_32bit() {
         bytes("rorv_w", &[("dst", "rbx"), ("lhs", "rbx"), ("rhs", "rsi")]),
         [0x51, 0x89, 0xF1, 0xD3, 0xCB, 0x59]
     );
-    // dst != value copies the value too; extended reg sets REX.
-    assert!(!enc("rorv_w", &[("dst", "r8"), ("lhs", "r9"), ("rhs", "rsi")]).is_empty());
-    // lslv with dst != value (mov value in first).
-    assert!(!enc("lslv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdi")]).is_empty());
-    // lsrv arm.
-    assert!(!enc("lsrv", &[("dst", "rbx"), ("lhs", "rbx"), ("rhs", "rsi")]).is_empty());
+    // dst != value copies the value too; extended reg sets REX:
+    // push rcx ; mov ecx,esi ; mov r8d,r9d ; ror r8d,cl ; pop rcx.
+    assert_eq!(
+        enc("rorv_w", &[("dst", "r8"), ("lhs", "r9"), ("rhs", "rsi")]),
+        [0x51, 0x89, 0xF1, 0x45, 0x89, 0xC8, 0x41, 0xD3, 0xC8, 0x59]
+    );
+    // lslv with dst != value (mov value in first):
+    // push rcx ; mov rcx,rdi ; mov rbx,rsi ; shl rbx,cl ; pop rcx.
+    assert_eq!(
+        enc("lslv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdi")]),
+        [0x51, 0x48, 0x89, 0xF9, 0x48, 0x89, 0xF3, 0x48, 0xD3, 0xE3, 0x59]
+    );
+    // lsrv arm: push rcx ; mov rcx,rsi ; shr rbx,cl ; pop rcx.
+    assert_eq!(
+        enc("lsrv", &[("dst", "rbx"), ("lhs", "rbx"), ("rhs", "rsi")]),
+        [0x51, 0x48, 0x89, 0xF1, 0x48, 0xD3, 0xEB, 0x59]
+    );
 }
 
 #[test]
 fn shift_imm_move_first() {
     // lsl_imm rbx, rsi, 2 : dst != src → mov rbx,rsi ; shl rbx,2
-    assert!(!enc("lsl_imm", &[("dst", "rbx"), ("src", "rsi"), ("shift", "2")]).is_empty());
+    assert_eq!(
+        enc("lsl_imm", &[("dst", "rbx"), ("src", "rsi"), ("shift", "2")]),
+        [0x48, 0x89, 0xF3, 0x48, 0xC1, 0xE3, 0x02]
+    );
 }
 
 #[test]
 fn add_imm_move_first_and_str_u32_extended() {
     // add_imm rbx, rsi, 8 : dst != src → mov rbx,rsi ; add rbx,8
-    assert!(!enc("add_imm", &[("dst", "rbx"), ("src", "rsi"), ("imm", "8")]).is_empty());
-    // sub_imm dst != src.
-    assert!(!enc("sub_imm", &[("dst", "rbx"), ("src", "rsi"), ("imm", "8")]).is_empty());
-    // str_u32 with extended base/src forces REX.
-    assert!(!enc("str_u32", &[("src", "r8"), ("base", "r9"), ("offset", "0")]).is_empty());
-    // ldr_u32 extended too.
-    assert!(!enc("ldr_u32", &[("dst", "r8"), ("base", "r9"), ("offset", "0")]).is_empty());
+    assert_eq!(
+        enc("add_imm", &[("dst", "rbx"), ("src", "rsi"), ("imm", "8")]),
+        [0x48, 0x89, 0xF3, 0x48, 0x81, 0xC3, 0x08, 0x00, 0x00, 0x00]
+    );
+    // sub_imm dst != src : mov rbx,rsi ; sub rbx,8.
+    assert_eq!(
+        enc("sub_imm", &[("dst", "rbx"), ("src", "rsi"), ("imm", "8")]),
+        [0x48, 0x89, 0xF3, 0x48, 0x81, 0xEB, 0x08, 0x00, 0x00, 0x00]
+    );
+    // str_u32 with extended base/src forces REX.R.B : mov [r9], r8d.
+    assert_eq!(
+        enc("str_u32", &[("src", "r8"), ("base", "r9"), ("offset", "0")]),
+        [0x45, 0x89, 0x81, 0x00, 0x00, 0x00, 0x00]
+    );
+    // ldr_u32 extended too : mov r8d, [r9].
+    assert_eq!(
+        enc("ldr_u32", &[("dst", "r8"), ("base", "r9"), ("offset", "0")]),
+        [0x45, 0x8B, 0x81, 0x00, 0x00, 0x00, 0x00]
+    );
 }
 
 #[test]
 fn str_u8_extended_and_u16_encode() {
-    // str_u8 with an r8b destination sets REX.B.
-    assert!(!enc("str_u8", &[("src", "r8"), ("base", "rbx"), ("offset", "0")]).is_empty());
+    // str_u8 with an r8b destination sets REX.B : mov [rbx], r8b.
+    assert_eq!(
+        enc("str_u8", &[("src", "r8"), ("base", "rbx"), ("offset", "0")]),
+        [0x44, 0x88, 0x83, 0x00, 0x00, 0x00, 0x00]
+    );
     // bug-294: `str_u16` reaches the MemWidth::U16 store arm through ordinary
     // dispatch and now encodes rather than erroring; see
     // `str_u16_encodes_the_operand_size_prefixed_store` for the byte-exact forms.
-    assert!(!enc("str_u16", &[("src", "r8"), ("base", "r9"), ("offset", "2")]).is_empty());
-    assert!(!enc("ldr_u16", &[("dst", "r8"), ("base", "r9"), ("offset", "2")]).is_empty());
+    // mov [r9+2], r8w (66 operand-size + REX.R.B).
+    assert_eq!(
+        enc("str_u16", &[("src", "r8"), ("base", "r9"), ("offset", "2")]),
+        [0x66, 0x45, 0x89, 0x81, 0x02, 0x00, 0x00, 0x00]
+    );
+    // movzx r8, word [r9+2].
+    assert_eq!(
+        enc("ldr_u16", &[("dst", "r8"), ("base", "r9"), ("offset", "2")]),
+        [0x4D, 0x0F, 0xB7, 0x81, 0x02, 0x00, 0x00, 0x00]
+    );
 }
 
 #[test]
@@ -1937,24 +2460,34 @@ fn scalar_double_moves_and_arith() {
         ),
         [0xF2, 0x0F, 0x58, 0xC1]
     );
-    // fmul_d commutative dst==rhs → swap operands.
-    assert!(!enc(
-        "fmul_d",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
-    )
-    .is_empty());
-    // fsub_d dst==rhs non-commutative → staged through xmm15.
-    assert!(!enc(
-        "fsub_d",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
-    )
-    .is_empty());
-    // fdiv_d disjoint → copy lhs then op.
-    assert!(!enc(
-        "fdiv_d",
-        &[("dst", "xmm2"), ("lhs", "xmm1"), ("rhs", "xmm0")]
-    )
-    .is_empty());
+    // fmul_d commutative dst==rhs → swap operands: mulsd xmm0,xmm1.
+    assert_eq!(
+        enc(
+            "fmul_d",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0xF2, 0x0F, 0x59, 0xC1]
+    );
+    // fsub_d dst==rhs non-commutative → staged through xmm15:
+    // movsd xmm15,xmm1 ; subsd xmm15,xmm0 ; movsd xmm0,xmm15.
+    assert_eq!(
+        enc(
+            "fsub_d",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [
+            0xF2, 0x44, 0x0F, 0x10, 0xF9, 0xF2, 0x44, 0x0F, 0x5C, 0xF8, 0xF2, 0x41, 0x0F, 0x10,
+            0xC7
+        ]
+    );
+    // fdiv_d disjoint → copy lhs then op: movsd xmm2,xmm1 ; divsd xmm2,xmm0.
+    assert_eq!(
+        enc(
+            "fdiv_d",
+            &[("dst", "xmm2"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0xF2, 0x0F, 0x10, 0xD1, 0xF2, 0x0F, 0x5E, 0xD0]
+    );
     // fsqrt_d xmm1, xmm0 : F2 0F 51 C8
     assert_eq!(
         bytes("fsqrt_d", &[("dst", "xmm1"), ("src", "xmm0")]),
@@ -1981,12 +2514,15 @@ fn scalar_double_min_max() {
         ),
         [0xF2, 0x0F, 0x5F, 0xC1]
     );
-    // Disjoint destination copies lhs first, then the op (non-empty, aliasing-safe).
-    assert!(!enc(
-        "fminnm_d",
-        &[("dst", "xmm2"), ("lhs", "xmm1"), ("rhs", "xmm0")]
-    )
-    .is_empty());
+    // Disjoint destination copies lhs first, then the op:
+    // movsd xmm2,xmm1 ; minsd xmm2,xmm0.
+    assert_eq!(
+        enc(
+            "fminnm_d",
+            &[("dst", "xmm2"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+        ),
+        [0xF2, 0x0F, 0x10, 0xD1, 0xF2, 0x0F, 0x5D, 0xD0]
+    );
 }
 
 #[test]
@@ -2025,14 +2561,37 @@ fn scalar_double_compares_and_signops() {
         bytes("fcmp_d", &[("lhs", "xmm0"), ("rhs", "xmm1")]),
         [0x66, 0x0F, 0x2E, 0xC1]
     );
-    // fcmp_zero_d src : xorps xmm15 ; ucomisd src,xmm15
-    assert!(!enc("fcmp_zero_d", &[("src", "xmm0")]).is_empty());
-    // fneg_d dst==src (no move) and dst!=src (movsd first).
-    assert!(!enc("fneg_d", &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
-    assert!(!enc("fneg_d", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
-    // fabs_d dst==src and dst!=src.
-    assert!(!enc("fabs_d", &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
-    assert!(!enc("fabs_d", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    // fcmp_zero_d src : xorps xmm15,xmm15 ; ucomisd xmm0,xmm15.
+    assert_eq!(
+        enc("fcmp_zero_d", &[("src", "xmm0")]),
+        [0x45, 0x0F, 0x57, 0xFF, 0x66, 0x41, 0x0F, 0x2E, 0xC7]
+    );
+    // fneg_d dst==src (no move): pcmpeqd xmm15 ; psllq xmm15,63 ; xorpd xmm0,xmm15.
+    assert_eq!(
+        enc("fneg_d", &[("dst", "xmm0"), ("src", "xmm0")]),
+        [
+            0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xF7, 0x3F, 0x66, 0x41, 0x0F,
+            0x57, 0xC7
+        ]
+    );
+    // fneg_d dst!=src (movsd xmm1,xmm0 first, then the sign flip on xmm1).
+    assert_eq!(
+        enc("fneg_d", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [
+            0xF2, 0x0F, 0x10, 0xC8, 0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xF7,
+            0x3F, 0x66, 0x41, 0x0F, 0x57, 0xCF
+        ]
+    );
+    // fabs_d dst==src: psllq xmm0,1 ; psrlq xmm0,1.
+    assert_eq!(
+        enc("fabs_d", &[("dst", "xmm0"), ("src", "xmm0")]),
+        [0x66, 0x0F, 0x73, 0xF0, 0x01, 0x66, 0x0F, 0x73, 0xD0, 0x01]
+    );
+    // fabs_d dst!=src: movsd xmm1,xmm0 ; psllq xmm1,1 ; psrlq xmm1,1.
+    assert_eq!(
+        enc("fabs_d", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [0xF2, 0x0F, 0x10, 0xC8, 0x66, 0x0F, 0x73, 0xF1, 0x01, 0x66, 0x0F, 0x73, 0xD1, 0x01]
+    );
 }
 
 #[test]
@@ -2047,11 +2606,25 @@ fn int_float_conversions() {
         bytes("fcvtzs_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]),
         [0xF2, 0x48, 0x0F, 0x2C, 0xD8]
     );
-    // floor / ceil : roundsd xmm15,src,mode ; cvttsd2si.
-    assert!(!enc("fcvtms_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]).is_empty());
-    assert!(!enc("fcvtps_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]).is_empty());
-    // nearest ties-away.
-    assert!(!enc("fcvtas_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]).is_empty());
+    // floor : roundsd xmm15,xmm0,1 ; cvttsd2si rbx,xmm15.
+    assert_eq!(
+        enc("fcvtms_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]),
+        [0x66, 0x44, 0x0F, 0x3A, 0x0B, 0xF8, 0x01, 0xF2, 0x49, 0x0F, 0x2C, 0xDF]
+    );
+    // ceil : roundsd xmm15,xmm0,2 ; cvttsd2si rbx,xmm15.
+    assert_eq!(
+        enc("fcvtps_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]),
+        [0x66, 0x44, 0x0F, 0x3A, 0x0B, 0xF8, 0x02, 0xF2, 0x49, 0x0F, 0x2C, 0xDF]
+    );
+    // nearest ties-away (commandeers rax since dst=rbx): push rax ; ... ; pop rax.
+    assert_eq!(
+        enc("fcvtas_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]),
+        [
+            0x50, 0xF2, 0x48, 0x0F, 0x2C, 0xD8, 0xF2, 0x4C, 0x0F, 0x2A, 0xFB, 0xF2, 0x44, 0x0F,
+            0x5C, 0xF8, 0xF2, 0x45, 0x0F, 0x58, 0xFF, 0x66, 0x45, 0x0F, 0x3A, 0x0B, 0xFF, 0x03,
+            0xF2, 0x49, 0x0F, 0x2C, 0xC7, 0x48, 0x29, 0xC3, 0x58
+        ]
+    );
 }
 
 #[test]
@@ -2072,12 +2645,15 @@ fn scalar_double_mem() {
         ),
         [0xF2, 0x0F, 0x11, 0x84, 0x24, 0x10, 0, 0, 0]
     );
-    // negative offset exercises the i32 parse branch.
-    assert!(!enc(
-        "ldr_d",
-        &[("dst", "xmm8"), ("base", "r8"), ("offset", "-8")]
-    )
-    .is_empty());
+    // negative offset exercises the i32 parse branch:
+    // movsd xmm8, [r8-8] (REX.R.B, disp32=-8).
+    assert_eq!(
+        enc(
+            "ldr_d",
+            &[("dst", "xmm8"), ("base", "r8"), ("offset", "-8")]
+        ),
+        [0xF2, 0x45, 0x0F, 0x10, 0x80, 0xF8, 0xFF, 0xFF, 0xFF]
+    );
 }
 
 #[test]
@@ -2090,119 +2666,383 @@ fn v128_load_store_and_arith() {
         ),
         [0x0F, 0x10, 0x83, 0, 0, 0, 0]
     );
-    assert!(!enc(
-        "str_q",
-        &[("src", "xmm8"), ("base", "r8"), ("offset", "-16")]
-    )
-    .is_empty());
-    // Packed arithmetic: each vec3_op arm, commutative and not, plus aliasing.
-    for op in [
-        "fadd_v", "fmul_v", "fsub_v", "fdiv_v", "fmin_v", "fmax_v", "add_v", "sub_v", "and_v",
-        "orr_v", "eor_v",
+    // str_q xmm8, [r8-16] : movups [r8-16], xmm8 (REX.R.B, disp32=-16).
+    assert_eq!(
+        enc(
+            "str_q",
+            &[("src", "xmm8"), ("base", "r8"), ("offset", "-16")]
+        ),
+        [0x45, 0x0F, 0x11, 0x80, 0xF0, 0xFF, 0xFF, 0xFF]
+    );
+    // Packed arithmetic: each vec3_op arm — disjoint (movaps xmm2,xmm0 then the
+    // op), dst==lhs (op in place), dst==rhs (commutative swap, or staged via
+    // xmm15 for the non-commutative sub/div/min/max).
+    for (op, dis, lhs, rhs) in [
+        (
+            "fadd_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0x58, 0xD1][..],
+            &[0x66, 0x0F, 0x58, 0xC1][..],
+            &[0x66, 0x0F, 0x58, 0xC8][..],
+        ),
+        (
+            "fmul_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0x59, 0xD1][..],
+            &[0x66, 0x0F, 0x59, 0xC1][..],
+            &[0x66, 0x0F, 0x59, 0xC8][..],
+        ),
+        (
+            "fsub_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0x5C, 0xD1][..],
+            &[0x66, 0x0F, 0x5C, 0xC1][..],
+            &[
+                0x44, 0x0F, 0x28, 0xF9, 0x0F, 0x28, 0xC8, 0x66, 0x41, 0x0F, 0x5C, 0xCF,
+            ][..],
+        ),
+        (
+            "fdiv_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0x5E, 0xD1][..],
+            &[0x66, 0x0F, 0x5E, 0xC1][..],
+            &[
+                0x44, 0x0F, 0x28, 0xF9, 0x0F, 0x28, 0xC8, 0x66, 0x41, 0x0F, 0x5E, 0xCF,
+            ][..],
+        ),
+        (
+            "fmin_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0x5D, 0xD1][..],
+            &[0x66, 0x0F, 0x5D, 0xC1][..],
+            &[
+                0x44, 0x0F, 0x28, 0xF9, 0x0F, 0x28, 0xC8, 0x66, 0x41, 0x0F, 0x5D, 0xCF,
+            ][..],
+        ),
+        (
+            "fmax_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0x5F, 0xD1][..],
+            &[0x66, 0x0F, 0x5F, 0xC1][..],
+            &[
+                0x44, 0x0F, 0x28, 0xF9, 0x0F, 0x28, 0xC8, 0x66, 0x41, 0x0F, 0x5F, 0xCF,
+            ][..],
+        ),
+        (
+            "add_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0xD4, 0xD1][..],
+            &[0x66, 0x0F, 0xD4, 0xC1][..],
+            &[0x66, 0x0F, 0xD4, 0xC8][..],
+        ),
+        (
+            "sub_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0xFB, 0xD1][..],
+            &[0x66, 0x0F, 0xFB, 0xC1][..],
+            &[
+                0x44, 0x0F, 0x28, 0xF9, 0x0F, 0x28, 0xC8, 0x66, 0x41, 0x0F, 0xFB, 0xCF,
+            ][..],
+        ),
+        (
+            "and_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0xDB, 0xD1][..],
+            &[0x66, 0x0F, 0xDB, 0xC1][..],
+            &[0x66, 0x0F, 0xDB, 0xC8][..],
+        ),
+        (
+            "orr_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0xEB, 0xD1][..],
+            &[0x66, 0x0F, 0xEB, 0xC1][..],
+            &[0x66, 0x0F, 0xEB, 0xC8][..],
+        ),
+        (
+            "eor_v",
+            &[0x0F, 0x28, 0xD0, 0x66, 0x0F, 0xEF, 0xD1][..],
+            &[0x66, 0x0F, 0xEF, 0xC1][..],
+            &[0x66, 0x0F, 0xEF, 0xC8][..],
+        ),
     ] {
-        // disjoint
-        assert!(!enc(op, &[("dst", "xmm2"), ("lhs", "xmm0"), ("rhs", "xmm1")]).is_empty());
-        // dst==lhs in place
-        assert!(!enc(op, &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]).is_empty());
-        // dst==rhs (commutative swap OR staged xmm15)
-        assert!(!enc(op, &[("dst", "xmm1"), ("lhs", "xmm0"), ("rhs", "xmm1")]).is_empty());
+        assert_eq!(
+            enc(op, &[("dst", "xmm2"), ("lhs", "xmm0"), ("rhs", "xmm1")]),
+            dis,
+            "{op} disjoint"
+        );
+        assert_eq!(
+            enc(op, &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]),
+            lhs,
+            "{op} dst==lhs"
+        );
+        assert_eq!(
+            enc(op, &[("dst", "xmm1"), ("lhs", "xmm0"), ("rhs", "xmm1")]),
+            rhs,
+            "{op} dst==rhs"
+        );
     }
 }
 
 #[test]
 fn v128_unary_and_negabs() {
-    assert!(!enc("fsqrt_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
-    // fneg_v / fabs_v, dst==src and dst!=src.
-    for op in ["fneg_v", "fabs_v"] {
-        assert!(!enc(op, &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
-        assert!(!enc(op, &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    // fsqrt_v xmm1, xmm0 : sqrtpd xmm1,xmm0.
+    assert_eq!(
+        enc("fsqrt_v", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [0x66, 0x0F, 0x51, 0xC8]
+    );
+    // fneg_v / fabs_v: build the mask (pcmpeqd + psllq/psrlq) then xorpd/andpd;
+    // the dst!=src arm inserts a movaps xmm1,xmm0 copy before the mask op.
+    for (op, same, diff) in [
+        (
+            "fneg_v",
+            &[
+                0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xF7, 0x3F, 0x66, 0x41, 0x0F,
+                0x57, 0xC7,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xF7, 0x3F, 0x0F, 0x28, 0xC8,
+                0x66, 0x41, 0x0F, 0x57, 0xCF,
+            ][..],
+        ),
+        (
+            "fabs_v",
+            &[
+                0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xD7, 0x01, 0x66, 0x41, 0x0F,
+                0x54, 0xC7,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0x76, 0xFF, 0x66, 0x41, 0x0F, 0x73, 0xD7, 0x01, 0x0F, 0x28, 0xC8,
+                0x66, 0x41, 0x0F, 0x54, 0xCF,
+            ][..],
+        ),
+    ] {
+        assert_eq!(
+            enc(op, &[("dst", "xmm0"), ("src", "xmm0")]),
+            same,
+            "{op} dst==src"
+        );
+        assert_eq!(
+            enc(op, &[("dst", "xmm1"), ("src", "xmm0")]),
+            diff,
+            "{op} dst!=src"
+        );
     }
-    // neg_v integer negate.
-    assert!(!enc("neg_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
-    // abs_v, dst==src and dst!=src.
-    assert!(!enc("abs_v", &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
-    assert!(!enc("abs_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    // neg_v integer negate: pxor xmm15 ; psubq xmm15,xmm0 ; movaps xmm1,xmm15.
+    assert_eq!(
+        enc("neg_v", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0xFB, 0xF8, 0x41, 0x0F, 0x28, 0xCF]
+    );
+    // abs_v dst==src (in place).
+    assert_eq!(
+        enc("abs_v", &[("dst", "xmm0"), ("src", "xmm0")]),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF8, 0x66, 0x41, 0x0F,
+            0xEF, 0xC7, 0x66, 0x41, 0x0F, 0xFB, 0xC7
+        ]
+    );
+    // abs_v dst!=src inserts movaps xmm1,xmm0 after the mask.
+    assert_eq!(
+        enc("abs_v", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF8, 0x0F, 0x28, 0xC8,
+            0x66, 0x41, 0x0F, 0xEF, 0xCF, 0x66, 0x41, 0x0F, 0xFB, 0xCF
+        ]
+    );
 }
 
 #[test]
 fn v128_compares_against_zero() {
-    for op in [
-        "fcmgt_zero_v",
-        "fcmge_zero_v",
-        "fcmlt_zero_v",
-        "fcmle_zero_v",
-        "fcmeq_zero_v",
+    // gt/ge move zero (xmm15) into dst then cmplt/cmple dst,src; lt/le/eq
+    // compare dst against xmm15. `same` is dst==src==xmm0; `diff` targets xmm1.
+    for (op, same, diff) in [
+        (
+            "fcmgt_zero_v",
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x41, 0x0F, 0x28, 0xC7, 0x66, 0x0F, 0xC2, 0xC0, 0x01,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x41, 0x0F, 0x28, 0xCF, 0x66, 0x0F, 0xC2, 0xC8, 0x01,
+            ][..],
+        ),
+        (
+            "fcmge_zero_v",
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x41, 0x0F, 0x28, 0xC7, 0x66, 0x0F, 0xC2, 0xC0, 0x02,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x41, 0x0F, 0x28, 0xCF, 0x66, 0x0F, 0xC2, 0xC8, 0x02,
+            ][..],
+        ),
+        (
+            "fcmlt_zero_v",
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x01,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x0F, 0x28, 0xC8, 0x66, 0x41, 0x0F, 0xC2, 0xCF, 0x01,
+            ][..],
+        ),
+        (
+            "fcmle_zero_v",
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x02,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x0F, 0x28, 0xC8, 0x66, 0x41, 0x0F, 0xC2, 0xCF, 0x02,
+            ][..],
+        ),
+        (
+            "fcmeq_zero_v",
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x41, 0x0F, 0xC2, 0xC7, 0x00,
+            ][..],
+            &[
+                0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x0F, 0x28, 0xC8, 0x66, 0x41, 0x0F, 0xC2, 0xCF, 0x00,
+            ][..],
+        ),
     ] {
-        // dst==src and dst!=src to hit both copy branches.
-        assert!(!enc(op, &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
-        assert!(!enc(op, &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+        assert_eq!(
+            enc(op, &[("dst", "xmm0"), ("src", "xmm0")]),
+            same,
+            "{op} dst==src"
+        );
+        assert_eq!(
+            enc(op, &[("dst", "xmm1"), ("src", "xmm0")]),
+            diff,
+            "{op} dst!=src"
+        );
     }
 }
 
 #[test]
 fn v128_lane_shifts_and_moves() {
-    // shl_v / ushr_v: dst==src and dst!=src.
-    for op in ["shl_v", "ushr_v"] {
-        assert!(!enc(op, &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "3")]).is_empty());
-        assert!(!enc(op, &[("dst", "xmm1"), ("src", "xmm0"), ("shift", "3")]).is_empty());
+    // shl_v (psllq) / ushr_v (psrlq): in place, or copy-first (movaps xmm1,xmm0).
+    for (op, same, diff) in [
+        (
+            "shl_v",
+            &[0x66, 0x0F, 0x73, 0xF0, 0x03][..],
+            &[0x0F, 0x28, 0xC8, 0x66, 0x0F, 0x73, 0xF1, 0x03][..],
+        ),
+        (
+            "ushr_v",
+            &[0x66, 0x0F, 0x73, 0xD0, 0x03][..],
+            &[0x0F, 0x28, 0xC8, 0x66, 0x0F, 0x73, 0xD1, 0x03][..],
+        ),
+    ] {
+        assert_eq!(
+            enc(op, &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "3")]),
+            same,
+            "{op} in place"
+        );
+        assert_eq!(
+            enc(op, &[("dst", "xmm1"), ("src", "xmm0"), ("shift", "3")]),
+            diff,
+            "{op} copy-first"
+        );
     }
-    // dup_v_from_x.
-    assert!(!enc("dup_v_from_x", &[("dst", "xmm0"), ("src", "rbx")]).is_empty());
-    // umov_x_from_v lane 0 (movq) and lane 1 (pextrq).
-    assert!(!enc(
-        "umov_x_from_v",
-        &[("dst", "rbx"), ("src", "xmm0"), ("index", "0")]
-    )
-    .is_empty());
-    assert!(!enc(
-        "umov_x_from_v",
-        &[("dst", "rbx"), ("src", "xmm0"), ("index", "1")]
-    )
-    .is_empty());
-    // sshr_v with k>0 and k==0 (clear sign fill) branches.
-    assert!(!enc(
-        "sshr_v",
-        &[("dst", "xmm1"), ("src", "xmm0"), ("shift", "5")]
-    )
-    .is_empty());
-    assert!(!enc(
-        "sshr_v",
-        &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "0")]
-    )
-    .is_empty());
+    // dup_v_from_x xmm0, rbx : movq xmm0,rbx ; punpcklqdq xmm0,xmm0.
+    assert_eq!(
+        enc("dup_v_from_x", &[("dst", "xmm0"), ("src", "rbx")]),
+        [0x66, 0x48, 0x0F, 0x6E, 0xC3, 0x66, 0x0F, 0x6C, 0xC0]
+    );
+    // umov_x_from_v lane 0 (movq rbx,xmm0).
+    assert_eq!(
+        enc(
+            "umov_x_from_v",
+            &[("dst", "rbx"), ("src", "xmm0"), ("index", "0")]
+        ),
+        [0x66, 0x48, 0x0F, 0x7E, 0xC3]
+    );
+    // umov_x_from_v lane 1 (pextrq rbx,xmm0,1).
+    assert_eq!(
+        enc(
+            "umov_x_from_v",
+            &[("dst", "rbx"), ("src", "xmm0"), ("index", "1")]
+        ),
+        [0x66, 0x48, 0x0F, 0x3A, 0x16, 0xC3, 0x01]
+    );
+    // sshr_v k=5 copy-first: sign mask (pxor/pcmpgtq/psllq 59) ; movaps xmm1,xmm0 ;
+    // psrlq xmm1,5 ; por xmm1,mask.
+    assert_eq!(
+        enc(
+            "sshr_v",
+            &[("dst", "xmm1"), ("src", "xmm0"), ("shift", "5")]
+        ),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF8, 0x66, 0x41, 0x0F,
+            0x73, 0xF7, 0x3B, 0x0F, 0x28, 0xC8, 0x66, 0x0F, 0x73, 0xD1, 0x05, 0x66, 0x41, 0x0F,
+            0xEB, 0xCF
+        ]
+    );
+    // sshr_v k=0 in place: mask re-zeroed (pxor twice) so por is a no-op.
+    assert_eq!(
+        enc(
+            "sshr_v",
+            &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "0")]
+        ),
+        [
+            0x66, 0x45, 0x0F, 0xEF, 0xFF, 0x66, 0x44, 0x0F, 0x38, 0x37, 0xF8, 0x66, 0x45, 0x0F,
+            0xEF, 0xFF, 0x66, 0x0F, 0x73, 0xD0, 0x00, 0x66, 0x41, 0x0F, 0xEB, 0xC7
+        ]
+    );
 }
 
 #[test]
 fn v128_bit_selects_fma_and_serial_conversions() {
-    assert!(!enc(
-        "bsl_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
-    )
-    .is_empty());
-    assert!(!enc(
-        "bit_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
-    )
-    .is_empty());
-    assert!(!enc(
-        "fmla_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
-    )
-    .is_empty());
-    assert!(!enc(
-        "fmls_v",
-        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
-    )
-    .is_empty());
-    // Extended reg for the VEX P0/P1 R/B-bar bits.
-    assert!(!enc(
-        "fmla_v",
-        &[("dst", "xmm8"), ("lhs", "xmm9"), ("rhs", "xmm10")]
-    )
-    .is_empty());
-    // Lane-serial i64<->f64.
-    assert!(!enc("fcvtzs_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
-    assert!(!enc("scvtf_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    // bsl_v: movaps xmm15,xmm0 ; pand xmm0,xmm1 ; pandn xmm15,xmm2 ; por xmm0,xmm15.
+    assert_eq!(
+        enc(
+            "bsl_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [
+            0x44, 0x0F, 0x28, 0xF8, 0x66, 0x0F, 0xDB, 0xC1, 0x66, 0x44, 0x0F, 0xDF, 0xFA, 0x66,
+            0x41, 0x0F, 0xEB, 0xC7
+        ]
+    );
+    // bit_v: movaps xmm15,xmm0 ; pxor xmm15,xmm1 ; pand xmm15,xmm2 ; pxor xmm0,xmm15.
+    assert_eq!(
+        enc(
+            "bit_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [
+            0x44, 0x0F, 0x28, 0xF8, 0x66, 0x44, 0x0F, 0xEF, 0xF9, 0x66, 0x44, 0x0F, 0xDB, 0xFA,
+            0x66, 0x41, 0x0F, 0xEF, 0xC7
+        ]
+    );
+    // fmla_v : vfmadd231pd xmm0,xmm1,xmm2.
+    assert_eq!(
+        enc(
+            "fmla_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0xC4, 0xE2, 0xF1, 0xB8, 0xC2]
+    );
+    // fmls_v : vfnmadd231pd xmm0,xmm1,xmm2.
+    assert_eq!(
+        enc(
+            "fmls_v",
+            &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+        ),
+        [0xC4, 0xE2, 0xF1, 0xBC, 0xC2]
+    );
+    // Extended reg drives the VEX P0/P1 R/B-bar bits: vfmadd231pd xmm8,xmm9,xmm10.
+    assert_eq!(
+        enc(
+            "fmla_v",
+            &[("dst", "xmm8"), ("lhs", "xmm9"), ("rhs", "xmm10")]
+        ),
+        [0xC4, 0x42, 0xB1, 0xB8, 0xC2]
+    );
+    // Lane-serial fcvtzs_v (i64<-f64), both lanes via pshufd, reassembled.
+    assert_eq!(
+        enc("fcvtzs_v", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [
+            0x50, 0x52, 0xF2, 0x48, 0x0F, 0x2C, 0xC0, 0x66, 0x44, 0x0F, 0x70, 0xF8, 0xEE, 0xF2,
+            0x49, 0x0F, 0x2C, 0xD7, 0x66, 0x48, 0x0F, 0x6E, 0xC8, 0x66, 0x4C, 0x0F, 0x6E, 0xFA,
+            0x66, 0x41, 0x0F, 0x6C, 0xCF, 0x5A, 0x58
+        ]
+    );
+    // Lane-serial scvtf_v (f64<-i64).
+    assert_eq!(
+        enc("scvtf_v", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [
+            0x50, 0x52, 0x66, 0x48, 0x0F, 0x7E, 0xC0, 0x66, 0x44, 0x0F, 0x70, 0xF8, 0xEE, 0x66,
+            0x4C, 0x0F, 0x7E, 0xFA, 0xF2, 0x48, 0x0F, 0x2A, 0xC8, 0xF2, 0x4C, 0x0F, 0x2A, 0xFA,
+            0x66, 0x41, 0x0F, 0x14, 0xCF, 0x5A, 0x58
+        ]
+    );
 }
 
 #[test]
@@ -2212,8 +3052,11 @@ fn alu3_and_zero_and_error_arms() {
         bytes("and", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rbx")]),
         [0x48, 0x31, 0xC0]
     );
-    // eor rax, xzr, rbx : xor with zero → dst = rhs (mov), dst!=rhs path.
-    assert!(!enc("eor", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rbx")]).is_empty());
+    // eor rax, xzr, rbx : xor with zero → dst = rhs, dst!=rhs → mov rax,rbx.
+    assert_eq!(
+        enc("eor", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rbx")]),
+        [0x48, 0x89, 0xD8]
+    );
     // add with zero lhs, dst==rhs → nothing (empty bytes are valid).
     let _ = enc("add", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rax")]);
     // zero-token rhs is an explicit error.
@@ -2226,30 +3069,39 @@ fn alu3_and_zero_and_error_arms() {
 
 #[test]
 fn add_carry_dst_not_lhs_and_sub_borrow_with_borrow_in() {
-    // add_carry no carry-in, dst != lhs → mov dst,lhs first.
-    assert!(!enc(
-        "add_carry",
-        &[
-            ("dst", "rbx"),
-            ("carry_out", "rsi"),
-            ("lhs", "rdi"),
-            ("rhs", "r10"),
-            ("carry_in", "xzr")
+    // add_carry no carry-in, dst != lhs → mov rbx,rdi first:
+    // mov rbx,rdi ; add rbx,r10 ; setb sil ; movzx rsi,sil.
+    assert_eq!(
+        enc(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "rsi"),
+                ("lhs", "rdi"),
+                ("rhs", "r10"),
+                ("carry_in", "xzr")
+            ]
+        ),
+        [0x48, 0x89, 0xFB, 0x4C, 0x01, 0xD3, 0x40, 0x0F, 0x92, 0xC6, 0x48, 0x0F, 0xB6, 0xF6]
+    );
+    // sub_borrow with a borrow-in register, dst != lhs:
+    // bt r11,0 ; mov rbx,rdi ; sbb rbx,r10 ; setb sil ; movzx rsi,sil.
+    assert_eq!(
+        enc(
+            "sub_borrow",
+            &[
+                ("dst", "rbx"),
+                ("borrow_out", "rsi"),
+                ("lhs", "rdi"),
+                ("rhs", "r10"),
+                ("borrow_in", "r11")
+            ]
+        ),
+        [
+            0x49, 0x0F, 0xBA, 0xE3, 0x00, 0x48, 0x89, 0xFB, 0x4C, 0x19, 0xD3, 0x40, 0x0F, 0x92,
+            0xC6, 0x48, 0x0F, 0xB6, 0xF6
         ]
-    )
-    .is_empty());
-    // sub_borrow with a borrow-in register, dst != lhs.
-    assert!(!enc(
-        "sub_borrow",
-        &[
-            ("dst", "rbx"),
-            ("borrow_out", "rsi"),
-            ("lhs", "rdi"),
-            ("rhs", "r10"),
-            ("borrow_in", "r11")
-        ]
-    )
-    .is_empty());
+    );
 }
 
 #[test]
@@ -2268,16 +3120,19 @@ fn immediate_and_disp_overflow_errors() {
         .field("src", "rax")
         .field("imm", &huge.to_string());
     assert!(encode_instruction(&ins).is_err());
-    // A -1-style mask (u64::MAX) is accepted via the sign-extended path.
-    assert!(!enc(
-        "add_imm",
-        &[
-            ("dst", "rax"),
-            ("src", "rax"),
-            ("imm", &u64::MAX.to_string())
-        ]
-    )
-    .is_empty());
+    // A -1-style mask (u64::MAX) is accepted via the sign-extended path:
+    // add rax, -1 (48 81 C0 FF FF FF FF).
+    assert_eq!(
+        enc(
+            "add_imm",
+            &[
+                ("dst", "rax"),
+                ("src", "rax"),
+                ("imm", &u64::MAX.to_string())
+            ]
+        ),
+        [0x48, 0x81, 0xC0, 0xFF, 0xFF, 0xFF, 0xFF]
+    );
 }
 
 /// Build a minimal single-function plan and run the whole two-pass `encode`,
@@ -2520,18 +3375,38 @@ fn fixed_register_aliasing_is_rejected_rather_than_miscompiled() {
     }
 
     // The same ops on allocatable registers are unaffected.
-    assert!(!enc("lslv", &[("dst", "r10"), ("lhs", "r11"), ("rhs", "r12")]).is_empty());
-    assert!(!enc("rbit", &[("dst", "r10"), ("src", "r11")]).is_empty());
-    assert!(!enc(
-        "msub",
-        &[
-            ("dst", "r10"),
-            ("lhs", "r11"),
-            ("rhs", "r12"),
-            ("minuend", "r14"),
+    // lslv r10, r11, r12 : push rcx ; mov rcx,r12 ; mov r10,r11 ; shl r10,cl ; pop rcx.
+    assert_eq!(
+        enc("lslv", &[("dst", "r10"), ("lhs", "r11"), ("rhs", "r12")]),
+        [0x51, 0x4C, 0x89, 0xE1, 0x4D, 0x89, 0xDA, 0x49, 0xD3, 0xE2, 0x59]
+    );
+    // rbit r10, r11 : push rax/rdx ; three mask/shift rounds ; bswap r10 ; pop rdx/rax.
+    assert_eq!(
+        enc("rbit", &[("dst", "r10"), ("src", "r11")]),
+        [
+            0x50, 0x52, 0x4D, 0x89, 0xDA, 0x4C, 0x89, 0xD2, 0x48, 0xB8, 0x55, 0x55, 0x55, 0x55,
+            0x55, 0x55, 0x55, 0x55, 0x48, 0x21, 0xC2, 0x48, 0xC1, 0xE2, 0x01, 0x49, 0xC1, 0xEA,
+            0x01, 0x49, 0x21, 0xC2, 0x49, 0x09, 0xD2, 0x4C, 0x89, 0xD2, 0x48, 0xB8, 0x33, 0x33,
+            0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x48, 0x21, 0xC2, 0x48, 0xC1, 0xE2, 0x02, 0x49,
+            0xC1, 0xEA, 0x02, 0x49, 0x21, 0xC2, 0x49, 0x09, 0xD2, 0x4C, 0x89, 0xD2, 0x48, 0xB8,
+            0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x48, 0x21, 0xC2, 0x48, 0xC1, 0xE2,
+            0x04, 0x49, 0xC1, 0xEA, 0x04, 0x49, 0x21, 0xC2, 0x49, 0x09, 0xD2, 0x49, 0x0F, 0xCA,
+            0x5A, 0x58
         ]
-    )
-    .is_empty());
+    );
+    // msub r10, r11, r12, r14 : mov rax,r11 ; imul rax,r12 ; mov r10,r14 ; sub r10,rax.
+    assert_eq!(
+        enc(
+            "msub",
+            &[
+                ("dst", "r10"),
+                ("lhs", "r11"),
+                ("rhs", "r12"),
+                ("minuend", "r14"),
+            ]
+        ),
+        [0x4C, 0x89, 0xD8, 0x49, 0x0F, 0xAF, 0xC4, 0x4D, 0x89, 0xF2, 0x49, 0x29, 0xC2]
+    );
 }
 
 /// bug-295: the ties-away emulation's *arithmetic*, checked independently of the

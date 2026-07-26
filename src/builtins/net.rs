@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::path::Path;
 
 pub(crate) const SOCKET_TYPE: &str = "Socket";
 pub(crate) const LISTENER_TYPE: &str = "Listener";
@@ -331,33 +330,12 @@ pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-net>"),
-        "builtins/net.mfb",
-        include_str!("net_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "net")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "net",
+    "<builtin-net>",
+    "builtins/net.mfb",
+    include_str!("net_package.mfb")
+);
 
 use super::exact;
 

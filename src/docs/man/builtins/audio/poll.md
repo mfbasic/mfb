@@ -23,7 +23,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. A program
 that does not `IMPORT audio` gains no audio symbol and no dynamic-library
-dependency. [[src/builtins/audio.rs:augmented_project]]
+dependency. [[src/builtins/audio.rs:package_source_glue]]
 
 ## Description
 

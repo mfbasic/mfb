@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use tinyjson::JsonValue;
 
 use crate::binary_repr;
+use crate::cli::help::PKG_HELP;
 use crate::doc;
 use crate::manifest::package::{
     package_file_url_path, project_json_with_package, project_json_with_updated_version,
@@ -23,16 +24,14 @@ use crate::manifest::{
     parse_project_json, project_kind, validate_packages_array, validate_project_manifest,
 };
 use crate::target;
-use crate::PKG_HELP;
 
 use super::repo::REPO_HELP_HINT;
 
 use super::build::{build_project, BuildOptions, Verbosity};
 
-pub(crate) enum PkgCommandError {
-    Usage(String),
-    Failed(String),
-}
+/// The `mfb pkg` command's terminal error. An alias of the shared
+/// [`crate::cli::CommandError`] (bug-340 B2): one enum, two domain-facing names.
+pub(crate) use super::CommandError as PkgCommandError;
 
 pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
     match args {
@@ -2470,11 +2469,11 @@ mod tests {
             "transfer-accept",
         ] {
             assert!(
-                crate::REPO_HELP.contains(&format!("repo {command}")),
+                crate::cli::help::REPO_HELP.contains(&format!("repo {command}")),
                 "REPO_HELP must document `repo {command}`"
             );
             assert!(
-                !crate::PKG_HELP.contains(&format!("  {command} ")),
+                !crate::cli::help::PKG_HELP.contains(&format!("  {command} ")),
                 "PKG_HELP must not still list `{command}` as a pkg command"
             );
         }
@@ -2483,7 +2482,7 @@ mod tests {
             "add", "info", "doc", "verify", "validate", "install", "update",
         ] {
             assert!(
-                crate::PKG_HELP.contains(command),
+                crate::cli::help::PKG_HELP.contains(command),
                 "PKG_HELP must still document `{command}`"
             );
         }
@@ -3174,5 +3173,124 @@ mod tests {
         // manifest work.
         let err = add_package(Path::new("."), &add_opts("file:///no/such/pkg.mfp")).unwrap_err();
         assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn package_verify_status_checks_name_and_version() {
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: "1.2.3".to_string(),
+            pin: true,
+            source: "registry:mfb".to_string(),
+            ident_key: String::new(),
+        };
+        assert_eq!(
+            package_dependency_status(&dependency, "shape", "ada#shape", "1.2.3"),
+            PackageVerifyStatus::Ok
+        );
+        assert_eq!(
+            package_dependency_status(&dependency, "shape", "ada#shape", "1.2.4"),
+            PackageVerifyStatus::NeedsUpdate
+        );
+        assert_eq!(
+            package_dependency_status(&dependency, "color", "ada#shape", "1.2.3"),
+            PackageVerifyStatus::InvalidPackage
+        );
+        assert_eq!(
+            package_dependency_status(&dependency, "shape", "other#shape", "1.2.3"),
+            PackageVerifyStatus::InvalidPackage
+        );
+    }
+
+    #[test]
+    fn package_verify_rejects_range_syntax_as_literal_version() {
+        assert!(!package_version_matches("^1.2.3", "1.9.0"));
+        assert!(!package_version_matches("~1.2.3", "1.2.9"));
+        assert!(package_version_matches("1.2.3", "1.2.3"));
+    }
+
+    #[test]
+    fn package_verify_line_shows_project_and_package_versions() {
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: "1.2.0".to_string(),
+            pin: false,
+            source: "registry:mfb".to_string(),
+            ident_key: String::new(),
+        };
+
+        assert_eq!(
+            package_verify_line(
+                &dependency,
+                &PackageVerifyResult {
+                    version: "1.2.3".to_string(),
+                    status: PackageVerifyStatus::Ok,
+                }
+            ),
+            "shape @ 1.2.0 : OK (1.2.3)"
+        );
+        assert_eq!(
+            package_verify_line(
+                &dependency,
+                &PackageVerifyResult {
+                    version: String::new(),
+                    status: PackageVerifyStatus::InvalidPackage,
+                }
+            ),
+            "shape @ 1.2.0 : Invalid Package"
+        );
+    }
+
+    #[test]
+    fn package_verify_reads_source_package_manifest() {
+        let root = test_temp_dir("package_verify_reads_source_package_manifest");
+        let package_dir = root.join("packages").join("shape");
+        fs::create_dir_all(&package_dir).expect("package dir");
+        fs::write(
+            package_dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"shape\",\n",
+                "  \"ident\": \"ada#shape\",\n",
+                "  \"version\": \"1.2.3\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"package\",\n",
+                "  \"sources\": [{ \"root\": \"src\" }]\n",
+                "}\n"
+            ),
+        )
+        .expect("package manifest");
+
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: "1.2.3".to_string(),
+            pin: false,
+            source: "registry:mfb".to_string(),
+            ident_key: String::new(),
+        };
+
+        assert_eq!(
+            verify_package_dependency(&root, &dependency),
+            PackageVerifyResult {
+                version: "1.2.3".to_string(),
+                status: PackageVerifyStatus::Ok,
+            }
+        );
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    fn test_temp_dir(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "mfb_{name}_{}_{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("temp dir");
+        root
     }
 }

@@ -153,6 +153,8 @@ You are done when all three artifacts exist: the ordered priority list (Task 1),
 
 ---
 
+## cleanup review
+
 Make a new worktree...
 **Base:** `25c38ba1` (`origin/main`), clean tree
 
@@ -162,6 +164,14 @@ You need to take your time and review everything closely.
 
 ---
 
+## security review
+
 Make no changes - there is another agent working in tree.
 
 I would like you to review the **runtime** code looking for buffer overruns, use after free, and other vulnerabilities that need closed so apps compiled with this compiler (using the runtime) are secure. Any vulnerabilities should be logged as bugs/sec-NN using the existing bug template.
+
+---
+
+## fix bug
+
+/goal In worktree 341 finish bug-341 in full. There are a lot of small tasks. another agent har partial completed the bug and fucked off into random shit. Finish this bug **IN FULL** you can use subagents for each small task if they dont collide.

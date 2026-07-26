@@ -21,6 +21,15 @@ use builder::*;
 use reader::*;
 use sections::*;
 use util::*;
+
+// bug-340 B8: the `.mfp` container is the wire format `binary_repr` owns. The
+// manifest-layer header reader (`manifest::package::read_mfp_header`) shares its
+// magic and signature-header rule from here rather than re-implementing them.
+// (The two full decoders are deliberately NOT merged — the manifest reader
+// additionally enforces per-field byte limits, UTF-8, required-non-empty, and
+// `validate_package_name`, and returns fields this identity/payload decoder omits;
+// folding them would drop those trust-boundary guards. See the bug-340 B8 note.)
+pub(crate) use reader::validate_mfp_signature_header;
 use writer::*;
 
 // Section ids are wire format and frozen; the values are declared here in
@@ -71,6 +80,11 @@ const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
 /// MFPC container major version. Bumped to 2 for the clean break to the
 /// structured Binary Representation payload — the reader rejects the old flat (v1) layout.
 const MFPC_MAJOR_VERSION: u16 = 2;
+
+/// The 8-byte `.mfp` container magic (plan-23 §4). The single home shared by this
+/// crate's `mfp_binary_repr_payload` and the manifest layer's `read_mfp_header`,
+/// which previously each defined their own copy (bug-340 B8).
+pub(crate) const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
 /// ABI signature-hash input format.
 ///

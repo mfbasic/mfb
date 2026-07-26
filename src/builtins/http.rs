@@ -5,7 +5,6 @@
 //! `net`/`tls` packages; `http` introduces no new intrinsics.
 
 use std::borrow::Cow;
-use std::path::Path;
 
 const READ: &str = "http.read";
 const WRITE: &str = "http.write";
@@ -301,33 +300,12 @@ pub(crate) fn implementation_name(name: &str, arg_types: &[String]) -> Option<&'
     }
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-http>"),
-        "builtins/http.mfb",
-        include_str!("http_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "http")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "http",
+    "<builtin-http>",
+    "builtins/http.mfb",
+    include_str!("http_package.mfb")
+);
 
 use super::exact;
 

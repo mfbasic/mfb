@@ -258,7 +258,7 @@ impl<'a> SyntaxChecker<'a> {
             Expression::Call {
                 callee, arguments, ..
             } => {
-                if builtins::testing::is_expect_call(callee) {
+                if builtins::testing::is_testing_call(callee) {
                     return self.check_expect_call(file, callee, arguments, locals, line);
                 }
                 let canonical_callee = self.canonical_import_name(file, callee);
@@ -2404,7 +2404,7 @@ mod tests {
 
     fn tcase(body: &str) -> String {
         // The assertion built-ins are recognized directly in the `Call` arm
-        // (`is_expect_call`), so a plain FUNC body reaches `check_expect_call`
+        // (`is_testing_call`), so a plain FUNC body reaches `check_expect_call`
         // without the TESTING desugaring (which runs only in the build pipeline).
         format!("FUNC main AS Integer\n{body}\n  RETURN 0\nEND FUNC\n")
     }

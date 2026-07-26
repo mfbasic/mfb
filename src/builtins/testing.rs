@@ -41,7 +41,7 @@ pub(crate) const EXPECT_NTRAP: &str = "expectNTrap";
 pub(crate) const TEST_ABORT_CODE: i64 = 77069001;
 
 /// Whether `name` is one of the assertion builtins.
-pub(crate) fn is_expect_call(name: &str) -> bool {
+pub(crate) fn is_testing_call(name: &str) -> bool {
     is_equality_assert(name)
         || is_inequality_assert(name)
         || matches!(name, EXPECT_TRAP | EXPECT_NTRAP)
@@ -111,10 +111,10 @@ mod tests {
             EXPECT_TRAP,
             EXPECT_NTRAP,
         ] {
-            assert!(is_expect_call(name), "`{name}` should be an expect call");
+            assert!(is_testing_call(name), "`{name}` should be an expect call");
         }
-        assert!(!is_expect_call("print"));
-        assert!(!is_expect_call("expectSomethingElse"));
+        assert!(!is_testing_call("print"));
+        assert!(!is_testing_call("expectSomethingElse"));
     }
 
     #[test]

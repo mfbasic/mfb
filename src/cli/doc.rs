@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::ast;
+use crate::cli::help::USAGE;
 use crate::doc;
 use crate::manifest::validate_project_manifest;
 use crate::resolver;
-use crate::USAGE;
 
 /// `mfb doc <path> [--out <file>]` — render HTML documentation from source
 /// (plan-09-doc.md §6.1). Returns a process exit code.

@@ -118,3 +118,119 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
 }
 
 use super::exact;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn types(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| item.to_string()).collect()
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &types(args)).map(|call| call.return_type.into_owned())
+    }
+
+    #[test]
+    fn is_io_call_covers_the_package_surface() {
+        for name in [
+            PRINT,
+            WRITE,
+            PRINT_ERROR,
+            WRITE_ERROR,
+            FLUSH,
+            IS_BUFFERED,
+            SET_BUFFERED,
+            INPUT,
+            READ_LINE,
+            READ_CHAR,
+            READ_BYTE,
+            POLL_INPUT,
+            IS_INPUT_TERMINAL,
+            IS_OUTPUT_TERMINAL,
+            IS_ERROR_TERMINAL,
+        ] {
+            assert!(is_io_call(name), "{name}");
+        }
+        assert!(!is_io_call("io.nope"));
+        assert!(!is_io_call("print"));
+    }
+
+    #[test]
+    fn resolve_call_writers_take_one_string() {
+        for name in [PRINT, WRITE, PRINT_ERROR, WRITE_ERROR] {
+            assert_eq!(rt(name, &["String"]), Some("Nothing".to_string()));
+            // Wrong arg type / arity does not resolve.
+            assert!(rt(name, &["Integer"]).is_none());
+            assert!(rt(name, &[]).is_none());
+        }
+    }
+
+    #[test]
+    fn resolve_call_niladic_queries() {
+        for (name, ret) in [
+            (FLUSH, "Nothing"),
+            (IS_BUFFERED, "Boolean"),
+            (READ_LINE, "String"),
+            (READ_CHAR, "String"),
+            (READ_BYTE, "Byte"),
+            (IS_INPUT_TERMINAL, "Boolean"),
+            (IS_OUTPUT_TERMINAL, "Boolean"),
+            (IS_ERROR_TERMINAL, "Boolean"),
+        ] {
+            assert_eq!(rt(name, &[]), Some(ret.to_string()), "{name}");
+            assert!(rt(name, &["String"]).is_none(), "{name} takes no arguments");
+        }
+    }
+
+    #[test]
+    fn resolve_call_optional_and_typed_argument_forms() {
+        // input: () or (String) -> String; anything else fails.
+        assert_eq!(rt(INPUT, &[]), Some("String".to_string()));
+        assert_eq!(rt(INPUT, &["String"]), Some("String".to_string()));
+        assert!(rt(INPUT, &["Integer"]).is_none());
+        // pollInput: () or (Integer) -> Boolean.
+        assert_eq!(rt(POLL_INPUT, &[]), Some("Boolean".to_string()));
+        assert_eq!(rt(POLL_INPUT, &["Integer"]), Some("Boolean".to_string()));
+        assert!(rt(POLL_INPUT, &["String"]).is_none());
+        // setBuffered: (Boolean) -> Nothing.
+        assert_eq!(rt(SET_BUFFERED, &["Boolean"]), Some("Nothing".to_string()));
+        assert!(rt(SET_BUFFERED, &[]).is_none());
+        assert!(rt("io.nope", &[]).is_none());
+    }
+
+    #[test]
+    fn metadata_tables_agree() {
+        assert_eq!(call_return_type_name(READ_BYTE), Some("Byte"));
+        assert_eq!(call_return_type_name("io.nope"), None);
+
+        assert_eq!(expected_arguments(PRINT), Some("String"));
+        assert_eq!(expected_arguments(FLUSH), Some("no arguments"));
+        assert_eq!(expected_arguments(POLL_INPUT), Some("Integer"));
+        assert_eq!(expected_arguments("io.nope"), None);
+
+        assert_eq!(arity(PRINT), Some((1, 1)));
+        assert_eq!(arity(FLUSH), Some((0, 0)));
+        assert_eq!(arity(INPUT), Some((0, 1)));
+        assert_eq!(arity("io.nope"), None);
+
+        assert_eq!(
+            call_param_names(SET_BUFFERED).map(|groups| groups[0][0]),
+            Some("enabled")
+        );
+        assert_eq!(
+            call_param_names(INPUT).map(|groups| groups[0][0]),
+            Some("prompt")
+        );
+        assert_eq!(
+            call_param_names(POLL_INPUT).map(|groups| groups[0][0]),
+            Some("timeoutMs")
+        );
+        assert!(call_param_names(FLUSH).is_some()); // niladic: an empty group list
+        assert!(call_param_names("io.nope").is_none());
+
+        // io exposes no value types.
+        assert!(!is_builtin_type("Anything"));
+        assert!(builtin_type_fields("Anything").is_none());
+    }
+}

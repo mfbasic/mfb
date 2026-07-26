@@ -304,8 +304,8 @@ pub(super) fn emit_set_sock_timeouts(
 }
 
 pub(crate) mod macos;
-pub(crate) mod schannel;
 mod openssl;
+pub(crate) mod schannel;
 
 // Per-helper platform dispatch, done once here in the package parent — mirroring
 // `crypto_ec::lower_crypto_ec_helper` — so neither backend is the entry point
@@ -366,7 +366,9 @@ pub(super) fn lower_tls_read_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_read_openssl(symbol, platform_imports, platform, text)
         }
-        PlatformFamily::Windows => schannel::lower_tls_read(symbol, platform_imports, platform, text),
+        PlatformFamily::Windows => {
+            schannel::lower_tls_read(symbol, platform_imports, platform, text)
+        }
     }
 }
 
@@ -383,7 +385,9 @@ pub(super) fn lower_tls_write_helper(
         PlatformFamily::Linux => {
             openssl::lower_tls_write_openssl(symbol, platform_imports, platform, text)
         }
-        PlatformFamily::Windows => schannel::lower_tls_write(symbol, platform_imports, platform, text),
+        PlatformFamily::Windows => {
+            schannel::lower_tls_write(symbol, platform_imports, platform, text)
+        }
     }
 }
 

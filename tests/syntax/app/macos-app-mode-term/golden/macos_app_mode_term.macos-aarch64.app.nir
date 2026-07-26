@@ -27,8 +27,8 @@
     "body": [
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.on", "args": [] } },
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.clear", "args": [] } },
-    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.setForeground", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.setBackground", "args": [{ "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.setForeground", "args": [{ "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "255" }, { "kind": "const", "type": "Byte", "value": "0" }] } },
+    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.setBackground", "args": [{ "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "0" }] } },
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.setBold", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.setUnderline", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "term", "target": "term.showCursor", "args": [] } },

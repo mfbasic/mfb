@@ -35,7 +35,7 @@ const WS2_32: &str = "ws2_32.dll";
 const FIONBIO: &str = "2147767422";
 // MAKEWORD(2, 2) — the Winsock version WSAStartup requests.
 const WINSOCK_VERSION: &str = "514"; // 0x0202
-// VirtualAlloc flAllocationType = MEM_COMMIT (0x1000) | MEM_RESERVE (0x2000).
+                                     // VirtualAlloc flAllocationType = MEM_COMMIT (0x1000) | MEM_RESERVE (0x2000).
 const MEM_COMMIT_RESERVE: &str = "12288";
 // VirtualAlloc flProtect = PAGE_READWRITE (0x04).
 const PAGE_READWRITE: &str = "4";
@@ -97,16 +97,22 @@ fn emit_marshal_path(
         // realize to callee-saved rbx/rsi/rdi, so writing them corrupts registers
         // the caller keeps live (map_scratch_register's documented Win64 hazard).
         abi::load_u64(abi::ARG[2], abi::stack_pointer(), MARSHAL_WBUF_SLOT), // wbuf (temp)
-        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20), // lpWideCharStr (5th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),             // lpWideCharStr (5th)
         abi::move_immediate(abi::ARG[2], "Integer", "32768"),
         abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // cchWideChar (6th)
-        abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x30), // lpMultiByteStr = path
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x30),  // lpMultiByteStr = path
         // cbMultiByte = -1 (the input is NUL-terminated); the encoder rejects a
         // negative immediate, so build it as 0 - 1.
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
         abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1),
     ]);
-    call_external(from, "MultiByteToWideChar", KERNEL32, instructions, relocations);
+    call_external(
+        from,
+        "MultiByteToWideChar",
+        KERNEL32,
+        instructions,
+        relocations,
+    );
 }
 
 /// A reverse-marshaling frame for a Win32 `*W` call that PRODUCES a UTF-16 path
@@ -168,7 +174,13 @@ fn emit_wide_to_utf8(
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
         abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
     ]);
-    call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+    call_external(
+        from,
+        "WideCharToMultiByte",
+        KERNEL32,
+        instructions,
+        relocations,
+    );
 }
 
 /// Emit a directory-path query (GetCurrentDirectoryW / GetTempPathW), both of
@@ -670,7 +682,13 @@ impl code::CodegenPlatform for Platform {
             abi::move_register(abi::ARG[0], abi::return_register()), // hConsole
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), CSBI_OFF), // &csbi
         ]);
-        call_external(from, "GetConsoleScreenBufferInfo", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "GetConsoleScreenBufferInfo",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ne(&ok), // BOOL != 0 → success
@@ -687,8 +705,8 @@ impl code::CodegenPlatform for Platform {
             abi::subtract_registers(abi::ARG[1], abi::ARG[1], abi::ARG[2]),
             abi::add_immediate(abi::ARG[1], abi::ARG[1], 1), // cols
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), DST_SLOT), // winsize dst
-            abi::store_u16(abi::ARG[0], abi::ARG[2], 0), // ws_row
-            abi::store_u16(abi::ARG[1], abi::ARG[2], 2), // ws_col
+            abi::store_u16(abi::ARG[0], abi::ARG[2], 0),     // ws_row
+            abi::store_u16(abi::ARG[1], abi::ARG[2], 2),     // ws_col
             abi::move_immediate(abi::return_register(), "Integer", "0"), // success
             abi::label(&done),
             abi::add_stack(FRAME),
@@ -717,7 +735,13 @@ impl code::CodegenPlatform for Platform {
             abi::stack_pointer(),
             MARSHAL_WBUF_SLOT,
         ));
-        call_external(from, "GetFileAttributesW", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "GetFileAttributesW",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::shift_right_immediate(abi::return_register(), abi::return_register(), 31),
             abi::add_stack(MARSHAL_FRAME),
@@ -750,7 +774,13 @@ impl code::CodegenPlatform for Platform {
             abi::stack_pointer(),
             MARSHAL_WBUF_SLOT,
         ));
-        call_external(from, "GetFileAttributesW", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "GetFileAttributesW",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             // ARG[1] (rdx) is a free caller-saved temp for the buffer pointer, and
             // is distinct from the return register (rax) that holds the attributes.
@@ -770,7 +800,13 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_dir_path_query(from, "GetCurrentDirectoryW", false, instructions, relocations);
+        emit_dir_path_query(
+            from,
+            "GetCurrentDirectoryW",
+            false,
+            instructions,
+            relocations,
+        );
         Ok(())
     }
 
@@ -886,7 +922,7 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
             abi::move_immediate(abi::ARG[2], "Integer", "128"), // FILE_ATTRIBUTE_NORMAL
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // 6th (stack)
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),   // 7th hTemplateFile = NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // 7th hTemplateFile = NULL
             // dwDesiredAccess: CreateFileW reads it as the low 32 bits of rdx, so
             // the packed value in ARG[1] goes straight in — the disposition in the
             // high half is ignored by the DWORD parameter.
@@ -979,7 +1015,13 @@ impl code::CodegenPlatform for Platform {
         let ok = format!("{from}_sync_ok_{n}");
         let done = format!("{from}_sync_done_{n}");
         instructions.push(abi::subtract_stack(0x20));
-        call_external(from, "FlushFileBuffers", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "FlushFileBuffers",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ne(&ok),
@@ -1015,7 +1057,13 @@ impl code::CodegenPlatform for Platform {
             abi::move_register(abi::ARG[3], abi::ARG[2]), // dwMoveMethod = whence
             abi::add_immediate(abi::ARG[2], abi::stack_pointer(), 0x28), // &liNewFilePointer
         ]);
-        call_external(from, "SetFilePointerEx", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "SetFilePointerEx",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_ne(&ok),
@@ -1255,14 +1303,20 @@ impl code::CodegenPlatform for Platform {
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20), // lpMultiByteStr (5th)
             abi::move_immediate(abi::ARG[2], "Integer", DIR_NAME_CAP),
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // cbMultiByte (6th)
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // 7th NULL
-            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // 8th NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30),   // 7th NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38),   // 8th NULL
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), DIR_SLOT),
             abi::add_immediate(abi::ARG[2], abi::ARG[2], DIR_CFILENAME_OFF), // lpWideCharStr
             abi::move_immediate(abi::ARG[3], "Integer", "0"),
             abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
         ]);
-        call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "WideCharToMultiByte",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), DIR_SLOT), // DIR*
             abi::branch(&done),
@@ -1337,14 +1391,24 @@ impl code::CodegenPlatform for Platform {
             abi::load_u64(abi::ARG[2], abi::stack_pointer(), RMARSHAL_WBUF_SLOT),
             abi::move_immediate(abi::ARG[3], "Integer", "0"),
         ]);
-        call_external(from, "GetFullPathNameW", KERNEL32, instructions, relocations);
+        call_external(
+            from,
+            "GetFullPathNameW",
+            KERNEL32,
+            instructions,
+            relocations,
+        );
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&fail),
         ]);
         emit_wide_to_utf8(from, instructions, relocations); // wide_out → resolved dst
         instructions.extend([
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), RMARSHAL_DST_SLOT),
+            abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                RMARSHAL_DST_SLOT,
+            ),
             abi::branch(&done),
             abi::label(&fail),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -1502,7 +1566,7 @@ impl code::CodegenPlatform for Platform {
             abi::compare_immediate(mask, "0"),
             abi::branch_ne(missing),
             abi::move_immediate(mask, "Integer", "16"), // FILE_ATTRIBUTE_DIRECTORY
-            abi::and_registers(mode, mode, mask),        // 0x10 iff a directory
+            abi::and_registers(mode, mode, mask),       // 0x10 iff a directory
             abi::compare_immediate(mode, "0"),
         ]);
         if expected_kind == code::FS_MODE_DIRECTORY {

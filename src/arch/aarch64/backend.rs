@@ -5,10 +5,11 @@
 //! from their `CodegenPlatform::backend`, so the shared lowering dispatches
 //! selection + allocation through it instead of naming AArch64 directly.
 
-use crate::arch::aarch64::regmodel::{Aarch64RegisterModel, RegisterModel};
+use crate::arch::aarch64::regmodel::Aarch64RegisterModel;
 use crate::arch::aarch64::select::select_aarch64;
 use crate::target::shared::code::mir::{Backend, MirInstruction};
 use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::regmodel::RegisterModel;
 
 /// The AArch64 register model singleton handed to the shared allocator.
 static AARCH64_MODEL: Aarch64RegisterModel = Aarch64RegisterModel;

@@ -1,8 +1,8 @@
 use std::env;
 use std::io::IsTerminal;
 
+use crate::cli::help::USAGE;
 use crate::docs::{render, spec};
-use crate::USAGE;
 
 /// `mfb spec [topic] [subtopic] [--width N] [--color|--no-color]`. Renders the
 /// embedded Markdown specification to the terminal, reflowing to the terminal

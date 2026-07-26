@@ -21,7 +21,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. `play` and
 the MML sequencer it drives are supplied by a source companion that is injected
-only when a program imports `audio`. [[src/builtins/audio.rs:augmented_project]]
+only when a program imports `audio`. [[src/builtins/audio.rs:package_source_glue]]
 
 ## Description
 

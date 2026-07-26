@@ -806,7 +806,9 @@ mod tests {
         assert!(uncovered
             .iter()
             .any(|f| f.message.contains("linux/riscv64/musl")));
-        assert!(uncovered.iter().any(|f| f.message.contains("windows/x86_64")));
+        assert!(uncovered
+            .iter()
+            .any(|f| f.message.contains("windows/x86_64")));
         assert!(uncovered.iter().all(|f| !f.message.contains("macos")));
     }
 

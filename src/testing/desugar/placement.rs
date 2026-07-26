@@ -141,7 +141,7 @@ fn walk_expression(expression: &Expression, line: usize, path: &str, found: &mut
             line: call_line,
             ..
         } => {
-            if is_expect_call(callee) {
+            if is_testing_call(callee) {
                 *found = true;
                 crate::rules::show_diagnostic(
                     "TESTING_EXPECT_OUTSIDE_TCASE",

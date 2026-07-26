@@ -14,9 +14,9 @@ pub(crate) mod linux_gtk;
 pub mod linux_riscv64;
 pub mod linux_x86_64;
 pub mod macos_aarch64;
-pub mod win_x86_64;
 pub mod package_mfp;
 pub(crate) mod shared;
+pub mod win_x86_64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildTarget {
@@ -558,7 +558,14 @@ mod tests {
         assert!(caps.native_object_plan && caps.native_code_plan);
         // 47-E–J filled the runtime surface: it is no longer the empty stub wall.
         assert!(!caps.runtime_calls.is_empty());
-        for family in ["io.print", "fs.readText", "thread.start", "net.connectTcp", "crypto.randomBytes", "tls.connect"] {
+        for family in [
+            "io.print",
+            "fs.readText",
+            "thread.start",
+            "net.connectTcp",
+            "crypto.randomBytes",
+            "tls.connect",
+        ] {
             assert!(
                 caps.runtime_calls.contains(&family),
                 "windows-x86_64 must advertise {family}"

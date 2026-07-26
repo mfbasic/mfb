@@ -15,7 +15,7 @@
 
 mod pe;
 
-use crate::arch::aarch64::encode::{EncodedImage, EncodedSection, ImportKind};
+use crate::arch::image::{EncodedImage, EncodedSection, ImportKind};
 use pe::{
     align_up, section_name, size_of_headers, ImportDirectories, Section, SCN_DATA, SCN_IDATA,
     SCN_RDATA, SCN_TEXT,
@@ -441,9 +441,7 @@ fn write_rel32(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::aarch64::encode::{
-        EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind,
-    };
+    use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
 
     fn image(text: Vec<u8>) -> EncodedImage {
         EncodedImage {

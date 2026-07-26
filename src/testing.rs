@@ -16,9 +16,10 @@ use crate::ast::{
     AstProject, Function, FunctionKind, Import, Item, TestCase, TestGroup, TestGroupMember,
     Visibility,
 };
-use crate::coverage::CovSlot;
+use crate::testing::coverage::CovSlot;
 use std::path::Path;
 
+pub(crate) mod coverage;
 mod desugar;
 
 pub(crate) use desugar::{expand_expect, validate_expect_placement};

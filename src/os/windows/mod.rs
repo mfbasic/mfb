@@ -1,6 +1,6 @@
 //! Windows PE/COFF container writer (plan-47-C) — the third sibling of
 //! `src/os/{linux,macos}/`, emitting a PE32+ console `.exe` from the same
-//! [`crate::arch::aarch64::encode::EncodedImage`] the ELF and Mach-O writers
+//! [`crate::arch::image::EncodedImage`] the ELF and Mach-O writers
 //! consume.
 //!
 //! **Staged landing (plan-47-C C1).** This module and its object plan land
@@ -47,7 +47,7 @@ pub(crate) fn validate_native_object_plan(plan: &NativePlan) -> Result<(), Strin
 pub(crate) fn write_linked_executable(
     project_dir: &Path,
     project_name: &str,
-    image: &crate::arch::aarch64::encode::EncodedImage,
+    image: &crate::arch::image::EncodedImage,
 ) -> Result<PathBuf, String> {
     let bytes = link::write_executable(image)?;
     let build_dir = project_dir.join(crate::os::BUILD_DIR);

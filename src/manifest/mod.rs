@@ -2085,4 +2085,200 @@ mod tests {
             "an unknown os token must fail the build"
         );
     }
+
+    use std::path::PathBuf;
+
+    use crate::ast;
+    use crate::cli::init::project_manifest;
+    use crate::manifest::entry::validate_entry_point;
+    use crate::manifest::package::{project_json_with_package, ProjectPackageDependency};
+
+    #[test]
+    fn package_add_manifest_insert_creates_packages_array() {
+        let contents = concat!(
+            "{\n",
+            "  \"name\": \"app\",\n",
+            "  \"version\": \"0.1.0\",\n",
+            "  \"mfb\": \"1.0\",\n",
+            "  \"sources\": [{ \"root\": \"src\" }]\n",
+            "}\n"
+        );
+        let manifest = parse_project_json(contents, Path::new("project.json")).expect("manifest");
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: "1.0.0".to_string(),
+            pin: true,
+            source: "file:///tmp/source/shape.mfp".to_string(),
+            ident_key: String::new(),
+        };
+
+        let updated =
+            project_json_with_package(contents, &manifest, &dependency).expect("updated manifest");
+
+        assert!(updated.contains("\"packages\": ["));
+        assert!(updated.contains("\"name\": \"shape\""));
+        assert!(updated.contains("\"ident\": \"ada#shape\""));
+        assert!(updated.contains("\"version\": \"1.0.0\""));
+        assert!(updated.contains("\"pin\": true"));
+        assert!(updated.contains("\"source\": \"file:///tmp/source/shape.mfp\""));
+        assert!(updated.parse::<JsonValue>().is_ok());
+    }
+
+    #[test]
+    fn package_add_manifest_append_preserves_json_array_format() {
+        let contents = concat!(
+            "{\n",
+            "  \"name\": \"app\",\n",
+            "  \"version\": \"0.1.0\",\n",
+            "  \"mfb\": \"1.0\",\n",
+            "  \"sources\": [{ \"root\": \"src\" }],\n",
+            "  \"packages\": [\n",
+            "    {\n",
+            "      \"name\": \"math\",\n",
+            "      \"ident\": \"std#math\",\n",
+            "      \"version\": \"1.0.0\",\n",
+            "      \"pin\": true,\n",
+            "      \"source\": \"file:packages/math.mfp\"\n",
+            "    }\n",
+            "  ]\n",
+            "}\n"
+        );
+        let manifest = parse_project_json(contents, Path::new("project.json")).expect("manifest");
+        let dependency = ProjectPackageDependency {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            version: "1.0.0".to_string(),
+            pin: true,
+            source: "file:///tmp/source/shape.mfp".to_string(),
+            ident_key: String::new(),
+        };
+
+        let updated =
+            project_json_with_package(contents, &manifest, &dependency).expect("updated manifest");
+
+        assert!(updated.contains("    },\n    {\n      \"name\": \"shape\""));
+        assert!(updated.parse::<JsonValue>().is_ok());
+    }
+
+    #[test]
+    fn validate_entry_point_rejects_multiple_matching_declarations() {
+        let root = test_temp_dir("validate_entry_point_rejects_multiple_matching_declarations");
+        let project_dir = root.join("app");
+        let src_dir = project_dir.join("src");
+        fs::create_dir_all(&src_dir).expect("src dir");
+        fs::write(
+            project_dir.join("project.json"),
+            project_manifest(&project_dir),
+        )
+        .expect("project manifest");
+        fs::write(src_dir.join("main_a.mfb"), "SUB main()\nEND SUB\n").expect("main_a");
+        fs::write(
+            src_dir.join("main_b.mfb"),
+            "FUNC main(args AS List OF String) AS Integer\n  RETURN 0\nEND FUNC\n",
+        )
+        .expect("main_b");
+
+        let manifest_contents =
+            fs::read_to_string(project_dir.join("project.json")).expect("manifest contents");
+        let manifest = parse_project_json(&manifest_contents, &project_dir.join("project.json"))
+            .expect("manifest");
+        let ast = ast::parse_project("app", &project_dir, &manifest).expect("ast");
+
+        assert!(validate_entry_point(&project_dir, &manifest, &ast).is_err());
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    #[test]
+    fn validate_project_manifest_rejects_missing_kind() {
+        let root = test_temp_dir("validate_project_manifest_rejects_missing_kind");
+        let project_dir = root.join("app");
+        fs::create_dir_all(&project_dir).expect("project dir");
+        fs::write(
+            project_dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"sources\": [{ \"root\": \"src\" }]\n",
+                "}\n"
+            ),
+        )
+        .expect("project manifest");
+
+        assert!(validate_project_manifest(&project_dir.join("project.json")).is_err());
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    /// plan-58-C: `maxBuffer` is the `OUT CBuffer` allocation ceiling in MiB.
+    /// Whole number, 1..=4096; anything else is rejected rather than silently
+    /// clamped, because a manifest that says 0 or "big" means the author has a
+    /// belief about the ceiling that the build would otherwise quietly ignore.
+    #[test]
+    fn validate_project_manifest_checks_max_buffer() {
+        let root = test_temp_dir("validate_project_manifest_checks_max_buffer");
+        let project_dir = root.join("app");
+        fs::create_dir_all(&project_dir).expect("project dir");
+        let manifest = |max_buffer: &str| {
+            format!(
+                concat!(
+                    "{{\n",
+                    "  \"name\": \"app\",\n",
+                    "  \"version\": \"0.1.0\",\n",
+                    "  \"mfb\": \"1.0\",\n",
+                    "  \"kind\": \"executable\",\n",
+                    "  \"maxBuffer\": {},\n",
+                    "  \"sources\": [{{ \"root\": \"src\" }}]\n",
+                    "}}\n"
+                ),
+                max_buffer
+            )
+        };
+        let path = project_dir.join("project.json");
+        for good in ["1", "64", "128", "4096"] {
+            fs::write(&path, manifest(good)).expect("project manifest");
+            assert!(
+                validate_project_manifest(&path).is_ok(),
+                "maxBuffer {good} must be accepted"
+            );
+        }
+        for bad in ["0", "-1", "4097", "64.5", "\"64\"", "true"] {
+            fs::write(&path, manifest(bad)).expect("project manifest");
+            assert!(
+                validate_project_manifest(&path).is_err(),
+                "maxBuffer {bad} must be rejected"
+            );
+        }
+        // Omitted entirely is fine — it defaults to 64 MiB.
+        fs::write(
+            &path,
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"sources\": [{ \"root\": \"src\" }]\n",
+                "}\n"
+            ),
+        )
+        .expect("project manifest");
+        assert!(validate_project_manifest(&path).is_ok());
+
+        fs::remove_dir_all(root).expect("remove temp dir");
+    }
+
+    fn test_temp_dir(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "mfb_{name}_{}_{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("temp dir");
+        root
+    }
 }

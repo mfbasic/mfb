@@ -14,6 +14,127 @@ use super::nir::{
 use super::plan::NativePlan;
 use super::runtime;
 
+mod builder_arena_transfer;
+mod builder_bits;
+mod builder_error_emission;
+mod builder_exits;
+mod builder_owned_cleanup;
+mod builder_registers;
+mod builder_resource_cleanup;
+mod builder_thread_cleanup;
+mod error_constants;
+// Deliberate glob (bug-334 B1): `error_constants` is nothing but `pub(crate)
+// const`s consumed by essentially every file in the subtree. An explicit list
+// would be hundreds of lines of import noise per consumer and would obscure
+// rather than reveal the dependency structure — the one legitimate `use x::*;`
+// here. Keep it a glob on purpose.
+pub(crate) use error_constants::*;
+mod types;
+pub(crate) use types::*;
+mod arena;
+mod entry;
+mod error_result;
+mod process_lifecycle;
+mod rng_pcg64;
+use arena::*;
+use error_result::*;
+use process_lifecycle::*;
+use rng_pcg64::*;
+#[cfg(test)]
+pub(crate) mod test_support;
+mod validation;
+pub(crate) use entry::lower_program_entry;
+pub(crate) use runtime_helpers::lower_thread_trampoline;
+mod codegen_utils;
+use codegen_utils::*;
+mod code_impl;
+use code_impl::{join_json, ToCodeJson};
+mod fs;
+use fs::*;
+mod float_format;
+use float_format::*;
+mod io_stdin;
+use io_stdin::*;
+mod io_stdout;
+use io_stdout::*;
+mod io_terminal;
+use io_terminal::*;
+mod stdin_broadcast;
+use stdin_broadcast::*;
+mod runtime_helpers;
+use runtime_helpers::*;
+mod runtime_helpers_thread;
+use runtime_helpers_thread::*;
+mod data_objects;
+use data_objects::*;
+mod module_analysis;
+use module_analysis::*;
+mod audio;
+mod builder_collection_compare;
+mod builder_collection_layout;
+use builder_collection_layout::{
+    byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_block_kind,
+    list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
+};
+mod builder_collection_queries;
+mod builder_collection_query;
+mod builder_control;
+mod builder_conversions;
+mod builder_emit_helpers;
+mod builder_fixed_math;
+mod builder_fmod;
+mod builder_fs_paths;
+mod builder_inplace_assign;
+mod builder_math;
+mod builder_money;
+mod builder_money_math;
+mod builder_numeric;
+mod builder_pow;
+mod builder_search;
+mod builder_simd_fixed_math;
+mod builder_simd_float_math;
+mod builder_simd_math;
+mod builder_strings;
+mod builder_strings_builtins;
+mod builder_strings_package;
+mod builder_value_semantics;
+mod builder_values;
+mod builder_vector_inline;
+mod collection_buffer;
+mod collection_mutate;
+mod native_helpers;
+
+mod crypto;
+mod crypto_ec;
+mod datetime;
+/// Consumer-side native-library locator resolution (plan-46-C). Shared with
+/// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
+/// copied filename cannot diverge.
+pub(crate) mod link_locator;
+mod link_thunk;
+mod list_mutate;
+mod map_mutate;
+mod net;
+mod os;
+mod private;
+mod simd_kernel_coeffs;
+mod term;
+mod term_grid;
+#[cfg(test)]
+mod tests;
+pub(crate) mod tls;
+mod type_utils;
+use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
+use type_utils::*;
+mod function_lowering;
+use function_lowering::*;
+mod architecture_guards;
+mod fma_fusion;
+pub(crate) mod mir;
+mod peephole;
+pub(crate) mod regalloc;
+pub(crate) use mir::MirPlan;
+
 /// The parameters every emitter helper in `shared/code` threads through: who is
 /// emitting (`symbol`), what the target can import (`platform_imports`,
 /// `platform`), and the two streams being appended to.
@@ -592,24 +713,10 @@ pub(crate) fn lower_module_for_platform(
     string_objects.sort_by_key(|(_, left_symbol)| *left_symbol);
     let mut data_objects = string_objects
         .into_iter()
-        .map(|(value, symbol)| CodeDataObject {
-            symbol: symbol.clone(),
-            kind: "constant".to_string(),
-            layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }".to_string(),
-            align: 8,
-            size: align(8 + value.len() + 1, 8),
-            value: value.clone(),
-        })
+        .map(|(value, symbol)| string_data_object(symbol, value.clone()))
         .collect::<Vec<_>>();
     if module_requires_empty_string_constant(module) {
-        data_objects.push(CodeDataObject {
-            symbol: EMPTY_STRING_SYMBOL.to_string(),
-            kind: "constant".to_string(),
-            layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }".to_string(),
-            align: 8,
-            size: 16,
-            value: String::new(),
-        });
+        data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
     }
     // Writable global pointing at the main thread's arena state (set at startup,
     // read by `_mfb_shutdown` / the signal handler). Zero-initialized; it must
@@ -686,15 +793,7 @@ pub(crate) fn lower_module_for_platform(
     {
         for (_, message, symbol) in standard_error_messages() {
             if !data_objects.iter().any(|object| object.symbol == *symbol) {
-                data_objects.push(CodeDataObject {
-                    symbol: (*symbol).to_string(),
-                    kind: "constant".to_string(),
-                    layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }"
-                        .to_string(),
-                    align: 8,
-                    size: align(8 + message.len() + 1, 8),
-                    value: (*message).to_string(),
-                });
+                data_objects.push(string_data_object(symbol, (*message).to_string()));
             }
         }
     }
@@ -1367,15 +1466,7 @@ pub(crate) fn lower_module_for_platform(
         data_objects.extend(support.data_objects);
         for (_, message, symbol) in native_link_error_messages() {
             if !data_objects.iter().any(|object| object.symbol == *symbol) {
-                data_objects.push(CodeDataObject {
-                    symbol: symbol.to_string(),
-                    kind: "constant".to_string(),
-                    layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }"
-                        .to_string(),
-                    align: 8,
-                    size: align(8 + message.len() + 1, 8),
-                    value: message.to_string(),
-                });
+                data_objects.push(string_data_object(symbol, message.to_string()));
             }
         }
     }
@@ -1439,11 +1530,6 @@ pub(crate) fn lower_module_for_platform(
     // exactly what happened when this was first written per-entry-point.
     bind_deferred_relocation_libraries(&mut code_functions, &platform_imports)?;
 
-    // rv64 `v128` scalarization (plan-99 §6) stages SIMD lanes in a slot region.
-    // That region now lives in the **per-thread** arena state (bug-122), addressed
-    // off the pinned arena base — no process-global data object is emitted (a
-    // global was raced between worker threads running v128 kernels concurrently).
-
     let plan = NativeCodePlan {
         target: module.target.clone(),
         build_mode: module.build_mode,
@@ -1492,7 +1578,13 @@ fn lower_runtime_helper(
         ));
     };
     let app_mode = build_mode.is_app();
-    if builtins::term::is_term_call(spec.call) {
+    // Every runtime helper lowers to the same CodeFunction shape — an empty
+    // `params` list and the spec's return type — differing only in the
+    // (frame, instructions, relocations, stack_slots) tuple each arm computes.
+    // Build that tuple here, then construct the single CodeFunction after the
+    // match (the shape the net.*/tls.* inner-match arms already used).
+    let (frame, instructions, relocations, stack_slots) = if builtins::term::is_term_call(spec.call)
+    {
         let term_state_offset = term_state_offset.ok_or_else(|| {
             format!("native code plan emits '{symbol}' without reserving term state")
         })?;
@@ -1506,7 +1598,7 @@ fn lower_runtime_helper(
         } else {
             None
         };
-        let (frame, instructions, relocations, stack_slots) = match app_term_helper {
+        match app_term_helper {
             Some(result) => pad_no_slots(result?),
             None => term::lower_term_helper(
                 spec.call,
@@ -1515,83 +1607,26 @@ fn lower_runtime_helper(
                 platform_imports,
                 platform,
             )?,
-        };
-        return Ok(CodeFunction {
-            name: format!("runtime.{}", spec.call),
-            symbol: symbol.to_string(),
-            params: Vec::new(),
-            returns: spec.abi.returns.to_string(),
-            frame,
-            stack_slots,
-            instructions,
-            relocations,
-        });
-    }
-    if crypto_ec::ec_call(spec.call).is_some() {
-        let (frame, instructions, relocations, stack_slots) =
-            crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?;
-        return Ok(CodeFunction {
-            name: format!("runtime.{}", spec.call),
-            symbol: symbol.to_string(),
-            params: Vec::new(),
-            returns: spec.abi.returns.to_string(),
-            frame,
-            stack_slots,
-            instructions,
-            relocations,
-        });
-    }
-    match spec.call {
-        "crypto.randomBytes" => {
-            let (frame, instructions, relocations, stack_slots) =
-                crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
         }
-        "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
-            let (frame, instructions, relocations, stack_slots) =
-                datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if builtins::os::is_os_call(call) => {
-            let (frame, instructions, relocations, stack_slots) = os::lower_os_helper(
+    } else if crypto_ec::ec_call(spec.call).is_some() {
+        crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?
+    } else {
+        match spec.call {
+            "crypto.randomBytes" => {
+                crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?
+            }
+            "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
+                datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
+            }
+            call if builtins::os::is_os_call(call) => os::lower_os_helper(
                 spec.call,
                 symbol,
                 build_mode,
                 module_name,
                 platform_imports,
                 platform,
-            )?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if call.starts_with("io.") || call.starts_with("fs.") => {
-            let (frame, instructions, relocations, stack_slots) = match call {
+            )?,
+            call if call.starts_with("io.") || call.starts_with("fs.") => match call {
                 "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                     let stderr = matches!(spec.call, "io.printError" | "io.writeError");
                     let newline = matches!(spec.call, "io.print" | "io.printError");
@@ -1788,61 +1823,40 @@ fn lower_runtime_helper(
                     lower_fs_canonical_path_helper(symbol, platform_imports, platform)?
                 }
                 "fs.isWithin" => lower_fs_is_within_helper(symbol, platform_imports, platform)?,
+                // Defensive: unreachable — `spec_for_symbol` at the top already
+                // rejects any io.*/fs.* symbol that has no spec. Kept only because
+                // matching a `&str` is not exhaustive without a catch-all.
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
                     ));
                 }
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        "thread.start"
-        | "thread.isRunning"
-        | "thread.waitFor"
-        | "thread.cancel"
-        | "thread.drop"
-        | "thread.send"
-        | "thread.poll"
-        | "thread.read"
-        | "thread.receive"
-        | "thread.emit"
-        | "thread.transferResource"
-        | "thread.acceptResource"
-        | "thread.emitResource"
-        | "thread.readResource"
-        | "thread.isCancelled"
-        | "thread.openStdIn"
-        | "thread.closeStdIn" => {
-            let (frame, instructions, relocations, stack_slots) = lower_thread_helper(
+            },
+            "thread.start"
+            | "thread.isRunning"
+            | "thread.waitFor"
+            | "thread.cancel"
+            | "thread.drop"
+            | "thread.send"
+            | "thread.poll"
+            | "thread.read"
+            | "thread.receive"
+            | "thread.emit"
+            | "thread.transferResource"
+            | "thread.acceptResource"
+            | "thread.emitResource"
+            | "thread.readResource"
+            | "thread.isCancelled"
+            | "thread.openStdIn"
+            | "thread.closeStdIn" => lower_thread_helper(
                 symbol,
                 spec.call,
                 uses_rng,
                 arena_layout.global_slots,
                 platform_imports,
                 platform,
-            )?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if call.starts_with("net.") => {
-            let (frame, instructions, relocations, stack_slots) = match call {
+            )?,
+            call if call.starts_with("net.") => match call {
                 "net.lookup" => net::lower_net_lookup_helper(symbol, platform_imports, platform)?,
                 "net.connectTcp" => {
                     net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
@@ -1897,39 +1911,18 @@ fn lower_runtime_helper(
                 "net.sendTextTo" => {
                     net::lower_net_send_to_helper(symbol, platform_imports, platform, true)?
                 }
+                // Defensive: unreachable (see the io.*/fs.* arm); required only for
+                // `&str` match exhaustiveness.
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
                     ));
                 }
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if call.starts_with("audio.") => {
-            let (frame, instructions, relocations, stack_slots) =
-                audio::lower_audio_helper(call, symbol, platform_imports, platform)?;
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
-        }
-        call if call.starts_with("tls.") => {
-            let (frame, instructions, relocations, stack_slots) = match call {
+            },
+            call if call.starts_with("audio.") => {
+                audio::lower_audio_helper(call, symbol, platform_imports, platform)?
+            }
+            call if call.starts_with("tls.") => match call {
                 "tls.connect" => tls::lower_tls_connect_helper(symbol, platform_imports, platform)?,
                 "tls.listen" => tls::lower_tls_listen_helper(symbol, platform_imports, platform)?,
                 "tls.accept" => tls::lower_tls_accept_helper(symbol, platform_imports, platform)?,
@@ -1949,27 +1942,31 @@ fn lower_runtime_helper(
                 "tls.closeListener" => {
                     tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
                 }
+                // Defensive: unreachable (see the io.*/fs.* arm); required only for
+                // `&str` match exhaustiveness.
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
                     ));
                 }
-            };
-            Ok(CodeFunction {
-                name: format!("runtime.{}", spec.call),
-                symbol: symbol.to_string(),
-                params: Vec::new(),
-                returns: spec.abi.returns.to_string(),
-                frame,
-                stack_slots,
-                instructions,
-                relocations,
-            })
+            },
+            other => {
+                return Err(format!(
+                    "native code plan does not emit runtime call '{other}'"
+                ));
+            }
         }
-        other => Err(format!(
-            "native code plan does not emit runtime call '{other}'"
-        )),
-    }
+    };
+    Ok(CodeFunction {
+        name: format!("runtime.{}", spec.call),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: spec.abi.returns.to_string(),
+        frame,
+        stack_slots,
+        instructions,
+        relocations,
+    })
 }
 
 /// Whether a runtime helper symbol belongs to the TLS **server** side
@@ -2358,123 +2355,6 @@ fn lower_map_probe_helper() -> CodeFunction {
     }
 }
 
-mod builder_arena_transfer;
-mod builder_bits;
-mod builder_error_emission;
-mod builder_exits;
-mod builder_owned_cleanup;
-mod builder_registers;
-mod builder_resource_cleanup;
-mod builder_thread_cleanup;
-mod error_constants;
-pub(crate) use error_constants::*;
-mod types;
-pub(crate) use types::*;
-mod arena;
-mod entry;
-mod error_result;
-mod process_lifecycle;
-mod rng_pcg64;
-use arena::*;
-use error_result::*;
-use process_lifecycle::*;
-use rng_pcg64::*;
-#[cfg(test)]
-pub(crate) mod test_support;
-mod validation;
-pub(crate) use entry::lower_program_entry;
-pub(crate) use runtime_helpers::lower_thread_trampoline;
-mod codegen_utils;
-use codegen_utils::*;
-mod code_impl;
-use code_impl::ToCodeJson;
-mod fs;
-use fs::*;
-mod float_format;
-use float_format::*;
-mod io_stdin;
-use io_stdin::*;
-mod io_stdout;
-use io_stdout::*;
-mod io_terminal;
-use io_terminal::*;
-mod stdin_broadcast;
-use stdin_broadcast::*;
-mod runtime_helpers;
-use runtime_helpers::*;
-mod runtime_helpers_thread;
-use runtime_helpers_thread::*;
-mod data_objects;
-use data_objects::*;
-mod module_analysis;
-use module_analysis::*;
-mod audio;
-mod builder_collection_compare;
-mod builder_collection_layout;
-use builder_collection_layout::{
-    byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_block_kind,
-    list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
-};
-mod builder_collection_queries;
-mod builder_collection_query;
-mod builder_control;
-mod builder_conversions;
-mod builder_emit_helpers;
-mod builder_fixed_math;
-mod builder_fmod;
-mod builder_fs_paths;
-mod builder_inplace_assign;
-mod builder_math;
-mod builder_money;
-mod builder_money_math;
-mod builder_numeric;
-mod builder_pow;
-mod builder_search;
-mod builder_simd_fixed_math;
-mod builder_simd_float_math;
-mod builder_simd_math;
-mod builder_strings;
-mod builder_strings_builtins;
-mod builder_strings_package;
-mod builder_value_semantics;
-mod builder_values;
-mod builder_vector_inline;
-mod collection_buffer;
-mod collection_mutate;
-mod native_helpers;
-
-mod crypto;
-mod crypto_ec;
-mod datetime;
-/// Consumer-side native-library locator resolution (plan-46-C). Shared with
-/// plan-46-D's vendor copy via `dlopen_name`, so the emitted string and the
-/// copied filename cannot diverge.
-pub(crate) mod link_locator;
-mod link_thunk;
-mod list_mutate;
-mod map_mutate;
-mod net;
-mod os;
-mod private;
-mod simd_kernel_coeffs;
-mod term;
-mod term_grid;
-#[cfg(test)]
-mod tests;
-pub(crate) mod tls;
-mod type_utils;
-use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
-use type_utils::*;
-mod serialization_utils;
-use serialization_utils::*;
-mod function_lowering;
-use function_lowering::*;
-mod fma_fusion;
-pub(crate) mod mir;
-mod peephole;
-pub(crate) mod regalloc;
-pub(crate) use mir::MirPlan;
-
 /// Resolve every logical `LINK` library this module names to the concrete
 /// The thunk symbol a resource's registered `CLOSE BY` op resolves to, or `None`
 /// when the name routes to nothing in this module.
@@ -2800,145 +2680,4 @@ fn standard_error_message_symbol(message: &str) -> Option<&'static str> {
     standard_error_messages()
         .iter()
         .find_map(|(_, candidate, symbol)| (*candidate == message).then_some(*symbol))
-}
-
-#[cfg(test)]
-fn checked_arena_used_after_alloc(
-    block_base: u64,
-    current_offset: u64,
-    capacity: u64,
-    size: u64,
-    align: u64,
-) -> Result<(u64, u64), u64> {
-    let invalid_argument = ERR_INVALID_ARGUMENT_CODE
-        .parse::<u64>()
-        .expect("invalid argument code");
-    let out_of_memory = ERR_OUT_OF_MEMORY_CODE
-        .parse::<u64>()
-        .expect("out of memory code");
-    if align == 0 || !align.is_power_of_two() {
-        return Err(invalid_argument);
-    }
-    let size = size.max(1);
-    let payload_base = block_base
-        .checked_add(ARENA_BLOCK_HEADER_SIZE as u64)
-        .ok_or(out_of_memory)?;
-    let raw = payload_base
-        .checked_add(current_offset)
-        .ok_or(out_of_memory)?;
-    let mask = align - 1;
-    let aligned = raw
-        .checked_add(mask)
-        .map(|value| value & !mask)
-        .ok_or(out_of_memory)?;
-    let end = aligned.checked_add(size).ok_or(out_of_memory)?;
-    let used = end.checked_sub(payload_base).ok_or(out_of_memory)?;
-    if used > capacity {
-        return Err(out_of_memory);
-    }
-    Ok((aligned, used))
-}
-
-/// Executable reference model of the per-arena coalescing free-list, mirroring
-/// the integer arithmetic of the emitted `arena_alloc` / `arena_insert_free`
-/// assembly so the algorithm can be unit-tested without running native code. The
-/// list is kept sorted by `start`; `nodes` holds `(start, size)` pairs.
-#[cfg(test)]
-#[derive(Default, Clone)]
-struct FreeListSim {
-    nodes: Vec<(u64, u64)>,
-}
-
-#[cfg(test)]
-impl FreeListSim {
-    /// `(size, align)` normalization shared by alloc and free: size 0 → 1, then
-    /// round up to the 16-byte granule; align is raised to at least 16 so every
-    /// chunk stays 16-aligned.
-    fn normalize(size: u64, align: u64) -> (u64, u64) {
-        let size = size.max(1);
-        let size = (size + (ARENA_MIN_CHUNK - 1)) & !(ARENA_MIN_CHUNK - 1);
-        let align = align.max(ARENA_MIN_CHUNK);
-        (size, align)
-    }
-
-    /// Insert a fresh OS block's usable region (or any chunk) and coalesce.
-    fn insert_free(&mut self, ptr: u64, size: u64) {
-        let (size, _) = Self::normalize(size, ARENA_MIN_CHUNK);
-        // address-ordered insertion slot
-        let slot = self.nodes.partition_point(|(start, _)| *start < ptr);
-        self.nodes.insert(slot, (ptr, size));
-        // coalesce with the node before and after, if adjacent
-        if slot + 1 < self.nodes.len() {
-            let (nstart, nsize) = self.nodes[slot + 1];
-            if ptr + size == nstart {
-                self.nodes[slot].1 += nsize;
-                self.nodes.remove(slot + 1);
-            }
-        }
-        if slot > 0 {
-            let (pstart, psize) = self.nodes[slot - 1];
-            if pstart + psize == self.nodes[slot].0 {
-                self.nodes[slot - 1].1 += self.nodes[slot].1;
-                self.nodes.remove(slot);
-            }
-        }
-    }
-
-    /// First-fit + split. Returns the aligned pointer, or `None` if nothing fits
-    /// (the caller would map a new block and retry).
-    fn alloc(&mut self, size: u64, align: u64) -> Option<u64> {
-        let (size, align) = Self::normalize(size, align);
-        let mask = align - 1;
-        for index in 0..self.nodes.len() {
-            let (start, csize) = self.nodes[index];
-            let aligned = (start + mask) & !mask;
-            if aligned + size <= start + csize {
-                let end = start + csize;
-                let front = aligned - start;
-                let tail = end - (aligned + size);
-                self.nodes.remove(index);
-                let mut insert_at = index;
-                if front > 0 {
-                    self.nodes.insert(insert_at, (start, front));
-                    insert_at += 1;
-                }
-                if tail > 0 {
-                    self.nodes.insert(insert_at, (aligned + size, tail));
-                }
-                return Some(aligned);
-            }
-        }
-        None
-    }
-
-    fn free(&mut self, ptr: u64, size: u64) {
-        let (size, _) = Self::normalize(size, ARENA_MIN_CHUNK);
-        self.insert_free(ptr, size);
-    }
-
-    /// Total free bytes and the list length — used to assert coalescing keeps the
-    /// list short and never loses or duplicates bytes.
-    fn free_bytes(&self) -> u64 {
-        self.nodes.iter().map(|(_, size)| *size).sum()
-    }
-
-    /// Invariant: strictly ascending, non-overlapping, never two coalescable
-    /// (address-adjacent) neighbors left un-merged.
-    fn assert_invariants(&self) {
-        for window in self.nodes.windows(2) {
-            let (astart, asize) = window[0];
-            let (bstart, _) = window[1];
-            assert!(astart < bstart, "free list not ascending: {:?}", self.nodes);
-            assert!(
-                astart + asize <= bstart,
-                "free list overlaps: {:?}",
-                self.nodes
-            );
-            assert!(
-                astart + asize != bstart,
-                "adjacent free chunks left un-coalesced: {:?}",
-                self.nodes
-            );
-        }
-    }
 }

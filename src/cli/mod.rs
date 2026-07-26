@@ -1,6 +1,8 @@
 pub mod build;
+pub mod dispatch;
 pub mod doc;
 pub mod fmt;
+pub mod help;
 pub mod init;
 pub mod man;
 pub mod pkg;
@@ -10,6 +12,54 @@ pub mod spec;
 pub mod version;
 
 use std::path::{Path, PathBuf};
+
+/// A CLI subcommand's terminal error, carrying the message to print. `Usage`
+/// maps to process exit code `2` (a malformed invocation), `Failed` to exit code
+/// `1` (the command ran but did not succeed). Shared by every `run_*_command`;
+/// the package- and repo-facing aliases `pkg::PkgCommandError` /
+/// `repo::RepoCommandError` name this same type (bug-340 B2).
+pub(crate) enum CommandError {
+    Usage(String),
+    Failed(String),
+}
+
+/// Map a subcommand's terminal [`CommandError`] onto its process exit code and
+/// abort. The single home for what were six byte-identical error-dispatch arms
+/// in `main` (bug-340 B2).
+pub(crate) fn dispatch_command_error(err: CommandError) -> ! {
+    match err {
+        CommandError::Usage(message) => {
+            eprintln!("error: {message}");
+            std::process::exit(2);
+        }
+        CommandError::Failed(message) => {
+            eprintln!("error: {message}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Write `bytes` to the exclusively-created staging path `staged`, flushing to
+/// disk, and remove the partial file on any error. This is the shared
+/// write-and-sync half of [`stage_package_blob`] and [`install_vendor_file`]:
+/// each caller computes its own `.part` path (they differ in naming and in
+/// whether the name is validated) and later promotes it with
+/// [`commit_staged_package`].
+fn stage_bytes(staged: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(staged)
+        .map_err(|err| format!("failed to create '{}': {err}", staged.display()))?;
+    file.write_all(bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|err| {
+            let _ = std::fs::remove_file(staged);
+            format!("failed to write '{}': {err}", staged.display())
+        })
+}
 
 /// Write an untrusted package blob into `packages_dir` under a fresh, exclusively
 /// created name, and return that staging path.
@@ -24,25 +74,13 @@ pub(crate) fn stage_package_blob(
     name: &str,
     blob: &[u8],
 ) -> Result<PathBuf, String> {
-    use std::io::Write;
-
     crate::manifest::package::validate_package_name(name)?;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
     let staged = packages_dir.join(format!(".{name}.mfp.{}.{nanos}.part", std::process::id()));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&staged)
-        .map_err(|err| format!("failed to create '{}': {err}", staged.display()))?;
-    file.write_all(blob)
-        .and_then(|()| file.sync_all())
-        .map_err(|err| {
-            let _ = std::fs::remove_file(&staged);
-            format!("failed to write '{}': {err}", staged.display())
-        })?;
+    stage_bytes(&staged, blob)?;
     Ok(staged)
 }
 
@@ -93,8 +131,6 @@ pub(crate) fn install_vendor_file(
     filename: &str,
     bytes: &[u8],
 ) -> Result<PathBuf, String> {
-    use std::io::Write;
-
     std::fs::create_dir_all(dir)
         .map_err(|err| format!("failed to create '{}': {err}", dir.display()))?;
     let nanos = std::time::SystemTime::now()
@@ -102,22 +138,9 @@ pub(crate) fn install_vendor_file(
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or(0);
     let staged = dir.join(format!(".{filename}.{}.{nanos}.part", std::process::id()));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&staged)
-        .map_err(|err| format!("failed to create '{}': {err}", staged.display()))?;
-    file.write_all(bytes)
-        .and_then(|()| file.sync_all())
-        .map_err(|err| {
-            let _ = std::fs::remove_file(&staged);
-            format!("failed to write '{}': {err}", staged.display())
-        })?;
+    stage_bytes(&staged, bytes)?;
     let destination = dir.join(filename);
-    std::fs::rename(&staged, &destination).map_err(|err| {
-        let _ = std::fs::remove_file(&staged);
-        format!("failed to install '{}': {err}", destination.display())
-    })?;
+    commit_staged_package(&staged, &destination)?;
     Ok(destination)
 }
 

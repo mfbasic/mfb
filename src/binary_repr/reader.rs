@@ -264,7 +264,7 @@ pub(super) fn read_package_binary_repr(path: &Path) -> Result<PackageBinaryRepr,
 }
 
 pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
-    const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
+    use super::MFP_MAGIC;
     if bytes.len() < 20 {
         return Err("package is too small to be a valid .mfp package".to_string());
     }
@@ -334,7 +334,7 @@ pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, 
     })
 }
 
-pub(super) fn validate_mfp_signature_header(
+pub(crate) fn validate_mfp_signature_header(
     signature_type: u16,
     signature_length: usize,
 ) -> Result<(), String> {

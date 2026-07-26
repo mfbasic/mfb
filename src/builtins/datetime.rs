@@ -8,7 +8,6 @@
 //! `localOffset`) that lower to libc runtime helpers (§8.2).
 
 use std::borrow::Cow;
-use std::path::Path;
 
 // Public, documented surface. Each maps to an internal `__datetime_<name>`
 // implementation in the `.mfb` (see `implementation_name`), except the three
@@ -306,6 +305,38 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     Some(text)
 }
 
+/// The machine-readable positional argument-type signature (bug-340 A1): the
+/// concrete per-parameter types IR lowering hands to `call_argument_expected_type`,
+/// read directly instead of parsing the `expected_arguments` diagnostic string.
+/// The variable-arity constructors (`instant`/`duration`), the no-argument clocks,
+/// and the optional-tail members (`time`/`fixedOffset`/`parse`) have no single
+/// fixed positional signature, so they return `None` (as the string parse's bail
+/// conditions did before this package was wired in).
+pub(crate) fn argument_types(name: &str) -> Option<&'static [&'static str]> {
+    let types: &'static [&'static str] = match name {
+        DATE => &["Integer", "Integer", "Integer"],
+        OFFSET_AT => &["Zone", "Instant"],
+        IN_ZONE => &["Instant", "Zone"],
+        TO_UTC | TO_LOCAL => &["Instant"],
+        RESOLVE | WEEKDAY | DAY_OF_YEAR | START_OF_DAY | TO_ISO => &["DateTime"],
+        CIVIL => &["Date", "Time", "Zone"],
+        WITH_ZONE => &["DateTime", "Zone"],
+        ADD | SUBTRACT => &["Instant", "Duration"],
+        BETWEEN | COMPARE | IS_BEFORE | IS_AFTER | EQUALS => &["Instant", "Instant"],
+        ADD_DAYS | ADD_MONTHS => &["DateTime", "Integer"],
+        NEGATE => &["Duration"],
+        PLUS | MINUS => &["Duration", "Duration"],
+        IS_LEAP_YEAR | FROM_MILLIS | LOCAL_OFFSET => &["Integer"],
+        DAYS_IN_MONTH => &["Integer", "Integer"],
+        TO_MILLIS | TO_NANOS => &["Instant"],
+        FORMAT => &["DateTime", "String"],
+        PARSE_ISO => &["String"],
+        FORMAT_DURATION => &["Duration"],
+        _ => return None,
+    };
+    Some(types)
+}
+
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     let span = match name {
         NOW | MONOTONIC | UTC | LOCAL | NOW_NANOS | MONOTONIC_NANOS => (0, 0),
@@ -356,32 +387,12 @@ pub(crate) fn default_argument_padding(
     }
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-datetime>"),
-        "builtins/datetime.mfb",
-        include_str!("datetime_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "datetime")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "datetime",
+    "<builtin-datetime>",
+    "builtins/datetime.mfb",
+    include_str!("datetime_package.mfb")
+);
 
 use super::exact;
 
@@ -720,6 +731,28 @@ mod tests {
         assert_eq!(expected_arguments(NOW_NANOS), Some("()"));
         assert_eq!(expected_arguments(LOCAL_OFFSET), Some("Integer"));
         assert!(expected_arguments("datetime.nope").is_none());
+    }
+
+    #[test]
+    fn argument_types_machine_table() {
+        // bug-340 A1: the concrete positional signatures IR lowering reads. The
+        // no-argument clocks, the variadic constructors (`instant`/`duration`),
+        // and the optional-tail members (`time`/`fixedOffset`/`parse`) have no
+        // single fixed signature -> None.
+        assert_eq!(
+            argument_types(DATE),
+            Some(&["Integer", "Integer", "Integer"][..])
+        );
+        assert_eq!(argument_types(OFFSET_AT), Some(&["Zone", "Instant"][..]));
+        assert_eq!(argument_types(CIVIL), Some(&["Date", "Time", "Zone"][..]));
+        assert_eq!(argument_types(FORMAT), Some(&["DateTime", "String"][..]));
+        assert_eq!(argument_types(PARSE_ISO), Some(&["String"][..]));
+        // No fixed positional signature:
+        assert_eq!(argument_types(NOW), None); // no arguments
+        assert_eq!(argument_types(INSTANT), None); // 1..=5 Integer (variadic)
+        assert_eq!(argument_types(TIME), None); // optional tail
+        assert_eq!(argument_types(PARSE), None); // optional Zone
+        assert_eq!(argument_types("datetime.nope"), None);
     }
 
     #[test]

@@ -20,7 +20,13 @@ impl TypeEnv {
     ) {
         let mut branch = locals.clone();
         let mut branch_muts = muts.clone();
-        self.check_ops(body, &mut branch, &mut branch_muts, closure_slots, depth + 1);
+        self.check_ops(
+            body,
+            &mut branch,
+            &mut branch_muts,
+            closure_slots,
+            depth + 1,
+        );
     }
 
     /// The shared tail of `Assign`/`AssignGlobal` (bug-342 A10): the two arms
@@ -488,10 +494,7 @@ impl TypeEnv {
                     if !self.loop_stack.borrow().iter().any(|k| k == kind) {
                         self.emit(
                             "EXIT_NO_MATCHING_LOOP",
-                            format!(
-                                "EXIT {} has no matching enclosing loop.",
-                                kind.keyword()
-                            ),
+                            format!("EXIT {} has no matching enclosing loop.", kind.keyword()),
                         );
                     }
                 }

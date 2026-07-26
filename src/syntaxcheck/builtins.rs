@@ -499,7 +499,7 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn term_return_type(&mut self, callee: &str) -> Type {
-        match builtins::term::resolve_call(callee) {
+        match builtins::term::resolve_call(callee, &[]) {
             Some(resolved) => self.parse_type(&resolved.return_type),
             None => Type::Unknown,
         }

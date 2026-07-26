@@ -1129,7 +1129,11 @@ mod tests {
         // through the arch directly.
         assert_eq!(aarch64().arch.stat_mode_offset(), 16);
         assert_eq!(riscv64().arch.stat_mode_offset(), 16);
-        assert_eq!(x86_64().arch.stat_mode_offset(), 24, "x86-64 st_mode is at 24");
+        assert_eq!(
+            x86_64().arch.stat_mode_offset(),
+            24,
+            "x86-64 st_mode is at 24"
+        );
     }
 
     /// bug-360: `emit_temp_directory` parks the buffer pointer and capacity on

@@ -85,10 +85,15 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         }
     }
     // Realize the plan-34-B role tokens (`%arg`/`%ret`/`%sysnr`/…) to their
-    // AArch64 register spellings — the temporary Phase-3b seam that keeps the
-    // encoder on today's `xN` input (byte-identical); Phase 4 deletes this and
-    // realizes tokens directly. Then realize `arena_base` back to its pinned
-    // register (plan-00-D §2, plan-34-A).
+    // AArch64 register spellings, keeping the encoder on today's `xN` input
+    // (byte-identical). This seam is permanent, not a Phase-3b stopgap: plan-34-B
+    // Phase 4 tried to delete it and realize tokens directly, but that landed as
+    // c098504f, broke every x86-64 program, and was reverted at a23aee06
+    // (bugs/completed-bugs/bug-85-x86-entry-runtime-arg-staging-tokens.md leaves
+    // the follow-up OPEN). Both other backends' selectors are built on the same
+    // token→spelling seam, so it stays until a real neutral-stream redesign
+    // replaces it. Then realize `arena_base` back to its pinned register
+    // (plan-00-D §2, plan-34-A).
     for instruction in &mut out {
         for (_, value) in instruction.fields.iter_mut() {
             if let Some(reg) = abi::realize_abi_token(value) {

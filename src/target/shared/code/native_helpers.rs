@@ -99,7 +99,10 @@ pub(super) fn emit_external_int_call(
         .register_model()
         .external_int_argument_registers();
     for n in register_args..int_args {
-        instructions.push(abi::outgoing_stack_arg_store(abi::ARG[n], n - register_args));
+        instructions.push(abi::outgoing_stack_arg_store(
+            abi::ARG[n],
+            n - register_args,
+        ));
     }
     platform.emit_libc_call(symbol, from, platform_imports, instructions, relocations)
 }

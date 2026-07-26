@@ -41,7 +41,7 @@ branch26    26-bit B/BL immediate, for calls
 page21      ADRP page address (PC-relative, 4 KiB granule)
 pageoff12   12-bit offset within a page, for ADD/LDR/STR
 ```
-[[src/arch/aarch64/encode/mod.rs:EncodedRelocation]]
+[[src/arch/image.rs:EncodedRelocation]]
 
 with three bindings:
 
@@ -88,7 +88,7 @@ to reach the GOT slot directly.
 - `version`: an optional symbol version (e.g. `GLIBC_2.17`). `None` emits an
   unversioned reference. Ignored on Mach-O, which binds by dylib ordinal.
 
-[[src/arch/aarch64/encode/mod.rs:EncodedImport]] [[src/arch/aarch64/encode/mod.rs:ImportKind]]
+[[src/arch/image.rs:EncodedImport]] [[src/arch/image.rs:ImportKind]]
 
 `EncodedImage` also carries `initializers`: internal text symbols that must run,
 in order, before the program entry — materialized as ELF `DT_INIT_ARRAY` /

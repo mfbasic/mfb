@@ -2,7 +2,7 @@ pub(crate) mod icon;
 mod link;
 mod object;
 
-use crate::arch::aarch64::encode::EncodedImage;
+use crate::arch::image::EncodedImage;
 use crate::target::shared::plan::NativePlan;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,7 +52,7 @@ pub(crate) fn write_linked_app_bundle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::aarch64::encode::{EncodedSection, EncodedSymbol};
+    use crate::arch::image::{EncodedSection, EncodedSymbol};
     use crate::target::shared::plan::{
         NativePlan, PlanCall, PlannedFunction, StorageClass, StorageType,
     };

@@ -252,7 +252,7 @@ pub(crate) fn format_thread_type(
 fn function_params(name: &str) -> Option<Vec<String>> {
     let rest = name.strip_prefix("ISOLATED FUNC(")?;
     let (params, _) = rest.split_once(") AS ")?;
-    Some(split_top_level_types(params))
+    Some(super::split_top_level_types(params))
 }
 
 fn function_output(name: &str) -> Option<&str> {
@@ -475,28 +475,6 @@ fn thread_body_len(rest: &str) -> Option<usize> {
     let out_len = type_prefix_len(to)?;
     // msg + " TO " (4) + out
     Some(msg_len + 4 + out_len)
-}
-
-fn split_top_level_types(params: &str) -> Vec<String> {
-    if params.trim().is_empty() {
-        return Vec::new();
-    }
-    let mut parts = Vec::new();
-    let mut depth = 0usize;
-    let mut start = 0usize;
-    for (index, ch) in params.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                parts.push(params[start..index].trim().to_string());
-                start = index + ch.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    parts.push(params[start..].trim().to_string());
-    parts
 }
 
 #[cfg(test)]

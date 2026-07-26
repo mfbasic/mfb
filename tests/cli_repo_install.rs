@@ -1080,8 +1080,9 @@ fn repo_gc_reclaims_an_orphaned_blob_and_leaves_live_packages_installable() {
         ("riscv64", "glibc"),
         ("riscv64", "musl"),
     ];
-    let mut locators =
-        String::from("      { \"os\": \"macos\", \"type\": \"vendor\", \"source\": \"libgc.dylib\" }");
+    let mut locators = String::from(
+        "      { \"os\": \"macos\", \"type\": \"vendor\", \"source\": \"libgc.dylib\" }",
+    );
     for (arch, libc) in linux_flavors {
         locators.push_str(&format!(
             ",\n      {{ \"os\": \"linux\", \"arch\": \"{arch}\", \"libc\": \"{libc}\", \"type\": \"vendor\", \"source\": \"libgc-{arch}-{libc}.so\" }}"

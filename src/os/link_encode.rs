@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use crate::arch::aarch64::encode::{EncodedImage, EncodedRelocation, EncodedSection};
+use crate::arch::image::{EncodedImage, EncodedRelocation, EncodedSection};
 
 /// Encode a `BL`/`B` `imm26` branch displacement, reach-checked (bug-168). The
 /// immediate is a signed 26-bit word offset: ±2^25 words = ±128 MiB. Masking

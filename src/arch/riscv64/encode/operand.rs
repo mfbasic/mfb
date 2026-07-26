@@ -1,18 +1,8 @@
-use super::*;
-
-pub(super) fn field(instruction: &CodeInstruction, name: &str) -> Result<String, String> {
-    instruction
-        .fields
-        .iter()
-        .find(|(field, _)| *field == name)
-        .map(|(_, value)| value.clone())
-        .ok_or_else(|| {
-            format!(
-                "rv64 instruction '{}' missing field '{name}'",
-                instruction.op.mnemonic()
-            )
-        })
-}
+// `field`/`immediate`/`shift` are ISA-neutral and shared (bug-341-B7), settling
+// on the unprefixed diagnostic convention the other two backends already use
+// (the old `"rv64 "` prefix was the inconsistent one). The register-name
+// decoders below are rv64-specific.
+pub(super) use crate::arch::encode_operand::{field, immediate, shift};
 
 /// Decode a RISC-V integer register (lp64d ABI name) to its 0–31 number. The
 /// selected stream carries ABI names (`a0`, `t0`, `s11`, `sp`, `ra`, `zero`, …).
@@ -91,24 +81,4 @@ pub(super) fn freg(name: String) -> Result<u8, String> {
         "ft11" => 31,
         other => return Err(format!("unknown rv64 FP register '{other}'")),
     })
-}
-
-pub(super) fn immediate(value: String) -> Result<u64, String> {
-    match value.as_str() {
-        "true" => Ok(1),
-        "false" => Ok(0),
-        _ => value
-            .parse::<u64>()
-            .map_err(|_| format!("invalid rv64 immediate '{value}'")),
-    }
-}
-
-pub(super) fn shift(value: String) -> Result<u8, String> {
-    let value = value
-        .parse::<u8>()
-        .map_err(|_| format!("invalid rv64 shift immediate '{value}'"))?;
-    if value >= 64 {
-        return Err(format!("rv64 shift immediate {value} is out of range"));
-    }
-    Ok(value)
 }

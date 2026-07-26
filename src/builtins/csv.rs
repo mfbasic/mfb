@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::path::Path;
 
 const PARSE: &str = "csv.parse";
 const STRINGIFY: &str = "csv.stringify";
@@ -65,33 +64,12 @@ pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-csv>"),
-        "builtins/csv.mfb",
-        include_str!("csv_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "csv")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "csv",
+    "<builtin-csv>",
+    "builtins/csv.mfb",
+    include_str!("csv_package.mfb")
+);
 
 use super::exact;
 
@@ -104,8 +82,8 @@ mod tests {
     }
 
     fn project(src: &str) -> crate::ast::AstProject {
-        let file =
-            crate::ast::parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse source");
+        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+            .expect("parse source");
         crate::ast::AstProject {
             name: "test".to_string(),
             files: vec![file],

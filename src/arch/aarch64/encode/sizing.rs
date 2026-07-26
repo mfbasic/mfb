@@ -1,87 +1,21 @@
-use super::operand::{field, immediate, reg};
 use super::*;
+use crate::arch::encode_plan::InstructionEncoder;
 
+/// The exact byte length [`super::emitter::Encoder::emit_instruction`] produces,
+/// derived from the emitter itself so there is no second, drift-prone size table
+/// to keep in sync — the same structural guarantee x86 has (bug-341-B3). A
+/// throwaway encoder emits the instruction and we take the text length; its
+/// relocation/label side effects are discarded. Every field value is seeded as
+/// an import so a symbol-referencing op's binding resolution succeeds — binding
+/// never affects the byte count (a `bl`/`adrp` is one word either way), so the
+/// internal/external/data choice is immaterial to the size.
 pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
-    match instruction.op {
-        CodeOp::Label => return Ok(0),
-        CodeOp::MovImm => {
-            return Ok(wide_imm_word_count(immediate(field(instruction, "value")?)?) * 4);
-        }
-        CodeOp::AddImm | CodeOp::SubImm => {
-            return Ok(sized_add_sub_imm(immediate(field(instruction, "imm")?)?));
-        }
-        CodeOp::AddSp | CodeOp::SubSp => {
-            return Ok(sized_add_sub_imm(immediate(field(instruction, "imm")?)?));
-        }
-        // `cmp_imm` is not chunked like add/sub: out of imm12 range `emit_cmp_imm`
-        // materializes the immediate with `mov_imm` (1–4 words) and emits a
-        // register `cmp`, so its length follows the mov_imm word count.
-        CodeOp::CmpImm => {
-            let rhs = immediate(field(instruction, "rhs")?)?;
-            return Ok(if checked_imm12(rhs).is_ok() {
-                4
-            } else {
-                wide_imm_word_count(rhs) * 4 + 4
-            });
-        }
-        CodeOp::LdrU64 | CodeOp::StrU64 | CodeOp::LdrD | CodeOp::StrD => {
-            return Ok(sized_memory_imm(
-                immediate(field(instruction, "offset")?)?,
-                8,
-            ));
-        }
-        CodeOp::LdrU32 | CodeOp::StrU32 => {
-            return Ok(sized_memory_imm(
-                immediate(field(instruction, "offset")?)?,
-                4,
-            ));
-        }
-        CodeOp::LdrU16 | CodeOp::StrU16 => {
-            return Ok(sized_memory_imm(
-                immediate(field(instruction, "offset")?)?,
-                2,
-            ));
-        }
-        CodeOp::LdrU8 | CodeOp::StrU8 => {
-            return Ok(sized_memory_imm(
-                immediate(field(instruction, "offset")?)?,
-                1,
-            ));
-        }
-        // 128-bit q load/store: one scaled word when the offset is 16-aligned
-        // and in range, else the GPR-scratch address fallback (a huge frame puts
-        // FP spill slots past the 65520-byte scaled ceiling).
-        CodeOp::LdrQ | CodeOp::StrQ => {
-            return Ok(sized_memory_imm(
-                immediate(field(instruction, "offset")?)?,
-                16,
-            ));
-        }
-        // Explicit-carry add (plan-00-G §4): `adds; cset` (no carry-in) or
-        // `cmp; adcs; cset` (carry-in register) — the no-carry-in form avoids
-        // `cmp xzr,#1` (x31 = SP in the immediate form). Explicit-borrow sub is
-        // always `subs; sbcs; cset` (register form, no SP hazard).
-        // Key the size on the *resolved* register number, exactly as
-        // `emit_add_carry` does — `"xzr"`, `"sp"`, `"raw_sp"` and `"x31"` all
-        // resolve to 31, so a spelling test would disagree with the emitter.
-        CodeOp::AddCarry => {
-            return Ok(if reg(field(instruction, "carry_in")?)? == 31 {
-                8
-            } else {
-                12
-            });
-        }
-        CodeOp::SubBorrow => return Ok(12),
-        _ => {}
+    let mut probe = Encoder::new(Vec::new(), HashMap::new());
+    for (_, value) in &instruction.fields {
+        probe.imports.insert(value.clone(), String::new());
     }
-    Ok(4)
-}
-
-fn wide_imm_word_count(value: u64) -> usize {
-    1 + [16, 32, 48]
-        .into_iter()
-        .filter(|shift| ((value >> shift) & 0xffff) != 0)
-        .count()
+    probe.emit_instruction(instruction)?;
+    Ok(probe.text.len())
 }
 
 pub(super) fn checked_imm12(value: u64) -> Result<u32, String> {
@@ -129,21 +63,6 @@ pub(super) fn add_sub_chunk_count(value: u64) -> usize {
         }
     }
     chunks
-}
-
-fn sized_add_sub_imm(value: u64) -> usize {
-    if value == 0 {
-        return 4;
-    }
-    add_sub_chunk_count(value) * 4
-}
-
-fn sized_memory_imm(offset: u64, scale: u64) -> usize {
-    if offset.is_multiple_of(scale) && (offset / scale) <= 4095 {
-        4
-    } else {
-        sized_add_sub_imm(offset) + 4
-    }
 }
 
 pub(super) fn next_add_sub_chunk(remaining: u64) -> (u32, bool) {

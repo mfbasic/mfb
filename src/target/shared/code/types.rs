@@ -152,10 +152,10 @@ pub(crate) fn layout_data_objects(
         // At the const→writable boundary, pad to a page so the writable region
         // (arena global etc.) gets its own pages and the prefix can be read-only.
         if index == const_count && const_count > 0 {
-            data.resize(data_align(data.len(), DATA_PAGE_SIZE), 0);
+            data.resize(align(data.len(), DATA_PAGE_SIZE), 0);
             rodata_size = data.len();
         }
-        data.resize(data_align(data.len(), object.align), 0);
+        data.resize(align(data.len(), object.align), 0);
         symbols.push((object.symbol.clone(), data.len()));
         if object.kind == "raw" {
             data.extend_from_slice(&decode_data_hex(&object.value)?);
@@ -164,22 +164,15 @@ pub(crate) fn layout_data_objects(
             data.extend_from_slice(object.value.as_bytes());
             data.push(0);
         }
-        data.resize(data_align(data.len(), object.align), 0);
+        data.resize(align(data.len(), object.align), 0);
     }
     // Every object is read-only (no writable data): the whole padded blob is the
     // read-only region.
     if const_count == ordered.len() && const_count > 0 {
-        rodata_size = data_align(data.len(), DATA_PAGE_SIZE);
+        rodata_size = align(data.len(), DATA_PAGE_SIZE);
         data.resize(rodata_size, 0);
     }
     Ok((data, rodata_size, symbols))
-}
-
-fn data_align(value: usize, alignment: usize) -> usize {
-    if alignment <= 1 {
-        return value;
-    }
-    value.div_ceil(alignment) * alignment
 }
 
 fn decode_data_hex(value: &str) -> Result<Vec<u8>, String> {
@@ -1025,11 +1018,11 @@ mod data_layout_tests {
     #[test]
     fn align_zero_does_not_divide_by_zero() {
         // bug-18: a malformed plan could carry align 0; treat 0/1 as "no align".
-        assert_eq!(data_align(1, 0), 1);
-        assert_eq!(data_align(0, 0), 0);
-        assert_eq!(data_align(7, 1), 7);
-        assert_eq!(data_align(1, 8), 8);
-        assert_eq!(data_align(17, 16), 32);
+        assert_eq!(align(1, 0), 1);
+        assert_eq!(align(0, 0), 0);
+        assert_eq!(align(7, 1), 7);
+        assert_eq!(align(1, 8), 8);
+        assert_eq!(align(17, 16), 32);
         // And a data object with align 0 lays out without panicking.
         let objects = vec![obj("_x", "raw", 0, "ff")];
         assert!(layout_data_objects(&objects).is_ok());

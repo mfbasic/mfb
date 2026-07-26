@@ -142,6 +142,22 @@ impl BuildOutput {
             _ => None,
         }
     }
+
+    /// The human-readable noun for this output, used both in the `Wrote <noun> to
+    /// …` success line and in the package-unsupported diagnostic. Kept in one
+    /// place so the two sites cannot drift (bug-340 B4).
+    fn label(self) -> &'static str {
+        match self {
+            BuildOutput::Ast => "AST",
+            BuildOutput::Ir => "IR",
+            BuildOutput::BinaryRepr => "binary representation",
+            BuildOutput::NativeIr => "native IR",
+            BuildOutput::NativePlan => "native plan",
+            BuildOutput::NativeObjectPlan => "native object plan",
+            BuildOutput::NativeCodePlan => "native code plan",
+            BuildOutput::Mir => "MIR",
+        }
+    }
 }
 
 pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
@@ -265,7 +281,8 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let test_lowering = crate::testing::lower_testing_blocks(&mut ast, options.mode, &project_abs);
     if options.mode.coverage() {
         let covmap = project_abs.join(crate::testing::COVMAP_FILE);
-        if let Err(err) = crate::coverage::write_covmap(&covmap, &test_lowering.cov_slots) {
+        if let Err(err) = crate::testing::coverage::write_covmap(&covmap, &test_lowering.cov_slots)
+        {
             eprintln!("warning: failed to write coverage map: {err}");
         }
     }
@@ -726,13 +743,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             | BuildOutput::NativeCodePlan
             | BuildOutput::Mir => {
                 if project_kind == "package" {
-                    let what = match output {
-                        BuildOutput::NativeIr => "native IR",
-                        BuildOutput::NativePlan => "native plan",
-                        BuildOutput::NativeObjectPlan => "native object plan",
-                        BuildOutput::NativeCodePlan => "native code plan",
-                        _ => "MIR",
-                    };
+                    let what = output.label();
                     rules::show_general_diagnostic(
                         "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
                         &format!("Package projects do not support {what} output; run `mfb build` to write a .mfp package."),
@@ -794,75 +805,29 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     binary_repr_path.display()
                 );
             }
-            BuildOutput::NativeIr => {
-                let nir_path =
-                    match target::write_nir(&options.location, ir, &target, packages, build_mode) {
-                        Ok(path) => path,
-                        Err(err) => {
-                            eprintln!("error: {err}");
-                            return Err(());
-                        }
-                    };
-                println!("Wrote native IR to {}", nir_path.display());
-            }
-            BuildOutput::NativePlan => {
-                let plan_path = match target::write_native_plan(
-                    &options.location,
-                    ir,
-                    &target,
-                    packages,
-                    build_mode,
-                ) {
+            BuildOutput::NativeIr
+            | BuildOutput::NativePlan
+            | BuildOutput::NativeObjectPlan
+            | BuildOutput::NativeCodePlan
+            | BuildOutput::Mir => {
+                // All five native dumps share the same writer signature
+                // (`-> Result<PathBuf, String>`) and error/success handling;
+                // only the writer function and the noun differ (bug-340 B4).
+                let writer = match output {
+                    BuildOutput::NativeIr => target::write_nir,
+                    BuildOutput::NativePlan => target::write_native_plan,
+                    BuildOutput::NativeObjectPlan => target::write_native_object_plan,
+                    BuildOutput::NativeCodePlan => target::write_native_code_plan,
+                    _ => target::write_mir,
+                };
+                let path = match writer(&options.location, ir, &target, packages, build_mode) {
                     Ok(path) => path,
                     Err(err) => {
                         eprintln!("error: {err}");
                         return Err(());
                     }
                 };
-                println!("Wrote native plan to {}", plan_path.display());
-            }
-            BuildOutput::NativeObjectPlan => {
-                let object_path = match target::write_native_object_plan(
-                    &options.location,
-                    ir,
-                    &target,
-                    packages,
-                    build_mode,
-                ) {
-                    Ok(path) => path,
-                    Err(err) => {
-                        eprintln!("error: {err}");
-                        return Err(());
-                    }
-                };
-                println!("Wrote native object plan to {}", object_path.display());
-            }
-            BuildOutput::NativeCodePlan => {
-                let code_path = match target::write_native_code_plan(
-                    &options.location,
-                    ir,
-                    &target,
-                    packages,
-                    build_mode,
-                ) {
-                    Ok(path) => path,
-                    Err(err) => {
-                        eprintln!("error: {err}");
-                        return Err(());
-                    }
-                };
-                println!("Wrote native code plan to {}", code_path.display());
-            }
-            BuildOutput::Mir => {
-                let mir_path =
-                    match target::write_mir(&options.location, ir, &target, packages, build_mode) {
-                        Ok(path) => path,
-                        Err(err) => {
-                            eprintln!("error: {err}");
-                            return Err(());
-                        }
-                    };
-                println!("Wrote MIR to {}", mir_path.display());
+                println!("Wrote {} to {}", output.label(), path.display());
             }
             BuildOutput::Ast | BuildOutput::Ir => unreachable!("handled above"),
         }
@@ -1963,5 +1928,97 @@ mod tests {
             assert_eq!(slots[0].libc, None);
             assert_eq!(slots[0].to_string(), "macos/aarch64");
         }
+    }
+
+    #[test]
+    fn parse_build_options_defaults_to_console_mode() {
+        let options = parse_build_options(vec!["some/project".to_string()]).expect("options");
+        assert!(!options.app_mode);
+    }
+
+    #[test]
+    fn parse_build_options_accepts_app_flag() {
+        let options = parse_build_options(vec!["--app".to_string(), "some/project".to_string()])
+            .expect("options");
+        assert!(options.app_mode);
+    }
+
+    #[test]
+    fn parse_build_options_rejects_duplicate_app_flag() {
+        let result = parse_build_options(vec!["--app".to_string(), "--app".to_string()]);
+        match result {
+            Err(err) => assert!(err.contains("at most one -app")),
+            Ok(_) => panic!("duplicate --app must be rejected"),
+        }
+    }
+
+    #[test]
+    fn parse_build_options_app_flag_composes_with_native_output() {
+        let options =
+            parse_build_options(vec!["--app".to_string(), "--nir".to_string()]).expect("options");
+        assert!(options.app_mode);
+        assert_eq!(options.outputs, vec![BuildOutput::NativeIr]);
+    }
+
+    #[test]
+    fn parse_build_options_combines_output_flags_in_order() {
+        let options = parse_build_options(vec![
+            "--ast".to_string(),
+            "--ir".to_string(),
+            "--ncode".to_string(),
+            "--mir".to_string(),
+            "some/project".to_string(),
+        ])
+        .expect("options");
+        assert_eq!(
+            options.outputs,
+            vec![
+                BuildOutput::Ast,
+                BuildOutput::Ir,
+                BuildOutput::NativeCodePlan,
+                BuildOutput::Mir,
+            ]
+        );
+    }
+
+    /// plan-42: the single-dash spellings stay working, undocumented aliases —
+    /// a mixed-spelling command line parses exactly like the `--` one.
+    #[test]
+    fn parse_build_options_accepts_single_dash_aliases() {
+        let options = parse_build_options(vec![
+            "-app".to_string(),
+            "-ast".to_string(),
+            "--ir".to_string(),
+            "-mir".to_string(),
+            "some/project".to_string(),
+        ])
+        .expect("options");
+        assert!(options.app_mode);
+        assert_eq!(
+            options.outputs,
+            vec![BuildOutput::Ast, BuildOutput::Ir, BuildOutput::Mir]
+        );
+    }
+
+    #[test]
+    fn parse_build_options_rejects_duplicate_output_flag() {
+        let result = parse_build_options(vec!["--ncode".to_string(), "--ncode".to_string()]);
+        match result {
+            Err(err) => assert!(err.contains("duplicate output flag `--ncode`")),
+            Ok(_) => panic!("duplicate output flag must be rejected"),
+        }
+        // The duplicate check is per-output, not per-spelling: `-ncode --ncode`
+        // is the same flag twice.
+        let mixed = parse_build_options(vec!["-ncode".to_string(), "--ncode".to_string()]);
+        match mixed {
+            Err(err) => assert!(err.contains("duplicate output flag `--ncode`")),
+            Ok(_) => panic!("mixed-spelling duplicate output flag must be rejected"),
+        }
+    }
+
+    #[test]
+    fn parse_build_options_no_output_flags_means_full_build() {
+        let options = parse_build_options(vec!["some/project".to_string()]).expect("options");
+        assert!(options.outputs.is_empty());
     }
 }

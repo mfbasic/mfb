@@ -5,13 +5,15 @@ use super::*;
 /// (plan-18-C). Best-effort: a missing sidecar warns rather than fails.
 pub(super) fn generate_coverage_report(project_dir: &Path) {
     let covmap = project_dir.join(crate::testing::COVMAP_FILE);
-    let Some(slots) = crate::coverage::read_covmap(&covmap) else {
+    let Some(slots) = crate::testing::coverage::read_covmap(&covmap) else {
         eprintln!("warning: coverage map missing; skipping coverage report");
         return;
     };
-    let counts = crate::coverage::read_counts(&project_dir.join(crate::testing::COVDATA_FILE));
-    let failed = crate::coverage::read_failed(&project_dir.join(crate::testing::COVFAIL_FILE));
-    let html = crate::coverage::generate_html(project_dir, &slots, &counts, &failed);
+    let counts =
+        crate::testing::coverage::read_counts(&project_dir.join(crate::testing::COVDATA_FILE));
+    let failed =
+        crate::testing::coverage::read_failed(&project_dir.join(crate::testing::COVFAIL_FILE));
+    let html = crate::testing::coverage::generate_html(project_dir, &slots, &counts, &failed);
     let out = project_dir.join(crate::testing::COVERAGE_HTML);
     match std::fs::write(&out, html) {
         Ok(()) => println!("Wrote coverage report to {}", out.display()),

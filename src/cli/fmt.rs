@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::ast;
+use crate::cli::help::USAGE;
 use crate::fmt;
 use crate::manifest::validate_project_manifest;
 use crate::rules;
-use crate::USAGE;
 
 /// `mfb fmt [--indent N] [location]` — format MFBASIC source in place. Like
 /// `mfb build` and `mfb doc`, the location defaults to the current directory and
