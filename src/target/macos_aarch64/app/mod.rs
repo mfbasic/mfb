@@ -297,6 +297,14 @@ const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "m
 /// `mfbWriteString:` rather than run on the worker (bug-165). Its IMP is the
 /// existing [`TERM_CLEAR_SYMBOL`] helper (reads only `self`, ignores `_cmd`/obj).
 const SEL_MFB_CLEAR: (&str, &str) = ("_mfb_macapp_sel_mfbClear", "mfbClear:");
+/// `mfbDrawLine:` — the main-thread grid draw-line entry point for
+/// `term::drawHLine`/`drawVLine`. Like `mfbClear:`, the cell buffer it mutates can
+/// be realloc'd by `setFrameSize:` on the main thread, so the draw is marshaled
+/// there (bug-165). Its IMP ([`MFB_DRAW_LINE_SYMBOL`]) reads the draw parameters
+/// the worker parked in the TermView state and ignores the object argument (nil).
+const SEL_MFB_DRAW_LINE: (&str, &str) = ("_mfb_macapp_sel_mfbDrawLine", "mfbDrawLine:");
+/// IMP for the TermView `mfbDrawLine:` main-thread draw-line entry point.
+const MFB_DRAW_LINE_SYMBOL: &str = "_mfb_macapp_term_drawLine";
 // plan-62-C Phase 2: the runtime `app::setMode` reconcile. The worker marshals
 // `mfbReconcile:` onto the main thread (via the app delegate) to build or tear down
 // the window surface to match the new presentation mode.
@@ -386,7 +394,18 @@ const TV_CUR_FG_OFFSET: usize = 64; // u32 packed r|g<<8|b<<16 (default white)
 const TV_CUR_BG_OFFSET: usize = 72; // u32 packed (default black = 0)
 const TV_CUR_BOLD_OFFSET: usize = 80; // i64 bold flag
 const TV_CUR_UNDERLINE_OFFSET: usize = 88; // i64 underline flag
-const TV_STATE_SIZE: usize = 96;
+// Draw-line parameters (term::drawHLine/drawVLine). The worker resolves the
+// LineStyle ordinal to a `unichar` glyph and parks these here before marshaling
+// `mfbDrawLine:` onto the main thread, which reads them, clamps the span to the
+// current grid, and stamps the glyph. Safe from the worker: only the scalar
+// fields are written (not the realloc-able `cells` pointer), and the
+// `waitUntilDone:YES` marshal serialises them with the main-thread read.
+const TV_DRAW_GLYPH_OFFSET: usize = 96; // u32 unichar (resolved by the worker)
+const TV_DRAW_FIXED_OFFSET: usize = 104; // i64 fixed line coordinate (raw)
+const TV_DRAW_LO_OFFSET: usize = 112; // i64 span endpoint A (raw, either order)
+const TV_DRAW_HI_OFFSET: usize = 120; // i64 span endpoint B (raw, either order)
+const TV_DRAW_HORIZ_OFFSET: usize = 128; // i64 1 = horizontal, 0 = vertical
+const TV_STATE_SIZE: usize = 136;
 /// Default foreground packed value (white), shared by term_init and the helpers.
 const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 
@@ -579,6 +598,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_clear_helper(),
         emit_term_scroll_helper(),
         emit_term_write_string_helper(),
+        emit_term_draw_line_helper(),
         emit_term_accepts_first_responder(),
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
@@ -734,6 +754,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_SET_FRAME_SIZE,
         SEL_MFB_WRITE_STRING,
         SEL_MFB_CLEAR,
+        SEL_MFB_DRAW_LINE,
         SEL_ACCEPTS_FIRST_RESPONDER,
         STR_TERMVIEW_CLASS_NAME,
         STR_DRAW_RECT_TYPES,

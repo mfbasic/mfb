@@ -703,11 +703,6 @@ fn emit_move_to(symbol: &str, term_state_offset: usize, instructions: &mut Vec<C
     ));
 }
 
-/// `LineStyle` ordinal (0..=6, in `term_package.mfb` order) → the box-drawing
-/// code point for the horizontal (`drawHLine`) and vertical (`drawVLine`) forms.
-const HLINE_CODEPOINTS: [u32; 7] = [0x2500, 0x2501, 0x2504, 0x2505, 0x2508, 0x2509, 0x2550];
-const VLINE_CODEPOINTS: [u32; 7] = [0x2502, 0x2503, 0x2506, 0x2507, 0x250A, 0x250B, 0x2551];
-
 /// Pack a code point's UTF-8 bytes little-endian into the u32 grid `glyph`
 /// encoding (`byte0 | byte1<<8 | byte2<<16`, the same layout `term_grid` writes
 /// and `term::sync` reads back). Every box-drawing glyph here is a 3-byte run.
@@ -841,9 +836,9 @@ fn emit_draw_line(
     // Select the glyph from the ordinal (0..=6); ordinal 0 (`Light`) is the
     // fall-through default so an out-of-range value can never strand `glyph`.
     let table = if is_horizontal {
-        &HLINE_CODEPOINTS
+        &TERM_HLINE_CODEPOINTS
     } else {
-        &VLINE_CODEPOINTS
+        &TERM_VLINE_CODEPOINTS
     };
     let glyph_done = format!("{symbol}_dl_glyph_done");
     instructions.push(abi::move_immediate(
