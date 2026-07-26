@@ -129,26 +129,19 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
 
         self.emit(abi::move_register(bits, source_register));
-        self.emit(abi::shift_right_immediate(exponent, bits, 52));
-        self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(exponent, exponent, mask));
-        self.emit(abi::compare_immediate(exponent, "2047"));
-        self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::compare_immediate(exponent, "1086"));
-        self.emit(abi::branch_lt(&ok));
-        self.emit(abi::branch_eq(&check_edge));
-        self.emit(abi::branch(&overflow));
-
-        self.emit(abi::label(&check_edge));
-        self.emit(abi::shift_right_immediate(sign, bits, 63));
-        self.emit(abi::compare_immediate(sign, "1"));
-        self.emit(abi::branch_eq(&edge_sign_ok));
-        self.emit(abi::branch(&overflow));
-        self.emit(abi::label(&edge_sign_ok));
-        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
-        self.emit(abi::and_registers(mantissa, bits, mask));
-        self.emit(abi::compare_immediate(mantissa, "0"));
-        self.emit(abi::branch_ne(&overflow));
+        self.emit_float_exponent_range_guard(
+            bits,
+            exponent,
+            mask,
+            sign,
+            mantissa,
+            Some("1086"),
+            &ok,
+            &check_edge,
+            &edge_sign_ok,
+            &invalid,
+            &overflow,
+        );
 
         self.emit(abi::label(&ok));
         self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], bits));
@@ -1261,25 +1254,19 @@ impl CodeBuilder<'_> {
         let edge_negative = self.label("float_to_fixed_edge_negative");
         let range_ok = self.label("float_to_fixed_range_ok");
         self.emit(abi::move_register(bits, source));
-        self.emit(abi::shift_right_immediate(exponent, bits, 52));
-        self.emit(abi::move_immediate(mask, "Integer", "2047"));
-        self.emit(abi::and_registers(exponent, exponent, mask));
-        self.emit(abi::compare_immediate(exponent, "2047"));
-        self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::compare_immediate(exponent, "1054"));
-        self.emit(abi::branch_lt(&range_ok));
-        self.emit(abi::branch_eq(&edge));
-        self.emit(abi::branch(&overflow));
-        self.emit(abi::label(&edge));
-        self.emit(abi::shift_right_immediate(sign, bits, 63));
-        self.emit(abi::compare_immediate(sign, "1"));
-        self.emit(abi::branch_eq(&edge_negative));
-        self.emit(abi::branch(&overflow));
-        self.emit(abi::label(&edge_negative));
-        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
-        self.emit(abi::and_registers(mantissa, bits, mask));
-        self.emit(abi::compare_immediate(mantissa, "0"));
-        self.emit(abi::branch_ne(&overflow));
+        self.emit_float_exponent_range_guard(
+            bits,
+            exponent,
+            mask,
+            sign,
+            mantissa,
+            Some("1054"),
+            &range_ok,
+            &edge,
+            &edge_negative,
+            &invalid,
+            &overflow,
+        );
         self.emit(abi::label(&range_ok));
         self.emit(abi::float_move_d_from_x(abi::FP_SCRATCH[0], bits));
         self.emit_f64_const(abi::FP_SCRATCH[1], const_bits, 4_294_967_296.0);
@@ -1532,15 +1519,77 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Shared IEEE-754 `double` exponent/range guard behind the float→Integer and
+    /// float→Fixed conversions and the plain overflow pre-check. `bits` already
+    /// holds the raw f64 bit pattern — the caller performs the GPR (`move_register`)
+    /// or FP (`float_move_x_from_d`) move into it, since that is the one op that
+    /// genuinely differs across the three sites. The caller also mints `exponent`,
+    /// `mask`, `sign`, `mantissa` (in its own order) and every label, so this emits
+    /// only the shared op sequence and stays byte-identical to the hand-written
+    /// copies it replaced.
+    ///
+    /// `threshold = None` is the `emit_double_overflow_check` shape: emit just the
+    /// NaN/Inf exponent test (all-ones exponent → `invalid`); `sign`, `mantissa`,
+    /// and the three range/edge labels are unused. `threshold = Some(t)` adds the
+    /// range check — `< t` → `range_ok`, `> t` → `overflow` — and, for the boundary
+    /// exponent `== t`, the edge block that accepts only the exact minimum-magnitude
+    /// value (sign set, zero mantissa) and traps everything else to `overflow`.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_float_exponent_range_guard(
+        &mut self,
+        bits: &str,
+        exponent: &str,
+        mask: &str,
+        sign: &str,
+        mantissa: &str,
+        threshold: Option<&str>,
+        range_ok: &str,
+        edge: &str,
+        edge_sign_ok: &str,
+        invalid: &str,
+        overflow: &str,
+    ) {
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
+        self.emit(abi::and_registers(exponent, exponent, mask));
+        self.emit(abi::compare_immediate(exponent, "2047"));
+        self.emit(abi::branch_eq(invalid));
+        let Some(threshold) = threshold else {
+            return;
+        };
+        self.emit(abi::compare_immediate(exponent, threshold));
+        self.emit(abi::branch_lt(range_ok));
+        self.emit(abi::branch_eq(edge));
+        self.emit(abi::branch(overflow));
+        self.emit(abi::label(edge));
+        self.emit(abi::shift_right_immediate(sign, bits, 63));
+        self.emit(abi::compare_immediate(sign, "1"));
+        self.emit(abi::branch_eq(edge_sign_ok));
+        self.emit(abi::branch(overflow));
+        self.emit(abi::label(edge_sign_ok));
+        self.emit(abi::move_immediate(mask, "Integer", F64_MANTISSA_MASK));
+        self.emit(abi::and_registers(mantissa, bits, mask));
+        self.emit(abi::compare_immediate(mantissa, "0"));
+        self.emit(abi::branch_ne(overflow));
+    }
+
     pub(super) fn emit_double_overflow_check(&mut self, source: &str, overflow_label: &str) {
         let bits = self.temporary_vreg();
         let exponent = self.temporary_vreg();
         let mask = self.temporary_vreg();
         self.emit(abi::float_move_x_from_d(&bits, source));
-        self.emit(abi::shift_right_immediate(&exponent, &bits, 52));
-        self.emit(abi::move_immediate(&mask, "Integer", "2047"));
-        self.emit(abi::and_registers(&exponent, &exponent, &mask));
-        self.emit(abi::compare_immediate(&exponent, "2047"));
-        self.emit(abi::branch_eq(overflow_label));
+        self.emit_float_exponent_range_guard(
+            &bits,
+            &exponent,
+            &mask,
+            "",
+            "",
+            None,
+            "",
+            "",
+            "",
+            overflow_label,
+            "",
+        );
     }
 }
