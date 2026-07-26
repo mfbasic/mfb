@@ -93,6 +93,10 @@ const RUNTIME_CALLS: &[&str] = &[
     "os.hasEnv",
     "os.setEnv",
     "os.unsetEnv",
+    // os:: *W string queries (plan-66-B): host/user name + executable path.
+    "os.hostName",
+    "os.userName",
+    "os.executablePath",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",

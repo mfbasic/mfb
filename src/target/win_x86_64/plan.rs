@@ -235,6 +235,20 @@ impl NativePlanPlatform for Platform {
                 import("SetEnvironmentVariableW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
+            // The *W string queries: GetComputerNameExW / GetUserNameW (advapi32) /
+            // GetModuleFileNameW, each marshaled UTF-16→UTF-8. plan-66-B.
+            "os.hostName" => vec![
+                import("GetComputerNameExW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            "os.userName" => vec![
+                import("GetUserNameW", "advapi32.dll", required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            "os.executablePath" => vec![
+                import("GetModuleFileNameW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
             // sync primitives (they share the queue/broadcast machinery), so the

@@ -99,6 +99,15 @@ pub(super) fn lower_executable_path(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
+    if platform.family() == PlatformFamily::Windows {
+        // GetModuleFileNameW(NULL, …) + UTF-16→UTF-8 marshal (plan-66-B).
+        return super::introspect::lower_os_wide_string_windows(
+            symbol,
+            "executablePath",
+            platform_imports,
+            platform,
+        );
+    }
     let fail = format!("{symbol}_fail");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");

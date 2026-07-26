@@ -351,6 +351,22 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Err("os::setEnv Windows primitive is only implemented on windows-x86_64".to_string())
     }
+    /// Windows-only string-query primitive (plan-66-B). Runs the `*W` OS query named
+    /// by `which` (`"hostName"` = GetComputerNameExW, `"userName"` = GetUserNameW,
+    /// `"executablePath"` = GetModuleFileNameW) into a wide buffer, marshals the
+    /// UTF-16 result to a fresh arena UTF-8 NUL-terminated C-string, and leaves that
+    /// pointer in the return register — or 0 on failure. The shared `os::hostName`/
+    /// `userName`/`executablePath` helpers build their `String` from that pointer.
+    fn emit_os_wide_string(
+        &self,
+        _which: &str,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("os wide-string query is only implemented on windows-x86_64".to_string())
+    }
     /// Copy the saved terminal state at `base + original_offset` to
     /// `base + modified_offset`, then edit the copy into single-key raw mode:
     /// clear `ECHO`/`ICANON` in the local-flags field when requested and set

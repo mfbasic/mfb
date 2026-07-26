@@ -335,7 +335,7 @@ tick in the same commit as the work.
 Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets. **MET** — box (`dt66.exe`): `mono_nonneg=TRUE now_recent=TRUE off_stable=TRUE(-28800=PST) oor_invalidArg=TRUE`; artifact-gate 21 diffs are all pre-existing flaky `codegen_cover_rt` noise in untouched paths (see Corrections), 0 attributable to this change; full `cargo test` green.
 Commit: 78622bb8d
 
-### Phase B — `os::`  (IN PROGRESS — 9/15 calls landed)
+### Phase B — `os::`  (IN PROGRESS — 12/15 calls landed)
 - [~] Advertise `os.*`; implement the 15 calls. **Landed & box-proven:**
   *track 1 (52e5fb79c)* `os.name`, `os.arch` (const-string arms), `os.pid`
   (GetCurrentProcessId), `os.cpuCount` (GetSystemInfo, `dwNumberOfProcessors` at
@@ -347,16 +347,21 @@ Commit: 78622bb8d
   value C-string or 0 — the POSIX getenv contract) and `emit_env_set`
   (SetEnvironmentVariableW, inverted to the POSIX 0=success convention; NULL value
   → delete for unsetEnv). Box-proven incl. a non-ASCII round-trip (`hello-世界`).
-  **Remaining (6):** `environ` (`emit_environ_pointer` stub → GetEnvironmentStringsW,
-  minus `=C:=…` drive entries), `hostName`/`userName`/`executablePath` (`*W` +
-  WideCharToMultiByte marshal; `executablePath` currently `unreachable!` at
-  `paths.rs:89`), and `args` (**entry-side capture is missing** — see Corrections).
-- [x] Tests: host-neutral fixtures `os-introspect-basic` (pid/cpuCount/name/arch)
-  and `os-env-roundtrip` (set/get/has/unset incl. Unicode); box runs all correct.
-  (environ/args/exePath/hostName/userName box run pending the remaining calls.)
+  *track 3 (string trio)* `hostName` (GetComputerNameExW), `userName` (GetUserNameW,
+  advapi32), `executablePath` (GetModuleFileNameW) via one Windows-only platform
+  primitive `emit_os_wide_string(which)` (`*W` query into a wide buffer →
+  WideCharToMultiByte → UTF-8 C-string) + a shared `lower_os_wide_string_windows`
+  that builds the String or raises ErrUnsupported. Replaced the `paths.rs:89` /
+  introspect `unreachable!`s. Box-proven (exe path contains the binary name).
+  **Remaining (3):** `environ` (`emit_environ_pointer` stub → GetEnvironmentStringsW,
+  minus `=C:=…` drive entries), `args` (**entry-side capture is missing** — see
+  Corrections; the deferred hard one).
+- [x] Tests: host-neutral fixtures `os-introspect-basic`, `os-env-roundtrip`,
+  `os-identity-queries` (host/user/exe non-empty + exe contains program name); box
+  runs all correct. (environ/args box run pending.)
 
-Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **PARTIAL** — pid/cpuCount/getEnv(+family) box-proven; args/executablePath/hostName/userName/environ not yet implemented.
-Commit: 52e5fb79c (track 1); env family — this commit
+Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **NEARLY MET** — pid/cpuCount/getEnv(+family)/executablePath/hostName/userName all box-proven; only `args` (needs entry capture) and `environ` remain.
+Commit: 52e5fb79c (track 1); 69599dfc9 (env); string trio — this commit; env family — this commit
 
 ### Phase C — `io::` input + buffering
 - [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.

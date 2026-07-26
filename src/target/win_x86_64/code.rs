@@ -30,6 +30,7 @@ use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
 const KERNEL32: &str = "kernel32.dll";
+const ADVAPI32: &str = "advapi32.dll";
 const WS2_32: &str = "ws2_32.dll";
 // ioctlsocket command to toggle blocking mode: FIONBIO = 0x8004667E.
 const FIONBIO: &str = "2147767422";
@@ -90,6 +91,35 @@ fn arena_alloc_to_slot(
         library: None,
     });
     instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
+}
+
+/// Emit `WideCharToMultiByte(CP_UTF8, 0, [wide_slot], -1, [u8_slot], u8_cap, NULL,
+/// NULL)`, converting the NUL-terminated UTF-16 buffer at `sp + wide_slot` into the
+/// UTF-8 buffer at `sp + u8_slot`. The caller owns the frame (shadow space +
+/// [0x20]/[0x28]/[0x30]/[0x38] stack-arg slots). Returns the byte count (incl. NUL)
+/// in the return register. plan-66-B.
+fn emit_wide_slot_to_utf8(
+    from: &str,
+    wide_slot: usize,
+    u8_slot: usize,
+    u8_cap: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), u8_slot), // lpMultiByteStr (5th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
+        abi::move_immediate(abi::ARG[2], "Integer", u8_cap), // cbMultiByte (6th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // lpDefaultChar (7th) NULL
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // lpUsedDefaultChar (8th) NULL
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), wide_slot), // lpWideCharStr (3rd)
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
+    ]);
+    call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
 }
 
 /// Emit `MultiByteToWideChar(CP_UTF8, 0, [src_slot], -1, [dst_slot], wchar_cap)`,
@@ -1042,6 +1072,79 @@ impl code::CodegenPlatform for Platform {
             abi::move_immediate(abi::return_register(), "Integer", "0"), // success
             abi::label(&out),
             abi::add_stack(0x50),
+        ]);
+        Ok(())
+    }
+
+    fn emit_os_wide_string(
+        &self,
+        which: &str,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // Run the `*W` OS query for `which` into a wide buffer, marshal to a UTF-8
+        // C-string, and leave the pointer in the return register (0 on failure).
+        // Frame (after subtract_stack(0x60)): shadow [0x00..0x20), marshal stack args
+        // [0x20..0x40), [0x40] size DWORD (in/out for the Ex/User queries), [0x48]
+        // wide buffer (2048 wchars), [0x50] UTF-8 buffer (8 KiB). plan-66-B.
+        const SIZE_SLOT: usize = 0x40;
+        const WIDE_SLOT: usize = 0x48;
+        const U8_SLOT: usize = 0x50;
+        let n = instructions.len();
+        let fail = format!("{from}_oswq_fail_{n}");
+        let done = format!("{from}_oswq_done_{n}");
+        instructions.push(abi::subtract_stack(0x60));
+        arena_alloc_to_slot(from, "4096", WIDE_SLOT, instructions, relocations); // 2048 wchars
+        arena_alloc_to_slot(from, "8192", U8_SLOT, instructions, relocations);
+        match which {
+            // GetComputerNameExW(ComputerNameDnsHostname=1, lpBuffer, &nSize) → BOOL.
+            "hostName" => {
+                instructions.extend([
+                    abi::move_immediate(abi::ARG[0], "Integer", "2048"),
+                    abi::store_u32(abi::ARG[0], abi::stack_pointer(), SIZE_SLOT),
+                    abi::move_immediate(abi::ARG[0], "Integer", "1"),
+                    abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDE_SLOT),
+                    abi::add_immediate(abi::ARG[2], abi::stack_pointer(), SIZE_SLOT),
+                ]);
+                call_external(from, "GetComputerNameExW", KERNEL32, instructions, relocations);
+                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::branch_eq(&fail)); // BOOL 0 = failure
+            }
+            // GetUserNameW(lpBuffer, &pcbBuffer) → BOOL (advapi32).
+            "userName" => {
+                instructions.extend([
+                    abi::move_immediate(abi::ARG[0], "Integer", "2048"),
+                    abi::store_u32(abi::ARG[0], abi::stack_pointer(), SIZE_SLOT),
+                    abi::load_u64(abi::ARG[0], abi::stack_pointer(), WIDE_SLOT),
+                    abi::add_immediate(abi::ARG[1], abi::stack_pointer(), SIZE_SLOT),
+                ]);
+                call_external(from, "GetUserNameW", ADVAPI32, instructions, relocations);
+                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::branch_eq(&fail));
+            }
+            // GetModuleFileNameW(NULL, lpFilename, nSize) → char count (0 = failure).
+            "executablePath" => {
+                instructions.extend([
+                    abi::move_immediate(abi::ARG[0], "Integer", "0"),
+                    abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDE_SLOT),
+                    abi::move_immediate(abi::ARG[2], "Integer", "2048"),
+                ]);
+                call_external(from, "GetModuleFileNameW", KERNEL32, instructions, relocations);
+                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::branch_eq(&fail));
+            }
+            other => return Err(format!("unknown os wide-string query '{other}'")),
+        }
+        emit_wide_slot_to_utf8(from, WIDE_SLOT, U8_SLOT, "8192", instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), U8_SLOT),
+            abi::branch(&done),
+            abi::label(&fail),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(0x60),
         ]);
         Ok(())
     }
