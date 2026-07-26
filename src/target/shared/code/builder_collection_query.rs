@@ -1,6 +1,54 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// Entry-table linear-scan preamble shared by the map lookups
+    /// (`lower_map_get`/`lower_map_get_or`/`lower_has_key`): load the entry count,
+    /// zero the index, point `entry` at the first entry, and open the loop with the
+    /// bounds check and the entry's offset/length load. The caller loads the
+    /// collection and needle, mints every register and label, and emits the compare
+    /// and the found body, then closes with [`Self::emit_entry_scan_advance`]. Only
+    /// the fixed-width entry-table representation is covered; the entry-free kind-2
+    /// data walk (e.g. `lower_collection_contains`) is a different shape and stays
+    /// inline. Emit-only, so byte-identical to the copies it replaced.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_entry_scan_setup(
+        &mut self,
+        collection: &str,
+        count: &str,
+        index: &str,
+        entry: &str,
+        offset: &str,
+        length: &str,
+        entry_offset_field: usize,
+        entry_length_field: usize,
+        loop_label: &str,
+        not_found: &str,
+    ) {
+        self.emit(abi::load_u64(count, collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::add_immediate(entry, collection, COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(loop_label));
+        self.emit(abi::compare_registers(index, count));
+        self.emit(abi::branch_ge(not_found));
+        self.emit(abi::load_u64(offset, entry, entry_offset_field));
+        self.emit(abi::load_u64(length, entry, entry_length_field));
+    }
+
+    /// Close the [`Self::emit_entry_scan_setup`] loop: bump `entry` by one entry
+    /// stride and `index` by one, then branch back. Emit-only, byte-identical.
+    pub(super) fn emit_entry_scan_advance(
+        &mut self,
+        entry: &str,
+        index: &str,
+        next_label: &str,
+        loop_label: &str,
+    ) {
+        self.emit(abi::label(next_label));
+        self.emit(abi::add_immediate(entry, entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::branch(loop_label));
+    }
+
     pub(super) fn lower_list_get(
         &mut self,
         collection_slot: usize,
@@ -385,27 +433,18 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(&index, "Integer", "0"));
-        self.emit(abi::add_immediate(
-            &entry,
+        self.emit_entry_scan_setup(
             &collection,
-            COLLECTION_HEADER_SIZE,
-        ));
-
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&not_found));
-        self.emit(abi::load_u64(
+            &count,
+            &index,
+            &entry,
             &key_offset,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::load_u64(
             &key_length,
-            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
+            &loop_label,
+            &not_found,
+        );
         self.emit_collection_payload_match_branch(
             key_type,
             "",
@@ -432,10 +471,7 @@ impl CodeBuilder<'_> {
             self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
         self.emit(abi::branch(&done));
 
-        self.emit(abi::label(&next));
-        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(&index, &index, 1));
-        self.emit(abi::branch(&loop_label));
+        self.emit_entry_scan_advance(&entry, &index, &next, &loop_label);
 
         self.emit(abi::label(&not_found));
         self.emit_not_found_return()?;
@@ -603,27 +639,18 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(&index, "Integer", "0"));
-        self.emit(abi::add_immediate(
-            &entry,
+        self.emit_entry_scan_setup(
             &collection,
-            COLLECTION_HEADER_SIZE,
-        ));
-
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&use_default));
-        self.emit(abi::load_u64(
+            &count,
+            &index,
+            &entry,
             &key_offset,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::load_u64(
             &key_length,
-            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
+            &loop_label,
+            &use_default,
+        );
         self.emit_collection_payload_match_branch(
             key_type,
             "",
@@ -650,10 +677,7 @@ impl CodeBuilder<'_> {
             self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
         self.emit(abi::branch(&done));
 
-        self.emit(abi::label(&next));
-        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(&index, &index, 1));
-        self.emit(abi::branch(&loop_label));
+        self.emit_entry_scan_advance(&entry, &index, &next, &loop_label);
 
         self.emit(abi::label(&use_default));
         if value_type == "String" {
