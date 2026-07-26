@@ -827,7 +827,8 @@ Commit: —
 
 Acceptance: identical pass/fail set to baseline; `cargo test` green; CI coverage
 denominator unchanged.
-Commit: —
+Commit: B1 `3619a989f` + `b81b3054b`; B2 `0c2705239`. (E1/E2/B3 landed earlier
+under bug-327.) Full `cargo test --workspace` = 3706 passed, 0 failed.
 
 ### Phase 3 — harness, layout, and documentation
 
@@ -869,7 +870,13 @@ a filtered `sync-goldens.sh` renames-only run); and the deferred F3/F4 tails.
 Acceptance: full `scripts/test-accept.sh` green with the same pass/fail set as
 baseline; `git diff` over `tests/**/golden/` shows **renames only, zero content
 changes**; `artifact-gate.sh` covers all 19 artifact kinds.
-Commit: —
+Commit (partial — the safe subset only): E4 `3701770dd`; A3 + D2 `90ac4e0cf`.
+No golden touched by this pass (the diff has zero `golden/`/`.ncode`/`.ast`/`.ir`
+files), so acceptance output is unchanged by construction; the gate run was the
+full `cargo test --workspace` (3706 passed, 0 failed), not `test-accept.sh`.
+**Still open in this phase:** C3, C1, C2, C4+F7, A2+F5 — the harness-table
+refactor and the two fixture moves, intentionally deferred (user-scoped pass).
+Merged to main at `0c1c7e61d`.
 
 ## Validation Plan
 
