@@ -1,0 +1,216 @@
+' crypto-group benchmark (crypto:: package). New group `crypto` (plan-65 Theme 1).
+'
+' The crypto package is a portable software core over the `bits` package — a pure
+' integer/bit-shuffling throughput hot path — with deterministic, byte-identical
+' output and exact C/Python peers (`hashlib`, `hmac`, `hashlib.pbkdf2_hmac`, and
+' pyca `cryptography` for Ed25519). Every row folds the digest/tag/signature bytes
+' into an integer checksum that matches bit-for-bit across all three languages,
+' because every core computes a standard FIPS/RFC algorithm.
+'
+' Rows:
+'   sha256   64x hash of a fixed 1 KB buffer (the 64-round SHA-2 compression)
+'   sha512   64x hash of the same buffer through the 80-round 64-bit variant
+'   hmac     64x HMAC-SHA-256 keyed MAC over the buffer (two hash passes)
+'   pbkdf2   one 4096-iteration PBKDF2-HMAC-SHA-256 derive (the work-factor KDF)
+'   cte      8192x constant-time compare of two equal 32-byte lists
+'   churn    hash many fresh small messages built per call (arena-gated, tiny)
+'   ed25519  2x deterministic RFC-8032 sign+verify with a fixed seed (mfb+python;
+'            C has no in-suite peer, printed as `--`)
+IMPORT io
+IMPORT crypto
+IMPORT collections
+IMPORT datetime
+
+' Deterministic byte buffer: b[i] = (i*37 + 11) mod 256 (shared with the C/Python
+' mirrors so every digest matches).
+FUNC cryptoBuf(n AS Integer) AS List OF Byte
+  MUT buf AS List OF Byte = []
+  FOR i = 0 TO n - 1
+    buf = collections::append(buf, toByte((i * 37 + 11) MOD 256))
+  NEXT
+  RETURN buf
+END FUNC
+
+FUNC cryptoSumBytes(data AS List OF Byte) AS Integer
+  MUT s AS Integer = 0
+  FOR EACH b IN data
+    s = s + toInt(b)
+  NEXT
+  RETURN s
+END FUNC
+
+' sha256 bulk hash — the SHA-2 64-round compression over `bits` rotate/shift/xor,
+' the package's core inner loop. Realistic N: a single hash of a fixed buffer per
+' rep is CPU-bound, not arena churn (Phase 1).
+FUNC test_crypto_sha256(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET buf AS List OF Byte = cryptoBuf(1024)
+  LET reps AS Integer = 64
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      acc = acc + cryptoSumBytes(crypto::sha256(buf))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("crypto_sha256 = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("crypto", "sha256", times))
+END FUNC
+
+' sha512 bulk hash — the 80-round 64-bit variant (a distinct word-size inner loop).
+' Arena-gated (plan-64-A): mfb's SHA-512 software core allocates transient values
+' larger than the arena quick-bin threshold, so per-call it hits the O(n^2) free-
+' list walk and explodes cumulatively in-suite (reps=64 measured at 1634 ms once
+' the arena is degraded, vs 26 ms in a clean process). Authored tiny; raise reps
+' when the arena fix lands.
+FUNC test_crypto_sha512(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET buf AS List OF Byte = cryptoBuf(1024)
+  LET reps AS Integer = 2   ' TODO(plan-64-A): raise to 64
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      acc = acc + cryptoSumBytes(crypto::sha512(buf))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("crypto_sha512 = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("crypto", "sha512", times))
+END FUNC
+
+' hmac-sha256 — keyed MAC over the buffer (two hash passes + key schedule), the
+' message-authentication hot path.
+' Arena-gated (plan-64-A): each MAC allocates several transient buffers, and at a
+' realistic rep count the volume fills the quick bins and the per-call cost climbs
+' cumulatively across the run loop (reps=64 measured climbing 179 ms -> 1300 ms
+' across --run 10). Authored tiny; raise reps when the arena fix lands.
+FUNC test_crypto_hmac(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET buf AS List OF Byte = cryptoBuf(1024)
+  LET key AS List OF Byte = cryptoBuf(32)
+  LET reps AS Integer = 8   ' TODO(plan-64-A): raise to 64
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      acc = acc + cryptoSumBytes(crypto::hmacSha256(key, buf))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("crypto_hmac = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("crypto", "hmac", times))
+END FUNC
+
+' pbkdf2-sha256 (work factor) — derive a 32-byte key with a fixed salt and an
+' iteration count. The deliberately-expensive iterated-HMAC KDF quantifies the
+' per-iteration HMAC cost, deterministic with a fixed salt.
+' Arena-gated (plan-64-A): a realistic 4096-iteration derive is ~8192 SHA-256
+' compressions, whose transient-list churn fills the quick bins and triggers the
+' O(n^2) flush-before-grow amplifier (measured 8069 ms in-suite vs 224 ms clean).
+' Authored at a low work factor; raise iterations when the arena fix lands.
+FUNC test_crypto_pbkdf2(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET pw AS List OF Byte = cryptoBuf(16)
+  LET salt AS List OF Byte = cryptoBuf(16)
+  LET iters AS Integer = 64   ' TODO(plan-64-A): raise to 4096
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET dk AS List OF Byte = crypto::pbkdf2Sha256(pw, salt, iters, 32)
+    checksum = cryptoSumBytes(dk)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("crypto_pbkdf2 = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("crypto", "pbkdf2", times))
+END FUNC
+
+' constantTimeEqual — compare two equal-length byte lists many times (the constant-
+' time-compare primitive; a tight `bits` loop).
+FUNC test_crypto_cte(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET a AS List OF Byte = cryptoBuf(32)
+  LET b AS List OF Byte = cryptoBuf(32)
+  LET reps AS Integer = 8192
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT cnt AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      IF crypto::constantTimeEqual(a, b) THEN cnt = cnt + 1
+    NEXT
+    checksum = cnt
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("crypto_cte = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("crypto", "cte", times))
+END FUNC
+
+' hash churn — hash many *fresh* small `List OF Byte` messages built per call (the
+' realistic "hash a stream of records" pattern; per-call byte-list allocation).
+' Arena-gated (plan-64-A): authored tiny — raise MSGS when the arena fix lands.
+FUNC test_crypto_churn(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET msgs AS Integer = 16   ' TODO(plan-64-A): raise to 4096
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO msgs - 1
+      MUT m AS List OF Byte = []
+      FOR j = 0 TO 39
+        m = collections::append(m, toByte((i * 13 + j * 37 + 11) MOD 256))
+      NEXT
+      acc = acc + cryptoSumBytes(crypto::sha256(m))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("crypto_churn = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("crypto", "churn", times))
+END FUNC
+
+' ed25519 sign+verify — sign a fixed message with a hardcoded test-vector seed
+' (deterministic RFC-8032 signing) then verify with the matching public key. The
+' only asymmetric primitive that is fully deterministic. mfb+python; C has no
+' in-suite peer (printed as `--`). The public key is the seed's derived key,
+' precomputed once so verify runs without generateEd25519's randomness.
+' Arena-gated (plan-64-A): each sign/verify runs SHA-512 plus Curve25519 field
+' arithmetic over the bits package — intrinsically heavy and transient-allocation
+' heavy, so it also suffers the arena quadratic in-suite (963 ms at reps=2 vs
+' ~300 ms clean). Authored at reps=1; raise when the arena fix lands.
+FUNC test_crypto_ed25519(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET seed AS List OF Byte = cryptoBuf(32)
+  LET msg AS List OF Byte = cryptoBuf(64)
+  LET pub AS List OF Byte = [toByte(36), toByte(195), toByte(164), toByte(148), toByte(250), toByte(34), toByte(153), toByte(98), toByte(102), toByte(68), toByte(185), toByte(101), toByte(169), toByte(19), toByte(45), toByte(167), toByte(156), toByte(254), toByte(103), toByte(21), toByte(31), toByte(220), toByte(66), toByte(222), toByte(96), toByte(12), toByte(240), toByte(144), toByte(151), toByte(219), toByte(130), toByte(71)]
+  LET reps AS Integer = 1   ' TODO(plan-64-A): raise to 4
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      LET sig AS List OF Byte = crypto::ed25519Sign(seed, msg)
+      acc = acc + cryptoSumBytes(sig)
+      IF crypto::ed25519Verify(pub, msg, sig) THEN acc = acc + 1
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("crypto_ed25519 = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("crypto", "ed25519", times))
+END FUNC

@@ -1,0 +1,101 @@
+' serialize-group benchmark (json::/csv:: encode direction). New group `serialize`
+' (plan-65 Theme 2).
+'
+' The suite parses CSV and JSON but never serializes them back. `stringify` is a
+' distinct hot path from parsing: a recursive tree walk with string-escape and
+' integer->String rendering. Every row's checksum is the *length* of the emitted
+' text (accumulated over the reps). Length is order-independent, so it matches
+' across all three languages even though json object members may be emitted in a
+' different order — provided the document holds only ASCII strings and integers
+' (no `/`, no fractional Float, no characters that escape differently), which the
+' canonical inputs below guarantee. Verified byte-identical against Python
+' json.dumps(...,separators=(',',':')) and a matching csv join.
+'
+' Rows (all arena-gated on plan-64-A — per-call String building — so authored tiny):
+'   json      build a Json tree once, stringify it many times
+'   roundtrip parse+stringify each rep (the load/modify/save seam end-to-end)
+'   csv       render a String grid to RFC-4180 text, quoting only where needed
+IMPORT io
+IMPORT collections
+IMPORT datetime
+IMPORT json
+IMPORT csv
+
+' Canonical compact JSON: ASCII strings + integers only, no `/`, no fractional
+' numbers, so every compact serializer emits the same length (133).
+FUNC serializeJsonText() AS String
+  RETURN "{\"name\":\"benchmark\",\"version\":3,\"tags\":[\"alpha\",\"beta\",\"gamma\"],\"nested\":{\"count\":42,\"label\":\"node\",\"values\":[1,2,3,4,5]},\"active\":1}"
+END FUNC
+
+' A small grid exercising the quote-when-needed path: one comma cell, one quote
+' cell (doubled on output), the rest bare.
+FUNC serializeGrid() AS List OF List OF String
+  RETURN [["id", "name", "note"], ["1", "Grace", "Hop,per"], ["2", "Ada", "plain"], ["3", "Alan", "say\"hi"]]
+END FUNC
+
+' json stringify — build the value tree once (outside timing), then stringify it
+' many times: escape + number formatting + map iteration-order emission.
+' Arena-gated (plan-64-A): per-call String building — authored tiny.
+FUNC test_serialize_json(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET tree AS Json = json::parse(serializeJsonText())
+  LET reps AS Integer = 4   ' TODO(plan-64-A): raise to 200
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      acc = acc + len(json::stringify(tree))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("serialize_json = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("serialize", "json", times))
+END FUNC
+
+' json parse->stringify round-trip — the realistic load/modify/save cycle end to
+' end (distinct from either half alone; stresses the parse+serialize seam).
+' Arena-gated (plan-64-A).
+FUNC test_serialize_roundtrip(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET text AS String = serializeJsonText()
+  LET reps AS Integer = 4   ' TODO(plan-64-A): raise to 100
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      LET tree AS Json = json::parse(text)
+      acc = acc + len(json::stringify(tree))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("serialize_roundtrip = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("serialize", "roundtrip", times))
+END FUNC
+
+' csv stringify — render a `List OF List OF String` grid to RFC-4180 text: the
+' quote-when-needed field-join hot path complementary to `parse csv`.
+' Arena-gated (plan-64-A) for the per-call String churn.
+FUNC test_serialize_csv(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET grid AS List OF List OF String = serializeGrid()
+  LET reps AS Integer = 4   ' TODO(plan-64-A): raise to 200
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR rep = 0 TO reps - 1
+      acc = acc + len(csv::stringify(grid))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("serialize_csv = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("serialize", "csv", times))
+END FUNC
