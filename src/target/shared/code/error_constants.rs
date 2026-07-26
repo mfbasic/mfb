@@ -350,6 +350,22 @@ pub(crate) const TERM_HLINE_CODEPOINTS: [u32; 7] =
 pub(crate) const TERM_VLINE_CODEPOINTS: [u32; 7] =
     [0x2502, 0x2503, 0x2506, 0x2507, 0x250A, 0x250B, 0x2551];
 
+/// `term::drawBox` corner code points, indexed by `LineStyle` ordinal (same order
+/// as above). Dash/dot styles have no dashed corner glyphs, so they reuse the
+/// Light (`Light`/`LightDash`/`LightDot`) or Heavy (`Heavy`/`HeavyDash`/`HeavyDot`)
+/// corners; `Double` uses the double corners. One table per corner position so the
+/// glyph is selected by the same ordinal chain the edge glyphs use.
+///   weight per ordinal: 0,2,4 → Light   1,3,5 → Heavy   6 → Double
+/// TL ┌┏╔  TR ┐┓╗  BL └┗╚  BR ┘┛╝
+pub(crate) const TERM_CORNER_TL_CODEPOINTS: [u32; 7] =
+    [0x250C, 0x250F, 0x250C, 0x250F, 0x250C, 0x250F, 0x2554];
+pub(crate) const TERM_CORNER_TR_CODEPOINTS: [u32; 7] =
+    [0x2510, 0x2513, 0x2510, 0x2513, 0x2510, 0x2513, 0x2557];
+pub(crate) const TERM_CORNER_BL_CODEPOINTS: [u32; 7] =
+    [0x2514, 0x2517, 0x2514, 0x2517, 0x2514, 0x2517, 0x255A];
+pub(crate) const TERM_CORNER_BR_CODEPOINTS: [u32; 7] =
+    [0x2518, 0x251B, 0x2518, 0x251B, 0x2518, 0x251B, 0x255D];
+
 pub(crate) const TERM_STATE_ACTIVE_OFFSET: usize = 0;
 pub(crate) const TERM_STATE_FG_OFFSET: usize = 8;
 pub(crate) const TERM_STATE_BG_OFFSET: usize = 16;

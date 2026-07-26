@@ -36,6 +36,7 @@ pub(crate) const SYNC: &str = "term.sync";
 pub(crate) const MOVE_TO: &str = "term.moveTo";
 pub(crate) const DRAW_HLINE: &str = "term.drawHLine";
 pub(crate) const DRAW_VLINE: &str = "term.drawVLine";
+pub(crate) const DRAW_BOX: &str = "term.drawBox";
 pub(crate) const GET_FOREGROUND: &str = "term.getForeground";
 pub(crate) const GET_BACKGROUND: &str = "term.getBackground";
 pub(crate) const GET_BOLD: &str = "term.getBold";
@@ -63,6 +64,7 @@ pub(crate) fn is_term_call(name: &str) -> bool {
             | MOVE_TO
             | DRAW_HLINE
             | DRAW_VLINE
+            | DRAW_BOX
             | GET_FOREGROUND
             | GET_BACKGROUND
             | GET_BOLD
@@ -92,6 +94,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         MOVE_TO => Some(&[&["row"], &["column"]]),
         DRAW_HLINE => Some(&[&["line"], &["row"], &["colA"], &["colB"]]),
         DRAW_VLINE => Some(&[&["line"], &["col"], &["rowA"], &["rowB"]]),
+        DRAW_BOX => Some(&[&["line"], &["x1"], &["y1"], &["x2"], &["y2"]]),
         _ => None,
     }
 }
@@ -106,6 +109,7 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
         SET_BOLD | SET_UNDERLINE => Some(&["Boolean"]),
         MOVE_TO => Some(&["Integer", "Integer"]),
         DRAW_HLINE | DRAW_VLINE => Some(&[LINE_STYLE_TYPE, "Integer", "Integer", "Integer"]),
+        DRAW_BOX => Some(&[LINE_STYLE_TYPE, "Integer", "Integer", "Integer", "Integer"]),
         _ => None,
     }
 }
@@ -113,7 +117,9 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         ON | OFF | SET_FOREGROUND | SET_BACKGROUND | SET_BOLD | SET_UNDERLINE | SHOW_CURSOR
-        | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO | DRAW_HLINE | DRAW_VLINE => Some("Nothing"),
+        | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO | DRAW_HLINE | DRAW_VLINE | DRAW_BOX => {
+            Some("Nothing")
+        }
         IS_ON | GET_BOLD | GET_UNDERLINE => Some("Boolean"),
         GET_FOREGROUND | GET_BACKGROUND => Some(TERM_COLOR_TYPE),
         TERMINAL_SIZE => Some(TERM_SIZE_TYPE),
@@ -176,6 +182,7 @@ mod tests {
         MOVE_TO,
         DRAW_HLINE,
         DRAW_VLINE,
+        DRAW_BOX,
         GET_FOREGROUND,
         GET_BACKGROUND,
         GET_BOLD,
@@ -303,6 +310,14 @@ mod tests {
                 "{name}"
             );
         }
+        assert_eq!(
+            call_param_names(DRAW_BOX),
+            Some(&[&["line"][..], &["x1"][..], &["y1"][..], &["x2"][..], &["y2"][..]][..])
+        );
+        assert_eq!(
+            param_types(DRAW_BOX),
+            Some(&["LineStyle", "Integer", "Integer", "Integer", "Integer"][..])
+        );
     }
 
     #[test]
@@ -321,6 +336,7 @@ mod tests {
             MOVE_TO,
             DRAW_HLINE,
             DRAW_VLINE,
+            DRAW_BOX,
         ] {
             assert_eq!(call_return_type_name(name), Some("Nothing"), "{name}");
         }
@@ -371,6 +387,10 @@ mod tests {
             expected_arguments(DRAW_VLINE).as_deref(),
             Some("LineStyle, Integer, Integer, Integer")
         );
+        assert_eq!(
+            expected_arguments(DRAW_BOX).as_deref(),
+            Some("LineStyle, Integer, Integer, Integer, Integer")
+        );
     }
 
     #[test]
@@ -387,5 +407,6 @@ mod tests {
         assert_eq!(arity(MOVE_TO), Some((2, 2)));
         assert_eq!(arity(DRAW_HLINE), Some((4, 4)));
         assert_eq!(arity(DRAW_VLINE), Some((4, 4)));
+        assert_eq!(arity(DRAW_BOX), Some((5, 5)));
     }
 }

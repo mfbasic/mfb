@@ -92,6 +92,7 @@ impl NativeBackend for Backend {
                 "term.moveTo",
                 "term.drawHLine",
                 "term.drawVLine",
+                "term.drawBox",
                 "term.getForeground",
                 "term.getBackground",
                 "term.getBold",
