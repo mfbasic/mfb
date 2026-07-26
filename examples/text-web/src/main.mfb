@@ -123,13 +123,6 @@ FUNC indicatorText(loadState AS String, secure AS Boolean, spinner AS Integer) A
   RETURN "🔓"
 END FUNC
 
-' The rendered column width of the indicator. The lock emoji is one scalar but
-' occupies two terminal columns; the spinner is a single column.
-FUNC indicatorWidth(loadState AS String, secure AS Boolean) AS Integer
-  IF loadState = "loading" THEN RETURN 1
-  RETURN 2
-END FUNC
-
 ' The first-run help shown in the content area.
 FUNC welcomeText() AS String
   RETURN "text-web — a tiny terminal web viewer\n\nPress G to type an address, then Enter to load it.\nUse the Up / Down arrows to scroll a loaded page.\nPress Q to quit.\n\nExample addresses (https:// is assumed when omitted):\n  example.com\n  https://example.org\n"
@@ -301,11 +294,10 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, loadStat
   term::setBackground(0, 0, 0)
   term::setForeground(255, 255, 255)
 
-  ' Cursor: visible at the end of the URL while editing, hidden otherwise. The
-  ' indicator glyph may be wider than its one scalar, so add its extra columns.
+  ' Cursor: visible at the end of the URL while editing, hidden otherwise. Each
+  ' scalar (the emoji included) is one cell on the term:: grid.
   IF addressMode THEN
-    LET extra AS Integer = indicatorWidth(loadState, secure) - 1
-    LET curCol AS Integer = minOf(len(prefix) + extra + len(url), cols - 1)
+    LET curCol AS Integer = minOf(len(prefix) + len(url), cols - 1)
     term::moveTo(0, curCol)
     term::showCursor()
   ELSE
