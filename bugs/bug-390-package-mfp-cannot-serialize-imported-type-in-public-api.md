@@ -23,11 +23,16 @@ actionable diagnostic naming the type and its owning package, never emit a
 corrupt `.mfp` that fails later with an opaque `truncated binary
 representation`.)
 
-This is dangerous because the artifact is *silently corrupt*: the exporter build
-does not detect the problem — it writes a `.mfp` containing a malformed type
-entry, and the failure surfaces only when something reads that `.mfp` back
-(during a later build of the same package's consumer, or `mfb pkg info`), with a
-message that points at neither the offending type nor the source line.
+This is dangerous because the failure is *opaque*: the `bug` package build aborts
+with a bare `truncated binary representation` that names neither the offending
+type (`Box`) nor the exported function (`describe`) nor a source line — the type
+check of `describe` has already passed, so nothing points the author at the real
+problem. (Reproduced 2026-07-26 on macos-aarch64 — see below. The earlier draft
+of this section claimed the exporter *writes* a silently-corrupt `.mfp` that
+fails only on a later read-back; that is wrong. The reproduction confirms the
+build fails during the package's **own** ABI serialization, before any `.mfp` is
+written — the corrupt entry never leaves the process. The danger is the useless
+diagnostic, not a shipped corrupt artifact.)
 
 References:
 
@@ -162,12 +167,26 @@ never merged into the importer's IR type table. So `Box` misses `self.ids` and
 falls to `add_entry(strings, "", name, 1, Vec::new())`, which interns it as an
 **empty kind-1 RECORD** — a record type "that does not exist, with no fields."
 
-When that `.mfp` is read back, the decoder expects a real record body for a
-kind-1 entry and runs off the end of the section, raising `truncated binary
-representation` (`src/binary_repr/util.rs:136`/`201`+; the failure is the exact
-chain the STATE-type comment at `src/binary_repr/sections.rs:type_id` already
-documents for a different trigger — a `STATE` composite that used to fall to this
-same `_` fallback and was fixed by giving it a real kind-11 encoding).
+The failure fires **within the same build**, not on a later read-back: after the
+type table is populated, the package's ABI section is serialized by walking each
+exported signature's type graph (`AbiSerializer` /
+`TypeTable::serialize_type` → `serialize_record_type`,
+`src/binary_repr/sections.rs:1048`). For the empty-record `Box` entry the payload
+is zero-length, so reading the record's field-count `u32` off it
+(`cursor_u32` → `checked_u32_at`, `src/binary_repr/util.rs:211`) fails with
+`truncated binary representation`. The error propagates up through
+`lower_package_project` / `build_package_binary_repr_bytes`
+(`src/binary_repr/mod.rs:583`) → `target::write_package`
+(`src/target/package_mfp/mod.rs:64`) → the build's `error: {err}` printer, so no
+`.mfp` is ever written. This is the exact chain the STATE-type comment at
+`src/binary_repr/sections.rs:type_id` already documents for a different trigger —
+a `STATE` composite that used to fall to this same `_` fallback and was fixed by
+giving it a real kind-11 encoding.
+
+Confirmed reproduction (macos-aarch64, release `mfb` at main `4610f15e2`): the
+`ok` control builds and writes `ok.mfp`; the `bug` package aborts with
+`error: truncated binary representation` and writes no `bug.mfp` — exactly the
+mechanism above.
 
 Why the contrast cases are immune:
 - The `ok` package never puts a foreign type in its exported API, so `type_id`
@@ -182,14 +201,59 @@ instead of either encoding a resolvable foreign reference or refusing at export.
 
 ## Goal
 
+**Scope decided (2026-07-26, with the maintainer): the full foreign-reference
+encoding, not the interim diagnostic-only descope.** The acceptance model is the
+pA/pB/pC/app scenario below.
+
 - A package whose exported API names a type imported from a declared dependency
   builds to a valid `.mfp`; an executable installing both packages compiles,
   links, and runs, with the imported type resolving to the dependency's
   definition (fields, unions, and nested `List`/`Map` of it all intact).
-- No `.mfp` ever encodes an imported type as a zero-field record. If the full
-  feature is descoped, the exporter fails at build time with a diagnostic that
-  names the offending type, its owning package, and the source location — and
-  still never writes a corrupt artifact.
+- The imported type is **re-exported by original ABI identity, never
+  re-mangled**: the foreign reference a package writes carries the owning
+  dependency's name, the exported type's original name, **and that type's ABI
+  hash as computed by the owning package**. So the same underlying type surfaced
+  through two different intermediary packages resolves to one identity and
+  unifies (an `A` returned by pC's function can be passed to pB's function).
+- **Only surfaced types are re-exported.** A dependency type that no exported
+  function/type of the building package actually names is not written into the
+  `.mfp` at all (it is never reached during ABI serialization).
+- **ABI-incompatibility is a compile error.** If two intermediary packages were
+  built against ABI-incompatible versions of the shared dependency (or the
+  consumer resolves a dependency version incompatible with what an intermediary
+  was built against), the consumer build must reject at dependency-verify /
+  ABI-index validation time, not miscompile.
+- No `.mfp` ever encodes an imported type as a zero-field record.
+
+### Acceptance model (the fixture to build)
+
+```
+pA : EXPORT TYPE A ; TYPE B (private) ; EXPORT TYPE C
+pB : IMPORT pA ; EXPORT FUNC takesA(a AS A) ...        (A in an exported ARGUMENT)
+pC : IMPORT pA ; EXPORT FUNC makesA() AS A ...         (A in an exported RESULT)
+app: IMPORT pB, pC ; wires pC::makesA() -> pB::takesA(...)
+```
+
+Required outcomes:
+- pB and pC each build to a valid `.mfp` carrying a foreign reference to `pA::A`
+  (original name + pA's ABI hash for A).
+- pB does **not** re-export `A` unless it is surfaced (it is here); pB never
+  re-exports `B` (never exported by pA) nor `C` (pA exports it, but pB names no
+  `C` in its own API).
+- app builds/links/runs: the `A` from `pC::makesA()` is the *same identity* as
+  the `A` `pB::takesA()` expects (both resolve to pA's merged `A`), so the wiring
+  type-checks and the value round-trips at runtime.
+- app has access to `A` (pA's exported type) and **no** access to `B` (pA's
+  private type — it is in no ABI surface).
+- A deliberately ABI-incompatible `pA` under pB vs pC fails app's build.
+
+**Open naming decision (blocks the resolver design):** whether app must
+`IMPORT pA` to *name* `A` in its own source (identity-only re-export — values
+flow/unify without importing pA, but naming requires the import), or whether
+`IMPORT pB` alone brings `A` into scope under pA's original identity (true
+namespace re-export, idempotent when pB and pC both surface it). Value flow
+(wiring pC→pB) works in either model; this only governs whether app can write
+`DIM x AS A` without importing pA. See Open Decisions.
 
 ### Non-goals (must NOT change)
 
@@ -230,29 +294,61 @@ It is a latent capability gap, not an active corruption of shipping artifacts.
 
 ## Fix Design
 
-Add a type-table entry kind for an **imported/foreign type reference**: it
-records the owning package's dependency name (as declared in `packages[]`) plus
-the exported type name, rather than an inline definition. On the writer side,
-`type_id`'s `_` arm, when it misses `self.ids`, consults the set of
-imported-package exported types (the same table
-`binary_repr::read_package_exports` already surfaces for type-checking) and, on a
-hit, emits the new foreign-reference kind instead of a zero-field record. On the
-reader/merge side (the executable's decode-and-merge), a foreign reference
-resolves to the already-merged, identity-prefixed definition of that dependency's
-type — both dependencies are present transitively, per the container-format
-dependency list.
+Add a type-table entry kind for an **imported/foreign type reference**. Unlike an
+inline definition it records three things: the owning package's dependency name
+(as declared in `packages[]`), the exported type's **original name**, and **that
+type's ABI hash as computed by the owning package**. The hash is the load-bearing
+field — the name alone cannot detect a version mismatch.
+
+**Writer.** `type_id`'s `_` arm, when it misses `self.ids`, consults the imported
+packages' exported types (the tables `binary_repr::read_package_exports` /
+`read_package_type_exports` already surface for type-checking) and, on a hit,
+emits the new foreign-reference kind instead of a zero-field record. Crucially,
+the export's `sig_hash` (`src/binary_repr/mod.rs`, ABI_INDEX) must be computed so
+the foreign type contributes **pA's identity for A**, not a locally re-walked
+structure — this is the "original ABI hash, no re-mangling" requirement. Two
+different intermediary packages surfacing the same `pA::A` therefore produce
+identical hash contributions for it, which is what lets a consumer unify them.
+
+**Selective.** Because the foreign-reference entry is only ever created when
+`type_id` is reached while serializing the building package's *own* exported
+signatures, a dependency type that no exported func/type names is never written —
+no extra gate needed (see acceptance model: `C` is not re-exported by pB).
+
+**Reader / merge (executable consumer).** A foreign reference resolves to the
+already-merged, identity-prefixed definition of that dependency's type. Both (all)
+dependencies must be present — including a **transitive** dependency: in the
+acceptance model app declares only pB and pC, but pA is pulled in transitively via
+the container-format dependency list so there is a single merged `pA::A` for both
+foreign references to resolve to. *(This upgrades the earlier "direct-only deps
+first" Open Decision to "transitive is required" — the pA/pB/pC/app model cannot
+work without it.)*
+
+**Dependency verification (the compat gate).** `validate_abi_index` already
+recomputes each export's `sig_hash` from the function table and rejects a
+per-symbol mismatch (see the ABI_FORMAT_VERSION comment at
+`src/binary_repr/mod.rs:89`). Wire the foreign reference through this recompute so
+that, at consume time, a foreign ref is checked against the consumer's *resolved*
+`pA::A`: if an intermediary was built against an ABI-incompatible `pA` than the
+consumer resolves (or than a sibling intermediary was), the recomputed hash won't
+match the stored `sig_hash` and the build fails — this is how "pB and pC
+disagreeing on pA's version does not compile" is enforced, reusing the existing
+mechanism rather than inventing a new one.
 
 Rejected alternative — **inline the full foreign definition** into the package's
 own `.mfp`: rejected because when the executable later merges *both* the
 dependency and this package, the type would be defined twice under one identity
-(a definition clash / duplicated data), and it breaks the single-definition
-invariant the merge relies on.
+(a definition clash / duplicated data), it breaks the single-definition invariant
+the merge relies on, and it defeats the ABI-hash compat check (an inlined copy
+carries no link back to the owning package's version).
 
-Interim option (may ship first, as its own commit) — **a precise export-time
-diagnostic**: detect a foreign type reaching serialization in `type_id`'s `_` arm
-and fail with `a package's public API cannot reference type '<T>' imported from
-'<pkg>'` at the offending source location. Strictly better than the current
-silent-corrupt artifact, and a safe stopgap if the full encoding slips.
+Fallback (NOT the chosen scope; recorded only in case the encoding proves
+infeasible mid-implementation) — **a precise export-time diagnostic**: detect a
+foreign type reaching serialization in `type_id`'s `_` arm and fail with
+`a package's public API cannot reference type '<T>' imported from '<pkg>'` at the
+offending source location. Strictly better than the current opaque
+`truncated binary representation`, but it does *not* deliver the title capability;
+use only if the full encoding is abandoned, and flag that regression explicitly.
 
 Expected shift in generated output: none for existing packages (new case only);
 new fixtures gain new `.mfp` bytes.
@@ -261,34 +357,41 @@ new fixtures gain new `.mfp` bytes.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a package-imports-package fixture pair under `tests/` following the
-      existing package-dependency fixture conventions (a `pkga` exporting a
-      `Box` type; a `pkgb` whose exported signature names `Box`; and an
-      executable consuming both). Assert `pkgb` currently fails to build with
-      `truncated binary representation`. Add the working-control fixture (`ok`,
-      dependency-function use with no foreign type in the API).
-- [ ] Confirm the executable-consumer path (merge) builds and runs today, to pin
-      it as a non-goal regression guard.
+- [ ] Build the pA/pB/pC/app fixture set under `tests/` (Acceptance model
+      above) following the existing package-dependency fixture conventions: `pA`
+      exporting `A` and `C` plus a private `B`; `pB` naming `A` in an exported
+      argument; `pC` naming `A` in an exported result; `app` importing pB+pC and
+      wiring `pC::makesA()` → `pB::takesA(...)`. Assert `pB`/`pC` currently fail
+      to build with `truncated binary representation`. Add a working control
+      (dependency-function use with no foreign type in the API).
+- [ ] Confirm the executable-consumer path (merge) builds and runs today for the
+      already-working shapes, to pin it as a non-goal regression guard.
 - [ ] Record the blast-radius verdicts above in-file (done).
 
-Acceptance: the new package fixture fails for the documented reason; the control
+Acceptance: the new package fixtures fail for the documented reason; the control
 and executable-consumer fixtures pass; audit complete.
 Commit: —
 
 ### Phase 2 — the fix
 
-- [ ] Add the foreign-type-reference type-table kind (writer in
-      `src/binary_repr/sections.rs`; decoder in the BR reader). Wire
-      `type_id`'s `_` arm to emit it for an imported-package type instead of the
-      zero-field record.
-- [ ] Resolve the foreign reference during the executable decode-and-merge to
-      the dependency's merged definition.
-- [ ] (Or, if descoping to the interim:) emit the precise export-time diagnostic
-      and stop before writing a `.mfp`.
+- [ ] Add the foreign-type-reference type-table kind (dep name + original type
+      name + owning-package ABI hash) — writer in `src/binary_repr/sections.rs`,
+      decoder in the BR reader. Wire `type_id`'s `_` arm to emit it for an
+      imported-package type instead of the zero-field record.
+- [ ] Compute exported `sig_hash` so a foreign type contributes pA's identity for
+      A (original hash, no re-mangle), and route the foreign reference through
+      `validate_abi_index`'s recompute so an ABI-incompatible dependency version
+      is rejected at consume time.
+- [ ] Resolve the foreign reference during the executable decode-and-merge to the
+      dependency's merged definition, pulling the owning package in transitively
+      when a consumer declares only the intermediaries.
+- [ ] Resolve the naming decision (Open Decisions) and implement the chosen
+      import/scoping rule for *naming* a re-exported type in the consumer.
 
-Acceptance: the Phase 1 package fixture builds to a valid `.mfp`; the executable
-consuming both packages compiles and runs; the control fixtures still build
-byte-identically; nothing in Non-goals changed.
+Acceptance: the Phase 1 package fixtures build to valid `.mfp`s; app compiles,
+links, and runs (value round-trips pC→pB); `B` and unused `C` are absent from
+pB's surface; an ABI-incompatible pA fails app's build; the control fixtures
+still build byte-identically; nothing in Non-goals changed.
 Commit: —
 
 ### Phase 3 — regenerate expected outputs + full validation
@@ -297,7 +400,7 @@ Commit: —
       pre-existing package `.mfp` output changed (byte-identity guard).
 - [ ] Run the full `cargo test` / artifact-gate suite.
 - [ ] Re-run the Failing Reproduction on every target in the matrix; confirm it
-      now builds/links/runs (or errors cleanly, per the chosen scope).
+      now builds/links/runs.
 
 Acceptance: full suite green; expected-output deltas are exactly the new
 fixtures; the reproduction passes where it previously failed.
@@ -307,9 +410,9 @@ Commit: —
 
 - Regression test(s): the package-imports-package fixture pair + control, under
   `tests/`.
-- Runtime proof: the executable that installs both packages passes a `Box`
-  (and a nested `List OF Box`) from `pkga` through `pkgb`'s exported function and
-  prints the expected value.
+- Runtime proof: `app` wires `pC::makesA()` → `pB::takesA(...)` (and a nested
+  `List OF A`) and prints the expected value, proving the two foreign references
+  resolve to one `pA::A` identity.
 - Doc sync: extend `src/docs/spec/architecture/05_binary-representation.md` (and
   `03_packages.md`) to state whether/how a package `.mfp` encodes a reference to
   a dependency's type; today neither documents it.
@@ -317,19 +420,30 @@ Commit: —
 
 ## Open Decisions
 
-- Full foreign-reference encoding vs. interim export-time diagnostic — recommend
-  landing the diagnostic first (safe, small) and the encoding as the complete
-  fix. (§Fix Design)
-- Whether a package may reference a *transitive* dependency's type (dep-of-dep),
-  or only a direct dependency's — recommend direct-only first. (§Fix Design)
+- **RESOLVED — scope:** full foreign-reference encoding (not the diagnostic-only
+  descope). (§Goal)
+- **RESOLVED — transitive deps:** *required*, not deferred. The pA/pB/pC/app
+  model needs the owning package (pA) pulled in transitively so both foreign
+  references resolve to one merged `pA::A`. (§Fix Design)
+- **OPEN — naming/scoping of a re-exported type:** must app `IMPORT pA` to *name*
+  `A` in its own source (identity-only re-export — values flow/unify without it),
+  or does `IMPORT pB` bring `A` into scope under pA's original identity (true
+  namespace re-export, idempotent across pB and pC)? Value flow works either way;
+  this only governs `DIM x AS A` in the consumer. Blocks the resolver design in
+  Phase 2. (§Goal → "Open naming decision")
 
 ## Summary
 
-The engineering risk is concentrated in the BR type-table format change: adding
-a foreign-type-reference kind and resolving it at executable merge time, without
-disturbing the byte-identity of existing package `.mfp` outputs or the
-executable decode-and-merge path. The root cause is precise and already
+The engineering risk is concentrated in the BR type-table format change: adding a
+foreign-type-reference kind — carrying the owning dependency's name, the type's
+original name, and its owning-package ABI hash — computing exported `sig_hash` by
+that original identity (no re-mangling), resolving the reference at executable
+merge time (including a transitive owning package), and routing it through the
+existing `validate_abi_index` recompute so an ABI-incompatible dependency version
+is rejected rather than miscompiled — all without disturbing the byte-identity of
+existing package `.mfp` outputs or the executable decode-and-merge path. The root
+cause is precise, reproduced (macos-aarch64, 2026-07-26), and already
 half-documented in-tree (the STATE-type comment describes the identical
 empty-record → `truncated binary representation` failure for a sibling trigger).
-The safe interim — a precise export-time diagnostic replacing the silent corrupt
-artifact — can land independently and immediately.
+The one remaining product decision is the naming/scoping rule for a re-exported
+type (§Open Decisions).
