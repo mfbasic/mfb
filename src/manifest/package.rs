@@ -469,57 +469,33 @@ pub(crate) fn package_metadata(
     metadata
 }
 
-fn package_dependencies(
-    manifest: &HashMap<String, JsonValue>,
-) -> Vec<binary_repr::BinaryReprDependency> {
-    manifest
-        .get("packages")
-        .and_then(|value| value.get::<Vec<JsonValue>>())
-        .into_iter()
-        .flatten()
-        .filter_map(|package| package.get::<HashMap<String, JsonValue>>())
-        .filter_map(|package| {
-            let name = package.get("name")?.get::<String>()?.clone();
-            // bug-340 B9 / bug-195: this path feeds `metadata.dependencies`, which
-            // reaches `.mfp` package metadata, and the dependency `name` is
-            // interpolated into `packages/<name>.mfp`. Apply the SAME guards the
-            // sibling `project_package_dependency` uses — reject a blank name, and
-            // validate it as a single path component — so a `../…` or absolute name
-            // cannot escape `packages/` or land unvalidated in `.mfp` metadata.
-            // Previously only `project_package_dependency` was guarded; this copy,
-            // the one that reaches the wire format, was not.
-            if name.trim().is_empty() || validate_package_name(&name).is_err() {
-                return None;
-            }
-            let ident = package
-                .get("ident")
-                .and_then(|value| value.get::<String>())
-                .cloned()
-                .unwrap_or_else(|| name.clone());
-            let version = package
-                .get("version")
-                .and_then(|value| value.get::<String>())
-                .cloned()
-                .unwrap_or_default();
-            let pin = package
-                .get("pin")
-                .and_then(|value| value.get::<bool>())
-                .copied()
-                .unwrap_or(false);
-            Some(binary_repr::BinaryReprDependency {
-                name,
-                ident,
-                version,
-                pin,
-                flags: 0,
-            })
-        })
-        .collect()
+/// The dependency fields shared by the `.mfp` metadata builder
+/// ([`package_dependencies`]) and the project-manifest reader
+/// ([`project_package_dependency`]), with the bug-195 name guard applied once.
+///
+/// Returns `None` for a missing, blank, or path-traversing `name` so both callers
+/// drop such an entry identically (bug-340 B9). The two callers differ only in the
+/// extra fields they read (`source`/`identKey`) and the struct they build.
+struct CommonDependencyFields {
+    name: String,
+    ident: String,
+    version: String,
+    pin: bool,
 }
 
-pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDependency> {
-    let package = value.get::<HashMap<String, JsonValue>>()?;
+fn common_dependency_fields(
+    package: &HashMap<String, JsonValue>,
+) -> Option<CommonDependencyFields> {
     let name = package.get("name")?.get::<String>()?.clone();
+    // The dependency `name` is interpolated into `packages/<name>.mfp`: it both
+    // feeds `.mfp` package metadata and is read/merged by `mfb audit`/`build`/`pkg`.
+    // Reject a blank name and validate it as a single path component (bug-195) so a
+    // `../…` or absolute name cannot escape `packages/` or land unvalidated in
+    // `.mfp` metadata. Previously only `project_package_dependency` was guarded;
+    // the copy that reaches the wire format was not (bug-340 B9).
+    if name.trim().is_empty() || validate_package_name(&name).is_err() {
+        return None;
+    }
     let ident = package
         .get("ident")
         .and_then(|value| value.get::<String>())
@@ -530,16 +506,52 @@ pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPac
         .and_then(|value| value.get::<String>())
         .cloned()
         .unwrap_or_default();
-    let source = package
-        .get("source")
-        .and_then(|value| value.get::<String>())
-        .cloned()
-        .unwrap_or_default();
     let pin = package
         .get("pin")
         .and_then(|value| value.get::<bool>())
         .copied()
         .unwrap_or(false);
+    Some(CommonDependencyFields {
+        name,
+        ident,
+        version,
+        pin,
+    })
+}
+
+fn package_dependencies(
+    manifest: &HashMap<String, JsonValue>,
+) -> Vec<binary_repr::BinaryReprDependency> {
+    manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+        .into_iter()
+        .flatten()
+        .filter_map(|package| package.get::<HashMap<String, JsonValue>>())
+        .filter_map(|package| {
+            let common = common_dependency_fields(package)?;
+            Some(binary_repr::BinaryReprDependency {
+                name: common.name,
+                ident: common.ident,
+                version: common.version,
+                pin: common.pin,
+                flags: 0,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPackageDependency> {
+    let package = value.get::<HashMap<String, JsonValue>>()?;
+    // The shared name/ident/version/pin extraction, including the bug-195 name
+    // guard, lives in `common_dependency_fields`; only `source`/`identKey` and the
+    // struct built are specific to a project dependency (bug-340 B9).
+    let common = common_dependency_fields(package)?;
+    let source = package
+        .get("source")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
     let ident_key = package
         .get("identKey")
         .or_else(|| package.get("ident_key"))
@@ -547,24 +559,11 @@ pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPac
         .cloned()
         .unwrap_or_default();
 
-    if name.trim().is_empty() {
-        return None;
-    }
-
-    // The dependency `name` is interpolated into `packages/<name>.mfp` and
-    // read/merged by `mfb audit`/`build`/`pkg`. Validate it as a single path
-    // component (same guard the header-stored name uses) so a `../…` or absolute
-    // name cannot escape `packages/` and probe/merge arbitrary host `.mfp` files
-    // (bug-195). Reject the dependency on failure, mirroring the blank-name case.
-    if validate_package_name(&name).is_err() {
-        return None;
-    }
-
     Some(ProjectPackageDependency {
-        name,
-        ident,
-        version,
-        pin,
+        name: common.name,
+        ident: common.ident,
+        version: common.version,
+        pin: common.pin,
         source,
         ident_key,
     })
