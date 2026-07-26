@@ -2345,6 +2345,7 @@ mod serialization_utils;
 use serialization_utils::*;
 mod function_lowering;
 use function_lowering::*;
+mod architecture_guards;
 mod fma_fusion;
 pub(crate) mod mir;
 mod peephole;
