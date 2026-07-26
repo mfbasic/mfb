@@ -496,7 +496,77 @@ impl CodeBuilder<'_> {
         let write_sequence_loop = self.label("strings_case_map_write_sequence_loop");
         let write_next = self.label("strings_case_map_write_next");
         let write_done = self.label("strings_case_map_write_done");
+        let ascii_scan = self.label("strings_case_map_ascii_scan");
+        let ascii_transform = self.label("strings_case_map_ascii_transform");
+        let ascii_size_overflow = self.label("strings_case_map_ascii_size_overflow");
+        let ascii_alloc_ok = self.label("strings_case_map_ascii_alloc_ok");
+        let ascii_transform_loop = self.label("strings_case_map_ascii_transform_loop");
+        let ascii_transform_done = self.label("strings_case_map_ascii_transform_done");
+        let case_slow = self.label("strings_case_map_slow");
+        let case_done = self.label("strings_case_map_done");
 
+        // F1 (plan-64): whole-string ASCII quick-check, mirroring normalizeNfc's
+        // E2 shortcut. When every byte is < 0x80 the string is pure ASCII: case
+        // folding maps a-z/A-Z by +/-32 with a 1-byte-in/1-byte-out width, so a
+        // single decode-free pass suffices — skipping the two-pass UTF-8 decode
+        // (count then write) and the per-codepoint Unicode case-table search.
+        // Bit-identical to the slow path for ASCII input (same
+        // emit_ascii_case_transform, same byte_len + 9 allocation); any byte
+        // >= 0x80 falls through to the slow path below.
+        self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(&scratch21, &scratch20, 0));
+        self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
+        self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
+        self.emit(abi::label(&ascii_scan));
+        self.emit(abi::compare_registers(&scratch23, &scratch21));
+        self.emit(abi::branch_ge(&ascii_transform));
+        self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
+        self.emit(abi::load_u8(&scratch10, &scratch14, 0));
+        self.emit(abi::compare_immediate(&scratch10, "128"));
+        self.emit(abi::branch_ge(&case_slow));
+        self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
+        self.emit(abi::branch(&ascii_scan));
+
+        // Pure ASCII: allocate byte_len + 9 (8-byte header + trailing NUL),
+        // matching the slow path's layout, then transform-copy in one pass.
+        self.emit(abi::label(&ascii_transform));
+        self.emit_checked_size_add_immediate(
+            abi::return_register(),
+            &scratch21,
+            9,
+            &ascii_size_overflow,
+        );
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&ascii_alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&ascii_size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit(abi::label(&ascii_alloc_ok));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        // ARENA_ALLOC clobbers caller-saved registers; reload source ptr/len.
+        self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(&scratch21, &scratch20, 0));
+        self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
+        self.emit(abi::store_u64(&scratch21, abi::RET[1], 0));
+        self.emit(abi::add_immediate(&scratch28, abi::RET[1], 8));
+        self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
+        self.emit(abi::label(&ascii_transform_loop));
+        self.emit(abi::compare_registers(&scratch23, &scratch21));
+        self.emit(abi::branch_ge(&ascii_transform_done));
+        self.emit(abi::add_registers(&scratch14, &scratch22, &scratch23));
+        self.emit(abi::load_u8(&scratch10, &scratch14, 0));
+        self.emit_ascii_case_transform(map, &scratch10);
+        self.emit(abi::store_u8(&scratch10, &scratch28, 0));
+        self.emit(abi::add_immediate(&scratch28, &scratch28, 1));
+        self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
+        self.emit(abi::branch(&ascii_transform_loop));
+        self.emit(abi::label(&ascii_transform_done));
+        self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
+        self.emit(abi::store_u8(&scratch10, &scratch28, 0));
+        self.emit(abi::branch(&case_done));
+
+        self.emit(abi::label(&case_slow));
         self.emit(abi::load_u64(&scratch20, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch21, &scratch20, 0));
         self.emit(abi::add_immediate(&scratch22, &scratch20, 8));
@@ -622,6 +692,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
         self.emit(abi::store_u8(&scratch10, &scratch28, 0));
 
+        self.emit(abi::label(&case_done));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {

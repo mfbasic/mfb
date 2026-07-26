@@ -25,6 +25,8 @@ for each package lives on its own (the same split in all three):
 | `encoding*.*`       | `encoding`        | `encoding::` serialize/deserialize round-trips (base64 / hex / percent) over the `List OF Byte` ↔ String seam |
 | `datetimeb.* / datetimebench.*` | `datetime` | `datetime::` civil arithmetic (addDays/addMonths/daysInMonth/between) and an ISO format/parse round-trip |
 | `dispatch*.*`       | `dispatch`        | control-flow dispatch: union + `MATCH` tag-dispatch expression eval, and inline-`TRAP` error recovery |
+| `crypto*.*`         | `crypto`          | `crypto::` hashes (SHA-256/512), HMAC-SHA-256, PBKDF2, constant-time compare, a fresh-message hash churn, and deterministic Ed25519 sign+verify — the portable software core over `bits`, cross-checked against `hashlib`/`hmac`/pyca |
+| `serialize*.*`      | `serialize`       | `json::stringify` / `csv::stringify` — the encode direction (recursive tree walk + escape + number/field rendering) complementary to the `parse` group |
 
 In addition to that per-member surface, a second set of **pattern-throughput**
 groups (plan-40) exercises the hot paths real programs hit — sustained churn,
@@ -55,6 +57,34 @@ buckets); the `list` group gains `sort_asc`/`sort_desc`/`sort_rand` (`collection
 over pre-sorted / reverse / coprime-stride-scrambled permutations of `0..N-1` — the
 merge sort's best/worst/average shapes, all sorting to the same canonical order so
 one shared order-sensitive checksum proves each shape sorted correctly).
+
+Two critical-feature groups (plan-65) close remaining coverage gaps. The `crypto`
+group is the first benchmark of the `crypto::` package — a portable software core
+over `bits`, so hashing/HMAC/KDF/AEAD is a pure integer/bit-shuffling throughput
+hot path with deterministic, byte-identical output and exact peers: `sha256`/
+`sha512` bulk hash, `hmac` (HMAC-SHA-256), `pbkdf2` (PBKDF2-HMAC-SHA-256 work
+factor), `cte` (`constantTimeEqual`), `churn` (hash many fresh small messages), and
+`ed25519` (deterministic RFC-8032 sign+verify with a fixed seed). Every row folds
+the digest/tag/signature bytes into an integer checksum that matches the C
+(hand-rolled FIPS/RFC cores) and Python (`hashlib`/`hmac`/pyca) columns bit-for-bit
+— the cross-language checksum is the proof of correctness. The `serialize` group
+benchmarks the encode direction the `parse` group never touched: `json`
+(`json::stringify` a pre-built tree), `roundtrip` (`json::parse`+`stringify`), and
+`csv` (`csv::stringify` a String grid, quoting only where needed). Its checksum is
+the length of the emitted text (order-independent, so it matches even when json
+object members emit in a different order); the canonical inputs use only ASCII
+strings and integers so every compact serializer produces the same length.
+
+Only two crypto rows measure at realistic sizes today — `sha256` and `cte`, whose
+transients stay in the arena quick bins and whose per-call cost is flat across the
+run loop. The rest (`sha512`, `hmac`, `pbkdf2`, `churn`, `ed25519`) and the whole
+`serialize` group are arena-gated (see below): mfb's crypto/serialize cores
+allocate transient `List OF Byte`/`String` values per operation, so at realistic
+sizes they hit the runtime arena's quadratic free-list path and climb cumulatively.
+They are authored tiny with a `TODO(plan-64-A)` marker, to be bumped to realistic
+sizes in the commit that lands the arena fix. Ed25519 has no in-suite C peer
+(deterministic RFC-8032 signing has no libc entry point the suite hand-rolls), so
+its C column prints `--`; mfb and Python agree because the seed is fixed.
 
 ## Running
 
@@ -148,3 +178,19 @@ realistic `BUF`/`reps`/`W`/`steps` in the commit that lands plan-44-J and must
 stay linear. (`encoding hex`/`percent`, `datetime civil`, `map intkey`/`listagg`,
 `mathpipe memo`, and the `list sort_*` rows are Phase 1 — not arena-sensitive at
 their authored sizes — and run at realistic counts today.)
+
+The plan-65 rows carrying a `TODO(plan-64-A)` marker are the same kind of gate for
+the current arena sub-plan (plan-64-A, successor to plan-44-J): the `crypto`
+`sha512` (`reps`), `hmac` (`reps`), `pbkdf2` (`iterations`), `churn` (`msgs`), and
+`ed25519` (`reps`) rows, plus the whole `serialize` group (`json`/`roundtrip`/`csv`
+`reps`). mfb's software crypto/serialize cores allocate transient `List OF
+Byte`/`String` values per operation, so at realistic sizes they cross the arena
+quick-bin threshold (SHA-512's >2 KB working set) or fill the quick bins by sheer
+volume (PBKDF2's thousands of HMAC passes), hitting the O(n²) free-list path and
+climbing cumulatively. At their realistic target sizes they explode in-suite —
+`sha512` reps=64 → 1.6 s (26 ms in a clean process), `pbkdf2` iters=4096 → ~8 s
+(224 ms clean), `hmac` reps=64 climbing 180 ms → 1300 ms across `--run 10` — so
+each is authored tiny on purpose, to be bumped to a realistic `reps`/`iterations`
+in the commit that lands plan-64-A and must stay linear. (Only `crypto sha256` and
+`crypto cte` are Phase 1 — their transients stay in the quick bins and their
+per-call cost is flat across the run loop — and run at realistic counts today.)

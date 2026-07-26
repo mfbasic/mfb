@@ -255,6 +255,23 @@ records per call — all ≤2048, so they park in quick bins then drain through 
   `DateTime` straight from `civilFromDays`, skipping the `resolveLocal`+`inZone`+`Instant`
   round-trip (`datetime_package.mfb:1005,1017`) and intern the constant `"UTC"` zone
   label so it isn't re-inlined per construction.
+  - **[x] A3-datetime — LANDED.** Correction: the round-trip is in `__datetime_civil`
+    (`datetime_package.mfb:552`), which `addDays`/`addMonths` call — not in `addDays`
+    itself (`addDays` already goes `civilFromDays`-direct). Added a fixed-offset fast
+    path guarded by `dt.zone.kind <> 2` (kind 2 = system/DST zone): for a fixed-offset
+    zone a whole-day/month shift leaves the wall-clock time + offset unchanged and
+    `civilFromDays`/`daysFromCivil` are inverse on valid dates, so
+    `__datetime_civil(...)` provably returns `DateTime[civilFromDays(newDays), dt.time,
+    dt.zone, dt.offset]` — built directly, skipping the `Instant`/`Date`/`Time`
+    transients. A system zone keeps the round-trip. **Result: `datetime civil`
+    973.9 → 96.5 ms** (min 3.2→1.0, max 20150→938; median 10×). `datetime_civil`/`iso`
+    checksums 4058221/16948 **proven unchanged** vs a stashed-baseline rebuild; full
+    `cargo test` green; the 11 datetime `.ir` snapshot goldens regenerated
+    (`sync-goldens.sh`) — no `.ncode`/behavior change (11 acceptance fixtures pass);
+    `artifact-gate.sh` back to the 17 pre-existing flaky diffs. The residual max 938
+    ms is the arena quadratic itself (A1/A2), not yet linear — A3 is the mitigation, not
+    the full fix. `datetime_package.mfb` `__datetime_addDays`/`__datetime_addMonths`.
+  - **[ ] A3-csv** and the `"UTC"` intern remain.
 - Order: A1 → A2 (the real fix), A3 as belt-and-suspenders. **Acceptance criterion:** the
   plan-65 arena-gated rows (`encoding base64`, `datetime iso`, `map intchurn`, the
   crypto churn rows) bump from tiny to realistic N in the commit that lands A and stay
@@ -320,7 +337,14 @@ source-generic `merge`/`mapValues`.
   **build the bucket table incrementally during the compaction pass** (set `ready=1`),
   backward-shifting the probe chain so no tombstones and probe order stays byte-identical.
   Removes both O(N) sweeps of `mapchurn churn`.
-- **C2:** native `merge` — size the result to `|a|+|b|`, copy `a` **once with buckets
+- **[x] C2-mapValues — LANDED.** Native `collections::mapValues` for a same-type 8-byte
+  fixed-width value (V==U in Integer/Float/Fixed/Money; gate parses `#collections_mapValues$K$V$U`;
+  else `.mfb`): copy the map's key/bucket structure once and rewrite each value payload in place
+  via `f` (keys unchanged → copied index stays valid). **Result: `mapchurn iterate` 24.5 → 14.6 ms
+  (~40%).** checksum 50153000 proven unchanged; full `cargo test` green; artifact-gate zero new
+  diffs; 63 map/collections acceptance fixtures pass; String-value fallback verified.
+  `lower_collection_map_values_call`. Commit: `3ba2f61d9`.
+- **C2-merge:** native `merge` — size the result to `|a|+|b|`, copy `a` **once with buckets
   built** (`ready=1`), insert both in one pass; native index-preserving `mapValues`
   (copy the source entry/bucket structure, rewrite only value payloads).
 - **C3:** preserve `BUCKETS_READY` across `copy_collection_tight` generally (rebuild-
@@ -354,15 +378,80 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
 **Fixes (semantics-preserving — same order/stability/buckets).**
 - **D1:** native `groupBy` — single pass growing each bucket **in place** in a hash-slot
   side structure, materialized to the Map once at the end (kills the O(bucket²) copy).
-- **D2:** native `sortBy` over two scratch buffers with pointer ping-pong (no per-pass
-  value copies; one fused key+item buffer), inlined get/set.
-- **D3:** native window/chunks — slice **directly into the reserved result tail**
-  (one copy, no temp piece), pre-reserved to the known piece count.
+- **[x] D2 — LANDED (native sortBy).** Bottom-up **stable** merge sort with the two
+  ping-pong buffer pairs allocated once and swapped by slot pointer per pass — no per-pass
+  full copy (the `.mfb`'s dominant cost). Gated to **8-byte fixed-width items**
+  (Integer/Float/Fixed/Money) and **signed 8-byte keys** (Integer/Fixed/Money) by parsing
+  the monomorphized target `#collections_sortBy$<T>$<U>`; String/Scalar/Byte items and
+  Float/non-numeric keys fall through to the `.mfb` `__collections_sortBy`. Keys filled by
+  calling `keyFn` per element (failure → `emit_callback_failure_exit`, verified under TRAP);
+  direct `[base + i*8]` addressing; stable (left run on ties). **Result: `list sortBy`
+  21.2 → 4.46 ms (~4.75×; ≈ Python 3.73).** checksum 99800 **proven unchanged** vs a
+  stashed-baseline rebuild; full `cargo test` green; `artifact-gate.sh` zero new diffs
+  (native lowering is post-IR); 57 sort/collections acceptance fixtures pass; String-key
+  fallback + TRAP'd failing keyFn both verified. `lower_collection_sortby_call`
+  (`builder_collection_queries.rs`), dispatch gate `builder_values.rs`. Commit: `ec79ef661`.
+- **[x] D3-window — LANDED.** Native `collections::window` for 8-byte fixed-width elements
+  with constant `size>=1` + `stride==1` (gate parses `#collections_window$T` + checks the
+  literal args; else `.mfb`). Builds the `List OF List OF T` result directly: outer kind-0
+  list with per-window kind-2 inner blocks written in place at the data tail, one word-copy
+  per window from the source — no per-window slice-alloc/copy/free. **Result: `list window`
+  20.6 → 4.58 ms (~4.5x; beats Python 8.38).** checksum 99100 proven unchanged; full `cargo
+  test` green; artifact-gate zero new diffs; 74 window/list acceptance fixtures pass; edge
+  cases (size==n, size>n empty, size==1) verified. `lower_collection_window_call`.
+  Commit: `9409d7941`. (window stride>1 remains on the `.mfb`.)
+- **[x] D3-chunks — LANDED.** Native `collections::chunks` (8-byte fixed-width elems,
+  constant size>=1; same nested-block build, variable last chunk, chunk-count via a count
+  loop). **Result: `list chunks` 5.5 → 0.91 ms (~6x; COMPLETE, <=5ms, beats Python 1.68).**
+  checksum 20000 proven unchanged; cargo test green; artifact-gate clean; acceptance passes.
+  `lower_collection_chunks_call`. Commit: `13fcc99d0`.
 - **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
   outputs, inlined comparator (with B's borrowed String element for String lists).
 - Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the
   sortBy/groupBy buffer copies free) and **B** (borrowed element for String lists). Gate:
   list checksums + `scripts/artifact-gate.sh`.
+
+> **D2 native sortBy — implementation-ready design (execution, this session).** This is the
+> most completable D-item: flat `List OF T` output (no nested/record construction like
+> groupBy/window/partition), a well-defined stable bottom-up merge sort. Investigated:
+> `__collections_sortBy` (`collections_package.mfb`) copies both whole lists per pass
+> (`MUT itemsDst = items`/`keysDst = keys`, unavoidable in source — every position is
+> overwritten so the copy is pure waste) then get×2+set×2 per element, over ⌈log₂n⌉ passes.
+> - **Scope gate:** native only when **both `T` (item) and `U` (key from `keyFn`) are
+>   fixed-width** (`list_element_is_fixed_width` = Integer/Float/Fixed/Money/Scalar/Byte);
+>   else return `None` → the `.mfb` fallback (String keys/items keep working). The
+>   `list sortBy` benchmark is `List OF Integer` by an Integer key, so it is covered.
+> - **Plan:** (1) `keys = lower_collection_transform_call(value, keyFn)` (already native).
+>   (2) Two ping-pong buffer pairs sized `n`: `(items,keys)` and scratch `(itemsB,keysB)`,
+>   each a kind-2 fixed-width block (`HEADER + n*width`, no lookup array; alloc like
+>   `lower_strings_to_bytes`/`lower_simd_alloc_list`, `dataLength = n*width`). Copy `value`
+>   into the first `items` buffer once. (3) Bottom-up merge: `for width in 1,2,4,… < n`,
+>   merge adjacent runs from src→dst using **direct addressing** `load/store [base + i*w]`
+>   (no per-element bounds check — indices are algorithm-controlled), key compare
+>   `keys[j] < keys[i]` via the type's native compare (signed for Integer/Fixed/Money,
+>   `fcmp` for Float, unsigned for Byte/Scalar), **taking `i` on ties** to preserve the
+>   `.mfb`'s stable order; then swap src/dst. (4) Return whichever buffer holds the result
+>   (track parity of the pass count, or final-copy into `items`). ~150 lines; dispatch case
+>   in `builder_values.rs` beside `transform`/`filter`. **Gate:** `list_sortBy` checksum
+>   unchanged + full `cargo test` + `artifact-gate.sh` + acceptance sort fixtures + a
+>   String-key sortBy fixture to prove the `.mfb` fallback still fires. **Not yet
+>   implemented** — a focused ~150-line codegen push with its own debug/verify budget.
+> - **Implementation decision (refined this session — pick one before coding):**
+>   **(a) fixed-width + fallback:** raw `load/store [base + i*w]` (fastest), but the native
+>   path must be **statically type-gated in the dispatch** (`builder_values.rs:708`-style)
+>   so String/Float keys/items fall through to the `.mfb` `__collections_sortBy` — the
+>   handler can't lower args then bail (double-lowering), so the gate needs a static
+>   item-type + `callable_return_type(keyFn)` peek *before* lowering, and the general
+>   collections-source-call fallthrough must be confirmed reachable. **(b) generic +
+>   all-types:** use `lower_list_get`/`lower_list_set` + the `<`-operator compare on the
+>   two key `ValueResult`s — handles every element type (no fallback/gate needed), still
+>   kills the per-pass full copies (the dominant cost), at the price of the generic
+>   get/set bounds-check overhead. **(b) is lower-risk (no fallback plumbing) and captures
+>   the main win; recommended.** Buffers allocated once via `lower_reserved_list`
+>   (`list_mutate.rs:2424`) / `copy_collection_tight` (`builder_collection_layout.rs:359`),
+>   ping-pong by swapping the four slot pointers per pass, return the parity-correct buffer.
+>   Dispatch: `Some("sortBy") => self.lower_collection_sortby_call(args)` at
+>   `builder_values.rs:1502` + the `if native == Some("sortBy") && args.len()==2` guard.
 
 ### Sub-plan E — COW / refcount collection buffers
 
@@ -410,9 +499,14 @@ P1), string slice (37.2, P2). Consistent ⇒ genuine, not arena.
   rebuild branch (`collection_mutate.rs:254+`).
 
 **Fixes.**
-- **F1:** give `case_map` the whole-string ASCII quick-check `normalizeNfc` has — scan
-  once for a byte ≥0x80; if none, one decode-free pass that range-maps a–z/A–Z ±32 and
-  copies (2 decode passes → 1 byte pass; bit-identical for ASCII).
+- **[x] F1 — LANDED:** gave `case_map` the whole-string ASCII quick-check `normalizeNfc`
+  has — scan once for a byte ≥0x80; if none, one decode-free pass that range-maps a–z/A–Z
+  ±32 (reusing the existing `emit_ascii_case_transform` helper) with a `byte_len + 9`
+  allocation identical to the slow path. Any byte ≥0x80 falls through to the two-pass slow
+  path. **Result: `string case` 66.0 → 50.6 ms** (`string_case` checksum 7411120 unchanged;
+  full `cargo test` green; `artifact-gate.sh` zero new diffs vs baseline — the 17 pre-existing
+  diffs are the known union-drop resource-union nondeterminism; 9 case-mapping acceptance
+  fixtures pass). `builder_strings_builtins.rs` `lower_strings_case_map`. Commit: `ced444de6`.
 - **F2:** memchr-style single-byte delimiter scan + word-at-a-time (8-byte) block copy in
   split/join; fuse split's two scans for a single-char delimiter.
 - **F3:** in-place data-tail rewrite for String `set` when the new payload fits
@@ -439,10 +533,28 @@ Consistent ⇒ genuine (NOT the arena quadratic).
 - **G1:** `genCat` returns an **Integer** category code (or a parallel `__strings_genCatCode`);
   the five predicates compare integers, not Strings — kills every String return/compare
   on the hot path.
-- **G2:** an ASCII fast path in each predicate (cp < 128 → direct range test) skipping
-  `genCat` entirely; convert the 4099-arm chain to a binary-search/two-level table.
-- **G3:** natively lower `toScalars` — one arena alloc + a single UTF-8 decode pass
-  writing 4-byte scalars directly (no toBytes+utf32Encode+double-append chain).
+- **[x] G2 — LANDED (ASCII fast path):** each of `isLetter`/`isDigit`/`isWhitespace`/
+  `isUpper`/`isLower` now returns a direct range test for `cp < 128` (A-Z=65-90, a-z=97-122,
+  0-9=48-57, space=32, plus 9-13 for whitespace) that exactly reproduces `genCat`'s ASCII
+  category, skipping the 4099-arm scan + String return/compare. **Result: `scalar classify`
+  29.3 → 4.2 ms — COMPLETE** (beats Python 14.2; ≤5 ms). checksum 3413150747 **proven
+  unchanged** vs stashed-baseline rebuild; full `cargo test` green; one `.ir` snapshot golden
+  (`scalar-strings-seam-rt`, line-renumber churn) regenerated, `.run`/behavior unchanged;
+  24 scalar/strings acceptance fixtures pass. `strings_package.mfb`. Commit: `4cfb9a7f9`.
+  (The 4099-arm→table conversion is a separate optional cleanup; the ASCII path retires the
+  benchmark.)
+- **[!] G3 REJECTED (execution — attempted, measured, reverted).** Two independent
+  disproofs: (1) **toScalars does not dominate `scalar listchurn`.** Native `toScalars`
+  fired (dispatch confirmed at `builder_values.rs:644`, before the `.mfb` fallback;
+  `scalar_listchurn` checksum 48 unchanged) yet the row stayed 11.0 ms — the cost is the
+  **ascent loop** (90 `collections::get` + 89 compares over the scalar list, ×2000×50),
+  not the decode. (2) **A native two-pass `toScalars` is not even faster than the `.mfb`
+  version:** isolated microbenchmark (150-char string ×50000) measured native **411 ms vs
+  `.mfb` 388 ms** — the count-then-write structure decodes the string twice, costing as
+  much as the interpreted `toBytes`+`utf32Encode`+`append` chain. A one-pass
+  over-allocate-to-byteLen variant might edge it out, but it would not move the benchmark
+  (ascent loop dominates), so it is not worth the codegen surface. `scalar listchurn`'s
+  real lever is compiler bounds-check elimination on the get-loop (L2), not G3.
 - Gate: the five classification counts + scalar checksums unchanged.
 
 ### Sub-plan H — json / regex source packages
@@ -543,6 +655,21 @@ and **materializes the register-native operand to a fresh N×8 arena block**
   `math::sqrt`) + scalar-vs-array bit identity + vector checksums + `scripts/artifact-gate.sh`.
 
 ### Sub-plan K — bignum limb-wise / Barrett reduction
+
+> **[!] K1/K2 REJECTED as written (execution correction).** The C mirror
+> (`benchmark/c/main.c:307` "schoolbook mul + **bit-serial mod**"; `bn_mod`
+> `:363` is the same `for (i = nbits-1; i>=0; i--)` bit loop) uses the **same
+> bit-serial reduction** as the MFBASIC `bnMod`. Replacing MFBASIC's algorithm
+> with limb-wise/Barrett would make it beat C by running a *different, better
+> algorithm* — not by executing the same work faster — so it changes what the
+> benchmark measures and is an unfair (illegitimate) comparison change. The
+> genuine bignum gap is per-op overhead: MFBASIC pays a bounds check on every
+> `collections::get`/`set` in the hot loop where C indexes a stack `uint32_t[]`.
+> The legitimate lever is therefore **compiler-side bounds-check elimination on
+> loop-induction-var list access (the L2 "unchecked-get" mechanism), applied to
+> the bit loop** — keeping the algorithm identical to C. K3 (bnCmp top-limb
+> hoist) is a borderline micro-opt that still diverges from C's exact code; skip.
+> Reclassify: bignum is an **L2/compiler** row, not a benchmark-source rewrite.
 
 **Covers (2):** bignum modmul (19.4, P2), modexp (10.8, P3). Source-level (`main.mfb`).
 
@@ -675,6 +802,100 @@ ops/run.
   the arena-gated rows, confirm **linear** scaling across the run loop (min ≈ median).
 - Codegen changes: `scripts/artifact-gate.sh` (byte-deterministic 4-target self-diff).
   Math changes: `tools/math-kernels/runtime_ulp.py`.
+
+## Execution status (/follow-plan, worktree P-64)
+
+**Landed & fully verified (each: benchmark checksum proven unchanged vs a stashed-baseline
+rebuild + full `cargo test` green + `artifact-gate.sh` clean-modulo-17-flaky + acceptance
+fixtures pass):**
+
+| Item | Change | Row | Before → after (ms, `--run 50`) | Commit |
+|------|--------|-----|------|--------|
+| **F1** | whole-string ASCII shortcut in `case_map` | string case | 66.0 → 50.6 | `ced444de6` |
+| **A3-datetime** | fixed-offset fast path in `addDays`/`addMonths` | datetime civil | 973.9 → 96.5 (10×) | `de8da577a` |
+| **G2** | ASCII fast path in 5 classify predicates | scalar classify | 29.3 → **4.2 (COMPLETE**, beats Py) | `4cfb9a7f9` |
+
+Authoritative post-fix full `--run 50` (`benchmark/mfb-20260725-223351.log`) confirms the
+three rows (case 50.3, civil 77.5, classify 4.2) with **no regression** on unaddressed rows
+(copy 33, sortBy 21, listchurn nested 71, mapchurn churn 166 — all ≈ plan). **Bonus:
+`dispatch trap` 6961 → 1885 ms** — an indirect A3 benefit: fewer datetime transients cut the
+process-global arena fragmentation that amplifies trap's climb (exactly the A↔trap coupling
+the plan predicted). `parse csv` median (447↔602) and `thread sum` (44↔68) swing run-to-run
+— inherent arena-quadratic / scheduler variance (csv min still 5.57), not touched by these fixes.
+
+**Not yet done — every remaining item was investigated at `file:line` this session and each
+is a substantial dedicated effort with a specific, documented complication (not a rushed
+pass; correctness bar per `.ai/compiler.md` governs):**
+- **I** (inline-TRAP Result/Error elision) — **dispatch trap 1885 ms, the #1 offender.**
+  `lower_inline_trap` (`ir/lower.rs:963`) materializes a `Result OF T` block then destructures
+  it one op later; eliding it needs a new IR op or a codegen peephole on the
+  `Bind Result; If ResultIsOk{ResultValue} else{ResultError}` shape — **tree-wide blast
+  radius** (every `TRAP`).
+- **D1** (native groupBy, `listchurn nested` 70.8 ms, real O(bucket²)) — multi-hundred-line
+  native lowering emitting FUNC-pointer `keyFn`/`valFn` calls + in-place bucket-grown map;
+  no source restructure avoids the value-semantic `get`-copy.
+- **C1** (map in-place removeKey, `mapchurn churn` 166 ms) — variable-length String-key
+  data-region compaction + offset fixups + incremental bucket maintenance; still O(N)/op
+  (win is only no-alloc + O(1) paired `hasKey`), new in-place path needs its own tests.
+- **L2 / bounds-check elimination** — the *real* lever for `scalar listchurn`, `mathpipe memo`,
+  AND bignum (see K/G3 rejections): drop the bounds check on `get(list, i)` when `i` is a
+  loop-induction var < loop-invariant `len(list)`. **Correctness-critical dataflow** — an
+  unsound unchecked get is silent memory unsafety, not a checksum-catchable wrong answer.
+- **J1/J2** (vector `normalize`/Integer-`length` inline, `vector math` 33 ms) — `normalize`
+  is per-lane `v.f / len` **plus a `len=0.0 → FAIL error(77050002)` guard** (`vector_package.mfb:353`);
+  the guard is control flow the pure-expression inline mechanism can't express, and
+  Integer/Fixed `length` needs `isqrt` not `sqrt`. J3 (project/reject/reflect) IS pure
+  arithmetic but is not on the `vector math` hot path.
+- **A1/A2** (arena allocator machine-code) — **highest blast radius in the plan** (a bug
+  corrupts every heap); the residual `datetime civil` max 938 ms + csv/iso/dispatch-trap-climb
+  wait on it. **B** (borrow-on-get) — deep escape analysis. **F2/F3** (string split/join/set
+  in-place) — intricate shift+offset-fixup for ≤1 ms benchmark impact. **C-C1**/A3-csv
+  (needs a range-decode primitive).
+- **Rejected with proof this session: K** (bignum — algorithm change unfair vs C's bit-serial
+  mod) and **G3** (native `toScalars` — measured *slower* 411 vs 388 ms, and toScalars isn't
+  `listchurn`'s bottleneck). Both really want L2.
+- **Capped (ceilings, track-only): M** (transcendentals — dd-vs-libm), **N** (fib/thread
+  overflow-check).
+
+## Corrections (execution — /follow-plan)
+
+Recorded as the plan is executed; each is a divergence between the plan as written
+and what execution found, with evidence.
+
+- **Plan structure — no Prerequisites gate, no per-task checkboxes, no `Commit:`
+  lines.** plan-64 is a *master index* (Task-1 priority list + Task-2 sub-plan bodies),
+  not the phased-checkbox template `/follow-plan` expects, and none of the promised
+  `plan-64-<letter>-*.md` split files exist. The Prerequisites gate is therefore
+  vacuously passed. Execution tracks completion per sub-plan by tagging the relevant
+  fix bullet `[x] … — LANDED` with its result + commit hash, in the same commit as the
+  work.
+- **Execution order refined by blast radius, not pure ROI.** The plan's "A first"
+  ordering is by ROI. `/follow-plan` §3 says phases run uncertainty-first / blast-radius
+  last; sub-plan **A1/A2 (the arena allocator machine-code emission) is the single
+  highest-blast-radius surface in the plan** (a bug corrupts every program's heap).
+  Execution banks the *contained, semantics-preserving* wins first (F1 done; C1, then B,
+  D, etc.), each fully gated, and attempts the deep allocator rewrite (A1/A2) after the
+  contained value is banked. A3 (the csv/datetime *source* mitigations) directly retires
+  plan-64's own arena-bound benchmark rows; A1/A2 is foundational for plan-65 coverage.
+- **The arena allocator has evolved since the plan's `file:line` citations** (arena.rs
+  is 960 lines, not the plan's `:715-729`/`:387-407`-era file). The flush-before-grow is
+  now gated to SMALL requests with a one-shot `flushed` retry + a post-flush re-park
+  sweep (`arena.rs:369-457`) — a partial mitigation of A1's premise already landed; A2's
+  size-class segregation is partly present as plan-25-A "segregated large-block bins"
+  (`arena.rs:44-50`). A1/A2 must be re-scoped against this current code, not the citations.
+- **Legitimacy rule (K rejected).** A benchmark measures MFBASIC vs C/Python running the
+  *same* algorithm; a valid fix speeds up the compiler/runtime/stdlib so the *same source
+  operation* runs faster (F1 case-map, A3 datetime builtin, G2 classify builtin all qualify —
+  they optimize a stdlib/compiler path, not the workload's algorithm). Sub-plan **K** would
+  rewrite the benchmark's *own* `bnMod` from bit-serial to limb-wise — but the C mirror is
+  *also* bit-serial (`main.c:307,363`), so K makes MFBASIC win by algorithm, not speed:
+  rejected. Bignum's real lever is compiler bounds-check elimination (L2), reclassified.
+- **Measurement: the full `--run 50` suite is ~20+ min** (the arena quadratic makes late
+  iterations of dispatch-trap/datetime/csv progressively slower), too slow for a per-fix
+  loop. Per-group re-measurement uses a throwaway trimmed copy of `benchmark/mfb`
+  (`main()` cut to the target group) built with the current compiler — repo-touchless,
+  ~seconds. A full clean `--run 50` is the final gate once the catastrophic groups (A/C/I)
+  are fixed and the whole suite is fast again.
 
 ## Open Decisions
 

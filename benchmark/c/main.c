@@ -26,6 +26,7 @@
 #include "bench.h"
 #include "bitsbench.h"
 #include "churnbench.h"
+#include "cryptobench.h"
 #include "datetimebench.h"
 #include "dispatchbench.h"
 #include "encodingbench.h"
@@ -36,6 +37,7 @@
 #include "parsebench.h"
 #include "regexbench.h"
 #include "scalarbench.h"
+#include "serializebench.h"
 #include "strbuildbench.h"
 #include "stringbench.h"
 #include "vectorbench.h"
@@ -707,6 +709,10 @@ int main(int argc, char **argv) {
   run_datetime_group();
 
   run_dispatch_group();
+
+  run_crypto_group();
+
+  run_serialize_group();
 
   test_record_update();
 
