@@ -396,6 +396,17 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
     once inside emitted runtime loops (labels/slots unique, code runs per iteration). Gate:
     `listchurn_nested` checksum + full `cargo test` + acceptance groupBy fixtures + a String-key
     fallback fixture. The intricacy is the bucket-pointer bookkeeping across the realloc-update.
+  - **Refinement (de-risks the keyToIdx step):** for an **Integer key**, replace the `keyToIdx`
+    map entirely with an **inline open-addressing hash table** — two scratch `List OF Integer`
+    buffers `hashKeys`/`hashOcc` (occ stores bucketIdx+1; 0 = empty), size = next power of 2 ≥
+    2n, slot = `key & (size-1)` (bitwise-and, no divide primitive; correct for negative keys in
+    two's complement), linear probe. This removes the `emit_map_probe`/`lower_map_set_in_place`
+    orchestration for keyToIdx (only the FINAL `Map OF K TO List OF V` build still uses
+    `lower_map_set_in_place` in a loop) — the least-risky path. Must explicitly zero `hashOcc`
+    (arena memory is poisoned, not zero). ~250 LOC total; the scratch buffers (keys/vals/hashKeys/
+    hashOcc/bucketPtrs/keyOrder) are freed via `free_intermediate_collection` (capacity/dataCapacity
+    sized). Benchmark `bucketKey(n)=n MOD 100` → dense keys, but the gate is by TYPE so the table
+    must handle arbitrary Integers.
 - **[x] D2 — LANDED (native sortBy).** Bottom-up **stable** merge sort with the two
   ping-pong buffer pairs allocated once and swapped by slot pointer per pass — no per-pass
   full copy (the `.mfb`'s dominant cost). Gated to **8-byte fixed-width items**
