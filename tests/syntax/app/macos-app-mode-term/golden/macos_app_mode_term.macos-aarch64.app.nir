@@ -10,6 +10,20 @@
     "accepts_args": false
   },
   "types": [
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "LineStyle",
+    "members": [
+    { "name": "Light" },
+    { "name": "Heavy" },
+    { "name": "LightDash" },
+    { "name": "HeavyDash" },
+    { "name": "LightDot" },
+    { "name": "HeavyDot" },
+    { "name": "Double" }
+    ]
+  }
   ],
   "imports": [
   ],

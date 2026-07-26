@@ -1,12 +1,13 @@
 # types
 
-the term package record types
+the term package record and enum types
 
 ## Synopsis
 
 ```
 term::TermColor
 term::TermSize
+term::LineStyle
 ```
 
 ## Package
@@ -47,6 +48,12 @@ the user resizes the terminal window — so a program that depends on it should 
 it again each frame rather than caching the
 result. [[src/builtins/term.rs:TERM_SIZE_TYPE]]
 
+`LineStyle` is an enum selecting the box-drawing weight and pattern for
+`term::drawHLine` and `term::drawVLine`. Its members are addressed as
+`LineStyle.Light`, `LineStyle.Heavy`, and so on. Each variant has a horizontal
+form (used by `drawHLine`) and a vertical form (used by `drawVLine`); the two
+functions pick the right form for their orientation. [[src/builtins/term.rs:LINE_STYLE_TYPE]]
+
 Coordinates elsewhere in the package are zero-based from the top-left corner, so
 on a surface of `columns` by `rows` the valid cells are columns `0 .. columns - 1`
 and rows `0 .. rows - 1`. [[src/builtins/term.rs:MOVE_TO]]
@@ -71,6 +78,21 @@ The size of the terminal surface in character cells. Returned by `term::terminal
 | --- | --- | --- |
 | `columns` | `Integer` | Width of the surface in character cells; the valid column indices are `0 .. columns - 1`. |
 | `rows` | `Integer` | Height of the surface in character cells; the valid row indices are `0 .. rows - 1`. |
+
+### term::LineStyle
+
+The box-drawing weight/pattern for `term::drawHLine` and `term::drawVLine`. Each
+variant has a horizontal and a vertical form. [[src/builtins/term.rs:LINE_STYLE_TYPE]]
+
+| Variant | Horizontal | Vertical | Description |
+| --- | --- | --- | --- |
+| `Light` | `─` | `│` | Thin single line. |
+| `Heavy` | `━` | `┃` | Thick single line. |
+| `LightDash` | `┄` | `┆` | Thin triple-dash line. |
+| `HeavyDash` | `┅` | `┇` | Thick triple-dash line. |
+| `LightDot` | `┈` | `┊` | Thin quadruple-dot line. |
+| `HeavyDot` | `┉` | `┋` | Thick quadruple-dot line. |
+| `Double` | `═` | `║` | Double line. |
 
 ## See also
 

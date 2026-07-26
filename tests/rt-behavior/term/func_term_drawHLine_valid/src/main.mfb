@@ -1,0 +1,17 @@
+' drawHLine stamps a horizontal box-drawing run into the shadow grid with the
+' current attributes; endpoints normalise (either order), the span clamps to the
+' grid, and an off-grid row draws nothing. Present renders it on term::sync. Runs
+' under the non-tty harness (24x80 fallback), so the escape stream is deterministic.
+IMPORT term
+
+FUNC main AS Integer
+  term::on()
+  term::setForeground(0, 255, 0)
+  term::drawHLine(LineStyle.Heavy, 1, 2, 10)      ' heavy, cols 2..10
+  term::drawHLine(LineStyle.Double, 3, 10, 2)     ' reversed endpoints -> cols 2..10
+  term::drawHLine(LineStyle.LightDash, 5, -3, 4)  ' clamp low -> cols 0..4
+  term::drawHLine(LineStyle.Light, 100, 0, 5)     ' off-grid row -> nothing
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC
