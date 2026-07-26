@@ -1895,13 +1895,13 @@ FUNC __regex_find(value AS String, pattern AS String, start AS Integer) AS Integ
   RETURN collections::get(r.caps, 0)
 END FUNC
 
-FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS List OF Integer
-  LET prog AS __regex_Program = __regex_compile(pattern)
-  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
-  IF start < 0 OR start > ctx.n THEN
-    FAIL error(77050001, "List or string index/range is outside valid bounds.")
-  END IF
-  MUT out AS List OF Integer = []
+' bug-339 C3: the global-match walk — including the zero-width-match rule (a
+' match ending where the previous one did is skipped by advancing one position,
+' otherwise it is recorded and the cursor jumps past it) — lived identically in
+' both __regex_findAll and __regex_replace. Written once here; both consume the
+' resulting list of matches, differing only in what they do with each one.
+FUNC __regex_matchResults(prog AS __regex_Program, ctx AS __regex_Ctx, start AS Integer) AS List OF __regex_Result
+  MUT out AS List OF __regex_Result = []
   MUT lastEnd AS Integer = start
   MUT lastMatch AS Integer = -1
   DO WHILE lastEnd <= ctx.n
@@ -1916,15 +1916,28 @@ FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS Li
         lastEnd = mend + 1
         CONTINUE DO
       END IF
-      out = collections::append(out, mstart)
+      out = collections::append(out, r)
       lastMatch = mend
       lastEnd = mend + 1
       CONTINUE DO
     END IF
-    out = collections::append(out, mstart)
+    out = collections::append(out, r)
     lastMatch = mend
     lastEnd = mend
   LOOP
+  RETURN out
+END FUNC
+
+FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS List OF Integer
+  LET prog AS __regex_Program = __regex_compile(pattern)
+  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
+  IF start < 0 OR start > ctx.n THEN
+    FAIL error(77050001, "List or string index/range is outside valid bounds.")
+  END IF
+  MUT out AS List OF Integer = []
+  FOR EACH r IN __regex_matchResults(prog, ctx, start)
+    out = collections::append(out, collections::get(r.caps, 0))
+  NEXT
   RETURN out
 END FUNC
 
@@ -1933,33 +1946,12 @@ FUNC __regex_replace(value AS String, pattern AS String, replacement AS String) 
   LET ctx AS __regex_Ctx = __regex_makeCtx(value)
   MUT out AS String = ""
   MUT cursor AS Integer = 0
-  MUT lastEnd AS Integer = 0
-  MUT lastMatch AS Integer = -1
-  DO WHILE lastEnd <= ctx.n
-    LET r AS __regex_Result = __regex_searchFrom(prog, ctx, lastEnd)
-    IF r.ok = FALSE THEN
-      EXIT DO
-    END IF
+  FOR EACH r IN __regex_matchResults(prog, ctx, 0)
     LET mstart AS Integer = collections::get(r.caps, 0)
-    LET mend AS Integer = r.pos
-    IF mstart = mend THEN
-      IF mend = lastMatch THEN
-        lastEnd = mend + 1
-        CONTINUE DO
-      END IF
-      out = out & strings::mid(value, cursor, mstart - cursor)
-      out = out & __regex_expand(replacement, r, value, prog)
-      cursor = mend
-      lastMatch = mend
-      lastEnd = mend + 1
-      CONTINUE DO
-    END IF
     out = out & strings::mid(value, cursor, mstart - cursor)
     out = out & __regex_expand(replacement, r, value, prog)
-    cursor = mend
-    lastMatch = mend
-    lastEnd = mend
-  LOOP
+    cursor = r.pos
+  NEXT
   out = out & strings::mid(value, cursor, ctx.n - cursor)
   RETURN out
 END FUNC
