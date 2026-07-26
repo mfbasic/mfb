@@ -245,138 +245,138 @@
   },
   {
     "name": "#collections_any$Fixed",
-    "line": 172,
+    "line": 170,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 172, "type": "List OF Fixed", "default": null },
-    { "name": "predicate", "line": 172, "type": "FUNC(Fixed) AS Boolean", "default": null }
+    { "name": "value", "line": 170, "type": "List OF Fixed", "default": null },
+    { "name": "predicate", "line": 170, "type": "FUNC(Fixed) AS Boolean", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 173, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 171, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 174,
+      "line": 172,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
       "body": [
       {
         "op": "if",
-        "line": 175,
+        "line": 173,
         "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "Fixed", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
         "then": [
-        { "op": "return", "line": 176, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        { "op": "return", "line": 174, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 178, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 176, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 180, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 178, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
     "name": "#collections_any$Float",
-    "line": 172,
+    "line": 170,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 172, "type": "List OF Float", "default": null },
-    { "name": "predicate", "line": 172, "type": "FUNC(Float) AS Boolean", "default": null }
+    { "name": "value", "line": 170, "type": "List OF Float", "default": null },
+    { "name": "predicate", "line": 170, "type": "FUNC(Float) AS Boolean", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 173, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 171, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 174,
+      "line": 172,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
       "body": [
       {
         "op": "if",
-        "line": 175,
+        "line": 173,
         "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "Float", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
         "then": [
-        { "op": "return", "line": 176, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        { "op": "return", "line": 174, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 178, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 176, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 180, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 178, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
     "name": "#collections_any$Integer",
-    "line": 172,
+    "line": 170,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 172, "type": "List OF Integer", "default": null },
-    { "name": "predicate", "line": 172, "type": "FUNC(Integer) AS Boolean", "default": null }
+    { "name": "value", "line": 170, "type": "List OF Integer", "default": null },
+    { "name": "predicate", "line": 170, "type": "FUNC(Integer) AS Boolean", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 173, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 171, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 174,
+      "line": 172,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
       "body": [
       {
         "op": "if",
-        "line": 175,
+        "line": 173,
         "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
         "then": [
-        { "op": "return", "line": 176, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        { "op": "return", "line": 174, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 178, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 176, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 180, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 178, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   },
   {
     "name": "#collections_any$String",
-    "line": 172,
+    "line": 170,
     "visibility": "public",
     "kind": "func",
     "params": [
-    { "name": "value", "line": 172, "type": "List OF String", "default": null },
-    { "name": "predicate", "line": 172, "type": "FUNC(String) AS Boolean", "default": null }
+    { "name": "value", "line": 170, "type": "List OF String", "default": null },
+    { "name": "predicate", "line": 170, "type": "FUNC(String) AS Boolean", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "line": 173, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 171, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
-      "line": 174,
+      "line": 172,
       "loop": "while",
       "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "value" }] } },
       "body": [
       {
         "op": "if",
-        "line": 175,
+        "line": 173,
         "condition": { "kind": "call", "type": "Boolean", "target": "predicate", "args": [{ "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "i" }] }] },
         "then": [
-        { "op": "return", "line": 176, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
+        { "op": "return", "line": 174, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
         ],
         "else": [
         ]
       },
-      { "op": "assign", "line": 178, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "assign", "line": 176, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "return", "line": 180, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
+    { "op": "return", "line": 178, "value": { "kind": "const", "type": "Boolean", "value": "false" } }
     ]
   }
   ]

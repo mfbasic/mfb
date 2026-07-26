@@ -63,20 +63,6 @@ FUNC __collections_sort OF T(value AS List OF T) AS List OF T
   RETURN src
 END FUNC
 
-' plan-39 A4: take/drop are contiguous ranges, so delegate to __collections_slice
-' (natively lowered as a bulk range copy). The NATIVE lowering clamps start into
-' [0, len] and stop into [start, len], which reproduces the old element-by-element
-' bounds exactly: take(count) = slice(0, count) (count<0 or >len both collapse the
-' same way), drop(count) = slice(count, len).
-'
-' bug-306 S4: this used to attribute the clamping to `__collections_slice`, i.e. to
-' the MFBASIC body below. That body does NOT clamp -- it is dead, because `slice` is
-' natively lowered, so the discrepancy was invisible. Anyone reading the body as the
-' specification of the behaviour would have been misled.
-FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
-  RETURN __collections_slice(value, 0, count)
-END FUNC
-
 ' --- internal helpers ---------------------------------------------------------
 
 ' bug-306 S4: this body is DEAD -- `slice` is natively lowered as a bulk range copy,
@@ -153,6 +139,18 @@ FUNC __collections_sortBy OF T, U(value AS List OF T, keyFn AS FUNC(T) AS U) AS 
     width = width + width
   END WHILE
   RETURN items
+END FUNC
+
+' bug-339 C9: take and drop are the two halves of one API — kept together here
+' under the §6.4 banner (take used to sit above the internal-helpers banner).
+' plan-39 A4: both are contiguous ranges delegating to __collections_slice, which
+' is natively lowered as a bulk range copy; the native path clamps start into
+' [0, len] and stop into [start, len], reproducing the old element-by-element
+' bounds exactly: take(count) = slice(0, count) (count<0 or >len both collapse the
+' same way), drop(count) = slice(count, len). Do not read the dead MFBASIC
+' __collections_slice body as the spec of that clamping.
+FUNC __collections_take OF T(value AS List OF T, count AS Integer) AS List OF T
+  RETURN __collections_slice(value, 0, count)
 END FUNC
 
 FUNC __collections_drop OF T(value AS List OF T, count AS Integer) AS List OF T
