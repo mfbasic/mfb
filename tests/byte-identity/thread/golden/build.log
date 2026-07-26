@@ -1,0 +1,5 @@
+$ mfb build -ast -ir tests/byte-identity/thread
+uses thread_cover_worker - [Unsigned]
+Wrote AST to tests/byte-identity/thread/thread_codegen_cover_rt.ast
+Wrote IR to tests/byte-identity/thread/thread_codegen_cover_rt.ir
+[exit 0]

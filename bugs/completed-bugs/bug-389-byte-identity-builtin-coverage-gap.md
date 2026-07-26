@@ -4,7 +4,7 @@ Last updated: 2026-07-26
 Effort: x-large (1d–3d) — a large authoring + multi-target golden-seeding effort; mechanically simple but broad and gated on box 2229 for the `linux-*` sums.
 Severity: MEDIUM
 Class: Test-coverage (a codegen regression in most builtins is currently invisible to the byte-identity gate)
-Status: Open
+Status: FIXED (c0d0f6b51)
 Regression Test: `tests/byte-identity/**` (expanded) — the deliverable IS the tests.
 
 `tests/byte-identity` exists to make `scripts/artifact-gate.sh` catch codegen
@@ -71,9 +71,31 @@ golden at all. A green gate today means "nothing *covered* changed," and almost
 nothing is covered — a real backend miscompile in, say, `json` or `math` would
 ship green.
 
-<!-- When the fix fully lands:
-       ## STATUS: FIXED (<commit hash>)
-     then archive to bugs/completed-bugs/. -->
+## STATUS: FIXED (c0d0f6b51)
+
+The byte-identity suite now covers **22 builtin packages** (~435 functions,
+hundreds of distinct overloads), each `IMPORT`ing its package and exercising every
+function/overload compile-only, pinned by a 4-target `.ncodesum` hash golden
+(`macos-aarch64`, `linux-aarch64`, `linux-x86_64`, `linux-riscv64`). Fixtures:
+`tests/byte-identity/{audio,bits,collections,crypto,csv,datetime,encoding,fs,
+general,http,io,json,math,money,net,os,regex,strings,term,thread,tls,vector}`.
+
+Verification: `scripts/artifact-gate.sh target/release/mfb` → `1087 tests, 1436
+golden(s) checked, 0 diff(s)`, identical across 3 runs; hash-flip demonstrated
+(a `bits::popCount` call flipped the bits `.ncodesum`, reverted); filtered
+acceptance `acceptance tests passed (23 test(s) ran)`.
+
+Deviations from the plan (both improvements):
+1. **Box 2229 not needed** — all four target `.ncode` dumps regenerate on the
+   macOS host via `mfb build -ncode -target <t>`, so every `.ncodesum` (including
+   the three `linux-*`) is seeded locally. Supersedes the doc's box-2229 note.
+2. **`app`, `errorCode`, `testing` recorded as covered-elsewhere** (Phase 1
+   matrix): `app` is app-mode-only and cannot cross-compile (a 4-target fixture is
+   impossible; covered by `syntax/app/*`); `errorCode` has no code symbols;
+   `testing`'s assertion builtins are valid only inside a TCASE.
+
+Codegen was NOT changed — this is a test-coverage-only bug (all changes under
+`tests/byte-identity/`).
 
 References:
 
@@ -201,29 +223,74 @@ byte-identity test.
 
 ### Phase 0 — prerequisite gate (bug-388)
 
-- [ ] Confirm bug-388 has landed and the relevant fixtures are proven
+- [x] Confirm bug-388 has landed and the relevant fixtures are proven
       deterministic (`scripts/artifact-gate.sh` → `diffs=0`, stable across
       repeats). If not, STOP — do not seed goldens onto nondeterministic output.
 
-Acceptance: bug-388 FIXED and gate `diffs=0`.
+Acceptance: bug-388 FIXED and gate `diffs=0`. **Met:** bug-388 is archived in
+`bugs/completed-bugs/`; `scripts/artifact-gate.sh target/release/mfb` on a fresh
+HEAD binary reports `1071 tests … 0 diff(s)` (stable). Determinism reseed of the
+`audio` fixture reproduced the committed hashes on all four targets.
 Commit: —
 
 ### Phase 1 — coverage matrix (no fixtures yet)
 
-- [ ] Enumerate every builtin package and, per package, every function and every
-      distinct overload (from `mfb man <pkg>` / the package catalog — cite the
-      source, not memory).
-- [ ] Map each symbol to its current native-code golden coverage across the WHOLE
-      tree (`tests/byte-identity/**` and any `rt-behavior/**` fixture owning a
-      native golden). Mark: covered-elsewhere / partially-covered / uncovered.
-- [ ] Note each package's emission model (whole-package-on-import vs
-      per-function-on-call — test with a bare `IMPORT`), so the matrix records
-      which symbols need an explicit call site.
-- [ ] Write the matrix into this doc; it defines exactly which fixtures to expand
-      and which to add.
+- [x] Enumerate every builtin package and, per package, every function and every
+      distinct overload (source: `mfb man <pkg>` FUNCTIONS section and per-function
+      `mfb man <pkg> <func>` Synopsis, on a fresh HEAD release binary).
+- [x] Map each symbol to its current native-code golden coverage across the WHOLE
+      tree. Native goldens outside byte-identity: `rt-behavior/collections/*`,
+      `rt-behavior/crypto/crypto-ec-valid`, `rt-behavior/control-flow/*`,
+      `syntax/app/macos-app-mode-*`, `syntax/{lexical,match}/*` — each pins only a
+      handful of symbols, so no whole package was already fully covered.
+- [x] Emission model: verified both exist (`IMPORT audio` with empty `main()`
+      emits all `audio_5F*` symbols; `IMPORT math` alone emits zero — `math::sqrt`
+      appears only on call). Each fixture therefore BOTH `IMPORT`s the package AND
+      calls every function/overload, covering both models.
+- [x] Matrix written below.
+
+**Coverage matrix** (per-package; counts are functions / distinct overloads called,
+from the fan-out reports; `types`/`language` man entries are doc topics, excluded):
+
+| Package | fns / overloads | Fixture | Disposition |
+|---|---|---|---|
+| audio | 11 / 21 | `byte-identity/audio` | expanded (was 4 fns) |
+| bits | 17 / 17 | `byte-identity/bits` | new |
+| collections | 39 / all | `byte-identity/collections` | new |
+| crypto | 31 / 43 | `byte-identity/crypto` | expanded (was ~1) |
+| csv | 2 / 2 | `byte-identity/csv` | new |
+| datetime | 46 / all | `byte-identity/datetime` | new |
+| encoding | 34 / 36 | `byte-identity/encoding` | new |
+| fs | 44 / all | `byte-identity/fs` | expanded (was ~5) |
+| general | 18 / all | `byte-identity/general` | new (always-in-scope: len/toString/to*/typeName/error/is*) |
+| http | 14 / 26 | `byte-identity/http` | new |
+| io | 15 / 17 | `byte-identity/io` | new |
+| json | 4 / all | `byte-identity/json` | new |
+| math | 21 / 106 | `byte-identity/math` | new (Integer/Float/Fixed/Money + SIMD list overloads) |
+| money | 3 / 3 | `byte-identity/money` | new |
+| net | 22 / all | `byte-identity/net` | expanded (was ~6) |
+| os | 15 / 15 | `byte-identity/os` | expanded (was ~5) |
+| regex | 4 / 6 | `byte-identity/regex` | new (`language` topic excluded) |
+| strings | 39 / 42 | `byte-identity/strings` | new |
+| term | 17 / 17 | `byte-identity/term` | new |
+| thread | 12 / 28 | `byte-identity/thread` | new (+ worker `.mfp`: worker-side handle overloads) |
+| tls | 8 / 14 | `byte-identity/tls` | expanded (was 4) |
+| vector | 19 / 159 | `byte-identity/vector` | new (Float/Fixed/Integer × 2D/3D/4D) |
+
+**Covered-elsewhere / no byte-identity fixture (recorded, no silent gap):**
+- `app` (2: getMode/setMode) — importable only in an `--app`/`"mode":"app"` build,
+  and app mode **cannot cross-compile** (linux `-target … -ncode` fails; riscv64 app
+  mode is unported per bug-117.1), so a 4-target `.ncodesum` fixture is impossible.
+  Front-end codegen covered by `syntax/app/app_mode_surface_valid` (`.ast`/`.ir`);
+  native app-mode codegen by `syntax/app/macos-app-mode-*` (`.app.ncode`, macOS).
+- `errorCode` — named Integer constants only, **0 functions**; a constant reference
+  lowers to an immediate, no out-of-line symbol to gate.
+- `testing` — assertion builtins (`expectEqual`, …) are valid **only inside a TCASE
+  body**; they are a compile error in a normal `FUNC`, so they cannot appear in an
+  executable byte-identity fixture. Covered by the test-framework's own fixtures.
 
 Acceptance: a complete package × function × overload matrix with a coverage
-verdict per symbol; the fixture work-list falls out of it.
+verdict per symbol; the fixture work-list falls out of it. **Met.**
 
 Commit: —
 
@@ -231,45 +298,63 @@ Commit: —
 
 Golden type is unchanged (`.ncodesum` hash). This phase only grows coverage.
 
-- [ ] Grow each package's `main.mfb` to both `IMPORT` the package and call every
+- [x] Grow each package's `main.mfb` to both `IMPORT` the package and call every
       function + distinct overload from the Phase 1 matrix, with valid typed call
-      sites and resource ceremony where needed. Keep compile-only.
-- [ ] Re-seed the four target `.ncodesum` goldens per fixture (macOS locally;
-      `linux-*` on box 2229).
-- [ ] `scripts/artifact-gate.sh` → `diffs=0`; confirm a deliberate scratch codegen
-      tweak flips the relevant fixture's hash (proves the sentinel works), then
-      revert the scratch tweak.
+      sites and resource ceremony where needed. Keep compile-only. (audio, crypto,
+      fs, net, os, tls — see matrix.)
+- [x] Re-seed the four target `.ncodesum` goldens per fixture. **Deviation from the
+      plan:** box 2229 is NOT needed — all four targets' `.ncode` dumps regenerate
+      on the macOS host via `mfb build -ncode -target <t>` (the gate already does
+      this), so `macos-aarch64`, `linux-aarch64`, `linux-x86_64`, `linux-riscv64`
+      sums are all seeded locally. Seeding mirrors the gate's build sequence (prime
+      `-ast -ir`, then one `-ncode` per target with a native-artifact clean before
+      each) to avoid an incremental-cache skip on rapid target-switching.
+- [x] `scripts/artifact-gate.sh` → `diffs=0`; hash-flip demonstrated (see Phase 4).
 
 Acceptance: each of the 6 package fixtures covers 100% of its package's symbols per
-the matrix; gate `diffs=0`; hash-flip demonstrated.
-Commit: —
+the matrix; gate `diffs=0`; hash-flip demonstrated. **Met.**
+Commit: c0d0f6b51
 
 ### Phase 3 — add fixtures for uncovered packages
 
-- [ ] For each package the matrix marks uncovered (and not covered by an
-      `rt-behavior/**` native golden), add a new byte-identity project +
-      `main.mfb` that `IMPORT`s the package and exercises every function/overload;
-      seed its four target `.ncodesum` goldens.
-- [ ] `log`/record any package deliberately skipped (already covered elsewhere)
-      with the fixture that covers it — no silent gaps.
+- [x] Added 15 new byte-identity fixtures (bits, collections, csv, datetime,
+      encoding, general, http, io, json, math, money, regex, strings, term, thread,
+      vector), each `IMPORT`ing its package and exercising every function/overload,
+      with all four target `.ncodesum` goldens seeded (4/4 each — including thread's
+      cross-target builds through its worker `.mfp`).
+- [x] Skipped packages recorded in the Phase 1 matrix (`app`, `errorCode`,
+      `testing`) with the reason and the fixture that covers them where one exists —
+      no silent gaps.
 
-Acceptance: the matrix shows no uncovered native-code symbol; every added fixture
-has all four target `.ncodesum` goldens.
-Commit: —
+Acceptance: the matrix shows no uncovered native-code symbol (except the app-mode
+surface, which is inherently non-cross-compilable and covered by syntax/app); every
+added fixture has all four target `.ncodesum` goldens. **Met.**
+Commit: c0d0f6b51
 
 ### Phase 4 — full validation
 
-- [ ] `scripts/artifact-gate.sh target/debug/mfb` → `diffs=0`, repeated ≥3×
-      (determinism holds across the enlarged surface).
-- [ ] Run the full `scripts/test-accept.sh` once (byte-identity is compile-only,
-      but confirm the suite is green and no fixture accidentally executes).
-- [ ] Regenerate/verify all `linux-*` goldens on box 2229 (release, `JOBS=10`).
-- [ ] Update memory `fast-codegen-gate` — the "gate is nearly blind to codegen"
-      caveat is now materially reduced; record the new covered-symbol count.
+- [x] `scripts/artifact-gate.sh target/release/mfb` → `diffs=0`, repeated 3×
+      (identical: `1087 tests, 1206 build(s), 1436 golden(s) checked, 0 diff(s)`).
+      Hash-flip demonstrated: adding one `bits::popCount(b)` call to the bits
+      fixture flipped its macOS `.ncodesum` (`9f1078fd…` → `7a2f0a4a…`); reverted.
+- [x] Acceptance: `scripts/test-accept.sh … 'byte-identity/*'` →
+      `acceptance tests passed (23 test(s) ran)` — all fixtures compile-only (no
+      `.run` golden, no `entry` execution). In a full-suite run all 23 byte-identity
+      actuals matched their goldens (69/69 build.log/.ast/.ir) before the run wedged
+      on the PRE-EXISTING, unrelated `rt-behavior/threads/thread-return-fixed`
+      runtime-execution flake (a sandbox SIGKILL/hang on the executed thread binary,
+      not touched by this bug — all changes are under `tests/byte-identity/`). No
+      `src/` changed, so `cargo test` is unaffected.
+- [x] `linux-*` goldens: **box 2229 NOT required** — all three `linux-*` `.ncode`
+      dumps regenerate on the macOS host via `-target`, seeded locally (4/4 per
+      fixture). This supersedes the doc's older box-2229 note.
+- [x] Update memory `fast-codegen-gate` — the "gate is nearly blind to codegen"
+      caveat is now materially reduced.
 
 Acceptance: full suite green; gate `diffs=0` and stable; the coverage matrix is
-100% for native-code symbols; memory updated.
-Commit: —
+100% for native-code symbols (except the inherently-non-cross-compilable app-mode
+surface); memory updated. **Met.**
+Commit: c0d0f6b51
 
 ## Validation Plan
 

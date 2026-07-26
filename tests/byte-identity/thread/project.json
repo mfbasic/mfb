@@ -1,0 +1,12 @@
+{
+  "name": "thread_codegen_cover_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "thread_cover_worker", "version": "=0.1.0", "source": "file:packages/thread_cover_worker.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -1,0 +1,62 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "money_codegen_cover_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "enum",
+    "line": 23,
+    "visibility": "export",
+    "name": "Rounding",
+    "members": [
+    { "name": "Commercial" },
+    { "name": "Banker" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "Rounding", "target": { "kind": "local", "name": "Rounding" }, "member": "Commercial" }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "money.setRounding", "args": [{ "kind": "memberAccess", "type": "Rounding", "target": { "kind": "local", "name": "Rounding" }, "member": "Banker" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "mode", "type": "Rounding", "value": { "kind": "call", "type": "Rounding", "target": "money.getRounding", "args": [] } },
+    {
+      "op": "if",
+      "line": 12,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "mode" }, "right": { "kind": "memberAccess", "type": "Rounding", "target": { "kind": "local", "name": "Rounding" }, "member": "Banker" } },
+      "then": [
+      { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "banker" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "line": 17, "mutable": false, "name": "v", "type": "Money", "value": { "kind": "const", "type": "Money", "value": "0.12345" } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "r0", "type": "Money", "value": { "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "local", "name": "v" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "r1", "type": "Money", "value": { "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "local", "name": "v" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "r2", "type": "Money", "value": { "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "local", "name": "v" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "r3", "type": "Money", "value": { "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "local", "name": "v" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "r4", "type": "Money", "value": { "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "local", "name": "v" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "r5", "type": "Money", "value": { "kind": "call", "type": "Money", "target": "money.round", "args": [{ "kind": "local", "name": "v" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r0" }] }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r1" }] }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r2" }] }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r3" }] }] } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r4" }] }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "r5" }] }] } },
+    { "op": "return", "line": 31, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

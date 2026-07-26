@@ -1,12 +1,54 @@
 ' Byte-identity coverage for a backend that carried NO generated-code golden.\n' plan-57 rewrites the collection builders these helpers all construct their\n' List OF Byte / List OF String results through, and its acceptance is\n' artifact byte-identity — so each of these needs a .ncode golden or the gate is\n' blind to it. Goldens exist per target because several of these backends are\n' platform-specific (audio/alsa and tls/openssl are Linux-only).\n' Compile-only by design: these open devices and sockets that do not exist in a\n' test run, so there is no .run golden and the harness never executes them.\n
 IMPORT io
+IMPORT collections
 IMPORT audio
 
 FUNC main() AS Integer
   RES mic AS AudioInput = audio::openInput(48000, 1, 512)
   LET pcm = audio::read(mic, 256)
   io::print(toString(len(pcm)))
+
+  ' read timed overload
+  LET pcm2 = audio::read(mic, 256, 100)
+  io::print(toString(len(pcm2)))
+
+  ' input stream introspection overloads
+  io::print(toString(audio::available(mic)))
+  io::print(toString(audio::poll(mic)))
+  io::print(toString(audio::poll(mic, 50)))
+  io::print(toString(audio::xruns(mic)))
+
+  ' devices() and the AudioDevice-form open overloads
+  LET devs = audio::devices()
+  io::print(toString(len(devs)))
+  LET dev = collections::get(devs, 0)
+  RES mic2 AS AudioInput = audio::openInput(dev, 48000, 1, 512)
+  audio::close(mic2)
+
   RES spk AS AudioOutput = audio::openOutput(48000, 1, 512)
   audio::write(spk, pcm)
+
+  ' output stream introspection overloads
+  io::print(toString(audio::available(spk)))
+  io::print(toString(audio::poll(spk)))
+  io::print(toString(audio::poll(spk, 50)))
+  io::print(toString(audio::xruns(spk)))
+
+  ' play overloads: single MML string and a list of tracks
+  audio::play(spk, "T120 O4 CDEFGAB")
+  LET tracks AS List OF String = ["T120 O4 CEG", "T120 O3 GEC"]
+  audio::play(spk, tracks)
+
+  RES spk2 AS AudioOutput = audio::openOutput(dev, 48000, 1, 512)
+  audio::close(spk2)
+
+  ' render one AudioNote to mono s16le PCM
+  LET env = AudioEnvelope[2400, 4800, 31200, 9600, 12000]
+  LET note = AudioNote[440.0, 48000, env, 0.8]
+  LET tone = audio::render(note)
+  io::print(toString(len(tone)))
+
+  audio::close(mic)
+  audio::close(spk)
   RETURN 0
 END FUNC

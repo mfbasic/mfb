@@ -1,0 +1,72 @@
+' Byte-identity codegen coverage for the encoding package (bug-389).
+' IMPORTs the package and calls every function + distinct overload with valid
+' typed args so a codegen change to any encoding builtin flips this fixture's
+' .ncodesum hash. Compile-only: results are folded and printed to force
+' emission, but the fixture is never executed.
+IMPORT io
+IMPORT encoding
+
+FUNC main() AS Integer
+  MUT acc AS Integer = 0
+  MUT s AS String = ""
+
+  ' --- binary-to-text codecs: List OF Byte <-> String ---
+  LET raw AS List OF Byte = [toByte(102), toByte(111), toByte(111)]
+
+  LET s32 = encoding::base32Encode(raw)
+  LET s64 = encoding::base64Encode(raw)
+  LET s64u = encoding::base64UrlEncode(raw)
+  LET shex = encoding::hexEncode(raw)
+  s = s & s32 & s64 & s64u & shex
+
+  LET b32 AS List OF Byte = encoding::base32Decode(s32)
+  LET b64 AS List OF Byte = encoding::base64Decode(s64)
+  LET b64u AS List OF Byte = encoding::base64UrlDecode(s64u)
+  LET bhex AS List OF Byte = encoding::hexDecode(shex)
+  acc = acc + len(b32) + len(b64) + len(b64u) + len(bhex)
+
+  ' --- web codecs: String -> String ---
+  s = s & encoding::formUrlEncode("a b+c&d")
+  s = s & encoding::formUrlDecode("a+b%2Bc")
+  s = s & encoding::percentEncode("a b/c?=&")
+  s = s & encoding::percentDecode("a%20b%2Fc")
+  s = s & encoding::htmlEscape("<a href=\"x\">&'")
+  s = s & encoding::htmlUnescape("&lt;a&gt;&amp; &#233;")
+  s = s & encoding::punycodeEncode("münchen.de")
+  s = s & encoding::punycodeDecode("xn--mnchen-3ya.de")
+
+  ' --- integer codecs: Integer <-> List OF Byte ---
+  LET sleb AS List OF Byte = encoding::sleb128Encode(0 - 123456)
+  LET uleb AS List OF Byte = encoding::uleb128Encode(624485)
+  LET vint AS List OF Byte = encoding::varintEncode(0 - 75)
+  acc = acc + len(sleb) + len(uleb) + len(vint)
+  acc = acc + encoding::sleb128Decode(sleb)
+  acc = acc + encoding::uleb128Decode(uleb)
+  acc = acc + encoding::varintDecode(vint)
+
+  ' --- UTF-16 / UTF-32: String <-> List OF Integer ---
+  LET u16 AS List OF Integer = encoding::utf16Encode("héllo")
+  LET u32 AS List OF Integer = encoding::utf32Encode("A😀")
+  acc = acc + len(u16) + len(u32)
+  s = s & encoding::utf16Decode(u16)
+  s = s & encoding::utf32Decode(u32)
+
+  ' --- UTF-8: return-type overload (Byte / Integer) ---
+  LET eb AS List OF Byte = encoding::utf8Encode("hi")
+  LET ei AS List OF Integer = encoding::utf8Encode("hi")
+  acc = acc + len(eb) + len(ei)
+
+  ' --- UTF-8: explicit Bytes / Ints encoders ---
+  LET hb AS List OF Byte = encoding::utf8EncodeBytes("hi")
+  LET hi AS List OF Integer = encoding::utf8EncodeInts("hi")
+  acc = acc + len(hb) + len(hi)
+
+  ' --- UTF-8: param overload of utf8Decode (Byte / Integer) + explicit ---
+  s = s & encoding::utf8Decode(hb)
+  s = s & encoding::utf8Decode(hi)
+  s = s & encoding::utf8DecodeBytes(hb)
+  s = s & encoding::utf8DecodeInts(hi)
+
+  io::print(toString(acc) & s)
+  RETURN 0
+END FUNC

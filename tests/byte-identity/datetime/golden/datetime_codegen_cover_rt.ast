@@ -1,0 +1,266 @@
+{
+  "project": "datetime_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 },
+    { "module": "datetime", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useS",
+      "line": 8,
+      "params": [
+      { "name": "value", "type": "String", "default": null, "line": 8 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useI",
+      "line": 12,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null, "line": 12 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useB",
+      "line": 16,
+      "params": [
+      { "name": "value", "type": "Boolean", "default": null, "line": 16 }
+      ],
+      "returnType": null,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "value" },
+        "line": 17,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "1" }] }, "line": 18 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "0" }] }, "line": 20 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useInstant",
+      "line": 24,
+      "params": [
+      { "name": "v", "type": "Instant", "default": null, "line": 24 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "seconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "nanos" } }] }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useDuration",
+      "line": 28,
+      "params": [
+      { "name": "v", "type": "Duration", "default": null, "line": 28 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "seconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "nanos" } }] }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useDate",
+      "line": 32,
+      "params": [
+      { "name": "v", "type": "Date", "default": null, "line": 32 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "year" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "month" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "day" } }] }, "line": 33 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useTime",
+      "line": 36,
+      "params": [
+      { "name": "v", "type": "Time", "default": null, "line": 36 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "hour" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "minute" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "second" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "nanos" } }] }, "line": 37 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useZone",
+      "line": 40,
+      "params": [
+      { "name": "v", "type": "Zone", "default": null, "line": 40 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "binary", "operator": "+", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "offsetSeconds" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "kind" } }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useS", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "label" }] }, "line": 42 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useDateTime",
+      "line": 45,
+      "params": [
+      { "name": "v", "type": "DateTime", "default": null, "line": 45 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "offset" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDate", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "date" }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useTime", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "v" }, "member": "time" }] }, "line": 48 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "useWeekday",
+      "line": 51,
+      "params": [
+      { "name": "v", "type": "Weekday", "default": null, "line": 51 }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useB", "arguments": [{ "kind": "binary", "operator": "OR", "left": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Weekday" }, "member": "Monday" } }, "right": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Weekday" }, "member": "Sunday" } } }] }, "line": 52 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 55,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "nowI", "type": "Instant", "value": { "kind": "call", "callee": "datetime.now", "arguments": [] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "identifier", "value": "nowI" }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.nowNanos", "arguments": [] }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "call", "callee": "datetime.monotonic", "arguments": [] }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.monotonicNanos", "arguments": [] }] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "i1", "type": "Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "1000" }] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "name": "i2", "type": "Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "1000" }, { "kind": "number", "value": "500" }] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "i3", "type": "Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "500" }] }, "line": 66 },
+      { "kind": "binding", "mutable": false, "name": "i4", "type": "Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "500" }] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "name": "i5", "type": "Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "500" }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "identifier", "value": "i1" }] }, "line": 69 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "identifier", "value": "i2" }] }, "line": 70 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "identifier", "value": "i3" }] }, "line": 71 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "identifier", "value": "i4" }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "identifier", "value": "i5" }] }, "line": 73 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "call", "callee": "datetime.fromMillis", "arguments": [{ "kind": "number", "value": "1700000000000" }] }] }, "line": 74 },
+      { "kind": "binding", "mutable": false, "name": "d1", "type": "Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "60" }] }, "line": 77 },
+      { "kind": "binding", "mutable": false, "name": "d2", "type": "Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "60" }, { "kind": "number", "value": "500" }] }, "line": 78 },
+      { "kind": "binding", "mutable": false, "name": "d3", "type": "Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "500" }] }, "line": 79 },
+      { "kind": "binding", "mutable": false, "name": "d4", "type": "Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "500" }] }, "line": 80 },
+      { "kind": "binding", "mutable": false, "name": "d5", "type": "Duration", "value": { "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "500" }] }, "line": 81 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "identifier", "value": "d1" }] }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "identifier", "value": "d2" }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "identifier", "value": "d3" }] }, "line": 84 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "identifier", "value": "d4" }] }, "line": 85 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "identifier", "value": "d5" }] }, "line": 86 },
+      { "kind": "binding", "mutable": false, "name": "zu", "type": "Zone", "value": { "kind": "call", "callee": "datetime.utc", "arguments": [] }, "line": 89 },
+      { "kind": "binding", "mutable": false, "name": "zl", "type": "Zone", "value": { "kind": "call", "callee": "datetime.local", "arguments": [] }, "line": 90 },
+      { "kind": "binding", "mutable": false, "name": "zf1", "type": "Zone", "value": { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "19800" }] }, "line": 91 },
+      { "kind": "binding", "mutable": false, "name": "zf2", "type": "Zone", "value": { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "30" }] }, "line": 92 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useZone", "arguments": [{ "kind": "identifier", "value": "zu" }] }, "line": 93 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useZone", "arguments": [{ "kind": "identifier", "value": "zl" }] }, "line": 94 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useZone", "arguments": [{ "kind": "identifier", "value": "zf1" }] }, "line": 95 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useZone", "arguments": [{ "kind": "identifier", "value": "zf2" }] }, "line": 96 },
+      { "kind": "binding", "mutable": false, "name": "dd", "type": "Date", "value": { "kind": "call", "callee": "datetime.date", "arguments": [{ "kind": "number", "value": "2026" }, { "kind": "number", "value": "6" }, { "kind": "number", "value": "26" }] }, "line": 99 },
+      { "kind": "binding", "mutable": false, "name": "t2", "type": "Time", "value": { "kind": "call", "callee": "datetime.time", "arguments": [{ "kind": "number", "value": "9" }, { "kind": "number", "value": "30" }] }, "line": 100 },
+      { "kind": "binding", "mutable": false, "name": "t3", "type": "Time", "value": { "kind": "call", "callee": "datetime.time", "arguments": [{ "kind": "number", "value": "9" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "15" }] }, "line": 101 },
+      { "kind": "binding", "mutable": false, "name": "t4", "type": "Time", "value": { "kind": "call", "callee": "datetime.time", "arguments": [{ "kind": "number", "value": "9" }, { "kind": "number", "value": "30" }, { "kind": "number", "value": "15" }, { "kind": "number", "value": "500" }] }, "line": 102 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDate", "arguments": [{ "kind": "identifier", "value": "dd" }] }, "line": 103 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useTime", "arguments": [{ "kind": "identifier", "value": "t2" }] }, "line": 104 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useTime", "arguments": [{ "kind": "identifier", "value": "t3" }] }, "line": 105 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useTime", "arguments": [{ "kind": "identifier", "value": "t4" }] }, "line": 106 },
+      { "kind": "binding", "mutable": false, "name": "civ", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.civil", "arguments": [{ "kind": "identifier", "value": "dd" }, { "kind": "identifier", "value": "t4" }, { "kind": "identifier", "value": "zu" }] }, "line": 109 },
+      { "kind": "binding", "mutable": false, "name": "dtz", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.inZone", "arguments": [{ "kind": "identifier", "value": "nowI" }, { "kind": "identifier", "value": "zf1" }] }, "line": 110 },
+      { "kind": "binding", "mutable": false, "name": "dtu", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "identifier", "value": "nowI" }] }, "line": 111 },
+      { "kind": "binding", "mutable": false, "name": "dtl", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.toLocal", "arguments": [{ "kind": "identifier", "value": "nowI" }] }, "line": 112 },
+      { "kind": "binding", "mutable": false, "name": "dtw", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.withZone", "arguments": [{ "kind": "identifier", "value": "civ" }, { "kind": "identifier", "value": "zl" }] }, "line": 113 },
+      { "kind": "binding", "mutable": false, "name": "dtd", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.addDays", "arguments": [{ "kind": "identifier", "value": "civ" }, { "kind": "number", "value": "3" }] }, "line": 114 },
+      { "kind": "binding", "mutable": false, "name": "dtm", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.addMonths", "arguments": [{ "kind": "identifier", "value": "civ" }, { "kind": "number", "value": "2" }] }, "line": 115 },
+      { "kind": "binding", "mutable": false, "name": "dts", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.startOfDay", "arguments": [{ "kind": "identifier", "value": "civ" }] }, "line": 116 },
+      { "kind": "binding", "mutable": false, "name": "dtp", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "2026-06-26 09:30" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm" }] }, "line": 117 },
+      { "kind": "binding", "mutable": false, "name": "dtp2", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "2026-06-26 09:30" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm" }, { "kind": "identifier", "value": "zf1" }] }, "line": 118 },
+      { "kind": "binding", "mutable": false, "name": "dti", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "string", "value": "2026-06-26T09:30:00+00:00" }] }, "line": 119 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "civ" }] }, "line": 120 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dtz" }] }, "line": 121 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dtu" }] }, "line": 122 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dtl" }] }, "line": 123 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dtw" }] }, "line": 124 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dtd" }] }, "line": 125 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dtm" }] }, "line": 126 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dts" }] }, "line": 127 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dtp" }] }, "line": 128 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dtp2" }] }, "line": 129 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDateTime", "arguments": [{ "kind": "identifier", "value": "dti" }] }, "line": 130 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "call", "callee": "datetime.add", "arguments": [{ "kind": "identifier", "value": "nowI" }, { "kind": "identifier", "value": "d1" }] }] }, "line": 133 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "call", "callee": "datetime.subtract", "arguments": [{ "kind": "identifier", "value": "nowI" }, { "kind": "identifier", "value": "d1" }] }] }, "line": 134 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useInstant", "arguments": [{ "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "civ" }] }] }, "line": 135 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "call", "callee": "datetime.between", "arguments": [{ "kind": "identifier", "value": "i1" }, { "kind": "identifier", "value": "i2" }] }] }, "line": 136 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "call", "callee": "datetime.plus", "arguments": [{ "kind": "identifier", "value": "d1" }, { "kind": "identifier", "value": "d2" }] }] }, "line": 139 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "call", "callee": "datetime.minus", "arguments": [{ "kind": "identifier", "value": "d2" }, { "kind": "identifier", "value": "d1" }] }] }, "line": 140 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useDuration", "arguments": [{ "kind": "call", "callee": "datetime.negate", "arguments": [{ "kind": "identifier", "value": "d1" }] }] }, "line": 141 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.compare", "arguments": [{ "kind": "identifier", "value": "i1" }, { "kind": "identifier", "value": "i2" }] }] }, "line": 144 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useB", "arguments": [{ "kind": "call", "callee": "datetime.equals", "arguments": [{ "kind": "identifier", "value": "i1" }, { "kind": "identifier", "value": "i2" }] }] }, "line": 145 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useB", "arguments": [{ "kind": "call", "callee": "datetime.isAfter", "arguments": [{ "kind": "identifier", "value": "i2" }, { "kind": "identifier", "value": "i1" }] }] }, "line": 146 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useB", "arguments": [{ "kind": "call", "callee": "datetime.isBefore", "arguments": [{ "kind": "identifier", "value": "i1" }, { "kind": "identifier", "value": "i2" }] }] }, "line": 147 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.toMillis", "arguments": [{ "kind": "identifier", "value": "nowI" }] }] }, "line": 150 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.toNanos", "arguments": [{ "kind": "identifier", "value": "i1" }] }] }, "line": 151 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.dayOfYear", "arguments": [{ "kind": "identifier", "value": "civ" }] }] }, "line": 152 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.daysInMonth", "arguments": [{ "kind": "number", "value": "2026" }, { "kind": "number", "value": "2" }] }] }, "line": 153 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useB", "arguments": [{ "kind": "call", "callee": "datetime.isLeapYear", "arguments": [{ "kind": "number", "value": "2024" }] }] }, "line": 154 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.localOffset", "arguments": [{ "kind": "number", "value": "1700000000" }] }] }, "line": 155 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useI", "arguments": [{ "kind": "call", "callee": "datetime.offsetAt", "arguments": [{ "kind": "identifier", "value": "zf1" }, { "kind": "identifier", "value": "nowI" }] }] }, "line": 156 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useWeekday", "arguments": [{ "kind": "call", "callee": "datetime.weekday", "arguments": [{ "kind": "identifier", "value": "civ" }] }] }, "line": 157 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useS", "arguments": [{ "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "civ" }, { "kind": "string", "value": "yyyy-MM-dd'T'HH:mm:ss Z" }] }] }, "line": 160 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useS", "arguments": [{ "kind": "call", "callee": "datetime.formatDuration", "arguments": [{ "kind": "identifier", "value": "d5" }] }] }, "line": 161 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "useS", "arguments": [{ "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "identifier", "value": "civ" }] }] }, "line": 162 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 164 }
+      ]
+    }
+    ]
+  }
+  ]
+}
