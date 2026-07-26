@@ -23,6 +23,10 @@ use sections::*;
 use util::*;
 use writer::*;
 
+// Section ids are wire format and frozen; the values are declared here in
+// numeric order (the [`SectionKind`] enum in reader.rs is the typed handle that
+// fetches them). Ids 12-14 are reserved by the format for
+// DEBUG_INFO/SOURCE_MAP/AUDIT_INFO, and ids 9, 19 are unassigned gaps.
 const SECTION_MANIFEST: u16 = 1;
 const SECTION_STRING_POOL: u16 = 2;
 const SECTION_TYPE_TABLE: u16 = 3;
@@ -37,6 +41,10 @@ const SECTION_FUNCTION_TABLE: u16 = 8;
 /// the id the format reserved for exactly this purpose.
 const SECTION_NATIVE_LIBRARY_TABLE: u16 = 10;
 const SECTION_RESOURCE_TABLE: u16 = 11;
+const SECTION_ABI_INDEX: u16 = 15;
+/// Structured Binary Representation payload section. Replaces the old flat code section as
+/// the carrier of function bodies; see `crate::ir::encode_binary_repr`.
+const SECTION_BINARY_REPR: u16 = 16;
 /// Optional documentation section (plan-09-doc.md §5). Self-describing and
 /// length-prefixed; a consumer that does not understand it skips it entirely.
 /// Ids 12-14 are reserved by the format for DEBUG_INFO/SOURCE_MAP/AUDIT_INFO,
@@ -59,10 +67,6 @@ const SECTION_PACKAGE_META: u16 = 18;
 /// later field is additive within the section just as the section itself is
 /// additive within the container.
 const PACKAGE_META_FIELD_DESCRIPTION: u16 = 1;
-const SECTION_ABI_INDEX: u16 = 15;
-/// Structured Binary Representation payload section. Replaces the old flat code section as
-/// the carrier of function bodies; see `crate::ir::encode_binary_repr`.
-const SECTION_BINARY_REPR: u16 = 16;
 
 /// MFPC container major version. Bumped to 2 for the clean break to the
 /// structured Binary Representation payload — the reader rejects the old flat (v1) layout.
@@ -122,33 +126,10 @@ const FUNCTION_FLAG_PRIVATE: u16 = 1 << 1;
 const FUNCTION_FLAG_SUB: u16 = 1 << 3;
 const FUNCTION_FLAG_RETURNS_NOTHING: u16 = 1 << 5;
 
-pub fn write_binary_repr_hex(
-    project_dir: &Path,
-    ir: &IrProject,
-    version: &str,
-) -> Result<PathBuf, String> {
-    let metadata = BinaryReprMetadata::new(ir.name.clone(), version.to_string());
-    let bytes = build_binary_repr_bytes(ir, &metadata)?;
-    let hex_path = project_dir.join(format!("{}.hex", ir.name));
-    fs::write(&hex_path, hex_dump(&bytes))
-        .map_err(|err| format!("failed to write '{}': {err}", hex_path.display()))?;
-    Ok(hex_path)
-}
-
-pub fn build_binary_repr_bytes(
-    ir: &IrProject,
-    metadata: &BinaryReprMetadata,
-) -> Result<Vec<u8>, String> {
-    Ok(lower_project(ir, metadata)?.encode())
-}
-
-pub fn build_package_binary_repr_bytes(
-    ir: &IrProject,
-    metadata: &BinaryReprMetadata,
-    packages: &[PathBuf],
-) -> Result<Vec<u8>, String> {
-    Ok(lower_package_project(ir, metadata, packages)?.encode())
-}
+// ===== Public API: exported types =====
+// The decoded surfaces `read_package_*` return and the metadata the builders
+// take. The public entry-point functions follow, after all the types
+// (bug-335 B6); the module's internal wire structs come last.
 
 #[derive(Clone)]
 pub struct BinaryReprMetadata {
@@ -251,6 +232,23 @@ pub enum BinaryReprTypeVisibility {
     Private,
     Public,
     Export,
+}
+
+/// One resource type contributed by an imported package's `RESOURCE_TABLE`
+/// (the return element of [`read_package_resources`]).
+///
+/// `native` distinguishes native (`LINK`) resources from standard ones; it is
+/// read when `syntaxcheck` registers an imported package's resource types
+/// (every field is consumed there), so no field is dead.
+pub struct BinaryReprResourceExport {
+    pub type_name: String,
+    /// Resolved close-op name (`fs.close`/`net.close` for built-ins, or the
+    /// declaring package's close function name). `None` when the close function
+    /// id cannot be resolved.
+    pub close_function: Option<String>,
+    pub sendable: bool,
+    pub close_may_fail: bool,
+    pub native: bool,
 }
 
 pub struct BinaryReprPackageInfo {
@@ -431,6 +429,8 @@ const DOC_KIND_UNION: u16 = 3;
 const DOC_KIND_ENUM: u16 = 4;
 const DOC_KIND_RESOURCE: u16 = 5;
 
+// ===== Public API: build + read entry points =====
+
 /// Read the optional `doc` section from a compiled `.mfp` package. Returns an
 /// empty [`PackageDocs`] when the package carries no documentation.
 pub fn read_package_docs(path: &Path) -> Result<PackageDocs, String> {
@@ -492,22 +492,6 @@ pub fn read_package_type_exports(path: &Path) -> Result<Vec<BinaryReprTypeExport
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))
 }
 
-/// One resource type contributed by an imported package's `RESOURCE_TABLE`.
-//
-// `native` distinguishes native (`LINK`) resources from standard ones; it is
-// read by the later native-resource phase (`plan-link-update`).
-#[allow(dead_code)]
-pub struct BinaryReprResourceExport {
-    pub type_name: String,
-    /// Resolved close-op name (`fs.close`/`net.close` for built-ins, or the
-    /// declaring package's close function name). `None` when the close function
-    /// id cannot be resolved.
-    pub close_function: Option<String>,
-    pub sendable: bool,
-    pub close_may_fail: bool,
-    pub native: bool,
-}
-
 /// Decode an imported package's `RESOURCE_TABLE` so the importer can register
 /// the package's resource types (recognition, sendability, and close op) instead
 /// of relying on hardcoded knowledge of the standard built-ins.
@@ -556,6 +540,36 @@ pub fn read_package_ir_with_identity(
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
     Ok((id, ir))
 }
+
+pub fn write_binary_repr_hex(
+    project_dir: &Path,
+    ir: &IrProject,
+    version: &str,
+) -> Result<PathBuf, String> {
+    let metadata = BinaryReprMetadata::new(ir.name.clone(), version.to_string());
+    let bytes = build_binary_repr_bytes(ir, &metadata)?;
+    let hex_path = project_dir.join(format!("{}.hex", ir.name));
+    fs::write(&hex_path, hex_dump(&bytes))
+        .map_err(|err| format!("failed to write '{}': {err}", hex_path.display()))?;
+    Ok(hex_path)
+}
+
+pub(crate) fn build_binary_repr_bytes(
+    ir: &IrProject,
+    metadata: &BinaryReprMetadata,
+) -> Result<Vec<u8>, String> {
+    Ok(lower_project(ir, metadata)?.encode())
+}
+
+pub fn build_package_binary_repr_bytes(
+    ir: &IrProject,
+    metadata: &BinaryReprMetadata,
+    packages: &[PathBuf],
+) -> Result<Vec<u8>, String> {
+    Ok(lower_package_project(ir, metadata, packages)?.encode())
+}
+
+// ===== Internal wire types =====
 
 struct MfpContainer<'a> {
     identity: MfpIdentity,
