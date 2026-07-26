@@ -1409,11 +1409,6 @@ pub(crate) fn lower_module_for_platform(
     // exactly what happened when this was first written per-entry-point.
     bind_deferred_relocation_libraries(&mut code_functions, &platform_imports)?;
 
-    // rv64 `v128` scalarization (plan-99 §6) stages SIMD lanes in a slot region.
-    // That region now lives in the **per-thread** arena state (bug-122), addressed
-    // off the pinned arena base — no process-global data object is emitted (a
-    // global was raced between worker threads running v128 kernels concurrently).
-
     let plan = NativeCodePlan {
         target: module.target.clone(),
         build_mode: module.build_mode,
