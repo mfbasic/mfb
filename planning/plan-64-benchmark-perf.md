@@ -471,8 +471,18 @@ Consistent ⇒ genuine (NOT the arena quadratic).
   24 scalar/strings acceptance fixtures pass. `strings_package.mfb`. Commit: `4cfb9a7f9`.
   (The 4099-arm→table conversion is a separate optional cleanup; the ASCII path retires the
   benchmark.)
-- **G3:** natively lower `toScalars` — one arena alloc + a single UTF-8 decode pass
-  writing 4-byte scalars directly (no toBytes+utf32Encode+double-append chain).
+- **[!] G3 REJECTED (execution — attempted, measured, reverted).** Two independent
+  disproofs: (1) **toScalars does not dominate `scalar listchurn`.** Native `toScalars`
+  fired (dispatch confirmed at `builder_values.rs:644`, before the `.mfb` fallback;
+  `scalar_listchurn` checksum 48 unchanged) yet the row stayed 11.0 ms — the cost is the
+  **ascent loop** (90 `collections::get` + 89 compares over the scalar list, ×2000×50),
+  not the decode. (2) **A native two-pass `toScalars` is not even faster than the `.mfb`
+  version:** isolated microbenchmark (150-char string ×50000) measured native **411 ms vs
+  `.mfb` 388 ms** — the count-then-write structure decodes the string twice, costing as
+  much as the interpreted `toBytes`+`utf32Encode`+`append` chain. A one-pass
+  over-allocate-to-byteLen variant might edge it out, but it would not move the benchmark
+  (ascent loop dominates), so it is not worth the codegen surface. `scalar listchurn`'s
+  real lever is compiler bounds-check elimination on the get-loop (L2), not G3.
 - Gate: the five classification counts + scalar checksums unchanged.
 
 ### Sub-plan H — json / regex source packages
