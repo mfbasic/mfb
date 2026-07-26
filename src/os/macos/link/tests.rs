@@ -1,6 +1,9 @@
 use super::commands::bind_info;
 use super::*;
 use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+// `read_u32` and `symbol_vmaddr` moved to the shared linker-encode module
+// (bug-335 A3/A4); the tests still exercise them directly.
+use crate::os::link_encode::{read_u32, symbol_vmaddr};
 
 fn import(library: &str, symbol: &str) -> EncodedImport {
     EncodedImport {
@@ -807,8 +810,8 @@ fn symbol_vmaddr_rejects_unknown_symbol() {
         signing_metadata: None,
         rpaths: Vec::new(),
     };
-    let err =
-        symbol_vmaddr(&image, "_nope", VM_BASE, VM_BASE, VM_BASE, 0).expect_err("unknown symbol");
+    let err = symbol_vmaddr(&image, "_nope", VM_BASE, VM_BASE, Some((VM_BASE, 0)))
+        .expect_err("unknown symbol");
     assert!(err.contains("does not resolve"), "{err}");
 }
 
@@ -838,9 +841,8 @@ fn symbol_vmaddr_splits_constants_from_writable_data() {
             &image,
             "_const",
             text_vmaddr,
-            rodata_vmaddr,
             data_vmaddr,
-            0x1000
+            Some((rodata_vmaddr, 0x1000))
         )
         .unwrap(),
         rodata_vmaddr + 0x40,
@@ -852,9 +854,8 @@ fn symbol_vmaddr_splits_constants_from_writable_data() {
             &image,
             "_arena",
             text_vmaddr,
-            rodata_vmaddr,
             data_vmaddr,
-            0x1000
+            Some((rodata_vmaddr, 0x1000))
         )
         .unwrap(),
         data_vmaddr,

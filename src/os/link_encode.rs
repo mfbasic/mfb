@@ -9,6 +9,10 @@
 //! construction and `EncodedImage` is never deserialized — surfaces as a
 //! diagnostic rather than a panic (bug-225/bug-351).
 
+use std::collections::HashMap;
+
+use crate::arch::aarch64::encode::{EncodedImage, EncodedRelocation, EncodedSection};
+
 /// Encode a `BL`/`B` `imm26` branch displacement, reach-checked (bug-168). The
 /// immediate is a signed 26-bit word offset: ±2^25 words = ±128 MiB. Masking
 /// without a reach check silently wraps an over-range branch into a wrong
@@ -72,4 +76,169 @@ pub(in crate::os) fn put_u32(bytes: &mut Vec<u8>, value: u32) {
 /// Append a little-endian `u64` to `bytes`.
 pub(in crate::os) fn put_u64(bytes: &mut Vec<u8>, value: u64) {
     bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Runtime VM address of a symbol for the AArch64 linkers. Text symbols sit in
+/// the code segment. When a read-only window is given (`rodata`, the macOS
+/// `__DATA_CONST` split — bug-187), a data symbol below `rodata_size` maps into
+/// the constant region at `rodata_vmaddr`, and one at or above it into writable
+/// data past that prefix. With no window (`rodata == None`, the ELF layout)
+/// every data symbol maps into `data_vmaddr` directly.
+pub(in crate::os) fn symbol_vmaddr(
+    image: &EncodedImage,
+    symbol_name: &str,
+    text_vmaddr: u64,
+    data_vmaddr: u64,
+    rodata: Option<(u64, usize)>,
+) -> Result<u64, String> {
+    let symbol = image
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == symbol_name)
+        .ok_or_else(|| format!("symbol '{symbol_name}' does not resolve"))?;
+    Ok(match symbol.section {
+        EncodedSection::Text => text_vmaddr + symbol.offset as u64,
+        EncodedSection::Data => match rodata {
+            Some((rodata_vmaddr, rodata_size)) if symbol.offset < rodata_size => {
+                rodata_vmaddr + symbol.offset as u64
+            }
+            Some((_, rodata_size)) => data_vmaddr + (symbol.offset - rodata_size) as u64,
+            None => data_vmaddr + symbol.offset as u64,
+        },
+    })
+}
+
+/// Everything the shared AArch64 relocation arms need beyond the `text` buffer
+/// and the relocation itself: the image and address windows for symbol
+/// resolution, the import stub/GOT tables for external bindings, and the
+/// platform label for diagnostics (`macOS linker` / `linux-aarch64 linker`).
+pub(in crate::os) struct AArch64RelocCtx<'a> {
+    pub(in crate::os) image: &'a EncodedImage,
+    pub(in crate::os) text_vmaddr: u64,
+    pub(in crate::os) data_vmaddr: u64,
+    /// `(rodata_vmaddr, rodata_size)` for the macOS `__DATA_CONST` split; `None`
+    /// for the ELF layout, where data is one region.
+    pub(in crate::os) rodata: Option<(u64, usize)>,
+    pub(in crate::os) stubs: &'a HashMap<String, u64>,
+    pub(in crate::os) got_entries: &'a HashMap<String, u64>,
+    pub(in crate::os) label: &'a str,
+}
+
+/// Apply one AArch64 relocation — `branch26`, `page21`, or `pageoff12` in an
+/// `internal`, `data`, or `external` binding. Returns `Ok(true)` when it handled
+/// the relocation, `Ok(false)` when the kind is not one of the six AArch64 arms
+/// (so an ELF caller can fall through to its x86-64/RISC-V arms), and `Err` when
+/// a bind fails or a displacement is out of reach.
+pub(in crate::os) fn patch_aarch64_reloc(
+    text: &mut [u8],
+    relocation: &EncodedRelocation,
+    ctx: &AArch64RelocCtx,
+) -> Result<bool, String> {
+    match relocation.binding.as_str() {
+        "internal" if relocation.kind == "branch26" => {
+            let target = symbol_vmaddr(
+                ctx.image,
+                &relocation.target,
+                ctx.text_vmaddr,
+                ctx.data_vmaddr,
+                ctx.rodata,
+            )?;
+            let word = 0x9400_0000
+                | branch_imm26(
+                    ctx.text_vmaddr as usize + relocation.offset,
+                    target as usize,
+                )?;
+            write_u32(text, relocation.offset, word)?;
+        }
+        "data" if relocation.kind == "page21" => {
+            let target = symbol_vmaddr(
+                ctx.image,
+                &relocation.target,
+                ctx.text_vmaddr,
+                ctx.data_vmaddr,
+                ctx.rodata,
+            )?;
+            let pc = ctx.text_vmaddr + relocation.offset as u64;
+            let (immlo, immhi) = adrp_page21(pc, target)?;
+            let rd = read_u32(text, relocation.offset)? & 0x1f;
+            write_u32(
+                text,
+                relocation.offset,
+                0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
+            )?;
+        }
+        "data" if relocation.kind == "pageoff12" => {
+            let target = symbol_vmaddr(
+                ctx.image,
+                &relocation.target,
+                ctx.text_vmaddr,
+                ctx.data_vmaddr,
+                ctx.rodata,
+            )?;
+            let imm12 = (target & 0xfff) as u32;
+            let word = read_u32(text, relocation.offset)?;
+            let rd = word & 0x1f;
+            let rn = (word >> 5) & 0x1f;
+            write_u32(
+                text,
+                relocation.offset,
+                0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
+            )?;
+        }
+        "external" if relocation.kind == "branch26" => {
+            let Some(&target) = ctx.stubs.get(&relocation.target) else {
+                return Err(format!(
+                    "{} cannot bind external symbol '{}' from {}",
+                    ctx.label,
+                    relocation.target,
+                    relocation.library.as_deref().unwrap_or("<unknown library>")
+                ));
+            };
+            let word = 0x9400_0000
+                | branch_imm26(
+                    ctx.text_vmaddr as usize + relocation.offset,
+                    target as usize,
+                )?;
+            write_u32(text, relocation.offset, word)?;
+        }
+        "external" if relocation.kind == "page21" => {
+            let Some(&target) = ctx.got_entries.get(&relocation.target) else {
+                return Err(format!(
+                    "{} cannot bind external data symbol '{}' from {}",
+                    ctx.label,
+                    relocation.target,
+                    relocation.library.as_deref().unwrap_or("<unknown library>")
+                ));
+            };
+            let pc = ctx.text_vmaddr + relocation.offset as u64;
+            let (immlo, immhi) = adrp_page21(pc, target)?;
+            let rd = read_u32(text, relocation.offset)? & 0x1f;
+            write_u32(
+                text,
+                relocation.offset,
+                0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
+            )?;
+        }
+        "external" if relocation.kind == "pageoff12" => {
+            let Some(&target) = ctx.got_entries.get(&relocation.target) else {
+                return Err(format!(
+                    "{} cannot bind external data symbol '{}' from {}",
+                    ctx.label,
+                    relocation.target,
+                    relocation.library.as_deref().unwrap_or("<unknown library>")
+                ));
+            };
+            let imm12 = (target & 0xfff) as u32;
+            let word = read_u32(text, relocation.offset)?;
+            let rd = word & 0x1f;
+            let rn = (word >> 5) & 0x1f;
+            write_u32(
+                text,
+                relocation.offset,
+                0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
+            )?;
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
 }

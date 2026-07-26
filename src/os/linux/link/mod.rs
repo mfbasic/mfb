@@ -1,6 +1,7 @@
 use crate::arch::aarch64::encode::{EncodedImage, EncodedRelocation, EncodedSection, ImportKind};
 use crate::os::link_encode::{
-    adrp_page21, branch_imm26, put_u16, put_u32, put_u64, read_u32, write_u32,
+    adrp_page21, patch_aarch64_reloc, put_u16, put_u32, put_u64, read_u32, write_u32,
+    AArch64RelocCtx,
 };
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::os::note::{mfb_note_descriptor, MFB_NOTE_OWNER, MFB_NOTE_TYPE};
@@ -180,86 +181,24 @@ fn patch_relocations(
     data_vmaddr: u64,
     import_locations: &ImportLocations,
 ) -> Result<(), String> {
+    // The six AArch64 arms are shared with the Mach-O linker (bug-335 A3). The
+    // ELF layout keeps read-only constants and writable data in one region, so
+    // no `rodata` window; `patch_aarch64_reloc` returns `false` for the x86-64
+    // and RISC-V kinds below, which this match then handles.
+    let aarch64 = AArch64RelocCtx {
+        image,
+        text_vmaddr,
+        data_vmaddr,
+        rodata: None,
+        stubs: &import_locations.stubs,
+        got_entries: &import_locations.got_entries,
+        label: "linux-aarch64 linker",
+    };
     for relocation in &image.relocations {
+        if patch_aarch64_reloc(text, relocation, &aarch64)? {
+            continue;
+        }
         match relocation.binding.as_str() {
-            "internal" if relocation.kind == "branch26" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word)?;
-            }
-            "data" if relocation.kind == "page21" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let pc = text_vmaddr + relocation.offset as u64;
-                let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset)? & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                )?;
-            }
-            "data" if relocation.kind == "pageoff12" => {
-                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
-                let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset)?;
-                let rd = word & 0x1f;
-                let rn = (word >> 5) & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                )?;
-            }
-            "external" if relocation.kind == "branch26" => {
-                let Some(&target) = import_locations.stubs.get(&relocation.target) else {
-                    return Err(format!(
-                        "linux-aarch64 linker cannot bind external symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let word = 0x9400_0000
-                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize)?;
-                write_u32(text, relocation.offset, word)?;
-            }
-            // Imported data global addressed through its GOT slot (plan-linker.md
-            // §6.1): the slot is filled by a GLOB_DAT dynamic relocation.
-            "external" if relocation.kind == "page21" => {
-                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
-                    return Err(format!(
-                        "linux-aarch64 linker cannot bind external data symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let pc = text_vmaddr + relocation.offset as u64;
-                let (immlo, immhi) = adrp_page21(pc, target)?;
-                let rd = read_u32(text, relocation.offset)? & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
-                )?;
-            }
-            "external" if relocation.kind == "pageoff12" => {
-                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
-                    return Err(format!(
-                        "linux-aarch64 linker cannot bind external data symbol '{}' from {}",
-                        relocation.target,
-                        relocation.library.as_deref().unwrap_or("<unknown library>")
-                    ));
-                };
-                let imm12 = (target & 0xfff) as u32;
-                let word = read_u32(text, relocation.offset)?;
-                let rd = word & 0x1f;
-                let rn = (word >> 5) & 0x1f;
-                write_u32(
-                    text,
-                    relocation.offset,
-                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
-                )?;
-            }
             // --- x86-64 (plan-00-H): RIP-relative rel32 patches ----------------
             // A `call rel32` (internal call) or `lea reg,[rip+disp32]` (internal
             // data address). In both the encoder records `offset` at the disp32
