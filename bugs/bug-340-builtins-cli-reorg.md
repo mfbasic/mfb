@@ -410,6 +410,23 @@ dispatcher.)*
 Fix: hoist `escape` to a shared `html` module immediately; resolve `anchor`'s
 case behavior first (see *Open Decisions*); consider one shared `STYLE`.
 
+> **B8 partial (2026-07-25).** The two decoders are **not** interchangeable, so
+> the full "delete the manifest copy" is a proven regression and was NOT done.
+> Reading both: `read_mfp_header` (manifest) enforces per-field byte limits
+> (255/64/512/2048/4096), per-field UTF-8, required-non-empty, and
+> `validate_package_name` (the bug-195 guard), and returns 18 fields
+> (author/url/packageBinaryHash/versions/flags/…) that 14+ callers use;
+> `mfp_binary_repr_payload` (binary_repr) applies none of that validation, skips
+> author/url/proof/attestation, and returns only a 5-field identity + a borrowed
+> payload slice. A literal merge either drops the manifest layer's trust-boundary
+> guards or breaks its callers. What **was** safely deduped: the `MFP_MAGIC`
+> constant is now a single `pub(crate)` in `src/binary_repr/mod.rs` (was three
+> copies), and `read_mfp_header`'s inline signature-type/length match now calls
+> the spec-cited `binary_repr::validate_mfp_signature_header` (promoted to
+> `pub(crate)`). Output-neutral (byte-identical error strings); manifest+binary_repr
+> unit suites green. The full decoder unification, if ever pursued, needs a
+> superset decoder that keeps the strict-validation contract — its own change.
+
 ### B8 — `manifest/package.rs` is four unrelated subsystems, one of them a layering inversion
 
 `src/manifest/package.rs` is 1,562 lines, of which roughly **126** actually

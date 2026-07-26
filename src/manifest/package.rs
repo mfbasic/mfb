@@ -12,7 +12,7 @@ pub(crate) use crate::manifest::json_edit::{
 };
 pub(crate) use crate::manifest::url::package_file_url_path;
 
-const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
+use crate::binary_repr::MFP_MAGIC;
 
 /// Parsed container v1.0 `.mfp` header (plan-23 §4). The reader is hard
 /// v1.0: `containerMajor.containerMinor` must be exactly `1.0`.
@@ -132,12 +132,9 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
 
     let signature_type = read_u16(&bytes, offset)?;
     let signature_length = read_u32(&bytes, offset + 2)? as usize;
-    match (signature_type, signature_length) {
-        (0, 0) | (1, 64) => {}
-        (0, _) => return Err("unsigned .mfp package must have zero signature length".to_string()),
-        (1, _) => return Err("Ed25519 .mfp package must have a 64 byte signature".to_string()),
-        _ => return Err(format!("unsupported .mfp signature type {signature_type}")),
-    }
+    // The signature-type/length rule is the wire format's, owned by `binary_repr`
+    // (bug-340 B8); this reader shares it rather than re-inlining the same match.
+    crate::binary_repr::validate_mfp_signature_header(signature_type, signature_length)?;
     offset = offset
         .checked_add(6)
         .and_then(|offset| offset.checked_add(signature_length))
