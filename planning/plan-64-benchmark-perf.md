@@ -378,7 +378,15 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
 **Fixes (semantics-preserving — same order/stability/buckets).**
 - **D1:** native `groupBy` — single pass growing each bucket **in place** in a hash-slot
   side structure, materialized to the Map once at the end (kills the O(bucket²) copy).
-  - **[ ] D1 — implementation-ready (pieces confirmed this session; ~250 LOC, biggest
+  - **[x] D1 — LANDED (native groupBy).** listchurn nested 70.8 → 13.3 ms (~5.3×); the O(bucket²)
+    get-copy is gone. `lower_collection_group_by_call` + gate (`#collections_groupBy$T$K$V`, 8-byte
+    fixed-width T/V, Integer key, re-eval-safe value; else `.mfb`). Inline open-addressing hash table
+    (key & mask) for keyToIdx, top-level bucket lists grown via `lower_list_append_in_place`,
+    materialized once via `lower_map_set_in_place` in a loop. checksum 160042000 proven unchanged;
+    cargo test green; artifact-gate clean; 2 groupBy acceptance fixtures pass; edge cases (empty,
+    100-elem bucket grow, negative keys, String-value fallback) verified. Commit: `<pending>`.
+    (Original design retained below.)
+  - **[~] D1 — implementation-ready (pieces confirmed this session; ~250 LOC, biggest
     remaining native win).** Gate the monomorphized `#collections_groupBy$T$K$V` to T/K/V
     all 8-byte fixed-width, K integer-comparable (benchmark is Integer/Integer/Integer);
     else `.mfb`. Build: (1) extract `keys`/`vals` in one pass (two FUNC-ptr callbacks per

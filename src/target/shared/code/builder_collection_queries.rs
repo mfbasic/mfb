@@ -2629,6 +2629,277 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// plan-64 D1: native `collections::groupBy` (8-byte fixed-width T/V, Integer
+    /// key, re-eval-safe `value`). Grows each bucket as a top-level list keyed via
+    /// an inline open-addressing hash table (no O(bucket²) get-copy), then
+    /// materializes the `Map OF K TO List OF V` once. Else `.mfb`.
+    pub(super) fn lower_collection_group_by_call(
+        &mut self,
+        args: &[NirValue],
+        key_type: &str,
+        value_type: &str,
+    ) -> Result<ValueResult, String> {
+        let list_v = format!("List OF {value_type}");
+        let map_type = format!("Map OF {key_type} TO {list_v}");
+        let int_layout = CollectionTypeLayout::from_type("List OF Integer")
+            .ok_or_else(|| "groupBy: int layout".to_string())?;
+        let _k_layout = CollectionTypeLayout::from_type(&format!("List OF {key_type}"))
+            .ok_or_else(|| "groupBy: key layout".to_string())?;
+        let v_layout = CollectionTypeLayout::from_type(&list_v)
+            .ok_or_else(|| "groupBy: value layout".to_string())?;
+        let keys = self.lower_collection_transform_call(&[args[0].clone(), args[1].clone()])?;
+        let keys_slot = self.allocate_stack_object("gb_keys", 8);
+        self.emit(abi::store_u64(&keys.location, abi::stack_pointer(), keys_slot));
+        let vals = self.lower_collection_transform_call(&[args[0].clone(), args[2].clone()])?;
+        let vals_slot = self.allocate_stack_object("gb_vals", 8);
+        self.emit(abi::store_u64(&vals.location, abi::stack_pointer(), vals_slot));
+
+        let n_slot = self.allocate_stack_object("gb_n", 8);
+        let ts_slot = self.allocate_stack_object("gb_ts", 8);
+        let mask_slot = self.allocate_stack_object("gb_mask", 8);
+        let nb_slot = self.allocate_stack_object("gb_nb", 8);
+        let hk_slot = self.allocate_stack_object("gb_hk", 8);
+        let ho_slot = self.allocate_stack_object("gb_ho", 8);
+        let bp_slot = self.allocate_stack_object("gb_bp", 8);
+        let ko_slot = self.allocate_stack_object("gb_ko", 8);
+        let result_slot = self.allocate_stack_object("gb_result", 8);
+        let i_slot = self.allocate_stack_object("gb_i", 8);
+        let slot_save = self.allocate_stack_object("gb_slotsave", 8);
+        let bidx_slot = self.allocate_stack_object("gb_bidx", 8);
+        let bucket_slot = self.allocate_stack_object("gb_bucket", 8);
+        let val_slot = self.allocate_stack_object("gb_val", 8);
+        let key_slot = self.allocate_stack_object("gb_key", 8);
+        let r = self.temporary_vreg();
+        let t = self.temporary_vreg();
+        let ovf = self.label("gb_ovf");
+        // n
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), keys_slot));
+        self.emit(abi::load_u64(&r, &r, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), n_slot));
+        // tableSize = smallest pow2 >= 2n (>=2); mask = ts-1
+        let ts = self.temporary_vreg();
+        let two_n = self.temporary_vreg();
+        self.emit(abi::add_registers(&two_n, &r, &r));
+        self.emit(abi::move_immediate(&ts, "Integer", "2"));
+        let ts_loop = self.label("gb_ts_loop");
+        let ts_done = self.label("gb_ts_done");
+        self.emit(abi::label(&ts_loop));
+        self.emit(abi::compare_registers(&ts, &two_n));
+        self.emit(abi::branch_ge(&ts_done));
+        self.emit(abi::add_registers(&ts, &ts, &ts));
+        self.emit(abi::branch(&ts_loop));
+        self.emit(abi::label(&ts_done));
+        self.emit(abi::store_u64(&ts, abi::stack_pointer(), ts_slot));
+        self.emit(abi::subtract_immediate(&t, &ts, 1));
+        self.emit(abi::store_u64(&t, abi::stack_pointer(), mask_slot));
+
+        // Allocate the four kind-2 List OF Integer scratch buffers.
+        let after_alloc = self.label("gb_after_alloc");
+        for (cap_slot, dst_slot) in [(ts_slot, hk_slot), (ts_slot, ho_slot), (n_slot, bp_slot), (n_slot, ko_slot)] {
+            self.emit(abi::load_u64(&r, abi::stack_pointer(), cap_slot));
+            self.emit(abi::shift_left_immediate(abi::return_register(), &r, 3));
+            self.emit_checked_size_add_immediate(abi::return_register(), abi::return_register(), COLLECTION_HEADER_SIZE, &ovf);
+            self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+            self.emit_arena_alloc_call();
+            let ok = self.label("gb_scratch_ok");
+            self.emit(abi::branch_eq(&ok));
+            self.emit_allocation_error_return()?;
+            self.emit(abi::label(&ok));
+            self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), dst_slot));
+            self.emit(abi::load_u64(&r, abi::stack_pointer(), cap_slot));
+            let dl = self.temporary_vreg();
+            self.emit(abi::shift_left_immediate(&dl, &r, 3));
+            self.emit(abi::load_u64(&t, abi::stack_pointer(), dst_slot));
+            self.emit_write_list_header_from_registers(&int_layout, &t, &r, &dl);
+        }
+        self.emit(abi::branch(&after_alloc));
+        self.emit(abi::label(&ovf));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
+        self.emit(abi::label(&after_alloc));
+        // Zero hashOcc data.
+        let zp = self.temporary_vreg();
+        let zj = self.temporary_vreg();
+        let zloop = self.label("gb_zloop");
+        let zdone = self.label("gb_zdone");
+        self.emit(abi::load_u64(&zp, abi::stack_pointer(), ho_slot));
+        self.emit(abi::add_immediate(&zp, &zp, COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(&zj, "Integer", "0"));
+        self.emit(abi::load_u64(&ts, abi::stack_pointer(), ts_slot));
+        self.emit(abi::label(&zloop));
+        self.emit(abi::compare_registers(&zj, &ts));
+        self.emit(abi::branch_ge(&zdone));
+        self.emit(abi::store_u64(abi::ZERO, &zp, 0));
+        self.emit(abi::add_immediate(&zp, &zp, 8));
+        self.emit(abi::add_immediate(&zj, &zj, 1));
+        self.emit(abi::branch(&zloop));
+        self.emit(abi::label(&zdone));
+        self.emit(abi::move_immediate(&r, "Integer", "0"));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), nb_slot));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), i_slot));
+
+        // --- element loop ---
+        let key = self.temporary_vreg();
+        let slot = self.temporary_vreg();
+        let occ = self.temporary_vreg();
+        let mask = self.temporary_vreg();
+        let base = self.temporary_vreg();
+        let addr = self.temporary_vreg();
+        let p = self.temporary_vreg();
+        let el_loop = self.label("gb_el_loop");
+        let el_done = self.label("gb_el_done");
+        let probe = self.label("gb_probe");
+        let found = self.label("gb_found");
+        let insert = self.label("gb_insert");
+        let el_next = self.label("gb_el_next");
+        self.emit(abi::label(&el_loop));
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), i_slot));
+        self.emit(abi::load_u64(&t, abi::stack_pointer(), n_slot));
+        self.emit(abi::compare_registers(&r, &t));
+        self.emit(abi::branch_ge(&el_done));
+        // key = keys[i]; val = vals[i]
+        self.emit(abi::shift_left_immediate(&t, &r, 3));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), keys_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::load_u64(&key, &addr, 0));
+        self.emit(abi::store_u64(&key, abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), vals_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::load_u64(&p, &addr, 0));
+        self.emit(abi::store_u64(&p, abi::stack_pointer(), val_slot));
+        // probe: slot = key & mask
+        self.emit(abi::load_u64(&mask, abi::stack_pointer(), mask_slot));
+        self.emit(abi::and_registers(&slot, &key, &mask));
+        self.emit(abi::label(&probe));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), ho_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::shift_left_immediate(&t, &slot, 3));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::load_u64(&occ, &addr, 0));
+        self.emit(abi::compare_immediate(&occ, "0"));
+        self.emit(abi::branch_eq(&insert));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), hk_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::load_u64(&p, &addr, 0));
+        self.emit(abi::compare_registers(&p, &key));
+        self.emit(abi::branch_eq(&found));
+        self.emit(abi::add_immediate(&slot, &slot, 1));
+        self.emit(abi::and_registers(&slot, &slot, &mask));
+        self.emit(abi::branch(&probe));
+        // found: bidx = occ-1; append val to bucketPtrs[bidx] (spill bidx across call)
+        self.emit(abi::label(&found));
+        self.emit(abi::subtract_immediate(&p, &occ, 1));
+        self.emit(abi::store_u64(&p, abi::stack_pointer(), bidx_slot));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::shift_left_immediate(&t, &p, 3));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::load_u64(&p, &addr, 0));
+        self.emit(abi::store_u64(&p, abi::stack_pointer(), bucket_slot));
+        self.lower_list_append_in_place(bucket_slot, val_slot, &list_v, value_type)?;
+        self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&t, abi::stack_pointer(), bidx_slot));
+        self.emit(abi::shift_left_immediate(&t, &t, 3));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::store_u64(&p, &addr, 0));
+        self.emit(abi::branch(&el_next));
+        // insert: new 1-element bucket; register in arrays + hash (spill slot across alloc)
+        self.emit(abi::label(&insert));
+        self.emit(abi::store_u64(&slot, abi::stack_pointer(), slot_save));
+        self.emit(abi::move_immediate(abi::return_register(), "Integer", &(COLLECTION_HEADER_SIZE + 8).to_string()));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit_arena_alloc_call();
+        let ins_ok = self.label("gb_ins_ok");
+        self.emit(abi::branch_eq(&ins_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&ins_ok));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), bucket_slot));
+        // bucket header: count=cap=1, dataLen=dataCap=8; store val at +HEADER
+        self.emit(abi::move_immediate(&r, "Integer", "1"));
+        self.emit(abi::move_immediate(&t, "Integer", "8"));
+        self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
+        self.emit_write_list_header_from_registers(&v_layout, &p, &r, &t);
+        self.emit(abi::load_u64(&t, abi::stack_pointer(), val_slot));
+        self.emit(abi::store_u64(&t, &p, COLLECTION_HEADER_SIZE));
+        // nb = load; bucketPtrs[nb]=bucket; keyOrder[nb]=key; hashKeys[slot]=key; hashOcc[slot]=nb+1
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), nb_slot)); // nb
+        self.emit(abi::shift_left_immediate(&t, &r, 3));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::load_u64(&p, abi::stack_pointer(), bucket_slot));
+        self.emit(abi::store_u64(&p, &addr, 0));
+        self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), ko_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::store_u64(&key, &addr, 0));
+        self.emit(abi::load_u64(&slot, abi::stack_pointer(), slot_save));
+        self.emit(abi::shift_left_immediate(&t, &slot, 3));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), hk_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::store_u64(&key, &addr, 0));
+        self.emit(abi::add_immediate(&p, &r, 1)); // nb+1
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), ho_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::store_u64(&p, &addr, 0));
+        self.emit(abi::add_immediate(&r, &r, 1));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), nb_slot));
+        self.emit(abi::label(&el_next));
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), i_slot));
+        self.emit(abi::add_immediate(&r, &r, 1));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), i_slot));
+        self.emit(abi::branch(&el_loop));
+        self.emit(abi::label(&el_done));
+
+        // --- final map: result = {}; for b: set(result, keyOrder[b], bucketPtrs[b]); free bucket ---
+        let empty = self.lower_map_literal(&map_type, &[])?;
+        self.emit(abi::store_u64(&empty.location, abi::stack_pointer(), result_slot));
+        let b_slot = self.allocate_stack_object("gb_b", 8);
+        self.emit(abi::move_immediate(&r, "Integer", "0"));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), b_slot));
+        let fm_loop = self.label("gb_fm_loop");
+        let fm_done = self.label("gb_fm_done");
+        self.emit(abi::label(&fm_loop));
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), b_slot));
+        self.emit(abi::load_u64(&t, abi::stack_pointer(), nb_slot));
+        self.emit(abi::compare_registers(&r, &t));
+        self.emit(abi::branch_ge(&fm_done));
+        self.emit(abi::shift_left_immediate(&t, &r, 3));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), ko_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::load_u64(&p, &addr, 0));
+        self.emit(abi::store_u64(&p, abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64(&base, abi::stack_pointer(), bp_slot));
+        self.emit(abi::add_immediate(&base, &base, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers(&addr, &base, &t));
+        self.emit(abi::load_u64(&p, &addr, 0));
+        self.emit(abi::store_u64(&p, abi::stack_pointer(), bucket_slot));
+        let set = self.lower_map_set_in_place(result_slot, key_slot, bucket_slot, &map_type, key_type, &list_v)?;
+        self.emit(abi::store_u64(&set.location, abi::stack_pointer(), result_slot));
+        // free the now-copied bucket
+        let keep = ValueResult { type_: map_type.clone(), location: { let z = self.allocate_register()?; self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot)); z }, text: String::new() };
+        self.free_intermediate_collection(bucket_slot, &list_v, keep)?;
+        self.emit(abi::load_u64(&r, abi::stack_pointer(), b_slot));
+        self.emit(abi::add_immediate(&r, &r, 1));
+        self.emit(abi::store_u64(&r, abi::stack_pointer(), b_slot));
+        self.emit(abi::branch(&fm_loop));
+        self.emit(abi::label(&fm_done));
+        // free the six scratch buffers (thread result through)
+        let mut threaded = ValueResult { type_: map_type.clone(), location: { let z = self.allocate_register()?; self.emit(abi::load_u64(&z, abi::stack_pointer(), result_slot)); z }, text: String::new() };
+        for (s, ty) in [(keys_slot, format!("List OF {key_type}")), (vals_slot, list_v.clone()), (hk_slot, "List OF Integer".to_string()), (ho_slot, "List OF Integer".to_string()), (bp_slot, "List OF Integer".to_string()), (ko_slot, "List OF Integer".to_string())] {
+            threaded = self.free_intermediate_collection(s, &ty, threaded)?;
+        }
+        Ok(ValueResult { type_: map_type, location: threaded.location, text: "groupBy".to_string() })
+    }
+
     pub(super) fn lower_collection_reduce_call(
         &mut self,
         args: &[NirValue],
