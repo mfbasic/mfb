@@ -8,6 +8,14 @@
 //! and were re-exported verbatim by the x86_64/riscv64 encoders; bug-341-B2
 //! relocated them here so no sibling backend or linker reaches through the
 //! AArch64 module for an ISA-independent type.
+//!
+//! It also owns the ISA-neutral relocation-binding classification ([`Binding`],
+//! [`resolve_call_binding`], [`resolve_data_binding`]) every backend's
+//! symbol-reference emitter applied identically (bug-341-B5): the
+//! internal/external/data split is the same on every target; only the per-ISA
+//! `kind` string and the choice of instruction stay in the emitter.
+
+use std::collections::HashMap;
 
 /// A fully encoded, linkable image: the raw text/data bytes plus the symbol,
 /// relocation, and import tables a linker needs to lay it out.
@@ -85,4 +93,58 @@ pub(crate) struct EncodedImport {
     /// (plan-linker.md §5.2). `None` emits an unversioned reference. Ignored on
     /// Mach-O, which selects by dylib ordinal.
     pub(crate) version: Option<String>,
+}
+
+/// The linker binding a relocation target resolves to. Every backend encoder
+/// classifies a symbol reference the same way (bug-341-B5); the per-ISA `kind`
+/// string and the instruction bytes stay in the emitter, only this
+/// internal/external/data split is shared.
+pub(crate) enum Binding {
+    /// A symbol defined in this image (a direct, module-internal reference).
+    Internal,
+    /// An imported symbol resolved from `library` (through a stub / the GOT).
+    External(String),
+    /// A plain data address, neither defined here nor imported.
+    Data,
+}
+
+impl Binding {
+    /// The `(binding, library)` pair an [`EncodedRelocation`] records.
+    pub(crate) fn into_relocation_fields(self) -> (String, Option<String>) {
+        match self {
+            Binding::Internal => ("internal".to_string(), None),
+            Binding::External(library) => ("external".to_string(), Some(library)),
+            Binding::Data => ("data".to_string(), None),
+        }
+    }
+}
+
+/// Classify a **call** target: `Internal` if defined in this image, `External`
+/// if imported, else an error labelled with `arch` (e.g. `"AArch64"`,
+/// `"x86-64"`, `"rv64"`). The message always contains "does not resolve".
+pub(crate) fn resolve_call_binding(
+    symbols: &[EncodedSymbol],
+    imports: &HashMap<String, String>,
+    target: &str,
+    arch: &str,
+) -> Result<Binding, String> {
+    if symbols.iter().any(|symbol| symbol.name == target) {
+        Ok(Binding::Internal)
+    } else if let Some(library) = imports.get(target) {
+        Ok(Binding::External(library.clone()))
+    } else {
+        Err(format!(
+            "{arch} call target symbol '{target}' does not resolve"
+        ))
+    }
+}
+
+/// Classify a **data** address: `External` (resolved through the GOT) if the
+/// symbol is imported, else a plain `Data` address. Never fails — an undefined
+/// data symbol is a `data`-bound relocation the linker resolves.
+pub(crate) fn resolve_data_binding(imports: &HashMap<String, String>, target: &str) -> Binding {
+    match imports.get(target) {
+        Some(library) => Binding::External(library.clone()),
+        None => Binding::Data,
+    }
 }

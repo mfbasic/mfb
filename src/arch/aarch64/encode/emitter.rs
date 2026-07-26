@@ -1164,30 +1164,23 @@ impl Encoder {
         let offset = self.text.len();
         self.emit_word(0x9400_0000)?;
         // A `bl` is the neutral `Call` intent; the AArch64 table realizes it as
-        // `branch26` (plan-00-D). Binding still splits a direct internal call
-        // from an import-stub call.
+        // `branch26` (plan-00-D). The internal/external binding split is shared
+        // across backends (bug-341-B5).
         let call_kind = crate::arch::aarch64::reloc::reloc_kind(RelocIntent::Call).to_string();
-        if self.symbols.iter().any(|symbol| symbol.name == target) {
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target,
-                kind: call_kind,
-                binding: "internal".to_string(),
-                library: None,
-            });
-        } else if let Some(library) = self.imports.get(&target) {
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target,
-                kind: call_kind,
-                binding: "external".to_string(),
-                library: Some(library.clone()),
-            });
-        } else {
-            return Err(format!(
-                "AArch64 branch target symbol '{target}' does not resolve"
-            ));
-        }
+        let (binding, library) = crate::arch::image::resolve_call_binding(
+            &self.symbols,
+            &self.imports,
+            &target,
+            "AArch64",
+        )?
+        .into_relocation_fields();
+        self.relocations.push(EncodedRelocation {
+            offset,
+            target,
+            kind: call_kind,
+            binding,
+            library,
+        });
         Ok(())
     }
 
@@ -1207,33 +1200,23 @@ impl Encoder {
         // data address otherwise. The AArch64 table maps both back to
         // `page21`/`pageoff12`, so the encoded relocation is byte-identical.
         let high_part = kind == "adrp";
-        if let Some(library) = self.imports.get(&symbol) {
-            let intent = if high_part {
-                RelocIntent::GotLoadHi
-            } else {
-                RelocIntent::GotLoadLo
-            };
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target: symbol,
-                kind: crate::arch::aarch64::reloc::reloc_kind(intent).to_string(),
-                binding: "external".to_string(),
-                library: Some(library.clone()),
-            });
-        } else {
-            let intent = if high_part {
-                RelocIntent::DataAddrHi
-            } else {
-                RelocIntent::DataAddrLo
-            };
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target: symbol,
-                kind: crate::arch::aarch64::reloc::reloc_kind(intent).to_string(),
-                binding: "data".to_string(),
-                library: None,
-            });
-        }
+        // The internal/external split is shared (bug-341-B5); the hi/lo intent
+        // (and thus the reloc kind) is the AArch64-specific part.
+        let binding = crate::arch::image::resolve_data_binding(&self.imports, &symbol);
+        let intent = match (high_part, &binding) {
+            (true, crate::arch::image::Binding::External(_)) => RelocIntent::GotLoadHi,
+            (false, crate::arch::image::Binding::External(_)) => RelocIntent::GotLoadLo,
+            (true, _) => RelocIntent::DataAddrHi,
+            (false, _) => RelocIntent::DataAddrLo,
+        };
+        let (binding, library) = binding.into_relocation_fields();
+        self.relocations.push(EncodedRelocation {
+            offset,
+            target: symbol,
+            kind: crate::arch::aarch64::reloc::reloc_kind(intent).to_string(),
+            binding,
+            library,
+        });
         Ok(())
     }
 

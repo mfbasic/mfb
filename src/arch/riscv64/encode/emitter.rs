@@ -624,27 +624,22 @@ impl Encoder {
         self.emit_word(u_type(0, RA as u32, AUIPC))?;
         self.emit_word(i_type(0, RA as u32, 0, RA as u32, JALR))?;
         let call_kind = crate::arch::riscv64::reloc::reloc_kind(RelocIntent::Call).to_string();
-        if self.symbols.iter().any(|symbol| symbol.name == target) {
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target,
-                kind: call_kind,
-                binding: "internal".to_string(),
-                library: None,
-            });
-        } else if let Some(library) = self.imports.get(&target) {
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target,
-                kind: call_kind,
-                binding: "external".to_string(),
-                library: Some(library.clone()),
-            });
-        } else {
-            return Err(format!(
-                "rv64 call target symbol '{target}' does not resolve"
-            ));
-        }
+        // The internal/external binding split is shared across backends
+        // (bug-341-B5).
+        let (binding, library) = crate::arch::image::resolve_call_binding(
+            &self.symbols,
+            &self.imports,
+            &target,
+            "rv64",
+        )?
+        .into_relocation_fields();
+        self.relocations.push(EncodedRelocation {
+            offset,
+            target,
+            kind: call_kind,
+            binding,
+            library,
+        });
         Ok(())
     }
 
@@ -653,23 +648,21 @@ impl Encoder {
     fn emit_auipc_ref(&mut self, rd: u8, symbol: String) -> Result<(), String> {
         let offset = self.text.len();
         self.emit_word(u_type(0, rd as u32, AUIPC))?;
-        if let Some(library) = self.imports.get(&symbol) {
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target: symbol,
-                kind: crate::arch::riscv64::reloc::reloc_kind(RelocIntent::GotLoadHi).to_string(),
-                binding: "external".to_string(),
-                library: Some(library.clone()),
-            });
-        } else {
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target: symbol,
-                kind: crate::arch::riscv64::reloc::reloc_kind(RelocIntent::DataAddrHi).to_string(),
-                binding: "data".to_string(),
-                library: None,
-            });
-        }
+        // Shared internal/external split (bug-341-B5); the GOT-vs-data hi intent
+        // (and reloc kind) is rv64-specific.
+        let binding = crate::arch::image::resolve_data_binding(&self.imports, &symbol);
+        let intent = match &binding {
+            crate::arch::image::Binding::External(_) => RelocIntent::GotLoadHi,
+            _ => RelocIntent::DataAddrHi,
+        };
+        let (binding, library) = binding.into_relocation_fields();
+        self.relocations.push(EncodedRelocation {
+            offset,
+            target: symbol,
+            kind: crate::arch::riscv64::reloc::reloc_kind(intent).to_string(),
+            binding,
+            library,
+        });
         Ok(())
     }
 
@@ -678,29 +671,30 @@ impl Encoder {
     /// `ld rd, %pcrel_lo(sym)(rd)` (the GOT slot holds the resolved address).
     fn emit_pageoff(&mut self, rd: u8, symbol: String) -> Result<(), String> {
         let offset = self.text.len();
-        let imported = self.imports.contains_key(&symbol);
-        if imported {
-            // ld rd, 0(rd) — funct3=011, opcode LOAD.
-            self.emit_word(i_type(0, rd as u32, 0b011, rd as u32, LOAD))?;
-            let library = self.imports.get(&symbol).cloned();
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target: symbol,
-                kind: crate::arch::riscv64::reloc::reloc_kind(RelocIntent::GotLoadLo).to_string(),
-                binding: "external".to_string(),
-                library,
-            });
-        } else {
-            // addi rd, rd, 0.
-            self.emit_word(i_type(0, rd as u32, 0, rd as u32, OP_IMM))?;
-            self.relocations.push(EncodedRelocation {
-                offset,
-                target: symbol,
-                kind: crate::arch::riscv64::reloc::reloc_kind(RelocIntent::DataAddrLo).to_string(),
-                binding: "data".to_string(),
-                library: None,
-            });
-        }
+        // Shared internal/external split (bug-341-B5); the ld-vs-addi instruction
+        // and the GOT-vs-data lo intent are rv64-specific.
+        let binding = crate::arch::image::resolve_data_binding(&self.imports, &symbol);
+        let intent = match &binding {
+            crate::arch::image::Binding::External(_) => {
+                // ld rd, 0(rd) — funct3=011, opcode LOAD (the GOT slot holds the
+                // resolved address).
+                self.emit_word(i_type(0, rd as u32, 0b011, rd as u32, LOAD))?;
+                RelocIntent::GotLoadLo
+            }
+            _ => {
+                // addi rd, rd, 0.
+                self.emit_word(i_type(0, rd as u32, 0, rd as u32, OP_IMM))?;
+                RelocIntent::DataAddrLo
+            }
+        };
+        let (binding, library) = binding.into_relocation_fields();
+        self.relocations.push(EncodedRelocation {
+            offset,
+            target: symbol,
+            kind: crate::arch::riscv64::reloc::reloc_kind(intent).to_string(),
+            binding,
+            library,
+        });
         Ok(())
     }
 

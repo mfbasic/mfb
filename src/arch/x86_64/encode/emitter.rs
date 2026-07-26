@@ -134,55 +134,46 @@ impl Encoder {
         intent: RelocIntent,
     ) -> Result<(), String> {
         let kind = crate::arch::x86_64::reloc::reloc_kind(intent).to_string();
+        // The internal/external/data binding split is shared across backends
+        // (bug-341-B5); the reloc `kind` is the x86-specific part.
         match intent {
             RelocIntent::Call => {
-                if self.symbols.iter().any(|symbol| symbol.name == target) {
-                    self.relocations.push(EncodedRelocation {
-                        offset,
-                        target,
-                        kind,
-                        binding: "internal".to_string(),
-                        library: None,
-                    });
-                } else if let Some(library) = self.imports.get(&target) {
-                    self.relocations.push(EncodedRelocation {
-                        offset,
-                        target,
-                        kind,
-                        binding: "external".to_string(),
-                        library: Some(library.clone()),
-                    });
-                } else {
-                    return Err(format!(
-                        "x86-64 branch target symbol '{target}' does not resolve"
-                    ));
-                }
+                let (binding, library) = crate::arch::image::resolve_call_binding(
+                    &self.symbols,
+                    &self.imports,
+                    &target,
+                    "x86-64",
+                )?
+                .into_relocation_fields();
+                self.relocations.push(EncodedRelocation {
+                    offset,
+                    target,
+                    kind,
+                    binding,
+                    library,
+                });
             }
             // A data address: an imported symbol routes through the GOT
             // (`got_pc32`), an internal symbol is referenced directly
             // (`data_pc32`). `record_reloc` is only called with the *Lo intent
             // (select_x86 emits a single RIP-relative reference).
             _ => {
-                if let Some(library) = self.imports.get(&target) {
-                    // Re-derive as a GOT load so the kind string matches.
-                    let kind =
-                        crate::arch::x86_64::reloc::reloc_kind(RelocIntent::GotLoadLo).to_string();
-                    self.relocations.push(EncodedRelocation {
-                        offset,
-                        target,
-                        kind,
-                        binding: "external".to_string(),
-                        library: Some(library.clone()),
-                    });
-                } else {
-                    self.relocations.push(EncodedRelocation {
-                        offset,
-                        target,
-                        kind,
-                        binding: "data".to_string(),
-                        library: None,
-                    });
-                }
+                let binding = crate::arch::image::resolve_data_binding(&self.imports, &target);
+                // Re-derive an import as a GOT load so the kind string matches.
+                let kind = match &binding {
+                    crate::arch::image::Binding::External(_) => {
+                        crate::arch::x86_64::reloc::reloc_kind(RelocIntent::GotLoadLo).to_string()
+                    }
+                    _ => kind,
+                };
+                let (binding, library) = binding.into_relocation_fields();
+                self.relocations.push(EncodedRelocation {
+                    offset,
+                    target,
+                    kind,
+                    binding,
+                    library,
+                });
             }
         }
         Ok(())
