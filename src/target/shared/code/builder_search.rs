@@ -164,7 +164,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(scalar_index, "Integer", "0"));
         self.emit(abi::add_immediate(cursor, haystack_ptr, 8));
         self.emit(abi::move_register(remaining, haystack_len));
-        self.emit(abi::move_immediate(mask, "Integer", "192"));
+        self.emit(abi::move_immediate(
+            mask,
+            "Integer",
+            super::private::unicode::UTF8_CONTINUATION_MASK,
+        ));
 
         // Walk `start` characters forward. Each character is one lead/ASCII byte
         // followed by its continuation bytes; consume the whole character before
@@ -180,16 +184,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&invalid_start));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::label(&locate_continue));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&locate_advanced));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::compare_immediate(byte, "128"));
-        self.emit(abi::branch_ne(&locate_advanced));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&locate_continue));
+        self.emit_scalar_skip_continuations(
+            cursor,
+            remaining,
+            byte,
+            mask,
+            &locate_continue,
+            &locate_advanced,
+        );
         self.emit(abi::label(&locate_advanced));
         self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
         self.emit(abi::branch(&locate_start));
@@ -224,16 +226,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&advance_candidate));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::label(&skip_continuation));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&candidate_ready));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::compare_immediate(byte, "128"));
-        self.emit(abi::branch_ne(&candidate_ready));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&skip_continuation));
+        self.emit_scalar_skip_continuations(
+            cursor,
+            remaining,
+            byte,
+            mask,
+            &skip_continuation,
+            &candidate_ready,
+        );
         self.emit(abi::label(&candidate_ready));
         self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
         self.emit(abi::branch(&search_loop));
@@ -718,7 +718,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(end_ptr, cursor));
         self.emit(abi::move_register(remaining, string_len));
         self.emit(abi::move_immediate(scalar_index, "Integer", "0"));
-        self.emit(abi::move_immediate(mask, "Integer", "192"));
+        self.emit(abi::move_immediate(
+            mask,
+            "Integer",
+            super::private::unicode::UTF8_CONTINUATION_MASK,
+        ));
 
         self.emit(abi::label(&locate_start));
         self.emit(abi::compare_registers(scalar_index, start_index));
@@ -727,16 +731,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&invalid_range));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::label(&locate_start_continue));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&locate_start_advanced));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::compare_immediate(byte, "128"));
-        self.emit(abi::branch_ne(&locate_start_advanced));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&locate_start_continue));
+        self.emit_scalar_skip_continuations(
+            cursor,
+            remaining,
+            byte,
+            mask,
+            &locate_start_continue,
+            &locate_start_advanced,
+        );
         self.emit(abi::label(&locate_start_advanced));
         self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
         self.emit(abi::branch(&locate_start));
@@ -751,16 +753,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&invalid_range));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::label(&locate_end_continue));
-        self.emit(abi::compare_immediate(remaining, "0"));
-        self.emit(abi::branch_eq(&locate_end_advanced));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::compare_immediate(byte, "128"));
-        self.emit(abi::branch_ne(&locate_end_advanced));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&locate_end_continue));
+        self.emit_scalar_skip_continuations(
+            cursor,
+            remaining,
+            byte,
+            mask,
+            &locate_end_continue,
+            &locate_end_advanced,
+        );
         self.emit(abi::label(&locate_end_advanced));
         self.emit(abi::add_immediate(scalar_index, scalar_index, 1));
         self.emit(abi::branch(&locate_end));

@@ -2387,24 +2387,19 @@ impl CodeBuilder<'_> {
             let after = self.label("strings_pad_scalars_after");
             let done = self.label("strings_pad_scalars_done");
             self.emit(abi::add_immediate(&scratch11, &scratch17, 8));
-            self.emit(abi::move_immediate(&scratch12, "Integer", "0")); // byte index
-            self.emit(abi::move_immediate(&scratch14, "Integer", "0")); // scalar count
-            self.emit(abi::move_immediate(&scratch16, "Integer", "192"));
-            self.emit(abi::label(&loop_label));
-            self.emit(abi::compare_registers(&scratch12, &scratch9));
-            self.emit(abi::branch_ge(&done));
-            self.emit(abi::add_registers(&scratch15, &scratch11, &scratch12));
-            self.emit(abi::load_u8(&scratch13, &scratch15, 0));
-            self.emit(abi::and_registers(&scratch13, &scratch13, &scratch16));
-            self.emit(abi::compare_immediate(&scratch13, "128"));
-            self.emit(abi::branch_ne(&not_cont));
-            self.emit(abi::branch(&after));
-            self.emit(abi::label(&not_cont));
-            self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
-            self.emit(abi::label(&after));
-            self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
-            self.emit(abi::branch(&loop_label));
-            self.emit(abi::label(&done));
+            self.emit_scalar_count_loop(
+                &scratch11,
+                &scratch12,
+                &scratch14,
+                &scratch15,
+                &scratch13,
+                &scratch16,
+                &scratch9,
+                &loop_label,
+                &not_cont,
+                &after,
+                &done,
+            );
             self.emit(abi::compare_immediate(&scratch14, "1"));
             self.emit(abi::branch_ne(&invalid));
             // The count above is byte-structural (non-continuation bytes == 1);
@@ -2430,24 +2425,19 @@ impl CodeBuilder<'_> {
             let after = self.label("strings_pad_value_after");
             let done = self.label("strings_pad_value_done");
             self.emit(abi::add_immediate(&scratch11, &scratch16, 8));
-            self.emit(abi::move_immediate(&scratch12, "Integer", "0")); // byte index
-            self.emit(abi::move_immediate(&scratch14, "Integer", "0")); // scalar count
-            self.emit(abi::move_immediate(&scratch17, "Integer", "192"));
-            self.emit(abi::label(&loop_label));
-            self.emit(abi::compare_registers(&scratch12, &scratch9));
-            self.emit(abi::branch_ge(&done));
-            self.emit(abi::add_registers(&scratch15, &scratch11, &scratch12));
-            self.emit(abi::load_u8(&scratch13, &scratch15, 0));
-            self.emit(abi::and_registers(&scratch13, &scratch13, &scratch17));
-            self.emit(abi::compare_immediate(&scratch13, "128"));
-            self.emit(abi::branch_ne(&not_cont));
-            self.emit(abi::branch(&after));
-            self.emit(abi::label(&not_cont));
-            self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
-            self.emit(abi::label(&after));
-            self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
-            self.emit(abi::branch(&loop_label));
-            self.emit(abi::label(&done));
+            self.emit_scalar_count_loop(
+                &scratch11,
+                &scratch12,
+                &scratch14,
+                &scratch15,
+                &scratch13,
+                &scratch17,
+                &scratch9,
+                &loop_label,
+                &not_cont,
+                &after,
+                &done,
+            );
         }
         // pad_count = max(0, width - scalarLen).
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), width_slot));
