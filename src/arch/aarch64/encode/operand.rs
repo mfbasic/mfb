@@ -1,18 +1,6 @@
-use super::*;
-
-pub(super) fn field(instruction: &CodeInstruction, name: &str) -> Result<String, String> {
-    instruction
-        .fields
-        .iter()
-        .find(|(field, _)| *field == name)
-        .map(|(_, value)| value.clone())
-        .ok_or_else(|| {
-            format!(
-                "instruction '{}' missing field '{name}'",
-                instruction.op.mnemonic()
-            )
-        })
-}
+// `field`/`immediate`/`shift` are ISA-neutral and shared (bug-341-B7); the
+// register-name decoders below are AArch64-specific.
+pub(super) use crate::arch::encode_operand::{field, immediate, shift};
 
 /// Is this operand spelled as the stack pointer (rather than the zero register)?
 ///
@@ -105,26 +93,6 @@ pub(super) fn vreg(name: String) -> Result<u8, String> {
         return Err(format!("AArch64 vector register '{name}' out of range"));
     }
     Ok(number)
-}
-
-pub(super) fn immediate(value: String) -> Result<u64, String> {
-    match value.as_str() {
-        "true" => Ok(1),
-        "false" => Ok(0),
-        _ => value
-            .parse::<u64>()
-            .map_err(|_| format!("invalid immediate '{value}'")),
-    }
-}
-
-pub(super) fn shift(value: String) -> Result<u8, String> {
-    let value = value
-        .parse::<u8>()
-        .map_err(|_| format!("invalid shift immediate '{value}'"))?;
-    if value >= 64 {
-        return Err(format!("shift immediate {value} is out of range"));
-    }
-    Ok(value)
 }
 
 pub(super) fn scratch_excluding(a: u8, b: u8) -> u8 {

@@ -1,4 +1,7 @@
 pub(crate) mod aarch64;
+/// Operand decoding (`field`/`immediate`/`shift`) shared by every backend
+/// encoder (bug-341-B7).
+pub(crate) mod encode_operand;
 /// The shared two-pass plan-to-image encoding driver (`encode_plan`) every
 /// backend's `encode()` delegates to (bug-341-B1).
 pub(crate) mod encode_plan;
