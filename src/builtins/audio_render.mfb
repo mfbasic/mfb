@@ -1,0 +1,90 @@
+' Source companion for the built-in `audio` package: the note/envelope value
+' records and the `audio::render` tone renderer. Injected on `IMPORT audio`
+' (src/builtins/audio.rs:augmented_project), like `net`'s `Url` companion. The
+' native capture/playback surface (openInput/openOutput/read/write/...) is emitted
+' as runtime helpers; this file adds the pure-MFBASIC synthesis helpers.
+
+IMPORT audio
+IMPORT collections
+IMPORT math
+IMPORT bits
+IMPORT strings
+
+' An amplitude envelope in raw s16 sample units (0..32767), applied over a note's
+' frames: a linear attack, a linear decay to `sustainLevel`, a held sustain, and
+' a linear release. `holdFrames` is informational; the sustain fills whatever the
+' note's total length leaves between decay and release.
+EXPORT TYPE AudioEnvelope
+  attackFrames  AS Integer
+  decayFrames   AS Integer
+  holdFrames    AS Integer
+  releaseFrames AS Integer
+  sustainLevel  AS Integer
+END TYPE
+
+' A single note to synthesize: a sine at `frequencyHz` for `noteFrames` frames,
+' shaped by `envelope` and scaled by `gainOverall` (0..1).
+EXPORT TYPE AudioNote
+  frequencyHz AS Float
+  noteFrames  AS Integer
+  envelope    AS AudioEnvelope
+  gainOverall AS Float
+END TYPE
+
+' bug-339 C7: shared s16 saturation, previously written three times (two as a pair
+' of IFs, twice as an IF/ELSEIF — equivalent, since a value cannot exceed both
+' bounds). Clamps to the signed 16-bit range.
+FUNC __audio_clampS16(v AS Integer) AS Integer
+  IF v > 32767 THEN
+    RETURN 32767
+  END IF
+  IF v < -32768 THEN
+    RETURN -32768
+  END IF
+  RETURN v
+END FUNC
+
+' bug-339 C7: shared little-endian s16 emit, previously inlined in __audio_render
+' and duplicated in __mml_encode. `sample` must already be in signed 16-bit range;
+' the +65536 wrap maps a negative sample to its unsigned two's-complement bytes.
+FUNC __audio_appendS16LE(pcm AS List OF Byte, sample AS Integer) AS List OF Byte
+  MUT v AS Integer = sample
+  IF v < 0 THEN
+    v = v + 65536
+  END IF
+  MUT out AS List OF Byte = pcm
+  out = collections::append(out, toByte(bits::band(v, 255)))
+  out = collections::append(out, toByte(bits::band(bits::sr(v, 8), 255)))
+  RETURN out
+END FUNC
+
+' audio::render — render a note to mono s16le PCM at 48 kHz (the frame layout the
+' playback surface consumes: one frame is 2 bytes). A sine oscillator shaped by
+' the note's attack/decay/sustain/release envelope; the release is the final
+' `releaseFrames` and the middle is held at `sustainLevel`.
+FUNC __audio_render(note AS AudioNote) AS List OF Byte
+  MUT pcm AS List OF Byte = []
+  LET n AS Integer = note.noteFrames
+  LET a AS Integer = note.envelope.attackFrames
+  LET d AS Integer = note.envelope.decayFrames
+  LET r AS Integer = note.envelope.releaseFrames
+  LET peak AS Float = 32767.0
+  LET sustain AS Float = toFloat(note.envelope.sustainLevel)
+  LET releaseStart AS Integer = n - r
+  FOR i = 0 TO n - 1
+    LET t AS Float = toFloat(i) / 48000.0
+    LET wave AS Float = math::sin(2.0 * math::pi * note.frequencyHz * t)
+    MUT env AS Float = sustain
+    IF i < a THEN
+      env = peak * (toFloat(i) / toFloat(a))
+    ELSEIF i < a + d THEN
+      env = peak + (sustain - peak) * (toFloat(i - a) / toFloat(d))
+    ELSEIF i >= releaseStart THEN
+      env = sustain * (toFloat(n - i) / toFloat(r))
+    END IF
+    LET sample AS Integer = __audio_clampS16(toInt(wave * env * note.gainOverall))
+    pcm = __audio_appendS16LE(pcm, sample)
+  NEXT
+  RETURN pcm
+END FUNC
+

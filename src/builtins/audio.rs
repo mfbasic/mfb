@@ -24,7 +24,7 @@ pub(crate) const AUDIO_OUTPUT_TYPE: &str = "AudioOutput";
 pub(crate) const AUDIO_DEVICE_TYPE: &str = "AudioDevice";
 /// Value records the user constructs and passes to `audio::render`. Registered
 /// natively (fields below) so they are constructible, and defined in the source
-/// companion (`audio_package.mfb`) so the source `render` operates on them — the
+/// companion (`audio_render.mfb`) so the source `render` operates on them — the
 /// two field lists must match (the `vector::` value-record pattern).
 pub(crate) const AUDIO_ENVELOPE_TYPE: &str = "AudioEnvelope";
 pub(crate) const AUDIO_NOTE_TYPE: &str = "AudioNote";
@@ -38,7 +38,7 @@ const POLL: &str = "audio.poll";
 const AVAILABLE: &str = "audio.available";
 const XRUNS: &str = "audio.xruns";
 const CLOSE: &str = "audio.close";
-/// Source-companion synthesis helpers, defined in `audio_package.mfb` (like
+/// Source-companion synthesis helpers, defined in `audio_render.mfb` (like
 /// `csv::parse` → `__csv_parse`). `render` turns one `AudioNote` into PCM;
 /// `play` parses MML text and writes it to an open `AudioOutput`. `play` is
 /// overloaded by its second
@@ -134,7 +134,7 @@ pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str,
             ("isDefaultInput", "Boolean"),
             ("isDefaultOutput", "Boolean"),
         ]),
-        // Must match `EXPORT TYPE AudioEnvelope`/`AudioNote` in audio_package.mfb.
+        // Must match `EXPORT TYPE AudioEnvelope`/`AudioNote` in audio_render.mfb.
         AUDIO_ENVELOPE_TYPE => Some(&[
             ("attackFrames", "Integer"),
             ("decayFrames", "Integer"),
@@ -178,7 +178,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 }
 
 /// The source-companion target for `audio::render`/`audio::play` (the `__audio_*`
-/// bodies in `audio_package.mfb`). `play` picks its single- vs multi-track body
+/// bodies in `audio_mml.mfb`). `play` picks its single- vs multi-track body
 /// from the second argument's type. Native calls return `None` and stay runtime
 /// helpers. The result is internalized by IR lowering (it is a source function).
 pub(crate) fn source_implementation_name(name: &str, arg_types: &[String]) -> Option<&'static str> {
@@ -192,11 +192,19 @@ pub(crate) fn source_implementation_name(name: &str, arg_types: &[String]) -> Op
     }
 }
 
+// bug-339 C11: the audio companion is two unrelated subsystems — the tone
+// renderer (`audio_render.mfb`, with the shared s16 clamp/emit helpers) and the
+// MML sequencer (`audio_mml.mfb`) — concatenated into one source. The MML half
+// relies on the IMPORTs and the shared helpers declared at the top of the render
+// half, so the order is load-bearing.
 super::package_source_glue!(
     "audio",
     "<builtin-audio>",
     "builtins/audio.mfb",
-    include_str!("audio_package.mfb")
+    concat!(
+        include_str!("audio_render.mfb"),
+        include_str!("audio_mml.mfb")
+    )
 );
 
 /// Per-overload parameter names for the device-open calls, whose two overloads

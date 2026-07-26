@@ -32,7 +32,7 @@ rate and returns it as a `List OF Byte` — the same mono frame layout
 `AudioOutput`. The output is single-channel, so one frame is one sample of two
 bytes; the returned list is
 `note.noteFrames * 2` bytes long. A `note.noteFrames` of zero or less runs no
-iterations and returns an empty list. [[src/builtins/audio_package.mfb:__audio_render]]
+iterations and returns an empty list. [[src/builtins/audio_render.mfb:__audio_render]]
 
 For each frame `i` the renderer evaluates a sine oscillator
 `sin(2 * pi * note.frequencyHz * (i / 48000))` and shapes it with the note's
@@ -45,7 +45,7 @@ For each frame `i` the renderer evaluates a sine oscillator
   `releaseFrames`.
 
 `holdFrames` is informational; the sustain fills whatever the note length leaves
-between decay and release. [[src/builtins/audio_package.mfb:__audio_render]]
+between decay and release. [[src/builtins/audio_render.mfb:__audio_render]]
 
 Each sample is the oscillator value times the envelope times `note.gainOverall`,
 converted to an `Integer`, then clamped to the s16 range `[-32768, 32767]` and
@@ -53,7 +53,7 @@ encoded little-endian. The conversion happens **before** the clamp, so a
 non-finite or wildly out-of-range product — for example a non-finite
 `frequencyHz`/`gainOverall`, or a `gainOverall` large enough to push the product
 past the `Integer` range — is rejected by the conversion rather than clamped.
-[[src/builtins/audio_package.mfb:__audio_render]][[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]]
+[[src/builtins/audio_render.mfb:__audio_render]][[src/target/shared/code/builder_conversions.rs:emit_float_to_int_value]]
 
 `render` is deterministic and platform-independent: it produces byte-identical
 PCM on every target.
@@ -68,7 +68,7 @@ PCM on every target.
 
 | Type | Description |
 | --- | --- |
-| `List OF Byte` | Single-channel mono `s16le` PCM at 48 kHz, exactly `note.noteFrames * 2` bytes; empty when `note.noteFrames <= 0`. [[src/builtins/audio.rs:resolve_call]][[src/builtins/audio_package.mfb:__audio_render]] |
+| `List OF Byte` | Single-channel mono `s16le` PCM at 48 kHz, exactly `note.noteFrames * 2` bytes; empty when `note.noteFrames <= 0`. [[src/builtins/audio.rs:resolve_call]][[src/builtins/audio_render.mfb:__audio_render]] |
 
 ## Errors
 

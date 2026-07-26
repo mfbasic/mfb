@@ -2704,7 +2704,7 @@ fn lower_expression_with_expected(
                 })
                 .or_else(|| {
                     // `audio::render`/`audio::play` are source-companion members
-                    // (`audio_package.mfb`); `play` selects its single- vs
+                    // (`audio_render.mfb + audio_mml.mfb`); `play` selects its single- vs
                     // multi-track body from the second argument's type. The
                     // native capture/playback surface returned `None` above and
                     // stays a runtime-helper call.

@@ -75,7 +75,7 @@ A description of one audio device, obtained only from `audio::devices()`. [[src/
 
 A linear ADSR amplitude envelope in raw s16 sample units (`0..32767`), passed to
 `audio::render` through an `AudioNote`. Unlike `AudioDevice`, it is an ordinary
-value record: construct it with `AudioEnvelope[...]`. [[src/builtins/audio_package.mfb:AudioEnvelope]] [[src/builtins/audio.rs:builtin_type_fields]]
+value record: construct it with `AudioEnvelope[...]`. [[src/builtins/audio_render.mfb:AudioEnvelope]] [[src/builtins/audio.rs:builtin_type_fields]]
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -89,12 +89,12 @@ value record: construct it with `AudioEnvelope[...]`. [[src/builtins/audio_packa
 
 A single note for `audio::render` to synthesize: a sine at `frequencyHz` for
 `noteFrames` frames, shaped by `envelope` and scaled by `gainOverall`. A value
-record; construct it with `AudioNote[...]`. [[src/builtins/audio_package.mfb:AudioNote]] [[src/builtins/audio.rs:builtin_type_fields]]
+record; construct it with `AudioNote[...]`. [[src/builtins/audio_render.mfb:AudioNote]] [[src/builtins/audio.rs:builtin_type_fields]]
 
 | Field | Type | Description |
 | --- | --- | --- |
 | `frequencyHz` | `Float` | Sine frequency in hertz. |
-| `noteFrames` | `Integer` | Total length in frames (one frame is 2 bytes of mono s16le at 48 kHz). [[src/builtins/audio_package.mfb:__audio_render]] |
+| `noteFrames` | `Integer` | Total length in frames (one frame is 2 bytes of mono s16le at 48 kHz). [[src/builtins/audio_render.mfb:__audio_render]] |
 | `envelope` | `AudioEnvelope` | The amplitude envelope applied over the note. |
 | `gainOverall` | `Float` | Overall gain scaling the whole note, `0..1`. |
 
