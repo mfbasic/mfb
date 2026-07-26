@@ -103,8 +103,10 @@ fn gtk_state_sizes_the_char_grid_at_four_bytes_per_cell() {
 
     const CELLS: u64 = 160 * 48;
     // handles(7) + argc/argv + mode + lineLen = 11 u64, then the 1024B line
-    // buffer, 13 u64 of term geometry, then chars/fg/bg live + snapshot at 4B.
-    let expected = 11 * 8 + 1024 + 13 * 8 + 6 * CELLS * 4;
+    // buffer, 13 u64 of term geometry, then chars/fg/bg live + snapshot at 4B,
+    // then one u64 `ST_HELD` flag (plan-62-D: the windowless-mode hold tracker).
+    // The grid is still 4 bytes/cell (bug-203); the +8 is only the new scalar.
+    let expected = 11 * 8 + 1024 + 13 * 8 + 6 * CELLS * 4 + 8;
     assert_eq!(
         size, expected,
         "the char grid should be 4 bytes/cell like fg/bg (bug-203); \

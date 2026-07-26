@@ -118,7 +118,7 @@ pub(super) fn emit_main_bootstrap() -> Result<CodeFunction, String> {
 /// window (transcript + input field), wire input/close signals, present it, create
 /// the window-input pipe (dup'd onto fd 0 for the reused console readers), and
 /// spawn the language worker thread.
-pub(super) fn emit_activate_handler() -> Result<CodeFunction, String> {
+pub(super) fn emit_activate_handler(initial_mode: PresentationMode) -> Result<CodeFunction, String> {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
     // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24.
     let frame = 32;
@@ -131,6 +131,12 @@ pub(super) fn emit_activate_handler() -> Result<CodeFunction, String> {
     ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 24));
 
+    // plan-62-D: a `Console`-default program builds the transcript window + input
+    // widgets (emitted byte-for-byte as before). A `None`-default program starts
+    // windowless: it skips the whole surface and instead takes `g_application_hold`
+    // so `GApplication` does not exit with zero windows — then still spawns the
+    // worker below. The window is created later, on demand, by `setMode(Console)`.
+    if initial_mode == PresentationMode::Console {
     // window = gtk_application_window_new(app)  (app is the incoming x0)
     asm.call_external("gtk_application_window_new");
     asm.store_state("x0", ST_WINDOW);
@@ -272,6 +278,16 @@ pub(super) fn emit_activate_handler() -> Result<CodeFunction, String> {
     // value because store_state materializes the state base into x9.
     asm.push(abi::move_immediate("x10", "Integer", "0"));
     asm.store_state("x10", ST_PIPE_READ_FD);
+    } else {
+        // plan-62-D: `None`-default — no window. Hold the application so it stays
+        // alive with zero windows; the worker (spawned below) runs the program, and
+        // `setMode(Console)` later builds + presents a window (releasing this hold).
+        asm.load_state("x0", ST_APPLICATION);
+        asm.call_external("g_application_hold");
+        // Record that a hold is active so the reconcile balances it (Open Decision 1).
+        asm.push(abi::move_immediate("x10", "Integer", "1"));
+        asm.store_state("x10", ST_HELD);
+    }
 
     // pthread_create(&thread@sp+8, NULL, _mfb_gtkapp_worker, NULL); detach.
     asm.push(abi::add_immediate("x0", abi::stack_pointer(), 8));
@@ -287,6 +303,147 @@ pub(super) fn emit_activate_handler() -> Result<CodeFunction, String> {
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(ACTIVATE_SYMBOL, "Nothing")
+}
+
+/// plan-62-D Phase 2 (worker side): the `app::setMode` reconcile seam. `setMode`
+/// has already stored the new mode; this schedules `RECONCILE_IDLE` on the GTK main
+/// loop via `g_idle_add(func, mode)`, passing the mode as the user-data (a small
+/// integer, never dereferenced, so it needs no boxing). Emitted into the shared
+/// `_mfb_rt_app_app_setMode` helper via the platform's `emit_app_mode_reconcile`.
+pub(crate) fn emit_reconcile_seam(
+    from_symbol: &str,
+    presentation_mode_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    // Emitted into the shared (vreg-lowered) setMode helper, so it must name only
+    // virtual registers (the ARG[n] `%argN` tokens), never physical ones — the
+    // zero-physical-register invariant (plan-34-D). The allocator/x86 remap place
+    // them into the call ABI.
+    let mut asm = Asm::new(from_symbol);
+    asm.local_address(abi::ARG[0], RECONCILE_IDLE_SYMBOL); // GSourceFunc
+    asm.push(abi::load_u64(
+        abi::ARG[1],
+        code::ARENA_STATE_REGISTER,
+        presentation_mode_offset,
+    )); // user-data = mode
+    asm.call_external("g_idle_add");
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
+}
+
+/// plan-62-D Phase 2 (GTK main loop): the `g_idle_add` callback that reconciles the
+/// window to the presentation mode. `x0` = the new mode (the user-data). `Console`
+/// builds the transcript window on the first switch (or re-shows it), re-points the
+/// io-routing text buffer, and releases the windowless hold; `None` hides the
+/// window, clears the buffer (io → stdout fd), and re-takes the hold. Exactly one
+/// aliveness source is kept via `ST_HELD`. Returns `G_SOURCE_REMOVE` (0) so the
+/// idle fires once. The state lives in `STATE_SYMBOL` globals (not the arena), so
+/// this main-thread callback needs no arena register.
+pub(super) fn emit_reconcile_idle_helper() -> Result<CodeFunction, String> {
+    let mut asm = Asm::new(RECONCILE_IDLE_SYMBOL);
+    let frame = 16; // lr@0, x19(mode)@8
+    let none = format!("{RECONCILE_IDLE_SYMBOL}_none");
+    let show = format!("{RECONCILE_IDLE_SYMBOL}_show");
+    let after_console = format!("{RECONCILE_IDLE_SYMBOL}_after_console");
+    let release_skip = format!("{RECONCILE_IDLE_SYMBOL}_release_skip");
+    let hide_skip = format!("{RECONCILE_IDLE_SYMBOL}_hide_skip");
+    let hold_skip = format!("{RECONCILE_IDLE_SYMBOL}_hold_skip");
+    let done = format!("{RECONCILE_IDLE_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::move_register("x19", "x0")); // mode
+    asm.push(abi::compare_immediate("x19", "0"));
+    asm.push(abi::branch_ne(&none)); // mode != Console → None path
+
+    // --- Console: build (first time) or re-show the transcript window ---
+    asm.load_state("x0", ST_WINDOW);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_ne(&show)); // window already built → present it
+    // window = gtk_application_window_new(app); title; default size.
+    asm.load_state("x0", ST_APPLICATION);
+    asm.call_external("gtk_application_window_new");
+    asm.store_state("x0", ST_WINDOW);
+    asm.load_state("x0", ST_WINDOW);
+    asm.local_address("x1", SYM_TITLE);
+    asm.call_external("gtk_window_set_title");
+    asm.load_state("x0", ST_WINDOW);
+    asm.push(abi::move_immediate("x1", "Integer", WINDOW_WIDTH));
+    asm.push(abi::move_immediate("x2", "Integer", WINDOW_HEIGHT));
+    asm.call_external("gtk_window_set_default_size");
+    // scrolled window (ref-sink so it survives child swaps) + non-editable
+    // monospace text view (output only — the reconcile transcript needs no input).
+    asm.call_external("gtk_scrolled_window_new");
+    asm.call_external("g_object_ref_sink");
+    asm.store_state("x0", ST_SCROLLED);
+    asm.call_external("gtk_text_view_new");
+    asm.store_state("x0", ST_TEXT_VIEW);
+    asm.load_state("x0", ST_TEXT_VIEW);
+    asm.push(abi::move_immediate("x1", "Integer", FALSE));
+    asm.call_external("gtk_text_view_set_editable");
+    asm.load_state("x0", ST_TEXT_VIEW);
+    asm.push(abi::move_immediate("x1", "Integer", TRUE));
+    asm.call_external("gtk_text_view_set_monospace");
+    asm.load_state("x0", ST_TEXT_VIEW);
+    asm.call_external("gtk_text_view_get_buffer");
+    asm.store_state("x0", ST_TEXT_BUFFER);
+    asm.load_state("x0", ST_SCROLLED);
+    asm.load_state("x1", ST_TEXT_VIEW);
+    asm.call_external("gtk_scrolled_window_set_child");
+    asm.load_state("x0", ST_WINDOW);
+    asm.load_state("x1", ST_SCROLLED);
+    asm.call_external("gtk_window_set_child");
+    asm.push(abi::branch(&after_console));
+    // Re-show an existing window: re-point the io-routing buffer (a prior None
+    // cleared it) at the surviving text view, then present.
+    asm.push(abi::label(&show));
+    asm.load_state("x0", ST_TEXT_VIEW);
+    asm.call_external("gtk_text_view_get_buffer");
+    asm.store_state("x0", ST_TEXT_BUFFER);
+    asm.push(abi::label(&after_console));
+    asm.load_state("x0", ST_WINDOW);
+    asm.call_external("gtk_window_present");
+    // A window now owns aliveness — drop the windowless hold if one is active.
+    asm.load_state("x0", ST_HELD);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq(&release_skip));
+    asm.load_state("x0", ST_APPLICATION);
+    asm.call_external("g_application_release");
+    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.store_state("x10", ST_HELD);
+    asm.push(abi::label(&release_skip));
+    asm.push(abi::branch(&done));
+
+    // --- None: hide the window, route io to the fd, keep the app alive ---
+    asm.push(abi::label(&none));
+    asm.load_state("x0", ST_WINDOW);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq(&hide_skip));
+    asm.push(abi::move_immediate("x1", "Integer", FALSE));
+    asm.call_external("gtk_widget_set_visible");
+    asm.push(abi::label(&hide_skip));
+    // clear the io-routing buffer → the write helper falls back to the fd (stdout)
+    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.store_state("x10", ST_TEXT_BUFFER);
+    // hold the application so it survives with no visible window (if not already).
+    asm.load_state("x0", ST_HELD);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_ne(&hold_skip));
+    asm.load_state("x0", ST_APPLICATION);
+    asm.call_external("g_application_hold");
+    asm.push(abi::move_immediate("x10", "Integer", "1"));
+    asm.store_state("x10", ST_HELD);
+    asm.push(abi::label(&hold_skip));
+
+    asm.push(abi::label(&done));
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // G_SOURCE_REMOVE
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    asm.finish(RECONCILE_IDLE_SYMBOL, "Integer")
 }
 
 /// `void *_mfb_gtkapp_worker(void *arg)` — pthread start routine that runs the
@@ -774,7 +931,8 @@ mod tests {
     /// respects the register-lifetime rules.
     #[test]
     fn activate_closes_redundant_pipe_read_fd_after_dup2() {
-        let func = emit_activate_handler().unwrap();
+        // The pipe/dup2 wiring this test asserts lives in the Console surface path.
+        let func = emit_activate_handler(PresentationMode::Console).unwrap();
         let ins = &func.instructions;
 
         let dup2_calls: Vec<usize> = ins

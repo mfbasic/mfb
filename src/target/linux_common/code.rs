@@ -477,6 +477,21 @@ impl<A: LinuxArch> code::CodegenPlatform for Platform<A> {
         gtk::app_mode_data_objects(project_name)
     }
 
+    fn emit_app_mode_reconcile(
+        &self,
+        symbol: &str,
+        presentation_mode_offset: usize,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-62-D Phase 2: `app::setMode` schedules the window reconcile on the
+        // GTK main loop (g_idle_add). Emitted into the shared setMode helper, so it
+        // is remapped for x86 with the rest of that helper.
+        self.arch.app().require_gtk();
+        gtk::emit_reconcile_seam(symbol, presentation_mode_offset, instructions, relocations);
+        Some(Ok(()))
+    }
+
     fn emit_app_io_write_helper(
         &self,
         symbol: &str,

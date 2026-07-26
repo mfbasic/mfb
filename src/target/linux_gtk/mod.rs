@@ -26,7 +26,7 @@ mod bootstrap;
 mod term_draw;
 
 pub(crate) use app_io::*;
-use bootstrap::*;
+pub(crate) use bootstrap::*;
 use term_draw::*;
 
 use std::collections::HashMap;
@@ -34,7 +34,7 @@ use std::collections::HashMap;
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     self, AppEntrySpec, AppHookBody, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction,
-    CodeRelocation, RelocIntent,
+    CodeRelocation, PresentationMode, RelocIntent,
 };
 
 // --- Emitted symbols -------------------------------------------------------
@@ -55,6 +55,10 @@ const APPEND_SYMBOL: &str = "_mfb_gtkapp_append";
 const APPEND_IDLE_SYMBOL: &str = "_mfb_gtkapp_append_idle";
 /// Worker program-completion handler (referenced by `emit_program_exit`).
 pub(crate) const FINISH_SYMBOL: &str = "_mfb_gtkapp_finish";
+/// plan-62-D Phase 2: the GLib main-loop idle callback the worker's `setMode`
+/// schedules (via `g_idle_add`) to build or tear down the transcript window to
+/// match the new presentation mode.
+const RECONCILE_IDLE_SYMBOL: &str = "_mfb_gtkapp_reconcile_idle";
 
 /// Writable runtime-state global. One pointer/handle per slot; the GTK widgets
 /// and the window-input pipe fds live here so every helper can reach them without
@@ -127,7 +131,12 @@ const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_CHARS: usize = ST_TERM_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_FG: usize = ST_TERM_SNAP_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
 const ST_TERM_SNAP_BG: usize = ST_TERM_SNAP_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
-const STATE_SIZE: usize = ST_TERM_SNAP_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+/// plan-62-D: 1 while a `g_application_hold` is in effect (windowless `None` mode),
+/// 0 while a window owns the app's aliveness (`Console`). The reconcile keeps
+/// exactly one aliveness source by toggling this: hold+set on entering `None`,
+/// release+clear on entering `Console` (Open Decision 1).
+const ST_HELD: usize = ST_TERM_SNAP_BG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
+const STATE_SIZE: usize = ST_HELD + 8;
 
 // fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
 // convention so the arena getters agree); bit 24 marks an explicit color (so 0 =
@@ -419,10 +428,10 @@ pub(crate) fn emit_app_program_entry(
     spec: &AppEntrySpec,
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
-    Ok(vec![
+    let mut functions = vec![
         emit_libc_start_trampoline()?,
         emit_main_bootstrap()?,
-        emit_activate_handler()?,
+        emit_activate_handler(spec.initial_mode)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         emit_window_closed_handler()?,
@@ -438,7 +447,14 @@ pub(crate) fn emit_app_program_entry(
         emit_term_scroll_helper()?,
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
-    ])
+    ];
+    // plan-62-D Phase 2: the runtime setMode reconcile idle callback, only for a
+    // program that can change mode (static default `None`) — a `Console`-default
+    // program never reconciles and keeps its exact function set.
+    if spec.initial_mode == PresentationMode::None {
+        functions.push(emit_reconcile_idle_helper()?);
+    }
+    Ok(functions)
 }
 
 /// The x86-64 flavor of [`emit_app_program_entry`]: the ELF-entry trampoline is
@@ -453,7 +469,7 @@ pub(crate) fn emit_app_program_entry_x86(
 ) -> Result<Vec<CodeFunction>, String> {
     let mut functions = vec![
         emit_main_bootstrap()?,
-        emit_activate_handler()?,
+        emit_activate_handler(spec.initial_mode)?,
         emit_worker_shim(spec)?,
         emit_key_pressed_handler()?,
         emit_window_closed_handler()?,
@@ -469,6 +485,10 @@ pub(crate) fn emit_app_program_entry_x86(
         emit_term_init_helper()?,
         emit_term_resize_helper()?,
     ];
+    // plan-62-D Phase 2: the reconcile idle callback (None-default programs only).
+    if spec.initial_mode == PresentationMode::None {
+        functions.push(emit_reconcile_idle_helper()?);
+    }
     for function in &mut functions {
         finalize_x86_app_function(&mut function.instructions);
     }
@@ -704,6 +724,14 @@ pub(crate) fn app_mode_imports(
         // Application + window lifecycle.
         (GIO, "g_application_run"),
         (GIO, "g_application_quit"),
+        // plan-62-D: keep a windowless (`None`-mode) app alive, and balance the
+        // hold when a window takes over aliveness on `setMode(Console)`.
+        // (`g_idle_add`, used by the reconcile to marshal onto the main loop, is
+        // already imported below for the transcript idle append.)
+        (GIO, "g_application_hold"),
+        (GIO, "g_application_release"),
+        // plan-62-D reconcile: hide the window on `setMode(None)`.
+        (GTK, "gtk_widget_set_visible"),
         (GTK, "gtk_application_new"),
         (GTK, "gtk_application_window_new"),
         (GTK, "gtk_window_set_title"),

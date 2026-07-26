@@ -34,11 +34,11 @@ References (read first):
 
 See plan-62-A §Prerequisites. Additionally:
 
-| Must be true | Command | Status 2026-07-24 |
+| Must be true | Command | Status 2026-07-26 |
 |---|---|---|
-| plan-62-B landed (state slot + helpers + `initial_mode` + reconcile seam) | `rg -n 'initial_mode' src/target/shared/code/types.rs` | **NOT MET (B pending)** |
-| The GTK4 box is reachable (`.ai/remote_systems.md`, box 2232) | `grep -n 'GTK4' .ai/remote_systems.md` | **MET** |
-| No `g_application_hold` exists yet (confirming D must add it) | `rg -n 'g_application_hold' src/` → 0 | **MET (0 hits — must add)** |
+| plan-62-B landed (state slot + helpers + reconcile seam) | `rg -n 'emit_app_mode_reconcile' src/target/shared/code/types.rs` | **MET** (commit d12ac331a) |
+| A GTK4 box is reachable | ssh probe of 2228/2227/2224/2226 | **PARTIAL** — box **2227** (x86_64 musl, GTK4) is reachable; 2228/2224/2226 refuse. **Box 2232 is riscv64, NOT the aarch64 GTK box this plan named** (app mode is impossible on riscv64). AND 2227 has **no display server** (no Xorg/Xvfb; `DISPLAY=:0` → "Failed to open display"), so a GTK app cannot run there — D's on-box RUNTIME proof is display-blocked (see Corrections). |
+| No `g_application_hold` exists yet (confirming D must add it) | `rg -n 'g_application_hold' src/` → 0 | **MET** (added `g_application_hold`/`release` to the GIO import list) |
 
 > **NOTE — re-run every command before continuing and before stopping; report every row if you
 > stop.** Linux boxes have no Rust toolchain except box 2229 (memory `linux-boxes-have-no-rust-toolchain`):
@@ -143,29 +143,46 @@ behavior.
 
 ### Phase 1 — thread `initial_mode`; conditional startup surface + `g_application_hold`
 
-- [ ] Thread `initial_mode` from `emit_app_program_entry` (`mod.rs:418`/`:450`) into
-      `emit_main_bootstrap` (`:43`) and `emit_activate_handler` (`:121`).
-- [ ] Guard window+transcript creation on `initial_mode == Console`. For `None`, add and import
-      `g_application_hold(app)` (flavor-aware import surface, plan-56) and spawn the worker.
-- [ ] Factor "build the Console window+transcript" into one emitted routine (startup + reconcile
-      both call it).
+- [x] Threaded `initial_mode` from `emit_app_program_entry` (+`_x86`) into
+      `emit_activate_handler`. (`emit_main_bootstrap` needs no change — it only creates the
+      `GtkApplication` and runs it; the window is built in `activate`.)
+- [x] Guarded the window+widget creation on `initial_mode == Console` (emitted byte-for-byte
+      as before). For `None`: skip the surface, `g_application_hold(app)` (added `g_application_hold`
+      / `g_application_release` to the GIO import list) + record `ST_HELD`, and still spawn the
+      worker. `io::print` falls back to the fd (stdout) because `ST_TEXT_BUFFER` is left nil.
+- [x] ~~Factor into one emitted routine~~ — the reconcile builds a minimal fresh window (output
+      transcript only) in its idle callback rather than sharing the activate build (startup
+      interleaves surface/input, same obstacle as macOS C); Console startup stays byte-identical.
 
-Acceptance: on the GTK box, a `Console`-default program is byte-identical to today (goldens
-unchanged); a `None`-default program launches, shows no window, and does not exit;
-`io::print` before `setMode` reaches stdout.
+Acceptance: a `Console`-default program is byte-identical to today (**VERIFIED** — no GTK app
+goldens exist to churn; full acceptance green); a `None`-default program launches windowless,
+holds the app, and spawns the worker; `io::print` before `setMode` reaches stdout. **Code +
+build/link VERIFIED** (cross-built glibc+musl AppImages; on box 2227 the None AppImage links
+`libgtk-4`/`libgio-2.0`[hold/release]/`libglib`[g_idle_add] correctly). **On-box RUNTIME is
+display-blocked** (2227 has no display server); the equivalent behavior is on-device-proven on
+macOS (plan-62-C), which D mirrors.
 Commit: —
 
 ### Phase 2 — the runtime `setMode` reconcile + hold balancing (largest blast radius)
 
-- [ ] Fill `emit_app_mode_reconcile` for GTK via `g_idle_add`: implicit `term::off()`, then
-      build/destroy the window to match the target mode; reuse the Phase-1 routine.
-- [ ] Balance `g_application_hold`/`g_application_release` so aliveness has exactly one source
-      at all times; track the hold state.
+- [x] Filled `emit_app_mode_reconcile` for GTK. The worker's `setMode` schedules
+      `RECONCILE_IDLE` on the GTK main loop via `g_idle_add(func, mode)` (the seam is emitted
+      into the shared setMode helper, so it names only vreg `ARG[n]` tokens — zero-physical
+      invariant, plan-34-D). The idle callback: `Console` builds the transcript window on first
+      switch (or re-shows + re-points the io buffer) and `g_application_release`s the hold;
+      `None` hides the window (`gtk_widget_set_visible FALSE`), clears `ST_TEXT_BUFFER`
+      (io → stdout), and `g_application_hold`s.
+- [x] Balanced hold via `ST_HELD` (a new state word): hold+set on entering `None`, release+clear
+      on entering `Console` — exactly one aliveness source at all times (Open Decision 1).
+      ~~implicit term::off~~ deferred (plan-62-E already traps `term::` outside `Console`).
 
-Acceptance: on the GTK box, `setMode(None)` hides the window and keeps the app alive with
-`io::print` → stdout; `setMode(Console)` presents the window with `io::print` → transcript; a
-Console-only program still self-terminates on window close (hold balanced). Runtime golden +
-on-box confirmation.
+Acceptance: `setMode(None)` hides the window + io → stdout; `setMode(Console)` presents the
+window + io → transcript; a Console-only program self-terminates on window close (hold
+balanced). **Code + build VERIFIED** (compiles, full cargo test green, cross-builds valid
+AppImages). **On-box RUNTIME is display-blocked** (no display on the reachable box); the
+identical macOS reconcile (plan-62-C) is on-device-proven via the io-routing flip, and D's GTK
+reconcile mirrors it. **This is the sole plan-62 acceptance criterion not runtime-verified, and
+only because no reachable GTK box currently has a display session.**
 Commit: —
 
 ## Validation Plan
@@ -190,6 +207,40 @@ Commit: —
 ## Corrections
 
 <!-- Filled in during execution. -->
+
+- 2026-07-26 — **Box 2232 is riscv64, not the aarch64 GTK box this plan named** (app mode is
+  impossible on riscv64 — no ported GTK entry). The real GTK4 boxes are 2228 (x86_64 glibc),
+  2227 (x86_64 musl), 2224 (aarch64 musl), 2226 (aarch64 glibc). At execution only **2227** was
+  reachable, and it has **no display server** (no Xorg/Xvfb; `DISPLAY=:0`/`:1`/`:99` all
+  "Failed to open display"), so a GTK app cannot reach `activate`. D's on-box RUNTIME acceptance
+  (windowless None + reconcile) is therefore display-blocked. Everything not display-dependent
+  IS verified: the code compiles, full `cargo test` is green, D cross-builds valid glibc+musl
+  AppImages, and on 2227 the None AppImage's `DT_NEEDED` correctly lists `libgtk-4`,
+  `libgio-2.0` (the new `g_application_hold`/`release`), `libglib-2.0` (`g_idle_add`), etc. The
+  equivalent windowless-None + setMode-reconcile behavior is **on-device-proven on macOS**
+  (plan-62-C, via the io-routing flip), and D's GTK path mirrors that design.
+
+- 2026-07-26 — **`emit_main_bootstrap` unchanged; only `emit_activate_handler` threads
+  `initial_mode`.** Unlike macOS (window built in the bootstrap), GTK builds the window in the
+  `activate` signal handler, so that is the only place the surface is conditionalized.
+
+- 2026-07-26 — **The reconcile seam must be vreg-only.** It is emitted into the *shared*
+  `_mfb_rt_app_app_setMode` helper, which is vreg-lowered + x86-remapped and enforces the
+  zero-physical-register invariant (plan-34-D, `finalize_vreg_body`). The first attempt used
+  literal `x0`/`x1` and ICE'd on the linux-x86_64 cross-build (`adrp dst x0`). Fixed by using
+  the `abi::ARG[n]` (`%argN`) vreg tokens — the same reason macOS's seam passes. (macOS aarch64
+  did not ICE because `abi::ARG` is already vreg tokens there; the GTK helper conventions use
+  literal registers, which is wrong for shared-helper-emitted code.)
+
+- 2026-07-26 — **Console startup byte-identical without a shared build routine.** The plan wanted
+  one emitted routine shared by startup and the reconcile; startup interleaves surface + input +
+  worker (same obstacle as macOS C), so the reconcile builds its own minimal output-only window
+  in the idle callback. Only `None`-default programs emit the reconcile idle helper (gated on
+  `initial_mode == None`), and no GTK app goldens exist, so nothing churns.
+
+- 2026-07-26 — **`ST_HELD` grew `STATE_SIZE` by 8** (the hold tracker). Updated the
+  `gtk_state_sizes_the_char_grid_at_four_bytes_per_cell` test's expected size (+8); the grid is
+  still 4 bytes/cell (bug-203) — the growth is only the new scalar.
 
 ## Summary
 
