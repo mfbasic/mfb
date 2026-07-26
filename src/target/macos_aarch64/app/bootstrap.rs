@@ -302,8 +302,9 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
     // --- end term:: TermView surface ---------------------------------------
 
     // Synthesize + install the NSApplication delegate (worker spawn + quit-on-close).
-    // Extracted so the windowless `None` path can install it too (plan-62-C).
-    emit_gui_delegate(&mut asm);
+    // Extracted so the windowless `None` path can install it too (plan-62-C). A
+    // Console-default program never reconciles, so it installs no `mfbReconcile:`.
+    emit_gui_delegate(&mut asm, false);
 
     // Input-line buffer: an NSMutableString accumulating typed characters until
     // Return; stashed (retained) on NSApp so the keyDown: handler can reach it.
@@ -466,7 +467,9 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
         asm.push(abi::move_register(REG_HEADLESS, "x0"));
         asm.push(abi::compare_immediate(REG_HEADLESS, "0"));
         asm.push(abi::branch_ne("after_show"));
-        emit_gui_delegate(&mut asm);
+        // A None-default program references setMode, so it reconciles: install
+        // `mfbReconcile:` (its IMP is emitted for this program).
+        emit_gui_delegate(&mut asm, true);
     }
     asm.push(abi::label("after_show"));
 
@@ -537,7 +540,7 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
 /// `None` program has no window, so the terminate handler never fires — but the
 /// launch handler is exactly what spawns its worker under `[NSApp run]`).
 /// Requires `REG_APP` to hold the shared `NSApplication`; clobbers `abi::LOCAL[4]`.
-fn emit_gui_delegate(asm: &mut Asm) {
+fn emit_gui_delegate(asm: &mut Asm, with_reconcile: bool) {
     // cls = objc_allocateClassPair(NSObject, "MFBAppDelegate", 0)
     asm.external_data(abi::LOCAL[4], CLASS_NS_OBJECT, LIB_OBJC);
     asm.local_address("x1", STR_DELEGATE_CLASS.0);
@@ -558,6 +561,18 @@ fn emit_gui_delegate(asm: &mut Asm) {
     asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
     asm.push(abi::move_register("x0", abi::LOCAL[4]));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbReconcile:), imp, "v@:@") — plan-62-C
+    // Phase 2: the main-thread presentation-mode reconcile the worker marshals to.
+    // Only for a program that can change mode (its reconcile IMP is emitted only
+    // then); a Console-default program never installs it, so it references no
+    // undefined `_mfb_macapp_reconcile` symbol.
+    if with_reconcile {
+        asm.load_selector(SEL_MFB_RECONCILE.0);
+        asm.local_address("x2", RECONCILE_SYMBOL);
+        asm.local_address("x3", STR_INPUT_TYPES.0); // "v@:@"
+        asm.push(abi::move_register("x0", abi::LOCAL[4]));
+        asm.call_external("_class_addMethod", LIB_OBJC);
+    }
     // objc_registerClassPair(cls)
     asm.push(abi::move_register("x0", abi::LOCAL[4]));
     asm.call_external("_objc_registerClassPair", LIB_OBJC);
@@ -574,6 +589,263 @@ fn emit_gui_delegate(asm: &mut Asm) {
     asm.push(abi::move_register("x2", abi::LOCAL[4]));
     asm.push(abi::move_register("x0", REG_APP));
     asm.call_external("_objc_msgSend", LIB_OBJC);
+}
+
+/// Build a `CodeFunction` from a finished `Asm` for the reconcile helpers (all
+/// manual-framed, so `CodeFrame` carries no allocator-managed frame).
+fn reconcile_code_function(symbol: &str, asm: Asm) -> CodeFunction {
+    CodeFunction {
+        name: symbol.to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// plan-62-C Phase 2 (worker side): `_mfb_macapp_reconcile_marshal`. `x0` = the new
+/// presentation mode. Boxes it in an NSNumber and marshals `mfbReconcile:` onto the
+/// main thread with `waitUntilDone:YES` (so a following `getMode`/io sees the
+/// reconciled surface). A no-op when `[NSApp delegate]` is nil — that only happens
+/// headless (the delegate is installed only on the `[NSApp run]` paths), where
+/// there is no run loop to drain the perform and `waitUntilDone:YES` would deadlock.
+pub(super) fn emit_reconcile_marshal_helper() -> CodeFunction {
+    let mut asm = Asm::new(RECONCILE_MARSHAL_SYMBOL);
+    let frame = 48;
+    let skip = format!("{RECONCILE_MARSHAL_SYMBOL}_skip");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 40));
+    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // mode (survives the calls)
+    // app = [NSApplication sharedApplication]
+    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], "x0")); // app
+    // delegate = [app delegate]
+    asm.load_selector(SEL_DELEGATE.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq(&skip)); // headless: no delegate, no run loop
+    asm.push(abi::move_register(abi::LOCAL[0], "x0")); // delegate
+    // number = [NSNumber numberWithInt:mode]
+    asm.external_data(abi::LOCAL[1], CLASS_NS_NUMBER, LIB_FOUNDATION);
+    asm.load_selector(SEL_NUMBER_WITH_INT.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.push(abi::move_register("x2", abi::LOCAL[2])); // mode
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0")); // number
+    // [delegate performSelectorOnMainThread:@selector(mfbReconcile:)
+    //                            withObject:number waitUntilDone:YES]
+    asm.load_selector(SEL_MFB_RECONCILE.0);
+    asm.push(abi::move_register(abi::LOCAL[3], "x1")); // mfbReconcile: sel
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", abi::LOCAL[3]));
+    asm.push(abi::move_register("x3", abi::LOCAL[1])); // number
+    asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register("x0", abi::LOCAL[0])); // delegate
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&skip));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::load_u64(abi::LOCAL[3], abi::stack_pointer(), 40));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    reconcile_code_function(RECONCILE_MARSHAL_SYMBOL, asm)
+}
+
+/// plan-62-C Phase 2 (main thread): `_mfb_macapp_reconcile_build`. Builds a fresh
+/// transcript window for the first `None`→`Console` switch (a `None`-start program
+/// has no startup window). A plain non-editable `NSTextView` as the content view is
+/// enough for `io::print` output routing (the write helper appends to its text
+/// storage). Stashes the window under `WINDOW_ASSOC_KEY` and the text view under
+/// both `ASSOC_KEY` (io routing) and `RECONCILE_TV_KEY` (so a later re-`Console`
+/// can re-point `ASSOC_KEY` without rebuilding). Returns the window in `x0`.
+pub(super) fn emit_reconcile_build_helper() -> CodeFunction {
+    let mut asm = Asm::new(RECONCILE_BUILD_SYMBOL);
+    let frame = 48;
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    // app
+    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], "x0")); // app
+    // window = [[NSWindow alloc] initWithContentRect:NSMakeRect(100,100,900,640)
+    //                            styleMask:.. backing:.. defer:NO]
+    asm.external_data(abi::LOCAL[1], CLASS_NS_WINDOW, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0"));
+    asm.load_selector(SEL_INIT_WINDOW.0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 100);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 100);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
+    asm.push(abi::move_immediate("x2", "Integer", WINDOW_STYLE_MASK));
+    asm.push(abi::move_immediate("x3", "Integer", BACKING_BUFFERED));
+    asm.push(abi::move_immediate("x4", "Integer", "0")); // defer: NO
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0")); // window
+    // tv = [[NSTextView alloc] initWithFrame:NSMakeRect(0,0,900,640)]
+    asm.external_data(abi::LOCAL[2], CLASS_NS_TEXT_VIEW, LIB_APPKIT);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0"));
+    asm.load_selector(SEL_INIT_FRAME.0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[0], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[1], 0);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[2], 900);
+    emit_double_immediate(&mut asm, abi::FP_SCRATCH[3], 640);
+    asm.push(abi::move_register("x0", abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // tv
+    // [tv setEditable:NO]
+    asm.load_selector(SEL_SET_EDITABLE.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::move_register("x0", abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [window setContentView:tv]
+    asm.load_selector(SEL_SET_CONTENT_VIEW.0);
+    asm.push(abi::move_register("x2", abi::LOCAL[2]));
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // Stash window + transcript so subsequent toggles and the io helpers reach them.
+    for (key, value) in [
+        (WINDOW_ASSOC_KEY, abi::LOCAL[1]),
+        (ASSOC_KEY, abi::LOCAL[2]),
+        (RECONCILE_TV_KEY, abi::LOCAL[2]),
+    ] {
+        asm.push(abi::move_register("x0", abi::LOCAL[0]));
+        asm.local_address("x1", key);
+        asm.push(abi::move_register("x2", value));
+        asm.push(abi::move_immediate("x3", "Integer", "0")); // OBJC_ASSOCIATION_ASSIGN
+        asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+    }
+    asm.push(abi::move_register("x0", abi::LOCAL[1])); // return the window
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    reconcile_code_function(RECONCILE_BUILD_SYMBOL, asm)
+}
+
+/// plan-62-C Phase 2 (main thread): `mfbReconcile:` IMP. `x2` = the boxed new mode
+/// (`NSNumber`). Reconciles the window surface to the mode: `Console` builds (first
+/// time) or re-shows the window and re-points `ASSOC_KEY` at the transcript (io →
+/// transcript); `None` clears `ASSOC_KEY` (io → stdout fd) and orders the window
+/// out. Only `None`-start programs ever reach here (a program referencing `setMode`
+/// is always `None`-start; a `Console`-start program never references it), so this
+/// never touches a startup-built Console window and cannot churn its goldens.
+pub(super) fn emit_reconcile_helper() -> CodeFunction {
+    let mut asm = Asm::new(RECONCILE_SYMBOL);
+    let frame = 64;
+    let none_path = format!("{RECONCILE_SYMBOL}_none");
+    let have_window = format!("{RECONCILE_SYMBOL}_have_window");
+    let show = format!("{RECONCILE_SYMBOL}_show");
+    let done = format!("{RECONCILE_SYMBOL}_done");
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    asm.push(abi::store_u64(abi::LOCAL[5], abi::stack_pointer(), 48));
+    asm.push(abi::move_register(abi::LOCAL[5], "x2")); // number (the withObject arg)
+    // mode = [number intValue]
+    asm.load_selector(SEL_INT_VALUE.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[5]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[4], "x0")); // mode
+    // app = [NSApplication sharedApplication]
+    asm.external_data(abi::LOCAL[0], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[0]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[0], "x0")); // app
+    // window = objc_getAssociatedObject(app, WINDOW_ASSOC_KEY)
+    asm.push(abi::move_register("x0", abi::LOCAL[0]));
+    asm.local_address("x1", WINDOW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0")); // window (or nil)
+    // mode != Console(0) -> None path
+    asm.push(abi::compare_immediate(abi::LOCAL[4], "0"));
+    asm.push(abi::branch_ne(&none_path));
+    // --- Console ---
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_ne(&have_window));
+    // build the window fresh (returns it in x0)
+    asm.call_internal(RECONCILE_BUILD_SYMBOL);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0")); // window
+    asm.push(abi::branch(&show));
+    asm.push(abi::label(&have_window));
+    // re-point ASSOC_KEY (io routing) at the stashed transcript
+    asm.push(abi::move_register("x0", abi::LOCAL[0]));
+    asm.local_address("x1", RECONCILE_TV_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // tv
+    asm.push(abi::move_register("x0", abi::LOCAL[0]));
+    asm.local_address("x1", ASSOC_KEY);
+    asm.push(abi::move_register("x2", abi::LOCAL[2]));
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // ASSIGN
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+    asm.push(abi::label(&show));
+    // [window makeKeyAndOrderFront:nil]
+    asm.load_selector(SEL_MAKE_KEY_AND_ORDER_FRONT.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::branch(&done));
+    // --- None ---
+    asm.push(abi::label(&none_path));
+    // clear ASSOC_KEY so io falls back to the fd sink (stdout)
+    asm.push(abi::move_register("x0", abi::LOCAL[0]));
+    asm.local_address("x1", ASSOC_KEY);
+    asm.push(abi::move_immediate("x2", "Integer", "0")); // nil value
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // ASSIGN
+    asm.call_external("_objc_setAssociatedObject", LIB_OBJC);
+    // order the window out if one exists
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.load_selector(SEL_ORDER_OUT.0);
+    asm.push(abi::move_immediate("x2", "Integer", "0")); // nil sender
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&done));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64(abi::LOCAL[0], abi::stack_pointer(), 8));
+    asm.push(abi::load_u64(abi::LOCAL[1], abi::stack_pointer(), 16));
+    asm.push(abi::load_u64(abi::LOCAL[2], abi::stack_pointer(), 24));
+    asm.push(abi::load_u64(abi::LOCAL[4], abi::stack_pointer(), 40));
+    asm.push(abi::load_u64(abi::LOCAL[5], abi::stack_pointer(), 48));
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    reconcile_code_function(RECONCILE_SYMBOL, asm)
 }
 
 /// `void *_mfb_macapp_worker(void *arg)` pthread start routine: establishes an

@@ -149,6 +149,10 @@ impl code::CodegenPlatform for Platform {
         app::app_mode_data_objects()
     }
 
+    fn app_mode_reconcile_data_objects(&self) -> Vec<CodeDataObject> {
+        app::app_mode_reconcile_data_objects()
+    }
+
     fn emit_app_io_write_helper(
         &self,
         symbol: &str,
@@ -203,6 +207,20 @@ impl code::CodegenPlatform for Platform {
         term_state_offset: usize,
     ) -> Option<Result<(code::CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
         app::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
+    }
+
+    fn emit_app_mode_reconcile(
+        &self,
+        symbol: &str,
+        presentation_mode_offset: usize,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        // plan-62-C Phase 2: `app::setMode` reconciles the window surface. The
+        // worker reloads the just-stored mode and calls the marshal helper, which
+        // hops to the main thread (a no-op headless, where there is no delegate).
+        app::emit_reconcile_seam(symbol, presentation_mode_offset, instructions, relocations);
+        Some(Ok(()))
     }
 
     fn emit_program_exit(

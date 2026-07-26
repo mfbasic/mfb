@@ -297,6 +297,30 @@ const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "m
 /// `mfbWriteString:` rather than run on the worker (bug-165). Its IMP is the
 /// existing [`TERM_CLEAR_SYMBOL`] helper (reads only `self`, ignores `_cmd`/obj).
 const SEL_MFB_CLEAR: (&str, &str) = ("_mfb_macapp_sel_mfbClear", "mfbClear:");
+// plan-62-C Phase 2: the runtime `app::setMode` reconcile. The worker marshals
+// `mfbReconcile:` onto the main thread (via the app delegate) to build or tear down
+// the window surface to match the new presentation mode.
+const SEL_ORDER_OUT: (&str, &str) = ("_mfb_macapp_sel_orderOut", "orderOut:");
+const SEL_INT_VALUE: (&str, &str) = ("_mfb_macapp_sel_intValue", "intValue");
+const SEL_DELEGATE: (&str, &str) = ("_mfb_macapp_sel_delegate", "delegate");
+const SEL_MFB_RECONCILE: (&str, &str) = ("_mfb_macapp_sel_mfbReconcile", "mfbReconcile:");
+/// IMP for the delegate's `mfbReconcile:` — runs on the main thread and builds or
+/// tears down the transcript window to match the presentation mode.
+const RECONCILE_SYMBOL: &str = "_mfb_macapp_reconcile";
+/// Worker-side helper the `app::setMode` seam tail-calls: boxes the new mode and
+/// marshals `mfbReconcile:` onto the main thread (`waitUntilDone:YES`). A no-op
+/// when there is no app delegate (headless — no run loop to drain the perform, so
+/// `waitUntilDone:YES` would deadlock).
+const RECONCILE_MARSHAL_SYMBOL: &str = "_mfb_macapp_reconcile_marshal";
+/// Main-thread helper the reconcile IMP calls to build a fresh transcript window
+/// on the first `None`→`Console` switch (a `None`-start program has no startup
+/// window). Returns the new window in `x0` and stashes the window + transcript
+/// under `WINDOW_ASSOC_KEY` / `ASSOC_KEY` / `RECONCILE_TV_KEY`.
+const RECONCILE_BUILD_SYMBOL: &str = "_mfb_macapp_reconcile_build";
+/// Assoc key stashing the reconcile-built transcript view, so a later
+/// `None`→`Console` re-points `ASSOC_KEY` (the io-routing key) at it without
+/// rebuilding the window. Only reconcile-built (None-start) windows use it.
+const RECONCILE_TV_KEY: &str = "_mfb_macapp_reconcile_tv_key";
 /// `NSForegroundColorAttributeName` — attributed-string key for the glyph colour.
 const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
 /// IMP for the TermView `mfbWriteString:` main-thread write entry point.
@@ -540,7 +564,7 @@ impl Asm {
 /// program entry is emitted separately by the shared lowering under
 /// [`code::MACAPP_PROGRAM_SYMBOL`].
 pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunction>, String> {
-    Ok(vec![
+    let mut functions = vec![
         emit_main_bootstrap(spec.initial_mode),
         emit_worker_shim(spec),
         emit_append_helper(),
@@ -558,7 +582,43 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_accepts_first_responder(),
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
-    ])
+    ];
+    // plan-62-C Phase 2: the runtime `setMode` reconcile helpers are emitted only
+    // for a program that can change mode (its static default is `None`, i.e. it
+    // references `app::setMode`). A `Console`-default program never reconciles, so
+    // it keeps its exact function list and native goldens.
+    if spec.initial_mode == PresentationMode::None {
+        functions.push(emit_reconcile_marshal_helper());
+        functions.push(emit_reconcile_build_helper());
+        functions.push(emit_reconcile_helper());
+    }
+    Ok(functions)
+}
+
+/// plan-62-C Phase 2: the worker-side `app::setMode` reconcile seam. `setMode` has
+/// already stored the new mode into the presentation slot; this reloads it into the
+/// first argument register and calls the marshal helper (which hops to the main
+/// thread to reconcile the window). Emitted into the `_mfb_rt_app_app_setMode`
+/// helper body via `CodegenPlatform::emit_app_mode_reconcile`.
+pub(crate) fn emit_reconcile_seam(
+    from_symbol: &str,
+    presentation_mode_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.push(abi::load_u64(
+        abi::ARG[0],
+        code::ARENA_STATE_REGISTER,
+        presentation_mode_offset,
+    ));
+    instructions.push(abi::branch_link(RECONCILE_MARSHAL_SYMBOL));
+    relocations.push(CodeRelocation {
+        from: from_symbol.to_string(),
+        to: RECONCILE_MARSHAL_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
 }
 
 /// Build `[NSString stringWithUTF8String:<cstr>]` into `x0`. `class_tmp` is a
@@ -714,6 +774,39 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
             value: "00".to_string(),
         });
     }
+    objects
+}
+
+/// plan-62-C Phase 2: the selector strings and the one associated-object key the
+/// runtime `setMode` reconcile needs. Emitted only for a program whose static
+/// default is `None` (it references `app::setMode`, so its reconcile helpers exist)
+/// — a `Console`-default program never reconciles and keeps its exact data-object
+/// set (and native goldens) unchanged.
+pub(crate) fn app_mode_reconcile_data_objects() -> Vec<CodeDataObject> {
+    let mut objects: Vec<CodeDataObject> = [
+        SEL_ORDER_OUT,
+        SEL_INT_VALUE,
+        SEL_DELEGATE,
+        SEL_MFB_RECONCILE,
+    ]
+    .iter()
+    .map(|(symbol, text)| CodeDataObject {
+        symbol: (*symbol).to_string(),
+        kind: "raw".to_string(),
+        layout: "C string (NUL-terminated)".to_string(),
+        align: 1,
+        size: text.len() + 1,
+        value: hex_cstring(text),
+    })
+    .collect();
+    objects.push(CodeDataObject {
+        symbol: RECONCILE_TV_KEY.to_string(),
+        kind: "raw".to_string(),
+        layout: "associated-object key (unique address)".to_string(),
+        align: 1,
+        size: 1,
+        value: "00".to_string(),
+    });
     objects
 }
 

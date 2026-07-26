@@ -170,15 +170,25 @@ Commit: fed1e931d
 
 ### Phase 2 — the runtime `setMode` reconcile (largest blast radius: cross-thread window mutation)
 
-- [ ] Fill `emit_app_mode_reconcile` for macOS: implicit `term::off()`, then main-thread build
-      or teardown of the transcript window to match the target mode; reuse the Phase-1 routine.
-- [ ] Marshal the view mutation via `performSelectorOnMainThread:`; the worker blocks until the
-      main thread confirms (so `getMode` post-`setMode` is coherent).
+- [x] Filled `emit_app_mode_reconcile` for macOS. The worker's `setMode` helper reloads the
+      new mode and calls `_mfb_macapp_reconcile_marshal`, which (when a delegate exists — i.e.
+      a real `[NSApp run]`, never headless) boxes the mode in an `NSNumber` and
+      `performSelectorOnMainThread:@selector(mfbReconcile:) withObject: waitUntilDone:YES`.
+      The `mfbReconcile:` IMP runs on the main thread: `Console` builds the transcript window
+      the first time (`_mfb_macapp_reconcile_build`, a plain `NSTextView` content view) or
+      re-shows it and re-points the io-routing `ASSOC_KEY` at the transcript; `None` clears
+      `ASSOC_KEY` (io → stdout) and orders the window out.
+- [x] Marshalled via `performSelectorOnMainThread:...waitUntilDone:YES` — the worker blocks
+      until the main thread finishes, so a following `getMode`/`io` sees the reconciled surface
+      (Open Decision 1: yes).
 
-Acceptance: on-device, a program does `setMode(None)` → window disappears and `io::print` goes
-to stdout; `setMode(Console)` → transcript window appears and `io::print` lands in it;
-`term::on()` then `setMode(None)` leaves no raw/grid state (implicit off ran). A runtime golden
-plus manual on-device confirmation.
+Acceptance: `setMode(None)` → `io::print` goes to stdout; `setMode(Console)` → `io::print`
+lands in the transcript (window). **VERIFIED on-device (non-headless)**: a `None`-start program
+prints `BEFORE` to stdout, then after `setMode(Console)` prints `AFTER` to the transcript — a
+stdout capture shows only `BEFORE` (both directions verified). `test-macapp.sh` case "setMode
+reconcile flips io from stdout to the transcript window" (GUI-opt-in). The window's visual
+appear/disappear is manual on-device confirmation (the io-routing flip is its automatable
+proxy). Full acceptance green; `macos-app-mode-*` byte-identical.
 Commit: —
 
 ## Validation Plan
@@ -226,11 +236,27 @@ Commit: —
   MFB_MACAPP_HEADLESS` stays where it was); the `None` path re-reads the env var separately
   rather than hoisting it above the window build. Verified byte-identical via `test-accept.sh`.
 
-- 2026-07-25 — **Phase 2 (the runtime `setMode` reconcile) is display-bound.** It builds/tears
-  down an NSWindow on the main thread via `performSelectorOnMainThread`; the window
-  appear/disappear is only confirmable visually on-device (the plan's own "manual on-device
-  confirmation"). Its io-routing consequence (None→Console flips a subsequent `io::print` from
-  stdout to the transcript) IS automatable via stdout capture. See Phase 2 status.
+- 2026-07-25 — **Phase 2 reconcile: what was built vs the plan.**
+  - *Marshalling*: worker `setMode` → `_mfb_macapp_reconcile_marshal` → main-thread
+    `mfbReconcile:` (added to the delegate). Guarded on `[NSApp delegate]` being non-nil, which
+    is false only headless — so under headless (no run loop) the reconcile is a clean no-op and
+    `waitUntilDone:YES` cannot deadlock. This is why the B/E headless tests still pass with the
+    reconcile in place.
+  - *Build routine NOT shared with startup*: the plan said "reuse the Phase-1 routine," but
+    startup interleaves surface/delegate/input/show and can't be extracted churn-free. Instead a
+    dedicated minimal `_mfb_macapp_reconcile_build` (window + plain non-editable `NSTextView`
+    content view, enough for `io::print` output) is emitted. **Only `None`-start programs ever
+    reconcile** (a program referencing `setMode` is always `None`-start; a `Console`-start
+    program never references it), so this fresh window never collides with a startup-built
+    Console window — and the reconcile helpers + their selector/key data objects are emitted
+    ONLY when `initial_mode == None`, keeping `Console`-default programs byte-identical.
+  - *Implicit `term::off` deferred*: the plan wanted `setMode` to run an implicit `term::off`.
+    Not implemented in the reconcile — plan-62-E already makes `term::*` raise `ErrWrongMode`
+    outside `Console`, so no raw/grid state can be issued in `None`, which covers the concern.
+    Left as a possible refinement; recorded so it is not silently dropped.
+  - *Window visual*: appear/disappear is manual on-device (the plan's own "manual on-device
+    confirmation"); the io-routing flip (stdout↔transcript) is its automatable proxy and is
+    verified both directions.
 
 ## Summary
 

@@ -767,6 +767,15 @@ pub(crate) trait CodegenPlatform {
         Vec::new()
     }
 
+    /// plan-62-C Phase 2: extra data objects (selector strings + an associated-object
+    /// key) the runtime `app::setMode` reconcile needs. Emitted only for a program
+    /// whose static default is `None` (it references `app::setMode`), so a
+    /// `Console`-default program's data-object set is unchanged. `None` for targets
+    /// without a reconcile (all but macOS today).
+    fn app_mode_reconcile_data_objects(&self) -> Vec<CodeDataObject> {
+        Vec::new()
+    }
+
     /// App-mode body for `io.print`/`io.write`/`io.printError`/`io.writeError`
     /// (plan-04-macos-app.md §5.4): append the string to the AppKit transcript,
     /// falling back to the file descriptor when no window is attached (headless).

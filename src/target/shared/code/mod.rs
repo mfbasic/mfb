@@ -1120,6 +1120,12 @@ pub(crate) fn lower_module_for_platform(
             )?);
             code_functions.extend(app_entry);
             data_objects.extend(platform.app_mode_data_objects(&module.project));
+            // plan-62-C Phase 2: the reconcile's selector/key data objects only for a
+            // program that can change mode (static default `None`), matching where its
+            // reconcile helpers are emitted — a Console-default program is unchanged.
+            if initial_mode == PresentationMode::None {
+                data_objects.extend(platform.app_mode_reconcile_data_objects());
+            }
         } else {
             code_functions.push(platform.emit_program_entry(
                 &ProgramEntrySpec {

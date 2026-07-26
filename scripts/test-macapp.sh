@@ -327,6 +327,53 @@ else
   fi
 fi
 
+# Case 3d (plan-62-C Phase 2, GUI): the runtime setMode reconcile flips io routing.
+# A None-start program prints to stdout (no window), then setMode(Console) builds +
+# shows the transcript window on the main thread, so a following io::print lands in
+# the transcript, NOT stdout. Verified by capturing stdout of a real (non-headless)
+# run: only the pre-switch line appears. GUI-opt-in — it briefly opens a window.
+proj="$work/reconcile"
+mkdir -p "$proj/src"
+cat > "$proj/project.json" <<'JSON'
+{ "name": "reconcile", "version": "0.1.0", "mfb": "1.0", "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "entry": "main", "targets": ["native"] }
+JSON
+cat > "$proj/src/main.mfb" <<'MFB'
+IMPORT app
+IMPORT io
+SUB main()
+  app::setMode(Mode.None)
+  io::print("RECONCILE_BEFORE")
+  io::flush()
+  app::setMode(Mode.Console)
+  io::print("RECONCILE_AFTER")
+  io::flush()
+  WHILE TRUE
+  END WHILE
+END SUB
+MFB
+if ! gui_enabled; then
+  echo "skip: setMode reconcile GUI test (set MFB_MACAPP_GUI=1 when idle)"
+elif ! "$MFB_EXE" build -app "$proj" >/dev/null 2>&1; then
+  fail "build -app reconcile"
+else
+  out=$(perl -e '
+    my $pid = open(my $fh, "-|");
+    if ($pid == 0) { exec($ARGV[0]) or exit 127; }
+    local $SIG{ALRM} = sub { kill "KILL", $pid; };
+    alarm 8;
+    my @l; while (my $x = <$fh>) { chomp $x; push @l, $x; last if @l >= 3; }
+    kill "KILL", $pid; waitpid($pid, 0);
+    print join("|", @l);
+  ' "$(bundle "$proj" reconcile)/Contents/MacOS/reconcile")
+  if [ "$out" = "RECONCILE_BEFORE" ]; then
+    pass "setMode reconcile flips io from stdout to the transcript window ($out)"
+  else
+    fail "expected only RECONCILE_BEFORE on stdout, got '$out'"
+  fi
+fi
+
 # Case 4 (GUI): keep window open after completion (plan §5.7). Launched WITHOUT
 # the headless gate so the real window + event loop run; a program whose main
 # returns immediately must leave the process alive (window open) rather than
