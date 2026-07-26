@@ -119,7 +119,7 @@ def package_label(stem: str) -> str:
     """Map an MFBASIC source stem to its package name (`http_package` → `http`)."""
     if stem.endswith("_package"):
         return stem[: -len("_package")]
-    if stem == "regex_unicode":
+    if stem == "unicode_gencat":
         return "regex"
     # The Rust module is `errorcode.rs`; the package users import is `errorCode`.
     if stem == "errorcode":

@@ -1,7 +1,7 @@
 REM MFBASIC strings scalar companion (plan-41-D). Internal helpers backing the
 REM native strings::toScalars / strings::fromScalars seam and the five scalar
 REM classification predicates. The Unicode general-category table
-REM (__strings_genCat) is appended from regex_unicode.mfb at build time with its
+REM (__strings_genCat) is appended from unicode_gencat.mfb at build time with its
 REM function renamed from __regex_genCat (see strings.rs::source_file), so it
 REM never collides with the regex companion's own copy when both are imported.
 

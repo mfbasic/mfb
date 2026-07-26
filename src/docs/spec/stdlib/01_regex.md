@@ -7,7 +7,7 @@ Unicode general-category table is a generated companion file; the rest of the en
 hand-written MFBASIC. All matching is over Unicode scalar values.[[src/builtins/regex_package.mfb:__regex_Node]]
 
 The package ships as two physical files that compile as one source unit: the engine
-(`regex_package.mfb`) and the generated general-category table (`regex_unicode.mfb`,
+(`regex_package.mfb`) and the generated general-category table (`unicode_gencat.mfb`,
 pinned to Unicode 16.0.0). They must be intra-file because `__regex_genCat` is a
 file-local `FUNC` and package visibility is not valid in an executable.[[src/builtins/regex.rs:source_file]]
 
@@ -210,7 +210,7 @@ implement, so those POSIX classes effectively never match a scalar.[[src/builtin
 
 Unknown property names are parse errors. The general-category lookup `__regex_genCat`
 maps each scalar to its two-letter category via contiguous ranges over `0..0x10FFFF`,
-generated from Unicode 16.0.0.[[src/builtins/regex_unicode.mfb:__regex_genCat]]
+generated from Unicode 16.0.0.[[src/builtins/unicode_gencat.mfb:__regex_genCat]]
 
 ## Flags
 

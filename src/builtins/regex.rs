@@ -103,7 +103,7 @@ pub(crate) fn default_argument_padding(
 
 pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
     // The engine and the generated Unicode general-category table
-    // (`regex_unicode.mfb`, see `scripts/gen_regex_unicode.py`) are kept as
+    // (`unicode_gencat.mfb`, see `scripts/gen_regex_unicode.py`) are kept as
     // separate physical files so the table can be regenerated mechanically, but
     // they compile as one source file: MFBASIC `FUNC`s are file-local unless
     // exported, and `PACKAGE` visibility is not valid in an executable, so the
@@ -111,7 +111,7 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
     let combined = format!(
         "{}\n{}",
         include_str!("regex_package.mfb"),
-        include_str!("regex_unicode.mfb"),
+        include_str!("unicode_gencat.mfb"),
     );
     crate::ast::parse_source_internal(
         Path::new("<builtin-regex>"),

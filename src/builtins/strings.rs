@@ -255,15 +255,15 @@ pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
 
 /// The source companion backing the Scalar seam/predicates: the scalar helpers
 /// plus the shared Unicode general-category table (`__regex_genCat`), appended
-/// from `regex_unicode.mfb`. Both are file-local, so this copy of the table never
+/// from `unicode_gencat.mfb`. Both are file-local, so this copy of the table never
 /// collides with the regex companion's own copy when both packages are imported.
 pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
     // The Unicode general-category table is the same generated source as the
-    // regex companion (`regex_unicode.mfb`, one source of truth), but its sole
+    // regex companion (`unicode_gencat.mfb`, one source of truth), but its sole
     // function `__regex_genCat` is renamed to `__strings_genCat` so the two
     // companions never collide on a project-global symbol when both `regex` and
     // `strings` are imported.
-    let table = include_str!("regex_unicode.mfb").replace("__regex_genCat", "__strings_genCat");
+    let table = include_str!("unicode_gencat.mfb").replace("__regex_genCat", "__strings_genCat");
     let combined = format!("{}\n{}", include_str!("strings_package.mfb"), table);
     crate::ast::parse_source_internal(
         std::path::Path::new("<builtin-strings>"),

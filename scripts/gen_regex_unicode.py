@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate src/builtins/regex_unicode.mfb — the pinned Unicode general-category
+"""Generate src/builtins/unicode_gencat.mfb — the pinned Unicode general-category
 table used by the regex package (see the embedded spec: `mfb spec stdlib regex`).
 
 The table is emitted as MFBASIC source (one flat IF-chain function) rather than a
@@ -17,7 +17,7 @@ which pins `actions/setup-python` to 3.14) reproduce it there. Regenerate under
 Python 3.14 after a Unicode bump — a different interpreter silently drifts the
 table:
 
-    python3.14 scripts/gen_regex_unicode.py > src/builtins/regex_unicode.mfb
+    python3.14 scripts/gen_regex_unicode.py > src/builtins/unicode_gencat.mfb
 """
 import sys
 import unicodedata

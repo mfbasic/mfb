@@ -2,7 +2,7 @@
 '
 ' Strategy: parse the pattern into an AST of __regex_Node values, then run a
 ' continuation-passing backtracking matcher (leftmost-first / preference order,
-' regex.md §4). The Unicode general-category table lives in regex_unicode.mfb
+' regex.md §4). The Unicode general-category table lives in unicode_gencat.mfb
 ' (__regex_genCat); everything else is here. All matching is over Unicode scalars,
 ' represented as single-scalar Strings, with a parallel code-point list.
 '

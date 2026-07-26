@@ -48,6 +48,6 @@ check() {
 }
 
 check scripts/gen_vector_package.py src/builtins/vector_package.mfb
-check scripts/gen_regex_unicode.py src/builtins/regex_unicode.mfb
+check scripts/gen_regex_unicode.py src/builtins/unicode_gencat.mfb
 
 exit "$status"
