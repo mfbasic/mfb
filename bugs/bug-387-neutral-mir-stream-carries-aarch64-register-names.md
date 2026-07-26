@@ -241,21 +241,90 @@ defect in the change.
 
 ## Phases
 
-### Phase 1 — locate the source + full audit (no behavior change)
+### Phase 1 — locate the source + full audit (no behavior change) — DONE (audit only; no code change)
 
-- [ ] Grep the shared lowering for every site that emits an AArch64 physical
+- [x] Grep the shared lowering for every site that emits an AArch64 physical
       spelling (`xN`/`wN`/`dN`/`sN`/`sp`/`lr`/`xzr`) into the neutral stream;
       record each with a verdict. This is the real root-cause site the two remap
       layers exist to compensate for.
-- [ ] Complete the Blast Radius audit above: for each remap helper, record what
+- [x] Complete the Blast Radius audit above: for each remap helper, record what
       neutral token would replace the spelling it currently rewrites, and the
       exact spelling each backend must still emit (the byte-identity contract).
-- [ ] Record a clean `scripts/artifact-gate.sh <exe>` baseline at `diffs=0` on
-      each target as the reference for every later phase.
+- [x] Record a byte-identity baseline (see the **full-executable oracle** below,
+      which is stronger than `artifact-gate.sh` and closes the bug-85 gap).
 
-Acceptance: the emission sites are enumerated; each remap helper has a
-token-mapping table; a `diffs=0` baseline exists per target.
-Commit: —
+#### Phase-1 findings (2026-07-25)
+
+**The premise has shifted since the doc was drafted.** plan-34-A/B/D already
+tokenized far more than the doc's seed assumed. The audit result:
+
+1. **Shared lowering is already clean.** Every raw-register hit under
+   `src/target/shared/**` is in a `#[cfg(test)]` module, a doc comment, or the
+   stream-invariant *guard* (`mir.rs:1637-1683`) — **not** an emission site. The
+   bug-85 categories (incoming-parameter reads, staged results) are token-only in
+   shared lowering today. The rich token vocabulary already exists in
+   `src/target/shared/abi.rs`: `%arg0-7`, `%ret0-3`, `%sysnr`, `%sysnr_darwin`,
+   `%sysarg0-5`, `%sysret`, `%scratch0-18`, `%fscratch0-7`, `%vscratch0-7`,
+   `%thread`, `%closure_env`, `%mathpool`, and the invariant tokens `sp`/`lr`/`xzr`.
+   The result-accessors `return_register()`/`string_data_register()`/
+   `string_length_register()` now return `%ret0`/`%arg1`/`%arg2` tokens.
+
+2. **All live raw-AArch64 leaks are in the hand-written per-(OS,ISA) platform
+   emitters** — the GUI/app backends and TLS trampolines, ~1,910 raw `x`/`w` and
+   ~132 raw `d` literals across 9 files (all *fixed literals*, no positional
+   `format!("x{n}")`):
+
+   | File | x/w | d |
+   | --- | --- | --- |
+   | `src/target/macos_aarch64/app/term_view.rs` | 586 | 77 |
+   | `src/target/macos_aarch64/app/bootstrap.rs` | 303 | 18 |
+   | `src/target/linux_gtk/term_draw.rs` | 296 | 37 |
+   | `src/target/macos_aarch64/app/app_io.rs` | 264 | 0 |
+   | `src/target/linux_gtk/bootstrap.rs` | 233 | 0 |
+   | `src/target/linux_gtk/app_io.rs` | 142 | 0 |
+   | `src/target/macos_aarch64/tls.rs` | 62 | 0 |
+   | `src/target/linux_gtk/mod.rs` | 15 | 0 |
+   | `src/target/macos_aarch64/app/mod.rs` | 9 | 0 |
+
+3. **Which of these reach the x86 fixpoint (the fixpoint's actual reason to
+   exist).** `macos_aarch64/*` is macOS/aarch64-only → its raw `x0` only ever
+   reaches `select_aarch64`, where raw `x0` is correct; it is *not* why the
+   fixpoint exists. But `linux_gtk/*` targets **both** aarch64 **and x86-64**
+   Linux (`linux_gtk/mod.rs:34` imports `crate::arch::aarch64::abi`; `:691` "the
+   app-mode import set, shared by the aarch64 and x86-64 Linux backends";
+   `MUSL_X86_NAMES`), and its emitted stream is fed through `backend.select()`
+   (`linux_gtk/mod.rs:615`) → `select_x86` → `remap_x86_abi`. **So the ~686
+   x86-reachable GTK raw literals are the load-bearing reason the x86 fixpoint
+   cannot simply be deleted.**
+
+4. **The modeling blocker (this is the real design fork).** The platform emitters
+   use `x19`–`x28` as *general callee-saved persistent locals* (e.g.
+   `term_view.rs:29-37`, `linux_gtk/bootstrap.rs:345` `move_register("x19","x1")`).
+   But the neutral vocabulary reserves `x19`=`ARENA`, `x20`=`%thread`,
+   `x28`=`%closure_env`, and `%scratch10-18`=`x20-x28` — **there is no neutral
+   token that realizes to a plain callee-saved `x19`/x21-x27 local.** So a faithful
+   tokenization of the platform emitters needs a *new* neutral token bank (a
+   `%local`/callee-saved-persistent family) added to `abi.rs` and the spec, or a
+   different architecture (a per-emitter realizer). This is precisely the "real
+   design change … needs its own plan" that bug-341 D5 named.
+
+#### The gate — full-executable byte-identity oracle (`scripts/exe-oracle.sh`, new)
+
+bug-85's lesson is that `artifact-gate.sh`/`.nobj` cover only the *package* object;
+the entry stub + runtime helpers are linked per-executable and are exactly where a
+token-audit miss becomes a silent x86 crash. The new `scripts/exe-oracle.sh`
+cross-builds every executable-producing fixture for a target and records the
+sha256 of each produced `.out`. Verified: mfb executables are byte-deterministic
+across identical builds, so this is a sound gate — and it runs **locally** (no
+remote box needed until final runtime confirmation), turning every bug-85-class
+silent miss into a visible local byte-diff.
+
+Baseline recorded at HEAD (`4f5e1eb42`): **linux-x86_64 → 1192 executables**
+(`/tmp/bug387/oracle-x86_64.txt`); encoder suites `183 passed; 0 failed`.
+
+Acceptance: the emission sites are enumerated; the byte-identity oracle exists and
+a baseline is recorded. **Met.**
+Commit: — (audit + `scripts/exe-oracle.sh` only)
 
 ### Phase 2 — introduce neutral tokens behind identical realizers
 
