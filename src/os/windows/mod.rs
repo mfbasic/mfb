@@ -44,12 +44,19 @@ pub(crate) fn validate_native_object_plan(plan: &NativePlan) -> Result<(), Strin
 /// Link `image` into a PE32+ `.exe` and write it as `build/<name>.exe` (plan-47-D).
 /// One file, no flavor suffix — the Windows sibling of
 /// `crate::os::linux::write_linked_executable`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn write_linked_executable(
     project_dir: &Path,
     project_name: &str,
     image: &crate::arch::image::EncodedImage,
+    // plan-66-I: app mode links a GUI-subsystem PE (Subsystem=2) instead of the
+    // console subsystem (3).
+    gui: bool,
+    // plan-66-K: the app icon + version, packaged into a `.rsrc` resource section.
+    app_icon: Option<&Path>,
+    app_version: Option<&str>,
 ) -> Result<PathBuf, String> {
-    let bytes = link::write_executable(image)?;
+    let bytes = link::write_executable(image, gui, app_icon, app_version)?;
     let build_dir = project_dir.join(crate::os::BUILD_DIR);
     fs::create_dir_all(&build_dir)
         .map_err(|err| format!("failed to create '{}': {err}", build_dir.display()))?;

@@ -30,14 +30,16 @@ pub struct BuildTarget {
 /// macOS GUI app-mode output (`mfb build -app`) whose `io::*` built-ins target an
 /// AppKit window instead of the terminal (see src/docs/spec/app/01_macos-runtime.md).
 /// `LinuxApp` is the Linux counterpart whose `io::*` built-ins target a GTK4 window
-/// (see src/docs/spec/app/02_linux-runtime.md). The shared lowering treats both app
-/// modes uniformly via [`NativeBuildMode::is_app`]; the target OS selects the
-/// toolkit.
+/// (see src/docs/spec/app/02_linux-runtime.md). `WindowsApp` is the Windows
+/// counterpart whose `io::*` built-ins target a native Win32 window (a GDI
+/// custom-drawn transcript, plan-66-J). The shared lowering treats every app mode
+/// uniformly via [`NativeBuildMode::is_app`]; the target OS selects the toolkit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeBuildMode {
     Console,
     MacApp,
     LinuxApp,
+    WindowsApp,
 }
 
 impl NativeBuildMode {
@@ -48,6 +50,7 @@ impl NativeBuildMode {
             NativeBuildMode::Console => "console",
             NativeBuildMode::MacApp => "macos-app",
             NativeBuildMode::LinuxApp => "linux-app",
+            NativeBuildMode::WindowsApp => "windows-app",
         }
     }
 
@@ -55,7 +58,10 @@ impl NativeBuildMode {
     /// target OS / toolkit. Shared lowering branches on this so console behavior is
     /// shared by every target and app behavior is shared by every app toolkit.
     pub(crate) fn is_app(self) -> bool {
-        matches!(self, NativeBuildMode::MacApp | NativeBuildMode::LinuxApp)
+        matches!(
+            self,
+            NativeBuildMode::MacApp | NativeBuildMode::LinuxApp | NativeBuildMode::WindowsApp
+        )
     }
 }
 
@@ -437,8 +443,9 @@ mod tests {
         // rv64 is console-only: the GTK4 toolkit (`target::linux_gtk`) has not
         // been ported, so `-app` is rejected at the CLI (plan-99).
         ("linux-riscv64", false),
-        // windows is console-subsystem only — no GUI/app mode (plan-47 non-goal).
-        ("windows-x86_64", false),
+        // windows app mode is the Win32 transcript window (plan-66-I/J): a
+        // GUI-subsystem PE hosting the program's console I/O.
+        ("windows-x86_64", true),
     ];
 
     #[test]
@@ -446,6 +453,7 @@ mod tests {
         assert_eq!(NativeBuildMode::Console.as_str(), "console");
         assert_eq!(NativeBuildMode::MacApp.as_str(), "macos-app");
         assert_eq!(NativeBuildMode::LinuxApp.as_str(), "linux-app");
+        assert_eq!(NativeBuildMode::WindowsApp.as_str(), "windows-app");
     }
 
     #[test]
@@ -453,6 +461,7 @@ mod tests {
         assert!(!NativeBuildMode::Console.is_app());
         assert!(NativeBuildMode::MacApp.is_app());
         assert!(NativeBuildMode::LinuxApp.is_app());
+        assert!(NativeBuildMode::WindowsApp.is_app());
     }
 
     #[test]
@@ -571,7 +580,9 @@ mod tests {
                 "windows-x86_64 must advertise {family}"
             );
         }
-        assert!(!target_supports_app_mode(&target));
+        // plan-66-I: windows-x86_64 now supports app mode (the Win32 transcript
+        // window), so `-app` is accepted at the CLI.
+        assert!(target_supports_app_mode(&target));
     }
 
     #[test]
