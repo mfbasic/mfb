@@ -307,8 +307,7 @@ def main(argv):
     ap.add_argument("fn", choices=["atan2", "tan", "pow", "fmod", "asin", "acos",
                                    "exp", "log", "log10"])
     here = os.path.dirname(os.path.abspath(__file__))
-    ap.add_argument("--ref", default=os.path.join(here, "..", "..",
-                                                   "tests", "_data", "math_kernel_ref"))
+    ap.add_argument("--ref", default=os.path.join(here, "ref"))
     ap.add_argument("--mfb", default=os.path.join(here, "..", "..",
                                                   "target", "debug", "mfb"))
     ap.add_argument("--decimals", type=int, default=80)

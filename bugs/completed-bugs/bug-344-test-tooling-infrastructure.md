@@ -5,8 +5,9 @@ Effort: medium (1h–2h per item; large for the cluster)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open (Themes B and E4 + A3 + D2 landed 2026-07-25; harness/fixture-move
-items C1/C3/C2/C4/A2/F5 remain — see Phases).
+Status: FIXED 2026-07-25 (worktree-B-344). The final cluster — C1/C3 (shared
+artifact table), C2, A2/F5, and the C4/F7 verification — all landed; see the
+STATUS block at the end and the per-phase Commit lines.
 
 Progress 2026-07-25:
 - **A1 — already resolved.** `.ai/compiler.md:66` already documents the current
@@ -772,9 +773,18 @@ Rejected alternatives, so they are not re-litigated:
 
 ### Phase 1 — baseline + stop the bleeding
 
-- [ ] Record the baseline: full `scripts/test-accept.sh` output and
+- [x] Record the baseline: full `scripts/test-accept.sh` output and
       `scripts/artifact-gate.sh` `checked`/`ran` counters on an unmodified tree.
-      Paste the numbers into this file.
+      Paste the numbers into this file. **Done 2026-07-25** (worktree-B-344, base
+      `c91d95018`, `target/release/mfb`):
+      - `test-accept.sh`: **acceptance tests passed (1083 test(s) ran)**, exit 0.
+      - `artifact-gate.sh`: **1067 tests, 1118 build(s), 1332 golden(s) checked,
+        17 diff(s)**, exit 1. The 17 diffs are PRE-EXISTING flaky/non-deterministic
+        `.ncode` sha256 goldens on an unmodified tree —
+        `audio/crypto/net/tls/*_codegen_cover_rt.<target>.ncode` and
+        `crypto-ec-valid.<target>.ncode` (the known union-drop / audio-net-tls
+        codegen non-determinism). Every later gate run is diffed against this
+        exact set, not against `diffs=0`.
 - [x] A1: rewrite the fixture-layout mandate in `.ai/compiler.md` to the
       four-folder layout with one worked example per bucket.
 - [x] D4: delete the two unused imports (smoke test that the baseline still
@@ -832,15 +842,45 @@ under bug-327.) Full `cargo test --workspace` = 3706 passed, 0 failed.
 
 ### Phase 3 — harness, layout, and documentation
 
-- [ ] C3: one artifact table driving all five regions of `test-accept.sh`.
-- [ ] C1: `artifact-gate.sh` consumes that table; add the missing `-q`. New
-      `checked` count recorded and justified.
-- [ ] C2: adopt `test-appimage.sh`'s helpers in `test-macapp.sh` (after the
-      separate path fix); one parameterized watchdog.
-- [ ] C4 + F7: `update_man.sh` adopts the probing logic; hoist the shared prompt;
-      fix the in-prompt typos.
-- [ ] A2 + F5: move the 4 misfiled fixtures and `tests/_data/`, per the golden
-      procedure in Fix Design.
+- [x] C3: one artifact table driving all five regions of `test-accept.sh`.
+      **Done 2026-07-25** (`1e08122b0`). New `scripts/artifact-kinds.sh` defines
+      the codegen-dump table once; `test-accept.sh` sources it and drives its five
+      native-dump regions (path cleanup, console + app flag probing, artifact `mv`,
+      compare) off it, replacing ~60 lines of per-kind blocks. The packaging /
+      execution artifacts (mfp/info/audit/testrun/coverage) stay bespoke — they are
+      not codegen dumps.
+- [x] C1: `artifact-gate.sh` consumes that table; add the missing `-q`. New
+      `checked` count recorded and justified. **Done 2026-07-25** (`1e08122b0`).
+      The gate now derives its host/native kind lists from the shared table and
+      passes `-q` on both build calls. **The `checked` count did NOT rise to 19 and
+      must not** — see the correction below: the gate is execution-free, so
+      mfp/info/audit/testrun/coverage are out of its scope by design. Counter
+      parity proven: **1067 / 1118 / 1332 / 17**, byte-identical to baseline
+      including the same 17 pre-existing flaky diffs.
+- [x] C2: adopt `test-appimage.sh`'s helpers in `test-macapp.sh` (after the
+      separate path fix); one parameterized watchdog. **Done 2026-07-25**
+      (`ef7bea1ee`). The separate `build/<name>.app` path fix had ALREADY landed
+      via the `bundle()` helper, so C2 was unblocked; this change did not touch the
+      path. Added `pass()`/`fail()` (single `$failures` increment site) and
+      parameterized the watchdog (`run_headless`/`run_headless_stdout` take a limit;
+      Cases 5/5b/7 route through the shared helper instead of divergent inline perl
+      with `alarm 10` vs `15`). Validated by a real `test-macapp.sh` run.
+- [x] C4 + F7: `update_man.sh` adopts the probing logic; hoist the shared prompt;
+      fix the in-prompt typos. **Verified ALREADY DONE 2026-07-25 (bug-336-S11).**
+      Both drivers source `scripts/man_rules.sh`, which defines `man_package_sources`
+      (the `-f src/builtins/${pkg}.rs` / `_package.mfb` probe) and the hoisted
+      `$MAN_RULE_*` prompt blocks. The F7 in-prompt typos ("shuold"/"informaiton")
+      are already gone. No action.
+- [x] A2 + F5: move the misfiled fixtures and `tests/_data/`, per the golden
+      procedure in Fix Design. **Done 2026-07-25.** F5 (`90778b48b`):
+      `tests/_data/math_kernel_ref` → `tools/math-kernels/ref` + all three tool
+      consumers and two live prose citations repointed. A2 (`f3520fc73`): moved
+      **5** fixtures (not 4 — `parser_inline_trap_depth` is a 5th of the same kind,
+      added since the base census) from the `rt-error` bucket root to
+      `tests/syntax/{parser,monomorph}`. Each golden's `build.log` embeds the
+      fixture path, so `sync-goldens.sh` regenerated it; proven the ONLY content
+      change is the path substring (new→old rewrite is byte-identical to HEAD for
+      all 5). Harness green at the new paths.
 - [x] A3: encode the `.run` merge-trigger convention in the harness. **Done
       2026-07-25** — authoritative comment added at the `<pkg>.run` check in
       `scripts/test-accept.sh` (where the harness acts on it), documenting that for
@@ -860,23 +900,28 @@ under bug-327.) Full `cargo test --workspace` = 3706 passed, 0 failed.
       (larger refactor, no correctness impact). F4 file moves stay **deferred**
       (citation blast radius).
 
-**Still open** (intentionally out of this scoped pass): C1/C3 (the
-`artifact-gate.sh`/`test-accept.sh` shared-artifact-table refactor — modifies the
-validation instrument, needs before/after counter parity); C2 (blocked on the
-separate `test-macapp.sh` output-path fix); C4+F7-prompt (`update_man.sh` probing +
-prompt hoist); A2+F5 (the two fixture *moves*, which change harness paths and need
-a filtered `sync-goldens.sh` renames-only run); and the deferred F3/F4 tails.
+**All Phase-3 items now resolved** (2026-07-25, worktree-B-344): C1/C3 landed
+(`1e08122b0`, counter parity proven); C2 landed (`ef7bea1ee`, its path-fix
+prerequisite was already done); C4+F7 verified already done under bug-336-S11;
+A2+F5 landed (`f3520fc73`, `90778b48b`). The deferred F3 two-timing-engine
+consolidation and F4 file-moves (large citation blast radius) remain intentionally
+out of scope — they carry no correctness impact and are recorded in their own
+sections above.
 
 Acceptance: full `scripts/test-accept.sh` green with the same pass/fail set as
 baseline; `git diff` over `tests/**/golden/` shows **renames only, zero content
 changes**; `artifact-gate.sh` covers all 19 artifact kinds.
-Commit (partial — the safe subset only): E4 `3701770dd`; A3 + D2 `90ac4e0cf`.
-No golden touched by this pass (the diff has zero `golden/`/`.ncode`/`.ast`/`.ir`
-files), so acceptance output is unchanged by construction; the gate run was the
-full `cargo test --workspace` (3706 passed, 0 failed), not `test-accept.sh`.
-**Still open in this phase:** C3, C1, C2, C4+F7, A2+F5 — the harness-table
-refactor and the two fixture moves, intentionally deferred (user-scoped pass).
-Merged to main at `0c1c7e61d`.
+Commit (earlier safe subset): E4 `3701770dd`; A3 + D2 `90ac4e0cf`; merged to main
+at `0c1c7e61d`.
+Commit (final cluster, worktree-B-344, base `c91d95018`): F5 `90778b48b`;
+C2 `ef7bea1ee`; A2 `f3520fc73`; C1/C3 `1e08122b0`.
+Validated: full `scripts/test-accept.sh` = **1083 test(s) passed, exit 0**
+(identical pass set to the Phase-1 baseline); `scripts/artifact-gate.sh` =
+**1067/1118/1332/17**, byte-identical counters AND diff set to baseline;
+full `cargo test --workspace` = **`test result: ok`, 0 failed** (3249 tests in the
+main binary plus every other crate). The A2 goldens changed only by the embedded
+path substring (proven byte-identical after new→old rewrite); no other `golden/`
+byte changed.
 
 ## Validation Plan
 
@@ -942,3 +987,57 @@ path affects **1** module, not 6; there are **16** `temp_project` copies in
 **6** hash groups, not 17 in one; `test-accept.sh`'s artifact plumbing spans
 **5** regions, not 4; the `project-entry-*` family is **48** fixtures, not 18;
 and `artifact-gate.sh`'s drift is **11** missing artifact kinds, not 3.
+
+## STATUS: FIXED (final cluster landed 2026-07-25, worktree-B-344)
+
+The whole bug-344 cluster is resolved. The earlier passes (A1, B1/B2, B3, D1–D4,
+E1–E4, A3, F1/F2/F3-path/F4-title/F6/F7) landed before; this session closed the
+remaining harness/fixture-move items on `worktree-B-344` (base `c91d95018`) and
+merged them to `main`.
+
+Final-cluster commits:
+- **F5** `90778b48b` — `tests/_data/math_kernel_ref` → `tools/math-kernels/ref`;
+  all three tool consumers + two live prose citations (a builder comment and the
+  math-kernels spec doc) repointed. Archived bug/plan docs keep their historical
+  paths.
+- **C2** `ef7bea1ee` — `test-macapp.sh` adopts `pass()`/`fail()` and one
+  parameterized watchdog; validated by a real run.
+- **A2** `f3520fc73` — **5** compile-time-diagnostic fixtures moved out of the
+  `rt-error` bucket root to `tests/syntax/{parser,monomorph}`; goldens changed by
+  the embedded path substring only (proven byte-identical).
+- **C1/C3** `1e08122b0` — one shared `scripts/artifact-kinds.sh` table, consumed
+  by `test-accept.sh` and `artifact-gate.sh`; `-q` parity added to the gate.
+
+Validation (per Fix Design — harness changes proven by counter parity, never by
+inspection):
+- `scripts/test-accept.sh` = **1083 test(s) passed, exit 0** — identical pass set
+  to the Phase-1 baseline.
+- `scripts/artifact-gate.sh` = **1067 / 1118 / 1332 / 17** — byte-identical
+  counters and diff set to baseline (the 17 are the pre-existing flaky
+  `*_codegen_cover_rt` / `crypto-ec-valid` `.ncode` sha256 goldens, present on an
+  unmodified tree).
+- `cargo test --workspace` = **`test result: ok`, 0 failed**.
+- A2 golden diff = path substring only; no other `golden/` byte changed.
+
+Deviations / corrections to the doc's premises (measured, not recalled):
+1. **The gate had NOT "drifted 11 artifact kinds behind."** `artifact-gate.sh` is
+   an execution-free codegen gate; the 11 "missing" kinds
+   (mfp/info/audit/testrun/covmap.json/covdata/covfail) all require a
+   link/pkg/run step it deliberately never performs, so they are out of its scope
+   BY DESIGN. On the codegen-dump kinds the two scripts already agreed; the shared
+   table just guarantees they cannot drift. C1's `checked` count therefore stays
+   at its baseline value — it did NOT and must NOT rise to 19. The bug title's
+   "drifted 11 artifact kinds behind" phrasing is the overstated framing this
+   correction supersedes.
+2. **A2 is 5 fixtures, not 4.** `parser_inline_trap_depth` is a 5th bucket-root
+   compile-time diagnostic of the same kind (build.log-only, `MFB_PARSE_BLOCK_TOO_DEEP`),
+   added since the base `25c38ba1` census. An exhaustive re-scan of `rt-error/*/`
+   for a bucket-root `project.json` found exactly these 5; all were moved.
+3. **C2's path-fix prerequisite was already landed** (the `bundle()` helper writes
+   `$proj/build/<name>.app`), so C2 was unblocked and did not touch the path.
+4. **C4/F7 were already resolved** under bug-336-S11 (shared `scripts/man_rules.sh`).
+
+Non-goals held: no shipped compiler output changed; the set of tests that run and
+their results is unchanged (A2 moved paths, not assertions); golden *contents* are
+unchanged except the A2 path substring; the separate `test-macapp.sh` output-path
+and `repository/`-workspace defects were left to their own bugs.

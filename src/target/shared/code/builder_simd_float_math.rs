@@ -19,7 +19,7 @@ use super::*;
 // Phase 5. Hand-written, identical on every target, no external math library.
 // Coefficients come from `simd_kernel_coeffs.rs` (Remez minimax, validated <=1
 // ULP against the committed macOS-libm reference vectors in
-// `tests/_data/math_kernel_ref/`). The odd tail reuses the vector kernel by
+// `tools/math-kernels/ref/`). The odd tail reuses the vector kernel by
 // broadcasting the single element into both lanes (Open Decision #6) — no
 // separate scalar path, so the tail lane is bit-identical to a body lane.
 //
