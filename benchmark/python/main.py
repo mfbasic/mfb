@@ -16,6 +16,7 @@ base-2^28 limb-list arithmetic as the other two.
 import arenabench
 import bitsbench
 import churnbench
+import cryptobench
 import csv
 import datetimebench
 import dispatchbench
@@ -31,6 +32,7 @@ import os
 import re
 import regexbench
 import scalarbench
+import serializebench
 import stringbench
 import strbuildbench
 import sys
@@ -809,6 +811,12 @@ def main():
 
     # dispatch group (union+MATCH eval + inline-TRAP recovery)
     dispatchbench.run_all(RUN, now_ns, record)
+
+    # crypto group (hashes/HMAC/KDF/constant-time/Ed25519)
+    cryptobench.run_all(RUN, now_ns, record)
+
+    # serialize group (json/csv stringify encode direction)
+    serializebench.run_all(RUN, now_ns, record)
 
     test_record_update()
 

@@ -25,6 +25,20 @@ zero coverage**, one **whole direction of two covered packages is unbenchmarked*
 This plan adds throughput benchmarks for those hot paths, tracked as critical MFB features,
 without duplicating the existing per-member or pattern-throughput rows.
 
+## Prerequisites
+
+Themes 1 (crypto) and 2 (serialize) have **no** prerequisites — every member they use ships
+today (verified against `mfb man`). Theme 3 (set) has one, and it gates only Theme 3:
+
+| # | Prerequisite | Check | Status (2026-07-25) |
+|---|---|---|---|
+| P1 | `crypto::` / `json::` / `csv::` members exist | `mfb man crypto sha256` / `mfb man json stringify` / `mfb man csv stringify` all resolve | **MET** — Themes 1 & 2 landed |
+| P2 | **Theme 3 only** — `Set OF T` operations exist (literal + add/contains/remove/union/intersect from plan-63-B/C) | `grep -n 'Set(Box<Type>)' src/syntaxcheck/mod.rs` returns a hit (plan-63-A type shape landed) **and** the B/C ops exist | **NOT MET** — the grep returns no hit; plan-63-A/B/C/D are all still in `planning/` (none archived), no `Set OF T` literal/op codegen in `src/`. Theme 3 cannot be authored. |
+
+**P2 is a cross-plan dependency on plan-63-B/C, which is a precondition, never scope.** Theme 3
+stays deferred until plan-63-B/C land Set operations; re-run the P2 check then. Themes 1 & 2 are
+independent of P2 and are complete (see Status).
+
 ## Design rules (match the existing suite)
 
 - One self-contained workload per language (`benchmark/mfb/src/*.mfb`, `benchmark/c/*.c`,
@@ -146,19 +160,70 @@ throughput gate is not forgotten.
 
 ## Rollout / phasing
 
-- **Phase 1 (now, safe — not arena-sensitive):** crypto sha256 (1), sha512 (2), hmac-sha256
-  (3), pbkdf2-sha256 (4), constantTimeEqual (5), ed25519 (7, if pursued). These hash a
-  fixed buffer / run a fixed iteration count — CPU-bound, no per-call churn — and measure
-  real gaps immediately (mfb's software core vs `hashlib`'s C backend), giving plan-64 more
-  `bits`-throughput signal.
-- **Phase 2 (with plan-64-A):** the arena-gated rows — crypto hash churn (6), json stringify
-  (8) + round-trip (9), csv stringify (10) — authored tiny in Phase 1 with `TODO(plan-64-A)`,
-  bumped to realistic N in the commit that lands A, doubling as its acceptance gate (must
-  jump from tiny to realistic and stay linear).
+- **Phase 1 (now, safe — not arena-sensitive):** crypto sha256 (1) and constantTimeEqual (5).
+  These stay in the arena quick bins and their per-call cost is flat across the run loop, so
+  they run at realistic N (reps=64 / reps=8192) and measure real gaps immediately (mfb's
+  software core vs `hashlib`'s C backend). **CORRECTED — see Corrections C1:** the plan
+  originally also listed sha512 (2), hmac (3), pbkdf2 (4), and ed25519 (7) as Phase 1
+  "CPU-bound, no per-call churn"; measurement showed they *are* arena-sensitive and they moved
+  to Phase 2.
+- **Phase 2 (with plan-64-A):** the arena-gated rows — crypto sha512 (2), hmac (3), pbkdf2 (4),
+  hash churn (6), ed25519 (7), json stringify (8) + round-trip (9), csv stringify (10) —
+  authored tiny with `TODO(plan-64-A)`, bumped to realistic N in the commit that lands A,
+  doubling as its acceptance gate (must jump from tiny to realistic and stay linear).
 - **Deferred (with plan-63-B/C):** the `set` group (Theme 3) — added when Set operations ship.
+  Verified deferred: `plan-63-B`/`plan-63-C` are still in `planning/` (not landed), so Set
+  has no literal/operations to benchmark yet.
 - Each new row lands in all three languages simultaneously with a matching checksum, updates
   `benchmark/README.md`'s coverage table, and keeps the git-ignored logs regenerable via
   `benchmark/run.sh --run 50`.
+
+## Status (executed 2026-07-25)
+
+All non-deferred rows landed. Themes 1 and 2 (10 benchmarks) are implemented in all three
+languages, wired into every driver (`main.mfb` / `main.c` / `main.py`), the C build list
+(`run.sh`), and the README coverage table. Theme 3 (Set) remains deferred (prerequisite not
+met — see Rollout).
+
+- `[x]` **Theme 1 — crypto** (`benchmark/{mfb/src/crypto.mfb,c/cryptobench.{c,h},python/cryptobench.py}`):
+  sha256, sha512, hmac, pbkdf2, cte, churn, ed25519. C hand-rolls the FIPS/RFC cores; ed25519
+  is mfb+python (C `--`).
+- `[x]` **Theme 2 — serialize** (`benchmark/{mfb/src/serialize.mfb,c/serializebench.{c,h},python/serializebench.py}`):
+  json, roundtrip, csv. JSON via vendored parson (C); csv hand-rolled to mfb's rules.
+- `[ ]` **Theme 3 — set:** deferred until plan-63-B/C land Set operations. Not authored.
+
+**Verification:** `./benchmark/run.sh` builds all four targets and runs clean (exit 0) at
+`--run 1` and `--run 10`. Every new row's checksum is byte-identical across mfb / c-O0 / c-O2 /
+python (crypto rows 4×; ed25519 2× = mfb+python, C prints `--`; serialize rows 4×): sha256
+320768, sha512 17144, hmac 30216, pbkdf2 4581, cte 8192, churn 67103, ed25519 8105 (= 8104 sig
+byte-sum + 1 verify), serialize json/roundtrip 532, csv 236. The mfb `crypto::` software core is
+thus proven byte-identical to `hashlib`/`hmac`/pyca and the C reference.
+
+## Corrections
+
+- **C1 — Phase-1 misclassification of arena-sensitive crypto rows.** The plan's Rollout claimed
+  crypto sha256–pbkdf2 (+ ed25519) were Phase 1, "CPU-bound, no per-call churn." That is false
+  for mfb's implementation: the `crypto::` package is a software core over `bits` that allocates
+  transient `List OF Byte` values per operation. Measured (native, `datetime::monotonicNanos`):
+  in a clean process the crypto group runs fast (sha512 reps=64 = 26 ms, pbkdf2 iters=4096 =
+  224 ms), but run late in the suite — after ~100 arena-churning groups — the same code hits the
+  plan-64-A quadratic free-list path and explodes: at `--run 1`, sha512 reps=64 = 1634 ms and
+  pbkdf2 iters=4096 = 8069 ms; at `--run 10`, hmac reps=64 climbs 179 ms → 1300 ms. Only sha256
+  (flat 9 ms, min≈max across the run loop) and cte (flat 1.6 ms) are genuinely quick-bin. Per
+  the plan's own design rule ("arena-sensitive rows must wait on plan-64-A … author them now at
+  tiny smoke counts with a `TODO(plan-64-A)` marker"), sha512 (reps 64→2), hmac (reps 64→8),
+  pbkdf2 (iters 4096→64), and ed25519 (reps 2→1) were reclassified to Phase 2, authored tiny
+  with `TODO(plan-64-A)`, becoming part of the plan-64-A regression gate. Phase 1 now holds only
+  sha256 and cte. This is a Rollout defect, not an implementation defect.
+- **C2 — ed25519 verify needs a precomputed public key.** The plan's row 7 says "sign+verify with
+  a hardcoded test-vector private key," but `crypto::ed25519Sign` takes only the 32-byte seed and
+  there is no derive-public-from-seed builtin (only the random `generateEd25519`). The matching
+  public key was computed once via pyca for the fixed seed and hardcoded so `ed25519Verify` runs
+  deterministically. Signature byte-sum (8104) verified identical between mfb and pyca.
+- **C3 — csv Python peer is hand-rolled, not `csv.writer`.** The plan suggested `csv.writer` for
+  the Python csv peer, but `csv.writer` appends a line terminator after the final row, which
+  breaks length-checksum parity with mfb's no-trailing-newline `csv::stringify`. The Python peer
+  hand-rolls the RFC-4180 join to mfb's exact rules instead (the plan permits "hand-rolled").
 
 ## Non-goals
 

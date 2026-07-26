@@ -1135,6 +1135,20 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_dispatch_union(run, tests)
   tests = test_dispatch_trap(run, tests)
 
+  ' crypto group (crypto.mfb) — hashes/HMAC/KDF/constant-time/Ed25519 (plan-65)
+  tests = test_crypto_sha256(run, tests)
+  tests = test_crypto_sha512(run, tests)
+  tests = test_crypto_hmac(run, tests)
+  tests = test_crypto_pbkdf2(run, tests)
+  tests = test_crypto_cte(run, tests)
+  tests = test_crypto_churn(run, tests)
+  tests = test_crypto_ed25519(run, tests)
+
+  ' serialize group (serialize.mfb) — json/csv stringify encode direction (plan-65)
+  tests = test_serialize_json(run, tests)
+  tests = test_serialize_roundtrip(run, tests)
+  tests = test_serialize_csv(run, tests)
+
   tests = test_record_update(run, tests)
 
   tests = test_bignum_modmul(run, tests)
