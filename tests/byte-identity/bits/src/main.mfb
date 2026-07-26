@@ -1,0 +1,30 @@
+' Byte-identity codegen coverage for the bits package (bug-389).
+' IMPORTs the package and calls every function + distinct overload so a codegen
+' change to any bits builtin flips this fixture's .ncodesum hash. Compile-only:
+' the results are printed to force emission, but the fixture is never executed.
+IMPORT io
+IMPORT bits
+
+FUNC main() AS Integer
+  LET a = 0x70F0F0F0F0F0F0F0
+  LET b = 0x0F0F0F0F0F0F0F0F
+  LET acc = bits::band(a, b)
+  LET acc2 = acc + bits::bor(a, b)
+  LET acc3 = acc2 + bits::bxor(a, b)
+  LET acc4 = acc3 + bits::bnot(a)
+  LET acc5 = acc4 + bits::bswap16(a)
+  LET acc6 = acc5 + bits::bswap32(a)
+  LET acc7 = acc6 + bits::bswap64(a)
+  LET acc8 = acc7 + bits::clz(b)
+  LET acc9 = acc8 + bits::ctz(b)
+  LET acc10 = acc9 + bits::popCount(a)
+  LET acc11 = acc10 + bits::rl32(a, 5)
+  LET acc12 = acc11 + bits::rl64(a, 5)
+  LET acc13 = acc12 + bits::rr32(a, 5)
+  LET acc14 = acc13 + bits::rr64(a, 5)
+  LET acc15 = acc14 + bits::sl(a, 3)
+  LET acc16 = acc15 + bits::sr(a, 3)
+  LET acc17 = acc16 + bits::sra(a, 3)
+  io::print(toString(acc17))
+  RETURN 0
+END FUNC

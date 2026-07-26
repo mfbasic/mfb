@@ -1,0 +1,47 @@
+{
+  "project": "bits_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 },
+    { "module": "bits", "line": 6 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": null, "value": { "kind": "number", "value": "8138269444283625712" }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": null, "value": { "kind": "number", "value": "1085102592571150095" }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "acc", "type": null, "value": { "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "acc2", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "bits.bor", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "acc3", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc2" }, "right": { "kind": "call", "callee": "bits.bxor", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] } }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "acc4", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc3" }, "right": { "kind": "call", "callee": "bits.bnot", "arguments": [{ "kind": "identifier", "value": "a" }] } }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "acc5", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc4" }, "right": { "kind": "call", "callee": "bits.bswap16", "arguments": [{ "kind": "identifier", "value": "a" }] } }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "acc6", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc5" }, "right": { "kind": "call", "callee": "bits.bswap32", "arguments": [{ "kind": "identifier", "value": "a" }] } }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "acc7", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc6" }, "right": { "kind": "call", "callee": "bits.bswap64", "arguments": [{ "kind": "identifier", "value": "a" }] } }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "acc8", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc7" }, "right": { "kind": "call", "callee": "bits.clz", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "acc9", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc8" }, "right": { "kind": "call", "callee": "bits.ctz", "arguments": [{ "kind": "identifier", "value": "b" }] } }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "acc10", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc9" }, "right": { "kind": "call", "callee": "bits.popCount", "arguments": [{ "kind": "identifier", "value": "a" }] } }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "acc11", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc10" }, "right": { "kind": "call", "callee": "bits.rl32", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "5" }] } }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "acc12", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc11" }, "right": { "kind": "call", "callee": "bits.rl64", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "5" }] } }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "acc13", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc12" }, "right": { "kind": "call", "callee": "bits.rr32", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "5" }] } }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "acc14", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc13" }, "right": { "kind": "call", "callee": "bits.rr64", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "5" }] } }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "acc15", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc14" }, "right": { "kind": "call", "callee": "bits.sl", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "3" }] } }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "acc16", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc15" }, "right": { "kind": "call", "callee": "bits.sr", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "3" }] } }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "acc17", "type": null, "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc16" }, "right": { "kind": "call", "callee": "bits.sra", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "number", "value": "3" }] } }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "acc17" }] }] }, "line": 28 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 29 }
+      ]
+    }
+    ]
+  }
+  ]
+}
