@@ -337,7 +337,14 @@ source-generic `merge`/`mapValues`.
   **build the bucket table incrementally during the compaction pass** (set `ready=1`),
   backward-shifting the probe chain so no tombstones and probe order stays byte-identical.
   Removes both O(N) sweeps of `mapchurn churn`.
-- **C2:** native `merge` — size the result to `|a|+|b|`, copy `a` **once with buckets
+- **[x] C2-mapValues — LANDED.** Native `collections::mapValues` for a same-type 8-byte
+  fixed-width value (V==U in Integer/Float/Fixed/Money; gate parses `#collections_mapValues$K$V$U`;
+  else `.mfb`): copy the map's key/bucket structure once and rewrite each value payload in place
+  via `f` (keys unchanged → copied index stays valid). **Result: `mapchurn iterate` 24.5 → 14.6 ms
+  (~40%).** checksum 50153000 proven unchanged; full `cargo test` green; artifact-gate zero new
+  diffs; 63 map/collections acceptance fixtures pass; String-value fallback verified.
+  `lower_collection_map_values_call`. Commit: `<pending>`.
+- **C2-merge:** native `merge` — size the result to `|a|+|b|`, copy `a` **once with buckets
   built** (`ready=1`), insert both in one pass; native index-preserving `mapValues`
   (copy the source entry/bucket structure, rewrite only value payloads).
 - **C3:** preserve `BUCKETS_READY` across `copy_collection_tight` generally (rebuild-

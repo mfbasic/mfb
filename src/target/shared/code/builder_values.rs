@@ -737,6 +737,21 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-64 C2: native mapValues when the value type is unchanged and
+                // 8-byte fixed-width (`#collections_mapValues$K$V$U`, V == U in
+                // Integer/Float/Fixed/Money). Other instantiations fall through to
+                // the `.mfb` `__collections_mapValues`.
+                if let Some(params) = target.strip_prefix("#collections_mapValues$") {
+                    if args.len() == 2 {
+                        let parts: Vec<&str> = params.split('$').collect();
+                        let ok = parts.len() == 3
+                            && parts[1] == parts[2]
+                            && matches!(parts[1], "Integer" | "Float" | "Fixed" | "Money");
+                        if ok {
+                            return self.lower_collection_map_values_call(args);
+                        }
+                    }
+                }
                 if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
                 }
