@@ -67,7 +67,7 @@ allocation failure is not a trappable domain error in this language.
 
 | Type | Description |
 | --- | --- |
-| `List OF K` | A new owned list of the map's keys, one per entry, in the map's entry order; the empty list for an empty map. [[src/builtins/general.rs:resolve_keys]] |
+| `List OF K` | A new owned list of the map's keys, one per entry, in the map's entry order; the empty list for an empty map. [[src/builtins/collections.rs:resolve_keys]] |
 
 ## Errors
 
@@ -81,7 +81,7 @@ No errors.
 It must be a `Map OF K TO V`; a `List` or any non-map value is a compile-time
 type error. The result type is derived from the map's key type as
 `List OF K`, so a `Map OF String TO Integer` yields a `List OF String`.
-[[src/builtins/general.rs:resolve_keys]]
+[[src/builtins/collections.rs:resolve_keys]]
 
 ## Examples
 

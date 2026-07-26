@@ -72,7 +72,7 @@ position of the match is needed.
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when some element of `value` matches `item`; `FALSE` when none does, including for an empty list. [[src/builtins/general.rs:resolve_contains]] |
+| `Boolean` | `TRUE` when some element of `value` matches `item`; `FALSE` when none does, including for an empty list. [[src/builtins/collections.rs:resolve_contains]] |
 
 ## Errors
 
@@ -87,7 +87,7 @@ The first must be a `List OF T`; a `Map`, a `String`, or any other value is a
 compile-time type error. The second must be exactly the element type `T` — a
 `List OF Integer` cannot be searched with a `String`, and there is no implicit
 conversion between numeric element types. The result is always `Boolean`.
-[[src/builtins/general.rs:resolve_contains]]
+[[src/builtins/collections.rs:resolve_contains]]
 
 ## Examples
 

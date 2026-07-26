@@ -29,7 +29,7 @@ inner list onto an accumulating result. It does this by calling
 is the list-concatenation overload of `append`, which accepts a second argument
 that is either the element type or the same list type as the first argument.
 Each inner list is therefore spliced in whole rather than nested as a single
-element. [[src/builtins/collections_package.mfb:__collections_flatten]] [[src/builtins/general.rs:resolve_append]]
+element. [[src/builtins/collections_package.mfb:__collections_flatten]] [[src/builtins/collections.rs:resolve_append]]
 
 `flatten` removes exactly **one** level of nesting. Its parameter type is
 `List OF List OF T`, so applying it to a `List OF List OF List OF Integer`
