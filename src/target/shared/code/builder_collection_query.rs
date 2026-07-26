@@ -1,10 +1,74 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// Entry-table linear-scan preamble shared by the map lookups
+    /// (`lower_map_get`/`lower_map_get_or`/`lower_has_key`): load the entry count,
+    /// zero the index, point `entry` at the first entry, and open the loop with the
+    /// bounds check and the entry's offset/length load. The caller loads the
+    /// collection and needle, mints every register and label, and emits the compare
+    /// and the found body, then closes with [`Self::emit_entry_scan_advance`]. Only
+    /// the fixed-width entry-table representation is covered; the entry-free kind-2
+    /// data walk (e.g. `lower_collection_contains`) is a different shape and stays
+    /// inline. Emit-only, so byte-identical to the copies it replaced.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_entry_scan_setup(
+        &mut self,
+        collection: &str,
+        count: &str,
+        index: &str,
+        entry: &str,
+        offset: &str,
+        length: &str,
+        entry_offset_field: usize,
+        entry_length_field: usize,
+        loop_label: &str,
+        not_found: &str,
+    ) {
+        self.emit(abi::load_u64(count, collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::add_immediate(entry, collection, COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(loop_label));
+        self.emit(abi::compare_registers(index, count));
+        self.emit(abi::branch_ge(not_found));
+        self.emit(abi::load_u64(offset, entry, entry_offset_field));
+        self.emit(abi::load_u64(length, entry, entry_length_field));
+    }
+
+    /// Close the [`Self::emit_entry_scan_setup`] loop: bump `entry` by one entry
+    /// stride and `index` by one, then branch back. Emit-only, byte-identical.
+    pub(super) fn emit_entry_scan_advance(
+        &mut self,
+        entry: &str,
+        index: &str,
+        next_label: &str,
+        loop_label: &str,
+    ) {
+        self.emit(abi::label(next_label));
+        self.emit(abi::add_immediate(entry, entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::branch(loop_label));
+    }
+
     pub(super) fn lower_list_get(
         &mut self,
         collection_slot: usize,
         key_slot: usize,
+        collection_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        self.lower_list_get_common(collection_slot, key_slot, None, collection_type, element_type)
+    }
+
+    /// Shared body of list `get`/`getOr`: bounds-check the index and load the
+    /// element. `default_slot` is the `Miss` selector — `None` traps
+    /// (index-out-of-range), `Some(slot)` returns the default. Each variant mints
+    /// its own label prefix and result text, so output is byte-identical to the two
+    /// former standalone functions.
+    fn lower_list_get_common(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        default_slot: Option<usize>,
         collection_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
@@ -16,8 +80,13 @@ impl CodeBuilder<'_> {
         let entry = self.allocate_register()?;
         let value_offset = self.allocate_register()?;
         let value_length = self.allocate_register()?;
-        let invalid = self.label("list_get_invalid");
-        let done = self.label("list_get_done");
+        let (miss, done) = match default_slot {
+            None => (self.label("list_get_invalid"), self.label("list_get_done")),
+            Some(_) => (
+                self.label("list_get_or_default"),
+                self.label("list_get_or_done"),
+            ),
+        };
 
         self.emit(abi::load_u64(
             &collection,
@@ -26,10 +95,10 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
         self.emit(abi::compare_immediate(&index, "0"));
-        self.emit(abi::branch_lt(&invalid));
+        self.emit(abi::branch_lt(&miss));
         self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::branch_ge(&miss));
         self.emit_element_value_offset(
             &value_offset,
             &value_length,
@@ -46,14 +115,37 @@ impl CodeBuilder<'_> {
             &value_length,
         )?;
         self.emit(abi::branch(&done));
-        self.emit(abi::label(&invalid));
-        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&miss));
+        let text = match default_slot {
+            None => {
+                self.emit_index_out_of_range_return()?;
+                format!("get({collection_type}, Integer)")
+            }
+            Some(default_slot) => {
+                if element_type == "String" {
+                    // See `lower_map_get_or`: the found path materializes a fresh
+                    // owned string, so the default must be copied too — returning
+                    // the alias double-frees it and corrupts the arena.
+                    let default_ptr = self.allocate_register()?;
+                    self.emit(abi::load_u64(
+                        &default_ptr,
+                        abi::stack_pointer(),
+                        default_slot,
+                    ));
+                    let copied = self.emit_copy_owned_string(&default_ptr)?;
+                    self.emit(abi::move_register(&result, &copied));
+                } else {
+                    self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+                }
+                format!("getOr({collection_type}, Integer, {element_type})")
+            }
+        };
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
             type_: element_type.to_string(),
             location: result,
-            text: format!("get({collection_type}, Integer)"),
+            text,
         })
     }
 
@@ -385,27 +477,18 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(&index, "Integer", "0"));
-        self.emit(abi::add_immediate(
-            &entry,
+        self.emit_entry_scan_setup(
             &collection,
-            COLLECTION_HEADER_SIZE,
-        ));
-
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&not_found));
-        self.emit(abi::load_u64(
+            &count,
+            &index,
+            &entry,
             &key_offset,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::load_u64(
             &key_length,
-            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
+            &loop_label,
+            &not_found,
+        );
         self.emit_collection_payload_match_branch(
             key_type,
             "",
@@ -432,10 +515,7 @@ impl CodeBuilder<'_> {
             self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
         self.emit(abi::branch(&done));
 
-        self.emit(abi::label(&next));
-        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(&index, &index, 1));
-        self.emit(abi::branch(&loop_label));
+        self.emit_entry_scan_advance(&entry, &index, &next, &loop_label);
 
         self.emit(abi::label(&not_found));
         self.emit_not_found_return()?;
@@ -456,67 +536,13 @@ impl CodeBuilder<'_> {
         collection_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
-        self.reset_temporary_registers();
-        let collection = self.allocate_register()?;
-        let index = self.allocate_register()?;
-        let count = self.allocate_register()?;
-        let entry_offset = self.allocate_register()?;
-        let entry = self.allocate_register()?;
-        let value_offset = self.allocate_register()?;
-        let value_length = self.allocate_register()?;
-        let use_default = self.label("list_get_or_default");
-        let done = self.label("list_get_or_done");
-
-        self.emit(abi::load_u64(
-            &collection,
-            abi::stack_pointer(),
+        self.lower_list_get_common(
             collection_slot,
-        ));
-        self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
-        self.emit(abi::compare_immediate(&index, "0"));
-        self.emit(abi::branch_lt(&use_default));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&use_default));
-        self.emit_element_value_offset(
-            &value_offset,
-            &value_length,
-            &collection,
-            &index,
-            &entry_offset,
-            &entry,
+            key_slot,
+            Some(default_slot),
+            collection_type,
             element_type,
-        );
-        let result = self.emit_load_collection_payload(
-            element_type,
-            &collection,
-            &value_offset,
-            &value_length,
-        )?;
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&use_default));
-        if element_type == "String" {
-            // See `lower_map_get_or`: the found path materializes a fresh owned
-            // string, so the default must be copied too — returning the alias
-            // double-frees it and corrupts the arena.
-            let default_ptr = self.allocate_register()?;
-            self.emit(abi::load_u64(
-                &default_ptr,
-                abi::stack_pointer(),
-                default_slot,
-            ));
-            let copied = self.emit_copy_owned_string(&default_ptr)?;
-            self.emit(abi::move_register(&result, &copied));
-        } else {
-            self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
-        }
-        self.emit(abi::label(&done));
-
-        Ok(ValueResult {
-            type_: element_type.to_string(),
-            location: result,
-            text: format!("getOr({collection_type}, Integer, {element_type})"),
-        })
+        )
     }
 
     pub(super) fn lower_map_get_or(
@@ -603,27 +629,18 @@ impl CodeBuilder<'_> {
             collection_slot,
         ));
         self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(&index, "Integer", "0"));
-        self.emit(abi::add_immediate(
-            &entry,
+        self.emit_entry_scan_setup(
             &collection,
-            COLLECTION_HEADER_SIZE,
-        ));
-
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&use_default));
-        self.emit(abi::load_u64(
+            &count,
+            &index,
+            &entry,
             &key_offset,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::load_u64(
             &key_length,
-            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
+            &loop_label,
+            &use_default,
+        );
         self.emit_collection_payload_match_branch(
             key_type,
             "",
@@ -650,10 +667,7 @@ impl CodeBuilder<'_> {
             self.emit_load_map_payload(value_type, &collection, &value_offset, &value_length)?;
         self.emit(abi::branch(&done));
 
-        self.emit(abi::label(&next));
-        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(&index, &index, 1));
-        self.emit(abi::branch(&loop_label));
+        self.emit_entry_scan_advance(&entry, &index, &next, &loop_label);
 
         self.emit(abi::label(&use_default));
         if value_type == "String" {

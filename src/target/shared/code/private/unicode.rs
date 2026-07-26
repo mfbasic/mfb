@@ -34,7 +34,84 @@ const INDIC_CONJUNCT_BREAK_LINKER: &str = "1";
 const INDIC_CONJUNCT_BREAK_CONSONANT: &str = "2";
 const INDIC_CONJUNCT_BREAK_EXTEND: &str = "3";
 
+/// UTF-8 continuation-byte discriminator: `byte & 0xC0 == 0x80` iff `byte` is a
+/// trailing continuation byte (`10xxxxxx`). Named so the scalar-boundary walks
+/// stop respelling the two masks as bare `"192"`/`"128"` string immediates.
+/// These name ONLY the continuation-mask/tag concept — the encoder's `0xC0`/`0x80`
+/// lead/continuation *prefixes* and the `< 0x80` ASCII-boundary test are distinct
+/// uses of the same numbers and are deliberately left spelled out.
+pub(in crate::target::shared::code) const UTF8_CONTINUATION_MASK: &str = "192";
+pub(in crate::target::shared::code) const UTF8_CONTINUATION_TAG: &str = "128";
+
 impl CodeBuilder<'_> {
+    /// Advance `cursor`/`remaining` past the continuation bytes of the scalar whose
+    /// lead byte the caller has already consumed, stopping at the next scalar
+    /// boundary or when `remaining` hits zero. `mask` must already hold
+    /// [`UTF8_CONTINUATION_MASK`]; the caller mints every register and both labels
+    /// (and emits `advanced_label` afterward), so this stays byte-identical to the
+    /// four hand-written copies in `lower_find`/`lower_mid` it replaced.
+    pub(in crate::target::shared::code) fn emit_scalar_skip_continuations(
+        &mut self,
+        cursor: &str,
+        remaining: &str,
+        byte: &str,
+        mask: &str,
+        continue_label: &str,
+        advanced_label: &str,
+    ) {
+        self.emit(abi::label(continue_label));
+        self.emit(abi::compare_immediate(remaining, "0"));
+        self.emit(abi::branch_eq(advanced_label));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::compare_immediate(byte, UTF8_CONTINUATION_TAG));
+        self.emit(abi::branch_ne(advanced_label));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
+        self.emit(abi::branch(continue_label));
+    }
+
+    /// Count the scalars (non-continuation bytes) in the `length`-byte buffer at
+    /// `base`, accumulating into `count`. Uses `index`/`addr`/`byte` as scratch and
+    /// loads [`UTF8_CONTINUATION_MASK`] into `mask` itself. The caller mints every
+    /// register (including `base`, computed from its own source) and all four
+    /// labels, so the emitted sequence is byte-identical to the two verbatim copies
+    /// in `lower_strings_pad`.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::target::shared::code) fn emit_scalar_count_loop(
+        &mut self,
+        base: &str,
+        index: &str,
+        count: &str,
+        addr: &str,
+        byte: &str,
+        mask: &str,
+        length: &str,
+        loop_label: &str,
+        not_cont: &str,
+        after: &str,
+        done: &str,
+    ) {
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::move_immediate(count, "Integer", "0"));
+        self.emit(abi::move_immediate(mask, "Integer", UTF8_CONTINUATION_MASK));
+        self.emit(abi::label(loop_label));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(done));
+        self.emit(abi::add_registers(addr, base, index));
+        self.emit(abi::load_u8(byte, addr, 0));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::compare_immediate(byte, UTF8_CONTINUATION_TAG));
+        self.emit(abi::branch_ne(not_cont));
+        self.emit(abi::branch(after));
+        self.emit(abi::label(not_cont));
+        self.emit(abi::add_immediate(count, count, 1));
+        self.emit(abi::label(after));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::branch(loop_label));
+        self.emit(abi::label(done));
+    }
+
     pub(in crate::target::shared::code) fn emit_load_data_address(
         &mut self,
         register: &str,

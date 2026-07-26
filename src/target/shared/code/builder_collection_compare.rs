@@ -41,6 +41,42 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
     }
 
+    /// The byte-by-byte equality loop the three collection payload `String` arms
+    /// each hand-rolled. `left`/`right` are advanced IN PLACE and `counter` counts
+    /// down to zero; the caller emits the preceding length check and cursor setup,
+    /// mints every register and the loop label, and this emits only the loop body.
+    ///
+    /// This is deliberately NOT [`Self::emit_compare_bytes_branch`], which walks
+    /// private scratch copies to leave a caller's map-key pointer untouched
+    /// (bug-175 D) — routing these sites through it would add two `move_register`
+    /// ops and shift generated output. These arms already own and consume their
+    /// cursors, so extracting only the shared loop body keeps the output
+    /// byte-identical.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_byte_compare_loop(
+        &mut self,
+        left: &str,
+        right: &str,
+        counter: &str,
+        left_byte: &str,
+        right_byte: &str,
+        loop_label: &str,
+        equal_label: &str,
+        not_equal_label: &str,
+    ) {
+        self.emit(abi::label(loop_label));
+        self.emit(abi::compare_immediate(counter, "0"));
+        self.emit(abi::branch_eq(equal_label));
+        self.emit(abi::load_u8(left_byte, left, 0));
+        self.emit(abi::load_u8(right_byte, right, 0));
+        self.emit(abi::compare_registers(left_byte, right_byte));
+        self.emit(abi::branch_ne(not_equal_label));
+        self.emit(abi::add_immediate(left, left, 1));
+        self.emit(abi::add_immediate(right, right, 1));
+        self.emit(abi::subtract_immediate(counter, counter, 1));
+        self.emit(abi::branch(loop_label));
+    }
+
     pub(super) fn emit_comparable_values_match_branch(
         &mut self,
         type_: &str,
@@ -246,17 +282,16 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_ne(not_equal_label));
                 self.emit(abi::add_immediate(&value_cursor, value, 8));
                 self.emit(abi::move_register(&remaining, length));
-                self.emit(abi::label(&loop_label));
-                self.emit(abi::compare_immediate(&remaining, "0"));
-                self.emit(abi::branch_eq(equal_label));
-                self.emit(abi::load_u8(&packed_byte, &data, 0));
-                self.emit(abi::load_u8(&value_byte, &value_cursor, 0));
-                self.emit(abi::compare_registers(&packed_byte, &value_byte));
-                self.emit(abi::branch_ne(not_equal_label));
-                self.emit(abi::add_immediate(&data, &data, 1));
-                self.emit(abi::add_immediate(&value_cursor, &value_cursor, 1));
-                self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
-                self.emit(abi::branch(&loop_label));
+                self.emit_byte_compare_loop(
+                    &data,
+                    &value_cursor,
+                    &remaining,
+                    &packed_byte,
+                    &value_byte,
+                    &loop_label,
+                    equal_label,
+                    not_equal_label,
+                );
             }
             other if self.is_pointer_collection_payload_type(other) => {
                 let candidate = self.allocate_register()?;
@@ -353,17 +388,16 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_ne(not_equal_label));
                 self.emit(abi::add_immediate(vcur, value, 8));
                 self.emit(abi::move_register(rem, length));
-                self.emit(abi::label(&loop_label));
-                self.emit(abi::compare_immediate(rem, "0"));
-                self.emit(abi::branch_eq(equal_label));
-                self.emit(abi::load_u8(cval, cur, 0));
-                self.emit(abi::load_u8(vbyte, vcur, 0));
-                self.emit(abi::compare_registers(cval, vbyte));
-                self.emit(abi::branch_ne(not_equal_label));
-                self.emit(abi::add_immediate(cur, cur, 1));
-                self.emit(abi::add_immediate(vcur, vcur, 1));
-                self.emit(abi::subtract_immediate(rem, rem, 1));
-                self.emit(abi::branch(&loop_label));
+                self.emit_byte_compare_loop(
+                    cur,
+                    vcur,
+                    rem,
+                    cval,
+                    vbyte,
+                    &loop_label,
+                    equal_label,
+                    not_equal_label,
+                );
             }
             other if self.is_pointer_collection_payload_type(other) => {
                 self.emit(abi::load_u64(cval, cur, 0));
@@ -466,17 +500,16 @@ impl CodeBuilder<'_> {
                 self.emit(abi::compare_registers(left_length, right_length));
                 self.emit(abi::branch_ne(not_equal_label));
                 self.emit(abi::move_register(roff, left_length));
-                self.emit(abi::label(&loop_label));
-                self.emit(abi::compare_immediate(roff, "0"));
-                self.emit(abi::branch_eq(equal_label));
-                self.emit(abi::load_u8(lval, lcur, 0));
-                self.emit(abi::load_u8(rval, rcur, 0));
-                self.emit(abi::compare_registers(lval, rval));
-                self.emit(abi::branch_ne(not_equal_label));
-                self.emit(abi::add_immediate(lcur, lcur, 1));
-                self.emit(abi::add_immediate(rcur, rcur, 1));
-                self.emit(abi::subtract_immediate(roff, roff, 1));
-                self.emit(abi::branch(&loop_label));
+                self.emit_byte_compare_loop(
+                    lcur,
+                    rcur,
+                    roff,
+                    lval,
+                    rval,
+                    &loop_label,
+                    equal_label,
+                    not_equal_label,
+                );
             }
             other if self.is_pointer_collection_payload_type(other) => {
                 self.emit(abi::load_u64(lval, lcur, 0));

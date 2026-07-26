@@ -331,3 +331,60 @@ impl ToCodeJson for CodeStackSlot {
         )
     }
 }
+
+/// Serialize a slice of `ToCodeJson` values into a comma-joined JSON fragment
+/// (used by the `-code`/`-mir` array serializers). Merged here from the former
+/// 17-line `serialization_utils` module (bug-334 B4): its only consumer is the
+/// `ToCodeJson` machinery in this file and its two siblings.
+pub(super) fn join_json<T: ToCodeJson>(values: &[T], indent: usize) -> String {
+    values
+        .iter()
+        .map(|value| value.to_json(indent))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Serialize a slice of strings into a `", "`-joined list of JSON string
+/// literals (the callee-saved register list).
+pub(super) fn json_string_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| json_string(value))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+impl NativeCodePlan {
+    /// Serialize the whole plan to the `-code` JSON dump. Moved here from
+    /// validation.rs (bug-334 B6) to sit with the other `ToCodeJson`
+    /// serializers rather than beside `NativeCodePlan::validate`.
+    pub(crate) fn to_json(&self) -> String {
+        format!(
+            concat!(
+                "{{\n",
+                "  \"format\": \"mfb-native-code-plan\",\n",
+                "  \"version\": 1,\n",
+                "  \"target\": {},\n",
+                "  \"buildMode\": {},\n",
+                "  \"arch\": {},\n",
+                "  \"project\": {},\n",
+                "  \"entrySymbol\": {},\n",
+                "  \"imports\": [{}\n  ],\n",
+                "  \"dataObjects\": [{}\n  ],\n",
+                "  \"functions\": [{}\n  ]\n",
+                "}}\n"
+            ),
+            json_string(&self.target),
+            json_string(self.build_mode.as_str()),
+            json_string(&self.arch),
+            json_string(&self.project),
+            self.entry_symbol
+                .as_ref()
+                .map(|symbol| json_string(symbol))
+                .unwrap_or_else(|| "null".to_string()),
+            join_json(&self.imports, 2),
+            join_json(&self.data_objects, 2),
+            join_json(&self.functions, 2)
+        )
+    }
+}

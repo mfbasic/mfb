@@ -614,6 +614,22 @@ fn raw_data_object(
     }
 }
 
+/// Build the `mfb.string.v1` constant data object for `value` — the single
+/// layout every String literal, the empty-string sentinel, and every runtime
+/// error message share (a `u64` byte length, the bytes, then a trailing NUL).
+/// `size` is that footprint padded to the 8-byte String alignment; for the
+/// empty string this is `align(9, 8) == 16`, matching the former hardcode.
+pub(super) fn string_data_object(symbol: &str, value: String) -> CodeDataObject {
+    CodeDataObject {
+        symbol: symbol.to_string(),
+        kind: "constant".to_string(),
+        layout: "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }".to_string(),
+        align: 8,
+        size: align(8 + value.len() + 1, 8),
+        value,
+    }
+}
+
 /// Walk one function's body for string literals that need a data object.
 ///
 /// The local-type map is seeded with the function's parameters. The code
