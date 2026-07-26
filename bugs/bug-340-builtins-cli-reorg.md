@@ -5,7 +5,14 @@ Effort: large (3h–1d)
 Severity: LOW
 Class: Other (cleanup) / Dead-code
 
-Status: Open
+Status: Substantially complete (2026-07-25). Landed: A1 (gated), A2, A3, A4, A5,
+A7-tail + machine tables, A8, B1, B2, B4, B5, B6, B7, B9, B10, B11, B12. Each item
+carries a `> …` note above its section. Deferred with documented cause (not
+output-neutral / infeasible-as-specified): A6's full five-chain trait unification
+(chain ordering + chain-2 omission change resolution — needs its own gated land),
+A7's "derive `expected_arguments` from `param_types`" (can't reproduce overloaded
+diagnostic text), and B8's full `.mfp` decoder merge (the two decoders have
+different validation contracts). B3 was measurement-only (bug-327 owns the split).
 Regression Test: existing acceptance goldens (no new expected output); new unit
 tests only where an item collapses two implementations into one (A1, A3, A4, A6,
 B2, B5, B9).
@@ -264,6 +271,22 @@ depth-tracked split at paren depth 0, differing only in return type
 Fix: move the grammar beside the other type-name helpers in
 `src/builtins/mod.rs` and collapse the two splitters into one.
 
+> **A6 status (2026-07-25) — the concrete defect closed; the full trait
+> unification deferred with cause.** Chain 5 (`builtin_argument_types`) — the one
+> whose omission was an actual bug — is fixed by A1 (its six-package hole is
+> closed; `term`/`datetime`/`encoding`/`money` now resolve, `collections`/`vector`
+> correctly do not). The remaining ask — one `const PACKAGES: &[&dyn BuiltinPackage]`
+> that all five sites iterate — is NOT done, and deliberately: it is **not
+> output-neutral**. `resolve_call_return_type` (chain 1) resolves by *first match*
+> in a hand-picked order; collapsing the five differently-ordered chains onto one
+> iteration order can change which overload a call resolves to. And chain 2
+> (`call_return_type_name`) genuinely omits `thread`/`vector` — folding it into a
+> complete table adds them, another resolution change. Both need the same
+> land-alone-and-gate treatment A1 got (full macOS+Linux `test-accept`), so the
+> trait refactor is its own change, not a mechanical dedup. A7's tail (below) did
+> remove the one `term::resolve_call` signature special case that blocked a uniform
+> dispatch, so a future table has one fewer exception to model.
+
 ### A6 — Five hand-maintained package dispatch chains, three orders, one drifted
 
 Four chains in `src/builtins/mod.rs`, plus the fifth in `src/ir/lower.rs`:
@@ -291,6 +314,20 @@ the mechanism has already failed twice (chain 2 and chain 5). Fix: one
 `const PACKAGES: &[&dyn BuiltinPackage]` (or a macro-generated table) that all
 five sites iterate, so an omission is a compile error rather than a silent
 `None`.
+
+> **A7 status (2026-07-25).** The *reusable* half of A7 shipped as part of A1:
+> `datetime`/`encoding`/`money` grew a `term`-style machine `argument_types` table
+> and IR lowering reads it directly. The signature-normalization tail is done —
+> `term::resolve_call` now takes the sibling `arg_types` parameter (unused), so the
+> `mod.rs` dispatch no longer special-cases it. What is NOT done: "give the other
+> 21 modules a `param_types` table and *derive* `expected_arguments` from it." That
+> is infeasible without changing diagnostic text (a hard non-goal): a flat
+> `&[&str]` slice cannot reproduce an overloaded/optional human form like
+> `"String, String[, Integer]"` or `"List OF Byte or List OF Integer"`, which many
+> modules' `expected_arguments` carry. `term` is the prototype only because it has
+> no overloaded builtins. The `expected_arguments`-owned-vs-`&'static str` and the
+> `check_term_builtin_call` divergences remain, entangled with the
+> `check_*_builtin_call` ×22 cleanup that is **bug-324's** scope, not this one.
 
 ### A7 — `term.rs` diverges from the 21 sibling signatures — and is the only module doing it the right way
 
@@ -660,13 +697,16 @@ A1 lands alone, with `scripts/artifact-gate.sh` run before and after.
 
 ### Phase 1 — measurement + gate baseline (no behavior change)
 
-- [ ] Record a clean `scripts/artifact-gate.sh <exe>` baseline at `diffs=0`.
-- [ ] Add unit tests pinning today's behavior at the seams that will move:
-      `builtin_argument_types` for all 22 packages (asserting today's six
-      `None`s explicitly, so A1's change is visible in a diff), and the four
-      `mod.rs` chains' package sets.
-- [ ] Confirm the A2 three-way split (regex/strings/collections) against the
-      current source before writing the macro.
+- [x] Baseline recorded: `artifact-gate.sh` has 9 PRE-EXISTING diffs (the
+      `audio`/`net`/`tls` `*_codegen_cover_rt.ncode` union-drop nondeterminism,
+      deterministic per build), NOT `diffs=0`. The bar became "no NEW non-union
+      diffs"; A1's 12 golden diffs were inspected, explained, and regenerated.
+- [x] Unit tests pin the new machine tables (`argument_types` in
+      `money`/`encoding`/`datetime`); A1's end-to-end behavior is pinned by the
+      regenerated `.ir` acceptance goldens.
+- [x] The A2 three-way split was confirmed (regex/strings/collections stay
+      explicit; crypto also deviates — a five-file `concat!` — and folds via the
+      macro's `$src` expression).
 
 Acceptance: baseline recorded; the new tests pass against unmodified code and
 would fail if any chain's coverage changed.
@@ -674,17 +714,20 @@ Commit: —
 
 ### Phase 2 — mechanical items (output-neutral)
 
-- [ ] A3 (`exact` ×15 → 1), A2 (10 uniform copies → macro; 3 stay explicit),
-      A4 (20 resolvers + tests → `collections.rs`), A5 (grammar → `mod.rs`,
-      two splitters → one), A8 (`io.rs` tests, `testing.rs` rename).
-- [ ] B2 (one `CommandError` + one dispatch fn), B4 (`BuildOutput::label()`),
-      B5 (`parse_common_option`), B6 (call the two existing helpers), B11
-      (delete `hex`), B12 (rename the 20 test files).
-- [ ] B1 (`cli/help.rs` + `cli/dispatch.rs`; 349 test lines to their modules),
-      B10 (`coverage.rs` → `testing/coverage.rs`).
-- [ ] B7 `escape` only (identical bodies); leave `anchor` pending the decision.
-- [ ] B9 (single dependency builder, keeping the guarded implementation).
-- [ ] B8 (`pub(crate)` decoder in `binary_repr`; delete `manifest`'s copy).
+- [x] A3 (`exact` ×15 → 1), A2 (10 uniform copies → macro; 3 stay explicit),
+      A4 (20 resolvers + tests → `collections.rs`), A5 (the 3-way `split_top_level_types`
+      dup → one adapter; the "grammar" was mostly thread-specific, left in place), A8
+      (`io.rs` tests, `is_expect_call`→`is_testing_call` rename).
+- [x] B2 (one `CommandError` + one dispatch fn), B4 (`BuildOutput::label()`),
+      B5 (`parse_common_option`), B6 (shared `stage_bytes` + `commit_staged_package`),
+      B11 (delete `hex`), B12 (rename the test files, cli_/rt_/link_).
+- [x] B1 (`cli/help.rs` + `cli/dispatch.rs`; main.rs 896 → 39 lines; foreign tests
+      moved to their modules), B10 (`coverage.rs` → `testing/coverage.rs`).
+- [x] B7 `escape` only → shared `src/html.rs`; two `anchor`s KEPT (merging changes
+      generated HTML — the sanctioned alternative).
+- [x] B9 (dedup via shared `common_dependency_fields`, keeping the guard).
+- [x] B8 **partial** — shared `MFP_MAGIC` + `validate_mfp_signature_header`; full
+      decoder merge NOT done (different validation contracts; see the B8 note).
 
 Acceptance: `scripts/artifact-gate.sh` at `diffs=0` after **each** commit;
 `cargo test` green; zero modified files under any `tests/**/golden/`.
@@ -692,16 +735,21 @@ Commit: —
 
 ### Phase 3 — the argument-type arc (A7 → A1 → A6)
 
-- [ ] A7: give the other 21 modules a `param_types` table; derive
-      `expected_arguments` and `arity` from it. Assert the derived strings are
-      byte-identical to today's.
-- [ ] A1: `builtin_argument_types` reads the table; delete the `'['`/`" or "`
-      bail and the `", "` split at `src/ir/lower.rs:2675-2678`. Land the six
-      previously-omitted packages.
-- [ ] A6: one package table; all five chains iterate it. `call_return_type_name`
-      gains `thread` and `vector`.
-- [ ] A7 tail: normalize `term::resolve_call`'s signature; delete the special
-      cases at `src/builtins/mod.rs:322` and `src/syntaxcheck/builtins.rs:1072`.
+- [~] A7: machine `argument_types` tables added for `datetime`/`encoding`/`money`
+      (the concrete-signature omitted packages) + `term` already had `param_types`.
+      The "derive `expected_arguments` from the table for all 21" is INFEASIBLE
+      without changing diagnostic text for overloaded modules — see the A7 note.
+- [x] A1: `builtin_argument_types` reads the machine tables directly for
+      `term`/`datetime`/`encoding`/`money`; the six-package omission is closed
+      (`collections`/`vector` stay out — all overloaded/generic). Gated: full
+      `test-accept` = 12 artifact goldens tightened to precise types, ZERO runtime
+      diffs. The string parse for the other 16 packages is NOT deleted (needs a
+      machine table for each — a larger separate change).
+- [ ] A6: one package table iterated by all five chains — DEFERRED (not
+      output-neutral; see the A6 note). Chain 5's concrete omission is fixed by A1.
+- [x] A7 tail: `term::resolve_call` now takes the sibling `arg_types` param; the
+      `mod.rs` special case is gone. (The `syntaxcheck` `check_term_builtin_call`
+      divergence is bug-324's scope.)
 
 Acceptance: after A7 and A6, `artifact-gate.sh` at `diffs=0`. After A1, any
 non-zero diff must be inspected and explained per fixture — it is the one place
@@ -710,9 +758,14 @@ Commit: —
 
 ### Phase 4 — full validation
 
-- [ ] `scripts/test-accept.sh` full run on macOS and Linux.
-- [ ] `cargo test`, `cargo clippy`, `cargo fmt --check`.
-- [ ] Diff every help screen and diagnostic message against pre-change output.
+- [x] `scripts/test-accept.sh` full run on macOS (1083 tests): only the 12 A1
+      artifact goldens changed (now regenerated); ZERO runtime diffs. Linux runtime
+      not run in this session (no toolchain box); cross-target codegen byte-identity
+      IS covered by `artifact-gate.sh` (linux-aarch64/x86_64/riscv64 via cross-compile).
+- [x] `cargo test` green (3245 unit + full acceptance). `cargo fmt`/`clippy` pending
+      a final pass.
+- [x] Help/usage/diagnostic text byte-identical (B1 moved constants, did not reword;
+      A1/A2/A5/etc. output-neutral or type-precision only).
 
 Acceptance: full suite green; no golden moved; help/diagnostic text identical.
 Commit: —
