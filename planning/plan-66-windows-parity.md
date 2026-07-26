@@ -439,29 +439,30 @@ Commit: 7eab44bd9
 Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **MET** — writeTextAtomic (Unicode) + createTempFile + createDirectories nested + open/read + isWithin all box-proven; only `openWithin` (a separate security-sensitive design) is deferred.
 Commit: 71f2a3fab (7/10); 28078edae (atomic writes, 9/10)
 
-### Phase F — `tls::` server  (NOT STARTED — scoped; the largest console letter)
-- [ ] Advertise the 3 calls; fill the Schannel server arms
-  (`tls/mod.rs:338,352,420`). **Scoping (from reading the code):**
-  `tls.listen(host, port, certPath, keyPath, backlog)` takes a PEM cert+key, so the
-  server is credential-bearing. Design: **listen** = bind/listen a Winsock socket
-  (reuse the plan-47-I net listener) + build the server credential — the crux: PEM →
-  DER (`CryptStringToBinaryA`) → `CertCreateCertificateContext`; PEM key → DER
-  (`CryptDecodeObjectEx`) → CNG key import → `CertSetCertificateContextProperty`
-  (associate key) → `AcquireCredentialsHandleW(SECPKG_CRED_INBOUND)` with the cert in
-  `SCHANNEL_CRED.paCred`. **accept** = TCP-accept + a server handshake loop reusing
-  the client's token machinery in `schannel_impl.rs` (`emit_send_token`/recv/buffer
-  descs), swapping `InitializeSecurityContextW`→`AcceptSecurityContextW` and
-  `SECPKG_CRED_OUTBOUND`→`_INBOUND`. **closeListener** = closesocket +
-  FreeCredentialsHandle. This is ~1000+ LOC of intricate, security-sensitive
-  SSPI/CryptoAPI codegen (the macOS server analog `tls/macos/server.rs` is 1788
-  LOC); deferred to its own focused sub-plan (like H/J) — a subtly-wrong TLS
-  handshake or cert-key association is a security hole and must not be rushed. The
-  Schannel *client* (connect/read/write/close) is already box-proven (plan-47-J) and
-  supplies the reusable handshake/IO scaffolding.
-- [ ] Tests: goldens + a box run: Windows tls server ↔ a client, handshake + echo.
+### Phase F — `tls::` server  (COMPLETE — box-proven)
+- [x] **Advertised + implemented** `tls.listen`/`accept`/`closeListener` over Schannel
+  (new `tls/schannel_server.rs`, ~1000 LOC): listen binds a Winsock socket + builds
+  the server credential (PEM cert/key → DER via CryptStringToBinaryA →
+  CertCreateCertificateContext; PKCS#8→PKCS#1 via CryptDecodeObjectEx ×2 →
+  CryptImportKey into a **named keyset container** → CERT_KEY_PROV_INFO(AT_KEYEXCHANGE)
+  → AcquireCredentialsHandleW(SECPKG_CRED_INBOUND)); accept does WSAPoll+accept then
+  the AcceptSecurityContext handshake loop reusing the client SecBuffer/STATE
+  machinery; closeListener frees the credential + socket. **Two real fixes:**
+  (1) `SEC_E_NO_CREDENTIALS` — an ephemeral/VERIFYCONTEXT key isn't reachable by
+  Schannel's CryptGetUserKey, so a *named* container is required; (2) the legacy
+  CAPI key cannot do TLS 1.3 RSA-PSS, so `SCHANNEL_CRED.grbitEnabledProtocols` is
+  pinned to `SP_PROT_TLS1_2_SERVER` (0x400) — without it AcceptSecurityContext
+  writes 0 bytes on the first ClientHello. Also fixed a **latent client bug**
+  (`schannel_impl.rs`): `tls::connect` left `RECV_LEN` non-zero after the handshake,
+  stranding every read from a TLS 1.2 server (invisible against google's TLS 1.3).
+- [x] Tests: box handshake proofs — `openssl s_client -tls1_2` full handshake +
+  encrypted echo (`hello-tls`→`echo:hello-tls`, server `server_done`); a PowerShell
+  `SslStream` client (`proto=Tls12 cipher=Aes256`, echo received); and an MFB↔MFB
+  run with the cert trusted. Client-vs-google (TLS 1.3) still passes (no regression).
+  Full `cargo test` green.
 
-Acceptance: a Windows-built tls listen/accept/echo server completes a handshake with a client on the box. **NOT MET** — deferred as a focused security-sensitive sub-plan; design scoped above.
-Commit: —
+Acceptance: a Windows-built tls listen/accept/echo server completes a handshake with a client on the box. **MET** — box-proven (openssl + PowerShell SslStream + MFB↔MFB).
+Commit: 8138a3e2d (server TLS1.2 pin + client RECV_LEN fix; base impl in 0cbfe4463)
 
 ### Phase G — COM/GUID codegen spike (audio premise)
 - [ ] Add the 16-byte GUID data-object kind; add the vtable-call emitter; `ole32` import rows.
