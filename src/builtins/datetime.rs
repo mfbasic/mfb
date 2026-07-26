@@ -8,7 +8,6 @@
 //! `localOffset`) that lower to libc runtime helpers (§8.2).
 
 use std::borrow::Cow;
-use std::path::Path;
 
 // Public, documented surface. Each maps to an internal `__datetime_<name>`
 // implementation in the `.mfb` (see `implementation_name`), except the three
@@ -356,32 +355,12 @@ pub(crate) fn default_argument_padding(
     }
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-datetime>"),
-        "builtins/datetime.mfb",
-        include_str!("datetime_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "datetime")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "datetime",
+    "<builtin-datetime>",
+    "builtins/datetime.mfb",
+    include_str!("datetime_package.mfb")
+);
 
 use super::exact;
 

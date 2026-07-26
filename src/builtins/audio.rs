@@ -18,7 +18,6 @@
 //! no two internal names collide.
 
 use std::borrow::Cow;
-use std::path::Path;
 
 pub(crate) const AUDIO_INPUT_TYPE: &str = "AudioInput";
 pub(crate) const AUDIO_OUTPUT_TYPE: &str = "AudioOutput";
@@ -193,32 +192,12 @@ pub(crate) fn source_implementation_name(name: &str, arg_types: &[String]) -> Op
     }
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-audio>"),
-        "builtins/audio.mfb",
-        include_str!("audio_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "audio")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "audio",
+    "<builtin-audio>",
+    "builtins/audio.mfb",
+    include_str!("audio_package.mfb")
+);
 
 /// Per-overload parameter names for the device-open calls, whose two overloads
 /// disagree on where `sampleRate`/`channels`/`bufferFrames` sit.

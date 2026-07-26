@@ -17,7 +17,6 @@
 //! never needs the companion signature.
 
 use std::borrow::Cow;
-use std::path::Path;
 
 pub(crate) const FLOAT2_TYPE: &str = "Float2";
 pub(crate) const FLOAT3_TYPE: &str = "Float3";
@@ -369,32 +368,12 @@ pub(crate) fn tostring_override_target(type_name: &str) -> Option<&'static str> 
     }
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-vector>"),
-        "builtins/vector.mfb",
-        include_str!("vector_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "vector")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "vector",
+    "<builtin-vector>",
+    "builtins/vector.mfb",
+    include_str!("vector_package.mfb")
+);
 
 #[cfg(test)]
 mod tests {

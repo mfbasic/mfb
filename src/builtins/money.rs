@@ -9,7 +9,6 @@
 //! plumbing that makes the enum visible.
 
 use std::borrow::Cow;
-use std::path::Path;
 
 const SET_ROUNDING: &str = "money.setRounding";
 const GET_ROUNDING: &str = "money.getRounding";
@@ -82,32 +81,12 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     Some(span)
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-money>"),
-        "builtins/money.mfb",
-        include_str!("money_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "money")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "money",
+    "<builtin-money>",
+    "builtins/money.mfb",
+    include_str!("money_package.mfb")
+);
 
 use super::exact;
 

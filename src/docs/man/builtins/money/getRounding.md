@@ -19,7 +19,7 @@ IMPORT money
 ```
 
 `money` is a built-in package, so `IMPORT money` needs no manifest dependency.
-[[src/builtins/money.rs:augmented_project]]
+[[src/builtins/money.rs:package_source_glue]]
 
 ## Description
 

@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::path::Path;
 
 // Byte<->text and Unicode codecs, implemented in MFBASIC source over `bits`,
 // `strings`, and `collections` (see `encoding_package.mfb`). Public names map to
@@ -252,32 +251,12 @@ pub(crate) fn is_overloaded(callee: &str) -> bool {
     matches!(callee, UTF8_ENCODE | UTF8_DECODE)
 }
 
-pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source_internal(
-        Path::new("<builtin-encoding>"),
-        "builtins/encoding.mfb",
-        include_str!("encoding_package.mfb"),
-    )
-}
-
-pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
-    ast.files.iter().any(|file| {
-        file.imports
-            .iter()
-            .any(|import| import.package_name() == "encoding")
-    })
-}
-
-pub(crate) fn augmented_project(
-    ast: &crate::ast::AstProject,
-) -> Result<crate::ast::AstProject, ()> {
-    if !uses_package(ast) {
-        return Ok(ast.clone());
-    }
-    let mut augmented = ast.clone();
-    augmented.files.push(source_file()?);
-    Ok(augmented)
-}
+super::package_source_glue!(
+    "encoding",
+    "<builtin-encoding>",
+    "builtins/encoding.mfb",
+    include_str!("encoding_package.mfb")
+);
 
 #[cfg(test)]
 mod tests {

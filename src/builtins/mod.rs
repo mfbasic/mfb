@@ -37,6 +37,45 @@ pub(super) fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .all(|(actual, expected)| actual == expected)
 }
 
+/// bug-340 A2: generate the `source_file` / `uses_package` / `augmented_project`
+/// trio that was copied byte-for-byte into every uniform builtin-package module.
+/// The four per-module literals are the package name, the synthetic path label,
+/// the doc path, and the package source text. `$src` is an *expression* (not a
+/// path), so the `include_str!` is written at the invocation site and resolves
+/// relative to the invoking module's file; a module may also pass a `concat!` of
+/// several `include_str!`s (crypto's five-file companion).
+///
+/// `regex`, `strings`, and `collections` opt out: `regex::source_file` joins two
+/// sources via `format!`; `strings::uses_package` gates on scalar-seam member
+/// usage; `collections::augmented_project` takes `AstProject` by value.
+macro_rules! package_source_glue {
+    ($pkg:literal, $label:literal, $doc:literal, $src:expr $(,)?) => {
+        pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+            crate::ast::parse_source_internal(std::path::Path::new($label), $doc, $src)
+        }
+
+        pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
+            ast.files.iter().any(|file| {
+                file.imports
+                    .iter()
+                    .any(|import| import.package_name() == $pkg)
+            })
+        }
+
+        pub(crate) fn augmented_project(
+            ast: &crate::ast::AstProject,
+        ) -> Result<crate::ast::AstProject, ()> {
+            if !uses_package(ast) {
+                return Ok(ast.clone());
+            }
+            let mut augmented = ast.clone();
+            augmented.files.push(source_file()?);
+            Ok(augmented)
+        }
+    };
+}
+pub(crate) use package_source_glue;
+
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,

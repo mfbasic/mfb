@@ -20,7 +20,7 @@ IMPORT audio
 
 `audio` is a built-in package, so no manifest dependency is required. The
 note/envelope records and `render` itself are supplied by a source companion that
-is injected only when a program imports `audio`. [[src/builtins/audio.rs:augmented_project]]
+is injected only when a program imports `audio`. [[src/builtins/audio.rs:package_source_glue]]
 
 ## Description
 
