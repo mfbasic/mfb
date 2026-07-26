@@ -8,6 +8,7 @@ mod coverage;
 mod doc;
 mod docs;
 mod fmt;
+mod html;
 mod internal_name;
 mod ir;
 mod lexer;

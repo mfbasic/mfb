@@ -11,6 +11,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::Path;
 
+use crate::html::escape;
+
 /// One instrumented statement: the project-relative source file and 1-based line.
 #[derive(Clone, Debug)]
 pub(crate) struct CovSlot {
@@ -265,20 +267,6 @@ fn anchor(path: &str, used: &mut HashSet<String>) -> String {
     candidate
 }
 
-fn escape(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
 const STYLE: &str = "\
 body { font-family: -apple-system, system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
 h1 { font-size: 1.4rem; }
@@ -387,16 +375,6 @@ mod tests {
         assert_eq!(percent(0, 4), "0%");
         // No instrumented lines → an em dash rather than a divide-by-zero.
         assert_eq!(percent(0, 0), "—");
-    }
-
-    #[test]
-    fn escape_replaces_html_metacharacters() {
-        assert_eq!(
-            escape("a & b < c > d \"e\""),
-            "a &amp; b &lt; c &gt; d &quot;e&quot;"
-        );
-        // Ordinary text passes through untouched.
-        assert_eq!(escape("plain"), "plain");
     }
 
     #[test]
