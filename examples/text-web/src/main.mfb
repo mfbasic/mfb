@@ -113,8 +113,8 @@ END FUNC
 
 ' The far-left status glyph in the top bar.
 FUNC spinnerGlyph(i AS Integer) AS String
-  LET frames AS String = "|/-\\"
-  RETURN strings::mid(frames, i MOD 4, 1)
+  LET frames AS String = "⣷⣯⣟⡿⢿⣻⣽⣾"
+  RETURN strings::mid(frames, i MOD 8, 1)
 END FUNC
 
 FUNC indicatorText(loadState AS String, secure AS Boolean, spinner AS Integer) AS String
