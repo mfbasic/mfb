@@ -332,11 +332,33 @@ source-generic `merge`/`mapValues`.
   element-by-element leaving `ready=0`, so the next `get` rebuilds the index.
 
 **Fixes (value semantics preserved — same survivor set + iteration order).**
-- **C1:** `try_inplace_remove_key_assign` (mirror `try_inplace_set_assign`'s ownership
-  gate) — compact the entry array + data region down by one slot in place, and
-  **build the bucket table incrementally during the compaction pass** (set `ready=1`),
-  backward-shifting the probe chain so no tombstones and probe order stays byte-identical.
-  Removes both O(N) sweeps of `mapchurn churn`.
+- **[~] C1 — implementation-ready design (investigated at file:line this session; NOT yet
+  implemented). Plan CORRECTION: no new in-place path is needed.** The original design
+  (`try_inplace_remove_key_assign` compacting in place) is more than required — the existing
+  native `lower_map_remove_key` (`map_mutate.rs:1229`) **already** does a fresh-alloc copy that
+  **reserves the bucket region** (`emit_reserve_map_buckets(true, …)` at `:1364`, sizing
+  `2*capacity*8` after the data region). It just leaves `BUCKETS_READY=0`
+  (`emit_write_list_header_from_registers` → `collection_buffer.rs:181`), so the paired
+  `hasKey` then rebuilds the whole index via `_mfb_rt_map_probe` — a **second** O(N) sweep per
+  churn cycle. **The win (2 O(N) sweeps → 1) requires FUSING the bucket-index build into the
+  existing copy loop** (a *separate* post-copy build loop is no net win — it just moves the O(N)
+  from `hasKey` to `removeKey`). Concretely: (a) after the alloc+header write, **zero** the
+  reserved bucket region (`2*capacity*8` bytes at `result + HEADER + capacity*ENTRY_SIZE +
+  dataCapacity`; arena memory is poisoned, not zero); (b) set `BUCKETS_READY=1`; (c) in the
+  copy loop's `copy_keep` arm, **after** `emit_copy_one_map_entry` writes survivor entry at dest
+  index `scratch13`, call `MAP_BUCKET_PUT_SYMBOL(result, destIndex)` — which hashes the just-written
+  key and places `destIndex` in its bucket slot. **The intricacy is register spilling:**
+  `MAP_BUCKET_PUT` is a `bl` (clobbers all caller-saved), and the copy loop keeps ~7 live values
+  in registers across iterations (`scratch11` src-index, `scratch10` count, `scratch12` src-entry,
+  `scratch17` dst-entry-base, `scratch20` src-data, `scratch21` dst-data, `scratch13` dst-count) —
+  all must be spilled to stack slots across the call and reloaded (the [[arena-alloc-clobbers-x14-x15]]
+  hazard). Capture `destIndex` before `emit_copy_one_map_entry` increments `scratch13`. Then
+  `mapchurn churn`'s next `set` maintains the index incrementally (`set-in-place` bucket_put fires
+  only when `ready==1`, `map_mutate.rs:886-909`) and `hasKey` is O(1). **Gate: the `mapchurn`
+  benchmark checksum (fast, catches any bucket-corruption as a wrong lookup) + full `cargo test`
+  + map acceptance fixtures + `artifact-gate.sh`.** ~80-120 LOC, its own debug/verify budget;
+  map-corruption risk, but checksum-catchable. Removes one of the two O(N) sweeps of
+  `mapchurn churn` (165 → ~90 ms est.).
 - **[x] C2-mapValues — LANDED.** Native `collections::mapValues` for a same-type 8-byte
   fixed-width value (V==U in Integer/Float/Fixed/Money; gate parses `#collections_mapValues$K$V$U`;
   else `.mfb`): copy the map's key/bucket structure once and rewrite each value payload in place
