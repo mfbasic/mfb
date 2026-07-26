@@ -563,6 +563,20 @@ Commit: —
   for env, a SRWLOCK branch in the shared `emit_env_lock`/`emit_env_unlock_return`
   (which today unconditionally emit `pthread_mutex_lock`/`unlock`; the static lock
   init `os_env_lock_init_hex` already has a Windows all-zero `SRWLOCK_INIT` arm).
+- **2026-07-26 (Phase B, `os::args` needs a POST-arena entry hook).** Beyond the
+  false "already used at entry" premise (above), the entry timing blocks the obvious
+  fix: the shared `capture_args` block (`entry.rs:60`) runs *before* the arena is
+  mapped (`ARENA_STATE_REGISTER` is set at `entry.rs:151`). A Windows argv capture
+  must `arena_alloc` to marshal each UTF-16 arg (from CommandLineToArgvW) into a
+  UTF-8 `char**`, so it cannot run at line 60. The clean design is a two-hook split:
+  a `platform.defers_arg_capture()` predicate that makes Windows SKIP the line-60
+  register/stack store (it would store garbage — the raw PE entry delivers no
+  argc/argv), plus a new `emit_capture_args_post_arena` hook invoked after the arena
+  setup doing GetCommandLineW → CommandLineToArgvW → per-arg UTF-16→UTF-8 arena
+  marshal → store `_mfb_rt_os_argc`/`_mfb_rt_os_argv` (then LocalFree). This is the
+  one Phase-B item that touches the shared program entry (floor-wide blast radius),
+  deferred to its own focused change rather than risking the box-proven console
+  entry. `lower_args` itself is unchanged. **Remaining Phase-B work = `os::args`.**
 - **2026-07-26 (Phase D, the `term.rs:238/323/809` "0" arms need no change).** The
   Feature map says to "wire `term.rs:238,323,809` Windows arms (currently `"0"`
   placeholders)". Those placeholders are the ioctl *request value* for
