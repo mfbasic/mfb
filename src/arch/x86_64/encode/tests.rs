@@ -12,15 +12,9 @@ use crate::target::shared::code::{
 use std::collections::HashMap;
 
 fn fresh_encoder() -> Encoder {
-    Encoder {
-        text: Vec::new(),
-        data: Vec::new(),
-        symbols: Vec::new(),
-        relocations: Vec::new(),
-        imports: HashMap::new(),
-        labels: HashMap::new(),
-        patches: Vec::new(),
-    }
+    // Delegates to the one shared constructor (bug-341-C2); the struct literal
+    // lives only in `InstructionEncoder::new` now (bug-341-B1).
+    <Encoder as crate::arch::encode_plan::InstructionEncoder>::new(Vec::new(), HashMap::new())
 }
 
 /// Encode a single instruction and return its bytes, asserting the reported size
