@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/byte-identity/link-const-pins
+Wrote AST to tests/byte-identity/link-const-pins/link_const_pins_cover.ast
+Wrote IR to tests/byte-identity/link-const-pins/link_const_pins_cover.ir
+[exit 0]

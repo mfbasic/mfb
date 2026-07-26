@@ -1,0 +1,105 @@
+{
+  "project": "link_const_pins_cover",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 15 }
+    ],
+    "items": [
+    {
+      "kind": "link",
+      "library": "c",
+      "alias": "libc",
+      "line": 17,
+      "cstructs": [
+      ],
+      "functions": [
+      {
+        "kind": "linkFunc",
+        "name": "preadPinned",
+        "symbol": "pread",
+        "returnResource": false,
+        "returnType": "List OF Byte",
+        "returnState": null,
+        "line": 21,
+        "params": [
+        { "name": "fd", "type": "Integer", "default": null, "line": 21 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 23 },
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 23 },
+          { "name": "nbyte", "ctype": "CInt64", "out": false, "line": 23 },
+          { "name": "offset", "ctype": "CInt64", "out": false, "line": 23 }
+          ],
+          "returnName": "got",
+          "returnCType": "CInt64"
+        },
+        "consts": [
+        { "slot": "nbyte", "value": { "kind": "number", "value": "16" }, "line": 25 },
+        { "slot": "offset", "value": { "kind": "number", "value": "0" }, "line": 26 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": null,
+        "result": { "kind": "identifier", "value": "buf" },
+        "free": null
+      },
+      {
+        "kind": "linkFunc",
+        "name": "preadTriple",
+        "symbol": "pread",
+        "returnResource": false,
+        "returnType": "List OF Byte",
+        "returnState": null,
+        "line": 32,
+        "params": [
+        { "name": "fd", "type": "Integer", "default": null, "line": 32 }
+        ],
+        "abi": {
+          "slots": [
+          { "name": "fd", "ctype": "CInt32", "out": false, "line": 34 },
+          { "name": "buf", "ctype": "CBuffer", "out": true, "line": 34 },
+          { "name": "nbyte", "ctype": "CInt64", "out": false, "line": 34 },
+          { "name": "offset", "ctype": "CInt64", "out": false, "line": 34 }
+          ],
+          "returnName": "got",
+          "returnCType": "CInt64"
+        },
+        "consts": [
+        { "slot": "fd", "value": { "kind": "number", "value": "3" }, "line": 36 },
+        { "slot": "nbyte", "value": { "kind": "number", "value": "24" }, "line": 37 },
+        { "slot": "offset", "value": { "kind": "number", "value": "8" }, "line": 38 }
+        ],
+        "bindIn": [
+        ],
+        "bindState": null,
+        "successOn": null,
+        "result": { "kind": "identifier", "value": "buf" },
+        "free": null
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 43,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadPinned", "arguments": [{ "kind": "number", "value": "3" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "a" }] }] }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "List OF Byte", "value": { "kind": "call", "callee": "libc.preadTriple", "arguments": [{ "kind": "number", "value": "0" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] }, "line": 47 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 48 }
+      ]
+    }
+    ]
+  }
+  ]
+}

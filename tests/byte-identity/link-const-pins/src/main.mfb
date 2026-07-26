@@ -1,0 +1,49 @@
+' bug-388: byte-identity coverage for a LINK wrapper that carries MULTIPLE
+' CONST pins on abi-slots inside a function with an OUT CBuffer.
+'
+' The thunk generator materializes each CONST pin's immediate into its cslot
+' word before the call, so a `BUFFER … SIZE` expression can read it. That
+' materialization loop used to iterate the pin set as a `HashMap`, so the
+' `move_immediate`/`store_u64` pair for each pin was emitted in per-process
+' hash order — different `.ncode` bytes run-to-run whenever a single CBuffer
+' function declared two or more matching pins (the bug-01 class, a second site
+' bug-388 found). No existing fixture had >=2 CONST pins on one CBuffer
+' function, so the site stayed latent; this fixture pins its `.ncode` so a
+' regression re-flakes the sum.
+'
+'   ssize_t pread(int fd, void *buf, size_t nbyte, off_t offset);
+IMPORT io
+
+LINK "c" AS libc
+  ' `nbyte` and `offset` are BOTH abi-slots AND CONST pins, so both are
+  ' materialized in the CBuffer size-staging loop. `SIZE nbyte` reads one of the
+  ' pins, exercising the pin->cslot path the loop exists for.
+  FUNC preadPinned(fd AS Integer) AS List OF Byte
+    SYMBOL "pread"
+    ABI (fd CInt32, buf OUT CBuffer, nbyte CInt64, offset CInt64) AS got CInt64
+    BUFFER buf SIZE nbyte
+    CONST nbyte = 16
+    CONST offset = 0
+    RETURN buf LENGTH got
+  END FUNC
+
+  ' A second CBuffer function with three pins raises the ordering entropy: 3!
+  ' emission orders, so a HashMap-order regression is caught with near-certainty.
+  FUNC preadTriple(fd AS Integer) AS List OF Byte
+    SYMBOL "pread"
+    ABI (fd CInt32, buf OUT CBuffer, nbyte CInt64, offset CInt64) AS got CInt64
+    BUFFER buf SIZE nbyte + offset
+    CONST fd = 3
+    CONST nbyte = 24
+    CONST offset = 8
+    RETURN buf LENGTH got
+  END FUNC
+END LINK
+
+FUNC main() AS Integer
+  LET a AS List OF Byte = libc::preadPinned(3)
+  io::print(toString(len(a)))
+  LET b AS List OF Byte = libc::preadTriple(0)
+  io::print(toString(len(b)))
+  RETURN 0
+END FUNC

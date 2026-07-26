@@ -761,11 +761,19 @@ fn lower_link_thunk(
         for (name, &pidx) in &param_index {
             size_offsets.insert(name, param_base + pidx * 8);
         }
-        for (pin_name, value) in &const_for {
+        // Iterate the declared pin order (`function.consts` is a Vec), NOT
+        // `const_for` (a HashMap): the body EMITS an instruction pair per pin, so
+        // a hash-order walk leaked per-process iteration order into the `.ncode`
+        // bytes whenever a single CBuffer function carried two or more matching
+        // pins (bug-388, the bug-01 class). Each pin writes its own distinct
+        // cslot word, so declaration order is semantically neutral and canonical.
+        // `const_for` stays for the O(1) `.get()` lookup further below.
+        for (pin_name, value) in &function.consts {
+            let pin_name = pin_name.as_str();
             let Some(pin_idx) = function
                 .abi_slots
                 .iter()
-                .position(|s| &s.name.as_str() == pin_name)
+                .position(|s| s.name.as_str() == pin_name)
             else {
                 continue;
             };

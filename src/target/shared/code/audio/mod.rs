@@ -98,7 +98,7 @@ pub(super) const DEVICE_RECORD_SIZE: usize = 48;
 // AudioQueue phases.
 pub(super) use super::emit_alloc;
 pub(super) use super::native_helpers::{
-    emit_arena_free, emit_data_address, emit_fail, hex_encode_cstring,
+    emit_arena_free, emit_data_address, emit_external_int_call, emit_fail, hex_encode_cstring,
 };
 
 // The emitted AudioQueue output callback (macOS): a C-ABI function the OS calls
@@ -112,6 +112,7 @@ pub(in crate::target::shared::code) const AUDIO_INPUT_CALLBACK_SYMBOL: &str =
 mod alsa;
 mod common;
 mod macos;
+mod windows;
 
 // Scaffolding both backends share (bug-330); imported here so each backend's
 // `use super::*` picks them up.
@@ -131,10 +132,10 @@ pub(in crate::target::shared::code) fn lower_audio_helper(
     match platform.family() {
         PlatformFamily::MacOS => macos::lower_audio_macos(call, symbol, platform_imports, platform),
         PlatformFamily::Linux => alsa::lower_audio_alsa(call, symbol, platform_imports, platform),
-        // No Windows audio backend is in plan-47's scope. Falling through to ALSA
-        // would bake libasound sonames into a Windows binary (§3.2), so reject
-        // loudly until a Windows audio sub-plan owns this.
-        PlatformFamily::Windows => unreachable!("no Windows audio backend (plan-47 non-goal)"),
+        // Windows drives WASAPI over COM (plan-66 G+H): the `windows` submodule.
+        PlatformFamily::Windows => {
+            windows::lower_audio_windows(call, symbol, platform_imports, platform)
+        }
     }
 }
 
@@ -151,12 +152,15 @@ fn alsa_data_objects() -> Vec<CodeDataObject> {
 pub(in crate::target::shared::code) enum AudioBackend {
     CoreAudio,
     Alsa,
-    /// Platforms with no audio surface (console Windows — plan-47 non-goal).
-    /// `AudioBackend::select` is called for EVERY build to compute the audio data
-    /// objects, not only audio-using ones, so this must be a real "no audio"
-    /// answer rather than `unreachable!`: it emits no data objects and no
-    /// callbacks. An audio-using Windows program is rejected earlier, at the
-    /// `runtime_calls` capability gate (audio.* is not advertised).
+    /// Windows WASAPI over COM (plan-66 G+H). Emits the read-only GUID/CLSID/IID
+    /// data objects the COM `CoCreateInstance`/`Activate`/`GetService` calls
+    /// reference; needs no OS callback thread (WASAPI is event-driven).
+    Wasapi,
+    /// Platforms with no audio surface. `AudioBackend::select` is called for EVERY
+    /// build to compute the audio data objects, not only audio-using ones, so this
+    /// must be a real "no audio" answer rather than `unreachable!`: it emits no
+    /// data objects and no callbacks.
+    #[allow(dead_code)]
     NoAudio,
 }
 
@@ -167,7 +171,7 @@ impl AudioBackend {
         match platform.family() {
             PlatformFamily::MacOS => AudioBackend::CoreAudio,
             PlatformFamily::Linux => AudioBackend::Alsa,
-            PlatformFamily::Windows => AudioBackend::NoAudio,
+            PlatformFamily::Windows => AudioBackend::Wasapi,
         }
     }
 
@@ -186,6 +190,16 @@ impl AudioBackend {
                     .any(|symbol| symbol.starts_with("_mfb_rt_audio_"))
                 {
                     alsa_data_objects()
+                } else {
+                    Vec::new()
+                }
+            }
+            AudioBackend::Wasapi => {
+                if runtime_symbols
+                    .iter()
+                    .any(|symbol| symbol.starts_with("_mfb_rt_audio_"))
+                {
+                    windows::data_objects()
                 } else {
                     Vec::new()
                 }

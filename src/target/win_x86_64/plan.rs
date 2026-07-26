@@ -18,6 +18,9 @@ const BCRYPT: &str = "bcrypt.dll";
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
 const ADVAPI32: &str = "advapi32.dll";
+// WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
+// endpoint objects themselves are called through their vtables (no import).
+const OLE32: &str = "ole32.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
     plan::lower_module_for_platform(module, &Platform)
@@ -260,6 +263,21 @@ impl NativePlanPlatform for Platform {
                 import("BCryptVerifySignature", BCRYPT, required_by),
             ],
             "crypto.randomBytes" => vec![import("BCryptGenRandom", BCRYPT, required_by)],
+            // WASAPI audio (plan-66 G+H). ole32 provides the COM runtime and object
+            // activation (CoInitializeEx/CoCreateInstance/CoTaskMemFree); kernel32
+            // provides the event-driven wait primitives. The IMMDevice*/IAudioClient*/
+            // IAudio{Render,Capture}Client/IPropertyStore methods are called through
+            // their COM vtables (an indirect `call r/m64`), so they need no import.
+            // Any audio.* call declares the whole set; the merged IAT dedups.
+            call if call.starts_with("audio.") => vec![
+                import("CoInitializeEx", OLE32, required_by),
+                import("CoCreateInstance", OLE32, required_by),
+                import("CoTaskMemFree", OLE32, required_by),
+                import("CreateEventW", KERNEL32, required_by),
+                import("WaitForSingleObject", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetTickCount64", KERNEL32, required_by),
+            ],
             // TLS client over Schannel (plan-47-J): SSPI (secur32), the cert-chain
             // policy check (crypt32), the socket layer (ws2_32), and the wide-string
             // marshal for the SNI/target name (kernel32). Any tls.* call declares

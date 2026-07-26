@@ -125,6 +125,21 @@ const RUNTIME_CALLS: &[&str] = &[
     "tls.listen",
     "tls.accept",
     "tls.closeListener",
+    // WASAPI audio (plan-66 G+H): the full audio:: surface over COM.
+    "audio.devices",
+    "audio.openOutput",
+    "audio.openOutputDevice",
+    "audio.openInput",
+    "audio.openInputDevice",
+    "audio.write",
+    "audio.read",
+    "audio.readTimeout",
+    "audio.poll",
+    "audio.pollTimeout",
+    "audio.available",
+    "audio.xruns",
+    "audio.closeInput",
+    "audio.closeOutput",
 ];
 
 impl NativeBackend for Backend {
