@@ -161,6 +161,109 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Sign/length prologue shared by the base-10 and radix string→Integer parses:
+    /// load the length, reject empty, point `cursor` at the first byte, zero
+    /// `index`/`acc`/`negative`, consume an optional leading `+`/`-`, and reject a
+    /// sign with no digits. The caller mints every register (and moves `source`
+    /// into `string`, which sits at a different point in the two parsers) and every
+    /// label, so this emits only the shared op run and stays byte-identical.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_string_to_int_sign_prologue(
+        &mut self,
+        string: &str,
+        length: &str,
+        index: &str,
+        cursor: &str,
+        byte: &str,
+        acc: &str,
+        negative: &str,
+        invalid: &str,
+        first_not_minus: &str,
+        sign_done: &str,
+    ) {
+        self.emit(abi::load_u64(length, string, 0));
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(invalid));
+        self.emit(abi::add_immediate(cursor, string, 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::move_immediate(acc, "Integer", "0"));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "45"));
+        self.emit(abi::branch_ne(first_not_minus));
+        self.emit(abi::move_immediate(negative, "Integer", "1"));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(sign_done));
+        self.emit(abi::label(first_not_minus));
+        self.emit(abi::compare_immediate(byte, "43"));
+        self.emit(abi::branch_ne(sign_done));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::label(sign_done));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(invalid));
+    }
+
+    /// The UNSIGNED cutoff/cutlim overflow guard shared by both integer parses,
+    /// emitted once so its hazard note lives in a single place. `cutoff`/`cutlim`
+    /// bound the unsigned magnitude, so the compares are unsigned (`branch_hi`):
+    /// parsing i64::MIN's magnitude drives `acc` to exactly 2^63 — negative as a
+    /// signed i64 — which a signed compare would wrongly admit, wrapping silently
+    /// (bug-49 / bug-144). Equality is sign-agnostic; positive inputs stay below
+    /// 2^63 where unsigned and signed order agree.
+    pub(super) fn emit_int_parse_cutoff_guard(
+        &mut self,
+        acc: &str,
+        cutoff: &str,
+        digit: &str,
+        cutlim: &str,
+        overflow: &str,
+        cutoff_equal: &str,
+        digit_ok: &str,
+    ) {
+        self.emit(abi::compare_registers(acc, cutoff));
+        self.emit(abi::branch_hi(overflow));
+        self.emit(abi::branch_eq(cutoff_equal));
+        self.emit(abi::branch(digit_ok));
+        self.emit(abi::label(cutoff_equal));
+        self.emit(abi::compare_registers(digit, cutlim));
+        self.emit(abi::branch_hi(overflow));
+        self.emit(abi::label(digit_ok));
+    }
+
+    /// Sign-application epilogue shared by both integer parses: negate `acc` into
+    /// `result` when the sign was `-`, else copy it, then the trap tails. The
+    /// caller mints `result` and every label, so this is byte-identical to the two
+    /// hand-written copies.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn emit_int_parse_sign_epilogue(
+        &mut self,
+        result: &str,
+        acc: &str,
+        negative: &str,
+        loop_done: &str,
+        positive: &str,
+        done: &str,
+        invalid: &str,
+        overflow: &str,
+    ) -> Result<(), String> {
+        self.emit(abi::label(loop_done));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(positive));
+        self.emit(abi::subtract_registers(result, abi::ZERO, acc));
+        self.emit(abi::branch(done));
+        self.emit(abi::label(positive));
+        self.emit(abi::move_register(result, acc));
+        self.emit(abi::branch(done));
+        self.emit(abi::label(invalid));
+        self.emit_invalid_format_return()?;
+        self.emit(abi::label(overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(done));
+        Ok(())
+    }
+
     pub(super) fn emit_string_to_int_value(
         &mut self,
         source_register: &str,
@@ -203,28 +306,18 @@ impl CodeBuilder<'_> {
         let result = self.allocate_register()?;
 
         self.emit(abi::move_register(string, source_register));
-        self.emit(abi::load_u64(length, string, 0));
-        self.emit(abi::compare_immediate(length, "0"));
-        self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::add_immediate(cursor, string, 8));
-        self.emit(abi::move_immediate(index, "Integer", "0"));
-        self.emit(abi::move_immediate(acc, "Integer", "0"));
-        self.emit(abi::move_immediate(negative, "Integer", "0"));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "45"));
-        self.emit(abi::branch_ne(&first_not_minus));
-        self.emit(abi::move_immediate(negative, "Integer", "1"));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::branch(&sign_done));
-        self.emit(abi::label(&first_not_minus));
-        self.emit(abi::compare_immediate(byte, "43"));
-        self.emit(abi::branch_ne(&sign_done));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::label(&sign_done));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(&invalid));
+        self.emit_string_to_int_sign_prologue(
+            string,
+            length,
+            index,
+            cursor,
+            byte,
+            acc,
+            negative,
+            &invalid,
+            &first_not_minus,
+            &sign_done,
+        );
         self.emit(abi::move_immediate(cutoff, "Integer", "922337203685477580"));
         self.emit(abi::move_immediate(cutlim, "Integer", "7"));
         self.emit(abi::compare_immediate(negative, "0"));
@@ -243,40 +336,31 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(byte, "57"));
         self.emit(abi::branch_hi(&invalid));
         self.emit(abi::subtract_immediate(digit, byte, 48));
-        // UNSIGNED overflow guard (bug-144): parsing i64::MIN's magnitude drives
-        // `acc` to exactly 2^63, which as an i64 register is negative. A signed
-        // `>` would then see 2^63 as less than the positive `cutoff` and admit a
-        // further digit, wrapping silently. `cutoff`/`cutlim` bound the unsigned
-        // magnitude, so the compares must be unsigned (`branch_hi`); equality is
-        // sign-agnostic, and positive inputs stay below 2^63 where unsigned and
-        // signed order agree. Mirrors the base-N path (bug-49).
-        self.emit(abi::compare_registers(acc, cutoff));
-        self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::branch_eq(&cutoff_equal));
-        self.emit(abi::branch(&digit_ok));
-        self.emit(abi::label(&cutoff_equal));
-        self.emit(abi::compare_registers(digit, cutlim));
-        self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::label(&digit_ok));
+        self.emit_int_parse_cutoff_guard(
+            acc,
+            cutoff,
+            digit,
+            cutlim,
+            &overflow,
+            &cutoff_equal,
+            &digit_ok,
+        );
         self.emit(abi::multiply_registers(acc, acc, ten));
         self.emit(abi::add_registers(acc, acc, digit));
         self.emit(abi::add_immediate(index, index, 1));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::branch(&loop_start));
 
-        self.emit(abi::label(&loop_done));
-        self.emit(abi::compare_immediate(negative, "0"));
-        self.emit(abi::branch_eq(&positive));
-        self.emit(abi::subtract_registers(&result, abi::ZERO, acc));
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&positive));
-        self.emit(abi::move_register(&result, acc));
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&invalid));
-        self.emit_invalid_format_return()?;
-        self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
-        self.emit(abi::label(&done));
+        self.emit_int_parse_sign_epilogue(
+            &result,
+            acc,
+            negative,
+            &loop_done,
+            &positive,
+            &done,
+            &invalid,
+            &overflow,
+        )?;
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
@@ -350,28 +434,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(base, "36"));
         self.emit(abi::branch_gt(&invalid));
 
-        self.emit(abi::load_u64(length, string, 0));
-        self.emit(abi::compare_immediate(length, "0"));
-        self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::add_immediate(cursor, string, 8));
-        self.emit(abi::move_immediate(index, "Integer", "0"));
-        self.emit(abi::move_immediate(acc, "Integer", "0"));
-        self.emit(abi::move_immediate(negative, "Integer", "0"));
-        self.emit(abi::load_u8(byte, cursor, 0));
-        self.emit(abi::compare_immediate(byte, "45"));
-        self.emit(abi::branch_ne(&first_not_minus));
-        self.emit(abi::move_immediate(negative, "Integer", "1"));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::branch(&sign_done));
-        self.emit(abi::label(&first_not_minus));
-        self.emit(abi::compare_immediate(byte, "43"));
-        self.emit(abi::branch_ne(&sign_done));
-        self.emit(abi::add_immediate(index, index, 1));
-        self.emit(abi::add_immediate(cursor, cursor, 1));
-        self.emit(abi::label(&sign_done));
-        self.emit(abi::compare_registers(index, length));
-        self.emit(abi::branch_ge(&invalid));
+        self.emit_string_to_int_sign_prologue(
+            string,
+            length,
+            index,
+            cursor,
+            byte,
+            acc,
+            negative,
+            &invalid,
+            &first_not_minus,
+            &sign_done,
+        );
 
         // Overflow cutoff: limit = negative ? 2^63 : i64::MAX. With base >= 2,
         // cutoff = limit / base and cutlim = limit - cutoff*base are computed
@@ -414,41 +488,32 @@ impl CodeBuilder<'_> {
         // Reject a digit that is not valid for `base` (e.g. '9' in base 2).
         self.emit(abi::compare_registers(digit, base));
         self.emit(abi::branch_ge(&invalid));
-        // acc = acc*base + digit, with the standard cutoff overflow guard.
-        // `cutoff`/`cutlim` are derived from an UNSIGNED `limit` (2^63 for the
-        // negative case), so the comparisons must be UNSIGNED too: for a
-        // power-of-two base the accumulator can reach exactly 2^63, which as an
-        // i64 register is negative and would fool a signed compare into skipping
-        // the trap (bug-49). `branch_hi` is unsigned `>`; equality is
-        // sign-agnostic. For positive inputs acc < 2^63, where unsigned and
-        // signed order agree, so this is regression-free.
-        self.emit(abi::compare_registers(acc, cutoff));
-        self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::branch_eq(&cutoff_equal));
-        self.emit(abi::branch(&digit_ok));
-        self.emit(abi::label(&cutoff_equal));
-        self.emit(abi::compare_registers(digit, cutlim));
-        self.emit(abi::branch_hi(&overflow));
-        self.emit(abi::label(&digit_ok));
+        // acc = acc*base + digit, with the shared cutoff overflow guard.
+        self.emit_int_parse_cutoff_guard(
+            acc,
+            cutoff,
+            digit,
+            cutlim,
+            &overflow,
+            &cutoff_equal,
+            &digit_ok,
+        );
         self.emit(abi::multiply_registers(acc, acc, base));
         self.emit(abi::add_registers(acc, acc, digit));
         self.emit(abi::add_immediate(index, index, 1));
         self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::branch(&loop_start));
 
-        self.emit(abi::label(&loop_done));
-        self.emit(abi::compare_immediate(negative, "0"));
-        self.emit(abi::branch_eq(&positive));
-        self.emit(abi::subtract_registers(&result, abi::ZERO, acc));
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&positive));
-        self.emit(abi::move_register(&result, acc));
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&invalid));
-        self.emit_invalid_format_return()?;
-        self.emit(abi::label(&overflow));
-        self.emit_overflow_return()?;
-        self.emit(abi::label(&done));
+        self.emit_int_parse_sign_epilogue(
+            &result,
+            acc,
+            negative,
+            &loop_done,
+            &positive,
+            &done,
+            &invalid,
+            &overflow,
+        )?;
 
         Ok(ValueResult {
             type_: "Integer".to_string(),
