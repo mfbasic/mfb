@@ -39,14 +39,6 @@ pub(crate) fn dispatch_command_error(err: CommandError) -> ! {
     }
 }
 
-/// Write an untrusted package blob into `packages_dir` under a fresh, exclusively
-/// created name, and return that staging path.
-///
-/// The blob is attacker-controlled until it has been verified, so it must never
-/// land on `packages/<name>.mfp` first: `fs::write` follows symlinks, so a
-/// pre-planted link at the destination would be written *through*. `create_new`
-/// refuses to open an existing path (symlink or not), and the staged file is
-/// promoted only after it verifies.
 /// Write `bytes` to the exclusively-created staging path `staged`, flushing to
 /// disk, and remove the partial file on any error. This is the shared
 /// write-and-sync half of [`stage_package_blob`] and [`install_vendor_file`]:
@@ -69,6 +61,14 @@ fn stage_bytes(staged: &Path, bytes: &[u8]) -> Result<(), String> {
         })
 }
 
+/// Write an untrusted package blob into `packages_dir` under a fresh, exclusively
+/// created name, and return that staging path.
+///
+/// The blob is attacker-controlled until it has been verified, so it must never
+/// land on `packages/<name>.mfp` first: `fs::write` follows symlinks, so a
+/// pre-planted link at the destination would be written *through*. `create_new`
+/// refuses to open an existing path (symlink or not), and the staged file is
+/// promoted only after it verifies.
 pub(crate) fn stage_package_blob(
     packages_dir: &Path,
     name: &str,
