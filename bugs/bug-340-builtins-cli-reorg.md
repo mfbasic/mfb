@@ -207,6 +207,21 @@ lines. Fix: move all 20 plus their tests into `src/builtins/collections.rs`
 (pure lift-and-shift, no call-graph surgery). Note for bug-327: this alone takes
 `general.rs` to ~860 lines.
 
+> **A5 partial (2026-07-25).** Two of this item's premises were wrong on
+> re-reading. (1) The `thread.rs` "290-line grammar" is mostly **thread-specific**
+> — `format_thread_type`, `thread_message`, `thread_parts`, `is_worker_thread_type`,
+> `split_thread_types`, … parse `Thread OF …` types and rightly live in `thread.rs`;
+> it was NOT moved to `mod.rs`. (2) The splitter duplication is not two functions
+> but **four**: `split_top_level_types` existed byte-identically in `thread.rs`,
+> `binary_repr::writer`, and `target::shared::code::builder_value_semantics`, and
+> `split_top_level_commas` sits in `mod.rs`. The real dedup landed: one
+> `pub(crate) split_top_level_types` in `builtins/mod.rs`, implemented as a thin
+> owned + empty-aware adapter over `split_top_level_commas` (so there is now ONE
+> depth-tracking loop), with all three former copies deleted and repointed. The
+> `[]`-vs-`[""]` empty-input contract each caller relied on is preserved.
+> Output-neutral (pure string helper, identical results); thread/binary_repr/
+> value-semantics suites green.
+
 ### A5 — `thread.rs` is call registration plus a 290-line type-string grammar
 
 `src/builtins/thread.rs` is 862 lines. Lines **`:211-501`** are a type-string

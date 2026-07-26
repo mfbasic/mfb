@@ -752,7 +752,7 @@ pub(super) fn parse_function_type(type_name: &str) -> Option<FunctionTypeSignatu
     let (params, returns) = split_function_type_rest(rest)?;
     Some(FunctionTypeSignature {
         isolated,
-        params: split_top_level_types(params),
+        params: crate::builtins::split_top_level_types(params),
         returns: returns.to_string(),
     })
 }
@@ -771,29 +771,6 @@ pub(super) fn split_function_type_rest(rest: &str) -> Option<(&str, &str)> {
         }
     }
     None
-}
-
-pub(super) fn split_top_level_types(params: &str) -> Vec<String> {
-    if params.trim().is_empty() {
-        return Vec::new();
-    }
-
-    let mut result = Vec::new();
-    let mut depth = 0usize;
-    let mut start = 0usize;
-    for (index, ch) in params.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                result.push(params[start..index].trim().to_string());
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    result.push(params[start..].trim().to_string());
-    result
 }
 
 pub(super) fn source_type_payload(

@@ -1141,6 +1141,7 @@ mod writer_tests {
 
     #[test]
     fn split_top_level_types_respects_nesting() {
+        use crate::builtins::split_top_level_types;
         assert!(split_top_level_types("").is_empty());
         assert!(split_top_level_types("  ").is_empty());
         assert_eq!(

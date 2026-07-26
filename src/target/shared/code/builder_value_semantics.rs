@@ -811,7 +811,11 @@ impl CodeBuilder<'_> {
                 function_type
                     .strip_prefix("ISOLATED FUNC(")?
                     .split_once(") AS ")
-                    .and_then(|(params, _)| split_top_level_types(params).into_iter().next())
+                    .and_then(|(params, _)| {
+                        crate::builtins::split_top_level_types(params)
+                            .into_iter()
+                            .next()
+                    })
             }
             "thread.isRunning" | "thread.poll" | "thread.isCancelled" => {
                 Some("Boolean".to_string())
@@ -920,24 +924,3 @@ impl CodeBuilder<'_> {
     }
 }
 
-fn split_top_level_types(params: &str) -> Vec<String> {
-    if params.trim().is_empty() {
-        return Vec::new();
-    }
-    let mut parts = Vec::new();
-    let mut depth = 0usize;
-    let mut start = 0usize;
-    for (index, ch) in params.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' => depth = depth.saturating_sub(1),
-            ',' if depth == 0 => {
-                parts.push(params[start..index].trim().to_string());
-                start = index + ch.len_utf8();
-            }
-            _ => {}
-        }
-    }
-    parts.push(params[start..].trim().to_string());
-    parts
-}
