@@ -56,6 +56,22 @@ impl CodeBuilder<'_> {
         collection_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
+        self.lower_list_get_common(collection_slot, key_slot, None, collection_type, element_type)
+    }
+
+    /// Shared body of list `get`/`getOr`: bounds-check the index and load the
+    /// element. `default_slot` is the `Miss` selector — `None` traps
+    /// (index-out-of-range), `Some(slot)` returns the default. Each variant mints
+    /// its own label prefix and result text, so output is byte-identical to the two
+    /// former standalone functions.
+    fn lower_list_get_common(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        default_slot: Option<usize>,
+        collection_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
         self.reset_temporary_registers();
         let collection = self.allocate_register()?;
         let index = self.allocate_register()?;
@@ -64,8 +80,13 @@ impl CodeBuilder<'_> {
         let entry = self.allocate_register()?;
         let value_offset = self.allocate_register()?;
         let value_length = self.allocate_register()?;
-        let invalid = self.label("list_get_invalid");
-        let done = self.label("list_get_done");
+        let (miss, done) = match default_slot {
+            None => (self.label("list_get_invalid"), self.label("list_get_done")),
+            Some(_) => (
+                self.label("list_get_or_default"),
+                self.label("list_get_or_done"),
+            ),
+        };
 
         self.emit(abi::load_u64(
             &collection,
@@ -74,10 +95,10 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
         self.emit(abi::compare_immediate(&index, "0"));
-        self.emit(abi::branch_lt(&invalid));
+        self.emit(abi::branch_lt(&miss));
         self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::branch_ge(&miss));
         self.emit_element_value_offset(
             &value_offset,
             &value_length,
@@ -94,14 +115,37 @@ impl CodeBuilder<'_> {
             &value_length,
         )?;
         self.emit(abi::branch(&done));
-        self.emit(abi::label(&invalid));
-        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&miss));
+        let text = match default_slot {
+            None => {
+                self.emit_index_out_of_range_return()?;
+                format!("get({collection_type}, Integer)")
+            }
+            Some(default_slot) => {
+                if element_type == "String" {
+                    // See `lower_map_get_or`: the found path materializes a fresh
+                    // owned string, so the default must be copied too — returning
+                    // the alias double-frees it and corrupts the arena.
+                    let default_ptr = self.allocate_register()?;
+                    self.emit(abi::load_u64(
+                        &default_ptr,
+                        abi::stack_pointer(),
+                        default_slot,
+                    ));
+                    let copied = self.emit_copy_owned_string(&default_ptr)?;
+                    self.emit(abi::move_register(&result, &copied));
+                } else {
+                    self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
+                }
+                format!("getOr({collection_type}, Integer, {element_type})")
+            }
+        };
         self.emit(abi::label(&done));
 
         Ok(ValueResult {
             type_: element_type.to_string(),
             location: result,
-            text: format!("get({collection_type}, Integer)"),
+            text,
         })
     }
 
@@ -492,67 +536,13 @@ impl CodeBuilder<'_> {
         collection_type: &str,
         element_type: &str,
     ) -> Result<ValueResult, String> {
-        self.reset_temporary_registers();
-        let collection = self.allocate_register()?;
-        let index = self.allocate_register()?;
-        let count = self.allocate_register()?;
-        let entry_offset = self.allocate_register()?;
-        let entry = self.allocate_register()?;
-        let value_offset = self.allocate_register()?;
-        let value_length = self.allocate_register()?;
-        let use_default = self.label("list_get_or_default");
-        let done = self.label("list_get_or_done");
-
-        self.emit(abi::load_u64(
-            &collection,
-            abi::stack_pointer(),
+        self.lower_list_get_common(
             collection_slot,
-        ));
-        self.emit(abi::load_u64(&index, abi::stack_pointer(), key_slot));
-        self.emit(abi::compare_immediate(&index, "0"));
-        self.emit(abi::branch_lt(&use_default));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&use_default));
-        self.emit_element_value_offset(
-            &value_offset,
-            &value_length,
-            &collection,
-            &index,
-            &entry_offset,
-            &entry,
+            key_slot,
+            Some(default_slot),
+            collection_type,
             element_type,
-        );
-        let result = self.emit_load_collection_payload(
-            element_type,
-            &collection,
-            &value_offset,
-            &value_length,
-        )?;
-        self.emit(abi::branch(&done));
-        self.emit(abi::label(&use_default));
-        if element_type == "String" {
-            // See `lower_map_get_or`: the found path materializes a fresh owned
-            // string, so the default must be copied too — returning the alias
-            // double-frees it and corrupts the arena.
-            let default_ptr = self.allocate_register()?;
-            self.emit(abi::load_u64(
-                &default_ptr,
-                abi::stack_pointer(),
-                default_slot,
-            ));
-            let copied = self.emit_copy_owned_string(&default_ptr)?;
-            self.emit(abi::move_register(&result, &copied));
-        } else {
-            self.emit(abi::load_u64(&result, abi::stack_pointer(), default_slot));
-        }
-        self.emit(abi::label(&done));
-
-        Ok(ValueResult {
-            type_: element_type.to_string(),
-            location: result,
-            text: format!("getOr({collection_type}, Integer, {element_type})"),
-        })
+        )
     }
 
     pub(super) fn lower_map_get_or(
