@@ -1,0 +1,30 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "link_const_pins_cover",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 43,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 44, "mutable": false, "name": "a", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "libc.preadPinned", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "a" }] }] }] } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "b", "type": "List OF Byte", "value": { "kind": "call", "type": "List OF Byte", "target": "libc.preadTriple", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "b" }] }] }] } },
+    { "op": "return", "line": 48, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
