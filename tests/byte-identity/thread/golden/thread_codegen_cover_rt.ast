@@ -1,0 +1,77 @@
+{
+  "project": "thread_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "fs", "line": 3 },
+    { "module": "thread_cover_worker", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "t1", "type": "Thread OF String RES File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.openStdIn", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.closeStdIn", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 19 },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "thread.isRunning", "arguments": [{ "kind": "identifier", "value": "t1" }] },
+        "line": 22,
+        "then": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "1" } }, "line": 23 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "call", "callee": "thread.poll", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "number", "value": "0" }] },
+        "line": 25,
+        "then": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "number", "value": "1" } }, "line": 26 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "string", "value": "alpha" }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "string", "value": "beta" }, { "kind": "number", "value": "0" }] }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "r1", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "r2", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "number", "value": "0" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "r1" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "r2" }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "pf1", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "bug-389-does-not-exist-1.txt" }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "identifier", "value": "pf1" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "pf2", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "bug-389-does-not-exist-2.txt" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "identifier", "value": "pf2" }, { "kind": "number", "value": "0" }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "wf1", "type": "File", "value": { "kind": "call", "callee": "thread.accept", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "wf1" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "wf2", "type": "File", "value": { "kind": "call", "callee": "thread.accept", "arguments": [{ "kind": "identifier", "value": "t1" }, { "kind": "number", "value": "0" }] }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "wf2" }] }, "line": 50 },
+      { "kind": "binding", "mutable": false, "name": "res1", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t1" }] }, "line": 53 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "res1" } }, "line": 54 },
+      { "kind": "binding", "mutable": false, "name": "t2", "type": "Thread OF String RES File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }] }, "line": 57 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t2" }] } }, "line": 58 },
+      { "kind": "binding", "mutable": false, "name": "t3", "type": "Thread OF String RES File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_cover_worker.coverWorker" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 61 },
+      { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t3" }] } }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.openStdIn", "arguments": [] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.closeStdIn", "arguments": [] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "total" }] }] }, "line": 68 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 69 }
+      ]
+    }
+    ]
+  }
+  ]
+}

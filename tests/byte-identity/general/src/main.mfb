@@ -1,0 +1,133 @@
+' bug-389 byte-identity codegen coverage for the general package.
+' general is always in scope, so its functions are called unqualified. Every
+' always-in-scope function is exercised across each distinct type overload.
+' Compile-only: never executed, so results just need to be consumed.
+IMPORT io
+
+SUB useS(value AS String)
+  io::print(value)
+END SUB
+
+SUB useI(value AS Integer)
+  io::print(toString(value))
+END SUB
+
+SUB useB(value AS Boolean)
+  IF value THEN
+    io::print("1")
+  ELSE
+    io::print("0")
+  END IF
+END SUB
+
+FUNC main() AS Integer
+  ' one value of every distinct type the general overloads accept
+  LET i AS Integer = 42
+  LET fl AS Float = 1.25
+  LET fx AS Fixed = 1.25
+  LET mo AS Money = 1.25m
+  LET by AS Byte = 200
+  LET bo AS Boolean = TRUE
+  LET s AS String = "hello"
+  LET sc AS Scalar = `A`
+  LET li AS List OF Integer = [1, 2, 3]
+  LET mp AS Map OF String TO Integer = Map OF String TO Integer {}
+  LET lb AS List OF Byte = [toByte(104), toByte(105)]
+  LET prec AS Byte = 3
+
+  ' len — String, List OF T, Map OF K TO V
+  useI(len(s))
+  useI(len(li))
+  useI(len(mp))
+
+  ' toString — Integer, Byte, Boolean, String, Scalar, Float, Fixed, Money,
+  ' List OF Byte, plus the optional-precision arity of Float/Fixed/Money
+  useS(toString(i))
+  useS(toString(by))
+  useS(toString(bo))
+  useS(toString(s))
+  useS(toString(sc))
+  useS(toString(fl))
+  useS(toString(fx))
+  useS(toString(mo))
+  useS(toString(lb))
+  useS(toString(fl, prec))
+  useS(toString(fx, prec))
+  useS(toString(mo, prec))
+
+  ' toInt — String, String+base, Byte, Scalar, Float, Fixed, Money
+  useI(toInt("123"))
+  useI(toInt("ff", 16))
+  useI(toInt(by))
+  useI(toInt(sc))
+  useI(toInt(fl))
+  useI(toInt(fx))
+  useI(toInt(mo))
+
+  ' toFloat — String, Integer, Fixed, Money
+  useS(toString(toFloat("1.5")))
+  useS(toString(toFloat(i)))
+  useS(toString(toFloat(fx)))
+  useS(toString(toFloat(mo)))
+
+  ' toFixed — String, Integer, Float, Money
+  useS(toString(toFixed("1.5")))
+  useS(toString(toFixed(i)))
+  useS(toString(toFixed(fl)))
+  useS(toString(toFixed(mo)))
+
+  ' toByte — Integer, Money, Scalar
+  useS(toString(toByte(i)))
+  useS(toString(toByte(mo)))
+  useS(toString(toByte(sc)))
+
+  ' toMoney — String, Integer, Float, Fixed, Byte
+  useS(toString(toMoney("1.25")))
+  useS(toString(toMoney(i)))
+  useS(toString(toMoney(fl)))
+  useS(toString(toMoney(fx)))
+  useS(toString(toMoney(by)))
+
+  ' toScalar — Integer code point, one-scalar String, Byte
+  useS(toString(toScalar(65)))
+  useS(toString(toScalar("A")))
+  useS(toString(toScalar(by)))
+
+  ' typeName — generic; cover a few distinct static types
+  useS(typeName(i))
+  useS(typeName(s))
+  useS(typeName(fl))
+  useS(typeName(li))
+
+  ' error — Integer code, String message
+  LET e AS Error = error(77050003, "bad input")
+  useS(e.message)
+
+  ' isEmpty / isNotEmpty — String, List OF T, Map OF K TO V
+  useB(isEmpty(s))
+  useB(isEmpty(li))
+  useB(isEmpty(mp))
+  useB(isNotEmpty(s))
+  useB(isNotEmpty(li))
+  useB(isNotEmpty(mp))
+
+  ' isNumeric — String
+  useB(isNumeric("123"))
+
+  ' isEven / isOdd — Integer
+  useB(isEven(i))
+  useB(isOdd(i))
+
+  ' isNegative / isPositive / isZero — Integer, Float, Fixed
+  useB(isNegative(i))
+  useB(isNegative(fl))
+  useB(isNegative(fx))
+  useB(isPositive(i))
+  useB(isPositive(fl))
+  useB(isPositive(fx))
+  useB(isZero(i))
+  useB(isZero(fl))
+  useB(isZero(fx))
+
+  RETURN 0
+END FUNC

@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/byte-identity/http
+Wrote AST to tests/byte-identity/http/http_codegen_cover_rt.ast
+Wrote IR to tests/byte-identity/http/http_codegen_cover_rt.ir
+[exit 0]

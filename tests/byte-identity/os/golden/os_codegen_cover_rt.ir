@@ -42,7 +42,17 @@
       { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "k" }] } }
       ]
     },
-    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.name", "args": [] }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.arch", "args": [] }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "os.pid", "args": [] }] }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "os.cpuCount", "args": [] }] }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "os.setEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_COVER" }, { "kind": "const", "type": "String", "value": "1" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.getEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_COVER" }] }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.getEnvOr", "args": [{ "kind": "const", "type": "String", "value": "MFB_MISSING" }, { "kind": "const", "type": "String", "value": "fallback" }] }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "os.hasEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_COVER" }] }] }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "os.unsetEnv", "args": [{ "kind": "const", "type": "String", "value": "MFB_COVER" }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "os.resourcePath", "args": [{ "kind": "const", "type": "String", "value": "data/asset.txt" }] }] } },
+    { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

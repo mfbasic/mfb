@@ -1,0 +1,46 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "bits_codegen_cover_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 9, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "8138269444283625712" } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1085102592571150095" } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "acc", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "bits.band", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "acc2", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc" }, "right": { "kind": "call", "type": "Integer", "target": "bits.bor", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] } } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "acc3", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc2" }, "right": { "kind": "call", "type": "Integer", "target": "bits.bxor", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] } } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "acc4", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc3" }, "right": { "kind": "call", "type": "Integer", "target": "bits.bnot", "args": [{ "kind": "local", "name": "a" }] } } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "acc5", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc4" }, "right": { "kind": "call", "type": "Integer", "target": "bits.bswap16", "args": [{ "kind": "local", "name": "a" }] } } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "acc6", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc5" }, "right": { "kind": "call", "type": "Integer", "target": "bits.bswap32", "args": [{ "kind": "local", "name": "a" }] } } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "acc7", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc6" }, "right": { "kind": "call", "type": "Integer", "target": "bits.bswap64", "args": [{ "kind": "local", "name": "a" }] } } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "acc8", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc7" }, "right": { "kind": "call", "type": "Integer", "target": "bits.clz", "args": [{ "kind": "local", "name": "b" }] } } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "acc9", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc8" }, "right": { "kind": "call", "type": "Integer", "target": "bits.ctz", "args": [{ "kind": "local", "name": "b" }] } } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "acc10", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc9" }, "right": { "kind": "call", "type": "Integer", "target": "bits.popCount", "args": [{ "kind": "local", "name": "a" }] } } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "acc11", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc10" }, "right": { "kind": "call", "type": "Integer", "target": "bits.rl32", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "5" }] } } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "acc12", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc11" }, "right": { "kind": "call", "type": "Integer", "target": "bits.rl64", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "5" }] } } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "acc13", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc12" }, "right": { "kind": "call", "type": "Integer", "target": "bits.rr32", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "5" }] } } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "acc14", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc13" }, "right": { "kind": "call", "type": "Integer", "target": "bits.rr64", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "5" }] } } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "acc15", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc14" }, "right": { "kind": "call", "type": "Integer", "target": "bits.sl", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "3" }] } } },
+    { "op": "bind", "line": 26, "mutable": false, "name": "acc16", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc15" }, "right": { "kind": "call", "type": "Integer", "target": "bits.sr", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "3" }] } } },
+    { "op": "bind", "line": 27, "mutable": false, "name": "acc17", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "acc16" }, "right": { "kind": "call", "type": "Integer", "target": "bits.sra", "args": [{ "kind": "local", "name": "a" }, { "kind": "const", "type": "Integer", "value": "3" }] } } },
+    { "op": "eval", "line": 28, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "acc17" }] }] } },
+    { "op": "return", "line": 29, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

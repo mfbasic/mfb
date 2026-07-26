@@ -1,13 +1,91 @@
-' Byte-identity coverage for a backend that carried NO generated-code golden.\n' plan-57 rewrites the collection builders these helpers all construct their\n' List OF Byte / List OF String results through, and its acceptance is\n' artifact byte-identity — so each of these needs a .ncode golden or the gate is\n' blind to it. Goldens exist per target because several of these backends are\n' platform-specific (audio/alsa and tls/openssl are Linux-only).\n' Compile-only by design: these open devices and sockets that do not exist in a\n' test run, so there is no .run golden and the harness never executes them.\n
+' Byte-identity coverage for a backend that carried NO generated-code golden.
+' plan-57 rewrites the collection builders these helpers all construct their
+' List OF Byte / List OF String results through, and its acceptance is
+' artifact byte-identity — so each of these needs a .ncode golden or the gate is
+' blind to it. Goldens exist per target because several of these backends are
+' platform-specific (audio/alsa and tls/openssl are Linux-only).
+' Compile-only by design: these open devices and sockets that do not exist in a
+' test run, so there is no .run golden and the harness never executes them.
+
 IMPORT io
 IMPORT fs
 
 FUNC main() AS Integer
+  ' --- Existing coverage (preserved) ---------------------------------------
   RES f AS File = fs::openFile("target/cover.bin")
   LET b = fs::readAllBytes(f)
   io::print(toString(len(b)))
   FOR EACH name IN fs::listDirectory("target")
     io::print(name)
   NEXT
+
+  ' --- Reusable typed values ----------------------------------------------
+  LET payload AS List OF Byte = [72, 101, 108, 108, 111]
+  LET text AS String = "hello"
+  LET parts AS List OF String = ["target", "sub", "leaf.txt"]
+
+  ' --- Path-string functions (never touch the filesystem) ------------------
+  io::print(fs::pathJoin(parts))
+  io::print(fs::pathNormalize("target/./a/../cover.bin"))
+  io::print(fs::pathDirName("target/cover.bin"))
+  io::print(fs::pathBaseName("target/cover.bin"))
+  io::print(fs::pathExtension("target/cover.bin"))
+  io::print(fs::canonicalPath("target/cover.bin"))
+  io::print(toString(fs::isWithin("target", "target/cover.bin")))
+
+  ' --- Existence predicates -----------------------------------------------
+  io::print(toString(fs::exists("target/cover.bin")))
+  io::print(toString(fs::fileExists("target/cover.bin")))
+  io::print(toString(fs::directoryExists("target")))
+
+  ' --- Directory + working-directory functions -----------------------------
+  fs::createDirectory("target/coverdir")
+  fs::createDirectories("target/coverdir/nested/leaf")
+  fs::deleteDirectory("target/coverdir/nested/leaf")
+  io::print(fs::currentDirectory())
+  io::print(fs::tempDirectory())
+  fs::setCurrentDirectory(".")
+
+  ' --- Whole-file path functions ------------------------------------------
+  io::print(fs::readText("target/cover.bin"))
+  io::print(toString(len(fs::readBytes("target/cover.bin"))))
+  fs::writeText("target/cover.bin", text)
+  fs::writeTextAtomic("target/cover.bin", text)
+  fs::writeBytes("target/cover.bin", payload)
+  fs::writeBytesAtomic("target/cover.bin", payload)
+  fs::appendText("target/cover.bin", text)
+  fs::appendBytes("target/cover.bin", payload)
+  fs::deleteFile("target/cover.bin")
+
+  ' --- File-handle producers + handle functions ---------------------------
+  ' open(path, mode) drives every handle operation, then closes early.
+  RES fh AS File = fs::open("target/cover.bin", "rw")
+  fs::setBuffered(fh, TRUE)
+  io::print(toString(fs::isBuffered(fh)))
+  fs::writeAll(fh, text)
+  fs::writeAllBytes(fh, payload)
+  fs::flush(fh)
+  io::print(fs::readLine(fh))
+  io::print(fs::readAll(fh))
+  io::print(toString(len(fs::readAllBytes(fh))))
+  io::print(toString(fs::eof(fh)))
+  fs::close(fh)
+
+  ' --- Remaining File-producing overloads ---------------------------------
+  RES f2 AS File = fs::openFile("target/cover.bin", "read")
+  fs::close(f2)
+  RES f3 AS File = fs::openFileNoFollow("target/cover.bin")
+  fs::close(f3)
+  RES f4 AS File = fs::openFileNoFollow("target/cover.bin", "read")
+  fs::close(f4)
+  RES f5 AS File = fs::openWithin("target", "cover.bin")
+  fs::close(f5)
+  RES f6 AS File = fs::openWithin("target", "cover.bin", "read")
+  fs::close(f6)
+  RES f7 AS File = fs::createTempFile()
+  fs::close(f7)
+  RES f8 AS File = fs::createTempFile("target")
+  fs::close(f8)
+
   RETURN 0
 END FUNC

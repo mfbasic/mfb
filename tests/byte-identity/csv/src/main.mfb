@@ -1,0 +1,30 @@
+' bug-389 byte-identity coverage for the csv package: exercises every csv
+' function and every distinct overload (positional + named argument) so the
+' .ncode gate is not blind to their generated code. Compile-only by design;
+' the harness never executes this.
+
+IMPORT io
+IMPORT csv
+
+FUNC main() AS Integer
+  ' --- csv::parse -----------------------------------------------------------
+  ' positional String argument
+  LET gridA AS List OF List OF String = csv::parse("name,age\nAda,36")
+  io::print(toString(len(gridA)))
+
+  ' named argument (text :=)
+  LET gridB AS List OF List OF String = csv::parse(text := "a,b,c")
+  io::print(toString(len(gridB)))
+
+  ' --- csv::stringify -------------------------------------------------------
+  ' grid built from a list-of-lists literal, positional argument
+  LET grid AS List OF List OF String = [["name", "age"], ["Grace", "Hop,per"]]
+  LET textA AS String = csv::stringify(grid)
+  io::print(textA)
+
+  ' named argument (value :=), grid produced by csv::parse
+  LET textB AS String = csv::stringify(value := gridA)
+  io::print(textB)
+
+  RETURN 0
+END FUNC

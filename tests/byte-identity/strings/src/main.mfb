@@ -1,0 +1,84 @@
+' bug-389 byte-identity codegen coverage for the strings package.
+' Calls every strings function and every distinct overload with valid typed
+' args. Compile-only: never executed, so results just need to be consumed.
+IMPORT io
+IMPORT strings
+
+SUB useS(value AS String)
+  io::print(value)
+END SUB
+
+SUB useI(value AS Integer)
+  io::print(toString(value))
+END SUB
+
+SUB useB(value AS Boolean)
+  IF value THEN
+    io::print("1")
+  ELSE
+    io::print("0")
+  END IF
+END SUB
+
+FUNC main() AS Integer
+  LET s AS String = "Héllo, World中😀"
+  LET suffixes AS List OF String = ["ing", "ed", "s"]
+  LET prefixes AS List OF String = ["un", "re", "de"]
+  LET parts AS List OF String = ["a", "b", "c"]
+
+  ' length and byte queries
+  useI(strings::byteLen(s))
+  useI(len(strings::toBytes(s)))
+
+  ' trimming and case mapping
+  useS(strings::trim("  padded  "))
+  useS(strings::trimStart("  padded  "))
+  useS(strings::trimEnd("  padded  "))
+  useS(strings::trimChars("xxhelloxx", "x"))
+  useS(strings::upper(s))
+  useS(strings::lower(s))
+  useS(strings::caseFold(s))
+
+  ' normalization and segmentation
+  useS(strings::normalizeNfc(s))
+  useI(len(strings::graphemes(s)))
+  useS(strings::graphemeAt(s, 0))
+  useI(strings::graphemesCount(s))
+
+  ' tests and search
+  useB(strings::startsWith(s, "Héllo"))
+  useB(strings::endsWith(s, "😀"))
+  useB(strings::contains(s, "World"))
+  useB(strings::startsWithAny("undo", prefixes))
+  useB(strings::endsWithAny("running", suffixes))
+  useI(strings::find(s, "World"))
+  useI(strings::find(s, "l", 3))
+  useI(strings::count("banana", "a"))
+
+  ' slicing and reshaping
+  useS(strings::left(s, 5))
+  useS(strings::right(s, 2))
+  useS(strings::mid(s, 1, 4))
+  useS(strings::stripPrefix("unhappy", "un"))
+  useS(strings::stripSuffix("happily", "ly"))
+  useI(len(strings::split("a,b,c", ",")))
+  useS(strings::join(parts, "-"))
+  useS(strings::replace("aaa", "a", "b"))
+  useS(strings::repeat("ab", 3))
+  useS(strings::padLeft("7", 4))
+  useS(strings::padLeft("7", 4, "0"))
+  useS(strings::padRight("7", 4))
+  useS(strings::padRight("7", 4, "0"))
+
+  ' Unicode-scalar seam
+  LET scalars AS List OF Scalar = strings::toScalars(s)
+  useI(len(scalars))
+  useS(strings::fromScalars(scalars))
+  useB(strings::isLetter(`A`))
+  useB(strings::isDigit(`7`))
+  useB(strings::isWhitespace(` `))
+  useB(strings::isUpper(`Q`))
+  useB(strings::isLower(`q`))
+
+  RETURN 0
+END FUNC

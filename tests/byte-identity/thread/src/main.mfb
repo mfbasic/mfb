@@ -1,0 +1,70 @@
+IMPORT io
+IMPORT thread
+IMPORT fs
+IMPORT thread_cover_worker
+
+' bug-389 byte-identity codegen-coverage fixture (compile-only, never executed).
+' main() drives every parent-side (Thread handle) thread overload; the imported
+' worker package drives every worker-side (ThreadWorker handle) overload.
+FUNC main() AS Integer
+  MUT total AS Integer = 0
+
+  ' thread::start overload 1 (default limits). Handle carries a data plane
+  ' (String) and a resource plane (File), covering send/receive AND
+  ' transfer/accept on the parent side.
+  LET t1 AS Thread OF String RES File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed")
+
+  ' openStdIn / closeStdIn worker form (parent Thread handle argument)
+  thread::openStdIn(t1)
+  thread::closeStdIn(t1)
+
+  ' isRunning / poll / cancel
+  IF thread::isRunning(t1) THEN
+    total = total + 1
+  END IF
+  IF thread::poll(t1, 0) THEN
+    total = total + 1
+  END IF
+  thread::cancel(t1)
+
+  ' send parent overloads (2)
+  thread::send(t1, "alpha")
+  thread::send(t1, "beta", 0)
+
+  ' receive parent overloads (2)
+  LET r1 AS String = thread::receive(t1)
+  LET r2 AS String = thread::receive(t1, 0)
+  io::print(r1)
+  io::print(r2)
+
+  ' transfer parent overloads (2) — each consumes its File
+  RES pf1 AS File = fs::openFile("bug-389-does-not-exist-1.txt")
+  thread::transfer(t1, pf1)
+  RES pf2 AS File = fs::openFile("bug-389-does-not-exist-2.txt")
+  thread::transfer(t1, pf2, 0)
+
+  ' accept parent overloads (2) — each yields an owned File
+  RES wf1 AS File = thread::accept(t1)
+  fs::close(wf1)
+  RES wf2 AS File = thread::accept(t1, 0)
+  fs::close(wf2)
+
+  ' waitFor — one-shot, closes t1
+  LET res1 AS Integer = thread::waitFor(t1)
+  total = total + res1
+
+  ' thread::start overload 2 (inboundLimit)
+  LET t2 AS Thread OF String RES File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1)
+  total = total + thread::waitFor(t2)
+
+  ' thread::start overload 3 (inboundLimit + outboundLimit)
+  LET t3 AS Thread OF String RES File TO Integer = thread::start(thread_cover_worker::coverWorker, "seed", 1, 1)
+  total = total + thread::waitFor(t3)
+
+  ' openStdIn / closeStdIn no-argument forms (calling thread)
+  thread::openStdIn()
+  thread::closeStdIn()
+
+  io::print(toString(total))
+  RETURN 0
+END FUNC

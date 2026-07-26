@@ -10,5 +10,71 @@ FUNC main() AS Integer
   FOR EACH addr IN net::lookup("example.com")
     io::print(toString(addr.port))
   NEXT
+
+  ' connectTcp overloads: (host, port) covered above; add the timeout,
+  ' Address, and Address+timeout forms.
+  RES sockT AS Socket = net::connectTcp("example.com", 80, 1000)
+  LET locAddr = net::localAddress(sock)
+  io::print(locAddr.host)
+  RES sockA AS Socket = net::connectTcp(locAddr)
+  RES sockAT AS Socket = net::connectTcp(locAddr, 1000)
+
+  ' Socket read/write text forms, poll, remoteAddress, timeouts.
+  LET txt = net::readText(sock, 64)
+  io::print(txt)
+  net::writeText(sock, "hello")
+  LET ready = net::poll(sock)
+  io::print(toString(ready))
+  LET readyT = net::poll(sock, 100)
+  io::print(toString(readyT))
+  LET remAddr = net::remoteAddress(sock)
+  io::print(remAddr.host)
+  net::setReadTimeout(sock, 1000)
+  net::setWriteTimeout(sock, 1000)
+
+  ' Listener: both listenTcp overloads, localAddress, both accept overloads.
+  RES lst AS Listener = net::listenTcp("0.0.0.0", 8080)
+  RES lstB AS Listener = net::listenTcp("0.0.0.0", 8080, 16)
+  LET lstAddr = net::localAddress(lst)
+  io::print(lstAddr.host)
+  RES peer AS Socket = net::accept(lst)
+  io::print(toString(net::poll(peer)))
+  RES peerT AS Socket = net::accept(lst, 1000)
+  io::print(toString(net::poll(peerT)))
+
+  ' UDP socket: bind, address, send/receive byte + text forms, timeouts.
+  RES udp AS UdpSocket = net::bindUdp("0.0.0.0", 0)
+  LET udpAddr = net::localAddress(udp)
+  io::print(udpAddr.host)
+  net::sendTo(udp, udpAddr, got)
+  net::sendTextTo(udp, udpAddr, "ping")
+  LET dg = net::receiveFrom(udp, 128)
+  io::print(toString(len(dg.bytes)))
+  LET dgt = net::receiveTextFrom(udp, 128)
+  io::print(dgt.value)
+  net::setReadTimeout(udp, 1000)
+  net::setWriteTimeout(udp, 1000)
+
+  ' lookup (host, port) overload.
+  FOR EACH addr2 IN net::lookup("example.com", 80)
+    io::print(toString(addr2.port))
+  NEXT
+
+  ' URL and query string helpers.
+  LET url = net::toUrl("http://user:pass@example.com:8080/a/b?x=1#frag")
+  io::print(url.host)
+  io::print(toString(url.port))
+  io::print(toString(url))
+  LET query = net::parseQuery("a=1&b=2")
+  io::print(toString(len(query)))
+  LET decoded = net::percentDecode("a%20b")
+  io::print(decoded)
+
+  ' close: exercise the Socket, Listener, and UdpSocket overloads; the
+  ' remaining handles release by lexical drop at end of scope.
+  net::close(sockT)
+  net::close(lstB)
+  net::close(udp)
+
   RETURN 0
 END FUNC

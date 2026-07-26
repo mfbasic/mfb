@@ -1,0 +1,237 @@
+' bug-389 byte-identity codegen coverage for the vector package.
+' Calls every vector function and every distinct per-width overload
+' (Float/Fixed/Integer over 2D/3D/4D). Compile-only; never executed.
+IMPORT io
+IMPORT vector
+
+FUNC main() AS Integer
+  ' Reusable operands, one non-degenerate pair per element type and width.
+  LET f2a AS vector::Float2 = vector::Float2[3.0, 4.0]
+  LET f2b AS vector::Float2 = vector::Float2[1.0, 2.0]
+  LET f3a AS vector::Float3 = vector::Float3[1.0, 2.0, 2.0]
+  LET f3b AS vector::Float3 = vector::Float3[2.0, 0.0, 1.0]
+  LET f4a AS vector::Float4 = vector::Float4[1.0, 2.0, 2.0, 4.0]
+  LET f4b AS vector::Float4 = vector::Float4[2.0, 0.0, 1.0, 1.0]
+  LET f4c AS vector::Float4 = vector::Float4[0.0, 1.0, 0.0, 1.0]
+
+  LET x2a AS vector::Fixed2 = vector::Fixed2[toFixed(3.0), toFixed(4.0)]
+  LET x2b AS vector::Fixed2 = vector::Fixed2[toFixed(1.0), toFixed(2.0)]
+  LET x3a AS vector::Fixed3 = vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)]
+  LET x3b AS vector::Fixed3 = vector::Fixed3[toFixed(2.0), toFixed(0.0), toFixed(1.0)]
+  LET x4a AS vector::Fixed4 = vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)]
+  LET x4b AS vector::Fixed4 = vector::Fixed4[toFixed(2.0), toFixed(0.0), toFixed(1.0), toFixed(1.0)]
+  LET x4c AS vector::Fixed4 = vector::Fixed4[toFixed(0.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]
+
+  LET i2a AS vector::Integer2 = vector::Integer2[3, 4]
+  LET i2b AS vector::Integer2 = vector::Integer2[1, 2]
+  LET i3a AS vector::Integer3 = vector::Integer3[1, 2, 2]
+  LET i3b AS vector::Integer3 = vector::Integer3[2, 0, 1]
+  LET i4a AS vector::Integer4 = vector::Integer4[1, 2, 2, 4]
+  LET i4b AS vector::Integer4 = vector::Integer4[2, 0, 1, 1]
+  LET i4c AS vector::Integer4 = vector::Integer4[0, 1, 0, 1]
+
+  LET t AS Float = 0.5
+  LET ang AS Float = 1.0
+  LET maxF AS Float = 5.0
+  LET maxX AS Fixed = 5.0
+  LET maxI AS Integer = 5
+
+  ' abs (9)
+  io::print(toString(vector::abs(f2a)))
+  io::print(toString(vector::abs(f3a)))
+  io::print(toString(vector::abs(f4a)))
+  io::print(toString(vector::abs(x2a)))
+  io::print(toString(vector::abs(x3a)))
+  io::print(toString(vector::abs(x4a)))
+  io::print(toString(vector::abs(i2a)))
+  io::print(toString(vector::abs(i3a)))
+  io::print(toString(vector::abs(i4a)))
+
+  ' angle (9)
+  io::print(toString(vector::angle(f2a, f2b)))
+  io::print(toString(vector::angle(f3a, f3b)))
+  io::print(toString(vector::angle(f4a, f4b)))
+  io::print(toString(vector::angle(x2a, x2b)))
+  io::print(toString(vector::angle(x3a, x3b)))
+  io::print(toString(vector::angle(x4a, x4b)))
+  io::print(toString(vector::angle(i2a, i2b)))
+  io::print(toString(vector::angle(i3a, i3b)))
+  io::print(toString(vector::angle(i4a, i4b)))
+
+  ' clamp_length (9)
+  io::print(toString(vector::clamp_length(f2a, maxF)))
+  io::print(toString(vector::clamp_length(f3a, maxF)))
+  io::print(toString(vector::clamp_length(f4a, maxF)))
+  io::print(toString(vector::clamp_length(x2a, maxX)))
+  io::print(toString(vector::clamp_length(x3a, maxX)))
+  io::print(toString(vector::clamp_length(x4a, maxX)))
+  io::print(toString(vector::clamp_length(i2a, maxI)))
+  io::print(toString(vector::clamp_length(i3a, maxI)))
+  io::print(toString(vector::clamp_length(i4a, maxI)))
+
+  ' cross (9): 2D 1-ary, 3D 2-ary, 4D 3-ary per element type
+  io::print(toString(vector::cross(f2a)))
+  io::print(toString(vector::cross(x2a)))
+  io::print(toString(vector::cross(i2a)))
+  io::print(toString(vector::cross(f3a, f3b)))
+  io::print(toString(vector::cross(x3a, x3b)))
+  io::print(toString(vector::cross(i3a, i3b)))
+  io::print(toString(vector::cross(f4a, f4b, f4c)))
+  io::print(toString(vector::cross(x4a, x4b, x4c)))
+  io::print(toString(vector::cross(i4a, i4b, i4c)))
+
+  ' distance (9)
+  io::print(toString(vector::distance(f2a, f2b)))
+  io::print(toString(vector::distance(f3a, f3b)))
+  io::print(toString(vector::distance(f4a, f4b)))
+  io::print(toString(vector::distance(x2a, x2b)))
+  io::print(toString(vector::distance(x3a, x3b)))
+  io::print(toString(vector::distance(x4a, x4b)))
+  io::print(toString(vector::distance(i2a, i2b)))
+  io::print(toString(vector::distance(i3a, i3b)))
+  io::print(toString(vector::distance(i4a, i4b)))
+
+  ' dot (9)
+  io::print(toString(vector::dot(f2a, f2b)))
+  io::print(toString(vector::dot(f3a, f3b)))
+  io::print(toString(vector::dot(f4a, f4b)))
+  io::print(toString(vector::dot(x2a, x2b)))
+  io::print(toString(vector::dot(x3a, x3b)))
+  io::print(toString(vector::dot(x4a, x4b)))
+  io::print(toString(vector::dot(i2a, i2b)))
+  io::print(toString(vector::dot(i3a, i3b)))
+  io::print(toString(vector::dot(i4a, i4b)))
+
+  ' length (9)
+  io::print(toString(vector::length(f2a)))
+  io::print(toString(vector::length(f3a)))
+  io::print(toString(vector::length(f4a)))
+  io::print(toString(vector::length(x2a)))
+  io::print(toString(vector::length(x3a)))
+  io::print(toString(vector::length(x4a)))
+  io::print(toString(vector::length(i2a)))
+  io::print(toString(vector::length(i3a)))
+  io::print(toString(vector::length(i4a)))
+
+  ' lerp (9)
+  io::print(toString(vector::lerp(f2a, f2b, t)))
+  io::print(toString(vector::lerp(f3a, f3b, t)))
+  io::print(toString(vector::lerp(f4a, f4b, t)))
+  io::print(toString(vector::lerp(x2a, x2b, t)))
+  io::print(toString(vector::lerp(x3a, x3b, t)))
+  io::print(toString(vector::lerp(x4a, x4b, t)))
+  io::print(toString(vector::lerp(i2a, i2b, t)))
+  io::print(toString(vector::lerp(i3a, i3b, t)))
+  io::print(toString(vector::lerp(i4a, i4b, t)))
+
+  ' lerp_unclamped (9)
+  io::print(toString(vector::lerp_unclamped(f2a, f2b, t)))
+  io::print(toString(vector::lerp_unclamped(f3a, f3b, t)))
+  io::print(toString(vector::lerp_unclamped(f4a, f4b, t)))
+  io::print(toString(vector::lerp_unclamped(x2a, x2b, t)))
+  io::print(toString(vector::lerp_unclamped(x3a, x3b, t)))
+  io::print(toString(vector::lerp_unclamped(x4a, x4b, t)))
+  io::print(toString(vector::lerp_unclamped(i2a, i2b, t)))
+  io::print(toString(vector::lerp_unclamped(i3a, i3b, t)))
+  io::print(toString(vector::lerp_unclamped(i4a, i4b, t)))
+
+  ' max (9)
+  io::print(toString(vector::max(f2a, f2b)))
+  io::print(toString(vector::max(f3a, f3b)))
+  io::print(toString(vector::max(f4a, f4b)))
+  io::print(toString(vector::max(x2a, x2b)))
+  io::print(toString(vector::max(x3a, x3b)))
+  io::print(toString(vector::max(x4a, x4b)))
+  io::print(toString(vector::max(i2a, i2b)))
+  io::print(toString(vector::max(i3a, i3b)))
+  io::print(toString(vector::max(i4a, i4b)))
+
+  ' min (9)
+  io::print(toString(vector::min(f2a, f2b)))
+  io::print(toString(vector::min(f3a, f3b)))
+  io::print(toString(vector::min(f4a, f4b)))
+  io::print(toString(vector::min(x2a, x2b)))
+  io::print(toString(vector::min(x3a, x3b)))
+  io::print(toString(vector::min(x4a, x4b)))
+  io::print(toString(vector::min(i2a, i2b)))
+  io::print(toString(vector::min(i3a, i3b)))
+  io::print(toString(vector::min(i4a, i4b)))
+
+  ' normalize (9)
+  io::print(toString(vector::normalize(f2a)))
+  io::print(toString(vector::normalize(f3a)))
+  io::print(toString(vector::normalize(f4a)))
+  io::print(toString(vector::normalize(x2a)))
+  io::print(toString(vector::normalize(x3a)))
+  io::print(toString(vector::normalize(x4a)))
+  io::print(toString(vector::normalize(i2a)))
+  io::print(toString(vector::normalize(i3a)))
+  io::print(toString(vector::normalize(i4a)))
+
+  ' perpendicular (3): 2D only
+  io::print(toString(vector::perpendicular(f2a)))
+  io::print(toString(vector::perpendicular(x2a)))
+  io::print(toString(vector::perpendicular(i2a)))
+
+  ' project (9)
+  io::print(toString(vector::project(f2a, f2b)))
+  io::print(toString(vector::project(f3a, f3b)))
+  io::print(toString(vector::project(f4a, f4b)))
+  io::print(toString(vector::project(x2a, x2b)))
+  io::print(toString(vector::project(x3a, x3b)))
+  io::print(toString(vector::project(x4a, x4b)))
+  io::print(toString(vector::project(i2a, i2b)))
+  io::print(toString(vector::project(i3a, i3b)))
+  io::print(toString(vector::project(i4a, i4b)))
+
+  ' reflect (9)
+  io::print(toString(vector::reflect(f2a, f2b)))
+  io::print(toString(vector::reflect(f3a, f3b)))
+  io::print(toString(vector::reflect(f4a, f4b)))
+  io::print(toString(vector::reflect(x2a, x2b)))
+  io::print(toString(vector::reflect(x3a, x3b)))
+  io::print(toString(vector::reflect(x4a, x4b)))
+  io::print(toString(vector::reflect(i2a, i2b)))
+  io::print(toString(vector::reflect(i3a, i3b)))
+  io::print(toString(vector::reflect(i4a, i4b)))
+
+  ' reject (9)
+  io::print(toString(vector::reject(f2a, f2b)))
+  io::print(toString(vector::reject(f3a, f3b)))
+  io::print(toString(vector::reject(f4a, f4b)))
+  io::print(toString(vector::reject(x2a, x2b)))
+  io::print(toString(vector::reject(x3a, x3b)))
+  io::print(toString(vector::reject(x4a, x4b)))
+  io::print(toString(vector::reject(i2a, i2b)))
+  io::print(toString(vector::reject(i3a, i3b)))
+  io::print(toString(vector::reject(i4a, i4b)))
+
+  ' rotate_2d (3): 2D only, angle AS Float
+  io::print(toString(vector::rotate_2d(f2a, ang)))
+  io::print(toString(vector::rotate_2d(x2a, ang)))
+  io::print(toString(vector::rotate_2d(i2a, ang)))
+
+  ' scale (9)
+  io::print(toString(vector::scale(f2a, f2b)))
+  io::print(toString(vector::scale(f3a, f3b)))
+  io::print(toString(vector::scale(f4a, f4b)))
+  io::print(toString(vector::scale(x2a, x2b)))
+  io::print(toString(vector::scale(x3a, x3b)))
+  io::print(toString(vector::scale(x4a, x4b)))
+  io::print(toString(vector::scale(i2a, i2b)))
+  io::print(toString(vector::scale(i3a, i3b)))
+  io::print(toString(vector::scale(i4a, i4b)))
+
+  ' slerp (9)
+  io::print(toString(vector::slerp(f2a, f2b, t)))
+  io::print(toString(vector::slerp(f3a, f3b, t)))
+  io::print(toString(vector::slerp(f4a, f4b, t)))
+  io::print(toString(vector::slerp(x2a, x2b, t)))
+  io::print(toString(vector::slerp(x3a, x3b, t)))
+  io::print(toString(vector::slerp(x4a, x4b, t)))
+  io::print(toString(vector::slerp(i2a, i2b, t)))
+  io::print(toString(vector::slerp(i3a, i3b, t)))
+  io::print(toString(vector::slerp(i4a, i4b, t)))
+
+  RETURN 0
+END FUNC

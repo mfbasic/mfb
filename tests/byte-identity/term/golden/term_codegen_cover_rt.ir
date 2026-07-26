@@ -1,0 +1,54 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "term_codegen_cover_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "term.on", "args": [] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "on", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "term.isOn", "args": [] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "on" }] }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "term.moveTo", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "term.hideCursor", "args": [] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "term.showCursor", "args": [] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "term.setForeground", "args": [{ "kind": "const", "type": "Byte", "value": "255" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "0" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "term.setBackground", "args": [{ "kind": "const", "type": "Byte", "value": "0" }, { "kind": "const", "type": "Byte", "value": "64" }, { "kind": "const", "type": "Byte", "value": "200" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "term.setBold", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "term.setUnderline", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "fg", "type": "TermColor", "value": { "kind": "call", "type": "TermColor", "target": "term.getForeground", "args": [] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "fg" }, "member": "r" }] }] } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "fg" }, "member": "g" }] }] } },
+    { "op": "eval", "line": 31, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "fg" }, "member": "b" }] }] } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "bg", "type": "TermColor", "value": { "kind": "call", "type": "TermColor", "target": "term.getBackground", "args": [] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "bg" }, "member": "r" }] }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "bg" }, "member": "g" }] }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "bg" }, "member": "b" }] }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "bold", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "term.getBold", "args": [] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "bold" }] }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "under", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "term.getUnderline", "args": [] } },
+    { "op": "eval", "line": 41, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "under" }] }] } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "size", "type": "TermSize", "value": { "kind": "call", "type": "TermSize", "target": "term.terminalSize", "args": [] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "size" }, "member": "columns" }] }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "size" }, "member": "rows" }] }] } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "term.clear", "args": [] } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "term.sync", "args": [] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "term.off", "args": [] } },
+    { "op": "return", "line": 55, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

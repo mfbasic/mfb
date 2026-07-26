@@ -1,0 +1,32 @@
+' bug-389 byte-identity codegen cover for money; compile-only, never executed
+IMPORT io
+IMPORT money
+
+FUNC main() AS Integer
+  ' setRounding(mode AS Rounding) — both enum members
+  money::setRounding(Rounding.Commercial)
+  money::setRounding(Rounding.Banker)
+
+  ' getRounding() AS Rounding
+  LET mode AS Rounding = money::getRounding()
+  IF mode = Rounding.Banker THEN
+    io::print("banker")
+  END IF
+
+  ' round(value AS Money, decimals AS Integer) AS Money — every valid decimals 0..5
+  LET v AS Money = 0.12345m
+  LET r0 AS Money = money::round(v, 0)
+  LET r1 AS Money = money::round(v, 1)
+  LET r2 AS Money = money::round(v, 2)
+  LET r3 AS Money = money::round(v, 3)
+  LET r4 AS Money = money::round(v, 4)
+  LET r5 AS Money = money::round(v, 5)
+  io::print(toString(r0))
+  io::print(toString(r1))
+  io::print(toString(r2))
+  io::print(toString(r3))
+  io::print(toString(r4))
+  io::print(toString(r5))
+
+  RETURN 0
+END FUNC
