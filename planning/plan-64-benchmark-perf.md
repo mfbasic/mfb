@@ -391,8 +391,15 @@ bodies with a per-element native call + indirect FUNC dispatch (`collections_pac
   (native lowering is post-IR); 57 sort/collections acceptance fixtures pass; String-key
   fallback + TRAP'd failing keyFn both verified. `lower_collection_sortby_call`
   (`builder_collection_queries.rs`), dispatch gate `builder_values.rs`. Commit: `ec79ef661`.
-- **D3:** native window/chunks — slice **directly into the reserved result tail**
-  (one copy, no temp piece), pre-reserved to the known piece count.
+- **[x] D3-window — LANDED.** Native `collections::window` for 8-byte fixed-width elements
+  with constant `size>=1` + `stride==1` (gate parses `#collections_window$T` + checks the
+  literal args; else `.mfb`). Builds the `List OF List OF T` result directly: outer kind-0
+  list with per-window kind-2 inner blocks written in place at the data tail, one word-copy
+  per window from the source — no per-window slice-alloc/copy/free. **Result: `list window`
+  20.6 → 4.58 ms (~4.5x; beats Python 8.38).** checksum 99100 proven unchanged; full `cargo
+  test` green; artifact-gate zero new diffs; 74 window/list acceptance fixtures pass; edge
+  cases (size==n, size>n empty, size==1) verified. `lower_collection_window_call`.
+  Commit: `<pending>`. (chunks/D3-chunks + stride>1 remain on the `.mfb`.)
 - **D4:** native `partition`/`any`/`all`/`findIndex`/`findLastIndex` — one pass, reserved
   outputs, inlined comparator (with B's borrowed String element for String lists).
 - Order: D1 (nested) → D2 (sortBy) → D3 (window) → D4. **Composes with E** (COW makes the

@@ -752,6 +752,34 @@ impl CodeBuilder<'_> {
                         }
                     }
                 }
+                // plan-64 D3: native window for 8-byte fixed-width elements with a
+                // constant size >= 1 and constant stride >= 1 (`#collections_window$T`,
+                // 2 or 3 args). Non-constant/invalid size|stride or other element
+                // types fall through to the `.mfb` `__collections_window`.
+                if let Some(t) = target.strip_prefix("#collections_window$") {
+                    let const_i64 = |v: &NirValue| -> Option<i64> {
+                        match v {
+                            NirValue::Const { type_, value } if type_ == "Integer" => {
+                                value.parse::<i64>().ok()
+                            }
+                            _ => None,
+                        }
+                    };
+                    let elem_ok = matches!(t, "Integer" | "Float" | "Fixed" | "Money");
+                    if elem_ok && (args.len() == 2 || args.len() == 3) {
+                        let size = args.get(1).and_then(const_i64);
+                        let stride = if args.len() == 3 {
+                            args.get(2).and_then(const_i64)
+                        } else {
+                            Some(1)
+                        };
+                        if let (Some(sz), Some(st)) = (size, stride) {
+                            if sz >= 1 && st == 1 {
+                                return self.lower_collection_window_call(args, sz, st);
+                            }
+                        }
+                    }
+                }
                 if native == Some("reduce") && args.len() == 3 {
                     return self.lower_collection_reduce_call(args);
                 }
