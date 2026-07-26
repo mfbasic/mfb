@@ -251,8 +251,12 @@ fn temp_file_open_flags(family: PlatformFamily) -> &'static str {
     // macOS bits → a wrong open.
     match family {
         PlatformFamily::Linux => "524482",
-        // 47-F owns the Windows temp-file path.
-        PlatformFamily::Windows => unreachable!("47-F owns the Windows temp-file open flags"),
+        // Windows packs `(disposition << 32) | access` (see `open_flag_set`'s
+        // Windows arm). A temp file is created exclusively: CREATE_NEW (1) is the
+        // O_CREAT|O_EXCL equivalent (CreateFileW fails with ERROR_FILE_EXISTS if the
+        // randomized name already exists), with GENERIC_READ|GENERIC_WRITE
+        // (0xC0000000) access. (1 << 32) | 0xC0000000 = 7516192768. plan-66-E.
+        PlatformFamily::Windows => "7516192768",
         PlatformFamily::MacOS => {
             // O_RDWR|O_CREAT|O_EXCL|O_CLOEXEC = 0x2|0x200|0x800|0x1000000 = 16779778.
             // The temp fd was previously opened without O_CLOEXEC (bug-102).

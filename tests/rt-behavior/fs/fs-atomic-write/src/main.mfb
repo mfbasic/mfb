@@ -1,0 +1,20 @@
+IMPORT io
+IMPORT fs
+
+REM plan-66-E: fs::writeTextAtomic / writeBytesAtomic across every native target.
+REM On Windows these ride emit_mkstemps (random-name CreateFileW CREATE_NEW) + the
+REM MoveFileExW rename. Writes under target/ (gitignored) so the fixture leaves no
+REM tracked artifact; output is deterministic booleans.
+FUNC main AS Integer
+  fs::createDirectories("target/fs-atomic-write")
+  fs::writeTextAtomic("target/fs-atomic-write/t.txt", "atomic-text-世界")
+  io::print("text_ok=" & toString(fs::readText("target/fs-atomic-write/t.txt") = "atomic-text-世界"))
+  LET bytes AS List OF Byte = [72, 105, 33]
+  fs::writeBytesAtomic("target/fs-atomic-write/b.txt", bytes)
+  io::print("bytes_ok=" & toString(fs::readText("target/fs-atomic-write/b.txt") = "Hi!"))
+  RETURN 0
+  TRAP(err)
+    io::print("TRAP=" & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC

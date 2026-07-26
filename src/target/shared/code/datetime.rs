@@ -36,6 +36,41 @@ const CLOCK_MONOTONIC_DARWIN: &str = "6";
 // (`9 * 4 = 36`, padded to 8-byte alignment) on both glibc and Darwin BSD libc.
 const TM_GMTOFF_OFFSET: usize = 40;
 
+// --- Windows (plan-66-A) ------------------------------------------------------
+//
+// Windows has no libc `clock_gettime`/`localtime_r`, so its three datetime
+// intrinsics ride Win32 kernel32 calls instead (import rows in
+// `win_x86_64/plan.rs`). The buffers below are laid out sp-relative in the same
+// `LOCALS_SIZE` frame the libc path reserves; the two paths never both execute.
+//
+//  - `monotonicNanos`: QueryPerformanceCounter/QueryPerformanceFrequency, then
+//    an overflow-safe tick→nanosecond conversion (a naive `ticks * 1e9` overflows
+//    u64 within ~21 s at the usual 10 MHz frequency).
+//  - `nowNanos`: GetSystemTimePreciseAsFileTime → 100 ns intervals since 1601;
+//    rebased to Unix nanoseconds.
+//  - `localOffset`: FileTimeToSystemTime → SystemTimeToTzSpecificLocalTime →
+//    SystemTimeToFileTime; the local/UTC FILETIME delta IS the offset. A NULL
+//    return (year out of FILETIME/SYSTEMTIME range) raises `ErrInvalidArgument`
+//    exactly as the libc `localtime_r` NULL path does (bug-42).
+const WIN_FILETIME_OFFSET: usize = 0; // FILETIME (u64, 100 ns since 1601)
+const WIN_QPC_FREQ_OFFSET: usize = 8; // QueryPerformanceFrequency out (u64)
+const WIN_UTC_SYSTEMTIME_OFFSET: usize = 16; // SYSTEMTIME (16 bytes)
+const WIN_LOCAL_SYSTEMTIME_OFFSET: usize = 32; // SYSTEMTIME (16 bytes)
+const WIN_LOCAL_FILETIME_OFFSET: usize = 48; // FILETIME (u64)
+
+// 100 ns intervals between 1601-01-01 and 1970-01-01 (134774 days × 86400 s ×
+// 1e7). Rebases a Windows FILETIME onto the Unix epoch.
+const WIN_FILETIME_UNIX_EPOCH_100NS: &str = "116444736000000000";
+// 100 ns intervals per second.
+const WIN_HUNDRED_NS_PER_SEC: &str = "10000000";
+const NANOS_PER_SEC: &str = "1000000000";
+// Seconds between 1970-01-01 and 1601-01-01 (the FILETIME epoch), positive.
+// `epochSeconds + this < 0` ⟺ the instant predates 1601 (a negative FILETIME).
+const WIN_UNIX_EPOCH_TO_1601_SEC: &str = "11644473600";
+// Largest Unix-epoch second whose FILETIME (`*1e7 + WIN_FILETIME_UNIX_EPOCH_100NS`)
+// still fits i64; a larger value would wrap. `(i64::MAX - epoch) / 1e7`.
+const WIN_FILETIME_MAX_UNIX_SEC: &str = "910692730085477";
+
 pub(super) fn lower_datetime_helper(
     call: &str,
     symbol: &str,
@@ -52,6 +87,21 @@ pub(super) fn lower_datetime_helper(
     // `localtime_r` returning NULL (bug-42).
     let localoffset_range_fail = format!("{symbol}_range");
 
+    if platform.family() == PlatformFamily::Windows {
+        // Windows has no libc clocks; route to the kernel32 lowering (plan-66-A).
+        // The shared OK tail and the `localOffset` range-fail tail below are reused
+        // unchanged — the Windows body sets `RESULT_VALUE_REGISTER` and branches to
+        // `localoffset_range_fail` on error exactly like the libc path.
+        lower_datetime_windows(
+            call,
+            symbol,
+            platform_imports,
+            platform,
+            &mut instructions,
+            &mut relocations,
+            &localoffset_range_fail,
+        )?;
+    } else {
     match call {
         "datetime.nowNanos" | "datetime.monotonicNanos" => {
             let clock_id = if call == "datetime.nowNanos" {
@@ -60,10 +110,10 @@ pub(super) fn lower_datetime_helper(
                 match platform.family() {
                     PlatformFamily::MacOS => CLOCK_MONOTONIC_DARWIN,
                     PlatformFamily::Linux => CLOCK_MONOTONIC_LINUX,
-                    // 47-D owns the Windows monotonic clock
-                    // (QueryPerformanceCounter), not clock_gettime.
+                    // Windows is routed to `lower_datetime_windows` above and never
+                    // reaches this libc clock-id selection (plan-66-A).
                     PlatformFamily::Windows => {
-                        unreachable!("47-D owns the Windows monotonic clock")
+                        unreachable!("plan-66-A routes Windows datetime to kernel32")
                     }
                 }
             };
@@ -126,6 +176,7 @@ pub(super) fn lower_datetime_helper(
             ));
         }
     }
+    }
 
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,
@@ -163,4 +214,144 @@ pub(super) fn lower_datetime_helper(
 
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCALS_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
+}
+
+/// The Windows kernel32 body for the three `datetime::` intrinsics (plan-66-A).
+/// Emits into `instructions`/`relocations`; the caller supplies the shared OK tail
+/// and the `localOffset` range-fail tail (`range_fail`). Every OS call rides
+/// `platform.emit_libc_call`, whose import library comes from the plan's
+/// `runtime_imports` map (kernel32.dll for all of these).
+#[allow(clippy::too_many_arguments)]
+fn lower_datetime_windows(
+    call: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    range_fail: &str,
+) -> Result<(), String> {
+    let call_win = |func: &str,
+                        instructions: &mut Vec<CodeInstruction>,
+                        relocations: &mut Vec<CodeRelocation>|
+     -> Result<(), String> {
+        platform.emit_libc_call(func, symbol, platform_imports, instructions, relocations)
+    };
+
+    match call {
+        "datetime.monotonicNanos" => {
+            // QueryPerformanceCounter(&counter); QueryPerformanceFrequency(&freq).
+            instructions.push(abi::add_immediate(
+                abi::ARG[0],
+                abi::stack_pointer(),
+                WIN_FILETIME_OFFSET,
+            ));
+            call_win("QueryPerformanceCounter", instructions, relocations)?;
+            instructions.push(abi::add_immediate(
+                abi::ARG[0],
+                abi::stack_pointer(),
+                WIN_QPC_FREQ_OFFSET,
+            ));
+            call_win("QueryPerformanceFrequency", instructions, relocations)?;
+            // nanos = (counter/freq)*1e9 + ((counter%freq)*1e9)/freq. Splitting the
+            // multiply across the quotient and remainder keeps every intermediate
+            // inside u64: `counter*1e9` alone overflows within ~21 s at 10 MHz.
+            instructions.extend([
+                abi::load_u64("%v9", abi::stack_pointer(), WIN_FILETIME_OFFSET), // counter
+                abi::load_u64("%v10", abi::stack_pointer(), WIN_QPC_FREQ_OFFSET), // freq
+                abi::unsigned_divide_registers("%v11", "%v9", "%v10"),           // q
+                abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v9"), // rem = counter - q*freq
+                abi::move_immediate("%v13", "Integer", NANOS_PER_SEC),
+                abi::multiply_registers("%v11", "%v11", "%v13"), // q*1e9
+                abi::multiply_registers("%v12", "%v12", "%v13"), // rem*1e9
+                abi::unsigned_divide_registers("%v12", "%v12", "%v10"), // (rem*1e9)/freq
+                abi::add_registers(RESULT_VALUE_REGISTER, "%v11", "%v12"),
+            ]);
+        }
+        "datetime.nowNanos" => {
+            // GetSystemTimePreciseAsFileTime(&ft): 100 ns intervals since 1601.
+            instructions.push(abi::add_immediate(
+                abi::ARG[0],
+                abi::stack_pointer(),
+                WIN_FILETIME_OFFSET,
+            ));
+            call_win("GetSystemTimePreciseAsFileTime", instructions, relocations)?;
+            instructions.extend([
+                abi::load_u64("%v9", abi::stack_pointer(), WIN_FILETIME_OFFSET),
+                abi::move_immediate("%v10", "Integer", WIN_FILETIME_UNIX_EPOCH_100NS),
+                abi::subtract_registers("%v9", "%v9", "%v10"), // 100 ns since Unix epoch
+                abi::move_immediate("%v10", "Integer", "100"),
+                abi::multiply_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+            ]);
+        }
+        "datetime.localOffset" => {
+            // epochSeconds (ARG[0]) → FILETIME → UTC SYSTEMTIME → local SYSTEMTIME
+            // → local FILETIME. The (local − original) FILETIME delta is the UTC
+            // offset in 100 ns units; a NULL from any conversion means the instant
+            // is out of the FILETIME/SYSTEMTIME range → ErrInvalidArgument (bug-42).
+            //
+            // First bound `epochSeconds` so the `*1e7 + epoch` FILETIME arithmetic
+            // cannot wrap: a wrapped product yields a valid-looking FILETIME that
+            // FileTimeToSystemTime accepts, silently returning a garbage offset
+            // instead of trapping (the libc `localtime_r` NULL path traps because
+            // `tm_year`'s `int` overflows). The bounds are the exact FILETIME range:
+            // below -11644473600 s the FILETIME is negative; above the HIGH bound
+            // `epochSeconds*1e7 + epoch` exceeds i64. The residual year>30827 edge is
+            // still caught by the FileTimeToSystemTime NULL check downstream.
+            instructions.extend([
+                abi::move_register("%v9", abi::ARG[0]), // epochSeconds
+                // HIGH: epochSeconds > 910692730085477 → epochSeconds*1e7+epoch > i64max.
+                abi::move_immediate("%v10", "Integer", WIN_FILETIME_MAX_UNIX_SEC),
+                abi::compare_registers("%v9", "%v10"),
+                abi::branch_gt(range_fail),
+                // LOW: epochSeconds + 11644473600 < 0 → FILETIME negative (pre-1601).
+                abi::move_immediate("%v10", "Integer", WIN_UNIX_EPOCH_TO_1601_SEC),
+                abi::add_registers("%v10", "%v9", "%v10"),
+                abi::compare_immediate("%v10", "0"),
+                abi::branch_lt(range_fail),
+                abi::move_immediate("%v10", "Integer", WIN_HUNDRED_NS_PER_SEC),
+                abi::multiply_registers("%v9", "%v9", "%v10"), // epochSeconds*1e7
+                abi::move_immediate("%v10", "Integer", WIN_FILETIME_UNIX_EPOCH_100NS),
+                abi::add_registers("%v9", "%v9", "%v10"), // FILETIME
+                abi::store_u64("%v9", abi::stack_pointer(), WIN_FILETIME_OFFSET),
+                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), WIN_FILETIME_OFFSET),
+                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
+            ]);
+            call_win("FileTimeToSystemTime", instructions, relocations)?;
+            instructions.push(abi::compare_immediate(abi::RET[0], "0"));
+            instructions.push(abi::branch_eq(range_fail));
+            // SystemTimeToTzSpecificLocalTime(NULL, &utc, &local): NULL selects the
+            // machine's current time zone, applying its DST rules to the instant.
+            instructions.extend([
+                abi::move_immediate(abi::ARG[0], "Integer", "0"),
+                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIN_UTC_SYSTEMTIME_OFFSET),
+                abi::add_immediate(abi::ARG[2], abi::stack_pointer(), WIN_LOCAL_SYSTEMTIME_OFFSET),
+            ]);
+            call_win("SystemTimeToTzSpecificLocalTime", instructions, relocations)?;
+            instructions.push(abi::compare_immediate(abi::RET[0], "0"));
+            instructions.push(abi::branch_eq(range_fail));
+            // SystemTimeToFileTime(&local, &localFt).
+            instructions.extend([
+                abi::add_immediate(abi::ARG[0], abi::stack_pointer(), WIN_LOCAL_SYSTEMTIME_OFFSET),
+                abi::add_immediate(abi::ARG[1], abi::stack_pointer(), WIN_LOCAL_FILETIME_OFFSET),
+            ]);
+            call_win("SystemTimeToFileTime", instructions, relocations)?;
+            instructions.push(abi::compare_immediate(abi::RET[0], "0"));
+            instructions.push(abi::branch_eq(range_fail));
+            // offsetSeconds = (localFt − ft) / 1e7, signed (west-of-UTC is negative).
+            instructions.extend([
+                abi::load_u64("%v9", abi::stack_pointer(), WIN_LOCAL_FILETIME_OFFSET),
+                abi::load_u64("%v10", abi::stack_pointer(), WIN_FILETIME_OFFSET),
+                abi::subtract_registers("%v9", "%v9", "%v10"),
+                abi::move_immediate("%v10", "Integer", WIN_HUNDRED_NS_PER_SEC),
+                abi::signed_divide_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
+            ]);
+        }
+        other => {
+            return Err(format!(
+                "native Windows datetime lowering does not support runtime call '{other}'"
+            ));
+        }
+    }
+    Ok(())
 }

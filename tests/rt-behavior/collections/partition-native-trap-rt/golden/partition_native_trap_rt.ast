@@ -1,0 +1,153 @@
+{
+  "project": "partition_native_trap_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "collections", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "isEven",
+      "line": 10,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null, "line": 10 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "=", "left": { "kind": "binary", "operator": "MOD", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } }, "right": { "kind": "number", "value": "0" } }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "isPosF",
+      "line": 14,
+      "params": [
+      { "name": "x", "type": "Float", "default": null, "line": 14 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "x" }, "right": { "kind": "number", "value": "0.0" } }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "isShort",
+      "line": 18,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 18 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "<=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "3" } }, "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "failOn20",
+      "line": 22,
+      "params": [
+      { "name": "v", "type": "Integer", "default": null, "line": 22 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "20" } },
+        "line": 23,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "string", "value": "predicate hit 20" }] }, "line": 23 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "v" }, "right": { "kind": "number", "value": "5" } }, "line": 24 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "failOnB",
+      "line": 27,
+      "params": [
+      { "name": "s", "type": "String", "default": null, "line": 27 }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "b" } },
+        "line": 28,
+        "then": [
+        { "kind": "fail", "error": { "kind": "call", "callee": "error", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "string", "value": "predicate hit b" }] }, "line": 28 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }, "right": { "kind": "number", "value": "0" } }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 32,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Partition OF Integer", "value": { "kind": "call", "callee": "collections.partition", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }, { "kind": "number", "value": "6" }] }, { "kind": "identifier", "value": "isEven" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int matched=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "matched" }] }] } }, "right": { "kind": "string", "value": " unmatched=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "unmatched" }] }] } }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int m0=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "matched" }, { "kind": "number", "value": "0" }] }] } }, "right": { "kind": "string", "value": " u0=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "unmatched" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "f", "type": "Partition OF Float", "value": { "kind": "call", "callee": "collections.partition", "arguments": [{ "kind": "list", "values": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1.0" } }, { "kind": "number", "value": "2.0" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "3.0" } }, { "kind": "number", "value": "4.0" }] }, { "kind": "identifier", "value": "isPosF" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "float matched=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "matched" }] }] } }, "right": { "kind": "string", "value": " unmatched=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "f" }, "member": "unmatched" }] }] } }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "emptyI", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "e", "type": "Partition OF Integer", "value": { "kind": "call", "callee": "collections.partition", "arguments": [{ "kind": "identifier", "value": "emptyI" }, { "kind": "identifier", "value": "isEven" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "empty matched=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "matched" }] }] } }, "right": { "kind": "string", "value": " unmatched=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "unmatched" }] }] } }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "Partition OF String", "value": { "kind": "call", "callee": "collections.partition", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "abcd" }, { "kind": "string", "value": "xy" }, { "kind": "string", "value": "hello" }] }, { "kind": "identifier", "value": "isShort" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str matched=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "matched" }] }] } }, "right": { "kind": "string", "value": " unmatched=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "unmatched" }] }] } }, "right": { "kind": "string", "value": " m0=" } }, "right": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "s" }, "member": "matched" }, { "kind": "number", "value": "0" }] } }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "emptyL", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 52 },
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Partition OF Integer", "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 53,
+        "expression": { "kind": "call", "callee": "collections.partition", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, { "kind": "identifier", "value": "failOn20" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int trap caught: " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "message" } }] }, "line": 54 },
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Partition", "arguments": [{ "kind": "identifier", "value": "emptyL" }, { "kind": "identifier", "value": "emptyL" }] }, "line": 55 }
+        ]
+      }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int trap matched=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "matched" }] }] } }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "emptyS", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "q", "type": "Partition OF String", "value": {
+        "kind": "trapped",
+        "binding": "err",
+        "line": 61,
+        "expression": { "kind": "call", "callee": "collections.partition", "arguments": [{ "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "b" }, { "kind": "string", "value": "c" }] }, { "kind": "identifier", "value": "failOnB" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str trap caught: " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "message" } }] }, "line": 62 },
+        { "kind": "recover", "value": { "kind": "constructor", "type": "Partition", "arguments": [{ "kind": "identifier", "value": "emptyS" }, { "kind": "identifier", "value": "emptyS" }] }, "line": 63 }
+        ]
+      }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str trap matched=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "q" }, "member": "matched" }] }] } }] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Partition OF Integer", "value": { "kind": "call", "callee": "collections.partition", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }, { "kind": "number", "value": "9" }, { "kind": "number", "value": "10" }] }, { "kind": "identifier", "value": "isEven" }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after matched=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "matched" }] }] } }, "right": { "kind": "string", "value": " m0=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "matched" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 69 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 70 }
+      ]
+    }
+    ]
+  }
+  ]
+}

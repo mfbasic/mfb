@@ -356,6 +356,11 @@ fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<()
             term_state_offset + offset,
         ));
     }
+    // Enable ANSI/VT output interpretation before the first escape write. No-op on
+    // POSIX terminals; on Windows this sets ENABLE_VIRTUAL_TERMINAL_PROCESSING on
+    // the stdout console handle so the ESC_ON sequence (and every later styling
+    // write) renders instead of printing raw (plan-66-D).
+    platform.emit_enable_vt_output(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_write_const(
         &mut EmitCtx {
             symbol,

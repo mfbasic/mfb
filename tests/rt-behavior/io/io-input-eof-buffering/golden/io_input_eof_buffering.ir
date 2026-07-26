@@ -1,0 +1,41 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "io_input_eof_buffering",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 9,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "buf_default=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "io.isBuffered", "args": [] }] } }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.setBuffered", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "buf_after=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "io.isBuffered", "args": [] }] } }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.flush", "args": [] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "String", "target": "io.readLine", "args": [] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "eof_line=[" }, "right": { "kind": "local", "name": "line" } }, "right": { "kind": "const", "type": "String", "value": "]" } }] } },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "trap",
+      "line": 17,
+      "name": "err",
+      "body": [
+      { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "eof_trap=TRUE" }] } },
+      { "op": "return", "line": 19, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ]
+    }
+    ]
+  }
+  ]
+}

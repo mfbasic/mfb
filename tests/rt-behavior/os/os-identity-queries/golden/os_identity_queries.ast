@@ -1,0 +1,41 @@
+{
+  "project": "os_identity_queries",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "os", "line": 2 },
+    { "module": "strings", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "host_nonempty=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "os.hostName", "arguments": [] }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "user_nonempty=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "os.userName", "arguments": [] }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "exe", "type": "String", "value": { "kind": "call", "callee": "os.executablePath", "arguments": [] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exe_nonempty=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": ">", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "exe" }] }, "right": { "kind": "number", "value": "0" } }] } }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "exe_has_name=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.contains", "arguments": [{ "kind": "identifier", "value": "exe" }, { "kind": "string", "value": "os_identity_queries" }] }] } }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 15,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "TRAP=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 16 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 17 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

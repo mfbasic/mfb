@@ -99,6 +99,15 @@ pub(super) fn lower_executable_path(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
+    if platform.family() == PlatformFamily::Windows {
+        // GetModuleFileNameW(NULL, …) + UTF-16→UTF-8 marshal (plan-66-B).
+        return super::introspect::lower_os_wide_string_windows(
+            symbol,
+            "executablePath",
+            platform_imports,
+            platform,
+        );
+    }
     let fail = format!("{symbol}_fail");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
@@ -175,7 +184,12 @@ pub(super) fn resource_base_offset(
     module_name: &str,
 ) -> (u32, String) {
     match build_mode {
-        crate::target::NativeBuildMode::Console => (1, String::new()),
+        // The Windows app `.exe` sits in `build/` beside its resources exactly as a
+        // console build does (single file, no bundle) — strip the filename, no
+        // suffix (plan-66-I/J).
+        crate::target::NativeBuildMode::Console | crate::target::NativeBuildMode::WindowsApp => {
+            (1, String::new())
+        }
         crate::target::NativeBuildMode::MacApp => (2, "Resources".to_string()),
         crate::target::NativeBuildMode::LinuxApp => (2, format!("share/{module_name}")),
     }

@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/rt-behavior/os/os-introspect-basic
+Wrote AST to tests/rt-behavior/os/os-introspect-basic/os_introspect_basic.ast
+Wrote IR to tests/rt-behavior/os/os-introspect-basic/os_introspect_basic.ir
+[exit 0]
+$ mfb build tests/rt-behavior/os/os-introspect-basic
+Wrote executable to tests/rt-behavior/os/os-introspect-basic/build/os_introspect_basic.out
+[exit 0]
+$ tests/rt-behavior/os/os-introspect-basic/build/os_introspect_basic.out
+pid_pos=TRUE
+cpu_pos=TRUE
+name_known=TRUE
+arch_known=TRUE
+[exit 0]
