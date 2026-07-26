@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT os
+
+REM plan-66-B: os:: introspection that is host-neutral across every native target.
+REM pid/cpuCount are the numeric probes; name/arch assert against the known finite
+REM set so the output is identical on macOS, Linux and Windows.
+FUNC main AS Integer
+  io::print("pid_pos=" & toString(os::pid() > 0))
+  io::print("cpu_pos=" & toString(os::cpuCount() >= 1))
+  io::print("name_known=" & toString(os::name() = "macos" OR os::name() = "linux" OR os::name() = "windows"))
+  io::print("arch_known=" & toString(os::arch() = "x86_64" OR os::arch() = "aarch64" OR os::arch() = "riscv64"))
+  RETURN 0
+END FUNC

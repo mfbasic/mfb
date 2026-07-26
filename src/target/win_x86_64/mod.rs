@@ -68,6 +68,12 @@ const RUNTIME_CALLS: &[&str] = &[
     "datetime.nowNanos",
     "datetime.monotonicNanos",
     "datetime.localOffset",
+    // os:: introspection (plan-66-B). name/arch are const-string arms (no import);
+    // pid = GetCurrentProcessId; cpuCount = GetSystemInfo.
+    "os.name",
+    "os.arch",
+    "os.pid",
+    "os.cpuCount",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",

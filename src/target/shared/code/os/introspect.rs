@@ -59,8 +59,14 @@ pub(super) fn lower_pid(
 ) -> HelperResult {
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
+    // Windows has no `getpid`; GetCurrentProcessId is the drop-in (no args, DWORD
+    // in the return register). plan-66-B.
+    let getpid_fn = match platform.family() {
+        PlatformFamily::Windows => "GetCurrentProcessId",
+        _ => "getpid",
+    };
     platform.emit_libc_call(
-        "getpid",
+        getpid_fn,
         symbol,
         platform_imports,
         &mut instructions,
@@ -82,11 +88,46 @@ pub(super) fn lower_cpu_count(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
+    if platform.family() == PlatformFamily::Windows {
+        // Windows has no sysconf; GetSystemInfo(&si) fills a SYSTEM_INFO whose
+        // `dwNumberOfProcessors` (DWORD) sits at offset 0x20. It is always >= 1,
+        // but keep the shared clamp for uniformity. plan-66-B.
+        const SYSTEM_INFO_SIZE: usize = 48;
+        const DW_NUMBER_OF_PROCESSORS_OFFSET: usize = 0x20;
+        let positive = format!("{symbol}_positive");
+        let mut vregs = Vregs::new();
+        let count = vregs.next();
+        let mut instructions = vec![
+            abi::label("entry"),
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0), // &SYSTEM_INFO
+        ];
+        let mut relocations = Vec::new();
+        platform.emit_libc_call(
+            "GetSystemInfo",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::load_u32(&count, abi::stack_pointer(), DW_NUMBER_OF_PROCESSORS_OFFSET),
+            abi::compare_immediate(&count, "1"),
+            abi::branch_ge(&positive),
+            abi::move_immediate(&count, "Integer", "1"),
+            abi::label(&positive),
+            abi::move_register(RESULT_VALUE_REGISTER, &count),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+            abi::return_(),
+        ]);
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], SYSTEM_INFO_SIZE);
+        return Ok((frame, instructions, relocations, stack_slots));
+    }
     let sc_nprocessors_onln = match platform.family() {
         PlatformFamily::MacOS => "58",
         PlatformFamily::Linux => "84",
-        // 47-D owns the Windows CPU count (GetSystemInfo), not sysconf.
-        PlatformFamily::Windows => unreachable!("47-D owns the Windows processor count"),
+        // Windows is handled above (GetSystemInfo); never reaches this sysconf id.
+        PlatformFamily::Windows => unreachable!("plan-66-B routes Windows cpuCount to GetSystemInfo"),
     };
     let positive = format!("{symbol}_positive");
     let mut vregs = Vregs::new();

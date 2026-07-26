@@ -196,6 +196,10 @@ impl NativePlanPlatform for Platform {
                 import("SystemTimeToTzSpecificLocalTime", KERNEL32, required_by),
                 import("SystemTimeToFileTime", KERNEL32, required_by),
             ],
+            // os:: (plan-66-B). name/arch are const strings (no import). pid and
+            // cpuCount are single kernel32 calls.
+            "os.pid" => vec![import("GetCurrentProcessId", KERNEL32, required_by)],
+            "os.cpuCount" => vec![import("GetSystemInfo", KERNEL32, required_by)],
             // Threads (plan-47-H): pthread_* -> CreateThread + SRWLOCK +
             // CONDITION_VARIABLE. Every thread.* helper may pull in any of the
             // sync primitives (they share the queue/broadcast machinery), so the
