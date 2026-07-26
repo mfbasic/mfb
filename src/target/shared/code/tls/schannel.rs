@@ -14,10 +14,10 @@
 
 use std::collections::HashMap;
 
-use super::super::*;
+use super::super::emit_alloc;
 use super::super::native_helpers::{emit_build_byte_list, emit_fail};
 use super::super::net::emit_string_result_build;
-use super::super::emit_alloc;
+use super::super::*;
 use super::{TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_RECORD_SIZE};
 use crate::target::shared::abi;
 
@@ -57,14 +57,14 @@ mod st {
     pub const RECV_LEN: usize = 48; // bytes currently in RECV (ciphertext)
     pub const LEFT_OFF: usize = 56; // read cursor into LEFT plaintext buffer
     pub const LEFT_LEN: usize = 64; // undelivered plaintext bytes in LEFT
-    // Handshake/close SSPI scratch, kept in the ARENA so every pointer is
-    // `STATE_reg + const` (an ABSOLUTE address). `sspi_call_ext` computes these as
-    // `InitializeSecurityContextW`/`AcquireCredentialsHandleW` stack-argument values
-    // INSIDE its `sub_sp` bracket (DEPTH 1); a stack-frame pointer there would be
-    // `body_shift` bytes off (finalize_frame only shifts DEPTH-0 accesses), and a
-    // plain vreg carried across the subtract can spill and reload `body_shift` off —
-    // exactly what corrupted an ISC output pointer into a NULL return (RIP=0). These
-    // fields are live only during connect/close, before RECV is ever touched.
+                                    // Handshake/close SSPI scratch, kept in the ARENA so every pointer is
+                                    // `STATE_reg + const` (an ABSOLUTE address). `sspi_call_ext` computes these as
+                                    // `InitializeSecurityContextW`/`AcquireCredentialsHandleW` stack-argument values
+                                    // INSIDE its `sub_sp` bracket (DEPTH 1); a stack-frame pointer there would be
+                                    // `body_shift` bytes off (finalize_frame only shifts DEPTH-0 accesses), and a
+                                    // plain vreg carried across the subtract can spill and reload `body_shift` off —
+                                    // exactly what corrupted an ISC output pointer into a NULL return (RIP=0). These
+                                    // fields are live only during connect/close, before RECV is ever touched.
     pub const SC_CRED: usize = 72; // SCHANNEL_CRED (0x60)
     pub const OUTBUF: usize = 168; // out SecBuffer[1] (16)
     pub const OUTDESC: usize = 184; // out SecBufferDesc (16)
@@ -122,7 +122,13 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
     vec![wide_cstr(&sym(USP_NAME), USP_NAME)]
 }
 
-fn wide_addr(from: &str, dst: &str, id: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>) {
+fn wide_addr(
+    from: &str,
+    dst: &str,
+    id: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
     super::super::native_helpers::emit_data_address(from, dst, &sym(id), ins, rel);
 }
 
@@ -145,14 +151,21 @@ fn sspi_call(
         let frame = (0x20 + stack * 8 + 15) & !15;
         ins.push(abi::subtract_stack(frame));
         for i in 0..stack {
-            ins.push(abi::store_u64(abi::ARG[4 + i], abi::stack_pointer(), 0x20 + i * 8));
+            ins.push(abi::store_u64(
+                abi::ARG[4 + i],
+                abi::stack_pointer(),
+                0x20 + i * 8,
+            ));
         }
         platform.emit_libc_call(symbol, from, imports, ins, rel)?;
         ins.push(abi::add_stack(frame));
     } else {
         platform.emit_libc_call(symbol, from, imports, ins, rel)?;
     }
-    ins.push(abi::sign_extend_word(abi::return_register(), abi::return_register()));
+    ins.push(abi::sign_extend_word(
+        abi::return_register(),
+        abi::return_register(),
+    ));
     Ok(())
 }
 
@@ -197,7 +210,10 @@ fn sspi_call_ext(
         }
     }
     platform.emit_libc_call(symbol, from, imports, ins, rel)?;
-    ins.push(abi::sign_extend_word(abi::return_register(), abi::return_register()));
+    ins.push(abi::sign_extend_word(
+        abi::return_register(),
+        abi::return_register(),
+    ));
     Ok(())
 }
 

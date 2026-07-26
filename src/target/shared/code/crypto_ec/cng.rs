@@ -19,7 +19,6 @@ use super::super::*;
 use super::{emit_build_byte_list, emit_fail, emit_read_byte_list, Curve, EcOp};
 use crate::target::shared::abi;
 
-
 impl Curve {
     fn field_len(self) -> usize {
         match self {
@@ -106,7 +105,13 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
     WIDE_IDS.iter().map(|id| wide_cstr(&sym(id), id)).collect()
 }
 
-fn wide_addr(from: &str, dst: &str, id: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>) {
+fn wide_addr(
+    from: &str,
+    dst: &str,
+    id: &str,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) {
     emit_data_address(from, dst, &sym(id), ins, rel);
 }
 
@@ -127,14 +132,21 @@ fn bcrypt_call(
         let frame = (0x20 + stack * 8 + 15) & !15;
         ins.push(abi::subtract_stack(frame));
         for i in 0..stack {
-            ins.push(abi::store_u64(abi::ARG[4 + i], abi::stack_pointer(), 0x20 + i * 8));
+            ins.push(abi::store_u64(
+                abi::ARG[4 + i],
+                abi::stack_pointer(),
+                0x20 + i * 8,
+            ));
         }
         platform.emit_libc_call(symbol, from, imports, ins, rel)?;
         ins.push(abi::add_stack(frame));
     } else {
         platform.emit_libc_call(symbol, from, imports, ins, rel)?;
     }
-    ins.push(abi::sign_extend_word(abi::return_register(), abi::return_register()));
+    ins.push(abi::sign_extend_word(
+        abi::return_register(),
+        abi::return_register(),
+    ));
     Ok(())
 }
 
@@ -208,13 +220,25 @@ fn generate(
         abi::store_u64(abi::ZERO, abi::stack_pointer(), BLOB),
     ]);
 
-    ins.push(abi::add_immediate(abi::return_register(), abi::stack_pointer(), HALG));
+    ins.push(abi::add_immediate(
+        abi::return_register(),
+        abi::stack_pointer(),
+        HALG,
+    ));
     wide_addr(symbol, abi::ARG[1], curve.algo_id(), &mut ins, &mut rel);
     ins.extend([
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
-    bcrypt_call(symbol, "BCryptOpenAlgorithmProvider", 4, imports, platform, &mut ins, &mut rel)?;
+    bcrypt_call(
+        symbol,
+        "BCryptOpenAlgorithmProvider",
+        4,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.push(abi::branch_lt(&fail));
 
     ins.extend([
@@ -223,14 +247,30 @@ fn generate(
         abi::move_immediate(abi::ARG[2], "Integer", "0"),
         abi::move_immediate(abi::ARG[3], "Integer", "0"),
     ]);
-    bcrypt_call(symbol, "BCryptGenerateKeyPair", 4, imports, platform, &mut ins, &mut rel)?;
+    bcrypt_call(
+        symbol,
+        "BCryptGenerateKeyPair",
+        4,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.push(abi::branch_lt(&fail));
 
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), HKEY),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
-    bcrypt_call(symbol, "BCryptFinalizeKeyPair", 2, imports, platform, &mut ins, &mut rel)?;
+    bcrypt_call(
+        symbol,
+        "BCryptFinalizeKeyPair",
+        2,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.push(abi::branch_lt(&fail));
 
     // Allocate blob buffer + raw-key output buffer.
@@ -263,7 +303,15 @@ fn generate(
         abi::add_immediate(abi::ARG[5], abi::stack_pointer(), CBRES),
         abi::move_immediate(abi::ARG[6], "Integer", "0"),
     ]);
-    bcrypt_call(symbol, "BCryptExportKey", 7, imports, platform, &mut ins, &mut rel)?;
+    bcrypt_call(
+        symbol,
+        "BCryptExportKey",
+        7,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.push(abi::branch_lt(&fail));
     let _ = CBRES;
 
@@ -283,7 +331,9 @@ fn generate(
     // result — the cleanup calls clobber the caller-saved result registers, and
     // `emit_build_byte_list` sets them last. `emit_cleanup` nulls the handle slots
     // so the shared error labels below can reuse it idempotently.
-    emit_cleanup(symbol, "c1", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
+    emit_cleanup(
+        symbol, "c1", HKEY, HALG, imports, platform, &mut ins, &mut rel,
+    )?;
     emit_zero_guarded(symbol, BLOB, None, BLOBCAP, "blobz", &mut ins);
     emit_build_byte_list(
         symbol,
@@ -300,11 +350,29 @@ fn generate(
     ins.push(abi::branch(&done));
 
     ins.push(abi::label(&fail));
-    emit_cleanup(symbol, "c2", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_cleanup(
+        symbol, "c2", HKEY, HALG, imports, platform, &mut ins, &mut rel,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&alloc_fail));
-    emit_cleanup(symbol, "c3", HKEY, HALG, imports, platform, &mut ins, &mut rel)?;
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_cleanup(
+        symbol, "c3", HKEY, HALG, imports, platform, &mut ins, &mut rel,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
 
     let _ = cleanup;
     ins.extend([abi::label(&done), abi::return_()]);
@@ -339,7 +407,15 @@ fn emit_cleanup(
         abi::branch_eq(&no_alg),
         abi::move_immediate(abi::ARG[1], "Integer", "0"),
     ]);
-    bcrypt_call(symbol, "BCryptCloseAlgorithmProvider", 2, imports, platform, ins, rel)?;
+    bcrypt_call(
+        symbol,
+        "BCryptCloseAlgorithmProvider",
+        2,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), halg_off));
     ins.push(abi::label(&no_alg));
     Ok(())

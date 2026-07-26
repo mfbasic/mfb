@@ -96,12 +96,10 @@ impl FunctionPlanBuilder<'_> {
                     }
                 }
                 NirOp::ExitLoop { kind } => {
-                    self.operations
-                        .push(format!("exit {}", kind.keyword()));
+                    self.operations.push(format!("exit {}", kind.keyword()));
                 }
                 NirOp::ContinueLoop { kind } => {
-                    self.operations
-                        .push(format!("continue {}", kind.keyword()));
+                    self.operations.push(format!("continue {}", kind.keyword()));
                 }
                 NirOp::ExitProgram { code } => {
                     self.lower_value(code)?;
@@ -587,7 +585,6 @@ pub(super) fn describe_value(value: &NirValue) -> String {
         NirValue::Unary { op, operand, .. } => format!("({op} {})", describe_value(operand)),
     }
 }
-
 
 pub(super) fn describe_match_pattern(pattern: &super::nir::NirMatchPattern) -> String {
     match pattern {

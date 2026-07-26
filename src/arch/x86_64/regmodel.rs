@@ -197,15 +197,13 @@ impl RegisterModel for X86_64RegisterModel {
 const WIN64_INT_ALLOCATABLE: &[&str] = &["r10", "r11", "r12", "r14"];
 // Win64 callee-saved integers: SysV's bank plus `rdi`/`rsi` (caller-saved under
 // SysV). The callee-saved xmm bank (xmm6–xmm15) is handled in `is_callee_saved`.
-const WIN64_INT_CALLEE_SAVED: &[&str] =
-    &["rbx", "rbp", "rdi", "rsi", "r12", "r13", "r14", "r15"];
+const WIN64_INT_CALLEE_SAVED: &[&str] = &["rbx", "rbp", "rdi", "rsi", "r12", "r13", "r14", "r15"];
 // Win64 volatile (caller-saved) FP: xmm0–xmm5 only; xmm6–xmm15 are callee-saved.
 // Narrowing the volatile set from SysV's "every xmm" is the safe direction — the
 // allocator keeps FP values live across a call in the preserved xmm6–xmm15.
 // (xmm15 remains the reserved FP scratch, as under SysV — it is simply not
 // offered as caller-saved here.)
-const WIN64_FP_CALLER_SAVED: &[&str] =
-    &["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"];
+const WIN64_FP_CALLER_SAVED: &[&str] = &["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"];
 
 pub(crate) struct Win64RegisterModel;
 
@@ -436,21 +434,30 @@ mod tests {
         assert_eq!(win.external_int_argument_registers(), 4);
         // (2) four allocatable ints (same as SysV: rax/rbp carry internal args
         // 7/8, so r10 stays allocatable); FP unchanged.
-        assert_eq!(win.allocatable(RegClass::Int), &["r10", "r11", "r12", "r14"]);
-        assert_eq!(win.allocatable(RegClass::Fp), sysv.allocatable(RegClass::Fp));
+        assert_eq!(
+            win.allocatable(RegClass::Int),
+            &["r10", "r11", "r12", "r14"]
+        );
+        assert_eq!(
+            win.allocatable(RegClass::Fp),
+            sysv.allocatable(RegClass::Fp)
+        );
         // (3) Win64 callee-saved bank: rsi/rdi and xmm6–xmm15 join.
         assert!(win.is_callee_saved("rsi") && win.is_callee_saved("rdi"));
         assert!(win.is_callee_saved("xmm6") && win.is_callee_saved("xmm15"));
         assert!(!win.is_callee_saved("xmm5")); // volatile
         assert!(win.is_callee_saved("rbx")); // SysV bank still callee-saved
         assert!(!sysv.is_callee_saved("rsi")); // and it is NOT under SysV
-        // (4) FP volatile set narrows to xmm0–xmm5; int volatile is left at SysV's
-        //     (conservative — it names rsi/rdi, which Win64 actually preserves).
+                                               // (4) FP volatile set narrows to xmm0–xmm5; int volatile is left at SysV's
+                                               //     (conservative — it names rsi/rdi, which Win64 actually preserves).
         assert_eq!(
             win.caller_saved(RegClass::Fp),
             &["xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"]
         );
-        assert_eq!(win.caller_saved(RegClass::Int), sysv.caller_saved(RegClass::Int));
+        assert_eq!(
+            win.caller_saved(RegClass::Int),
+            sysv.caller_saved(RegClass::Int)
+        );
 
         // Delegated: identical ISA (pins, spill widths, mnemonics, class_of).
         assert_eq!(win.arena_base(), "r15");

@@ -93,12 +93,18 @@ pub(super) fn lower_crypto_random_bytes_helper(
         // (STATUS_SUCCESS) on success, matching the getentropy contract the loop
         // and the `!= 0` check below expect.
         instructions.extend([
-            abi::move_register(abi::ARG[2], abi::ARG[1]),          // chunk  -> r8
+            abi::move_register(abi::ARG[2], abi::ARG[1]), // chunk  -> r8
             abi::move_register(abi::ARG[1], abi::return_register()), // buf+off -> rdx
             abi::move_immediate(abi::return_register(), "Integer", "0"), // hAlg = NULL
             abi::move_immediate(abi::ARG[3], "Integer", "2"), // BCRYPT_USE_SYSTEM_PREFERRED_RNG
         ]);
-        platform.emit_libc_call("BCryptGenRandom", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "BCryptGenRandom",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     } else {
         platform.emit_libc_call(
             "getentropy",

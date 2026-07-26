@@ -46,8 +46,6 @@ pub(crate) const VERIFY_MATCH: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_MATC
 pub(crate) const VERIFY_MATCH_EMPTY_MSG: &str = "MATCH has no cases (not exhaustive)";
 
 mod binary;
-#[cfg(test)]
-mod variant_corpus_tests;
 mod docs;
 mod json;
 mod link;
@@ -55,6 +53,8 @@ mod lower;
 mod lower_link;
 mod op;
 mod package;
+#[cfg(test)]
+mod variant_corpus_tests;
 // bug-343 A3: resource-escape analysis (was the misleadingly-named crate-root
 // `escape.rs`); pub(crate) so its `src/target/` consumers can reach it.
 pub(crate) mod resource_escape;
@@ -85,11 +85,11 @@ pub use package::{
     apply_package_identity, merge_package, package_qualified_reference_names,
     prefix_package_symbols,
 };
-pub use types::{ExternalFunctionParam, IrProject};
 pub(crate) use types::{
     EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrParam, IrRecordUpdate, IrSourceLoc,
     IrType, IrVariant,
 };
+pub use types::{ExternalFunctionParam, IrProject};
 pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
 pub use verify::check as verify_semantics;
 pub use verify::collect_source_diagnostics as verify_source_diagnostics;

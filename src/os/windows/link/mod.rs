@@ -441,9 +441,7 @@ fn write_rel32(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::image::{
-        EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind,
-    };
+    use crate::arch::image::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
 
     fn image(text: Vec<u8>) -> EncodedImage {
         EncodedImage {

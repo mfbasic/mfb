@@ -970,14 +970,23 @@ mod tests {
     #[test]
     fn map_abi_register_fallbacks() {
         // Out-of-range indices fall back to rax in every role.
-        assert_eq!(map_abi_register(9, Some(AbiBoundary::Call), false, X86Abi::SysV), "rax");
+        assert_eq!(
+            map_abi_register(9, Some(AbiBoundary::Call), false, X86Abi::SysV),
+            "rax"
+        );
         assert_eq!(
             map_abi_register(9, Some(AbiBoundary::Syscall), false, X86Abi::SysV),
             "rax"
         );
-        assert_eq!(map_abi_register(9, Some(AbiBoundary::Ret), false, X86Abi::SysV), "rax");
+        assert_eq!(
+            map_abi_register(9, Some(AbiBoundary::Ret), false, X86Abi::SysV),
+            "rax"
+        );
         assert_eq!(map_abi_register(9, None, false, X86Abi::SysV), "rax");
-        assert_eq!(map_abi_register(9, Some(AbiBoundary::Call), true, X86Abi::SysV), "rax");
+        assert_eq!(
+            map_abi_register(9, Some(AbiBoundary::Call), true, X86Abi::SysV),
+            "rax"
+        );
         // A leftover ABI register with no boundary uses that index's RETS home.
         assert_eq!(map_abi_register(1, None, false, X86Abi::SysV), "rdx");
     }

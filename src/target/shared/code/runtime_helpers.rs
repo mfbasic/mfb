@@ -212,10 +212,10 @@ fn emit_windows_thread_call(ctx: &mut EmitCtx, name: &str) -> Result<(), String>
                 abi::multiply_registers(abi::ARG[3], abi::ARG[2], abi::ARG[1]),        // sec*1e7
                 abi::subtract_registers(abi::ARG[3], abi::ARG[0], abi::ARG[3]),        // ft % 1e7
                 abi::move_immediate(abi::ARG[1], "Integer", "100"),
-                abi::multiply_registers(abi::ARG[3], abi::ARG[3], abi::ARG[1]),        // nsec
-                abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x28),                // &ts
-                abi::store_u64(abi::ARG[2], abi::ARG[0], 0),                           // tv_sec
-                abi::store_u64(abi::ARG[3], abi::ARG[0], 8),                           // tv_nsec
+                abi::multiply_registers(abi::ARG[3], abi::ARG[3], abi::ARG[1]), // nsec
+                abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x28),         // &ts
+                abi::store_u64(abi::ARG[2], abi::ARG[0], 0),                    // tv_sec
+                abi::store_u64(abi::ARG[3], abi::ARG[0], 8),                    // tv_nsec
                 abi::move_immediate(abi::return_register(), "Integer", "0"),
                 abi::add_stack(0x30),
             ]);
@@ -794,7 +794,10 @@ fn lower_thread_start_helper(
         // it survives to the CreateThread call.
         instructions.push(abi::load_u64(abi::ARG[3], abi::stack_pointer(), CB_OFFSET));
         instructions.push(abi::subtract_stack(0x40));
-        instructions.push(abi::load_page_address(abi::ARG[2], THREAD_TRAMPOLINE_SYMBOL));
+        instructions.push(abi::load_page_address(
+            abi::ARG[2],
+            THREAD_TRAMPOLINE_SYMBOL,
+        ));
         relocations.push(CodeRelocation {
             from: symbol.to_string(),
             to: THREAD_TRAMPOLINE_SYMBOL.to_string(),

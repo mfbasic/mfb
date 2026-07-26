@@ -1026,7 +1026,6 @@ fn join_json<T: ToNirJson>(items: &[T], indent: usize) -> String {
         .join(",")
 }
 
-
 fn join_values(values: &[NirValue]) -> String {
     values
         .iter()

@@ -923,4 +923,3 @@ impl CodeBuilder<'_> {
             || self.type_model.union_names.contains(payload_type)
     }
 }
-

@@ -166,7 +166,8 @@ impl NativeBackend for Backend {
         _vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
     ) -> Result<Vec<PathBuf>, String> {
-        let module = lower_validated_module(ir, &self.target(), packages, build_mode, stdin_log_cap)?;
+        let module =
+            lower_validated_module(ir, &self.target(), packages, build_mode, stdin_log_cap)?;
         let native_plan = plan::lower_module(&module)?;
         native_plan.validate()?;
         os::windows::validate_native_object_plan(&native_plan)?;

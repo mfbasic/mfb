@@ -131,9 +131,11 @@ pub fn merge_package(project: &mut IrProject, package: IrProject) {
     // function name stay separate (bug-251), while a diamond import — the same
     // package reached twice, hence the same prefix — still collapses to one entry
     // (plan-linker.md §12).
-    push_unique(&mut project.link_functions, package.link_functions, |a, b| {
-        a.alias == b.alias && a.name == b.name
-    });
+    push_unique(
+        &mut project.link_functions,
+        package.link_functions,
+        |a, b| a.alias == b.alias && a.name == b.name,
+    );
     // The CSTRUCT table travels with its LINK functions (plan-50-E): a struct
     // slot's ctype names a declaration in the same alias, so without this an
     // imported binding's struct slots resolve to nothing and are rejected as an

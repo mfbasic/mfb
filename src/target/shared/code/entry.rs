@@ -276,12 +276,22 @@ pub(crate) fn lower_program_entry(
     // (`clock_gettime` on POSIX; `GetSystemTimePreciseAsFileTime` on Windows,
     // plan-47-D §3.1) — `emit_arena_start_time`'s default reproduces the POSIX
     // sequence, so every existing target's entry is byte-identical.
-    platform.emit_arena_start_time(entry_symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_arena_start_time(
+        entry_symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Initialize the platform network stack before any initializer or the language
     // entry can issue a socket call (plan-47-I §3.2). No-op on POSIX; Windows emits
     // WSAStartup. Gated on `net.*` usage, so a socket-free program is byte-identical.
     if needs_winsock {
-        platform.emit_net_startup(entry_symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_net_startup(
+            entry_symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     }
     instructions.extend([
         // Pre-fill the seed scratch with the arena address (getentropy fallback).
@@ -535,7 +545,12 @@ pub(crate) fn lower_program_entry(
     // exit code is safely parked in the arena scratch slot — WSACleanup clobbers the
     // return register but preserves the callee-saved arena register.
     if needs_winsock {
-        platform.emit_net_shutdown(entry_symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_net_shutdown(
+            entry_symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
     }
     instructions.push(abi::branch_link(SHUTDOWN_SYMBOL));
     relocations.push(internal_branch(entry_symbol, SHUTDOWN_SYMBOL));
@@ -606,7 +621,11 @@ pub(crate) fn emit_default_arena_start_time<P: super::CodegenPlatform + ?Sized>(
         abi::move_immediate(abi::SCRATCH[2], "Integer", "1000000000"),
         abi::multiply_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[2]),
         abi::add_registers(abi::SCRATCH[0], abi::SCRATCH[0], abi::SCRATCH[1]), // ns = sec*1e9 + nsec
-        abi::store_u64(abi::SCRATCH[0], ARENA_STATE_REGISTER, ARENA_START_TIME_OFFSET),
+        abi::store_u64(
+            abi::SCRATCH[0],
+            ARENA_STATE_REGISTER,
+            ARENA_START_TIME_OFFSET,
+        ),
     ]);
     Ok(())
 }
