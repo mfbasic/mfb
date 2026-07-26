@@ -393,7 +393,7 @@ Commit: 52e5fb79c (t1); 69599dfc9 (env); eae84d465 (string trio); 95b305201 (env
   input.
 
 Acceptance: an interactive `readLine`/`readChar` program echoes correctly on the box. **MET** — box (piped): `readChar`=X, `readByte`=121(y), `readLine`=done interleave correctly through the broadcast log; `io::input` prints its prompt and reads the line; `pollInput(0)`=TRUE with data waiting; two-line pipe reads both lines. Non-Windows byte-identical; full `cargo test` green.
-Commit: —
+Commit: 4cf083fc1
 
 ### Phase D — `term::` styling/TUI
 - [x] Advertise the 16 styling calls in `win_x86_64/mod.rs`. The `term.rs:238,323,809`
