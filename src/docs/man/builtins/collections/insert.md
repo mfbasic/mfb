@@ -42,7 +42,7 @@ list-typed item explicitly with "insert expects a single item, not a list".
 Internally the element is wrapped as a one-element list and spliced into `value`
 at `index`, which is the same splice that backs `append` (index `= len`) and
 `prepend` (index `0`).
-[[src/builtins/general.rs:resolve_insert]]
+[[src/builtins/collections.rs:resolve_insert]]
 [[src/target/shared/code/collection_mutate.rs:lower_collection_insert]]
 
 `insert` is value-semantic. The list named by `value` is unchanged; the modified
@@ -63,7 +63,7 @@ allocation for the result, so a rejected index allocates nothing.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to insert into; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/general.rs:resolve_insert]] |
+| `value` | `List OF T` | The list to insert into; left unchanged. Also accepted under the name `list`. Must be a list type; a `Map` or scalar resolves no overload and is a compile-time error. [[src/builtins/collections.rs:call_param_names]] [[src/builtins/collections.rs:resolve_insert]] |
 | `index` | `Integer` | Zero-based position the inserted element will occupy. Valid range is `0` through `len(value)` inclusive; `len(value)` appends. Must be declared `Integer` exactly — no other numeric type resolves. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/target/shared/code/list_mutate.rs:lower_list_insert_collection]] |
 | `item` | `T` | The single element to insert. Its type must be exactly the list's element type `T`; a `List OF T` is not accepted. This parameter has no alternate spelling. [[src/builtins/collections.rs:call_param_names]] [[src/target/shared/code/collection_mutate.rs:lower_collection_insert]] |
 
@@ -71,7 +71,7 @@ allocation for the result, so a rejected index allocates nothing.
 
 | Type | Description |
 | --- | --- |
-| `List OF T` | A new list of the same type as `value`, one element longer, with `item` at position `index` and every prior element from `index` onward shifted up by one. Inserting at `0` places `item` first; inserting at `len(value)` places it last. [[src/builtins/general.rs:resolve_insert]] |
+| `List OF T` | A new list of the same type as `value`, one element longer, with `item` at position `index` and every prior element from `index` onward shifted up by one. Inserting at `0` places `item` first; inserting at `len(value)` places it last. [[src/builtins/collections.rs:resolve_insert]] |
 
 ## Errors
 
@@ -86,7 +86,7 @@ third must have exactly the element type `T`. There is no implicit widening or
 conversion in any position. A call on a non-list first argument, a non-`Integer`
 index, or a mismatched element type resolves to no overload and is rejected at
 compile time; the index range itself is a runtime check, not a compile-time one.
-[[src/builtins/general.rs:resolve_insert]]
+[[src/builtins/collections.rs:resolve_insert]]
 
 ## Examples
 

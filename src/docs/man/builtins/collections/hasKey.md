@@ -69,7 +69,7 @@ When the goal is simply to obtain a value with a fallback,
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when `value` has an entry for `key`; `FALSE` when it does not, including for every key when the map is empty. [[src/builtins/general.rs:resolve_has_key]] |
+| `Boolean` | `TRUE` when `value` has an entry for `key`; `FALSE` when it does not, including for every key when the map is empty. [[src/builtins/collections.rs:resolve_has_key]] |
 
 ## Errors
 
@@ -84,7 +84,7 @@ The first must be a `Map OF K TO V`; a `List` or any non-map value is a
 compile-time type error. The second must be exactly the map key type `K` — there
 is no conversion, so probing a `Map OF String TO Integer` with an `Integer` does
 not compile. The result is always `Boolean`, independently of `V`.
-[[src/builtins/general.rs:resolve_has_key]]
+[[src/builtins/collections.rs:resolve_has_key]]
 
 ## Examples
 

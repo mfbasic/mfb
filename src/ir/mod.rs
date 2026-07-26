@@ -1,152 +1,53 @@
+//! The IR data model and its module root.
+//!
+//! Type declarations are split by node role, not scattered across `mod.rs`:
+//!
+//! - `types.rs` — structural/nominal types: the project and function containers
+//!   (`IrProject`, `IrFunction`, `EntryPoint`) and the declared entities
+//!   (`IrType`, `IrBinding`, `IrField`, `IrVariant`, `IrEnumMember`, `IrParam`,
+//!   `IrSourceLoc`, `IrRecordUpdate`, `ExternalFunctionParam`).
+//! - `op.rs` — `IrOp`, the statement/operation nodes.
+//! - `value.rs` — `IrValue`, `IrMatchCase`, `IrMatchPattern`: value and pattern
+//!   nodes.
+//! - `docs.rs` — the documentation surface (`ProjectDocs`, `IrPackageDoc`,
+//!   `IrDocKind`, `IrDocDecl`) alongside its collector.
+//! - `link.rs` — the native-`LINK` model (`IrLinkFunction`, `IrCStruct`, …).
+//!
+//! `mod.rs` itself declares no IR types; it is the module root and the re-export
+//! hub through which the rest of the crate reaches the model.
+
 use crate::ast::{
     AstProject, CallArg, ConstructorArg, EnumMember, ExitTarget, Expression, Function,
     FunctionKind, Item, LoopKind, MatchCase, MatchPattern, Param, Statement, TypeDecl,
     TypeDeclKind, TypeField, UnionVariant, Visibility,
 };
 use crate::builtins;
-use crate::json_string;
+use crate::json::json_string;
 use crate::numeric;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Clone)]
-pub struct IrProject {
-    pub(crate) name: String,
-    pub(crate) entry: Option<EntryPoint>,
-    pub(crate) bindings: Vec<IrBinding>,
-    pub(crate) types: Vec<IrType>,
-    pub(crate) functions: Vec<IrFunction>,
-    /// Native `LINK` resources declared in this project, surfaced to package
-    /// metadata (`RESOURCE_TABLE`) since they carry no executable IR
-    /// (plan-link-update.md §10).
-    pub(crate) native_resources: Vec<IrNativeResource>,
-    /// Native `LINK` functions declared in this project, carried to the backend
-    /// so it can emit marshaling thunks + dlopen/dlsym initializers
-    /// (plan-linker.md §12).
-    pub(crate) link_functions: Vec<IrLinkFunction>,
-    /// `CSTRUCT` C-layout declarations from every `LINK` block (plan-50-B).
-    /// Carried so the backend can stage struct buffers and the package path can
-    /// re-derive each layout from its field ctypes.
-    pub(crate) link_cstructs: Vec<IrCStruct>,
-    /// Re-export aliases targeting a native `LINK` function:
-    /// `(alias_name, target_alias.func)` (plan-link-update.md §5a). Lets the
-    /// backend route a call to the exported alias to the target's thunk.
-    pub(crate) link_aliases: Vec<(String, String)>,
-    /// Documentation collected from `DOC` blocks for the package's exported
-    /// declarations (plan-09-doc.md §5). Carried so the package writer can emit
-    /// the optional `doc` section; ignored when building an executable.
-    pub(crate) docs: ProjectDocs,
-    /// The project's **own** native library locators, assembled from its
-    /// project.json `libraries` section (plan-46-B §4.3).
-    ///
-    /// A package build encodes this as `.mfp` section 10. An executable build
-    /// keeps it here so a project declaring its *own* `LINK` block resolves
-    /// against it — an imported binding's locators come from that binding's
-    /// section 10 instead, read straight off the `.mfp` at codegen (plan-46-C).
-    pub(crate) native_libraries: crate::binary_repr::NativeLibraryTable,
-    /// The ceiling on a single `OUT CBuffer` allocation, in bytes, from the
-    /// project.json `maxBuffer` field in MiB (plan-58-C). Defaults to 64 MiB.
-    ///
-    /// Not encoded into a `.mfp`, deliberately: LINK thunks are emitted when an
-    /// executable links, so the ceiling that applies is the CONSUMING project's.
-    /// A binding cannot raise an app's memory ceiling on its behalf.
-    pub(crate) max_buffer_bytes: u64,
-}
+// Single source of truth for the package-format invariants that are enforced at
+// two points (bug-342 A3): the binary decoder / `verify_package`'s structural
+// re-check in `binary.rs`, and `ir::verify`'s semantic walk. Both forward to
+// these so the depth cap and the rule id/message are each spelled once and can
+// never drift apart.
 
-impl IrProject {
-    /// The distinct native library logical names this project's `LINK` blocks
-    /// name, in declaration order (plan-46-B §4.3). These are the names the
-    /// manifest's `libraries` section must cover, and the only ones the
-    /// `NATIVE_LIBRARY_TABLE` carries.
-    pub(crate) fn link_library_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = Vec::new();
-        for function in &self.link_functions {
-            if !names.contains(&function.library) {
-                names.push(function.library.clone());
-            }
-        }
-        names
-    }
-}
-
-/// The documentation surface of a project: an optional package-level entry plus
-/// one entry per documented exported declaration (plan-09-doc.md §5).
-#[derive(Clone, Default)]
-pub(crate) struct ProjectDocs {
-    pub(crate) package: Option<IrPackageDoc>,
-    pub(crate) decls: Vec<IrDocDecl>,
-}
-
-#[derive(Clone)]
-pub(crate) struct IrPackageDoc {
-    pub(crate) name: String,
-    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind::code`.
-    pub(crate) desc: Vec<(u8, String)>,
-    /// `Some(message)` when deprecated (message may be empty); `None` otherwise.
-    pub(crate) deprecated: Option<String>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum IrDocKind {
-    Func,
-    Sub,
-    Type,
-    Union,
-    Enum,
-    Resource,
-}
-
-#[derive(Clone)]
-pub(crate) struct IrDocDecl {
-    pub(crate) kind: IrDocKind,
-    pub(crate) name: String,
-    pub(crate) signature: String,
-    /// `GROUP` name for FUNC/SUB, or empty.
-    pub(crate) group: String,
-    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind::code`.
-    pub(crate) desc: Vec<(u8, String)>,
-    pub(crate) args: Vec<(String, String)>,
-    pub(crate) props: Vec<(String, String)>,
-    pub(crate) ret: String,
-    pub(crate) errors: Vec<(String, String)>,
-    pub(crate) example: String,
-    pub(crate) internal: bool,
-    /// `Some(message)` when deprecated (message may be empty); `None` otherwise.
-    pub(crate) deprecated: Option<String>,
-}
-
-#[derive(Clone)]
-pub(crate) struct EntryPoint {
-    pub(crate) name: String,
-    pub(crate) returns: String,
-    pub(crate) accepts_args: bool,
-}
-
-#[derive(Clone)]
-pub(crate) struct IrFunction {
-    pub(crate) name: String,
-    pub(crate) visibility: String,
-    pub(crate) kind: String,
-    pub(crate) isolated: bool,
-    pub(crate) params: Vec<IrParam>,
-    pub(crate) returns: String,
-    pub(crate) body: Vec<IrOp>,
-    // Source file (project-relative path) this function was lowered from. Used to
-    // build `ErrorLoc.filename` for errors that originate inside this function.
-    pub(crate) file: String,
-    // Source location of the function declaration.
-    pub(crate) loc: IrSourceLoc,
-    // Resource ownership decisions (escape analysis, §15.6), keyed by `RES`
-    // binding name. Drives where each resource's close obligation is discharged:
-    // its own scope, an outer collection's scope (runtime owned-list), or out via
-    // a returned collection. Absent names are `Local`.
-    pub(crate) resource_owners: HashMap<String, crate::ir::resource_escape::ResOwner>,
-}
+/// Maximum statement/expression nesting depth accepted anywhere in the IR.
+pub(crate) const MAX_IR_NESTING_DEPTH: usize = 256;
+/// Rule-id prefix for a structural package-format violation.
+pub(crate) const VERIFY_TYPE: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE";
+/// Rule-id prefix for a non-exhaustive (empty) MATCH in a decoded package.
+pub(crate) const VERIFY_MATCH: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_MATCH";
+/// Message body paired with [`VERIFY_MATCH`], shared by the pre-merge structural
+/// check and the post-merge semantic walk so the two enforcement points read
+/// identically.
+pub(crate) const VERIFY_MATCH_EMPTY_MSG: &str = "MATCH has no cases (not exhaustive)";
 
 mod binary;
 #[cfg(test)]
-mod coverage_tests;
+mod variant_corpus_tests;
 mod docs;
 mod json;
 mod link;
@@ -158,13 +59,19 @@ mod package;
 // `escape.rs`); pub(crate) so its `src/target/` consumers can reach it.
 pub(crate) mod resource_escape;
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
 mod types;
 mod value;
 pub(crate) mod verify;
 
 pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
-pub(crate) use docs::collect_project_docs;
+pub(crate) use docs::{collect_project_docs, IrDocKind, ProjectDocs};
+// `IrDocDecl`/`IrPackageDoc` are constructed in `docs.rs` and, outside it, only
+// by the binary-repr round-trip tests; re-export them for that test path only.
+#[cfg(test)]
+pub(crate) use docs::{IrDocDecl, IrPackageDoc};
 pub(crate) use json::visibility_name;
 pub(crate) use link::{
     abi_ctype_valid_as_argument, abi_ctype_valid_as_return, check_buffer_slots, check_cstruct,
@@ -178,9 +85,10 @@ pub use package::{
     apply_package_identity, merge_package, package_qualified_reference_names,
     prefix_package_symbols,
 };
-pub use types::ExternalFunctionParam;
+pub use types::{ExternalFunctionParam, IrProject};
 pub(crate) use types::{
-    IrBinding, IrEnumMember, IrField, IrParam, IrRecordUpdate, IrSourceLoc, IrType, IrVariant,
+    EntryPoint, IrBinding, IrEnumMember, IrField, IrFunction, IrParam, IrRecordUpdate, IrSourceLoc,
+    IrType, IrVariant,
 };
 pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
 pub use verify::check as verify_semantics;

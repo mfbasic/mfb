@@ -80,3 +80,95 @@ pub struct ExternalFunctionParam {
     pub name: String,
     pub type_: String,
 }
+
+/// The whole compiled IR for one project: its declared entities, functions, the
+/// native-`LINK` model, and the metadata carried to the backend or into a `.mfp`.
+#[derive(Clone)]
+pub struct IrProject {
+    pub(crate) name: String,
+    pub(crate) entry: Option<EntryPoint>,
+    pub(crate) bindings: Vec<IrBinding>,
+    pub(crate) types: Vec<IrType>,
+    pub(crate) functions: Vec<IrFunction>,
+    /// Native `LINK` resources declared in this project, surfaced to package
+    /// metadata (`RESOURCE_TABLE`) since they carry no executable IR
+    /// (plan-link-update.md §10).
+    pub(crate) native_resources: Vec<IrNativeResource>,
+    /// Native `LINK` functions declared in this project, carried to the backend
+    /// so it can emit marshaling thunks + dlopen/dlsym initializers
+    /// (plan-linker.md §12).
+    pub(crate) link_functions: Vec<IrLinkFunction>,
+    /// `CSTRUCT` C-layout declarations from every `LINK` block (plan-50-B).
+    /// Carried so the backend can stage struct buffers and the package path can
+    /// re-derive each layout from its field ctypes.
+    pub(crate) link_cstructs: Vec<IrCStruct>,
+    /// Re-export aliases targeting a native `LINK` function:
+    /// `(alias_name, target_alias.func)` (plan-link-update.md §5a). Lets the
+    /// backend route a call to the exported alias to the target's thunk.
+    pub(crate) link_aliases: Vec<(String, String)>,
+    /// Documentation collected from `DOC` blocks for the package's exported
+    /// declarations (plan-09-doc.md §5). Carried so the package writer can emit
+    /// the optional `doc` section; ignored when building an executable.
+    pub(crate) docs: ProjectDocs,
+    /// The project's **own** native library locators, assembled from its
+    /// project.json `libraries` section (plan-46-B §4.3).
+    ///
+    /// A package build encodes this as `.mfp` section 10. An executable build
+    /// keeps it here so a project declaring its *own* `LINK` block resolves
+    /// against it — an imported binding's locators come from that binding's
+    /// section 10 instead, read straight off the `.mfp` at codegen (plan-46-C).
+    pub(crate) native_libraries: crate::binary_repr::NativeLibraryTable,
+    /// The ceiling on a single `OUT CBuffer` allocation, in bytes, from the
+    /// project.json `maxBuffer` field in MiB (plan-58-C). Defaults to 64 MiB.
+    ///
+    /// Not encoded into a `.mfp`, deliberately: LINK thunks are emitted when an
+    /// executable links, so the ceiling that applies is the CONSUMING project's.
+    /// A binding cannot raise an app's memory ceiling on its behalf.
+    pub(crate) max_buffer_bytes: u64,
+}
+
+impl IrProject {
+    /// The distinct native library logical names this project's `LINK` blocks
+    /// name, in declaration order (plan-46-B §4.3). These are the names the
+    /// manifest's `libraries` section must cover, and the only ones the
+    /// `NATIVE_LIBRARY_TABLE` carries.
+    pub(crate) fn link_library_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for function in &self.link_functions {
+            if !names.contains(&function.library) {
+                names.push(function.library.clone());
+            }
+        }
+        names
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct EntryPoint {
+    pub(crate) name: String,
+    pub(crate) returns: String,
+    pub(crate) accepts_args: bool,
+}
+
+/// One function (or SUB) in the IR: its signature, lowered body, source
+/// provenance, and per-resource ownership decisions from escape analysis.
+#[derive(Clone)]
+pub(crate) struct IrFunction {
+    pub(crate) name: String,
+    pub(crate) visibility: String,
+    pub(crate) kind: String,
+    pub(crate) isolated: bool,
+    pub(crate) params: Vec<IrParam>,
+    pub(crate) returns: String,
+    pub(crate) body: Vec<IrOp>,
+    // Source file (project-relative path) this function was lowered from. Used to
+    // build `ErrorLoc.filename` for errors that originate inside this function.
+    pub(crate) file: String,
+    // Source location of the function declaration.
+    pub(crate) loc: IrSourceLoc,
+    // Resource ownership decisions (escape analysis, §15.6), keyed by `RES`
+    // binding name. Drives where each resource's close obligation is discharged:
+    // its own scope, an outer collection's scope (runtime owned-list), or out via
+    // a returned collection. Absent names are `Local`.
+    pub(crate) resource_owners: HashMap<String, crate::ir::resource_escape::ResOwner>,
+}

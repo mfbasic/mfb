@@ -4,6 +4,51 @@ impl TypeEnv {
     // 2. `check_ops` — per-op structural + type checks (one large dispatch)
     // ===========================================================================
 
+    /// bug-342 A10: recurse into a nested block on a FRESH copy of the current
+    /// `locals`/`muts` — a new scope whose bindings must not leak back to the
+    /// caller. Used by the IF then/else branches and the WHILE body. Match cases
+    /// and FOR/FOR-EACH bodies do NOT use this: they pre-seed the branch scope
+    /// (guard binds, the loop variable) before recursing, so they keep their own
+    /// inline prologue.
+    fn check_ops_in_branch(
+        &self,
+        body: &[IrOp],
+        locals: &HashMap<String, String>,
+        muts: &HashMap<String, bool>,
+        closure_slots: Option<usize>,
+        depth: usize,
+    ) {
+        let mut branch = locals.clone();
+        let mut branch_muts = muts.clone();
+        self.check_ops(body, &mut branch, &mut branch_muts, closure_slots, depth + 1);
+    }
+
+    /// The shared tail of `Assign`/`AssignGlobal` (bug-342 A10): the two arms
+    /// differ only in which mut-map and declaration table they consult. Emit
+    /// `TYPE_ASSIGN_REQUIRES_MUT` for an immutable target, then range-check the
+    /// literal and — if it did not already error — check the assignment type.
+    fn check_assign_target(
+        &self,
+        name: &str,
+        value: &IrValue,
+        locals: &HashMap<String, String>,
+        is_mut: Option<bool>,
+        declared: Option<String>,
+    ) {
+        if is_mut == Some(false) {
+            self.emit(
+                "TYPE_ASSIGN_REQUIRES_MUT",
+                format!("Binding `{name}` is immutable and cannot be assigned."),
+            );
+        }
+        if let Some(t) = declared {
+            let range_errored = self.check_literal_range_errored(resource_base_type(&t), value);
+            if !range_errored {
+                self.check_assignment_type(name, &t, value, locals);
+            }
+        }
+    }
+
     pub(super) fn check_ops(
         &self,
         ops: &[IrOp],
@@ -75,9 +120,8 @@ impl TypeEnv {
                                 ),
                             );
                         }
-                        let before = self.diags.borrow().len();
-                        self.check_literal_range(resource_base_type(type_), value);
-                        let range_errored = self.diags.borrow().len() > before;
+                        let range_errored =
+                            self.check_literal_range_errored(resource_base_type(type_), value);
                         // Only an explicit `AS T` annotation can disagree with
                         // the initializer; an inferred type is the initializer's
                         // type by construction (matches syntaxcheck).
@@ -281,38 +325,24 @@ impl TypeEnv {
                         }
                         continue;
                     }
-                    if muts.get(name) == Some(&false) {
-                        self.emit(
-                            "TYPE_ASSIGN_REQUIRES_MUT",
-                            format!("Binding `{name}` is immutable and cannot be assigned."),
-                        );
-                    }
-                    if let Some(t) = locals.get(name).cloned() {
-                        let before = self.diags.borrow().len();
-                        self.check_literal_range(resource_base_type(&t), value);
-                        let range_errored = self.diags.borrow().len() > before;
-                        if !range_errored {
-                            self.check_assignment_type(name, &t, value, locals);
-                        }
-                    }
+                    self.check_assign_target(
+                        name,
+                        value,
+                        locals,
+                        muts.get(name).copied(),
+                        locals.get(name).cloned(),
+                    );
                 }
                 IrOp::AssignGlobal { name, value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
-                    if self.global_muts.get(name) == Some(&false) {
-                        self.emit(
-                            "TYPE_ASSIGN_REQUIRES_MUT",
-                            format!("Binding `{name}` is immutable and cannot be assigned."),
-                        );
-                    }
-                    if let Some(t) = self.globals.get(name).cloned() {
-                        let before = self.diags.borrow().len();
-                        self.check_literal_range(resource_base_type(&t), value);
-                        let range_errored = self.diags.borrow().len() > before;
-                        if !range_errored {
-                            self.check_assignment_type(name, &t, value, locals);
-                        }
-                    }
+                    self.check_assign_target(
+                        name,
+                        value,
+                        locals,
+                        self.global_muts.get(name).copied(),
+                        self.globals.get(name).cloned(),
+                    );
                 }
                 IrOp::StateAssign {
                     resource, value, ..
@@ -485,31 +515,12 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     self.check_condition_boolean("IF condition", condition, locals);
-                    let mut branch = locals.clone();
-                    let mut branch_muts = muts.clone();
-                    self.check_ops(
-                        then_body,
-                        &mut branch,
-                        &mut branch_muts,
-                        closure_slots,
-                        depth + 1,
-                    );
-                    let mut branch = locals.clone();
-                    let mut branch_muts = muts.clone();
-                    self.check_ops(
-                        else_body,
-                        &mut branch,
-                        &mut branch_muts,
-                        closure_slots,
-                        depth + 1,
-                    );
+                    self.check_ops_in_branch(then_body, locals, muts, closure_slots, depth);
+                    self.check_ops_in_branch(else_body, locals, muts, closure_slots, depth);
                 }
                 IrOp::Match { value, cases, .. } => {
                     if cases.is_empty() {
-                        self.emit(
-                            VERIFY_MATCH,
-                            "MATCH has no cases (not exhaustive)".to_string(),
-                        );
+                        self.emit(VERIFY_MATCH, crate::ir::VERIFY_MATCH_EMPTY_MSG.to_string());
                     }
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
@@ -574,16 +585,8 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     self.check_condition_boolean("WHILE condition", condition, locals);
-                    let mut branch = locals.clone();
-                    let mut branch_muts = muts.clone();
                     self.loop_stack.borrow_mut().push(*kind);
-                    self.check_ops(
-                        body,
-                        &mut branch,
-                        &mut branch_muts,
-                        closure_slots,
-                        depth + 1,
-                    );
+                    self.check_ops_in_branch(body, locals, muts, closure_slots, depth);
                     self.loop_stack.borrow_mut().pop();
                 }
                 IrOp::For {

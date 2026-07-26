@@ -34,7 +34,7 @@ emits the search loop directly rather than instantiating an MFBASIC generic.
 
 This page documents the `List` form only. `collections::find` accepts nothing
 but a `List` as its first argument; the `String` search of the same name lives in
-`strings::`. [[src/builtins/general.rs:resolve_find_list]]
+`strings::`. [[src/builtins/collections.rs:resolve_find_list]]
 
 Two searches share the name, chosen by the type of the second argument. When it
 has the element type `T`, `find` performs an **element search**. When it has the
@@ -42,7 +42,7 @@ same `List OF T` type as `value`, `find` performs a **contiguous sublist
 search**. The element form is tested first, so for a list of lists — where the
 element type is itself a `List` — a second argument of that element type is read
 as an element search. Any other second-argument type fails to resolve at compile
-time. [[src/builtins/general.rs:resolve_find_list]]
+time. [[src/builtins/collections.rs:resolve_find_list]]
 [[src/target/shared/code/builder_search.rs:lower_find]]
 
 `start` is optional. When it is omitted the search begins at index 0; the
@@ -99,15 +99,15 @@ to and including the length of `value`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to search. Must be a `List`; a `String` first argument selects `strings::find` instead. Also accepted under the name `list`. [[src/builtins/general.rs:resolve_find_list]] [[src/builtins/collections.rs:call_param_names]] |
-| `item` | `T` or `List OF T` | What to look for: an element of type `T` for an element search, or a list of the same type as `value` for a contiguous sublist search. Also accepted under the name `needle`. [[src/builtins/general.rs:resolve_find_list]] [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF T` | The list to search. Must be a `List`; a `String` first argument selects `strings::find` instead. Also accepted under the name `list`. [[src/builtins/collections.rs:resolve_find_list]] [[src/builtins/collections.rs:call_param_names]] |
+| `item` | `T` or `List OF T` | What to look for: an element of type `T` for an element search, or a list of the same type as `value` for a contiguous sublist search. Also accepted under the name `needle`. [[src/builtins/collections.rs:resolve_find_list]] [[src/builtins/collections.rs:call_param_names]] |
 | `start` | `Integer` | Optional zero-based index at which the scan begins; defaults to `0` when omitted. Must be in the range `0` through the length of `value` inclusive. There is no alternate name for this parameter. [[src/builtins/collections.rs:arity]] [[src/target/shared/code/builder_search.rs:lower_find]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Integer` | The zero-based index of the first match at or after `start`: the index of the matching element, or the index at which the matching run begins. For an empty sublist needle, `start` itself. A failed search raises instead of returning a value. [[src/builtins/general.rs:resolve_find_list]] [[src/target/shared/code/builder_search.rs:lower_list_find_sublist]] |
+| `Integer` | The zero-based index of the first match at or after `start`: the index of the matching element, or the index at which the matching run begins. For an empty sublist needle, `start` itself. A failed search raises instead of returning a value. [[src/builtins/collections.rs:resolve_find_list]] [[src/target/shared/code/builder_search.rs:lower_list_find_sublist]] |
 
 ## Errors
 
@@ -123,7 +123,7 @@ must be either exactly `T` or exactly the type of `value`; nothing else
 resolves, and the `T` case wins when both would match. A supplied `start` must
 be exactly `Integer` — no other numeric type is accepted, and the whole call
 takes two or three arguments.
-[[src/builtins/general.rs:resolve_find_list]] [[src/builtins/collections.rs:arity]]
+[[src/builtins/collections.rs:resolve_find_list]] [[src/builtins/collections.rs:arity]]
 
 ## Examples
 

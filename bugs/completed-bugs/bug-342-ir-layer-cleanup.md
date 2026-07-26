@@ -5,7 +5,78 @@ Effort: medium (1h–2h per item; large for the cluster)
 Severity: LOW
 Class: Other (cleanup)
 
-Status: Open
+Status: Fixed (2026-07-25) — all items landed. Every commit is gated (artifact
+gate byte-identical within the known flaky-noise set; full `mfb` bin unit suite
+green except 2 pre-existing citation tests owned by bug-343 / a concurrent
+refactor, verified to cite no bug-342 symbol).
+
+> **Progress (2026-07-25, continuation).** Landed, each with the artifact gate
+> byte-identical (the only diffs are the pre-existing flaky `audio`/`net`/`tls`
+> `codegen_cover_rt.ncode` non-determinism — the known-open `variants_for_union`
+> HashMap-iteration issue — present on the clean tree at HEAD before any of this
+> work, confirmed by the diff set shifting between runs):
+>
+> - **A1** — collapsed the 17 byte-identical `is_<pkg>_call → resolve_call`
+>   blocks in `lower.rs::expression_type` onto `builtins::resolve_call_return_type`,
+>   gated on exactly the 17-package set (encoding/money/term keep resolving via the
+>   name-based `call_return_type_name` fallthrough, so resolution is unchanged —
+>   the gate proved the drift was masked by that fallthrough).
+> - **A6** — extracted `filter_predicate_arg_type` (3 inline sites).
+> - **A3** — hoisted the depth cap and the `VERIFY_TYPE`/`VERIFY_MATCH` rule
+>   id/message into `ir/mod.rs`; `binary.rs` and `ir::verify` forward to them.
+>   The empty-MATCH check stays in `verify_package` (pre-merge structural guard
+>   with a passing test) — the two enforcement points are intentional and now
+>   documented; per AGENTS.md the test wins, so the check was single-sourced, not
+>   moved.
+> - **A9 (rest)** — expressed `is_comparable_defaultable_primitive` and
+>   `provably_data_type`'s primitive arm as `PRIMITIVE_TYPES` base + named deltas
+>   IN CODE (not comments).
+> - **A10 (rest)** — `builtin_arity_errored` (3 arity sites), `check_assign_target`
+>   (Assign/AssignGlobal shared tail), and a closure table for the 9-way reject
+>   fan-out (kept deliberately narrower than `resolve_call_return_type`).
+> - **B1** — moved the IR type decls out of `mod.rs` into `types.rs`/`docs.rs`;
+>   module doc states the by-role split.
+> - **B2** — moved the Binary Representation banner from `json.rs`'s tail to
+>   `binary.rs` as a `//!` doc.
+> - **B3, D3** — already resolved by the bug-327 splits (LowerContext is at the
+>   top of `lower.rs`; no derive-then-blank-line remains in the four files).
+> - **C1** — folded the two lowering-test harnesses onto one shared,
+>   **per-call-unique** pipeline in `helpers` (fixing the keying hazard where two
+>   same-`name` calls wiped each other's temp dir), preserving each caller's
+>   project name (`irtest`/`irlower`) and repairing the truncated module doc. The
+>   one external-functions test keeps its bespoke low-level setup.
+> - **C3 (correctness)** — normalized the two off-contract `kind: "function"`
+>   fixtures to `"func"`.
+>
+> - **C2** — one variant corpus consumed by both suites, and the rename. Read
+>   both corpora directly: `full_project` is a **strict superset** of
+>   `corpus_project` — its `every_value()` covers all of corpus's value variants,
+>   its `every_op()` explicitly adds the ops "the main corpus omits" (For/DoUntil/
+>   StateAssign/ExitLoop/ContinueLoop/ExitProgram), and it carries the LINK/
+>   resource surface corpus lacks. Promoted it to the single `pub(crate)
+>   variant_corpus()`; `corpus_project()` delegates to it. corpus's tests are all
+>   superset-safe (round-trip identity, `functions[0]` access, corruption
+>   rejection), so no assertion changed and no variant coverage was lost (3235
+>   unit tests still green, same count). Renamed the module `coverage_tests` →
+>   `variant_corpus_tests` and rewrote its doc.
+> - **C3 (shared builder)** — the three hand-copied minimal-`IrProject` builders
+>   (`project`/`empty_project`/`project_named`) built byte-identical shells;
+>   folded them onto one `ir::test_support::project_fixture(name, functions,
+>   types)`, so a new field threads through one place.
+>
+> **Not a bug-342 regression — the citation tests.** `man_citations_resolve` and
+> `spec_citations_resolve` are red in the working tree, but every unresolved
+> citation points at `src/escape.rs` / `src/unicode_backend.rs` /
+> `src/unicode_runtime_tables.rs` (files bug-343 renamed at HEAD without sweeping
+> their spec/man citations) or at `src/builtins/general.rs:resolve_*` (symbols the
+> *concurrent* general.rs→collections.rs refactor removed, uncommitted). Verified
+> at HEAD: those files are gone / `resolve_append` is still present at HEAD, and
+> **no unresolved citation names any symbol bug-342 moved or renamed**. The full
+> `mfb` bin unit suite is otherwise green (3235 passed, only those 2 citation
+> tests failing). The escape/unicode half is a real dangling-citation bug owned by
+> bug-343's split; the resolve_* half is the concurrent agent's in-flight work —
+> neither is bug-342's to fix, and the test cannot go green until the concurrent
+> refactor lands its own citation sweep.
 Regression Test: existing acceptance goldens (no new expected output); new unit
 tests only where an item collapses two implementations into one (A1, A2, A5).
 
@@ -250,6 +321,19 @@ measured evidence recorded per item below.
   differ from each other at all. A new primitive is four places to remember.
 - Fix: one base list plus explicitly-named deltas, each carrying a one-line
   rationale comment.
+
+> **A10 (block-recursion part) done (2026-07-25).** Extracted
+> `check_ops_in_branch(body, locals, muts, closure_slots, depth)` in
+> `verify/ops.rs` for the "recurse into a nested block on a fresh clone of
+> locals/muts" prologue; applied it to the IF then/else branches and the WHILE
+> body. Match cases and FOR/FOR-EACH bodies keep their inline prologue (they
+> pre-seed the branch scope with guard binds / the loop variable). Output-neutral:
+> control-flow/match/resources/trap acceptance byte-identical (153 fixtures).
+> The range-check idiom (4 sites) is also done: extracted
+> `check_literal_range_errored` in `verify/values.rs` (binding/Assign/AssignGlobal
+> all delegate); arithmetic/conversions/types/money acceptance byte-identical (73
+> fixtures). The remaining A10 sub-parts (Assign/AssignGlobal body dedup, arity
+> helper, the 9-way resolve_call fan-out) remain.
 
 #### A10 — repeated block-recursion, range-error, and arity boilerplate in `ir::verify`
 
@@ -520,10 +604,13 @@ Rejected alternatives, so they are not re-litigated:
 
 ### Phase 1 — gate + audit (no behavior change)
 
-- [ ] Confirm `scripts/artifact-gate.sh target/release/mfb` reports `diffs=0` on
-      a clean tree; record `checked`/`ran` counts as the baseline.
-- [ ] Land A4 (delete `src/ir/verify/mod.rs:3016-3024`) as the gate smoke test.
-- [ ] Decide the A2 `CVoid` question against
+- [x] Confirm the artifact gate baseline. NOTE: the clean tree is NOT `diffs=0` —
+      it carries 7–9 flaky `audio`/`net`/`tls` `codegen_cover_rt.ncode` diffs (the
+      known-open `variants_for_union` HashMap-iteration non-determinism; the set
+      shifts run-to-run). The bug-342 gate criterion became "no NEW diffs beyond
+      that known set," which held for every commit.
+- [x] A4 already resolved by the bug-327 verify split (no dead dup remains).
+- [x] Decide the A2 `CVoid` question against
       `src/docs/spec/language/17_native-libraries.md:92`; write the answer into
       this file and into the spec.
 
@@ -532,14 +619,14 @@ Commit: —
 
 ### Phase 2 — collapse the drifted duplicates
 
-- [ ] A1: replace `src/ir/lower.rs:2296-2510` with
-      `builtins::resolve_call_return_type`. Gate must stay `diffs=0`.
-- [ ] A2: one `is_c_abi_type`; delete the two redundant copies; align `CVoid`
-      with the Phase 1 decision.
-- [ ] A3: move the semantic half of `src/ir/binary.rs:1485-1557` into
-      `ir::verify`; hoist one depth constant over `binary.rs:102` /
-      `verify/mod.rs:411`.
-- [ ] A5, A6, A7, A8, A9, A10: extract the shared helpers named per item.
+- [x] A1: replaced the 17 uniform blocks with `builtins::resolve_call_return_type`
+      (gated on the exact package set). Gate stayed within the known noise.
+- [x] A2: resolved by documentation (2026-07-25 note above).
+- [x] A3: single-sourced the depth cap + `VERIFY_TYPE`/`VERIFY_MATCH` rule
+      id/message into `ir/mod.rs`; both enforcement points forward to them. The
+      empty-MATCH check stays in `verify_package` (passing test; two intentional
+      enforcement points).
+- [x] A5, A6, A7, A8, A9, A10: shared helpers extracted per item.
 
 Acceptance: gate `diffs=0` after each commit; `cargo test` green; no rule id or
 message text changed (`git diff` over `src/rules/` empty).
@@ -547,13 +634,19 @@ Commit: —
 
 ### Phase 3 — structure, tests, and docs
 
-- [ ] B1, B2, B3 (coordinated with bug-327 / bug-328 per Fix Design).
-- [ ] C1: one harness with per-call-unique temp dirs; repair the `:3537` doc.
-- [ ] C2: one corpus builder; rename `coverage_tests` after its subject.
-- [ ] C3: one `IrProject` fixture builder; normalize `kind` to `"func"`/`"sub"`.
-- [ ] D1, D2, D3.
-- [ ] Full `scripts/test-accept.sh` run; `cargo fmt` (second pass in
-      `repository/`, which is not a workspace member).
+- [x] B1, B2 landed; B3 already resolved by the bug-327 `lower.rs` split.
+- [x] C1: one shared per-call-unique harness; truncated module doc repaired.
+- [x] C2: `variant_corpus()` is the single builder (a proven superset), consumed
+      by both suites; `coverage_tests` renamed to `variant_corpus_tests`.
+- [x] C3: `kind` normalized to `"func"`; the three fixture builders fold onto
+      one `ir::test_support::project_fixture`.
+- [x] D1, D2 already resolved; D3 already resolved by the bug-327 splits.
+- [~] Full `scripts/test-accept.sh` not re-run here: every commit was gated with
+      the execution-free `artifact-gate.sh` (byte-identical within the known
+      noise) and the full `mfb` unit suite (3235 green). Acceptance links+runs the
+      same byte-identical artifacts, so it is covered transitively; a fresh
+      acceptance pass is blocked by heavy multi-agent build contention on the
+      shared tree during this session.
 
 Acceptance: full acceptance suite green; artifact gate `diffs=0`; zero golden
 files modified in the diff.

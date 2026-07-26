@@ -32,51 +32,37 @@ pub(crate) mod helpers {
         root
     }
 
-    const MANIFEST: &str = r#"{
-  "name": "irtest",
+    /// The project.json for a throwaway single-file `project`. Identical for
+    /// every harness caller except the project name (bug-342 C1 folded the two
+    /// hand-copied manifests — `irtest`/`irlower` — into this one builder).
+    fn manifest_for(project: &str) -> String {
+        format!(
+            r#"{{
+  "name": "{project}",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "sources": [{{ "root": "src", "role": "main", "include": ["**/*.mfb"] }}],
   "entry": "main",
   "targets": ["native"]
-}"#;
-
-    /// Parse+resolve+monomorph+lower a single-file program source. Panics with
-    /// the front-end diagnostics silenced if any earlier stage fails, so a test
-    /// failure points at genuinely broken source rather than noise.
-    pub(crate) fn lower_src(src: &str) -> IrProject {
-        let dir = unique_dir("lower");
-        std::fs::write(dir.join("project.json"), MANIFEST).expect("write manifest");
-        std::fs::write(dir.join("src").join("main.mfb"), src).expect("write source");
-        let manifest =
-            validate_project_manifest(&dir.join("project.json")).expect("manifest validates");
-        let astp = ast::parse_project("irtest", &dir, &manifest).expect("parse");
-        resolver::resolve_project(&dir, &manifest, &astp).expect("resolve");
-        let concrete = monomorph::monomorphize_project(&dir, &astp).expect("monomorphize");
-        resolver::resolve_project_with(&dir, &manifest, &concrete, false)
-            .expect("resolve concrete");
-        let ir = lower_project_with_external_functions(
-            &concrete,
-            None,
-            &std::collections::HashMap::new(),
-            &std::collections::HashMap::new(),
-        );
-        let _ = std::fs::remove_dir_all(&dir);
-        ir
+}}"#
+        )
     }
 
-    /// Like [`lower_src`] but returns `None` when any front-end stage before
-    /// lowering rejects the program (so a test can assert lowering is reached).
-    pub(crate) fn try_lower_src(src: &str) -> Option<IrProject> {
-        let dir = unique_dir("try");
-        std::fs::write(dir.join("project.json"), MANIFEST).ok()?;
-        std::fs::write(dir.join("src").join("main.mfb"), src).ok()?;
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
+    /// The single source-driven lower pipeline shared by every harness in this
+    /// file (bug-342 C1). Writes `src` as a throwaway project named `project`
+    /// under a **per-call-unique** temp dir (via `unique_dir`, so two calls
+    /// never wipe each other's directory), then runs
+    /// parse→resolve→monomorph→lower, returning `None` if any stage rejects the
+    /// program. Panic-hook handling is the caller's job (the fallible wrappers
+    /// silence it; the infallible ones let a genuine panic surface).
+    fn run_lower(project: &str, tag: &str, src: &str) -> Option<IrProject> {
+        let dir = unique_dir(tag);
         let result = (|| {
+            std::fs::write(dir.join("project.json"), manifest_for(project)).ok()?;
+            std::fs::write(dir.join("src").join("main.mfb"), src).ok()?;
             let manifest = validate_project_manifest(&dir.join("project.json")).ok()?;
-            let astp = ast::parse_project("irtest", &dir, &manifest).ok()?;
+            let astp = ast::parse_project(project, &dir, &manifest).ok()?;
             resolver::resolve_project(&dir, &manifest, &astp).ok()?;
             let concrete = monomorph::monomorphize_project(&dir, &astp).ok()?;
             resolver::resolve_project_with(&dir, &manifest, &concrete, false).ok()?;
@@ -87,8 +73,39 @@ pub(crate) mod helpers {
                 &std::collections::HashMap::new(),
             ))
         })();
-        std::panic::set_hook(prev);
         let _ = std::fs::remove_dir_all(&dir);
+        result
+    }
+
+    /// Parse+resolve+monomorph+lower a single-file program source. Panics if any
+    /// stage fails, so a test failure points at genuinely broken source.
+    pub(crate) fn lower_src(src: &str) -> IrProject {
+        run_lower("irtest", "lower", src).expect("source must lower cleanly")
+    }
+
+    /// Like [`lower_src`] but returns `None` when any front-end stage before
+    /// lowering rejects the program (so a test can assert lowering is reached).
+    /// Front-end diagnostics are silenced while trying.
+    pub(crate) fn try_lower_src(src: &str) -> Option<IrProject> {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = run_lower("irtest", "try", src);
+        std::panic::set_hook(prev);
+        result
+    }
+
+    /// [`lower_src`] for a caller that needs a specific project `name` (so a
+    /// name-dependent assertion sees it) and a descriptive temp-dir `tag`.
+    pub(crate) fn lower_src_named(name: &str, tag: &str, src: &str) -> IrProject {
+        run_lower(name, tag, src).expect("source must lower cleanly")
+    }
+
+    /// [`try_lower_src`] with an explicit project `name` and temp-dir `tag`.
+    pub(crate) fn try_lower_src_named(name: &str, tag: &str, src: &str) -> Option<IrProject> {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let result = run_lower(name, tag, src);
+        std::panic::set_hook(prev);
         result
     }
 
@@ -218,346 +235,12 @@ mod lowering_totality_tests {
 mod binary_repr_tests {
     use super::*;
 
-    fn sample_value() -> IrValue {
-        IrValue::Binary {
-            op: "+".to_string(),
-            left: Box::new(IrValue::Const {
-                type_: "Integer".to_string(),
-                value: "1".to_string(),
-            }),
-            right: Box::new(IrValue::Unary {
-                op: "-".to_string(),
-                operand: Box::new(IrValue::Local("x".to_string())),
-                loc: IrSourceLoc::default(),
-                type_: "Unknown".to_string(),
-            }),
-            loc: IrSourceLoc::default(),
-            type_: "Unknown".to_string(),
-        }
-    }
-
-    // Build a project exercising every IrType, IrOp, IrValue, and IrMatchPattern kind.
+    // The single variant corpus (bug-342 C2): `variant_corpus` is a strict
+    // superset of every IrType/IrOp/IrValue/IrMatchPattern kind this suite
+    // needs (it adds For/DoUntil/StateAssign/ExitLoop/ContinueLoop/ExitProgram
+    // and the LINK tables on top), so both suites build from one place.
     fn corpus_project() -> IrProject {
-        let every_value = vec![
-            IrValue::Const {
-                type_: "String".to_string(),
-                value: "hi".to_string(),
-            },
-            IrValue::Local("a".to_string()),
-            IrValue::Global("g".to_string()),
-            IrValue::LocalRef {
-                name: "a".to_string(),
-                type_: "Integer".to_string(),
-            },
-            IrValue::FunctionRef {
-                name: "f".to_string(),
-                type_: "() -> Integer".to_string(),
-            },
-            IrValue::Closure {
-                name: "lam".to_string(),
-                type_: "() -> Integer".to_string(),
-                captures: vec![IrValue::Local("a".to_string())],
-            },
-            IrValue::Capture {
-                index: 3,
-                type_: "Integer".to_string(),
-                by_ref: true,
-            },
-            IrValue::Call {
-                target: "g".to_string(),
-                args: vec![sample_value()],
-                loc: IrSourceLoc::default(),
-                type_: "Unknown".to_string(),
-            },
-            IrValue::CallResult {
-                target: "toInt".to_string(),
-                args: vec![IrValue::Local("s".to_string())],
-                loc: IrSourceLoc::default(),
-                type_: "Unknown".to_string(),
-            },
-            IrValue::Constructor {
-                type_: "Point".to_string(),
-                args: vec![sample_value(), sample_value()],
-            },
-            IrValue::UnionWrap {
-                union_type: "Shape".to_string(),
-                member_type: "Point".to_string(),
-                value: Box::new(IrValue::Local("p".to_string())),
-            },
-            IrValue::UnionExtract {
-                type_: "Point".to_string(),
-                value: Box::new(IrValue::Local("s".to_string())),
-            },
-            IrValue::ResultIsOk {
-                value: Box::new(IrValue::Local("r".to_string())),
-            },
-            IrValue::ResultValue {
-                value: Box::new(IrValue::Local("r".to_string())),
-                type_: "Unknown".to_string(),
-            },
-            IrValue::ResultError {
-                value: Box::new(IrValue::Local("r".to_string())),
-            },
-            IrValue::WithUpdate {
-                type_: "Point".to_string(),
-                target: Box::new(IrValue::Local("p".to_string())),
-                updates: vec![IrRecordUpdate {
-                    field: "x".to_string(),
-                    value: sample_value(),
-                }],
-            },
-            IrValue::ListLiteral {
-                type_: "List OF Integer".to_string(),
-                values: vec![sample_value()],
-            },
-            IrValue::MapLiteral {
-                type_: "Map OF String TO Integer".to_string(),
-                entries: vec![(
-                    IrValue::Const {
-                        type_: "String".to_string(),
-                        value: "k".to_string(),
-                    },
-                    sample_value(),
-                )],
-            },
-            IrValue::MemberAccess {
-                target: Box::new(IrValue::Local("p".to_string())),
-                member: "x".to_string(),
-                type_: "Unknown".to_string(),
-            },
-            sample_value(),
-            IrValue::Unary {
-                op: "NOT".to_string(),
-                operand: Box::new(IrValue::Local("b".to_string())),
-                loc: IrSourceLoc::default(),
-                type_: "Unknown".to_string(),
-            },
-        ];
-
-        let body = vec![
-            IrOp::Bind {
-                mutable: true,
-                name: "a".to_string(),
-                type_: "Integer".to_string(),
-                value: Some(sample_value()),
-                loc: IrSourceLoc::default(),
-                explicit_type: false,
-            },
-            IrOp::Assign {
-                name: "a".to_string(),
-                value: sample_value(),
-                loc: IrSourceLoc::default(),
-            },
-            IrOp::AssignGlobal {
-                name: "g".to_string(),
-                value: sample_value(),
-                loc: IrSourceLoc::default(),
-            },
-            IrOp::Eval {
-                value: IrValue::Call {
-                    target: "g".to_string(),
-                    args: every_value.clone(),
-                    loc: IrSourceLoc::default(),
-                    type_: "Unknown".to_string(),
-                },
-                loc: IrSourceLoc::default(),
-            },
-            IrOp::If {
-                condition: IrValue::Local("b".to_string()),
-                then_body: vec![IrOp::Return {
-                    value: Some(IrValue::Local("a".to_string())),
-                    loc: IrSourceLoc::default(),
-                }],
-                else_body: vec![IrOp::Return {
-                    value: None,
-                    loc: IrSourceLoc::default(),
-                }],
-                loc: IrSourceLoc::default(),
-            },
-            IrOp::While {
-                kind: LoopKind::While,
-                condition: IrValue::Local("b".to_string()),
-                body: vec![IrOp::Eval {
-                    value: IrValue::Local("a".to_string()),
-                    loc: IrSourceLoc::default(),
-                }],
-                loc: IrSourceLoc::default(),
-            },
-            IrOp::ForEach {
-                name: "item".to_string(),
-                type_: "Integer".to_string(),
-                iterable: IrValue::Local("list".to_string()),
-                body: vec![IrOp::Eval {
-                    value: IrValue::Local("item".to_string()),
-                    loc: IrSourceLoc::default(),
-                }],
-                loc: IrSourceLoc::default(),
-            },
-            IrOp::Match {
-                value: IrValue::Local("s".to_string()),
-                cases: vec![
-                    IrMatchCase {
-                        pattern: IrMatchPattern::Value(IrValue::Local("p".to_string())),
-                        guard: Some(IrValue::Local("b".to_string())),
-                        body: vec![IrOp::Eval {
-                            value: IrValue::Local("p".to_string()),
-                            loc: IrSourceLoc::default(),
-                        }],
-                        loc: IrSourceLoc::default(),
-                    },
-                    IrMatchCase {
-                        pattern: IrMatchPattern::OneOf(vec![
-                            IrValue::Local("p".to_string()),
-                            IrValue::Local("q".to_string()),
-                        ]),
-                        guard: None,
-                        body: vec![],
-                        loc: IrSourceLoc::default(),
-                    },
-                    IrMatchCase {
-                        pattern: IrMatchPattern::Else,
-                        guard: None,
-                        body: vec![IrOp::Fail {
-                            error: IrValue::Local("e".to_string()),
-                            loc: IrSourceLoc::default(),
-                        }],
-                        loc: IrSourceLoc::default(),
-                    },
-                ],
-                loc: IrSourceLoc::default(),
-            },
-            IrOp::Trap {
-                name: "err".to_string(),
-                body: vec![IrOp::Eval {
-                    value: IrValue::CallResult {
-                        target: "toInt".to_string(),
-                        args: vec![IrValue::Local("s".to_string())],
-                        loc: IrSourceLoc::default(),
-                        type_: "Unknown".to_string(),
-                    },
-                    loc: IrSourceLoc::default(),
-                }],
-                loc: IrSourceLoc::default(),
-            },
-        ];
-
-        IrProject {
-            name: "corpus".to_string(),
-            entry: Some(EntryPoint {
-                name: "main".to_string(),
-                returns: "Integer".to_string(),
-                accepts_args: true,
-            }),
-            bindings: vec![IrBinding {
-                name: "g".to_string(),
-                visibility: "public".to_string(),
-                mutable: false,
-                type_: "Integer".to_string(),
-                value: Some(sample_value()),
-                loc: IrSourceLoc::default(),
-                file: String::new(),
-                explicit_type: false,
-            }],
-            types: vec![
-                IrType {
-                    kind: "type".to_string(),
-                    visibility: "export".to_string(),
-                    name: "Point".to_string(),
-                    fields: vec![
-                        IrField {
-                            visibility: Some("export".to_string()),
-                            name: "x".to_string(),
-                            type_: "Integer".to_string(),
-                            loc: IrSourceLoc::default(),
-                        },
-                        IrField {
-                            visibility: None,
-                            name: "y".to_string(),
-                            type_: "Integer".to_string(),
-                            loc: IrSourceLoc::default(),
-                        },
-                    ],
-                    includes: vec![],
-                    variants: vec![],
-                    members: vec![],
-                    loc: IrSourceLoc::default(),
-                    file: "src/main.mfb".to_string(),
-                },
-                IrType {
-                    kind: "union".to_string(),
-                    visibility: "export".to_string(),
-                    name: "Shape".to_string(),
-                    fields: vec![],
-                    includes: vec!["Base".to_string()],
-                    variants: vec![IrVariant {
-                        name: "Point".to_string(),
-                        fields: vec![IrField {
-                            visibility: None,
-                            name: "x".to_string(),
-                            type_: "Integer".to_string(),
-                            loc: IrSourceLoc::default(),
-                        }],
-                        loc: IrSourceLoc::default(),
-                    }],
-                    members: vec![],
-                    loc: IrSourceLoc::default(),
-                    file: "src/main.mfb".to_string(),
-                },
-                IrType {
-                    kind: "enum".to_string(),
-                    visibility: "private".to_string(),
-                    name: "Color".to_string(),
-                    fields: vec![],
-                    includes: vec![],
-                    variants: vec![],
-                    members: vec![
-                        IrEnumMember {
-                            name: "Red".to_string(),
-                        },
-                        IrEnumMember {
-                            name: "Green".to_string(),
-                        },
-                    ],
-                    loc: IrSourceLoc::default(),
-                    file: "src/main.mfb".to_string(),
-                },
-            ],
-            functions: vec![IrFunction {
-                name: "main".to_string(),
-                visibility: "export".to_string(),
-                kind: "function".to_string(),
-                isolated: false,
-                params: vec![
-                    IrParam {
-                        name: "x".to_string(),
-                        type_: "Integer".to_string(),
-                        default: None,
-                        loc: IrSourceLoc::default(),
-                    },
-                    IrParam {
-                        name: "y".to_string(),
-                        type_: "Integer".to_string(),
-                        default: Some(IrValue::Const {
-                            type_: "Integer".to_string(),
-                            value: "0".to_string(),
-                        }),
-                        loc: IrSourceLoc::default(),
-                    },
-                ],
-                returns: "Integer".to_string(),
-                body,
-                file: "src/main.mfb".to_string(),
-                resource_owners: HashMap::new(),
-                loc: IrSourceLoc::default(),
-            }],
-            native_resources: vec![],
-            link_functions: vec![],
-            link_cstructs: Vec::new(),
-            link_aliases: vec![],
-            docs: ProjectDocs::default(),
-            native_libraries: Default::default(),
-            max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
-        }
+        crate::ir::variant_corpus_tests::variant_corpus()
     }
 
     #[test]
@@ -617,7 +300,8 @@ mod binary_repr_tests {
         IrFunction {
             name: name.to_string(),
             visibility: "export".to_string(),
-            kind: "function".to_string(),
+            // bug-342 C3: on-contract kind is `func`/`sub`, not `function`.
+            kind: "func".to_string(),
             isolated: false,
             params: vec![],
             returns: "Integer".to_string(),
@@ -629,20 +313,7 @@ mod binary_repr_tests {
     }
 
     fn project_named(name: &str, functions: Vec<IrFunction>) -> IrProject {
-        IrProject {
-            name: name.to_string(),
-            entry: None,
-            bindings: vec![],
-            types: vec![],
-            functions,
-            native_resources: vec![],
-            link_functions: vec![],
-            link_cstructs: Vec::new(),
-            link_aliases: vec![],
-            docs: ProjectDocs::default(),
-            native_libraries: Default::default(),
-            max_buffer_bytes: crate::manifest::DEFAULT_MAX_BUFFER_MIB * 1024 * 1024,
-        }
+        crate::ir::test_support::project_fixture(name, functions, vec![])
     }
 
     // The identity prefix `<id>.package.symbol` must be applied consistently to
@@ -3445,16 +3116,28 @@ mod lower_tests {
     }
 }
 
-/// exercise the AST->IR lowering paths (`lower.rs`) directly.
+/// Source-driven tests that exercise the AST→IR lowering paths (`lower.rs`)
+/// directly, asserting on the lowered `IrProject` a real program produces.
+/// (bug-342 C1 repaired this truncated doc and folded this module's hand-copied
+/// harness onto the shared, per-call-unique `helpers` pipeline.)
 #[cfg(test)]
 mod lower_pipeline_tests {
     use crate::ast;
     use crate::manifest::validate_project_manifest;
     use crate::monomorph;
     use crate::resolver;
-    use std::path::PathBuf;
 
-    fn temp_dir(name: &str) -> PathBuf {
+    // Bespoke front-end setup for `lowers_with_external_function_metadata`, the
+    // one test here that stops before `lower_project_with_external_functions` to
+    // inject its own external-function maps (the shared `helpers` pipeline always
+    // lowers with empty maps). Every other test goes through the delegating
+    // harness below.
+    const PROJECT_JSON: &str = r#"{ "name": "irlower", "version": "0.1.0", "mfb": "1.0",
+        "kind": "executable",
+        "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+        "entry": "main", "targets": ["native"] }"#;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
             "mfb_ir_lower_{name}_{}_{}",
             std::process::id(),
@@ -3465,54 +3148,23 @@ mod lower_pipeline_tests {
         root
     }
 
-    const PROJECT_JSON: &str = r#"{ "name": "irlower", "version": "0.1.0", "mfb": "1.0",
-        "kind": "executable",
-        "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-        "entry": "main", "targets": ["native"] }"#;
-
     /// Lower a single-file program through the whole front end and return the IR.
-    /// Panics with the failing stage if any pre-lowering stage rejects the source
-    /// (so a broken test source surfaces immediately rather than silently).
+    /// Panics with the failing stage if any pre-lowering stage rejects the source.
+    /// `name` labels the throwaway project's temp dir; the project is `irlower`.
     fn lower_src(name: &str, source: &str) -> super::IrProject {
-        try_lower_src(name, source).expect("source must lower cleanly")
+        super::helpers::lower_src_named("irlower", name, source)
     }
 
     /// Like [`lower_src`] but returns `None` when a pre-lowering stage rejects the
     /// program. Diagnostic noise from the front end is suppressed.
     fn try_lower_src(name: &str, source: &str) -> Option<super::IrProject> {
-        let dir = temp_dir(name);
-        std::fs::write(dir.join("project.json"), PROJECT_JSON).unwrap();
-        std::fs::write(dir.join("src").join("main.mfb"), source).unwrap();
-        let prev = std::panic::take_hook();
-        std::panic::set_hook(Box::new(|_| {}));
-        let manifest = validate_project_manifest(&dir.join("project.json")).ok();
-        let result = manifest.and_then(|manifest| {
-            let name = manifest
-                .get("name")
-                .and_then(|v| v.get::<String>())
-                .cloned()?;
-            let ast = ast::parse_project(&name, &dir, &manifest).ok()?;
-            resolver::resolve_project(&dir, &manifest, &ast).ok()?;
-            let concrete = monomorph::monomorphize_project(&dir, &ast).ok()?;
-            resolver::resolve_project_with(&dir, &manifest, &concrete, false).ok()?;
-            Some(super::lower_project_with_external_functions(
-                &concrete,
-                None,
-                &std::collections::HashMap::new(),
-                &std::collections::HashMap::new(),
-            ))
-        });
-        std::panic::set_hook(prev);
-        result
+        super::helpers::try_lower_src_named("irlower", name, source)
     }
 
     /// Find a lowered function body by name (user functions only, not injected
     /// package or lambda bodies).
     fn function<'a>(ir: &'a super::IrProject, name: &str) -> &'a super::IrFunction {
-        ir.functions
-            .iter()
-            .find(|f| f.name == name)
-            .unwrap_or_else(|| panic!("function `{name}` not found in lowered IR"))
+        super::helpers::function(ir, name)
     }
 
     /// Serialize the whole project to JSON — a convenient way to assert a

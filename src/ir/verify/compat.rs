@@ -124,6 +124,26 @@ impl TypeEnv {
         }
     }
 
+    /// Emit `TYPE_CALL_ARITY_MISMATCH` and return `true` when `actual` falls
+    /// outside `[min, max]` for a per-name-arity built-in (bug-342 A10 — the
+    /// term/collections/general arity checks shared this exact body).
+    fn builtin_arity_errored(&self, target: &str, actual: usize, min: usize, max: usize) -> bool {
+        if actual < min || actual > max {
+            let expected = if min == max {
+                min.to_string()
+            } else {
+                format!("{min} to {max}")
+            };
+            self.emit(
+                "TYPE_CALL_ARITY_MISMATCH",
+                format!("Call to `{target}` has {actual} argument(s), expected {expected}."),
+            );
+            true
+        } else {
+            false
+        }
+    }
+
     /// Reject a call to a numeric built-in whose argument types match no
     /// overload — the IR-level counterpart of `syntaxcheck`'s per-built-in
     /// `TYPE_CALL_ARGUMENT_MISMATCH`, reusing the *same* `resolve_call` dispatch
@@ -187,19 +207,7 @@ impl TypeEnv {
         // `check_term_builtin_call` uses, so term's signature is single-source.
         if builtins::term::is_term_call(target) {
             if let Some((min, max)) = builtins::term::arity(target) {
-                if arg_types.len() < min || arg_types.len() > max {
-                    let expected = if min == max {
-                        min.to_string()
-                    } else {
-                        format!("{min} to {max}")
-                    };
-                    self.emit(
-                        "TYPE_CALL_ARITY_MISMATCH",
-                        format!(
-                            "Call to `{target}` has {} argument(s), expected {expected}.",
-                            arg_types.len()
-                        ),
-                    );
+                if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;
                 }
             }
@@ -226,19 +234,7 @@ impl TypeEnv {
         // overload resolution (syntaxcheck's check_general_builtin_call arms).
         if builtins::collections::is_collections_call(target) {
             if let Some((min, max)) = builtins::collections::arity(target) {
-                if arg_types.len() < min || arg_types.len() > max {
-                    let expected = if min == max {
-                        min.to_string()
-                    } else {
-                        format!("{min} to {max}")
-                    };
-                    self.emit(
-                        "TYPE_CALL_ARITY_MISMATCH",
-                        format!(
-                            "Call to `{target}` has {} argument(s), expected {expected}.",
-                            arg_types.len()
-                        ),
-                    );
+                if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;
                 }
             }
@@ -257,19 +253,7 @@ impl TypeEnv {
         }
         if builtins::general::is_general_call(target) {
             if let Some((min, max)) = builtins::general::arity(target) {
-                if arg_types.len() < min || arg_types.len() > max {
-                    let expected = if min == max {
-                        min.to_string()
-                    } else {
-                        format!("{min} to {max}")
-                    };
-                    self.emit(
-                        "TYPE_CALL_ARITY_MISMATCH",
-                        format!(
-                            "Call to `{target}` has {} argument(s), expected {expected}.",
-                            arg_types.len()
-                        ),
-                    );
+                if self.builtin_arity_errored(target, arg_types.len(), min, max) {
                     return;
                 }
             }
@@ -294,28 +278,48 @@ impl TypeEnv {
             }
             return;
         }
-        let unresolved = if builtins::math::is_math_call(target) {
-            builtins::math::resolve_call(target, &arg_types).is_none()
-        } else if builtins::bits::is_bits_call(target) {
-            builtins::bits::resolve_call(target, &arg_types).is_none()
-        } else if builtins::vector::is_vector_call(target) {
-            builtins::vector::resolve_call(target, &arg_types).is_none()
-        } else if builtins::strings::is_strings_call(target) {
-            builtins::strings::resolve_call(target, &arg_types).is_none()
-        } else if builtins::encoding::is_encoding_call(target) {
-            builtins::encoding::resolve_call(target, &arg_types).is_none()
-        } else if builtins::io::is_io_call(target) {
-            builtins::io::resolve_call(target, &arg_types).is_none()
-        } else if builtins::fs::is_fs_call(target) {
-            builtins::fs::resolve_call(target, &arg_types).is_none()
-        } else if builtins::net::is_net_call(target) {
-            builtins::net::resolve_call(target, &arg_types).is_none()
-        } else if builtins::os::is_os_call(target) {
-            builtins::os::resolve_call(target, &arg_types).is_none()
-        } else {
+        // The arg-typed packages checked here (bug-342 A10). Each pairs its
+        // membership test with an overload-resolution probe; a non-capturing
+        // closure erases each package's distinct `ResolvedCall<'_>` type to a
+        // plain `bool`. This set is deliberately narrower than
+        // `resolve_call_return_type`'s (no term/collections/general — handled
+        // above — and no crypto/json/csv/…), so it must stay an explicit table:
+        // widening it would reject programs codegen currently accepts.
+        type IsCall = fn(&str) -> bool;
+        type Unresolved = fn(&str, &[String]) -> bool;
+        let checked: [(IsCall, Unresolved); 9] = [
+            (builtins::math::is_math_call, |t, a| {
+                builtins::math::resolve_call(t, a).is_none()
+            }),
+            (builtins::bits::is_bits_call, |t, a| {
+                builtins::bits::resolve_call(t, a).is_none()
+            }),
+            (builtins::vector::is_vector_call, |t, a| {
+                builtins::vector::resolve_call(t, a).is_none()
+            }),
+            (builtins::strings::is_strings_call, |t, a| {
+                builtins::strings::resolve_call(t, a).is_none()
+            }),
+            (builtins::encoding::is_encoding_call, |t, a| {
+                builtins::encoding::resolve_call(t, a).is_none()
+            }),
+            (builtins::io::is_io_call, |t, a| {
+                builtins::io::resolve_call(t, a).is_none()
+            }),
+            (builtins::fs::is_fs_call, |t, a| {
+                builtins::fs::resolve_call(t, a).is_none()
+            }),
+            (builtins::net::is_net_call, |t, a| {
+                builtins::net::resolve_call(t, a).is_none()
+            }),
+            (builtins::os::is_os_call, |t, a| {
+                builtins::os::resolve_call(t, a).is_none()
+            }),
+        ];
+        let Some((_, probe)) = checked.into_iter().find(|(is_call, _)| is_call(target)) else {
             return;
         };
-        if unresolved {
+        if probe(target, &arg_types) {
             self.emit(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 format!("Arguments to `{target}` do not match any overload."),

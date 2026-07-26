@@ -1,4 +1,4 @@
-use crate::json_string;
+use crate::json::json_string;
 use crate::manifest::package::ProjectPackageDependency;
 use std::collections::HashMap;
 use tinyjson::JsonValue;

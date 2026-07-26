@@ -881,7 +881,7 @@ pub(super) fn push_unique(helpers: &mut Vec<RuntimeHelper>, helper: RuntimeHelpe
 }
 
 #[derive(Clone)]
-struct LocalBinding {
+pub(super) struct LocalBinding {
     mutable: bool,
     type_: String,
 }

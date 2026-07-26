@@ -58,12 +58,12 @@ pub enum Item {
     Function(Function),
     Type(TypeDecl),
     /// A package-scope `[vis] RESOURCE Name CLOSE BY pkg::close` declaration
-    /// that introduces a native resource type (plan-link-update.md §5).
+    /// that introduces a native resource type (17_native-libraries.md).
     Resource(ResourceDecl),
     /// A `[vis] FUNC alias AS qualified::func` transparent re-export of a `LINK`
-    /// function — required to re-export a registered close op (plan-link-update.md §5a).
+    /// function — required to re-export a registered close op (17_native-libraries.md).
     FuncAlias(FuncAlias),
-    /// A `LINK "lib" AS alias … END LINK` native binding block (plan-link-update.md §5b).
+    /// A `LINK "lib" AS alias … END LINK` native binding block (17_native-libraries.md).
     Link(LinkBlock),
     /// A `DOC … END DOC` documentation block (plan-09-doc.md). Free-standing: the
     /// header line alone names the declaration it documents; proximity is not
@@ -244,7 +244,7 @@ pub struct DocError {
 }
 
 /// A package-scope native resource declaration: `[vis] RESOURCE Name CLOSE BY
-/// closeFn [THREAD_SENDABLE]` (plan-link-update.md §5). `close_fn` is the
+/// closeFn [THREAD_SENDABLE]` (17_native-libraries.md). `close_fn` is the
 /// (possibly qualified) registered close op; `Name` is an opaque unique native
 /// handle whose hidden representation is a `CPtr`.
 #[derive(Clone, Debug)]
@@ -254,13 +254,13 @@ pub struct ResourceDecl {
     /// The registered close op, qualified as `alias.func` (dotted, like other
     /// qualified names in the AST).
     pub close_fn: String,
-    /// Whether the resource opts into thread sendability (plan-link-update.md §8).
+    /// Whether the resource opts into thread sendability (17_native-libraries.md).
     pub thread_sendable: bool,
     pub line: usize,
 }
 
 /// A transparent function alias `[vis] FUNC alias AS qualified::func`
-/// (plan-link-update.md §5a). The alias names the *same* function — same
+/// (17_native-libraries.md). The alias names the *same* function — same
 /// signature, and, for a close op, the same registered close op.
 #[derive(Clone, Debug)]
 pub struct FuncAlias {
@@ -271,7 +271,7 @@ pub struct FuncAlias {
     pub line: usize,
 }
 
-/// A `LINK "library" AS alias` native binding block (plan-link-update.md §5b).
+/// A `LINK "library" AS alias` native binding block (17_native-libraries.md).
 #[derive(Clone, Debug)]
 pub struct LinkBlock {
     /// The native library name, e.g. `"sqlite3"`.
@@ -312,7 +312,7 @@ pub struct CStructField {
 
 /// A native function declaration inside a `LINK` block: an MFBASIC-facing
 /// signature plus its native `SYMBOL`, `ABI` mapping, `CONST` pins, and success
-/// gate (plan-link-update.md §5b/§5c).
+/// gate (17_native-libraries.md).
 #[derive(Clone, Debug)]
 pub struct LinkFunction {
     pub name: String,
@@ -329,7 +329,7 @@ pub struct LinkFunction {
     pub symbol: String,
     /// The named-slot ABI signature.
     pub abi: AbiSpec,
-    /// `CONST slot = value` pins (plan-link-update.md §5c).
+    /// `CONST slot = value` pins (17_native-libraries.md).
     pub consts: Vec<ConstPin>,
     /// `BIND IN <slot>` blocks: struct fields written before the call (plan-50-E).
     pub bind_in: Vec<BindIn>,
@@ -378,7 +378,7 @@ pub struct FreeSpec {
 }
 
 /// The `ABI (slot, …) AS retname rettype` named-slot signature
-/// (plan-link-update.md §5b).
+/// (17_native-libraries.md).
 #[derive(Clone, Debug)]
 pub struct AbiSpec {
     /// The parenthesized ABI slots, in native C argument order.
@@ -453,7 +453,7 @@ pub struct BindState {
     // whose spans are function-level, so nothing could consume one.
 }
 
-/// A `CONST slot = value` pin (plan-link-update.md §5c).
+/// A `CONST slot = value` pin (17_native-libraries.md).
 #[derive(Clone, Debug)]
 pub struct ConstPin {
     pub slot: String,

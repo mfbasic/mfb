@@ -296,7 +296,7 @@ impl TypeEnv {
     /// results/resources/threads/unions/enums no, collections and records
     /// recurse (cycle-guarded).
     pub(super) fn is_defaultable(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
-        if COMPARABLE_DEFAULTABLE_PRIMITIVES.contains(&type_) {
+        if is_comparable_defaultable_primitive(type_) {
             return true;
         }
         if let Some(element) = type_.strip_prefix("List OF ") {

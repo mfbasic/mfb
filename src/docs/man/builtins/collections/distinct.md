@@ -36,7 +36,7 @@ an empty result.
 
 Membership is tested with `collections::contains`, so "equal" here means exactly
 the element equality that `contains` uses, and nothing else — there is no
-user-supplied comparison and no key-extraction overload. [[src/builtins/collections_package.mfb:__collections_distinct]] [[src/builtins/general.rs:resolve_contains]]
+user-supplied comparison and no key-extraction overload. [[src/builtins/collections_package.mfb:__collections_distinct]] [[src/builtins/collections.rs:resolve_contains]]
 That equality is applied per element type: `Integer`, `Fixed`, `Money`,
 `Boolean`, `Byte`, and `Scalar` compare by value; `String` compares by length
 and then byte-for-byte over its UTF-8 bytes; a record compares field by field.
