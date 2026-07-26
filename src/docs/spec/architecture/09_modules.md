@@ -11,7 +11,7 @@ A map of the compiler's source modules and their responsibilities.
 | Monomorphizer[[src/monomorph/]] | Template/generic expansion into concrete AST. |
 | Source-syntax checker[[src/syntaxcheck/]] | Source-syntax checking only (named-argument binding, EXIT/inline-TRAP boundaries, lambda capture escape, package metadata). It emits no rule in `ir::RELOCATED_TO_IR_VERIFY` (enforced by a `debug_assert!` in `report`), but does emit the semantic rules that were never relocated — the `NATIVE_*` and `TESTING_*` families among them. |
 | IR semantic verifier[[src/ir/verify/]] | IR semantic verification — the single source of truth for every **relocated** semantic rule (`RELOCATED_TO_IR_VERIFY`), run on both source-lowered IR and decoded-package IR. |
-| Escape analysis[[src/escape.rs]] | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
+| Escape analysis[[src/ir/resource_escape.rs]] | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
 | IR & lowering[[src/ir/]] | Shared compiler IR and AST-to-IR lowering. |
 | Internal sigil naming[[src/internal_name.rs]] | Compiler-internal sigil symbol naming for injected source packages. |
 | Binary representation[[src/binary_repr/]] | MFPC binary representation lowering, encoding, decoding, package ABI inspection. |
@@ -37,8 +37,8 @@ A map of the compiler's source modules and their responsibilities.
 | `errorCode` package[[src/builtins/errorcode.rs]] | `errorCode` integer-constant package. |
 | Resource-type registry[[src/builtins/resource.rs]] | Data-driven resource-type registry. |
 | MFBASIC-source built-in packages[[src/builtins/]] | MFBASIC-source built-in packages injected at build (`collections`, `crypto`, `csv`, `datetime`, `encoding`, `http`, `json`, `net`, `regex`, `vector`); the regex Unicode file is a plain source companion, not a package source. |
-| Unicode constant-fold oracles[[src/unicode_backend.rs]] | Compile-time (constant-fold) Unicode oracles: upper/lower/caseFold/normalizeNfc/graphemes on static strings. |
-| Unicode lookup tables[[src/unicode_runtime_tables.rs]] | Compile-time Unicode lookup tables embedded in generated code. |
+| Unicode constant-fold oracles[[src/unicode/backend.rs]] | Compile-time (constant-fold) Unicode oracles: upper/lower/caseFold/normalizeNfc/graphemes on static strings. |
+| Unicode lookup tables[[src/unicode/runtime_tables.rs]] | Compile-time Unicode lookup tables embedded in generated code. |
 | Target registry & dispatch[[src/target.rs]] | Target parsing, backend registry, backend dispatch. |
 | Shared IR-to-NIR entry[[src/target/shared/lower.rs]] | Shared IR-to-NIR entry: merges installed packages into IR, then lowers. |
 | Native IR (NIR)[[src/target/shared/nir/]] | Native IR and import/runtime-call lowering. |

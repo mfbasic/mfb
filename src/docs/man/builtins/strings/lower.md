@@ -39,7 +39,7 @@ The mapping is deterministic and locale-independent: it always uses the default
 Unicode case conventions and applies no language-specific tailoring, so no
 Turkish dotted/dotless-i tailoring is performed. `lower` does not normalize, so
 combining sequences stay decomposed; apply `strings::normalizeNfc` first when
-that matters. [[src/unicode_backend.rs:lower]]
+that matters. [[src/unicode/backend.rs:lower]]
 
 For caseless *comparison*, prefer `strings::caseFold` over lowercasing both
 operands. `value` is not mutated; the result is a new owned `String`.
