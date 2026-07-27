@@ -145,6 +145,63 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&have_payload_label));
 
         self.emit(abi::label(&wrap_error_label));
+        if self.raw_result_discard_error {
+            // plan-64-I: the trapped error is provably unused (the `RECOVER`
+            // handler never reads `err`, so the IR omits `Bind err =
+            // ResultError` — see `ir::lower::lower_inline_trap`). Build a bare
+            // tag-only `Result`: no ErrorLoc, no flat `Error` block, no
+            // adopt/copy/free. `tag_slot` already holds `RESULT_ERR_TAG` (set on
+            // the discard path in `emit_error_register_return`); zero the scalar
+            // payload for determinism. `ResultIsOk` reads the tag; the block is
+            // freed by its stored `size` (+8), never a walk of the absent Error.
+            self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), payload_slot));
+            let bare = self.emit_build_result_inline(tag_slot, "Integer", payload_slot)?;
+            self.emit(abi::store_u64(&bare, abi::stack_pointer(), result_slot));
+        } else {
+            self.emit_materialize_error_payload(
+                &scratch9,
+                tag_slot,
+                value_slot,
+                message_slot,
+                source_raw_slot,
+                payload_slot,
+                result_slot,
+                worker_error_source,
+            )?;
+        }
+
+        self.emit(abi::label(&have_payload_label));
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: format!("Result OF {success_type}"),
+            location: register,
+            text,
+        })
+    }
+
+    /// The full error-payload assembly for `materialize_current_result` (the
+    /// `wrap_error` path): adopt a parked `ERR_BLOCK` `Error` when present,
+    /// otherwise rebuild the ErrorLoc + flat `Error` from the loose registers,
+    /// then wrap it in a `Result` at `result_slot`. Extracted verbatim so the
+    /// plan-64-I discard shortcut can sit beside it without re-indenting this
+    /// block. `tag_slot` holds the raw tag; `worker_error_source` selects the
+    /// worker-arena deep-copy path (an inline-trapped `thread::waitFor`).
+    fn emit_materialize_error_payload(
+        &mut self,
+        // Reuse `materialize_current_result`'s scratch vreg (rather than
+        // allocating a fresh one) so this extraction leaves the non-discard
+        // emitted code byte-identical to the pre-plan-64-I inline version.
+        scratch9: &str,
+        tag_slot: usize,
+        value_slot: usize,
+        message_slot: usize,
+        source_raw_slot: usize,
+        payload_slot: usize,
+        result_slot: usize,
+        worker_error_source: bool,
+    ) -> Result<(), String> {
         let source_slot = self.allocate_stack_object("raw_result_source", 8);
         // Design "b": an `ERR_BLOCK` error already carries its single owned flat
         // Error block, parked in the current-error slot. ADOPT it as the payload
@@ -154,8 +211,8 @@ impl CodeBuilder<'_> {
         // error, never block-carried) falls through to the rebuild below.
         let rebuild_label = self.label("raw_result_rebuild");
         let err_built_label = self.label("raw_result_err_built");
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), tag_slot));
-        self.emit(abi::compare_immediate(&scratch9, RESULT_ERR_BLOCK_TAG));
+        self.emit(abi::load_u64(scratch9, abi::stack_pointer(), tag_slot));
+        self.emit(abi::compare_immediate(scratch9, RESULT_ERR_BLOCK_TAG));
         self.emit(abi::branch_ne(&rebuild_label));
         let adopted = self.emit_adopt_current_error_block();
         self.emit(abi::store_u64(&adopted, abi::stack_pointer(), payload_slot));
@@ -178,8 +235,8 @@ impl CodeBuilder<'_> {
             // A propagated worker error: deep-copy its message and origin out of
             // the (still-alive) worker arena into the caller arena. If the helper
             // raised its own error (source == 0), stamp this inline expression.
-            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), message_slot));
-            let copied_message = self.copy_value_to_current_arena("String", &scratch9)?;
+            self.emit(abi::load_u64(scratch9, abi::stack_pointer(), message_slot));
+            let copied_message = self.copy_value_to_current_arena("String", scratch9)?;
             self.emit(abi::store_u64(
                 &copied_message,
                 abi::stack_pointer(),
@@ -187,14 +244,10 @@ impl CodeBuilder<'_> {
             ));
             let own = self.label("raw_worker_error_own");
             let done = self.label("raw_worker_error_done");
-            self.emit(abi::load_u64(
-                &scratch9,
-                abi::stack_pointer(),
-                source_raw_slot,
-            ));
-            self.emit(abi::compare_immediate(&scratch9, "0"));
+            self.emit(abi::load_u64(scratch9, abi::stack_pointer(), source_raw_slot));
+            self.emit(abi::compare_immediate(scratch9, "0"));
             self.emit(abi::branch_eq(&own));
-            let copied_source = self.copy_value_to_current_arena("ErrorLoc", &scratch9)?;
+            let copied_source = self.copy_value_to_current_arena("ErrorLoc", scratch9)?;
             self.emit(abi::store_u64(
                 &copied_source,
                 abi::stack_pointer(),
@@ -227,15 +280,7 @@ impl CodeBuilder<'_> {
             result_slot,
         ));
         self.emit(abi::label(&err_built_label));
-
-        self.emit(abi::label(&have_payload_label));
-        let register = self.allocate_register()?;
-        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
-        Ok(ValueResult {
-            type_: format!("Result OF {success_type}"),
-            location: register,
-            text,
-        })
+        Ok(())
     }
 
     pub(super) fn copy_value_to_current_arena(

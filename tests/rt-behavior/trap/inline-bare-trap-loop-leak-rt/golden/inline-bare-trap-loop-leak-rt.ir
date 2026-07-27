@@ -37,7 +37,6 @@
         { "op": "assign", "line": 14, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
         ],
         "else": [
-        { "op": "bind", "line": 14, "mutable": false, "name": "#err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
         { "op": "assign", "line": 15, "name": "$trap_val1", "value": { "kind": "binary", "type": "Integer", "op": "MOD", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "3" } } }
         ]
       },

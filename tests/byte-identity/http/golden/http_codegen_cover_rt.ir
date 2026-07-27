@@ -591,7 +591,6 @@
       { "op": "assign", "line": 202, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
       ],
       "else": [
-      { "op": "bind", "line": 202, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
       { "op": "fail", "line": 203, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid chunk size" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "203" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ]
     },
@@ -639,7 +638,6 @@
       { "op": "assign", "line": 217, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
       ],
       "else": [
-      { "op": "bind", "line": 217, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
       { "op": "fail", "line": 218, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid status code" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "218" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ]
     },
@@ -1269,7 +1267,6 @@
       { "op": "assign", "line": 569, "name": "$trap_val9", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res8" } } }
       ],
       "else": [
-      { "op": "bind", "line": 569, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res8" } } },
       { "op": "assign", "line": 570, "name": "$trap_val9", "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     },
@@ -1763,7 +1760,6 @@
       { "op": "assign", "line": 772, "name": "$trap_val11", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res10" } } }
       ],
       "else": [
-      { "op": "bind", "line": 772, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res10" } } },
       { "op": "assign", "line": 773, "name": "$trap_val11", "value": { "kind": "local", "name": "rawPathOnly" } }
       ]
     },
@@ -2112,7 +2108,6 @@
       { "op": "assign", "line": 915, "name": "$trap_val13", "value": { "kind": "resultValue", "type": "List OF Response", "value": { "kind": "local", "name": "$trap_res12" } } }
       ],
       "else": [
-      { "op": "bind", "line": 915, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res12" } } },
       { "op": "assign", "line": 916, "name": "$trap_val13", "value": { "kind": "local", "name": "fallback" } }
       ]
     },
@@ -2943,7 +2938,6 @@
       { "op": "assign", "line": 1106, "name": "$trap_val17", "value": { "kind": "resultValue", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res16" } } }
       ],
       "else": [
-      { "op": "bind", "line": 1106, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res16" } } },
       { "op": "assign", "line": 1107, "name": "$trap_val17", "value": { "kind": "const", "type": "Boolean", "value": "false" } }
       ]
     },
@@ -3042,7 +3036,6 @@
         { "op": "assign", "line": 1144, "name": "$trap_val19", "value": { "kind": "resultValue", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_res18" } } }
         ],
         "else": [
-        { "op": "bind", "line": 1144, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res18" } } },
         { "op": "assign", "line": 1145, "name": "$trap_val19", "value": { "kind": "list", "type": "List OF Byte", "values": [] } }
         ]
       },
@@ -3110,7 +3103,6 @@
       "then": [
       ],
       "else": [
-      { "op": "bind", "line": 1166, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res20" } } },
       { "op": "return", "line": 1167, "value": null }
       ]
     },
@@ -3127,7 +3119,6 @@
         "then": [
         ],
         "else": [
-        { "op": "bind", "line": 1170, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res21" } } },
         { "op": "return", "line": 1171, "value": null }
         ]
       }
@@ -3169,7 +3160,6 @@
         { "op": "assign", "line": 1185, "name": "$trap_val23", "value": { "kind": "resultValue", "type": "List OF Byte", "value": { "kind": "local", "name": "$trap_res22" } } }
         ],
         "else": [
-        { "op": "bind", "line": 1185, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res22" } } },
         { "op": "assign", "line": 1186, "name": "$trap_val23", "value": { "kind": "list", "type": "List OF Byte", "values": [] } }
         ]
       },
@@ -3237,7 +3227,6 @@
       "then": [
       ],
       "else": [
-      { "op": "bind", "line": 1207, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res24" } } },
       { "op": "return", "line": 1208, "value": null }
       ]
     },
@@ -3254,7 +3243,6 @@
         "then": [
         ],
         "else": [
-        { "op": "bind", "line": 1211, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res25" } } },
         { "op": "return", "line": 1212, "value": null }
         ]
       }
@@ -3473,7 +3461,6 @@
       { "op": "assign", "line": 128, "name": "$trap_val27", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res26" } } }
       ],
       "else": [
-      { "op": "bind", "line": 128, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res26" } } },
       { "op": "fail", "line": 129, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: non-digit in port" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "129" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ]
     },
@@ -3852,7 +3839,6 @@
       { "op": "assign", "line": 307, "name": "$trap_val29", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res28" } } }
       ],
       "else": [
-      { "op": "bind", "line": 307, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res28" } } },
       { "op": "assign", "line": 308, "name": "$trap_val29", "value": { "kind": "local", "name": "s" } }
       ]
     },

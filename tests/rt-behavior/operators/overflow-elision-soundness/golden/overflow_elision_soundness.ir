@@ -129,7 +129,6 @@
       { "op": "assign", "line": 48, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res0" } } }
       ],
       "else": [
-      { "op": "bind", "line": 48, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
       { "op": "assign", "line": 49, "name": "t1", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
       { "op": "assign", "line": 50, "name": "$trap_val1", "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
@@ -157,7 +156,6 @@
       { "op": "assign", "line": 59, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
       ],
       "else": [
-      { "op": "bind", "line": 59, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
       { "op": "assign", "line": 60, "name": "t2", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
       { "op": "assign", "line": 61, "name": "$trap_val3", "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
