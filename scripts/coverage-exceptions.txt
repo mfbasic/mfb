@@ -16,9 +16,10 @@
 # --- Tier-D CLI / registry orchestration (covered by tests/repo_acceptance.rs) ---
 src/cli/pkg.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
 src/cli/resolve.rs    # resolve/update/install fetch the registry over HTTP; pure lock read/write/diff + version selection is unit-covered
-src/cli/build.rs      # load_build_signing_info requests attestation from a live registry; build_project spawns the system linker; option parsing is unit-covered
+src/cli/dispatch.rs   # ex-src/main.rs top-level router (bug-340 B1, c565abda8): run() reads std::env::args and every arm spawns the system linker via build_project, drives the live HTTP registry via run_pkg/run_repo/run_{machine,key,org,token}_command, or calls process::exit — none reachable in-process without terminating the test runner; is_help_flag/USAGE arms cannot be isolated from run()'s env::args entry
+src/cli/build/signing.rs  # load_build_signing_info (signing.rs:47-158) calls mfb_repository::client::request_attestation against a live HTTP registry and reads the machine's registered ident-key files; its pure helpers (signing_ident/apply_signing_metadata/executable_signing_metadata_json) are unit-covered. bug-327 T2-10 (19a95d448) split this out of the now-deleted src/cli/build.rs, whose stale exception this replaces
 src/cli/repo.rs       # register/auth/link/trust perform live HTTP + key-store mutation; Usage/arg validation is unit-covered
-src/main.rs           # top-level command dispatch spawns subprocess build/link pipelines (plan-12 target 90%); arg/help/manifest parsing is unit-covered
+src/main.rs           # process entry point: fn main only forwards to cli::dispatch::run() (the excepted dispatch body moved to src/cli/dispatch.rs by bug-340 B1); fn main is never invoked by a unit test
 src/target.rs         # write_executable/nir/plan/object dispatchers invoke per-OS backends that spawn linkers/codesign over a full IrProject; BuildTarget/NativeBuildMode parsing is unit-covered
 
 # --- Required-for-exhaustiveness defensive match arms (unreachable at runtime) ---

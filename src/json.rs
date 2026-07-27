@@ -10,9 +10,12 @@ use tinyjson::JsonValue;
 
 /// Escape and quote `value` as a JSON string literal.
 pub(crate) fn json_string(value: &str) -> String {
+    // `stringify` only fails on a non-finite `Number`; a `String` value is
+    // always representable, so this cannot return `Err` (plan-68-A Open Decision:
+    // the former `.unwrap_or_else` fallback was dead — unreachable from any input).
     JsonValue::String(value.to_string())
         .stringify()
-        .unwrap_or_else(|_| "\"mfb_project\"".to_string())
+        .expect("JsonValue::String is always stringifiable")
 }
 
 /// A node that renders itself as a JSON fragment at a given indent depth. Shared

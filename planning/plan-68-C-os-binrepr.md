@@ -339,6 +339,32 @@ The decoded-package accessors (`src/binary_repr/builder.rs`); add to
 Acceptance: `sh scripts/coverage-check.sh binary_repr/builder.rs` shows ≥95%.
 Commit: —
 
+### Phase C11 — `src/os/windows/mod.rs` (0/38) — added by plan-68-A
+
+A1 triaged this **backfill:C**, not an exception (overview Corrections). The file
+is three thin wrappers over the already-tested `object`/`link` submodules and has
+**no `#[cfg(test)]` module** of its own (the whole module carries `#![allow(dead_
+code)]` because the Windows target is staged-landed). All three are unit-coverable
+on the macOS host — they never spawn a linker; they lower/link in-memory then
+`fs::write` into a caller-supplied dir. Add a `#[cfg(test)] mod tests` (mirror the
+fixture style in `src/os/windows/link/mod.rs:457` / `object.rs`):
+
+- [ ] `validate_native_object_plan` (`mod.rs:40`) — pure: build a `NativePlan`
+      (reuse the object-plan fixture the sibling `object.rs` tests construct) and
+      assert `Ok(())`; feed a plan that fails `object::lower_plan(...).validate()`
+      and assert `Err`.
+- [ ] `write_native_object_plan` (`mod.rs:25`) — into a `tempfile::tempdir`,
+      assert the returned `<name>.nobj` path exists and its bytes are the
+      `object_plan.to_json()`.
+- [ ] `write_linked_executable` (`mod.rs:48`) — build an `EncodedImage` via the
+      `link/mod.rs` fixture helper, call with `gui=false` (and once `gui=true`)
+      into a tempdir, assert the returned `build/<name>.exe` exists and begins with
+      the PE `MZ` magic.
+
+Acceptance: `sh scripts/coverage-check.sh os/windows/mod.rs` shows ≥95% (fresh
+`sh scripts/coverage.sh` first).
+Commit: —
+
 ## Validation Plan
 
 - **Per file:** after a fresh `sh scripts/coverage.sh`, each phase's

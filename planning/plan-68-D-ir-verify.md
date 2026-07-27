@@ -32,6 +32,10 @@ Eight files, `covered/total` per the overview's population table (from
 | src/ir/verify/resources.rs | 262/294 | 89.12 | 32 | D5 |
 | src/ir/verify/compat.rs | 479/512 | 93.55 | 33 | D6 |
 | src/ir/verify/mod.rs | 705/744 | 94.76 | 39 | D6 |
+| src/arch/x86_64/encode/emitter.rs | 1471/1554 | 94.66 | 83 | D7 (added by A) |
+
+(D1's `src/arch/aarch64/backend.rs` measured 6/9 on A1's fresh report, not 3/9 —
+3 uncov lines, still its three trivial method bodies.)
 
 The IR verifier is pure logic — it validates an in-memory `IrProject` and emits
 diagnostics (`TypeEnv::emit(rule, detail)`). Nearly every uncovered line is an
@@ -291,6 +295,29 @@ named uncovered lines directly.**
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/compat.rs src/ir/verify/mod.rs`
 shows both ≥95%.
+Commit: —
+
+### Phase D7 — `src/arch/x86_64/encode/emitter.rs` (1471/1554, 83 uncov) — added by A
+
+A1 found this file below the floor and in no plan-68 doc (overview Corrections);
+assigned **backfill:D** for arch cohesion with D1. It is a pure in-memory x86-64
+instruction encoder — no I/O, no integration boundary. Read A's fresh
+`coverage.json` (or `awk '/^SF:.*x86_64\/encode\/emitter.rs$/{f=1} f&&/^DA:[0-9]+,0$/
+{print} /^end_of_record/{if(f)exit;f=0}' target/coverage/lcov.info`) for the exact
+uncovered lines, then cover them by emitting the un-exercised instruction forms /
+error arms directly against the emitter's public/`pub(crate)` surface.
+
+- [ ] From A's fresh report, enumerate emitter.rs's uncovered lines and group them
+      by the encode helper they sit in (ModRM/SIB forms, REX-prefix arms, immediate
+      widths, displacement sizes, the rejected/`unreachable`-guard arms).
+- [ ] Add a `#[cfg(test)] mod tests` (or extend the nearest existing arch test
+      module) that drives each uncovered encode arm and asserts the exact emitted
+      byte sequence; for any genuinely-unreachable defensive/`unreachable!` arm,
+      flag it to A as a line-level exception with the reason (do NOT fabricate an
+      invalid instruction to reach it).
+
+Acceptance: fresh `sh scripts/coverage.sh`, then
+`sh scripts/coverage-check.sh src/arch/x86_64/encode/emitter.rs` shows ≥95%.
 Commit: —
 
 ## Validation Plan

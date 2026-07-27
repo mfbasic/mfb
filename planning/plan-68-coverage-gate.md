@@ -156,13 +156,14 @@ excepting / denominator repair). Letter = the sub-plan that owns the file.
 | C | src/os/linux/appimage/mod.rs | 262/296 | 88.51 | 34 |
 | C | src/os/link_encode.rs | 154/172 | 89.53 | 18 |
 | C | src/os/linux/mod.rs | 168/184 | 91.30 | 16 |
-| C | src/os/linux/appimage/squashfs/mod.rs | 327/351 | 93.16 | 24 |
+| C | src/os/linux/appimage/squashfs/mod.rs | 321/351 | 91.45 | 30 |
 | C | src/os/macos/icon.rs | 74/78 | 94.87 | 4 |
 | C | src/binary_repr/mod.rs | 124/205 | 60.49 | 81 |
 | C | src/binary_repr/writer.rs | 949/1017 | 93.31 | 68 |
 | C | src/binary_repr/builder.rs | 231/247 | 93.52 | 16 |
 | C | src/binary_repr/sections.rs | 956/1008 | 94.84 | 52 |
-| D | src/arch/aarch64/backend.rs | 3/9 | 33.33 | 6 |
+| D | src/arch/aarch64/backend.rs | 6/9 | 66.67 | 3 |
+| D | src/arch/x86_64/encode/emitter.rs | 1471/1554 | 94.66 | 83 |
 | D | src/ir/types.rs | 5/8 | 62.50 | 3 |
 | D | src/ir/verify/calls.rs | 139/207 | 67.15 | 68 |
 | D | src/ir/verify/link.rs | 434/571 | 76.01 | 137 |
@@ -289,8 +290,11 @@ Per `AGENTS.md` and `.ai/compiler.md`:
 
 The feature's phases ARE the lettered sub-plans; each has its own phase list.
 
-- [ ] **A** — Triage, exception-list repair, fresh line-level report
+- [x] **A** — Triage, exception-list repair, fresh line-level report
       (`plan-68-A-triage-exceptions.md`). Lands first; produces the worklist.
+      Done: coverage.json regenerated (suite 0-failed), dispatch.rs + signing.rs
+      re-excepted, json.rs dead-arm resolved, worklist frozen (54 backfill files;
+      +emitter.rs→D7, windows/mod.rs→C11). Commit: — (recorded next commit).
 - [ ] **B** — CLI + build modules (`plan-68-B-cli-build.md`).
 - [ ] **C** — OS backends + binary_repr object writers (`plan-68-C-os-binrepr.md`).
 - [ ] **D** — IR verify + small IR + arch backend (`plan-68-D-ir-verify.md`).
@@ -330,7 +334,20 @@ The feature's phases ARE the lettered sub-plans; each has its own phase list.
 
 ## Corrections
 
-<Filled in during execution.>
+- **A1 delta (2026-07-27, `sh scripts/coverage-check.sh` on the fresh profile):**
+  the failing set is **56**, not 55 — one new file drifted below the floor:
+  `src/arch/x86_64/encode/emitter.rs` (94.66%, 1471/1554, 83 uncov), which no
+  letter covered. Assigned **backfill:D** as new phase **D7**; §2 table + D scope
+  updated. Two files also moved within the failing set:
+  `src/arch/aarch64/backend.rs` improved 3/9→6/9 (still D1);
+  `src/os/linux/appimage/squashfs/mod.rs` regressed 327/351→321/351 (still C4).
+- **A2:** the stale `src/cli/build.rs` exception (deleted file, matched nothing)
+  is replaced by `src/cli/build/signing.rs`; `src/cli/dispatch.rs` added;
+  `src/main.rs` kept with reworded boundary. 6→8 documented exceptions.
+- **A3:** `src/os/windows/mod.rs` triaged **backfill:C** (new phase **C11**), not
+  an exception. `src/json.rs` Open Decision resolved in `src/json.rs` itself
+  (dead `.unwrap_or_else` → `.expect`), so it is neither excepted nor an H task.
+- Full detail + measuring commands in `plan-68-A-triage-exceptions.md` Corrections.
 
 ## Summary
 
