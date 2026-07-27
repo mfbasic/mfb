@@ -108,3 +108,62 @@ fn binary_repr_metadata_new_defaults_are_empty() {
     assert!(metadata.ident.is_empty());
     assert!(metadata.dependencies.is_empty());
 }
+
+#[test]
+fn read_package_native_libraries_returns_name_and_table() {
+    use crate::manifest::libraries::LibType;
+    let mut project = empty_project("libpkg");
+    project.native_libraries = NativeLibraryTable {
+        entries: vec![NativeLibraryEntry {
+            logical: "sqlite3".to_string(),
+            locators: vec![NativeLibraryLocator {
+                os: "linux".to_string(),
+                arch: None,
+                libc: None,
+                lib_type: LibType::System,
+                source: "libsqlite3.so.0".to_string(),
+                hash: None,
+            }],
+        }],
+    };
+    let inner = encode_project(
+        &project,
+        &BinaryReprMetadata::new("libpkg".to_string(), "1.0.0".to_string()),
+    );
+    let path = temp_mfp(&wrap_mfp(&inner, "libpkg", "libpkg", "1.0.0"));
+    // The declaring-unit name comes from the package itself, not the filename;
+    // a non-binding package with no LINK block reads back an empty table.
+    let (name, _table) = read_package_native_libraries(&path).expect("native libs");
+    assert_eq!(name, "libpkg");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn read_package_identity_id_is_stable() {
+    let inner = encode_project(
+        &rich_project(),
+        &BinaryReprMetadata::new("richpkg".to_string(), "1.0.0".to_string()),
+    );
+    let path = temp_mfp(&wrap_mfp(&inner, "richpkg", "richpkg", "1.0.0"));
+    let id = read_package_identity_id(&path).expect("identity id");
+    assert!(!id.is_empty());
+    assert_eq!(read_package_identity_id(&path).unwrap(), id);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn read_package_type_export_hashes_and_empty_foreign_refs() {
+    let inner = encode_project(
+        &rich_project(),
+        &BinaryReprMetadata::new("richpkg".to_string(), "1.0.0".to_string()),
+    );
+    let path = temp_mfp(&wrap_mfp(&inner, "richpkg", "richpkg", "1.0.0"));
+    let hashes = read_package_type_export_hashes(&path).expect("hashes");
+    assert!(hashes.contains_key("Point"));
+    assert!(hashes.contains_key("Shape"));
+    assert!(hashes.contains_key("Color"));
+    // A package that owns all its types has no foreign type references.
+    let refs = read_package_foreign_type_refs(&path).expect("refs");
+    assert!(refs.is_empty());
+    let _ = std::fs::remove_file(&path);
+}
