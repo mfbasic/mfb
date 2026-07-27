@@ -1645,3 +1645,64 @@ fn template_params_json(params: &[String], indent: usize) -> String {
             .join(", ")
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json::ToJson;
+
+    fn project_json(src: &str) -> String {
+        crate::testutil::project_from_src(src).to_json()
+    }
+
+    #[test]
+    fn astfile_tojson_trait_delegates_to_inherent() {
+        // The `impl ToJson for AstFile` (46-48) forwards to the inherent dumper; no
+        // production caller reaches it (AstProject calls the inherent method), so
+        // invoke the trait method explicitly.
+        let file = crate::testutil::parse_file("FUNC f() AS Integer\n  RETURN 1\nEND FUNC\n");
+        let json = ToJson::to_json(&file, 0);
+        assert!(json.contains("\"path\""));
+    }
+
+    #[test]
+    fn link_cstruct_bind_in_and_bind_state_serialize() {
+        // A LINK with a CSTRUCT (+field) and a native FUNC carrying BIND IN (+field)
+        // and BIND STATE drives the CStructDecl/CStructField/BindIn/BindInField/
+        // BindState serializers (328-450), which are emitted only when present.
+        let json = project_json(
+            "LINK \"x\" AS l\n\
+             \x20 CSTRUCT Foo AS Rec\n    a CInt32\n  END CSTRUCT\n\
+             \x20 FUNC f() AS Integer\n\
+             \x20   SYMBOL \"s\"\n\
+             \x20   BIND IN slot\n      fld = 1\n    END BIND\n\
+             \x20   BIND STATE handle = outbuf\n\
+             \x20   ABI (slot CPtr) AS r CInt32\n\
+             \x20 END FUNC\n\
+             END LINK\n",
+        );
+        assert!(json.contains("\"kind\": \"cstruct\""), "cstruct: {json}");
+        assert!(json.contains("\"ctype\""), "cstruct field: {json}");
+        assert!(json.contains("\"kind\": \"bindIn\""), "bindIn: {json}");
+        assert!(json.contains("\"kind\": \"bindInField\""), "bindInField: {json}");
+        assert!(json.contains("\"kind\": \"bindState\""), "bindState: {json}");
+    }
+
+    #[test]
+    fn scalar_literal_serializes() {
+        // A backtick scalar literal drives the `Expression::Scalar` arm (1289-1290).
+        let json = project_json("FUNC f() AS Integer\n  LET x = `A`\n  RETURN 0\nEND FUNC\n");
+        assert!(json.contains("\"kind\": \"scalar\""), "{json}");
+    }
+
+    #[test]
+    fn set_literal_serializes() {
+        // A non-empty set literal drives the `Expression::SetLiteral` arm and its
+        // element loop (1391-1401).
+        let json = project_json(
+            "FUNC f() AS Integer\n  LET s AS Set OF Integer = Set OF Integer { 1 }\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(json.contains("\"kind\": \"set\""), "{json}");
+        assert!(json.contains("\"elementType\""), "{json}");
+    }
+}

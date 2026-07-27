@@ -308,7 +308,7 @@ RESIDUAL uncovered, all documented — file still reaches ~97% (466/480):
   (`assert!(…, "…", <expr>)`) that only evaluate on assertion failure; uncoverable
   on a green run. Left untouched (not our target; would require failing an
   existing test).
-Commit: <SCOPE_COMMIT>
+Commit: 3b0e5bf73
 
 ### Phase G5 — `src/ast/serialize.rs` (49 uncov)
 
@@ -319,36 +319,48 @@ round-trip file. Every uncovered line is an **AST-node variant / arm never
 serialized** by an existing test. Cover each by parsing a source that yields the
 node, then asserting on `to_json`. Confirm against the `DA:LINE,0` list:
 
-- [ ] **`visibility_prefix` / `visibility_name`** (Export + Private arms): an
+- [x] **`visibility_prefix` / `visibility_name`** (Export + Private arms): an
       `EXPORT` and a `PRIVATE` declaration.
-- [ ] **`exit_target_name`** (for/do/while/sub/func/program): `EXIT FOR`,
+- [x] **`exit_target_name`** (for/do/while/sub/func/program): `EXIT FOR`,
       `EXIT DO`, `EXIT WHILE`, `EXIT SUB`, `EXIT FUNC`, `EXIT PROGRAM`.
-- [ ] **`DocBlock::to_json`** (167–265, a ~100-line block): a `DOC` block with
+- [x] **`DocBlock::to_json`** (167–265, a ~100-line block): a `DOC` block with
       non-empty `attrs`, `desc` prose, `deprecated`, `group`, `args`/`props`
       (named lists), `ret`, `errors`, `example`, and both `header_params` =
       `Some` (a signature) and `None`. Assert the emitted `"kind": "doc"` object
       carries each field.
-- [ ] **`LinkFunction::to_json`** (453–…): a native `FUNC` exercising
+- [x] **`LinkFunction::to_json`** (453–…): a native `FUNC` exercising
       `bind_in`, `bind_state`, `buffers`, `free`, `result_length`, and
       `return_state_type` present (reuse a G3 fixture). Plus `CStructDecl` /
       `CStructField` / `AbiSlot` (each direction) / `ConstPin` / `FreeSpec` /
       `BindState` serializers if the list flags them.
-- [ ] **`signature_line` pub fns** (Function / TypeDecl / ResourceDecl): these
+- [x] **`signature_line` pub fns** (Function / TypeDecl / ResourceDecl): these
       have out-of-crate callers (`src/ir/docs.rs`, `src/doc/mod.rs`,
       `src/ast/tests.rs`) so may already be covered — only add a direct
       `assert_eq!` on the returned string for the specific `kind`/`FunctionKind`/
       `TypeDeclKind` arm the list shows uncovered.
-- [ ] **`Statement::to_json` arms** the list flags (e.g. the loop / `MATCH` /
+- [x] **`Statement::to_json` arms** the list flags (e.g. the loop / `MATCH` /
       `FAIL` / `EXIT` variants) and **`Expression::to_json` arms**: `WithUpdate`,
       `SetLiteral`, `MapLiteral`, `Trapped`, `Lambda` with **and** without
       `assign_target`, `MemberAccess`, `Scalar`.
-- [ ] **`MatchPattern::to_json`** (`Literal` / `OneOf` / `Union` / `Else`) and a
+- [x] **`MatchPattern::to_json`** (`Literal` / `OneOf` / `Union` / `Else`) and a
       guarded `MatchCase`; **`resource_json_suffix`** with and without a
       `STATE T`.
 
 Acceptance: `sh scripts/coverage.sh` (fresh) then
 `sh scripts/coverage-check.sh src/ast/serialize.rs` shows ≥95%.
-Commit: —
+
+NOTE (fresh lcov, 49 red — much narrower than the enumeration). `DocBlock`,
+`signature_line`, `MatchPattern`, `resource_json_suffix`, `visibility_*`,
+`exit_target_name`, and most `Statement`/`Expression` arms are ALREADY covered
+(absent from `DA:LINE,0`). The genuinely-red arms, covered by 4 new tests in an
+inline `mod tests`: `impl ToJson for AstFile` trait delegate (46-48) via an
+explicit `ToJson::to_json` call (no production caller — AstProject uses the
+inherent method); the LINK sub-serializers `CStructDecl` (328-353),
+`CStructField` (357-376), `BindIn` (382-404), `BindInField` (408-429),
+`BindState` (433-450) via one LINK+CSTRUCT+FUNC(BIND IN + BIND STATE) fixture;
+`Expression::Scalar` (1289-1290); `Expression::SetLiteral` element loop
+(1391-1401). No production change; no bug surfaced.
+Commit: <SERIALIZE_COMMIT>
 
 ## Validation Plan
 
