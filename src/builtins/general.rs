@@ -193,6 +193,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             if arg_types[0] == "String"
                 || arg_types[0].starts_with("List OF ")
                 || arg_types[0].starts_with("Map OF ")
+                || arg_types[0].starts_with("Set OF ")
             {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Integer"),
@@ -336,7 +337,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             if arg_types.len() == 1
                 && (arg_types[0] == "String"
                     || arg_types[0].starts_with("List OF ")
-                    || arg_types[0].starts_with("Map OF ")) =>
+                    || arg_types[0].starts_with("Map OF ")
+                    || arg_types[0].starts_with("Set OF ")) =>
         {
             ResolvedCall {
                 return_type: Cow::Borrowed("Boolean"),
@@ -349,7 +351,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
-        LEN => Some("String, List OF T, or Map OF K TO V"),
+        LEN => Some("String, List OF T, Set OF T, or Map OF K TO V"),
         TYPE_NAME => Some("T"),
         TO_STRING => Some(
             "Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, Scalar, or List OF Byte",
@@ -364,7 +366,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         IS_EVEN => Some("Integer"),
         IS_ODD => Some("Integer"),
         IS_POSITIVE | IS_NEGATIVE | IS_ZERO => Some("Integer, Float, or Fixed"),
-        IS_EMPTY | IS_NOT_EMPTY => Some("String, List OF T, or Map OF K TO V"),
+        IS_EMPTY | IS_NOT_EMPTY => Some("String, List OF T, Set OF T, or Map OF K TO V"),
         _ => None,
     }
 }
@@ -396,6 +398,12 @@ pub(super) fn list_element(type_name: &str) -> Option<&str> {
 pub(super) fn map_parts(type_name: &str) -> Option<(&str, &str)> {
     let (key, value) = type_name.strip_prefix("Map OF ")?.split_once(" TO ")?;
     Some((key, value.strip_prefix("RES ").unwrap_or(value)))
+}
+
+/// The element type of a `Set OF T` (plan-63). A Set element is always
+/// comparable and never `RES`-marked, so there is no marker to strip.
+pub(super) fn set_element(type_name: &str) -> Option<&str> {
+    type_name.strip_prefix("Set OF ")
 }
 
 /// Splits a `FUNC(<params>) AS <return>` type into its parameter types and its

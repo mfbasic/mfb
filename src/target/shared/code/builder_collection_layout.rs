@@ -1295,9 +1295,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             data_len_slot,
         ));
-        // A map reserves a `2*capacity` u64 bucket array past the data region;
-        // capacity == count for a literal, so fold it into the constant.
-        let bucket_bytes = if layout.kind == COLLECTION_KIND_MAP {
+        // A map *or* set reserves a `2*capacity` u64 bucket array past the data
+        // region; capacity == count for a literal, so fold it into the constant.
+        // `collection_has_buckets` keeps a Set's reservation in lockstep with the
+        // sizing/copy/free paths (plan-63-B) — omitting it would size a Set literal
+        // short and corrupt the arena on the lazy bucket build.
+        let bucket_bytes = if collection_has_buckets(type_) {
             count * MAP_BUCKET_SIZE * 2
         } else {
             0

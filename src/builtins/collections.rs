@@ -66,6 +66,11 @@ const NATIVE_MEMBERS: &[&str] = &[
     "find",
     "mid",
     "replace",
+    // Set members (plan-63-B): `add`/`remove`/`toList` are Set-only; `contains`
+    // gains a Set overload alongside its List overload.
+    "add",
+    "remove",
+    "toList",
 ];
 
 /// The internal generic-function name implementing a public `collections::`
@@ -161,8 +166,47 @@ pub(crate) fn resolve_call<'a>(
         "find" => resolve_find_list(arg_types),
         "mid" => resolve_mid_list(arg_types),
         "replace" => resolve_replace_list(arg_types),
+        "add" => resolve_set_add(arg_types),
+        "remove" => resolve_set_remove(arg_types),
+        "toList" => resolve_set_to_list(arg_types),
         _ => None,
     }
+}
+
+/// `collections::add(Set OF T, T) AS Set OF T` (plan-63-B): insert an element,
+/// idempotent (a duplicate is dropped). Set-only — a List uses `append`.
+fn resolve_set_add<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::set_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+/// `collections::remove(Set OF T, T) AS Set OF T` (plan-63-B): remove an element;
+/// removing an absent element is a no-op. Set-only.
+fn resolve_set_remove<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::set_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+/// `collections::toList(Set OF T) AS List OF T` (plan-63-B): the elements in
+/// stable insertion order. Set-only.
+fn resolve_set_to_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 1 {
+        return None;
+    }
+    let element = super::general::set_element(&arg_types[0])?;
+    Some(super::general::ResolvedCall {
+        return_type: Cow::Owned(format!("List OF {element}")),
+    })
 }
 
 /// List-overload resolvers for `find`/`mid`/`replace`, migrated to `collections::`
@@ -336,7 +380,10 @@ fn resolve_contains<'a>(arg_types: &'a [String]) -> Option<super::general::Resol
     if arg_types.len() != 2 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
+    // `contains` has a List overload (linear scan) and a Set overload (hash
+    // probe, plan-63-B); both take `(collection, element) AS Boolean`.
+    let element = super::general::list_element(&arg_types[0])
+        .or_else(|| super::general::set_element(&arg_types[0]))?;
     (arg_types[1] == element).then_some(super::general::ResolvedCall {
         return_type: Cow::Borrowed("Boolean"),
     })

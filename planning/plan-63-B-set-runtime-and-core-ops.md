@@ -311,7 +311,43 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Set operation names: NEW `add`/`remove`/`toList` (not reuse).** The plan was
+  self-contradictory: §4.3 designs new members `add`/`remove`/`toList` with
+  signatures, but Open Decision 2's `Decision:` line said "reuse existing
+  `collections::*` functions." These are incompatible for a user-facing API and
+  drive C's 8 generics and D's doc pages, so the choice was put to the feature
+  owner (2026-07-26): **decision = the distinct members `add`/`remove`/`toList`**
+  per §4.3, plus the `contains` Set overload. Open Decision 2 is superseded; the
+  §4.3 signatures stand: `add(Set OF T, T) AS Set OF T`,
+  `remove(Set OF T, T) AS Set OF T`, `contains(Set OF T, T) AS Boolean`,
+  `toList(Set OF T) AS List OF T`.
+- **Value width is 1 byte (`Boolean` TRUE), not zero-width `NONE`.** §4.1
+  specifies `valueType = COLLECTION_TYPE_NONE`, `valueLength = 0`. Realizing a
+  genuine zero-width value would require a bespoke key-only insert emitter —
+  precisely the path §3's Rejected-alternative warns is a Map-regression risk, and
+  `emit_payload_length_to_stack` has no zero-length arm. Instead a `Set OF T` block
+  is a Map-shaped block whose entries carry a 1-byte `Boolean` value (always TRUE):
+  `CollectionTypeLayout::from_type` gives `kind = SET`, `key = element code`,
+  `value = COLLECTION_TYPE_BOOLEAN`. Every core op then reuses the *fully-tested*
+  Map emitter unchanged — `add` = `lower_map_set_in_place` (miss inserts, hit
+  overwrites TRUE→TRUE, i.e. a no-op = idempotent), `remove` =
+  `lower_map_remove_key`, `contains` = the `hasKey` probe/scan, `toList` =
+  `lower_map_projection(project_key)`, and copy/size/free need no key-only path.
+  Cost: 1 byte per element vs. the plan's zero-width ideal; benefit: no bespoke
+  arena-mutating codegen, so no new arena-corruption surface. Behavior (dedup,
+  idempotent add, membership, order, len, copy/free) is identical; D documents the
+  1-byte-value representation. The zero-width optimization is a possible follow-up.
+- **B0 bucket-region census.** The "map has a bucket region" decision is
+  concentrated in two sizing/copy sites plus one reserve helper (all in
+  `builder_collection_layout.rs`): `emit_flat_block_size:286` (was
+  `kind == COLLECTION_KIND_MAP`) and `copy_collection_tight:414` (the
+  `emit_reserve_map_buckets` bool arg, was `layout.kind == COLLECTION_KIND_MAP`).
+  Both now consult `collection_has_buckets(type)`. `emit_reserve_map_buckets`
+  itself already takes a bool (no inline kind test). The scope-drop free path
+  (`builder_owned_cleanup.rs`) routes through `emit_flat_block_size` for the block
+  size, so fixing that one site covers free too. The lazy bucket-build
+  (`_mfb_rt_map_build_buckets`) sizes from the header's capacity, not the type, so
+  it needs no Set edit.
 
 ## Summary
 

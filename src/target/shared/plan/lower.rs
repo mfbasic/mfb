@@ -194,6 +194,7 @@ pub(super) fn is_reference_type(type_: &str) -> bool {
         || type_ == "TermSize"
         || type_ == "Error"
         || type_.starts_with("List OF ")
+        || type_.starts_with("Set OF ")
         || type_.starts_with("Map OF ")
         || type_.starts_with("MapEntry OF ")
         || type_.starts_with("Result OF ")

@@ -1248,6 +1248,10 @@ impl CodeBuilder<'_> {
             None
         };
         let list_element_type = super::list_element_type(&iterable_value.type_);
+        // A `Set OF T` iterates its Map-shaped entries yielding the element `T`
+        // (the entry key), not a `MapEntry` (plan-63-B). Computed here so the loop
+        // body below can read the key payload directly into the loop local.
+        let set_element_type = super::set_element_type(&iterable_value.type_);
         let item_value_type = list_element_type.as_deref();
         let collection_slot = self.allocate_stack_object("for_each_collection", 8);
         let cursor_slot = self.allocate_stack_object("for_each_cursor", 8);
@@ -1370,6 +1374,36 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::store_u64(
                 &payload_off,
+                abi::stack_pointer(),
+                local_slot,
+            ));
+        } else if let Some(set_element_type) = set_element_type.as_deref() {
+            // `Set OF T`: read the entry's KEY payload (the element) into the loop
+            // local as `T`. Entries stride by `COLLECTION_ENTRY_SIZE` (the common
+            // advance below, since `list_payload` is `None` for a Set).
+            self.emit(abi::load_u64(
+                &payload_off,
+                &cursor,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &payload_len,
+                &cursor,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit(abi::load_u64(
+                &collection,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
+            let item_value = self.emit_load_map_payload(
+                set_element_type,
+                &collection,
+                &payload_off,
+                &payload_len,
+            )?;
+            self.emit(abi::store_u64(
+                &item_value,
                 abi::stack_pointer(),
                 local_slot,
             ));

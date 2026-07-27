@@ -79,6 +79,17 @@ impl CodeBuilder<'_> {
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
+        // A `Set OF T` membership test is the Map-shaped hash probe (plan-63-B):
+        // the element is the key, so `contains(set, x)` is exactly `hasKey`'s
+        // probe/scan. Delegate before lowering args so the collection value is
+        // evaluated once. A `List OF T` falls through to the linear scan below.
+        if self
+            .static_type_name(&args[0])
+            .as_deref()
+            .is_some_and(is_set_type)
+        {
+            return self.lower_collection_has_key(args);
+        }
         let collection = self.lower_value(&args[0])?;
         let collection_slot = self.allocate_stack_object("contains_collection", 8);
         self.emit(abi::store_u64(
@@ -305,12 +316,18 @@ impl CodeBuilder<'_> {
         // `d`-native float key stores via `str d` (plan-01 float-dnative).
         self.store_value_at(&key, abi::stack_pointer(), key_slot);
 
-        let Some((key_type, _)) = map_type_parts(&collection.type_) else {
+        // A Map keys on its key type; a Set (reached via `contains`, plan-63-B)
+        // keys on its element type — both are the bytes the probe compares.
+        let Some(key_type) = map_type_parts(&collection.type_)
+            .map(|(key, _)| key.to_string())
+            .or_else(|| set_element_type(&collection.type_))
+        else {
             return Err(format!(
-                "native collection hasKey does not accept {}",
+                "native collection hasKey/contains does not accept {}",
                 collection.type_
             ));
         };
+        let key_type = key_type.as_str();
         if key.type_ != key_type {
             return Err(format!(
                 "native collection hasKey key must be {}, got {}",
