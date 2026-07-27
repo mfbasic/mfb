@@ -5,7 +5,7 @@
 //! memory offsets, `msub`, …); every expansion is self-contained, so a value in
 //! `t0` never needs to survive to the next instruction.
 
-use super::operand::{field, freg, immediate, reg, shift};
+use super::operand::{field, freg, immediate, reg, shift, vreg};
 use super::sizing::{li_steps, LiStep};
 use super::*;
 use crate::target::shared::code::RelocIntent;
@@ -30,6 +30,23 @@ const MADD: u32 = 0x43;
 const MSUB: u32 = 0x47;
 const NMSUB: u32 = 0x4b;
 const NMADD: u32 = 0x4f;
+// RISC-V Vector "V" extension (plan-32-B). All vector arithmetic shares the
+// `OP-V` major opcode; unit-stride vector load/store reuse the LOAD-FP/STORE-FP
+// opcodes with the same field layout (see `v_type`).
+const OP_V: u32 = 0x57;
+// OP-V `funct3` operand-category selectors (V spec §5): integer/float/mask ×
+// vector-vector / vector-scalar(gpr) / vector-immediate.
+const OPIVV: u32 = 0b000;
+const OPFVV: u32 = 0b001;
+const OPMVV: u32 = 0b010;
+const OPIVI: u32 = 0b011;
+const OPIVX: u32 = 0b100;
+const OPMVX: u32 = 0b110;
+// `width` field selecting 64-bit elements for `vle64.v`/`vse64.v` (V spec §7.4).
+const VWIDTH_E64: u32 = 0b111;
+// The single `vtype` this backend configures: `SEW=64, LMUL=1, ta, ma`
+// (plan-32-B/-C). Layout `vma<<7 | vta<<6 | vsew(011=e64)<<3 | vlmul(000=m1)`.
+const VTYPE_E64_M1_TA_MA: u32 = 0b1101_1000;
 
 // Reserved lowering scratch (see module comment).
 const T0: u8 = 5;
@@ -98,6 +115,14 @@ fn j_type(imm: i32, rd: u32, opcode: u32) -> u32 {
     let b11 = (imm >> 11) & 0x1;
     let b19_12 = (imm >> 12) & 0xff;
     (b20 << 31) | (b10_1 << 21) | (b11 << 20) | (b19_12 << 12) | (rd << 7) | opcode
+}
+
+/// Pack an `OP-V` (vector) word — and, with `opcode` set to LOAD-FP/STORE-FP, a
+/// unit-stride vector load/store, whose field layout is identical (plan-32-B, V
+/// spec §5). `vs1` doubles as the scalar `rs1`, the `imm5`, a function selector,
+/// or (for load/store) the base register, per the caller's `funct3`.
+fn v_type(funct6: u32, vm: u32, vs2: u32, vs1: u32, funct3: u32, vd: u32, opcode: u32) -> u32 {
+    (funct6 << 26) | (vm << 25) | (vs2 << 20) | (vs1 << 15) | (funct3 << 12) | (vd << 7) | opcode
 }
 
 impl Encoder {
@@ -244,6 +269,7 @@ impl Encoder {
             "branch_self" => self.emit_word(j_type(0, ZERO as u32, JAL)),
             "svc" => self.emit_word(SYSTEM), // ecall (imm=0, funct3=0)
             "ret" => self.emit_word(i_type(0, RA as u32, 0, ZERO as u32, JALR)),
+            "rv.vop" => self.emit_rv_vop(instruction),
             "rv.br" => self.emit_rv_br(instruction),
             "adrp" => self.emit_auipc_ref(r("dst")?, field(instruction, "symbol")?),
             "add_pageoff" => self.emit_pageoff(r("dst")?, field(instruction, "symbol")?),
@@ -580,6 +606,105 @@ impl Encoder {
         self.emit_li(T0, offset)?;
         self.emit_r(OP, 0b000, 0, T0, base, T0)?;
         self.emit_word(s_type(0, src as u32, T0 as u32, funct3, STORE_FP))
+    }
+
+    /// `rv.vop` — one RISC-V Vector (RVV) instruction, table-driven by its `vop`
+    /// field (plan-32-B). Every arithmetic op is a single `OP-V` word packed by
+    /// [`v_type`] with a per-mnemonic `(funct6, funct3, vm)`; the operand roles
+    /// (`vd`/`vs2`/`vs1`/`rs1`/`imm5`) vary by format and are decoded per arm.
+    /// Configuration (`vsetvli`/`vsetivli`) and unit-stride load/store (`vle64.v`/
+    /// `vse64.v`) round out the set. Every word matches `llvm-mc -mattr=+v` /
+    /// `riscv64-*-as -march=rv64gcv` (asserted in `tests.rs`).
+    fn emit_rv_vop(&mut self, inst: &CodeInstruction) -> Result<(), String> {
+        // Operand decoders: `vr` a vector register, `xr` an integer register, and
+        // `im5` a 5-bit immediate (masked; RVV sign-extends it), each by field.
+        let vr = |name: &str| -> Result<u32, String> { Ok(vreg(field(inst, name)?)? as u32) };
+        let xr = |name: &str| -> Result<u32, String> { Ok(reg(field(inst, name)?)? as u32) };
+        let im5 = |name: &str| -> Result<u32, String> {
+            Ok((immediate(field(inst, name)?)? & 0x1f) as u32)
+        };
+        let vop = field(inst, "vop")?;
+        let word = match vop.as_str() {
+            // --- configuration: SEW=64, LMUL=1, ta, ma ---
+            // vsetivli rd, uimm, vtypei — bits[31:30]=11, then the 10-bit vtype.
+            "vsetivli" => {
+                (0b11 << 30)
+                    | (VTYPE_E64_M1_TA_MA << 20)
+                    | (im5("avl")? << 15)
+                    | (0b111 << 12)
+                    | (xr("dst")? << 7)
+                    | OP_V
+            }
+            // vsetvli rd, rs1, vtypei — bit31=0, then the 11-bit vtype.
+            "vsetvli" => {
+                (VTYPE_E64_M1_TA_MA << 20)
+                    | (xr("avl")? << 15)
+                    | (0b111 << 12)
+                    | (xr("dst")? << 7)
+                    | OP_V
+            }
+            // --- vector-vector arithmetic / mask compares (vd, vs2=lhs, vs1=rhs) ---
+            "vfadd.vv" => v_type(0b000000, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vfsub.vv" => v_type(0b000010, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vfmul.vv" => v_type(0b100100, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vfdiv.vv" => v_type(0b100000, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vfmin.vv" => v_type(0b000100, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vfmax.vv" => v_type(0b000110, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vfsgnjn.vv" => v_type(0b001001, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vfsgnjx.vv" => v_type(0b001010, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vmfeq.vv" => v_type(0b011000, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vmfle.vv" => v_type(0b011001, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vmflt.vv" => v_type(0b011011, 1, vr("lhs")?, vr("rhs")?, OPFVV, vr("dst")?, OP_V),
+            "vadd.vv" => v_type(0b000000, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vsub.vv" => v_type(0b000010, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vand.vv" => v_type(0b001001, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vor.vv" => v_type(0b001010, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vxor.vv" => v_type(0b001011, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vmseq.vv" => v_type(0b011000, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vmsle.vv" => v_type(0b011101, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vmslt.vv" => v_type(0b011011, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vsll.vv" => v_type(0b100101, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vsra.vv" => v_type(0b101001, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            "vsrl.vv" => v_type(0b101000, 1, vr("lhs")?, vr("rhs")?, OPIVV, vr("dst")?, OP_V),
+            // --- fused multiply-accumulate (vd += lhs*rhs). vs1=lhs, vs2=rhs. ---
+            "vfmacc.vv" => v_type(0b101100, 1, vr("rhs")?, vr("lhs")?, OPFVV, vr("dst")?, OP_V),
+            "vfnmsac.vv" => v_type(0b101111, 1, vr("rhs")?, vr("lhs")?, OPFVV, vr("dst")?, OP_V),
+            // --- unary float (vd, vs2=src, vs1=function selector) ---
+            "vfsqrt.v" => v_type(0b010011, 1, vr("src")?, 0b00000, OPFVV, vr("dst")?, OP_V),
+            "vfcvt.x.f.v" => v_type(0b010010, 1, vr("src")?, 0b00001, OPFVV, vr("dst")?, OP_V),
+            "vfcvt.rtz.x.f.v" => v_type(0b010010, 1, vr("src")?, 0b00111, OPFVV, vr("dst")?, OP_V),
+            "vfcvt.f.x.v" => v_type(0b010010, 1, vr("src")?, 0b00011, OPFVV, vr("dst")?, OP_V),
+            // --- vector-scalar shifts / reverse-subtract (vd, vs2=lhs, rs1=gpr) ---
+            "vsll.vx" => v_type(0b100101, 1, vr("lhs")?, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
+            "vsra.vx" => v_type(0b101001, 1, vr("lhs")?, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
+            "vsrl.vx" => v_type(0b101000, 1, vr("lhs")?, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
+            // vrsub.vx vd, vs2, rs1 = rs1 - vs2; NegV uses rs1=zero (0 - vs2).
+            "vrsub.vx" => v_type(0b000011, 1, vr("lhs")?, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
+            // --- vector-immediate shifts / slide (vd, vs2=lhs, imm5) ---
+            "vsll.vi" => v_type(0b100101, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            "vsra.vi" => v_type(0b101001, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            "vsrl.vi" => v_type(0b101000, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            "vslidedown.vi" => v_type(0b001111, 1, vr("lhs")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            // --- splat / lane-mask materialization ---
+            // vmv.v.i vd, imm  (vs2 must be v0 in the encoding, i.e. 0).
+            "vmv.v.i" => v_type(0b010111, 1, 0, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            // vmv.v.x vd, rs1  (broadcast a GPR).
+            "vmv.v.x" => v_type(0b010111, 1, 0, xr("gpr")?, OPIVX, vr("dst")?, OP_V),
+            // vmerge.vim vd, vs2, imm, v0  (masked: vm=0, selects imm where v0[i]).
+            "vmerge.vim" => v_type(0b010111, 0, vr("src")?, im5("imm")?, OPIVI, vr("dst")?, OP_V),
+            // --- element extract / insert (lane 0 ↔ GPR) ---
+            // vmv.x.s rd, vs2  (rd is a GPR in the vd field).
+            "vmv.x.s" => v_type(0b010000, 1, vr("src")?, 0b00000, OPMVV, xr("dst")?, OP_V),
+            // vmv.s.x vd, rs1  (rs1 in the vs1 field).
+            "vmv.s.x" => v_type(0b010000, 1, 0, xr("gpr")?, OPMVX, vr("dst")?, OP_V),
+            // --- unit-stride 128-bit (2×e64) load / store ---
+            "vle64.v" => v_type(0, 1, 0, xr("base")?, VWIDTH_E64, vr("dst")?, LOAD_FP),
+            "vse64.v" => v_type(0, 1, 0, xr("base")?, VWIDTH_E64, vr("src")?, STORE_FP),
+            other => {
+                return Err(format!("rv64 encoder does not support vector op '{other}'"))
+            }
+        };
+        self.emit_word(word)
     }
 
     /// `rv.br` — the flagless compare-and-branch, always emitted in the 8-byte

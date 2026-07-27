@@ -229,6 +229,13 @@ pub(crate) enum CodeOp {
     Slt,
     /// rv64-only unsigned set-less-than (`sltu`). Never emitted for AArch64/x86.
     Sltu,
+    /// rv64-only RISC-V Vector (RVV) instruction (plan-32-B). One CodeOp stands
+    /// for the whole `OP-V` family; the specific vector mnemonic (`vfadd.vv`,
+    /// `vsetivli`, `vle64.v`, …) is carried in a `vop` field and the encoder
+    /// table-drives its `funct6`/`funct3`/`vm`/operand-shape from there (mirroring
+    /// how `RvBr`/`RvFcmp` carry their sub-op in a `cond`/`cmp` field). Synthesized
+    /// by the `v128` dual-path lowering (plan-32-C); never emitted for AArch64/x86.
+    RvVop,
 }
 
 impl CodeOp {
@@ -387,6 +394,7 @@ impl CodeOp {
             CodeOp::RvFcmp => "rv.fcmp",
             CodeOp::Slt => "rv.slt",
             CodeOp::Sltu => "rv.sltu",
+            CodeOp::RvVop => "rv.vop",
         }
     }
 
@@ -545,6 +553,7 @@ impl CodeOp {
             "rv.fcmp" => Ok(CodeOp::RvFcmp),
             "rv.slt" => Ok(CodeOp::Slt),
             "rv.sltu" => Ok(CodeOp::Sltu),
+            "rv.vop" => Ok(CodeOp::RvVop),
             // This file is the arch-NEUTRAL op vocabulary for every backend
             // (bug-82 moved it out of `aarch64/`), so the message must not name
             // one -- a bad mnemonic on the x86 or riscv path misreported aarch64.
@@ -716,6 +725,7 @@ mod tests {
             CodeOp::RvFcmp,
             CodeOp::Slt,
             CodeOp::Sltu,
+            CodeOp::RvVop,
         ];
         for &op in ALL {
             assert_eq!(CodeOp::from_mnemonic(op.mnemonic()), Ok(op));

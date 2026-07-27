@@ -144,6 +144,10 @@ mir_ops!(
         // `from_code`); listed here only so the `CodeOp`→`MirOp` map stays total
         // (plan-99).
         RvBr, RvFcmp, Slt, Sltu,
+        // rv64-only RVV vector op (plan-32-B), synthesized by `select_riscv64`'s
+        // v128 dual-path lowering *after* MIR lowering (never produced by
+        // `from_code`); listed here only so the `CodeOp`→`MirOp` map stays total.
+        RvVop,
         LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU16, StrU8, LdrD, StrD, Adrp, AddPageOff,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FMinnmD, FMaxnmD, FNegD, FAbsD, FSqrtD, FCmpD,
         FCmpZeroD, FMaddD, FMsubD, FNmsubD, FNmaddD,

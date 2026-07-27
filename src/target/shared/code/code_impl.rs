@@ -168,6 +168,10 @@ impl CodeInstruction {
             CodeOp::RvBr => &["lhs", "rhs", "cond", "target"],
             CodeOp::RvFcmp => &["dst", "lhs", "rhs", "cmp"],
             CodeOp::Slt | CodeOp::Sltu => &["dst", "lhs", "rhs"],
+            // The RVV family (plan-32-B) is table-driven: the `vop` field selects
+            // the mnemonic and the encoder enforces that op's specific operand
+            // fields (which vary by format), so only `vop` is required here.
+            CodeOp::RvVop => &["vop"],
         };
         for name in required {
             if !self.fields.iter().any(|(field, _)| field == name) {

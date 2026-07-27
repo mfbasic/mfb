@@ -82,3 +82,14 @@ pub(super) fn freg(name: String) -> Result<u8, String> {
         other => return Err(format!("unknown rv64 FP register '{other}'")),
     })
 }
+
+/// Decode a RISC-V vector register `v0`–`v31` to its 0–31 number (plan-32-B). The
+/// RVV register file (`v*`) is a distinct namespace from the GPR (`x*`/ABI) and
+/// FP (`f*`) files, so it has its own decoder; `v32` and non-`v` names are
+/// rejected.
+pub(super) fn vreg(name: String) -> Result<u8, String> {
+    name.strip_prefix('v')
+        .and_then(|digits| digits.parse::<u8>().ok())
+        .filter(|&num| num < 32)
+        .ok_or_else(|| format!("unknown rv64 vector register '{name}'"))
+}

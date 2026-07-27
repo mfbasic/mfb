@@ -121,39 +121,48 @@ external assembler dependency, per plan-99); vector ops follow suit.
 
 The primitives, unit-tested, with no mnemonics wired yet.
 
-- [ ] `encode/operand.rs`: add `vector_reg(name) -> Option<u8>` for `v0`–`v31`.
-- [ ] `encode/emitter.rs`: add `op_v(funct6, vm, vs2, vs1, funct3, vd)` packer
-      for opcode `0x57`, plus `vsetvli`/`vsetivli` packers and a `vtype_i64_m1`
-      helper (SEW=64, LMUL=1, ta, ma).
-- [ ] Tests: `encode/tests.rs` — `vsetvli`/`vsetivli` with SEW=64,LMUL=1 encode
-      to the `llvm-mc` reference word; `vector_reg` decodes `v0`/`v31`, rejects
-      `v32`.
+- [x] `encode/operand.rs`: add `vreg(name) -> Result<u8, String>` for `v0`–`v31`
+      (named/typed to match the existing `reg`/`freg` decoders, not `Option` — see
+      Corrections C2).
+- [x] `encode/emitter.rs`: add the `v_type(funct6, vm, vs2, vs1, funct3, vd,
+      opcode)` packer (one shape covers `OP-V` **and** unit-stride load/store),
+      the `vsetvli`/`vsetivli` words, and the `VTYPE_E64_M1_TA_MA` const (SEW=64,
+      LMUL=1, ta, ma).
+- [x] Tests: `encode/tests.rs` — `vsetvli`/`vsetivli` encode to the reference
+      word (`rvv_ops_encode_to_reference_words`); `vreg` decodes `v0`/`v31`,
+      rejects `v32`/non-vector names (`vector_register_names_decode_to_numbers`).
 
-Acceptance: config-instruction words match `llvm-mc`; register decode unit tests
-pass. No existing output changes.
-Commit: —
+Acceptance: config-instruction words match the reference assembler; register
+decode unit tests pass. No existing output changes. **MET** — `cargo test` green;
+artifact-gate diffs=0 vs. up-to-date goldens (Corrections C4).
+Commit: <B1>
 
 ### Phase 2 — float vector ops (OPFVV) + conversions + FMA
 
-- [ ] Emit `vfadd/vfsub/vfmul/vfdiv/vfmin/vfmax.vv`, `vfmacc/vfnmsac.vv`,
+- [x] Emit `vfadd/vfsub/vfmul/vfdiv/vfmin/vfmax.vv`, `vfmacc/vfnmsac.vv`,
       `vfsgnjn/vfsgnjx.vv`, `vfsqrt.v`, `vfcvt.rtz.x.f.v`/`vfcvt.x.f.v` (frm)/
-      `vfcvt.f.x.v`, and `vmflt/vmfle/vmfeq.vv` via the `op_v` packer + table.
-- [ ] Tests: exact-word tests for each float mnemonic (SEW=64) vs. `llvm-mc`.
+      `vfcvt.f.x.v`, and `vmflt/vmfle/vmfeq.vv` via the `v_type` packer + table.
+- [x] Tests: exact-word tests for each float mnemonic (SEW=64) vs. the reference
+      assembler (rolled into `rvv_ops_encode_to_reference_words`).
 
-Acceptance: every float vector mnemonic encodes to its reference word.
-Commit: —
+Acceptance: every float vector mnemonic encodes to its reference word. **MET**.
+Commit: <B1>
 
 ### Phase 3 — integer vector ops, mask materialization, splat/extract, load/store
 
-- [ ] Emit `vadd/vsub/vand/vor/vxor.vv`, `vrsub.vx`, `vsll/vsra/vsrl.vi` and
+- [x] Emit `vadd/vsub/vand/vor/vxor.vv`, `vrsub.vx`, `vsll/vsra/vsrl.vi` and
       `.vx`, `vmslt/vmsle/vmseq.vv`, `vmerge.vim`, `vmv.v.i`, `vmv.v.x`,
-      `vmv.x.s`, `vslidedown.vi`, `vle64.v`, `vse64.v`.
-- [ ] `encode/sizing.rs`: register all new mnemonics as 4-byte words.
-- [ ] Tests: exact-word tests for each; a sizing test asserting 4 bytes each.
+      `vmv.x.s`, `vmv.s.x`, `vslidedown.vi`, `vle64.v`, `vse64.v`.
+- [x] ~~`encode/sizing.rs`: register all new mnemonics as 4-byte words.~~ —
+      moot: sizing is emitter-derived (bug-341-B3) — `instruction_size` runs a
+      throwaway encode and takes the byte length, so a single-word RVV op sizes
+      to 4 automatically with **no** table entry. See Corrections C1.
+- [x] Tests: exact-word tests for each (`rvv_ops_encode_to_reference_words`);
+      a sizing test asserting 4 bytes each (`rvv_ops_are_single_words_and_size_matches`).
 
 Acceptance: every integer/mask/mem vector mnemonic encodes to its reference
-word and sizes to 4 bytes; `encode/tests.rs` green.
-Commit: —
+word and sizes to 4 bytes; `encode/tests.rs` green. **MET**.
+Commit: <B1>
 
 ## Validation Plan
 
@@ -177,6 +186,40 @@ Commit: —
   the ULP harness in D. (§1)
 - **`vmv.x.s` for lane index 1 (`UmovXFromV`)** — recommend `vslidedown.vi vt,
   vs, 1; vmv.x.s rd, vt` (extract element 1). Confirm no cheaper path. (§1)
+
+## Corrections
+
+- **C1 — sizing is emitter-derived, no table.** `encode/sizing.rs` has had no
+  per-mnemonic byte table since bug-341-B3: `instruction_size` runs a throwaway
+  `emit_instruction` and returns `text.len()`. Every RVV op emits exactly one
+  `emit_word`, so it sizes to 4 with zero sizing.rs change. Phase-3's "register
+  all new mnemonics as 4-byte words" is therefore moot; a test
+  (`rvv_ops_are_single_words_and_size_matches`) asserts the 4-byte size instead.
+- **C2 — representation: one `RvVop` CodeOp + `vop` field, not ~44 variants.**
+  The plan implied the RVV mnemonics would each be a `CodeOp` (its tests wrote
+  `ci("vfadd.vv", …)`), but `CodeInstruction::new` requires a registered
+  `CodeOp`, and adding ~44 would bloat the neutral-MIR vocabulary. Instead a
+  single `CodeOp::RvVop` carries the specific mnemonic in a `vop` field, table-
+  driven in the emitter (`emit_rv_vop`) — matching the existing `RvBr`/`RvFcmp`
+  precedent (sub-op in a `cond`/`cmp` field) and plan §3.4's "table-drive the
+  mnemonics". Footprint: one `mirror`-block MirOp variant (`src/arch/ops.rs`,
+  `src/target/shared/code/{mir.rs,code_impl.rs}`). `vreg` returns
+  `Result<u8,String>` (matching `reg`/`freg`), not `Option`; the negative test
+  asserts the error message, not `None`.
+- **C3 — `op_v` named `v_type`.** Follows the existing `r_type`/`i_type`/… packer
+  naming and takes an extra `opcode` arg so the one function covers `OP-V`
+  arithmetic **and** the LOAD-FP/STORE-FP vector load/store (same field layout).
+- **C4 — reference assembler + artifact-gate baseline.** No `qemu-riscv64`
+  user-mode nor a system `llvm-mc` on PATH, but the host has
+  `/Users/justinzaun/local/brew/opt/llvm/bin/llvm-mc` and
+  `riscv64-unknown-elf-as -march=rv64gcv`; every golden word was produced by the
+  latter and cross-checked with the former. The artifact-gate on clean HEAD
+  reports 24 `DIFF`s — all `macos-aarch64` `.ncode`, byte-identical to the 24
+  `.ncodesum` goldens already modified-uncommitted in the main tree (stale
+  committed goldens, bug-388 lineage), not produced by any code B touches.
+  Adopting the main tree's regenerated goldens → **diffs=0** (1476 goldens, 4
+  targets), proving B byte-identical. The 24 golden updates are out of plan-32's
+  scope and are left to the owning main-tree change.
 
 ## Summary
 
