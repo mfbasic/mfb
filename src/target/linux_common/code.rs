@@ -1229,6 +1229,120 @@ mod tests {
         }
     }
 
+    /// A minimal console program entry for the given platform (no args/rng/signal
+    /// handlers/initializers), used to inspect the emitted startup sequence.
+    fn probe_entry(platform: &dyn CodegenPlatform) -> crate::target::shared::code::CodeFunction {
+        let spec = ProgramEntrySpec {
+            entry_symbol: "_main",
+            language_entry_symbol: "main",
+            language_entry_returns: "Integer",
+            language_entry_accepts_args: false,
+            global_initializer_symbol: None,
+            link_init_symbol: None,
+            closure_init_symbol: None,
+            entry_stack_size: 256,
+            global_slot_count: 0,
+            emit_cleanup_failure_audit: false,
+            seed_rng: false,
+            register_signal_handlers: false,
+            capture_args: false,
+            subscribe_stdin: false,
+            entry_called_as_function: false,
+            needs_winsock: false,
+            seed_presentation_mode_offset: None,
+        };
+        // The entry's always-on arena-start-time + entropy-fill blocks call libc,
+        // so provide the imports they resolve against.
+        let imports = [
+            "clock_gettime",
+            "getentropy",
+            "getrandom",
+            "signal",
+            "write",
+            "read",
+            "exit",
+            "exit_group",
+            "mmap",
+            "munmap",
+        ]
+        .into_iter()
+            .map(|s| (s.to_string(), "libc.so.6".to_string()))
+            .collect();
+        platform
+            .emit_program_entry(&spec, &imports)
+            .expect("emit program entry")
+    }
+
+    /// plan-32-A: the `linux-riscv64` entry carries the startup auxv HWCAP scan —
+    /// it references `_mfb_rt_has_rvv`, tests HWCAP bit 21, stores the flag byte,
+    /// and does so with only scratch registers (never the `ARG` argc/argv tokens
+    /// the rest of the entry still needs). The scan is riscv64-only, so the
+    /// aarch64/x86-64 entries must contain none of it (byte-identity).
+    #[test]
+    fn riscv64_entry_carries_hwcap_probe_others_do_not() {
+        use crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL;
+
+        let rv = probe_entry(&riscv64());
+        // References the flag global via a relocation.
+        assert!(
+            rv.relocations
+                .iter()
+                .any(|r| r.to == HAS_RVV_GLOBAL_SYMBOL),
+            "riscv64 entry must reference {HAS_RVV_GLOBAL_SYMBOL}"
+        );
+        // The scan's loop labels are present, delimiting the probe.
+        let done_index = rv
+            .instructions
+            .iter()
+            .position(|i| i.op.mnemonic() == "label" && i.get("name") == Some("entry_hwcap_done"))
+            .expect("scan must emit the entry_hwcap_done label");
+        assert!(rv.instructions.iter().any(|i| {
+            i.op.mnemonic() == "label" && i.get("name") == Some("entry_hwcap_auxv_loop")
+        }));
+        // It extracts bit 21 (V) and stores the flag byte to the global.
+        assert!(
+            rv.instructions
+                .iter()
+                .any(|i| i.op.mnemonic() == "lsr_imm" && i.get("shift") == Some("21")),
+            "scan must shift the HWCAP value right by 21 to reach the V bit"
+        );
+        assert!(
+            rv.instructions.iter().any(|i| i.op.mnemonic() == "str_u8"),
+            "scan must store the flag byte"
+        );
+        // Scratch discipline: nothing in the scan (up to `entry_hwcap_done`) may
+        // reference the argc/argv `ARG` tokens the language entry still consumes.
+        for inst in &rv.instructions[..done_index] {
+            for (_, value) in &inst.fields {
+                assert!(
+                    value != abi::ARG[0] && value != abi::ARG[1],
+                    "the HWCAP scan clobbered an ARG (argc/argv) token: {value}"
+                );
+            }
+        }
+
+        // Other arches: no scan, no flag reference (byte-identity preserved).
+        for other in [&aarch64() as &dyn CodegenPlatform, &x86_64() as &dyn CodegenPlatform] {
+            let entry = probe_entry(other);
+            assert!(
+                !entry
+                    .relocations
+                    .iter()
+                    .any(|r| r.to == HAS_RVV_GLOBAL_SYMBOL),
+                "{} entry must not reference {HAS_RVV_GLOBAL_SYMBOL}",
+                other.arch()
+            );
+            assert!(
+                !entry.instructions.iter().any(|i| {
+                    i.op.mnemonic() == "label"
+                        && i.get("name").is_some_and(|n| n.starts_with("entry_hwcap_"))
+                }),
+                "{} entry must not contain the hwcap scan",
+                other.arch()
+            );
+        }
+    }
+
     /// bug-321 non-goal / bug-223: the riscv64 backend must NOT inherit working
     /// app-mode bodies from this shared layer. Every app-mode hook hard-stops.
     ///

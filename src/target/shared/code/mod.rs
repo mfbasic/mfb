@@ -759,6 +759,21 @@ pub(crate) fn lower_module_for_platform(
             value: "0000000000000000".to_string(),
         });
     }
+    // plan-32-A: the RVV runtime-detection flag byte (padded to 8), a writable
+    // zeroed global the startup auxv scan sets to 1 on a V-capable chip and the
+    // dual-path v128 lowering (plan-32-C) branches on. Emitted only for a
+    // `linux-riscv64` entry module — the exact gate under which the auxv scan is
+    // injected into the program entry — so every other target stays byte-identical.
+    if module.entry.is_some() && module.target == "linux-riscv64" {
+        data_objects.push(CodeDataObject {
+            symbol: HAS_RVV_GLOBAL_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.has_rvv.v1 { u8 hasRvv }".to_string(),
+            align: 8,
+            size: 8,
+            value: "0000000000000000".to_string(),
+        });
+    }
     // plan-67-B: perf-tracking region base (an 8-byte writable global, mirroring
     // the arena global above) and the table-header string. Emitted only for a
     // `--cfg perf`-built macOS entry module — the exact gate under which the

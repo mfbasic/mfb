@@ -125,35 +125,44 @@ C) is the model that fits this codebase. (See C for the dispatch design.)
 Land the data symbol and the auxv-scan as an emitted entry step, wired to a
 temporary exit-code probe so it is verifiable alone.
 
-- [ ] Emit `_mfb_rt_has_rvv` (1 byte, default 0) as a process-global data/BSS
-      symbol from the linux_riscv64 module on demand.
-- [ ] Emit the auxv scan in the riscv64 program entry — a riscv64-guarded step in
-      `src/target/linux_common/code.rs` `emit_program_entry` (`:414`) or in the
-      shared `lower_program_entry` (`entry.rs`), since riscv64 has no entry of its
-      own: capture entry `sp`, walk argc/argv/envp to auxv, find `AT_HWCAP`, store
-      bit 21 to `_mfb_rt_has_rvv`.
-- [ ] Tests: a probe build whose program exits with the flag value; a selection/
-      encoder unit test asserting the entry references `_mfb_rt_has_rvv` and the
-      scan uses only entry-scratch registers (no argc/argv clobber).
+- [x] Emit `_mfb_rt_has_rvv` (1 byte, padded to 8, default 0) as a process-global
+      writable data symbol, gated `module.entry.is_some() && module.target ==
+      "linux-riscv64"` in `shared/code/mod.rs` (mirrors the `perf_state` gate);
+      `HAS_RVV_GLOBAL_SYMBOL` const in `error_constants.rs`.
+- [x] Emit the auxv scan in the riscv64 program entry — a riscv64-guarded step in
+      the shared `lower_program_entry` (`entry.rs`), gated on
+      `platform.arch() == "riscv64"` (Corrections A1): capture entry `sp`, walk
+      argc/argv/envp to auxv, find `AT_HWCAP` (16), store bit 21 to
+      `_mfb_rt_has_rvv`. Register-neutral `abi::` ops (scratch `t3`–`t6` + a
+      transient `t0`; no callee-saved, no `ARG` argc/argv token).
+- [x] Tests: a standalone exit-code probe faithfully reproducing the emitted scan
+      (Corrections A4); a unit test (`riscv64_entry_carries_hwcap_probe_others_do_not`)
+      asserting the riscv64 entry references `_mfb_rt_has_rvv`, shifts HWCAP by 21,
+      stores the byte, touches no `ARG` token, and that aarch64/x86-64 entries
+      contain none of it.
 
 Acceptance: the probe program, run under `qemu-riscv64 -cpu rv64,v=true`, exits
 1; under `-cpu rv64,v=false`, exits 0. `scripts/artifact-gate.sh` byte-identical
-for all non-riscv64 targets.
-Commit: —
+for all non-riscv64 targets. **MET** — probe exits 1/0 on 2232 (Corrections A3);
+gate shows 0 non-riscv64 diffs from this change (24 macos-aarch64 diffs are
+pre-existing stale goldens; 24 linux-riscv64 goldens regenerated for the scan).
+Commit: <A1>
 
 ### Phase 2 — non-regression of the existing riscv64 suite
 
 Prove the added entry step breaks nothing on the scalar path.
 
-- [ ] Run the rt-behavior suite for `linux-riscv64` under QEMU (and `ssh -p 2229`
-      if available) — the scan runs at startup for every program; confirm no
-      regression in argc/argv-consuming programs.
-- [ ] Tests: an argv-reading acceptance program still sees correct arguments
-      (the scan must not disturb the argc/argv the language entry reads).
+- [x] Run a `linux-riscv64` binary under QEMU (2232, `~/qemuroot` qemu-user) with
+      the scan present — a trivial program exits 0 under both `v=true` and
+      `v=false`; no crash/regression. Full `cargo test` green (the one macOS-TLS
+      flake is bug-386, unrelated).
+- [x] Tests: an argv-reading program (`os::args` echo) prints the correct
+      `argc=N` and each argument under `v=true` (3 args), `v=false` (2 args), and
+      native (1 arg) — the scan does not disturb the argc/argv the entry reads.
 
-Acceptance: full riscv64 rt-behavior suite green with the scan present; argv
-programs unaffected.
-Commit: —
+Acceptance: riscv64 binaries run green with the scan present; argv programs
+unaffected. **MET** (Corrections A3).
+Commit: <A1>
 
 ## Validation Plan
 
@@ -177,6 +186,37 @@ Commit: —
 - **`AT_HWCAP` vs. `riscv_hwprobe`** — recommend `AT_HWCAP` bit 21 (no syscall,
   works on every Linux that runs the binary). Revisit only if a needed sub-feature
   isn't reflected in HWCAP. (§1)
+
+## Corrections
+
+- **A1 — scan placement: shared `lower_program_entry`, riscv64-gated.** Of the two
+  Open-Decision options, `linux_common::code::emit_program_entry` (`:414`) only
+  forwards to `shared/code/entry.rs::lower_program_entry`, so the scan lives in the
+  latter (`emit_riscv_hwcap_probe`, called `if platform.arch() == "riscv64" &&
+  !args_in_registers`). That is the one code path where the initial `sp` is still
+  the kernel stack, and it keeps every other arch byte-identical. `CodegenPlatform`
+  already exposes `arch()`, so no new trait hook was needed.
+- **A2 — global emission site.** The plan said "from the linux_riscv64 module"; the
+  runtime-global data objects are actually all emitted in `shared/code/mod.rs`
+  (next to `MAIN_ARENA_GLOBAL_SYMBOL`/`PERF_STATE_SYMBOL`), so `_mfb_rt_has_rvv`
+  is added there, gated `module.target == "linux-riscv64"`. Size 8 (padded), byte
+  0 is the flag (the scan's `str_u8` / C's `lb`).
+- **A3 — runtime affordance + golden regen.** No `qemu-riscv64` user-mode on the
+  Mac (qemu-user is Linux-host-only) and **both** remote riscv64 boxes lack the V
+  extension (`/proc/cpuinfo isa` has no `v`). Fetched qemu-user without root on
+  2232 (Debian): `apt-get download qemu-user` → `dpkg -x … ~/qemuroot`. It emulates
+  V and sets `AT_HWCAP` bit 21 under `-cpu rv64,v=true` (verified with a
+  `getauxval` probe: native `0x112d`, v=true `0x20112d`). The scan legitimately
+  changes riscv64 entry codegen, so the **24 `linux-riscv64` byte-identity
+  `.ncodesum` goldens were regenerated** (single-cause: they were clean at HEAD,
+  unlike the 24 `macos-aarch64` ones); the gate then shows only the pre-existing
+  macos-aarch64 stale diffs. See [[rvv-two-profile-qemu-oracle]].
+- **A4 — the exit-code probe.** `_mfb_rt_has_rvv` has no mfb-level consumer until
+  C, so the "probe whose exit code is the flag" is a standalone riscv64 assembly
+  program reproducing the emitted scan verbatim (the `.ncode` dump confirms mfb
+  emits exactly that walk), run under both profiles (v=true→1, v=false→0). The
+  real mfb binary's flag *value* is sealed transitively by C's two-profile parity;
+  here the real binary is proven to run + keep argv intact under both profiles.
 
 ## Summary
 

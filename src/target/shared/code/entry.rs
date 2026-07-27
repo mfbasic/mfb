@@ -50,6 +50,16 @@ pub(crate) fn lower_program_entry(
     // process entry; an entry reached as a call gets them in registers on every
     // platform, from its caller (bug-240).
     let args_in_registers = platform.entry_args_in_registers() || entry_called_as_function;
+    // plan-32-A: on a raw-ELF `linux-riscv64` entry, probe the aux vector for the
+    // RVV "V" bit and record it in `_mfb_rt_has_rvv` while `sp` still points at
+    // the kernel's initial stack (argc/argv/envp/auxv all reachable, no frame
+    // carved yet). riscv64-only and reads only the initial stack + writes the
+    // global, so every other target's entry — and the argc/argv this entry loads
+    // below — stays byte-identical. Skipped for a called-as-function entry, whose
+    // `sp` carries no kernel auxv (riscv64 has no such app-mode entry today).
+    if platform.arch() == "riscv64" && !args_in_registers {
+        emit_riscv_hwcap_probe(entry_symbol, &mut instructions, &mut relocations);
+    }
     // Capture argc/argv into the `os::args` globals before the frame is carved
     // (plan-31-B), while the OS-supplied values are still at their entry
     // positions: macOS delivers them in `ARG[0]`/`ARG[1]`; a raw Linux ELF entry
@@ -698,6 +708,73 @@ pub(crate) fn lower_program_entry(
         instructions,
         relocations,
     })
+}
+
+/// plan-32-A: probe the ELF aux vector for the RISC-V "V" ISA bit and record it
+/// (0/1) in the process-global `_mfb_rt_has_rvv` byte, once at program start. The
+/// caller emits this only for the raw-ELF `linux-riscv64` entry, where the initial
+/// process stack is intact at `sp`: `argc` at `[sp]`, then the `argv` vector + a
+/// NULL, the `envp` vector + a NULL, then the `AT_*` key/value `u64` pairs
+/// (terminated by `AT_NULL`=0). This walks to `AT_HWCAP` (key 16) and tests bit 21
+/// (`V` = `1 << ('V' - 'A')`). Register-neutral (`abi::SCRATCH` temporaries, no
+/// physical registers, all dead afterward) and touches only the initial stack +
+/// the global, so it does not disturb the argc/argv the rest of the entry loads
+/// from `[sp]`. A syscall-free scan — no libc `getauxval`.
+fn emit_riscv_hwcap_probe(
+    entry_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    const AT_HWCAP: &str = "16"; // auxv key for the HWCAP bitmask
+    // Four temporaries — kept to the caller-saved scratch pool so no callee-saved
+    // register is disturbed at the top of the entry.
+    let cursor = abi::SCRATCH[0]; // walking stack pointer, live across the scan
+    let a = abi::SCRATCH[1]; // argc / auxv key / (later) the flag byte `has`
+    let b = abi::SCRATCH[2]; // skip amount / auxv value / (later) the global address
+    let one = abi::SCRATCH[3];
+    instructions.extend([
+        // cursor = sp; argc = [cursor]; step past the argc word to argv[0].
+        abi::add_immediate(cursor, abi::stack_pointer(), 0),
+        abi::load_u64(a, cursor, 0),
+        abi::add_immediate(cursor, cursor, 8),
+        // Skip the argv vector and its NULL terminator: cursor += (argc + 1) * 8.
+        abi::add_immediate(a, a, 1),
+        abi::shift_left_immediate(b, a, 3),
+        abi::add_registers(cursor, cursor, b),
+        // Scan the envp vector to its NULL terminator.
+        abi::label("entry_hwcap_envp_loop"),
+        abi::load_u64(b, cursor, 0),
+        abi::compare_immediate(b, "0"),
+        abi::branch_eq("entry_hwcap_envp_done"),
+        abi::add_immediate(cursor, cursor, 8),
+        abi::branch("entry_hwcap_envp_loop"),
+        abi::label("entry_hwcap_envp_done"),
+        // Step past the envp NULL → cursor at the first auxv pair.
+        abi::add_immediate(cursor, cursor, 8),
+        // Loop the auxv key/value pairs.
+        abi::label("entry_hwcap_auxv_loop"),
+        abi::load_u64(a, cursor, 0), // key
+        abi::compare_immediate(a, "0"), // AT_NULL → not found, leave the default 0
+        abi::branch_eq("entry_hwcap_done"),
+        abi::compare_immediate(a, AT_HWCAP),
+        abi::branch_ne("entry_hwcap_auxv_next"),
+        // AT_HWCAP found: has = (value >> 21) & 1. The key in `a` is dead after the
+        // compare, so `has` reuses it; `b`/`one` are dead after the `and`.
+        abi::load_u64(b, cursor, 8),
+        abi::shift_right_immediate(b, b, 21),
+        abi::move_immediate(one, "Integer", "1"),
+        abi::and_registers(a, b, one),
+    ]);
+    // Store the flag byte into `_mfb_rt_has_rvv` (its address goes in `b`).
+    push_symbol_address(entry_symbol, HAS_RVV_GLOBAL_SYMBOL, b, instructions, relocations);
+    instructions.extend([
+        abi::store_u8(a, b, 0),
+        abi::branch("entry_hwcap_done"),
+        abi::label("entry_hwcap_auxv_next"),
+        abi::add_immediate(cursor, cursor, 16),
+        abi::branch("entry_hwcap_auxv_loop"),
+        abi::label("entry_hwcap_done"),
+    ]);
 }
 
 /// The POSIX arena-start-time capture (plan-47-D §3.1), extracted so a non-POSIX

@@ -325,6 +325,15 @@ pub(crate) const SIGNAL_HANDLER_SYMBOL: &str = "_mfb_rt_signal_handler";
 /// they are never freed by us anyway (the entry only ever frees the main arena).
 pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
 
+/// plan-32-A: a writable process-global byte (padded to 8) recording whether the
+/// CPU has the RISC-V Vector "V" extension, probed once at startup from the ELF
+/// aux vector (`AT_HWCAP` bit 21). The dual-path `v128` lowering (plan-32-C)
+/// branches on it: `1` selects the native-RVV arm, `0` the scalar arm — so a
+/// single `linux-riscv64` binary runs correctly on both V and non-V chips.
+/// Emitted (and scanned) only for a **`linux-riscv64` entry** module, so every
+/// other target stays byte-identical.
+pub(crate) const HAS_RVV_GLOBAL_SYMBOL: &str = "_mfb_rt_has_rvv";
+
 /// plan-67-B: one writable 8-byte global holding the base pointer of the runtime
 /// perf-tracking region (the `emit_arena_map`-mmap'd system memory that holds the
 /// name-keyed timing tables). Mirrors `MAIN_ARENA_GLOBAL_SYMBOL`: a zeroed
