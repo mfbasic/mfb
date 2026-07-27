@@ -462,7 +462,7 @@ pub(super) fn collect_platform_imports_from_value(
                 collect_platform_imports_from_value(platform, required_by, &update.value, imports);
             }
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             for value in values {
                 collect_platform_imports_from_value(platform, required_by, value, imports);
             }
@@ -697,7 +697,7 @@ pub(super) fn collect_runtime_symbols_from_value(
                 collect_runtime_symbols_from_value(&update.value, symbols, constants);
             }
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             for value in values {
                 collect_runtime_symbols_from_value(value, symbols, constants);
             }

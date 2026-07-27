@@ -968,6 +968,11 @@ impl ToNirJson for NirValue {
                 json_string(type_),
                 join_values(values)
             ),
+            NirValue::SetLiteral { type_, values } => format!(
+                "{{ \"kind\": \"set\", \"type\": {}, \"values\": [{}] }}",
+                json_string(type_),
+                join_values(values)
+            ),
             NirValue::MapLiteral { type_, entries } => {
                 let entries = entries
                     .iter()

@@ -508,6 +508,10 @@ fn lower_value(value: &IrValue) -> NirValue {
             type_: type_.clone(),
             values: values.iter().map(lower_value).collect(),
         },
+        IrValue::SetLiteral { type_, values } => NirValue::SetLiteral {
+            type_: type_.clone(),
+            values: values.iter().map(lower_value).collect(),
+        },
         IrValue::MapLiteral { type_, entries } => NirValue::MapLiteral {
             type_: type_.clone(),
             entries: entries

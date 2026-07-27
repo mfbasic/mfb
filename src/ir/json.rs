@@ -818,6 +818,18 @@ impl ToJson for IrValue {
                     values
                 )
             }
+            IrValue::SetLiteral { type_, values } => {
+                let values = values
+                    .iter()
+                    .map(|value| value.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"set\", \"type\": {}, \"values\": [{}] }}",
+                    json_string(type_),
+                    values
+                )
+            }
             IrValue::MapLiteral { type_, entries } => {
                 let entries = entries
                     .iter()

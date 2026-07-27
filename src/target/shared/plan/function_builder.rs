@@ -325,7 +325,7 @@ impl FunctionPlanBuilder<'_> {
                     self.lower_value(&update.value)?;
                 }
             }
-            NirValue::ListLiteral { values, .. } => {
+            NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
                 for value in values {
                     self.lower_value(value)?;
                 }
@@ -559,6 +559,14 @@ pub(super) fn describe_value(value: &NirValue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("list [{values}]")
+        }
+        NirValue::SetLiteral { values, .. } => {
+            let values = values
+                .iter()
+                .map(describe_value)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("set [{values}]")
         }
         NirValue::MapLiteral { entries, .. } => {
             let entries = entries

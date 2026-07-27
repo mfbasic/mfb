@@ -1546,6 +1546,7 @@ impl CodeBuilder<'_> {
                 ))
             }
             NirValue::ListLiteral { type_, values } => self.lower_list_literal(type_, values),
+            NirValue::SetLiteral { type_, values } => self.lower_set_literal(type_, values),
             NirValue::MapLiteral { type_, entries } => self.lower_map_literal(type_, entries),
         }
     }

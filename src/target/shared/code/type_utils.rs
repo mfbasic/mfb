@@ -23,6 +23,7 @@ pub(super) fn static_nir_value_type(
         | NirValue::UnionExtract { type_, .. }
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
+        | NirValue::SetLiteral { type_, .. }
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::Local(name) => locals.get(name).cloned(),
         NirValue::Binary {

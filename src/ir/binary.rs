@@ -1407,6 +1407,11 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_str(out, type_);
             put_vec(out, values, encode_value);
         }
+        IrValue::SetLiteral { type_, values } => {
+            put_u8(out, 21);
+            put_str(out, type_);
+            put_vec(out, values, encode_value);
+        }
         IrValue::MapLiteral { type_, entries } => {
             put_u8(out, 16);
             put_str(out, type_);
@@ -1541,6 +1546,10 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
             })?,
         },
         15 => IrValue::ListLiteral {
+            type_: r.string()?,
+            values: decode_vec(r, decode_value)?,
+        },
+        21 => IrValue::SetLiteral {
             type_: r.string()?,
             values: decode_vec(r, decode_value)?,
         },

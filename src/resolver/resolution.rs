@@ -1136,6 +1136,16 @@ impl Resolver<'_> {
                     self.resolve_expression(file, value, line, imports, locals);
                 }
             }
+            Expression::SetLiteral {
+                element_type,
+                elements,
+            } => {
+                let element_type = element_type.strip_prefix("RES ").unwrap_or(element_type);
+                self.resolve_type_name(file, element_type, line, imports);
+                for value in elements {
+                    self.resolve_expression(file, value, line, imports, locals);
+                }
+            }
             Expression::MapLiteral {
                 key_type,
                 value_type,

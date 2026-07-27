@@ -209,6 +209,27 @@ impl TypeEnv {
                     }
                 }
             }
+            IrValue::SetLiteral { type_, values } => {
+                for v in values {
+                    self.check_value_depth(v, locals, depth + 1);
+                }
+                // A `Set OF T` element is laid out and read uniformly by the
+                // declared element type, so a crafted mismatch is a type
+                // confusion (mirrors the `List OF T` element check above).
+                if let Some(element) = type_.strip_prefix("Set OF ") {
+                    for v in values {
+                        self.check_literal_range(element, v);
+                        if let Some(actual) = self.infer_type(v, locals) {
+                            if !self.expression_compatible(element, &actual, v) {
+                                self.emit(
+                                    "TYPE_SET_ELEMENT_MISMATCH",
+                                    format!("Set element has type {actual}, expected {element}."),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             IrValue::MapLiteral { type_, entries } => {
                 for (k, v) in entries {
                     self.check_value_depth(k, locals, depth + 1);

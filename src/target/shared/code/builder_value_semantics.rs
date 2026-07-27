@@ -664,6 +664,7 @@ impl CodeBuilder<'_> {
             | NirValue::Constructor { type_, .. }
             | NirValue::WithUpdate { type_, .. }
             | NirValue::ListLiteral { type_, .. }
+            | NirValue::SetLiteral { type_, .. }
             | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
             NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
             NirValue::UnionExtract { type_, .. } => Some(type_.clone()),

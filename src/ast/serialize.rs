@@ -1387,6 +1387,21 @@ impl ToJson for Expression {
                     .join(", ");
                 format!("{{ \"kind\": \"list\", \"values\": [{}] }}", values)
             }
+            Expression::SetLiteral {
+                element_type,
+                elements,
+            } => {
+                let values = elements
+                    .iter()
+                    .map(|value| value.to_json(0))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "{{ \"kind\": \"set\", \"elementType\": {}, \"values\": [{}] }}",
+                    json_string(element_type),
+                    values
+                )
+            }
             Expression::MapLiteral {
                 key_type,
                 value_type,

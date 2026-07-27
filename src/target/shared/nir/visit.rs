@@ -164,7 +164,7 @@ pub(crate) fn walk_value<V: NirVisitor + ?Sized>(visitor: &mut V, value: &NirVal
                 visitor.visit_value(&update.value);
             }
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             for value in values {
                 visitor.visit_value(value);
             }
@@ -225,6 +225,7 @@ mod tests {
             NirValue::ResultError { .. } => "ResultError",
             NirValue::WithUpdate { .. } => "WithUpdate",
             NirValue::ListLiteral { .. } => "ListLiteral",
+            NirValue::SetLiteral { .. } => "SetLiteral",
             NirValue::MapLiteral { .. } => "MapLiteral",
             NirValue::MemberAccess { .. } => "MemberAccess",
             NirValue::Binary { .. } => "Binary",
@@ -322,6 +323,10 @@ mod tests {
                 type_: "List OF Integer".to_string(),
                 values: vec![local("list_child")],
             },
+            NirValue::SetLiteral {
+                type_: "Set OF Integer".to_string(),
+                values: vec![local("set_child")],
+            },
             NirValue::MapLiteral {
                 type_: "Map OF Integer TO Integer".to_string(),
                 entries: vec![(local("map_key"), local("map_value"))],
@@ -371,6 +376,7 @@ mod tests {
             "ResultError",
             "WithUpdate",
             "ListLiteral",
+            "SetLiteral",
             "MapLiteral",
             "MemberAccess",
             "Binary",
@@ -381,17 +387,17 @@ mod tests {
                 "walk_value never reached the {tag} variant"
             );
         }
-        // The composite variants' children were descended into: 19 child
+        // The composite variants' children were descended into: 20 child
         // `Local`s (each composite carries one, plus the extra WithUpdate,
         // MapLiteral, and Binary children) plus the one standalone `plain`
-        // Local at top level = 20.
+        // Local at top level = 21.
         let local_count = collector
             .value_tags
             .iter()
             .filter(|t| **t == "Local")
             .count();
         assert_eq!(
-            local_count, 20,
+            local_count, 21,
             "walk_value did not descend into every composite variant's children"
         );
     }

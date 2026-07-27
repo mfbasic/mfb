@@ -1360,6 +1360,20 @@ impl<'a> Monomorphizer<'a> {
                     })
                     .collect(),
             ),
+            Expression::SetLiteral {
+                element_type,
+                elements,
+            } => Expression::SetLiteral {
+                element_type: self.concrete_type_name(element_type, substitutions),
+                elements: elements
+                    .iter()
+                    .map(|value| {
+                        let expected_element =
+                            expected_type.and_then(|type_| type_.strip_prefix("Set OF "));
+                        self.lower_expression(value, substitutions, context, expected_element, line)
+                    })
+                    .collect(),
+            },
             Expression::MapLiteral {
                 key_type,
                 value_type,
@@ -1791,6 +1805,9 @@ impl<'a> Monomorphizer<'a> {
                 .and_then(|value| self.expression_type(value, context))
                 .map(|element| format!("List OF {element}"))
                 .or_else(|| Some("List OF Unknown".to_string())),
+            Expression::SetLiteral { element_type, .. } => {
+                Some(format!("Set OF {element_type}"))
+            }
             Expression::MapLiteral {
                 key_type,
                 value_type,

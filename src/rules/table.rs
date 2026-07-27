@@ -601,6 +601,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "map value type does not match the declared value type",
     },
     Rule {
+        code: "2-203-0054",
+        name: "TYPE_SET_ELEMENT_MISMATCH",
+        severity: Severity::Error,
+        message: "set element type does not match the expected element type",
+    },
+    Rule {
         code: "2-203-0055",
         name: "TYPE_USE_AFTER_MOVE",
         severity: Severity::Error,

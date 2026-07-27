@@ -495,6 +495,10 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
             &["old", "needle"],
             &["new", "replacement"],
         ]),
+        // Set members (plan-63-B).
+        "add" => Some(&[&["value", "set"], &["item", "element"]]),
+        "remove" => Some(&[&["value", "set"], &["item", "element"]]),
+        "toList" => Some(&[&["value", "set"]]),
         _ => None,
     }
 }
@@ -525,6 +529,12 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         "find" => Some("List OF T, T[, Integer]"),
         "mid" => Some("List OF T, Integer, Integer"),
         "replace" => Some("List OF T, T, T"),
+        // Set members (plan-63-B). `contains` also accepts `Set OF T, T` (its
+        // overload); the message above stays List-first to match its historical
+        // shape.
+        "add" => Some("Set OF T, T"),
+        "remove" => Some("Set OF T, T"),
+        "toList" => Some("Set OF T"),
         _ => None,
     }
 }
@@ -532,9 +542,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match native_member_bare(name)? {
         "removeAt" | "removeKey" | "hasKey" | "contains" | "append" | "prepend" | "get"
-        | "forEach" | "transform" | "filter" => Some((2, 2)),
+        | "forEach" | "transform" | "filter" | "add" | "remove" => Some((2, 2)),
         "getOr" | "set" | "insert" | "reduce" | "mid" | "replace" => Some((3, 3)),
-        "keys" | "values" | "sum" => Some((1, 1)),
+        "keys" | "values" | "sum" | "toList" => Some((1, 1)),
         "find" => Some((2, 3)),
         _ => None,
     }

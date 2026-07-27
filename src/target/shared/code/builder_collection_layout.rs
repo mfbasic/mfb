@@ -1182,6 +1182,63 @@ impl CodeBuilder<'_> {
         self.lower_collection_values(type_, slots, "list")
     }
 
+    /// Lower a `Set OF T { … }` literal (plan-63). A `Set` block is Map-shaped
+    /// with a 1-byte `Boolean` value (always TRUE); the literal is built by
+    /// inserting each element into a growing, uniquely-owned buffer so duplicates
+    /// collapse. Mirrors [`lower_set_add`](Self::lower_set_add)'s idioms, but the
+    /// buffer starts empty and is mutated IN PLACE (no per-element copy — the
+    /// literal owns its buffer exclusively).
+    pub(super) fn lower_set_literal(
+        &mut self,
+        type_: &str,
+        values: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        let element_type = super::type_utils::set_element_type(type_)
+            .ok_or_else(|| format!("lower_set_literal: not a set type '{type_}'"))?;
+        // Start from an empty set and spill its pointer to a stack slot so it can
+        // be reloaded and rewritten after each (possibly reallocating) insert.
+        let result = self.lower_empty_collection(type_)?;
+        let set_slot = self.allocate_stack_object("set_lit", 8);
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), set_slot));
+        // A reusable 1-byte `Boolean` TRUE — every element maps to it.
+        let true_slot = self.allocate_stack_object("set_lit_true", 8);
+        let true_reg = self.allocate_register()?;
+        self.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
+        self.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
+        for value_node in values {
+            let item = self.lower_value(value_node)?;
+            // Observation boundary: a `Float` element must be finite (plan-17).
+            self.observe_float(value_node, &item)?;
+            // A `d`-native float element is materialized into a GPR before the
+            // integer-slot store (plan-01 float-dnative).
+            let item = self.materialize_value(item)?;
+            let item_slot = self.allocate_stack_object("set_lit_item", 8);
+            self.store_value_at(&item, abi::stack_pointer(), item_slot);
+            // In-place insert on the uniquely-owned literal buffer, then store the
+            // (possibly reallocated) pointer back.
+            let inserted = self.lower_map_set_in_place(
+                set_slot,
+                item_slot,
+                true_slot,
+                type_,
+                &element_type,
+                "Boolean",
+            )?;
+            self.emit(abi::store_u64(
+                &inserted.location,
+                abi::stack_pointer(),
+                set_slot,
+            ));
+        }
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), set_slot));
+        Ok(ValueResult {
+            type_: type_.to_string(),
+            location: register,
+            text: format!("set literal {type_}"),
+        })
+    }
+
     pub(super) fn lower_map_literal(
         &mut self,
         type_: &str,

@@ -1740,6 +1740,7 @@ fn expression_type(
             };
             expression_type(first, locals, context).map(|element| format!("List OF {element}"))
         }
+        Expression::SetLiteral { element_type, .. } => Some(format!("Set OF {element_type}")),
         Expression::MapLiteral {
             key_type,
             value_type,
@@ -2973,6 +2974,24 @@ fn lower_expression_with_expected(
                 values: lowered,
             }
         }
+        Expression::SetLiteral {
+            element_type,
+            elements,
+        } => {
+            let expected_element = expected
+                .and_then(|type_| type_.strip_prefix("Set OF "))
+                .or(Some(element_type.as_str()));
+            let lowered = elements
+                .iter()
+                .map(|value| {
+                    lower_expression_with_expected(value, expected_element, locals, context)
+                })
+                .collect::<Vec<_>>();
+            IrValue::SetLiteral {
+                type_: format!("Set OF {element_type}"),
+                values: lowered,
+            }
+        }
         Expression::MapLiteral {
             key_type,
             value_type,
@@ -3315,6 +3334,11 @@ fn collect_captured_locals(
         }
         Expression::ListLiteral(values) => {
             for value in values {
+                collect_captured_locals(value, outer_locals, local_names, seen, captures);
+            }
+        }
+        Expression::SetLiteral { elements, .. } => {
+            for value in elements {
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }

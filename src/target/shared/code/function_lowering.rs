@@ -182,7 +182,8 @@ fn mark_vector_escaping_value(value: &NirValue, out: &mut HashSet<String>) {
         NirValue::CallResult { args, .. }
         | NirValue::RuntimeCall { args, .. }
         | NirValue::Constructor { args, .. }
-        | NirValue::ListLiteral { values: args, .. } => {
+        | NirValue::ListLiteral { values: args, .. }
+        | NirValue::SetLiteral { values: args, .. } => {
             for arg in args {
                 mark_vector_escaping_value(arg, out);
             }

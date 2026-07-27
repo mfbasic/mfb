@@ -1573,7 +1573,7 @@ pub(super) fn nir_value_reads_local(value: &NirValue, name: &str) -> bool {
                     .iter()
                     .any(|u| nir_value_reads_local(&u.value, name))
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             values.iter().any(|v| nir_value_reads_local(v, name))
         }
         NirValue::MapLiteral { entries, .. } => entries
@@ -1621,7 +1621,9 @@ fn nir_value_context(value: &NirValue) -> String {
         NirValue::FunctionRef { name, .. } => format!("function {name}"),
         NirValue::Closure { name, .. } => format!("closure {name}"),
         NirValue::Const { type_, .. } => format!("const {type_}"),
-        NirValue::ListLiteral { type_, .. } | NirValue::MapLiteral { type_, .. } => {
+        NirValue::ListLiteral { type_, .. }
+        | NirValue::SetLiteral { type_, .. }
+        | NirValue::MapLiteral { type_, .. } => {
             format!("literal {type_}")
         }
         NirValue::Unary { op, .. } | NirValue::Binary { op, .. } => format!("operator {op}"),
