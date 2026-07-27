@@ -122,6 +122,25 @@ mod tests {
     }
 
     #[test]
+    fn build_icns_accepts_valid_1024_source() {
+        // The `Some(valid path)` success branch: a real 1024×1024 icon flows
+        // through decode → squircle → every `.icns` entry (the shipped path a
+        // project `icon` takes), distinct from the embedded-default `None` case.
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("icon.png");
+        RgbaImage::from_pixel(CANVAS, CANVAS, image::Rgba([12, 200, 90, 255]))
+            .save(&path)
+            .unwrap();
+        let bytes = build_icns(Some(&path)).expect("valid 1024 icon");
+        assert_eq!(&bytes[0..4], b"icns", "icns magic");
+        let family = IconFamily::read(Cursor::new(&bytes)).expect("re-read icns");
+        let largest = family
+            .get_icon_with_type(IconType::RGBA32_512x512_2x)
+            .expect("1024 entry present");
+        assert_eq!((largest.width(), largest.height()), (1024, 1024));
+    }
+
+    #[test]
     fn build_icns_rejects_non_1024_source() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("small.png");
