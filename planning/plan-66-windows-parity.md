@@ -621,6 +621,34 @@ Commit: —
 
 ## Corrections
 
+- **2026-07-27 (Phases A/B/C/D REGRESSION — the same merge dropped their advertising
+  too, not just E's).** After fixing the Phase-E fs drop, a full per-family census
+  (`comm -23` of macOS vs Windows `"<fam>.` advertise sets) found the stale main→P-66
+  merge had ALSO dropped the mod.rs advertising AND plan.rs import arms for Phase A
+  (datetime, 3 calls), B (os, 14), C (io input+buffering, 8), and D (term styling, 16)
+  — Windows advertised `os=0 datetime=0 term=1 io=7` vs macOS `15/3/20/15`, so those
+  box-proven phases were entirely rejected at `validate_capabilities`. The code.rs +
+  shared impls survived. Restored 41 advertise entries + the datetime/os/io plan.rs
+  arms (+ a `SHELL32` const for `os.args`) + `term.sync`/`WriteFile` on the term arm.
+  Box-proven on 2230 (`a3e57066e`): `os=windows pid/cpuCount`, `datetime mono=TRUE`,
+  the full 24-bit ANSI TUI stream (`term::on/setForeground/moveTo/sync/off`),
+  `os::hostName`, `os::executablePath`, EXIT=0. LESSON: on a merged branch, census
+  EVERY family, not just the one that first looked wrong.
+- **2026-07-27 (Phase J-4 BLOCKED — reverted).** Built the window-input plumbing (an
+  EDIT-subclass WndProc capturing Enter → `EM_GETLINE` → pipe; `_main` `CreatePipe` +
+  `SetStdHandle(STD_INPUT, readEnd)`; `emit_app_io_input_helper`; a keystroke-inject
+  test hook) plus two GENUINE bug fixes — (a) shared `io_stdin.rs` `emit_stdin_byte_read`
+  set the app-mode read fd via `return_register()`, which on Win64 (rax) ≠ `ARG[0]`
+  (rcx) so `emit_read_file` read garbage as the fd; (b) `emit_poll_input` used
+  `WaitForSingleObject`, which doesn't signal on an anonymous pipe (added a
+  `GetFileType`→`PeekNamedPipe` branch). BUT the input `readLine` still hung even with a
+  direct pipe write (the `SetStdHandle`→`GetStdHandle(STD_INPUT)`→pipe link doesn't
+  connect for the GUI worker — likely `ReadFile` blocks on an inherited console
+  handle), AND the EDIT subclass regressed J-3 (a buggy subclass WndProc broke the
+  edit's message processing that the transcript relies on → jhello -app hung). Both need
+  a Windows debugger to diagnose, which the box (ssh, exe-only) can't provide. Reverted
+  the whole J-4 change set to keep J-3 green; the design + both fixes + three resume
+  options are recorded in the `plan-66-execution-state` memory. J-4 acceptance NOT MET.
 - **2026-07-26 (Phase E REGRESSION — merge dropped the advertising for 9 landed
   fs calls).** On resume, a census (`comm -23` of macOS vs Windows `"fs.` advertise
   sets) found that `win_x86_64/mod.rs` advertises only 26 fs calls where macOS has
