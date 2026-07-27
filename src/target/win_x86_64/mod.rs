@@ -74,6 +74,11 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.setBuffered",
     "fs.isBuffered",
     "fs.isWithin",
+    // plan-66-E whole-path no-symlink surface. CreateFileW follows reparse points,
+    // so both enforce the no-symlink / containment guarantee AFTER the open via a
+    // GetFinalPathNameByHandleW verify (emit_verify_nofollow / emit_verify_within).
+    "fs.openFileNoFollow",
+    "fs.openWithin",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",

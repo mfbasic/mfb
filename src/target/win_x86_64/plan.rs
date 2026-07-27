@@ -159,6 +159,32 @@ impl NativePlanPlatform for Platform {
                 import("CreateFileW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
+            // plan-66-E: openFileNoFollow opens normally then verifies (via
+            // emit_verify_nofollow) that the handle's GetFinalPathNameByHandleW
+            // path equals the GetFullPathNameW lexical canonical of the requested
+            // path — a symlink/junction at any component is refused (ELOOP analog).
+            "fs.openFileNoFollow" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetFullPathNameW", KERNEL32, required_by),
+                import("GetFinalPathNameByHandleW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            // plan-66-E: openWithin canonicalizes the root lexically (realpath =
+            // GetFullPathNameW → WideCharToMultiByte), joins relPath, opens, then
+            // emit_verify_within opens the root as a directory
+            // (FILE_FLAG_BACKUP_SEMANTICS) and checks the opened handle's resolved
+            // final path stays under the root's resolved final path.
+            "fs.openWithin" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetFullPathNameW", KERNEL32, required_by),
+                import("GetFinalPathNameByHandleW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             // createTempFile opens an O_EXCL file at a randomized name
             // (emit_open_file + emit_random_bytes over BCryptGenRandom). plan-66-E.
             // (This arm was dropped by the stale-merge into P-66; restored.)

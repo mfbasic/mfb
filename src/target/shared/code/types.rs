@@ -346,6 +346,45 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Ok(())
     }
+    /// Windows-only whole-path no-symlink verify for `fs::openFileNoFollow`
+    /// (plan-66-E). `CreateFileW` transparently follows reparse points (symlinks /
+    /// junctions), so — unlike Linux `openat2(RESOLVE_NO_SYMLINKS)` / macOS
+    /// `O_NOFOLLOW_ANY` — the guarantee is enforced *after* the open: on entry
+    /// `ARG[0]` is the opened HANDLE and `ARG[1]` is the requested UTF-8 path
+    /// C-string. Compares the handle's fully-resolved final path
+    /// (`GetFinalPathNameByHandleW`) against the lexical canonicalization of the
+    /// requested path (`GetFullPathNameW`, which does NOT resolve reparse points);
+    /// any difference means a link was traversed. Leaves `0` in the return register
+    /// when no link was traversed and `1` when the open must be refused
+    /// (`ErrAccessDenied`, the ELOOP analog). Never called off Windows.
+    fn emit_verify_nofollow(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        unreachable!("emit_verify_nofollow is Windows-only (plan-66-E)")
+    }
+    /// Windows-only open-time containment verify for `fs::openWithin` (plan-66-E).
+    /// On entry `ARG[0]` is the opened HANDLE (the join opened beneath the trusted
+    /// root) and `ARG[1]` is the trusted root's UTF-8 path C-string. Opens the root
+    /// as a directory (`FILE_FLAG_BACKUP_SEMANTICS`) to resolve its own symlinks,
+    /// then checks the opened handle's fully-resolved final path
+    /// (`GetFinalPathNameByHandleW`) begins with the root's fully-resolved final
+    /// path followed by a `\` separator — so a post-canonicalization reparse-point
+    /// swap that redirects out of `root` is refused. Leaves `0` when contained and
+    /// `1` when the open must be refused (`ErrAccessDenied`). Never called off
+    /// Windows.
+    fn emit_verify_within(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        unreachable!("emit_verify_within is Windows-only (plan-66-E)")
+    }
     /// Windows-only `os::getEnv` primitive (plan-66-B). Reads a UTF-8 NUL-terminated
     /// variable name from `ARG[0]`, looks it up via `GetEnvironmentVariableW`
     /// (marshaling name → UTF-16 and the value UTF-16 → UTF-8), and leaves a

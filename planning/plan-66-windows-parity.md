@@ -409,9 +409,11 @@ Commit: 4cf083fc1
 Acceptance: a TUI program (colors, cursor moves, clear) renders correctly in Windows Terminal on the box. **MET** — box (`term66.exe`) emitted the correct ANSI stream: `^[[?1049h` alt-screen, `^[[38;2;255;0;0m red-text` at row 2, `^[[1m` bold `bold-text` at row 3, full grid present, `^[[?1049l` restore, `isOn` FALSE→(on)→FALSE. Renders as color in Windows Terminal (raw ESC shown here only because ssh captured a pipe, where VT-enable correctly no-ops). Non-Windows byte-identical (default `emit_enable_vt_output` emits nothing; existing term fixtures + full `cargo test` green); Windows build deterministic.
 Commit: 7eab44bd9
 
-### Phase E — `fs::` extras  (9/10 landed — acceptance MET)
-- [~] Advertise + implement the 10 extras. **Landed & box-proven:** `open`,
-  `openFileNoFollow` (both via `lower_fs_open_helper`/`emit_open_file`),
+### Phase E — `fs::` extras  (10/10 — COMPLETE, box-proven)
+- [x] Advertise + implement the 10 extras. **Landed & box-proven:** `open`,
+  `openFileNoFollow` (now a real Windows whole-path no-symlink open — see the
+  no-symlink Corrections; the earlier "via `lower_fs_open_helper`/`emit_open_file`"
+  claim was overstated, it would panic at `io.rs:478`),
   `createDirectories` (recursive CreateDirectoryW), `createTempFile` (filled
   `temp_file_open_flags`' Windows arm = `(CREATE_NEW<<32)|GENERIC_READ|GENERIC_WRITE`
   = 7516192768 — the plan's "`emit_mkstemps` stub" mapping was wrong; createTempFile
@@ -423,21 +425,24 @@ Commit: 7eab44bd9
   (BCryptGenRandom + mod 26) and CreateFileW(CREATE_NEW) with a 100-try
   collision-retry loop, returning the handle-as-fd; the shared helper then
   writes/flushes/closes and MoveFileExW-renames. Box-proven (Unicode text + a byte
-  list). **Deferred (1):** `openWithin` — its `unreachable!("47-F owns the Windows
-  realpath/no-symlink path")` guards a *symlink-security* contract (reject a
-  post-canonicalization symlink swap out of `root`). The POSIX model
-  (canonicalize-then-open-with-`O_NOFOLLOW_ANY`/`RESOLVE_NO_SYMLINKS`) has no direct
-  Windows analog; the correct Windows design is open-then-verify:
-  GetFinalPathNameByHandleW on the opened handle → containment check against the
-  canonical root → close+reject on escape. That is a distinct, security-sensitive
-  change (a half-correct check is a hole), so it is deferred to its own focused
-  work rather than rushed here.
+  list). **`openWithin` + `openFileNoFollow` (the whole-path no-symlink pair) now
+  DONE** via the open-then-verify design the plan called for: two Windows
+  `CodegenPlatform` hooks — `emit_verify_nofollow` (handle's
+  `GetFinalPathNameByHandleW` path == `GetFullPathNameW` lexical canonical of the
+  request, else refuse) and `emit_verify_within` (opened handle's resolved final
+  path is under the root's own resolved final path + `\`, else refuse) — both
+  leaving 0/1 in the return register; the shared helpers close the fd and raise
+  `ErrAccessDenied` on a 1. The `io.rs:478`/`:815` `unreachable!`s are now
+  `Windows => false` (Windows takes the plain-open path + the post-open verify).
 - [x] Tests: fixtures `fs-temp-file-buffered` (createTempFile + set/isBuffered) and
   `fs-atomic-write` (writeTextAtomic/writeBytesAtomic under `target/`); box runs of
   createDirectories/createTempFile/open+readText/isWithin/atomic-writes all correct.
+  no-symlink box proof (2230, real reparse points via `mklink`/`mklink /J`):
+  `direct=ok`, `finallink=denied`, `interlink=denied` (junction), `contained=ok`,
+  `absolute=invalid`, `dotdot=invalid`, `escape=denied` (junction escape), EXIT=0.
 
-Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **MET** — writeTextAtomic (Unicode) + createTempFile + createDirectories nested + open/read + isWithin all box-proven; only `openWithin` (a separate security-sensitive design) is deferred.
-Commit: 71f2a3fab (7/10); 28078edae (atomic writes, 9/10)
+Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **MET (10/10)** — all nine landed calls re-box-proven after the merge-drop repair (`mkdir=ok temp-buffered=TRUE roundtrip=hello-世界 bytes=ok within-yes/no`), and `openFileNoFollow`/`openWithin` box-proven refusing real Windows reparse-point escapes while opening non-symlink paths.
+Commit: 71f2a3fab (7/10); 28078edae (atomic writes, 9/10); 87e25d6b0 (restore merge-dropped advertising); <no-symlink commit pending>
 
 ### Phase F — `tls::` server  (COMPLETE — box-proven)
 - [x] **Advertised + implemented** `tls.listen`/`accept`/`closeListener` over Schannel

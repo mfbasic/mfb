@@ -475,8 +475,13 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         && match platform.family() {
             PlatformFamily::Linux => true,
             PlatformFamily::MacOS => false,
-            PlatformFamily::Windows => unreachable!("47-F owns the Windows openFileNoFollow path"),
+            // Windows CreateFileW follows reparse points, so the no-symlink
+            // guarantee is enforced AFTER the open by `emit_verify_nofollow`
+            // (plan-66-E) rather than by an open flag; the plain open path is used.
+            PlatformFamily::Windows => false,
         };
+    let windows_nofollow = no_follow && platform.family() == PlatformFamily::Windows;
+    let nofollow_ok = format!("{symbol}_win_nofollow_ok");
     let mut vregs = Vregs::new();
     let path = vregs.next();
     let mode = vregs.next();
@@ -657,6 +662,48 @@ pub(in crate::target::shared::code) fn lower_fs_open_helper(
         abi::branch(&open_error),
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
+    ]);
+    if windows_nofollow {
+        // plan-66-E: CreateFileW followed any reparse points transparently; verify
+        // the opened handle resolves to the lexically-canonical requested path and
+        // refuse (ErrAccessDenied, the ELOOP analog) if a symlink/junction was
+        // traversed at ANY component. `fd`/`c_path` are spilled vregs, so they
+        // survive the arena_alloc inside the verify hook.
+        instructions.extend([
+            abi::move_register(abi::ARG[0], &fd),
+            abi::move_register(abi::ARG[1], &c_path),
+        ]);
+        platform.emit_verify_nofollow(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&nofollow_ok),
+            // A link was traversed: close the fd (do not leak it) and reject.
+            abi::move_register(abi::return_register(), &fd),
+        ]);
+        platform.emit_close_file(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        ]);
+        push_error_message_address(
+            symbol,
+            ERR_ACCESS_DENIED_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.extend([abi::branch(&done), abi::label(&nofollow_ok)]);
+    }
+    instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -765,8 +812,13 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
     let linux = match platform.family() {
         PlatformFamily::Linux => true,
         PlatformFamily::MacOS => false,
-        PlatformFamily::Windows => unreachable!("47-F owns the Windows realpath/no-symlink path"),
+        // Windows reuses the lexical realpath (GetFullPathNameW) + plain-open flow;
+        // the symlink-escape refusal is enforced AFTER the open by
+        // `emit_verify_within` (plan-66-E), so it takes the non-Linux path here.
+        PlatformFamily::Windows => false,
     };
+    let windows = platform.family() == PlatformFamily::Windows;
+    let within_ok = format!("{symbol}_win_within_ok");
     // Whole-path no-symlink flags — the same set `openFileNoFollow` uses (macOS
     // carries O_NOFOLLOW_ANY here; Linux carries O_NOFOLLOW and adds
     // RESOLVE_NO_SYMLINKS via openat2 below).
@@ -1108,6 +1160,46 @@ pub(in crate::target::shared::code) fn lower_fs_open_within_helper(
         abi::branch(&open_error),
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
+    ]);
+    if windows {
+        // plan-66-E: the join opened, but CreateFileW may have followed a reparse
+        // point out of `root`. Verify containment against the root's own resolved
+        // path and refuse (ErrAccessDenied) on escape. `fd`/`root_cstr` are spilled
+        // vregs and survive the arena_alloc inside the verify hook.
+        instructions.extend([
+            abi::move_register(abi::ARG[0], &fd),
+            abi::move_register(abi::ARG[1], &root_cstr),
+        ]);
+        platform.emit_verify_within(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&within_ok),
+            abi::move_register(abi::return_register(), &fd),
+        ]);
+        platform.emit_close_file(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([
+            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_ACCESS_DENIED_CODE),
+            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        ]);
+        push_error_message_address(
+            symbol,
+            ERR_ACCESS_DENIED_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.extend([abi::branch(&done), abi::label(&within_ok)]);
+    }
+    instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", RESOURCE_RECORD_SIZE),
         abi::move_immediate(abi::ARG[1], "Integer", "8"),
     ]);
