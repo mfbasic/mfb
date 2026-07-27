@@ -135,7 +135,7 @@ The primitives, unit-tested, with no mnemonics wired yet.
 Acceptance: config-instruction words match the reference assembler; register
 decode unit tests pass. No existing output changes. **MET** — `cargo test` green;
 artifact-gate diffs=0 vs. up-to-date goldens (Corrections C4).
-Commit: <B1>
+Commit: f55d26e1e
 
 ### Phase 2 — float vector ops (OPFVV) + conversions + FMA
 
@@ -146,7 +146,7 @@ Commit: <B1>
       assembler (rolled into `rvv_ops_encode_to_reference_words`).
 
 Acceptance: every float vector mnemonic encodes to its reference word. **MET**.
-Commit: <B1>
+Commit: f55d26e1e
 
 ### Phase 3 — integer vector ops, mask materialization, splat/extract, load/store
 
@@ -162,7 +162,7 @@ Commit: <B1>
 
 Acceptance: every integer/mask/mem vector mnemonic encodes to its reference
 word and sizes to 4 bytes; `encode/tests.rs` green. **MET**.
-Commit: <B1>
+Commit: f55d26e1e
 
 ## Validation Plan
 
