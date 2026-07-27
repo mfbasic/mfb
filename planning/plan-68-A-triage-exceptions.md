@@ -81,7 +81,7 @@ module) as a GATE FAILURE — they appear under "Documented exceptions" instead;
 and no file with a coverable body was whole-file excepted (spot-check each new
 entry against its source). `cargo test` still `0 failed` (exception list is not
 compiled, so this is a no-op check confirming nothing else was touched).
-Commit: — (touches only `scripts/coverage-exceptions.txt`)
+Commit: 0c3451a2c
 
 ### Phase A3 — Triage `src/os/windows/mod.rs` and finalize the worklist
 
@@ -115,7 +115,7 @@ a boundary reason present in `coverage-exceptions.txt`; `sh scripts/coverage-che
 now lists only files marked `backfill:<letter>` as GATE FAILUREs (the excepted
 ones moved to the "Documented exceptions" section). The residual failing count
 equals the number of `backfill` rows.
-Commit: — (any exception additions from A3 go in `scripts/coverage-exceptions.txt`)
+Commit: 0c3451a2c
 
 ## Triage table (the worklist — filled during A3)
 

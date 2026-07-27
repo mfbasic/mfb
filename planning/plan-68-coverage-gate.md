@@ -294,7 +294,7 @@ The feature's phases ARE the lettered sub-plans; each has its own phase list.
       (`plan-68-A-triage-exceptions.md`). Lands first; produces the worklist.
       Done: coverage.json regenerated (suite 0-failed), dispatch.rs + signing.rs
       re-excepted, json.rs dead-arm resolved, worklist frozen (54 backfill files;
-      +emitter.rs→D7, windows/mod.rs→C11). Commit: — (recorded next commit).
+      +emitter.rs→D7, windows/mod.rs→C11). Commit: 0c3451a2c.
 - [ ] **B** — CLI + build modules (`plan-68-B-cli-build.md`).
 - [ ] **C** — OS backends + binary_repr object writers (`plan-68-C-os-binrepr.md`).
 - [ ] **D** — IR verify + small IR + arch backend (`plan-68-D-ir-verify.md`).
