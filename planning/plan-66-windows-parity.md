@@ -584,7 +584,7 @@ Commit: d9025af8c / merged e5c500020
   → program prints `GOT[ZaphodB]END`, EXIT=0; `io::readChar` → `CHAR[Q]`;
   `io::pollInput(300)` with no input → `READY[FALSE]` (was TRUE), with input →
   `READY[TRUE]LINE[Hi]`; J-3 transcript still shows both `io::print` lines.
-  Commit: `<pending>`.
+  Commit: `1ffe9cb78`.
 - **J-5 — term:: TUI grid + mode reconcile + full box proof.** `emit_app_term_helper`
   (cell-grid custom draw: colors/cursor/clear, modeled on `term_view.rs`),
   `emit_app_mode_reconcile` + reconcile data objects. **Acceptance:** the full Phase-J
@@ -594,7 +594,7 @@ Commit: d9025af8c / merged e5c500020
   box-proven on 2230); the TUI-grid custom draw is J-5.
 
 Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **MET for the core (J-2 bootstrap + J-3 transcript + J-4 input all box-proven on 2230); J-5 (`term::` TUI grid + mode reconcile) is the remaining refinement.**
-Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 `<pending>`
+Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 1ffe9cb78
 
 ### Phase K — PE resource packaging  (NOT STARTED)
 - [ ] `.ico` encoder (`os/windows/icon.rs` reusing `os/icon/mod.rs::render_png`);
@@ -691,7 +691,15 @@ Commit: —
   rebuild avoided both. `SetStdHandle(STD_INPUT, hRead)` DID take effect for the GUI
   worker — the memory's "SetStdHandle doesn't connect" hypothesis was wrong. Box-proven
   on 2230: `io::input`/`readLine`/`readChar`/`pollInput` all correct, J-3 transcript
-  intact, EXIT=0. The reverted attempt's fix (a) (fd via `ARG[0]` not
+  intact, EXIT=0. **Box-proof gotcha (cost hours; cdb cracked it):** the
+  `MFB_WINAPP_DUMP` transcript readback must be run with PowerShell
+  `Start-Process -Wait -RedirectStandardOutput`, NOT `-PassThru` + `WaitForExit` — a
+  GUI exe's redirect handle is finalized when the non-waiting launcher returns, so a
+  longer-running program (io.input waits for the injected keystrokes) races that close
+  and its DUMP `WriteFile` lands in a detached file (0-byte output). cdb proved the
+  program itself was always correct (EM_REPLACESEL populated the transcript, ReadFile
+  drained the pipe); only the `-PassThru` harness was wrong. Use `-Wait` for every
+  J-5 box proof too. The reverted attempt's fix (a) (fd via `ARG[0]` not
   `return_register()`) and fix (b) (`emit_poll_input` `PeekNamedPipe` for pipes) were
   both genuine and re-derived independently here — fix (a) ALSO corrects a latent
   linux_gtk x86 app-mode bug (`RET[0]=rax ≠ ARG[0]=rdi`); fix (b) was confirmed
