@@ -301,7 +301,10 @@ The feature's phases ARE the lettered sub-plans; each has its own phase list.
 - [ ] **E** — IR lower / binary / link (`plan-68-E-ir-lower.md`).
 - [ ] **F** — syntaxcheck front-end (`plan-68-F-syntaxcheck.md`).
 - [ ] **G** — AST front-end (`plan-68-G-ast.md`).
-- [ ] **H** — Leaf/misc modules + repository crate (`plan-68-H-leaf-repository.md`).
+- [x] **H** — Leaf/misc modules + repository crate (`plan-68-H-leaf-repository.md`).
+      Done: H1-H8 landed (commits 4c54aefff..7868f0ad0); 11 backfill files tested
+      to ≥95%; spec/mod.rs handed to A as a whole-file drift-guard exception;
+      strings.rs:260, backfill.rs:71-77, and main.rs:48-284 flagged unreachable.
 
 ## Validation Plan
 
