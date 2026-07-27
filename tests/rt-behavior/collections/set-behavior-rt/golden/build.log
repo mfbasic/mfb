@@ -1,0 +1,25 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/set-behavior-rt
+Wrote AST to tests/rt-behavior/collections/set-behavior-rt/set_behavior_rt.ast
+Wrote IR to tests/rt-behavior/collections/set-behavior-rt/set_behavior_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/set-behavior-rt
+Wrote executable to tests/rt-behavior/collections/set-behavior-rt/build/set_behavior_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/set-behavior-rt/build/set_behavior_rt.out
+numslen=4
+afterDupAdd=1
+has7=TRUE
+afterRemove=0
+has7b=FALSE
+nameslen=3
+listlen=3
+name=a
+name=b
+name=c
+pointlen=2
+hasP12=TRUE
+hasP99=FALSE
+baselen=3
+grownlen=4
+bagtags=3
+[exit 0]

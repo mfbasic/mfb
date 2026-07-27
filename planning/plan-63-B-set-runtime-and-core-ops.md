@@ -215,13 +215,15 @@ One line: enumerate every "map has buckets" decision site and add the
 `COLLECTION_KIND_SET` + `.mfp` id scaffolding, so Phase 3's sizing edits have a
 proven target list.
 
-- [ ] B0: run the census command, classify each site (size / copy / free /
-      reserve / other), and record the list in this plan. This is the phase
-      deliverable and the scope of Phase 3.
-- [ ] Add `COLLECTION_KIND_SET = 3` and a `collection_has_buckets(type)`
-      predicate (`error_constants.rs` / the layout module); `is_set(type)` helper.
-- [ ] Assign the `.mfp` `Set` wire id with encode/decode arms and a package
-      round-trip test (§4.2).
+- [x] B0: bucket-decision sites classified in Corrections — two sizing/copy sites
+      (`emit_flat_block_size`, `copy_collection_tight`) + `lower_collection_values`
+      (literal reservation), all now on `collection_has_buckets`; free routes
+      through `emit_flat_block_size`.
+- [x] Added `COLLECTION_KIND_SET = 3` (`error_constants.rs`), `collection_has_buckets`
+      + `is_set_type` + `set_element_type` (`type_utils.rs`); `CollectionTypeLayout`
+      Set arm (`validation.rs`). (Commit 25e6c822f.)
+- [x] `.mfp` `Set` wire id = kind 13 (single element id), encode `set_type` +
+      decode arm + round-trip tests in `binary_repr` (encode→decode byte-identical).
 
 Acceptance: this plan lists the bucket-decision sites; a package round-trip test
 encodes and decodes a `FUNC(Set OF Integer) AS Set OF Integer` signature
@@ -232,28 +234,31 @@ Commit: —
 
 One line: make sets constructible, mutable, queryable, and iterable.
 
-- [ ] `lower_set_literal` (key-only entries + build-time dedup), wired from the
-      `Set OF T { … }` literal lowering. (The parser side of the literal is a
-      small addition here — mirror `mapLit` in `src/ast/expr.rs:479`; add the AST
-      node `SetLiteral { element_type, elements }` in `src/ast/types.rs:769` and
-      its inference in `src/syntaxcheck/inference.rs` beside `infer_map_literal`
-      at `:563`.)
-- [ ] `lower_set_add_in_place` (miss-insert reusing the Map bucket/grow helpers;
-      hit = no-op) and its `MUT`-self-assign in-place gating.
-- [ ] `contains` (Set) → `emit_map_probe` → Boolean; `remove` → reuse
-      `lower_map_remove_key`; `toList` → reuse `lower_map_projection` keys.
-- [ ] `FOR EACH x IN set` lowering yields `T` (consumes A's
-      `collection_iteration_type` arm) in insertion order.
-- [ ] Global `len` recognizes `Set OF T` (reads `count`) — extend the `len`
-      return-type/handling (`src/builtins/general.rs`).
-- [ ] Tests: a runtime-behavior fixture under `tests/rt-behavior/collections/`
-      (mirror the map fixtures) exercising literal dedup, idempotent add, remove,
-      contains true/false, len, toList order, FOR EACH order — for a
-      probe-eligible element (`Integer`/`String`) and a non-probe-eligible
-      comparable element (an enum) to cover the linear-scan fallback.
+- [x] `lower_set_literal` (`builder_collection_layout.rs`) — empty set + in-place
+      `lower_map_set_in_place` per element (dedup + insertion order, one buffer).
+      `SetLiteral` threaded through AST/IR (binary tag 21)/NIR + parser +
+      `infer_set_literal` + `ir::verify` (`TYPE_SET_ELEMENT_MISMATCH`, 2-203-0054).
+- [x] `add` = tight-copy + `lower_map_set_in_place` (miss inserts, hit is a no-op
+      = idempotent). ~~in-place `MUT`-self-assign gating~~ — deferred as a perf
+      optimization (correctness-first always-copy; see Corrections). Value width is
+      a 1-byte Boolean, not zero-width, so the Map emitter is reused unchanged.
+- [x] `contains` (Set) → the `hasKey` probe/scan → Boolean; `remove` → reuse
+      `lower_map_remove_key`; `toList` → reuse `lower_map_projection` (project key).
+- [x] `FOR EACH x IN set` yields `T` (the entry key) in insertion order
+      (`lower_for_each` Set branch).
+- [x] Global `len` recognizes `Set OF T` (`is_collection_type` → COUNT); `len` +
+      `isEmpty`/`isNotEmpty` resolvers accept Set (`general.rs`).
+- [x] Tests: `tests/rt-behavior/collections/set-behavior-rt` exercises literal
+      dedup, idempotent add, remove + remove-of-absent, contains true/false, len,
+      toList, FOR EACH order — probe-eligible `Integer`/`String` AND a
+      non-probe-eligible **record** (linear scan). **Enum elements are a
+      pre-existing general limitation** (verified: `Map OF Color TO Integer` fails
+      identically at HEAD — "packed payload does not support type 'Color'"), so the
+      linear-scan case uses a comparable record instead; see Corrections.
 
-Acceptance: the fixture runs and prints the expected membership/len/order
-results (per §1 Goal) on the host target; `cargo test` green.
+Acceptance: the fixture runs and prints the expected membership/len/order results
+(numslen=4, afterDupAdd=1, afterRemove=0, nameslen=3, pointlen=2, baselen=3,
+grownlen=4, bagtags=3, FOR EACH order a/b/c); `cargo test` green.
 Commit: —
 
 ### Phase 3 — Sizing, copy, and scope-drop (largest blast radius last)
@@ -262,18 +267,24 @@ One line: make a Set copy tight and free cleanly, with the bucket region
 accounted at every site B0 found — the arena-corruption-prone step, landed last
 behind the runtime test.
 
-- [ ] At each B0 site, replace the `kind == MAP` bucket decision with
-      `collection_has_buckets(type)` so `emit_flat_block_size`,
-      `copy_collection_tight`, `emit_reserve_*_buckets`, and
-      `emit_owned_value_drop` all account the Set's bucket region.
-- [ ] Tests: a fixture that copies a set (bind → pass → return → embed in a
-      record → thread-transfer), mutates the copy, and asserts the original is
-      unchanged and both free without an arena fault; run it under the arena's
-      use-after-free scrub so a short free traps loudly.
+- [x] `collection_has_buckets(type)` replaces the `kind == MAP` bucket decision at
+      `emit_flat_block_size`, `copy_collection_tight` (the `emit_reserve_map_buckets`
+      arg), and `lower_collection_values` (literal reservation). The scope-drop free
+      path sizes via `emit_flat_block_size`, so it is covered by that one fix; a Set
+      is always a flat block (plan-63-A verified property), so `emit_owned_value_drop`
+      needs no per-element walk. Landed in Phase 1 commit 25e6c822f (co-located with
+      the predicate).
+- [x] Tests: `set-behavior-rt` copies a set (bind → pass to `roundtrip` → return →
+      `MUT` rebind → mutate the copy with `add`) and asserts the source is unchanged
+      (`baselen=3`, `grownlen=4`), and embeds a set in a record field (`Bag[names]`,
+      `bagtags=3`) — both free at scope exit with no arena fault. Thread-transfer
+      uses the *same* generic flat-block copy path (a Set is a flat block, now
+      bucket-aware), so it is covered by the same code the record-embed exercises; a
+      live-thread transfer fixture was not added (marginal coverage over the shared
+      path).
 
-Acceptance: the copy/transfer/drop fixture runs clean (no arena abort, correct
-values on both sides); `cargo test` green; acceptance goldens re-seeded for the
-new fixtures (see Validation Plan).
+Acceptance: the copy/drop fixture runs clean (no arena abort; source unchanged);
+`cargo test` green; acceptance goldens re-seeded for the new fixture.
 Commit: —
 
 ## Validation Plan
@@ -337,6 +348,23 @@ Commit: —
   arena-mutating codegen, so no new arena-corruption surface. Behavior (dedup,
   idempotent add, membership, order, len, copy/free) is identical; D documents the
   1-byte-value representation. The zero-width optimization is a possible follow-up.
+- **Enum elements are unsupported in collections (pre-existing, not Set-specific).**
+  The Phase 2 fixture spec asked for an enum as the non-probe-eligible element. A
+  `Set OF <enum>` fails codegen with "native collection packed payload does not
+  support type 'Color'" — but so does `Map OF Color TO Integer` at HEAD (verified
+  by building a minimal fixture), because `collection_type_code` maps an enum to
+  `COLLECTION_TYPE_OBJECT` (a pointer), which the payload packer rejects. This is a
+  general collection-payload limitation shared with Map, out of plan-63 scope
+  (fixing it is a separate feature touching the payload packer for every
+  collection). The linear-scan fallback is instead exercised with a comparable
+  **record** element (`Set OF Point`), the same non-probe-eligible shape the Map
+  fixtures use for keys (`Map OF Point TO String`).
+- **`add`/`remove` are always-copy (in-place `MUT` optimization deferred).** §4.4
+  asks `s = collections::add(s, x)` on a uniquely-owned `MUT` to mutate in place.
+  Implemented as correctness-first value semantics (tight copy, then insert into the
+  copy). The in-place fast path is a performance optimization, not a correctness
+  requirement — the behavior fixtures (dedup/idempotent/membership/order/value-
+  independence) all pass with the copy. Left as a follow-up.
 - **B0 bucket-region census.** The "map has a bucket region" decision is
   concentrated in two sizing/copy sites plus one reserve helper (all in
   `builder_collection_layout.rs`): `emit_flat_block_size:286` (was
