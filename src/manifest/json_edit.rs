@@ -478,3 +478,56 @@ pub(super) fn json_string_end(contents: &str, start: usize) -> Option<usize> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn without_packages_missing_array_errors() {
+        let err = project_json_without_packages("{}", &["x"]).unwrap_err();
+        assert!(err.contains("could not locate project.json `packages` array"), "{err}");
+    }
+
+    #[test]
+    fn updated_version_missing_array_errors() {
+        let err = project_json_with_updated_version("{}", "x", "2.0.0", None).unwrap_err();
+        assert!(err.contains("could not locate project.json `packages` array"), "{err}");
+    }
+
+    #[test]
+    fn without_packages_malformed_entry_errors() {
+        // The array `[ … ]` terminates, but the inner `{` object is never closed,
+        // so `matching_json_delimiter` for the object returns None.
+        let contents = "{\"packages\":[ { \"ident\": \"a\" ]";
+        let err = project_json_without_packages(contents, &["a"]).unwrap_err();
+        assert_eq!(err, "malformed project.json `packages` entry");
+    }
+
+    #[test]
+    fn updated_version_malformed_entry_errors() {
+        let contents = "{\"packages\":[ { \"ident\": \"a\" ]";
+        let err = project_json_with_updated_version(contents, "a", "2.0.0", None).unwrap_err();
+        assert_eq!(err, "malformed project.json `packages` entry");
+    }
+
+    #[test]
+    fn find_json_punct_scans_over_quoted_escapes() {
+        // A quoted string carrying an escaped quote precedes the target `:`, so
+        // the in-string escape/quote branches all execute before the punct match.
+        let contents = "\"a\\\"b\" :";
+        let colon = find_json_punct(contents, 0, b':').unwrap();
+        assert_eq!(&contents[colon..colon + 1], ":");
+        // No target after the string -> None (whitespace-only tail).
+        assert_eq!(find_json_punct("\"x\" ", 0, b':'), None);
+    }
+
+    #[test]
+    fn matching_delimiter_scans_over_escaped_string() {
+        // The braced object contains a string with a backslash escape, exercising
+        // the escaped-byte reset inside `matching_json_delimiter`.
+        let contents = "{\"a\\\"\"}";
+        let end = matching_json_delimiter(contents, 0, b'{', b'}').unwrap();
+        assert_eq!(end, contents.len() - 1);
+    }
+}
