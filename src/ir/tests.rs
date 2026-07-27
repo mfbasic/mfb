@@ -3442,6 +3442,300 @@ mod lower_tests {
         assert_eq!(function(&ir, "scaled").params.len(), 2);
         assert!(!function(&ir, "main").body.is_empty());
     }
+
+    // ---- plan-68 coverage: ops_read_local handler arms (no `e` read) -----
+    //
+    // Each handler below deliberately *never* references the trap binding `e`,
+    // so `ops_read_local(handler_ops, "e")` walks every op returning `false`.
+    // That reaches the match arms an `e`-reading handler short-circuits before
+    // (its condition/scrutinee `value_reads(_, "e")` returns `true` first).
+
+    #[test]
+    fn trap_handler_global_assign_arm_without_error_read() {
+        // AssignGlobal arm of `ops_read_local`: the handler assigns a top-level
+        // binding and never reads `e`.
+        let ir = lower_src(
+            "MUT flag AS Integer = 0\n\
+             FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 flag = 7\n\
+                 RECOVER 0\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_exit_program_arm() {
+        // ExitProgram arm of `ops_read_local`: a diverging handler.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 EXIT PROGRAM 3\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_continue_loop_arm() {
+        // ContinueLoop arm of `ops_read_local`: the trap sits in a FOR loop and
+        // its handler continues the loop, diverging without reading `e`.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               MUT total AS Integer = 0\n\
+               FOR i = 1 TO 3\n\
+                 LET n AS Integer = toInt(s) TRAP(e)\n\
+                   CONTINUE FOR\n\
+                 END TRAP\n\
+                 total = total + n\n\
+               NEXT\n\
+               RETURN total\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::For { .. }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_if_arm_recurses_both_branches() {
+        // If arm of `ops_read_local`: the condition does not read `e`, so the
+        // walk recurses into both the then- and else-bodies.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 IF len(s) > 0 THEN\n\
+                   RECOVER 0\n\
+                 ELSE\n\
+                   RECOVER 1\n\
+                 END IF\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_match_arm_with_guard_recurses() {
+        // Match arm of `ops_read_local`: the scrutinee and the CASE guard do not
+        // read `e`, so the walk evaluates the guard closure and recurses into the
+        // case body.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 MATCH len(s)\n\
+                   CASE 1 WHEN len(s) > 0\n\
+                     RECOVER 0\n\
+                   CASE ELSE\n\
+                     RECOVER 1\n\
+                 END MATCH\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_empty_loop_body_treeifies_to_nothing() {
+        // treeify_handler's empty-slice arm: a FOR loop with an empty body inside
+        // a handler makes `treeify_handler(&[])` return an empty Vec.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 FOR i = 1 TO 0\n\
+                 NEXT\n\
+                 RECOVER 0\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    // ---- plan-68 coverage: type inference over literals / constructors ---
+
+    #[test]
+    fn untyped_global_binding_infers_type() {
+        // A top-level binding with no `AS` annotation but a value drives
+        // `precompute_binding_types` to record its inferred type.
+        let ir = lower_src(
+            "LET answer = 42\n\
+             FUNC main() AS Integer\n\
+               RETURN answer\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn untyped_money_and_scalar_literal_types() {
+        // `expression_type` Money (suffixed literal) and Scalar (backtick
+        // literal) arms, via untyped bindings.
+        let ir = lower_src(
+            "LET price = 2.50m\n\
+             LET letter = `A`\n\
+             FUNC main() AS Integer\n\
+               RETURN 0\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn expected_typed_numeric_literals_coerce() {
+        // `lower_expression_with_expected` Number arm: unsuffixed literals coerce
+        // to the annotated Fixed / Byte / Money slot; a `m`-suffixed literal is
+        // intrinsically Money.
+        let ir = lower_src(
+            "FUNC main() AS Integer\n\
+               LET a AS Fixed = 5\n\
+               LET b AS Byte = 7\n\
+               LET c AS Money = 1.25\n\
+               LET d = 2.50m\n\
+               RETURN b\n\
+             END FUNC\n",
+        );
+        let f = function(&ir, "main");
+        assert!(f.body.iter().any(|op| matches!(
+            op,
+            IrOp::Bind { type_, .. } if type_ == "Fixed"
+        )));
+        assert!(f.body.iter().any(|op| matches!(
+            op,
+            IrOp::Bind { type_, .. } if type_ == "Money"
+        )));
+    }
+
+    #[test]
+    fn untyped_list_literal_element_types() {
+        // `literal_expression_type`: an untyped list literal in a position with no
+        // expected element type (a `len(...)` argument) derives its element type
+        // from the first element across each literal kind.
+        let ir = lower_src(
+            "FUNC main() AS Integer\n\
+               LET a = len([1, 2, 3])\n\
+               LET b = len([\"x\", \"y\"])\n\
+               LET c = len([`a`, `b`])\n\
+               LET d = len([TRUE, FALSE])\n\
+               RETURN a + b + c + d\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn collections_filter_bare_builtin_predicate_type() {
+        // The native higher-order member (`collections::filter`) with a *bare*
+        // general built-in predicate (`isEven`): `expression_type` binds the
+        // predicate's parameter type from the list element type and resolves the
+        // call's return type through `collections::resolve_call`.
+        let ir = lower_src(
+            "IMPORT collections\n\
+             FUNC run() AS List OF Integer\n\
+               LET xs AS List OF Integer = [1, 2, 3]\n\
+               RETURN collections::filter(xs, isEven)\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(!function(&ir, "run").body.is_empty());
+    }
+
+    #[test]
+    fn untyped_record_and_variant_constructor_and_field_types() {
+        // `constructor_result` for a record and a union variant, and
+        // `record_field_type` for a user record field, all via untyped bindings.
+        let ir = lower_src(
+            "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n\
+             TYPE Dog\n  legs AS Integer\nEND TYPE\n\
+             TYPE Cat\n  lives AS Integer\nEND TYPE\n\
+             UNION Animal\n  Dog\n  Cat\nEND UNION\n\
+             FUNC main() AS Integer\n\
+               LET p = Point(1, 2)\n\
+               LET a = Dog(4)\n\
+               LET v = p.x\n\
+               RETURN v\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn member_access_builtin_type_field_infers() {
+        // `record_field_type` builtin path: a field of a built-in package type
+        // (`term::TermSize.columns`) resolves through `term::builtin_type_fields`.
+        let ir = lower_src(
+            "IMPORT term\n\
+             FUNC main() AS Integer\n\
+               LET sz = term::terminalSize()\n\
+               LET c = sz.columns\n\
+               RETURN c\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn testing_block_item_is_skipped() {
+        // A top-level TESTING block is an `Item::Testing` the item loop skips
+        // (line 152); the program still lowers its ordinary functions.
+        let ir = lower_src(
+            "FUNC main() AS Integer\n\
+               RETURN 0\n\
+             END FUNC\n\
+             TESTING\n\
+               TGROUP \"g\"\n\
+                 TCASE \"c\"\n\
+                   expectInteger(1, 1)\n\
+                 END TCASE\n\
+               END TGROUP\n\
+             END TESTING\n",
+        );
+        assert_eq!(function(&ir, "main").returns, "Integer");
+    }
 }
 
 /// Per-construct lowering tests (plan-68-E1): each drives `lower_src` of a

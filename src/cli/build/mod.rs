@@ -3145,4 +3145,360 @@ mod tests {
         .expect("manifest");
         assert!(verify_and_report_packages(dir.path(), &manifest, false).is_err());
     }
+
+    /// Write an app-mode executable manifest whose `icon` points at an existing
+    /// file (dummy bytes). The icon existence check resolves (the `Some(resolved)`
+    /// arm), then the macOS backend rejects the non-1024×1024 image.
+    fn write_app_project_present_icon(dir: &Path) {
+        std::fs::write(
+            dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"mode\": \"app\",\n",
+                "  \"icon\": \"assets/app.png\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.join("src")).expect("src dir");
+        std::fs::write(dir.join("src").join("main.mfb"), "SUB main()\nEND SUB\n").expect("source");
+        std::fs::create_dir_all(dir.join("assets")).expect("assets dir");
+        // A file that exists (so the existence check passes) but is not a valid
+        // 1024×1024 image (so the backend's deep icon validation fails).
+        std::fs::write(dir.join("assets").join("app.png"), b"not really a png").expect("icon");
+    }
+
+    /// A present `icon` resolves (the `Some(resolved)` icon arm), then the macOS
+    /// app backend rejects the dummy image inside `write_executable` — driving the
+    /// icon-resolves arm and the `write_executable` error arm on the host.
+    #[test]
+    fn build_project_app_mode_present_icon_resolves_then_backend_rejects() {
+        // Only meaningful when the host is app-capable (macOS): the `write_executable`
+        // MacApp arm is what rejects the dummy icon. On a non-app host this build
+        // routes through a cross target instead, so guard on the host target.
+        if !target::target_supports_app_mode(&target::BuildTarget::host()) {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        write_app_project_present_icon(dir.path());
+        let options =
+            parse_build_options(s(&["-app", dir.path().to_str().unwrap()])).expect("options");
+        assert!(
+            build_project(&options).is_err(),
+            "a present-but-invalid icon must be rejected by the backend"
+        );
+    }
+
+    /// App mode with no `icon` field takes the `None => None` icon arm. Routed to a
+    /// Windows cross target (mfb's internal PE linker builds it without a host
+    /// toolchain), exercising the no-icon arm and the WindowsApp build mode.
+    #[test]
+    fn build_project_app_mode_without_an_icon_field_takes_the_none_arm() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"mode\": \"app\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src").join("main.mfb"), "SUB main()\nEND SUB\n").unwrap();
+        let options = parse_build_options(s(&[
+            "-app",
+            "-target",
+            "windows-x86_64",
+            dir.path().to_str().unwrap(),
+        ]))
+        .expect("options");
+        build_project(&options).expect("windows app build with no icon succeeds");
+    }
+
+    /// `--sign` with a manifest `ident` owned by a different signer fails at
+    /// `signing_ident` — before any registry/key access — exercising the signing
+    /// error arm.
+    #[test]
+    fn build_project_sign_rejects_a_foreign_manifest_ident() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"ident\": \"ada#app\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .unwrap();
+        // `zed` does not own `ada#app`, so signing_ident rejects it.
+        let options =
+            parse_build_options(s(&["--sign", "zed", dir.path().to_str().unwrap()])).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A top-level `EXPORT` in an executable resolves cleanly but is rejected by
+    /// the export-in-executable diagnostic, driving the `had_error` return after
+    /// the verify phase (as distinct from a resolver name error).
+    #[test]
+    fn build_project_export_in_an_executable_is_a_verify_error() {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "EXPORT FUNC leak() AS Integer\n  RETURN 1\nEND FUNC\n\nSUB main()\nEND SUB\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A `build/` path that already exists as a regular file (not a directory)
+    /// makes the start-of-build clear fail with a non-`NotFound` error, aborting
+    /// the executable build.
+    #[test]
+    fn build_project_errors_when_build_path_is_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        // A regular file where the build directory should be: remove_dir_all fails
+        // with NotADirectory (not NotFound), which is the fatal arm.
+        std::fs::write(dir.path().join(crate::os::BUILD_DIR), b"not a directory").unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// An executable declaring a local package dependency whose `.mfp` is not
+    /// installed passes package verification (a missing local dep is skipped there)
+    /// then fails at the strict install check inside the executable build.
+    #[test]
+    fn build_project_executable_missing_dependency_is_a_hard_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"packages\": [{ \"name\": \"ghost\", \"ident\": \"ada#ghost\", \"version\": \"0.1.0\", \"pin\": true, \"source\": \"file:packages/ghost.mfp\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// The same missing-dependency install check gates a package build (the
+    /// package arm's install-check error).
+    #[test]
+    fn build_project_package_missing_dependency_is_a_hard_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"lib\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"package\",\n",
+                "  \"description\": \"Fixture package with a missing dependency.\",\n",
+                "  \"packages\": [{ \"name\": \"ghost\", \"ident\": \"ada#ghost\", \"version\": \"0.1.0\", \"pin\": true, \"source\": \"file:packages/ghost.mfp\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"package\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("lib.mfb"),
+            "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A build that reads an installed dependency's exported function signatures
+    /// drives the `returns_imported_resource` filter closure over every external
+    /// signature (bug-377), even for the common non-resource return.
+    #[test]
+    fn build_project_reads_installed_dependency_exports() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"packages\": [{ \"name\": \"trap_builtin_pkg\", \"ident\": \"tests#trap\", \"version\": \"0.1.0\", \"pin\": false, \"source\": \"file:packages/trap_builtin_pkg.mfp\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .unwrap();
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::copy(
+            "tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp",
+            packages.join("trap_builtin_pkg.mfp"),
+        )
+        .expect("copy fixture");
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        // The build succeeds; the point is that the external-signature filter ran.
+        build_project(&options).expect("build with an installed dependency succeeds");
+    }
+
+    /// A cross-target `mfb test` build cannot run the produced binary on the host,
+    /// so it writes the test executable and reports the artifact instead of
+    /// executing it — driving the cross-target test-report arm.
+    #[test]
+    fn build_project_cross_target_test_reports_the_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            concat!(
+                "FUNC main AS Integer\n",
+                "  RETURN 0\n",
+                "END FUNC\n\n",
+                "TESTING\n",
+                "  TGROUP \"g\"\n",
+                "    TCASE \"c\"\n",
+                "      expectInteger(1, 1)\n",
+                "    END TCASE\n",
+                "  END TGROUP\n",
+                "END TESTING\n"
+            ),
+        )
+        .unwrap();
+        let options = parse_test_options(s(&[
+            "--target",
+            "windows-x86_64",
+            dir.path().to_str().unwrap(),
+        ]))
+        .expect("options");
+        // A cross target cannot be run on the host; the driver is written and
+        // reported (no execution, no host `build/` clobber).
+        build_project(&options).expect("cross-target test build writes an artifact");
+    }
+
+    /// A package build whose output location is read-only fails when
+    /// `write_package` cannot create the `.mfp`, exercising that error arm.
+    #[test]
+    #[cfg(unix)]
+    fn build_project_package_write_to_a_readonly_location_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        write_package_project(dir.path());
+        // Read + execute, but not write: sources still read, the .mfp cannot be
+        // written.
+        let mut perm = std::fs::metadata(dir.path()).unwrap().permissions();
+        perm.set_mode(0o555);
+        std::fs::set_permissions(dir.path(), perm).unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        let result = build_project(&options);
+        // Restore write so the temp dir can be cleaned up.
+        let mut restore = std::fs::metadata(dir.path()).unwrap().permissions();
+        restore.set_mode(0o755);
+        std::fs::set_permissions(dir.path(), restore).unwrap();
+        assert!(result.is_err(), "write_package into a read-only dir must fail");
+    }
+
+    /// Every artifact-dump writer surfaces its write error when the output location
+    /// is read-only, driving each dump's error arm (AST/IR/BR and the shared native
+    /// dump writer).
+    #[test]
+    #[cfg(unix)]
+    fn build_project_dump_writers_report_a_readonly_location() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        for flag in ["-ast", "-ir", "-br", "-nir", "-nplan", "-nobj", "-ncode", "-mir"] {
+            let dir = tempfile::tempdir().unwrap();
+            write_executable_project(dir.path());
+            let mut perm = std::fs::metadata(dir.path()).unwrap().permissions();
+            perm.set_mode(0o555);
+            std::fs::set_permissions(dir.path(), perm).unwrap();
+            let options =
+                parse_build_options(s(&[flag, dir.path().to_str().unwrap()])).expect("options");
+            let result = build_project(&options);
+            let mut restore = std::fs::metadata(dir.path()).unwrap().permissions();
+            restore.set_mode(0o755);
+            std::fs::set_permissions(dir.path(), restore).unwrap();
+            assert!(result.is_err(), "{flag}: a read-only location must fail the dump");
+        }
+    }
 }
