@@ -24,8 +24,8 @@
   { "name": "__LINKEDIT", "vmAddress": 4295000064, "vmSize": 4096, "fileOffset": 32768, "fileSize": 4096, "maxProtection": "read", "initialProtection": "read" }
   ],
   "sections": [
-  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 380, "align": 4 },
-  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294984064, "fileOffset": 16768, "size": 0, "align": 1 },
+  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 252, "align": 4 },
+  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983936, "fileOffset": 16640, "size": 0, "align": 1 },
   { "segment": "__LINKEDIT", "section": null, "kind": "linkedit", "vmAddress": 4295000064, "fileOffset": 32768, "size": 4096, "align": 1 }
   ],
   "codeUnits": [
@@ -37,15 +37,11 @@
   { "symbol": "_mfb_fn_inlineIfElse", "section": "__TEXT,__text", "offset": 152, "plannedSize": 24, "operations": ["branchIfFalse local flag -> if_else_0", "return Integer(4)", "branch -> if_end_1", "label if_else_0", "return Integer(5)", "label if_end_1"], "calls": [], "dataRefs": [] },
   { "symbol": "_mfb_fn_inlineIfAssign", "section": "__TEXT,__text", "offset": 176, "plannedSize": 32, "operations": ["bind mutable result AS Integer = Integer(0)", "branchIfFalse local flag -> if_else_0", "assign result = Integer(6)", "branch -> if_end_1", "label if_else_0", "assign result = Integer(7)", "label if_end_1", "return local result"], "calls": [], "dataRefs": [] },
   { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 208, "plannedSize": 12, "operations": ["bind immutable total AS Integer = (((((((call ifOnly(Boolean(false)) + call ifElse(Boolean(true))) + call ifElseIf(Boolean(false), Boolean(true))) + call ifElseIfElse(Boolean(false), Boolean(false))) + call inlineIfElse(Boolean(true))) + call inlineIfElse(Boolean(false))) + call inlineIfAssign(Boolean(true))) + call inlineIfAssign(Boolean(false)))", "eval runtimeCall io io.print(call toString(local total))", "return Integer(0)"], "calls": ["_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_inlineIfElse", "_mfb_fn_inlineIfAssign", "_mfb_rt_io_io_print"], "dataRefs": [] },
-  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 220, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_write"], "dataRefs": [] },
-  { "symbol": "_mfb_rt_perf_perf_init", "section": "__TEXT,__text", "offset": 252, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": [] },
-  { "symbol": "_mfb_rt_perf_perf_start", "section": "__TEXT,__text", "offset": 284, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_clock_gettime"], "dataRefs": [] },
-  { "symbol": "_mfb_rt_perf_perf_end", "section": "__TEXT,__text", "offset": 316, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": [] },
-  { "symbol": "_mfb_rt_perf_perf_done", "section": "__TEXT,__text", "offset": 348, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": [] }
+  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 220, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_write"], "dataRefs": [] }
   ],
   "dataUnits": [
   ],
-  "definedSymbols": ["_main", "_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_inlineIfElse", "_mfb_fn_inlineIfAssign", "_mfb_fn_main", "_mfb_rt_io_io_print", "_mfb_rt_perf_perf_init", "_mfb_rt_perf_perf_start", "_mfb_rt_perf_perf_end", "_mfb_rt_perf_perf_done"],
+  "definedSymbols": ["_main", "_mfb_fn_ifOnly", "_mfb_fn_ifElse", "_mfb_fn_ifElseIf", "_mfb_fn_ifElseIfElse", "_mfb_fn_inlineIfElse", "_mfb_fn_inlineIfAssign", "_mfb_fn_main", "_mfb_rt_io_io_print"],
   "importedSymbols": [
   { "library": "libSystem", "symbol": "_exit" },
   { "library": "libSystem", "symbol": "_getentropy" },
@@ -64,18 +60,14 @@
   { "name": "_mfb_fn_inlineIfAssign", "kind": "defined", "section": "__TEXT,__text", "value": 176, "stringTableOffset": 96 },
   { "name": "_mfb_fn_main", "kind": "defined", "section": "__TEXT,__text", "value": 208, "stringTableOffset": 119 },
   { "name": "_mfb_rt_io_io_print", "kind": "defined", "section": "__TEXT,__text", "value": 220, "stringTableOffset": 132 },
-  { "name": "_mfb_rt_perf_perf_init", "kind": "defined", "section": "__TEXT,__text", "value": 252, "stringTableOffset": 152 },
-  { "name": "_mfb_rt_perf_perf_start", "kind": "defined", "section": "__TEXT,__text", "value": 284, "stringTableOffset": 175 },
-  { "name": "_mfb_rt_perf_perf_end", "kind": "defined", "section": "__TEXT,__text", "value": 316, "stringTableOffset": 199 },
-  { "name": "_mfb_rt_perf_perf_done", "kind": "defined", "section": "__TEXT,__text", "value": 348, "stringTableOffset": 221 },
-  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 244 },
-  { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 250 },
-  { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 262 },
-  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 277 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 285 }
+  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 152 },
+  { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 158 },
+  { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 170 },
+  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 185 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 193 }
   ],
   "stringTable": {
-    "size": 292,
+    "size": 200,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_ifOnly", "offset": 7 },
@@ -86,15 +78,11 @@
     { "value": "_mfb_fn_inlineIfAssign", "offset": 96 },
     { "value": "_mfb_fn_main", "offset": 119 },
     { "value": "_mfb_rt_io_io_print", "offset": 132 },
-    { "value": "_mfb_rt_perf_perf_init", "offset": 152 },
-    { "value": "_mfb_rt_perf_perf_start", "offset": 175 },
-    { "value": "_mfb_rt_perf_perf_end", "offset": 199 },
-    { "value": "_mfb_rt_perf_perf_done", "offset": 221 },
-    { "value": "_exit", "offset": 244 },
-    { "value": "_getentropy", "offset": 250 },
-    { "value": "_clock_gettime", "offset": 262 },
-    { "value": "_signal", "offset": 277 },
-    { "value": "_write", "offset": 285 }
+    { "value": "_exit", "offset": 152 },
+    { "value": "_getentropy", "offset": 158 },
+    { "value": "_clock_gettime", "offset": 170 },
+    { "value": "_signal", "offset": 185 },
+    { "value": "_write", "offset": 193 }
     ]
   },
   "relocations": [
@@ -111,7 +99,6 @@
   { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_perf_perf_start", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" }
+  { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }

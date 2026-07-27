@@ -24,8 +24,8 @@
   { "name": "__LINKEDIT", "vmAddress": 4295000064, "vmSize": 4096, "fileOffset": 32768, "fileSize": 4096, "maxProtection": "read", "initialProtection": "read" }
   ],
   "sections": [
-  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 196, "align": 4 },
-  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983888, "fileOffset": 16592, "size": 3, "align": 1 },
+  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 68, "align": 4 },
+  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983760, "fileOffset": 16464, "size": 3, "align": 1 },
   { "segment": "__LINKEDIT", "section": null, "kind": "linkedit", "vmAddress": 4295000064, "fileOffset": 32768, "size": 4096, "align": 1 }
   ],
   "codeUnits": [
@@ -33,16 +33,12 @@
   { "symbol": "_mfb_fn_main", "section": "__TEXT,__text", "offset": 16, "plannedSize": 12, "operations": ["eval call consume$Integer(Integer(42))", "eval call consume$String(String(ok))", "eval runtimeCall io io.print(String(ok))"], "calls": ["_mfb_fn_consume_24Integer", "_mfb_fn_consume_24String", "_mfb_rt_io_io_print"], "dataRefs": [] },
   { "symbol": "_mfb_fn_consume_24Integer", "section": "__TEXT,__text", "offset": 28, "plannedSize": 4, "operations": ["noOp"], "calls": [], "dataRefs": [] },
   { "symbol": "_mfb_fn_consume_24String", "section": "__TEXT,__text", "offset": 32, "plannedSize": 4, "operations": ["noOp"], "calls": [], "dataRefs": [] },
-  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 36, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_write"], "dataRefs": ["_mfb_cstr_0"] },
-  { "symbol": "_mfb_rt_perf_perf_init", "section": "__TEXT,__text", "offset": 68, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": ["_mfb_cstr_0"] },
-  { "symbol": "_mfb_rt_perf_perf_start", "section": "__TEXT,__text", "offset": 100, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_clock_gettime"], "dataRefs": ["_mfb_cstr_0"] },
-  { "symbol": "_mfb_rt_perf_perf_end", "section": "__TEXT,__text", "offset": 132, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": ["_mfb_cstr_0"] },
-  { "symbol": "_mfb_rt_perf_perf_done", "section": "__TEXT,__text", "offset": 164, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": ["_mfb_cstr_0"] }
+  { "symbol": "_mfb_rt_io_io_print", "section": "__TEXT,__text", "offset": 36, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_write"], "dataRefs": ["_mfb_cstr_0"] }
   ],
   "dataUnits": [
   { "symbol": "_mfb_cstr_0", "section": "__TEXT,__cstring", "offset": 0, "size": 3, "value": "ok" }
   ],
-  "definedSymbols": ["_main", "_mfb_fn_main", "_mfb_fn_consume_24Integer", "_mfb_fn_consume_24String", "_mfb_rt_io_io_print", "_mfb_rt_perf_perf_init", "_mfb_rt_perf_perf_start", "_mfb_rt_perf_perf_end", "_mfb_rt_perf_perf_done", "_mfb_cstr_0"],
+  "definedSymbols": ["_main", "_mfb_fn_main", "_mfb_fn_consume_24Integer", "_mfb_fn_consume_24String", "_mfb_rt_io_io_print", "_mfb_cstr_0"],
   "importedSymbols": [
   { "library": "libSystem", "symbol": "_exit" },
   { "library": "libSystem", "symbol": "_getentropy" },
@@ -57,35 +53,27 @@
   { "name": "_mfb_fn_consume_24Integer", "kind": "defined", "section": "__TEXT,__text", "value": 28, "stringTableOffset": 20 },
   { "name": "_mfb_fn_consume_24String", "kind": "defined", "section": "__TEXT,__text", "value": 32, "stringTableOffset": 46 },
   { "name": "_mfb_rt_io_io_print", "kind": "defined", "section": "__TEXT,__text", "value": 36, "stringTableOffset": 71 },
-  { "name": "_mfb_rt_perf_perf_init", "kind": "defined", "section": "__TEXT,__text", "value": 68, "stringTableOffset": 91 },
-  { "name": "_mfb_rt_perf_perf_start", "kind": "defined", "section": "__TEXT,__text", "value": 100, "stringTableOffset": 114 },
-  { "name": "_mfb_rt_perf_perf_end", "kind": "defined", "section": "__TEXT,__text", "value": 132, "stringTableOffset": 138 },
-  { "name": "_mfb_rt_perf_perf_done", "kind": "defined", "section": "__TEXT,__text", "value": 164, "stringTableOffset": 160 },
-  { "name": "_mfb_cstr_0", "kind": "defined", "section": "__TEXT,__cstring", "value": 0, "stringTableOffset": 183 },
-  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 195 },
-  { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 201 },
-  { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 213 },
-  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 228 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 236 }
+  { "name": "_mfb_cstr_0", "kind": "defined", "section": "__TEXT,__cstring", "value": 0, "stringTableOffset": 91 },
+  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 103 },
+  { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 109 },
+  { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 121 },
+  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 136 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 144 }
   ],
   "stringTable": {
-    "size": 243,
+    "size": 151,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_main", "offset": 7 },
     { "value": "_mfb_fn_consume_24Integer", "offset": 20 },
     { "value": "_mfb_fn_consume_24String", "offset": 46 },
     { "value": "_mfb_rt_io_io_print", "offset": 71 },
-    { "value": "_mfb_rt_perf_perf_init", "offset": 91 },
-    { "value": "_mfb_rt_perf_perf_start", "offset": 114 },
-    { "value": "_mfb_rt_perf_perf_end", "offset": 138 },
-    { "value": "_mfb_rt_perf_perf_done", "offset": 160 },
-    { "value": "_mfb_cstr_0", "offset": 183 },
-    { "value": "_exit", "offset": 195 },
-    { "value": "_getentropy", "offset": 201 },
-    { "value": "_clock_gettime", "offset": 213 },
-    { "value": "_signal", "offset": 228 },
-    { "value": "_write", "offset": 236 }
+    { "value": "_mfb_cstr_0", "offset": 91 },
+    { "value": "_exit", "offset": 103 },
+    { "value": "_getentropy", "offset": 109 },
+    { "value": "_clock_gettime", "offset": 121 },
+    { "value": "_signal", "offset": 136 },
+    { "value": "_write", "offset": 144 }
     ]
   },
   "relocations": [
@@ -99,11 +87,6 @@
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_mfb_rt_io_io_print", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_perf_perf_start", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_io_io_print", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_perf_perf_init", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_perf_perf_start", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_perf_perf_end", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_perf_perf_done", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" }
+  { "from": "_mfb_rt_io_io_print", "to": "_mfb_cstr_0", "kind": "dataReference", "section": "__TEXT,__text" }
   ]
 }
