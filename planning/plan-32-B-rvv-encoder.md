@@ -1,6 +1,6 @@
 # plan-32-B: RVV instruction encoder (vsetvli + vector ops → bytes)
 
-Last updated: 2026-07-08
+Last updated: 2026-07-27
 Effort: medium (1h–2h)
 Depends on: nothing (independent of plan-32-A; both are consumed by C)
 
@@ -20,8 +20,9 @@ encodes to the exact 32-bit word a reference RISC-V assembler (`clang
 References:
 
 - `src/arch/riscv64/encode/emitter.rs` — `emit_instruction` mnemonic match
-  (`:119`), the `r_type`/`i_type`/`s_type`/`u_type` field packers (`:57`–`:85`),
-  `emit_fp_r` (`:401`), `emit_load_fp`/`emit_store_fp` (`:502`,`:511`).
+  (`:124`), the field packers `r_type` (`:59`), `i_type` (`:63`), `s_type`
+  (`:67`), `b_type` (`:74`), `u_type` (`:90`), `j_type` (`:94`), `emit_fp_r`
+  (`:436`), `emit_load_fp`/`emit_store_fp` (`:555`,`:570`).
 - `src/arch/riscv64/encode/sizing.rs` — per-mnemonic byte-size table (every new
   op is a single 4-byte word, so sizing is uniform).
 - `src/arch/riscv64/encode/operand.rs` — register-name → number decoding (needs
@@ -65,9 +66,9 @@ References:
 ## 2. Current State
 
 - The emitter is a flat mnemonic `match` in `emit_instruction`
-  (`src/arch/riscv64/encode/emitter.rs:119`) that dispatches to typed field
-  packers (`r_type` `:57`, `i_type` `:61`, `s_type` `:65`, `b_type` `:72`,
-  `u_type` `:81`, `j_type` `:85`) and helpers like `emit_fp_r` (`:401`). RISC-V
+  (`src/arch/riscv64/encode/emitter.rs:124`) that dispatches to typed field
+  packers (`r_type` `:59`, `i_type` `:63`, `s_type` `:67`, `b_type` `:74`,
+  `u_type` `:90`, `j_type` `:94`) and helpers like `emit_fp_r` (`:436`). RISC-V
   words are fixed 32-bit; `sizing.rs` maps each mnemonic to its byte length
   (mostly 4, with multi-word base-ISA expansions).
 - Register names decode via `encode/operand.rs`; today only `x*`/ABI-int names

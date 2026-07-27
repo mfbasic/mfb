@@ -1,9 +1,9 @@
 # plan-32-A: RVV runtime detection (startup HWCAP probe → global flag)
 
-Last updated: 2026-07-08
+Last updated: 2026-07-27
 Overall Effort: x-large (1d–3d)
 Effort: medium (1h–2h)
-Depends on: nothing (plan-99 rv64 backend is landed on branch `riscv64`)
+Depends on: nothing (plan-99 rv64 backend is landed on `main`)
 
 **Goal of the whole plan-32 feature: a *single* `linux-riscv64` binary that runs
 on both V-capable and non-V RISC-V chips**, using native RVV vector code where
@@ -20,12 +20,16 @@ exit code is the flag.
 
 References:
 
-- `src/target/linux_riscv64/code.rs:63` `entry_args_in_registers` (false — raw
-  ELF entry: `argc` at `[sp]`, `argv` at `sp+8`; `envp` and the **aux vector**
-  follow on the initial stack), `emit_program_entry` (`:148`).
-- `src/target/shared/code/entry_and_arena.rs:19` `lower_program_entry` — the
-  shared entry that reads `argc`/`argv` off the stack and initializes the arena
-  before the language entry runs; the auxv scan slots in here (or a riscv hook).
+- `src/target/linux_common/code.rs:328` `entry_args_in_registers` (false — the
+  raw-ELF linux entry shared by all three linux arches incl. riscv64: `argc` at
+  `[sp]`, `argv` at `sp+8`; `envp` and the **aux vector** follow on the initial
+  stack), `emit_program_entry` (`:414`). `linux_riscv64/code.rs` defines no entry
+  of its own — it shares `linux_common::code`, so there is no riscv64-only
+  `emit_program_entry` to extend.
+- `src/target/shared/code/entry.rs:4` `lower_program_entry` — the shared entry
+  that reads `argc`/`argv` off the stack and initializes the arena before the
+  language entry runs; the auxv scan slots in here (or a riscv hook). (Was
+  `entry_and_arena.rs` until bug-327 split it into 5 files.)
 - Linux `AT_HWCAP` (auxv key 16); RISC-V ISA letters map to HWCAP bits by
   `1 << (letter - 'A')`, so **`V` = bit 21** (`COMPAT_HWCAP_ISA_V`). (The newer
   `riscv_hwprobe(2)` syscall is an alternative; auxv is simpler and needs no
@@ -34,8 +38,9 @@ References:
 
 ## 1. Goal
 
-- A one-byte global `_mfb_rt_has_rvv` (default 0), emitted as a data/BSS symbol
-  by the linux_riscv64 module.
+- A one-byte process-global `_mfb_rt_has_rvv` (default 0), emitted as a plain
+  data/BSS symbol by the linux_riscv64 module. (HWCAP is process-global, so
+  unlike the *per-thread* v128 slot region this is a genuine global — see §3.)
 - Entry-time code (before the language entry) that walks the initial stack —
   past `argc`, the `argv` vector, the `envp` vector, to the auxv key/value
   pairs — finds `AT_HWCAP`, tests bit 21, and stores 0/1 into `_mfb_rt_has_rvv`.
@@ -55,10 +60,11 @@ References:
 ## 2. Current State
 
 - The riscv64 entry is a raw ELF entry: `entry_args_in_registers()` is false
-  (`src/target/linux_riscv64/code.rs:63`), and `lower_program_entry`
-  (`src/target/shared/code/entry_and_arena.rs:19`) already reads `argc` at
-  `[sp]` and computes `argv` at `sp+8` before carving the frame — proving the
-  initial-stack layout is reachable and the pattern for reading it exists.
+  (`src/target/linux_common/code.rs:328`, shared by every linux arch), and
+  `lower_program_entry` (`src/target/shared/code/entry.rs:4`) already reads
+  `argc` at `[sp]` and computes `argv` at `sp+8` before carving the frame —
+  proving the initial-stack layout is reachable and the pattern for reading it
+  exists.
 - `envp` follows `argv`'s NULL terminator; the **aux vector** (key/value `u64`
   pairs, terminated by key `AT_NULL`=0) follows `envp`'s NULL — standard SysV
   layout, all reachable by loads from the entry `sp`.
@@ -72,9 +78,12 @@ References:
 
 Two pieces, both isolated to the riscv64 target:
 
-1. **The flag symbol.** A 1-byte (padded) data object `_mfb_rt_has_rvv`,
-   default 0, emitted by the linux_riscv64 module lowering when the entry
-   references it (mirroring how `_mfb_rt_v128_slots` is emitted on demand).
+1. **The flag symbol.** A 1-byte (padded) process-global data/BSS object
+   `_mfb_rt_has_rvv`, default 0, emitted by the linux_riscv64 module lowering
+   when the entry references it. (Note: the v128 slot region is *no longer* a
+   global — bug-122 moved it into the per-thread arena state off `s11`, so the
+   old `_mfb_rt_v128_slots` symbol is gone and there is nothing to "mirror". This
+   flag is a genuine global because HWCAP is process-wide.)
 2. **The auxv scan**, emitted into the riscv64 program entry after arena init,
    before the language entry:
    - `t = sp` (entry sp, before the frame is carved — capture it first).
@@ -97,7 +106,8 @@ isn't.
 **Why auxv, not a build flag or IFUNC:** a build flag can't make one binary work
 on both chips (the whole goal). IFUNC/function-pointer multiversioning needs a
 callable kernel to swap, but the SIMD kernels are **inlined** into user code
-(`builder_simd_float_math.rs:312` emits into the current function), so there is
+(`builder_simd_float_math.rs` emits them into the current function — see the
+`float_kernel_regs` / kernel-emission region), so there is
 no symbol to redirect. A settled global byte + an in-lowering branch (sub-plan
 C) is the model that fits this codebase. (See C for the dispatch design.)
 
@@ -115,12 +125,13 @@ C) is the model that fits this codebase. (See C for the dispatch design.)
 Land the data symbol and the auxv-scan as an emitted entry step, wired to a
 temporary exit-code probe so it is verifiable alone.
 
-- [ ] Emit `_mfb_rt_has_rvv` (1 byte, default 0) from the linux_riscv64 module
-      on demand (mirror `_mfb_rt_v128_slots` emission).
-- [ ] Emit the auxv scan in the riscv64 program entry
-      (`src/target/linux_riscv64/code.rs` `emit_program_entry`, or a guarded hook
-      in `entry_and_arena.rs`): capture entry `sp`, walk argc/argv/envp to auxv,
-      find `AT_HWCAP`, store bit 21 to `_mfb_rt_has_rvv`.
+- [ ] Emit `_mfb_rt_has_rvv` (1 byte, default 0) as a process-global data/BSS
+      symbol from the linux_riscv64 module on demand.
+- [ ] Emit the auxv scan in the riscv64 program entry — a riscv64-guarded step in
+      `src/target/linux_common/code.rs` `emit_program_entry` (`:414`) or in the
+      shared `lower_program_entry` (`entry.rs`), since riscv64 has no entry of its
+      own: capture entry `sp`, walk argc/argv/envp to auxv, find `AT_HWCAP`, store
+      bit 21 to `_mfb_rt_has_rvv`.
 - [ ] Tests: a probe build whose program exits with the flag value; a selection/
       encoder unit test asserting the entry references `_mfb_rt_has_rvv` and the
       scan uses only entry-scratch registers (no argc/argv clobber).
@@ -157,10 +168,12 @@ Commit: —
 
 ## Open Decisions
 
-- **Scan placement** — a guarded step inside shared `lower_program_entry`
-  (one code path, `if arch==riscv64`) vs. a riscv64-only addition in
-  `linux_riscv64/code.rs::emit_program_entry`. Recommend the latter (keeps the
-  shared entry untouched for other arches). (§3)
+- **Scan placement** — a riscv64-guarded step inside shared `lower_program_entry`
+  (`entry.rs`, one code path, `if arch==riscv64`) vs. a guarded step in
+  `linux_common::code::emit_program_entry` (`:414`). The old third option (a
+  riscv64-only addition in `linux_riscv64/code.rs::emit_program_entry`) is **gone**
+  — that file no longer defines its own entry; it shares `linux_common`. Recommend
+  the linux_common entry step, riscv64-guarded, so other arches stay untouched. (§3)
 - **`AT_HWCAP` vs. `riscv_hwprobe`** — recommend `AT_HWCAP` bit 21 (no syscall,
   works on every Linux that runs the binary). Revisit only if a needed sub-feature
   isn't reflected in HWCAP. (§1)

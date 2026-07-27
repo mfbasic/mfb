@@ -1,6 +1,6 @@
 # plan-32-D: RVV per-run optimization, validation, CI, and docs
 
-Last updated: 2026-07-08
+Last updated: 2026-07-27
 Effort: medium (1h–2h)
 Depends on: plan-32-A, plan-32-B, plan-32-C
 
@@ -21,11 +21,14 @@ References:
 
 - `tools/math-kernels/runtime_ulp.py`, `tools/math-kernels/ulp.py` — the ULP
   harness; plan-99 §5 requires ≤1 ULP on rv64 (base-D FMA).
-- `src/arch/riscv64/v128.rs` `build_slot_map`/`_mfb_rt_v128_slots` — the
-  run-boundary reconciliation point the per-run optimization spills to.
-- `.ai/remote_systems.md` (`ssh -p 2229` Alpine riscv64; V status unknown, so
-  QEMU `-cpu ...,v=true` is the portable oracle); `.ai/specifications.md`,
-  `.ai/compiler.md`.
+- `src/arch/riscv64/v128.rs` `build_slot_map` + the per-thread v128 slot region
+  (`arena_base + ARENA_V128_SLOTS_OFFSET`, off `s11`; bug-122 moved it here from
+  the former `_mfb_rt_v128_slots` global) — the run-boundary reconciliation point
+  the per-run optimization spills to.
+- `.ai/remote_systems.md` (`ssh -p 2229` Alpine riscv64 **musl**, and now
+  `ssh -p 2232` Debian riscv64 **glibc** — covers both libc flavors; V status
+  unknown on both, so QEMU `-cpu ...,v=true` is the portable oracle);
+  `.ai/specifications.md`, `.ai/compiler.md`.
 - `planning/old-plans/plan-99-rv64-backend.md` §5 — the parity / ULP / both-libc
   bar this extends to the dual-path binary.
 
