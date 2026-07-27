@@ -810,4 +810,131 @@ END TESTING
         let types: HashMap<String, String> = HashMap::new();
         assert_eq!(rewrite_type_str("List OF Widget", &types), "List OF Widget");
     }
+
+    #[test]
+    fn two_files_sharing_a_path_hit_the_duplicate_hash_arm() {
+        // Two AstFiles with the *same* path hash identically; the second file's
+        // `Some(prev) if prev == path` falls through to `Some(_) => {}` (line 50),
+        // NOT the distinct-path collision arm. `project_from_src` gives each file
+        // the same `main.mfb` path, so build the project by hand.
+        let project = crate::testutil::project_from_src("PRIVATE LET a AS Integer = 1\n");
+        let one = project.files[0].clone();
+        let mut two = one.clone();
+        two.path = one.path.clone(); // identical path (explicit; already equal)
+        let mut dup = AstProject {
+            name: "t".to_string(),
+            files: vec![one, two],
+        };
+        let diagnostics = scope_privates(&mut dup);
+        // The identical-path case is NOT a collision — no such diagnostic fires.
+        assert!(
+            !diagnostics
+                .iter()
+                .any(|d| d.rule == "PRIVATE_PATH_HASH_COLLISION"),
+            "identical paths must not be reported as a hash collision"
+        );
+    }
+
+    #[test]
+    fn shadow_warning_reports_the_line_of_each_decl_kind() {
+        // A PUBLIC + PRIVATE pair of each declaration kind (Function, Type,
+        // Resource, FuncAlias) drives every `item_line` arm (132-135) via the
+        // shadow-warning path.
+        let src = "IMPORT io\n\n\
+             FUNC dup() AS Integer\n  RETURN 1\nEND FUNC\n\
+             PRIVATE FUNC dup() AS Integer\n  RETURN 2\nEND FUNC\n\
+             TYPE Dup2\n  a AS Integer\nEND TYPE\n\
+             PRIVATE TYPE Dup2\n  b AS Integer\nEND TYPE\n\
+             RESOURCE Dup3 CLOSE BY io::print\n\
+             PRIVATE RESOURCE Dup3 CLOSE BY io::print\n\
+             FUNC Dup4 AS io::print\n\
+             PRIVATE FUNC Dup4 AS io::print\n";
+        let mut project = crate::testutil::project_from_src(src);
+        let diagnostics = scope_privates(&mut project);
+        let shadows = diagnostics
+            .iter()
+            .filter(|d| d.rule == "PRIVATE_SHADOWS_PUBLIC")
+            .count();
+        assert_eq!(
+            shadows,
+            4,
+            "expected one shadow per decl kind, got rules {:?}",
+            diagnostics.iter().map(|d| &d.rule).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn item_line_of_a_non_visibility_item_is_zero() {
+        // `Link`/`Doc`/`Testing` never reach `item_line` through the shadow path
+        // (they carry no visibility), so cover the `=> 0` arm (136) directly.
+        let file = crate::testutil::parse_file("LINK \"x\" AS l\nEND LINK\n");
+        let link = file
+            .items
+            .iter()
+            .find(|item| matches!(item, Item::Link(_)))
+            .expect("a LINK item");
+        assert_eq!(item_line(link), 0);
+    }
+
+    #[test]
+    fn function_param_state_type_is_rewritten() {
+        // A `RES h AS File STATE Meta` param names the private `Meta` in its STATE
+        // clause; the pass rewrites it (line 175).
+        let src = "PRIVATE TYPE Meta\n  x AS Integer\nEND TYPE\n\n\
+             FUNC f(RES h AS File STATE Meta)\n  h.state = 0\nEND FUNC\n";
+        let mut project = crate::testutil::project_from_src(src);
+        scope_privates(&mut project);
+        assert!(project.to_json().contains(&mangled("Meta")));
+    }
+
+    #[test]
+    fn resource_close_fn_naming_a_private_func_is_rewritten() {
+        // `CLOSE BY closer` names a private func, so `close_fn` follows the rename
+        // map (line 236).
+        let src = "PRIVATE FUNC closer() AS Nothing\n  RETURN\nEND FUNC\n\n\
+             RESOURCE H CLOSE BY closer\n";
+        let mut project = crate::testutil::project_from_src(src);
+        scope_privates(&mut project);
+        assert!(project.to_json().contains(&mangled("closer")));
+    }
+
+    #[test]
+    fn link_block_signatures_referencing_a_private_type_are_rewritten() {
+        // A LINK native FUNC whose param (type + STATE), return (type + STATE), and
+        // whose CSTRUCT `maps_to` all name the private `Priv` drives the whole LINK
+        // rewrite block (245-264).
+        let src = "PRIVATE TYPE Priv\n  x AS Integer\nEND TYPE\n\n\
+             LINK \"x\" AS l\n\
+             \x20 CSTRUCT Foo AS Priv\n    a CInt32\n  END CSTRUCT\n\
+             \x20 FUNC nf(RES p AS Priv STATE Priv) AS RES Priv STATE Priv\n\
+             \x20   SYMBOL \"s\"\n\
+             \x20   ABI (p CPtr) AS r CPtr\n\
+             \x20 END FUNC\n\
+             END LINK\n";
+        let mut project = crate::testutil::project_from_src(src);
+        scope_privates(&mut project);
+        assert!(project.to_json().contains(&mangled("Priv")));
+    }
+
+    #[test]
+    fn let_binding_state_type_is_rewritten() {
+        // A `RES conn AS File STATE Meta2 = …` binding names the private `Meta2` in
+        // its STATE clause (line 327).
+        let src = "PRIVATE TYPE Meta2\n  x AS Integer\nEND TYPE\n\n\
+             FUNC g() AS Integer\n  RES conn AS File STATE Meta2 = open()\n  RETURN 0\nEND FUNC\n";
+        let mut project = crate::testutil::project_from_src(src);
+        scope_privates(&mut project);
+        assert!(project.to_json().contains(&mangled("Meta2")));
+    }
+
+    #[test]
+    fn set_literal_element_type_and_elements_are_rewritten() {
+        // A non-empty `Set OF Elem { Elem[1] }` literal drives the SetLiteral arm's
+        // element_type rewrite and element loop (505-511).
+        let src = "PRIVATE TYPE Elem\n  x AS Integer\nEND TYPE\n\n\
+             FUNC h() AS Integer\n  LET s AS Set OF Elem = Set OF Elem { Elem[1] }\n  RETURN 0\nEND FUNC\n";
+        let mut project = crate::testutil::project_from_src(src);
+        scope_privates(&mut project);
+        assert!(project.to_json().contains(&mangled("Elem")));
+    }
 }

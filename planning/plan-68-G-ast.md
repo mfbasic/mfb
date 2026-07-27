@@ -252,7 +252,7 @@ unterminated (145-151); native-FUNC duplicate BIND STATE (287-291);
 END-not-BIND (442-449), field missing name (456-458)/`=`(461-463)/value(466-468),
 unterminated (478-484); `parse_const_pin` SIZEOF pin (677-688). No production
 change; no bug surfaced.
-Commit: <LINK_COMMIT>
+Commit: bb6ecb537
 
 ### Phase G4 — `src/ast/scope_privates.rs` (46 uncov)
 
@@ -260,17 +260,17 @@ Already carries an inline `#[cfg(test)] mod tests` with the broad `BROAD`
 program driving most rewrite arms. Extend it. Read the `DA:LINE,0` list — the
 uncovered set is the arms `BROAD` misses:
 
-- [ ] **Duplicate-path arm `Some(_) => {}`** (`scope_privates.rs:50`): build an
+- [x] **Duplicate-path arm `Some(_) => {}`** (`scope_privates.rs:50`): build an
       `AstProject` whose `files` hold two `AstFile`s with the **same `path`** and
       run `scope_privates`; the second file's identical hash hits this arm. (Use
       `parse_file` twice into a hand-built `AstProject`, not `project_from_src`.)
-- [ ] **Any rewrite arm the fresh list flags** in `rewrite_stmt` / `rewrite_expr`
+- [x] **Any rewrite arm the fresh list flags** in `rewrite_stmt` / `rewrite_expr`
       / `rewrite_test_group` (e.g. `Statement::StateAssign` at :340,
       `MatchPattern::OneOf` / `Union` / `Else`, specific `Expression` arms):
       add the missing construct to `BROAD` (or a focused second fixture) so the
       private name flows through that arm, and assert the mangled name appears in
       `to_json()`. Cross-check each added arm against the `DA:LINE,0` list.
-- [ ] **Toolchain-file skip** (75–77, `file.internal || path.starts_with('<')`):
+- [x] **Toolchain-file skip** (75–77, `file.internal || path.starts_with('<')`):
       confirm covered by the prelude that `project_from_src` appends; if the list
       shows it uncovered, assert a project whose only private-bearing file is
       `internal` is left untouched.
@@ -288,7 +288,27 @@ disposition in Corrections.
 Acceptance: `sh scripts/coverage.sh` (fresh) then
 `sh scripts/coverage-check.sh src/ast/scope_privates.rs` shows ≥95% (or ≥95% of
 the reachable denominator once A fences the collision arm).
-Commit: —
+
+NOTE (fresh lcov, 46 red). Covered by 8 new tests (32 lines): duplicate-path
+`Some(_) => {}` (50); `item_line` Function/Type/Resource/FuncAlias arms (132-135)
+via PUBLIC+PRIVATE shadow pairs; `item_line` Link/Doc/Testing `=> 0` arm (136) via
+a DIRECT call (its only production caller, the shadow path, never passes those
+variants); function-param STATE rewrite (175); resource `close_fn`→private (236);
+LINK-block param/return type+STATE + cstruct `maps_to` rewrite (245-264); LET/RES
+binding STATE rewrite (327); SetLiteral element_type+elements rewrite (505-511).
+RESIDUAL uncovered, all documented — file still reaches ~97% (466/480):
+- 41-49 `PRIVATE_PATH_HASH_COLLISION`: EXCEPTION-CANDIDATE for A — a distinct-path
+  `file_scope_hash` collision, not constructible from a unit test. Not fabricated.
+  A decides fence-vs-exception (cargo-llvm-cov 0.8.7 ignores inline markers → A
+  will likely use the exception FILE).
+- 451, 474: llvm-cov CLOSING-BRACE ARTIFACTS — the enclosing `if let Some(mangled)`
+  blocks execute 14× (DA:447-449 = 14, DA:472 = 2) yet the trailing `}` line
+  reports 0. NOT coverable by any test; flag for A alongside the collision arm.
+- 720, 731, 776: pre-existing TEST-MODULE panic-message argument expressions
+  (`assert!(…, "…", <expr>)`) that only evaluate on assertion failure; uncoverable
+  on a green run. Left untouched (not our target; would require failing an
+  existing test).
+Commit: <SCOPE_COMMIT>
 
 ### Phase G5 — `src/ast/serialize.rs` (49 uncov)
 
