@@ -5,8 +5,29 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/... (to be added — a package-imports-package fixture; see Phase 1)
+Status: FIXED
+Regression Test: tests/rt_foreign_type_reexport.rs (builds pA/pB/pC/app from source)
+
+STATUS: FIXED — foreign-type-reference BR encoding (kind 12) + true namespace
+re-export + ABI-compatibility gate. Landed across:
+- `008392085` writer/encoder/serializer for `FOREIGN_TYPE_KIND` (pB/pC build)
+- `75c23464a` surfacing reachability pass, `validate_abi_index` candidate,
+  `read_package_type_exports` transitive owner resolution (app runs)
+- `3ccde6ff1` `verify_foreign_type_abi_consistency` compat gate
+- `0afd05968` integration test; `165e04494` spec docs
+Verified on macos-aarch64: pA/pB/pC/app round-trips to 42; pB re-exports only
+surfaced `A` (not private `B`, not unused `C`); consumer cannot name private `B`;
+ABI-incompatible pA rejected; full `cargo test` green; artifact-gate 1464
+goldens / 0 diffs; 39 package/import acceptance fixtures unchanged.
+
+Deviations from the written design (details in the phase Corrections): (1) the
+empty-record placeholder was also interned for a non-surfacing control via the
+bug-100 table-order loop, so "only surfaced types re-exported" is enforced by an
+explicit reachability pass, not by non-creation; (2) the compat gate is a
+dedicated cross-package consumer check, not `validate_abi_index`'s single-package
+recompute (which only replays the stored hash); (3) the executable merge does not
+need the owner's IR (pB/pC bodies are self-contained for `A`) — the owner `.mfp`
+is needed by the front-end for name/field resolution.
 
 A package build (`kind: "package"`) fails to produce a valid `.mfp` when one of
 its **exported** functions or types names a type that was **imported from a
@@ -357,54 +378,89 @@ new fixtures gain new `.mfp` bytes.
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Build the pA/pB/pC/app fixture set under `tests/` (Acceptance model
-      above) following the existing package-dependency fixture conventions: `pA`
+- [x] Build the pA/pB/pC/app fixture set (Acceptance model above): `pA`
       exporting `A` and `C` plus a private `B`; `pB` naming `A` in an exported
       argument; `pC` naming `A` in an exported result; `app` importing pB+pC and
-      wiring `pC::makesA()` → `pB::takesA(...)`. Assert `pB`/`pC` currently fail
-      to build with `truncated binary representation`. Add a working control
-      (dependency-function use with no foreign type in the API).
-- [ ] Confirm the executable-consumer path (merge) builds and runs today for the
-      already-working shapes, to pin it as a non-goal regression guard.
-- [ ] Record the blast-radius verdicts above in-file (done).
+      wiring `pC::makesA()` → `pB::takesA(...)`. Encoded as the Rust integration
+      test `tests/rt_foreign_type_reexport.rs` (builds every package from source,
+      no committed binary goldens to churn) plus the dev harnesses
+      `scenario-390.sh` / `incompat-390.sh`. Confirmed RED on the unfixed binary:
+      `pB`/`pC` abort with `truncated binary representation` via the empty-record
+      `type_id` fallback (backtrace: `type_id` ← `lower_project_with_external_functions`).
+- [x] Confirmed the executable-consumer path builds/runs today for the working
+      shapes (full `cargo test` green pre-fix); a package-references-a-foreign-type
+      case is genuinely new (no in-tree package depends on another — blast radius).
+- [x] Record the blast-radius verdicts above in-file (done).
 
 Acceptance: the new package fixtures fail for the documented reason; the control
-and executable-consumer fixtures pass; audit complete.
-Commit: —
+and executable-consumer fixtures pass; audit complete. ✓
+
+**Correction to the doc's mechanism:** the empty-record placeholder is also
+interned for a working *control* (`ok`) via the `external_function_returns`
+table-order loop (`writer.rs`, bug-100), not only when a package surfaces the
+type. So the fix's "only surfaced types are re-exported" is enforced by an
+explicit reachability pass (below), not by the entry never being created.
+Commit: 008392085 (M1 checkpoint)
 
 ### Phase 2 — the fix
 
-- [ ] Add the foreign-type-reference type-table kind (dep name + original type
-      name + owning-package ABI hash) — writer in `src/binary_repr/sections.rs`,
-      decoder in the BR reader. Wire `type_id`'s `_` arm to emit it for an
-      imported-package type instead of the zero-field record.
-- [ ] Compute exported `sig_hash` so a foreign type contributes pA's identity for
-      A (original hash, no re-mangle), and route the foreign reference through
-      `validate_abi_index`'s recompute so an ABI-incompatible dependency version
-      is rejected at consume time.
-- [ ] Resolve the foreign reference during the executable decode-and-merge to the
-      dependency's merged definition, pulling the owning package in transitively
-      when a consumer declares only the intermediaries.
-- [ ] Resolve the naming decision (Open Decisions) and implement the chosen
-      import/scoping rule for *naming* a re-exported type in the consumer.
+- [x] Added `FOREIGN_TYPE_KIND` (12) type-table entry (owner package via the
+      existing `owner_package` field + payload `[u16 underlying-export-kind][32-byte
+      owning ABI hash]`). `type_id`'s `_` arm emits it (from a new `foreign_types`
+      map seeded by `external_type_metadata`) instead of the zero-field record;
+      `serialize_type_inner` hashes it by the owning identity; the decoder
+      reconstructs its original name and `validate_abi_index` accepts it as a
+      candidate for a Type/Union/Enum export.
+- [x] Exported `sig_hash` contributes pA's identity for `A` (the owning hash is
+      copied through, never re-walked); a reachability pass
+      (`mark_reexported_foreign_types`) surfaces only foreign types reached from
+      this package's own exported symbols. The ABI-incompatibility gate is
+      enforced by `verify_foreign_type_abi_consistency` on every consumer build
+      (see Correction below re: `validate_abi_index`).
+- [x] The executable decode-and-merge resolves `A` to pA's definition by bare
+      name (the merge is IR-name-based); the front-end resolves a re-exported
+      type's fields transitively from the owner's sibling `.mfp`
+      (`read_package_type_exports`), so the owning package is pulled in
+      transitively without being declared.
+- [x] Naming decision resolved (true namespace re-export): importing pB brings
+      `A` into scope under pA's identity; the resolver/syntaxcheck already key
+      imported types by bare name, so surfacing `A` in pB's type exports is
+      sufficient and idempotent across pB/pC.
 
-Acceptance: the Phase 1 package fixtures build to valid `.mfp`s; app compiles,
-links, and runs (value round-trips pC→pB); `B` and unused `C` are absent from
-pB's surface; an ABI-incompatible pA fails app's build; the control fixtures
-still build byte-identically; nothing in Non-goals changed.
-Commit: —
+Acceptance: pB/pC build to valid `.mfp`s; app compiles, links, and runs (value
+round-trips pC→pB to 42); `B` and unused `C` are absent from pB's surface; an
+ABI-incompatible pA fails app's build; existing outputs unchanged. ✓ (all via
+`tests/rt_foreign_type_reexport.rs`)
+
+**Correction to the Fix Design:** the compat gate does **not** ride on
+`validate_abi_index`'s single-package recompute — that replays the foreign-ref's
+stored hash and so can't detect an incompatible owner. The cross-package check
+(`verify_foreign_type_abi_consistency`, run from
+`external_package_function_types_from_files`) is a dedicated consumer-side pass:
+it rejects a dependency set whose intermediaries carry different owning hashes for
+the same `owner::type`, or whose hash disagrees with the installed owner. The
+merge itself does not need the owner's IR (pB/pC bodies are self-contained for
+`A`); the owner `.mfp` is needed by the front-end for name/field resolution.
+Commit: 75c23464a (surface+resolve), 3ccde6ff1 (compat gate), 0afd05968 (test)
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate any `.mfp`/BR goldens the new fixtures introduce; confirm no
-      pre-existing package `.mfp` output changed (byte-identity guard).
-- [ ] Run the full `cargo test` / artifact-gate suite.
-- [ ] Re-run the Failing Reproduction on every target in the matrix; confirm it
-      now builds/links/runs.
+- [x] No new committed binary goldens: the regression guard is a from-source
+      Rust integration test (`tests/rt_foreign_type_reexport.rs`), so there is no
+      `.mfp`/BR golden to introduce. Byte-identity of pre-existing outputs
+      confirmed: artifact-gate = **1464 goldens checked, 0 diffs**; acceptance on
+      all 39 `*package*`/`*import*` fixtures passed unchanged.
+- [x] Full `cargo test -p mfb` green (28 `test result: ok`, 0 failed) + the new
+      integration test (3 passed) + citation tests + artifact gate.
+- [x] Re-ran the Failing Reproduction on macos-aarch64 (the doc's matrix): the
+      `bug` package now writes `bug.mfp` (was `truncated binary representation`),
+      the `ok` control still builds, and the full pA/pB/pC/app model links and
+      runs (→ 42). The mechanism is target-independent (shared BR writer), so
+      Linux/other targets resolve identically.
 
-Acceptance: full suite green; expected-output deltas are exactly the new
-fixtures; the reproduction passes where it previously failed.
-Commit: —
+Acceptance: full suite green; no expected-output deltas (no new goldens); the
+reproduction passes where it previously failed. ✓
+Commit: 165e04494 (spec docs); validation this section — no code delta.
 
 ## Validation Plan
 
@@ -425,12 +481,13 @@ Commit: —
 - **RESOLVED — transitive deps:** *required*, not deferred. The pA/pB/pC/app
   model needs the owning package (pA) pulled in transitively so both foreign
   references resolve to one merged `pA::A`. (§Fix Design)
-- **OPEN — naming/scoping of a re-exported type:** must app `IMPORT pA` to *name*
-  `A` in its own source (identity-only re-export — values flow/unify without it),
-  or does `IMPORT pB` bring `A` into scope under pA's original identity (true
-  namespace re-export, idempotent across pB and pC)? Value flow works either way;
-  this only governs `DIM x AS A` in the consumer. Blocks the resolver design in
-  Phase 2. (§Goal → "Open naming decision")
+- **RESOLVED — naming/scoping of a re-exported type (maintainer, 2026-07-26):**
+  *true namespace re-export, idempotent across pB and pC.* `IMPORT pB` alone
+  brings `A` into scope under pA's original identity, so the consumer may write
+  `DIM x AS A` without importing pA. When both pB and pC re-export the same
+  `pA::A`, the second import is idempotent (one identity, no clash). This is the
+  more ambitious of the two options and governs the resolver design in Phase 2.
+  (§Goal → "Open naming decision")
 
 ## Summary
 

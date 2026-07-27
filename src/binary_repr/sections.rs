@@ -29,6 +29,7 @@ impl TypeTable {
         Self {
             entries: Vec::new(),
             ids: HashMap::new(),
+            foreign_types: HashMap::new(),
         }
     }
 
@@ -185,6 +186,13 @@ impl TypeTable {
             _ => {
                 if let Some(id) = self.ids.get(name) {
                     *id
+                } else if let Some(fref) = self.foreign_types.get(name).cloned() {
+                    // bug-390: a type owned by an imported dependency, named in this
+                    // package's own API. Encode a foreign reference carrying the
+                    // owning package's identity instead of degrading it to an
+                    // empty-record placeholder (the old fallback below, which then
+                    // failed with `truncated binary representation`).
+                    self.foreign_type(strings, name, &fref)
                 } else {
                     self.add_entry(strings, "", name, 1, Vec::new())
                 }
@@ -333,6 +341,26 @@ impl TypeTable {
         self.add_entry(strings, "thread", &name, 10, payload)
     }
 
+    /// bug-390: intern a reference to a dependency's exported type. The entry's
+    /// `owner_package` is the declaring dependency and its payload is
+    /// `[u16 underlying-export-kind][32-byte owning ABI hash]` — enough to
+    /// re-export the type by the owning package's original identity and to
+    /// reconstruct its name on decode, without carrying (absent) field data.
+    pub(super) fn foreign_type(
+        &mut self,
+        strings: &mut StringPool,
+        name: &str,
+        fref: &ForeignTypeRef,
+    ) -> u32 {
+        if let Some(id) = self.ids.get(name) {
+            return *id;
+        }
+        let mut payload = Vec::new();
+        put_u16(&mut payload, encode_export_kind(fref.export_kind));
+        payload.extend_from_slice(&fref.abi_hash);
+        self.add_entry(strings, &fref.package, name, FOREIGN_TYPE_KIND, payload)
+    }
+
     pub(super) fn add_entry(
         &mut self,
         strings: &mut StringPool,
@@ -374,6 +402,110 @@ impl TypeTable {
             bytes.extend_from_slice(&entry.payload);
         }
         bytes
+    }
+
+    /// bug-390: mark every foreign-reference entry (kind 12) reachable from one of
+    /// this package's own exported symbols as re-exported, so a consumer importing
+    /// this package sees the dependency's type under its original identity (true
+    /// namespace re-export). A foreign type reached only through an imported
+    /// function's signature — interned for table-order stability but never named
+    /// in this package's own API — is deliberately left unexported (the acceptance
+    /// model's "pB never re-exports the unused `C`").
+    pub(super) fn mark_reexported_foreign_types(
+        &mut self,
+        functions: &[Function],
+    ) -> Result<(), String> {
+        let mut reachable = HashSet::new();
+        for function in functions {
+            if !is_exported_function(function) {
+                continue;
+            }
+            self.collect_reachable(function.return_type, &mut reachable)?;
+            for param in &function.params {
+                self.collect_reachable(param.type_id, &mut reachable)?;
+            }
+        }
+        // An exported record/union surfaces its field types too, so a foreign type
+        // reached only through an exported type's field is still re-exported.
+        for index in 0..self.entries.len() {
+            if self.entries[index].abi_export_kind.is_some() {
+                self.collect_reachable(FIRST_TABLE_TYPE_ID + index as u32, &mut reachable)?;
+            }
+        }
+        for id in reachable {
+            let index = (id - FIRST_TABLE_TYPE_ID) as usize;
+            let Some(entry) = self.entries.get_mut(index) else {
+                continue;
+            };
+            if entry.kind == FOREIGN_TYPE_KIND && entry.abi_export_kind.is_none() {
+                entry.abi_export_kind = Some(decode_export_kind(checked_u16_at(&entry.payload, 0)?)?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Collect every table type id reachable from `id` (including `id` itself),
+    /// mirroring `AbiSerializer::serialize_type_inner`'s payload traversal.
+    fn collect_reachable(&self, id: u32, acc: &mut HashSet<u32>) -> Result<(), String> {
+        let Some(index) = id.checked_sub(FIRST_TABLE_TYPE_ID) else {
+            return Ok(()); // primitive / handle sentinel: no table entry.
+        };
+        let index = index as usize;
+        if index >= self.entries.len() || !acc.insert(id) {
+            return Ok(());
+        }
+        let payload = self.entries[index].payload.clone();
+        match self.entries[index].kind {
+            1 => {
+                let mut offset = 0;
+                let field_count = cursor_u32(&payload, &mut offset)?;
+                for _ in 0..field_count {
+                    let _name = cursor_u32(&payload, &mut offset)?;
+                    let type_id = cursor_u32(&payload, &mut offset)?;
+                    let _visibility = cursor_u32(&payload, &mut offset)?;
+                    self.collect_reachable(type_id, acc)?;
+                }
+            }
+            2 => {
+                let mut offset = 0;
+                let variant_count = cursor_u32(&payload, &mut offset)?;
+                for _ in 0..variant_count {
+                    let _name = cursor_u32(&payload, &mut offset)?;
+                    let field_count = cursor_u32(&payload, &mut offset)?;
+                    for _ in 0..field_count {
+                        let _field_name = cursor_u32(&payload, &mut offset)?;
+                        let field_type = cursor_u32(&payload, &mut offset)?;
+                        self.collect_reachable(field_type, acc)?;
+                    }
+                }
+            }
+            4 | 6 => self.collect_reachable(checked_u32_at(&payload, 0)?, acc)?,
+            5 | 9 | 11 => {
+                self.collect_reachable(checked_u32_at(&payload, 0)?, acc)?;
+                self.collect_reachable(checked_u32_at(&payload, 4)?, acc)?;
+            }
+            7 | 10 => {
+                self.collect_reachable(checked_u32_at(&payload, 0)?, acc)?;
+                self.collect_reachable(checked_u32_at(&payload, 4)?, acc)?;
+                if payload.len() >= 12 {
+                    self.collect_reachable(checked_u32_at(&payload, 8)?, acc)?;
+                }
+            }
+            8 => {
+                let mut offset = 0;
+                let _isolated = cursor_u32(&payload, &mut offset)?;
+                let param_count = cursor_u32(&payload, &mut offset)?;
+                let return_type = cursor_u32(&payload, &mut offset)?;
+                self.collect_reachable(return_type, acc)?;
+                for _ in 0..param_count {
+                    let param_type = cursor_u32(&payload, &mut offset)?;
+                    self.collect_reachable(param_type, acc)?;
+                }
+            }
+            // enum (3), foreign (12), and any leaf kind: no outgoing type refs.
+            _ => {}
+        }
+        Ok(())
     }
 }
 
@@ -1017,6 +1149,26 @@ impl<'a> AbiSerializer<'a> {
                 Ok(())
             }
             8 => self.serialize_function_type(entry),
+            // bug-390: a reference to a dependency's type. Hash it by the owning
+            // package's identity — its dependency name, original type name, and the
+            // owning package's ABI hash carried in the payload — rather than
+            // re-walking fields it does not have. Two intermediary packages that
+            // surface the same `pA::A` therefore contribute identical bytes here, so
+            // a consumer unifies them; and an intermediary built against an
+            // ABI-incompatible owner carries a different hash, which the consumer's
+            // `validate_abi_index` recompute rejects.
+            FOREIGN_TYPE_KIND => {
+                self.put_str("foreign");
+                self.put_str(string_at(self.strings, entry.owner_package)?);
+                self.put_str(string_at(self.strings, entry.name)?);
+                // payload = [u16 underlying-export-kind][32-byte owning ABI hash].
+                let hash = entry
+                    .payload
+                    .get(2..2 + ABI_HASH_LEN)
+                    .ok_or("truncated binary representation")?;
+                self.bytes.extend_from_slice(hash);
+                Ok(())
+            }
             // bug-277: a resource carrying `STATE T` (kind 11) is a composite of
             // two type ids and must hash structurally like kinds 4/5/7. Under the
             // opaque fallback it hashed its interned name `State#<baseId>#<stateId>`,

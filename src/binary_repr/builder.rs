@@ -261,6 +261,21 @@ pub(super) fn package_type_exports(
                 "exported type `{name}` is missing from the type table"
             ));
         };
+        if entry.kind == FOREIGN_TYPE_KIND {
+            // bug-390: a re-exported dependency type carries no local field data;
+            // emit a marker naming the owning package. `read_package_type_exports`
+            // fills in the real definition from the owner's sibling `.mfp`.
+            let owner = string_at(&package.project.strings.values, entry.owner_package)?.to_string();
+            exports.push(BinaryReprTypeExport {
+                name,
+                kind: export.kind,
+                fields: Vec::new(),
+                variants: Vec::new(),
+                members: Vec::new(),
+                foreign_owner: Some(owner),
+            });
+            continue;
+        }
         exports.push(decode_type_export(
             &name,
             export.kind,
