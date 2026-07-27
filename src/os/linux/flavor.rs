@@ -24,3 +24,26 @@ impl LinuxFlavor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::libraries::Libc;
+
+    #[test]
+    fn libc_maps_each_flavor_to_its_axis() {
+        assert_eq!(LinuxFlavor::Glibc.libc(), Libc::Glibc);
+        assert_eq!(LinuxFlavor::Musl.libc(), Libc::Musl);
+    }
+
+    #[test]
+    fn suffix_names_each_flavor() {
+        assert_eq!(LinuxFlavor::Glibc.suffix(), "glibc");
+        assert_eq!(LinuxFlavor::Musl.suffix(), "musl");
+    }
+
+    #[test]
+    fn all_lists_both_flavors_in_order() {
+        assert_eq!(LinuxFlavor::ALL, [LinuxFlavor::Glibc, LinuxFlavor::Musl]);
+    }
+}

@@ -366,3 +366,22 @@ fn abi_index_encode_decode_round_trips() {
     // Re-encoding the decoded index is byte-identical.
     assert_eq!(decoded.encode(), bytes);
 }
+
+#[test]
+fn type_id_falls_back_for_malformed_composites() {
+    let mut strings = StringPool::new();
+    let mut types = TypeTable::new();
+    // No " AS " terminator: the Thread/ThreadWorker parser rejects the name, so
+    // it interns as an opaque entry rather than a structured composite.
+    let t = types.type_id(&mut strings, "Thread OF Garbage");
+    let tw = types.type_id(&mut strings, "ThreadWorker OF Garbage");
+    // No " TO " separator: Map/MapEntry fall back to an opaque entry.
+    let m = types.type_id(&mut strings, "Map OF Garbage");
+    let me = types.type_id(&mut strings, "MapEntry OF Garbage");
+    for id in [t, tw, m, me] {
+        assert!(id >= FIRST_TABLE_TYPE_ID);
+    }
+    // Each is stable on a second intern.
+    assert_eq!(types.type_id(&mut strings, "Thread OF Garbage"), t);
+    assert_eq!(types.type_id(&mut strings, "Map OF Garbage"), m);
+}

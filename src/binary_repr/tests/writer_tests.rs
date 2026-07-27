@@ -236,3 +236,118 @@ fn concrete_union_variants_rejects_unknown_include() {
     let source_types = std::collections::HashMap::new();
     assert!(concrete_union_variants(&source_types, &bad).is_err());
 }
+
+#[test]
+fn fixed_raw_from_decimal_covers_long_fractions_and_carries() {
+    // Round-half-up carry: 0.3 leaves a nonzero remainder that rounds up.
+    assert!(fixed_raw_from_decimal("0.3").is_ok());
+    // A fraction that rounds up to a whole one (the `fractional_value == SCALE`
+    // carry into the whole part).
+    assert_eq!(fixed_raw_from_decimal("0.99999999999").unwrap(), 1i64 << 32);
+    // 28 valid fractional digits then a non-digit past the 28-digit cap still errs.
+    let bad_tail = format!("0.{}x", "1".repeat(28));
+    assert!(fixed_raw_from_decimal(&bad_tail).is_err());
+    // Many valid digits past the cap are accepted (they sit below one ULP).
+    let long_ok = format!("0.{}", "1".repeat(40));
+    assert!(fixed_raw_from_decimal(&long_ok).is_ok());
+}
+
+#[test]
+fn source_type_payload_records_encode_field_visibilities() {
+    use crate::ir::{IrField, IrType};
+    let mut strings = StringPool::new();
+    let mut types = TypeTable::new();
+    let field = |vis: Option<&str>, name: &str| IrField {
+        visibility: vis.map(str::to_string),
+        name: name.to_string(),
+        type_: "Integer".to_string(),
+        loc: loc(),
+    };
+    let record = IrType {
+        kind: "type".to_string(),
+        visibility: "export".to_string(),
+        name: "R".to_string(),
+        fields: vec![
+            field(Some("private"), "a"),
+            field(Some("package"), "b"),
+            field(Some("export"), "c"),
+            field(None, "d"),
+        ],
+        includes: vec![],
+        variants: vec![],
+        members: vec![],
+        loc: loc(),
+        file: String::new(),
+    };
+    let source_types = std::collections::HashMap::new();
+    let payload =
+        source_type_payload(&mut strings, &mut types, &source_types, &record).expect("record");
+    // First u32 is the field count.
+    assert_eq!(checked_u32_at(&payload, 0).unwrap(), 4);
+}
+
+#[test]
+fn source_type_payload_ignores_a_non_composite_kind() {
+    use crate::ir::IrType;
+    let mut strings = StringPool::new();
+    let mut types = TypeTable::new();
+    let alias = IrType {
+        kind: "alias".to_string(),
+        visibility: "export".to_string(),
+        name: "A".to_string(),
+        fields: vec![],
+        includes: vec![],
+        variants: vec![],
+        members: vec![],
+        loc: loc(),
+        file: String::new(),
+    };
+    let source_types = std::collections::HashMap::new();
+    let payload =
+        source_type_payload(&mut strings, &mut types, &source_types, &alias).expect("alias");
+    assert!(payload.is_empty(), "an unknown kind encodes no payload");
+}
+
+#[test]
+fn lower_project_encodes_the_doc_table_from_ir() {
+    use crate::ir::{IrDocDecl, IrDocKind, IrPackageDoc, ProjectDocs};
+    let decl = |kind, name: &str| IrDocDecl {
+        kind,
+        name: name.to_string(),
+        signature: format!("{name}()"),
+        group: String::new(),
+        desc: vec![],
+        args: vec![],
+        props: vec![],
+        ret: String::new(),
+        errors: vec![],
+        example: String::new(),
+        internal: false,
+        deprecated: None,
+    };
+    let mut project = empty_project("docpkg");
+    project.docs = ProjectDocs {
+        package: Some(IrPackageDoc {
+            name: "docpkg".to_string(),
+            desc: vec![],
+            deprecated: Some("use v2".to_string()),
+        }),
+        decls: vec![
+            decl(IrDocKind::Func, "f"),
+            decl(IrDocKind::Sub, "s"),
+            decl(IrDocKind::Type, "T"),
+            decl(IrDocKind::Union, "U"),
+            decl(IrDocKind::Enum, "E"),
+            decl(IrDocKind::Resource, "R"),
+        ],
+    };
+    let inner = encode_project(
+        &project,
+        &BinaryReprMetadata::new("docpkg".to_string(), "1.0.0".to_string()),
+    );
+    let path = temp_mfp(&wrap_mfp(&inner, "docpkg", "docpkg", "1.0.0"));
+    let docs = read_package_docs(&path).expect("docs");
+    assert_eq!(docs.decls.len(), 6, "every documented decl round-trips");
+    assert!(docs.package.is_some());
+    let _ = std::fs::remove_file(&path);
+}

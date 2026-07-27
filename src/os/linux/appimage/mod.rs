@@ -338,6 +338,51 @@ mod tests {
         assert!(elf_image_end(b"\x7fELF").is_err(), "too short");
     }
 
+    #[test]
+    fn elf_image_end_rejects_a_32_bit_elf() {
+        // A well-formed ELF magic and length but EI_CLASS = ELFCLASS32 (1): the
+        // runtimes are 64-bit and a 32-bit blob is rejected before header reads.
+        let mut blob = vec![0u8; 128];
+        blob[0..4].copy_from_slice(b"\x7fELF");
+        blob[4] = 1; // ELFCLASS32
+        let err = elf_image_end(&blob).unwrap_err();
+        assert!(err.contains("not ELF64"), "{err}");
+    }
+
+    #[test]
+    fn read_dir_node_rejects_a_non_file_non_dir_non_symlink() {
+        // A FIFO is neither a file, a directory, nor a symlink, so the reader
+        // rejects it rather than silently dropping or misclassifying it.
+        let dir = tempfile::tempdir().unwrap();
+        let appdir = dir.path().join(BUILD_DIR).join("hello-glibc.AppDir");
+        fs::create_dir_all(&appdir).unwrap();
+        let fifo = appdir.join("a_pipe");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .expect("spawn mkfifo");
+        assert!(status.success(), "mkfifo failed");
+        let err = read_appdir(&appdir).expect_err("a FIFO cannot be represented");
+        assert!(
+            err.contains("neither a file, a directory, nor a symlink"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn remove_appdir_reports_a_hard_failure() {
+        // A non-NotFound error (here: the AppDir path is a regular file, so
+        // `remove_dir_all` fails with ENOTDIR) surfaces as a diagnostic, not a
+        // silent success.
+        let dir = tempfile::tempdir().unwrap();
+        let build = dir.path().join(BUILD_DIR);
+        fs::create_dir_all(&build).unwrap();
+        let path = build.join(crate::os::linux::appdir::appdir_name("hello", "glibc"));
+        fs::write(&path, b"not a directory").unwrap();
+        let err = remove_appdir(dir.path(), "hello", "glibc").expect_err("path is a file");
+        assert!(err.contains("failed to remove"), "{err}");
+    }
+
     /// Build a small AppDir on disk, matching plan-51-A's shape closely enough to
     /// exercise every node type the reader has to handle.
     fn fixture_appdir(root: &Path) -> PathBuf {
