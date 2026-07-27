@@ -151,6 +151,95 @@ fn is_vector_operand(value: &str) -> bool {
 /// 128-slot / 2047-byte-offset budget on kernel-heavy functions (e.g. a program
 /// exercising the whole `math` package uses ~140 distinct values but ≤128 live).
 pub(crate) fn build_slot_map(instructions: &[MirInstruction]) -> HashMap<String, usize> {
+    let (order, first, last) = v128_live_ranges(instructions);
+    // Linear scan: assign each value (in start order) the lowest free slot,
+    // recycling slots whose range ended strictly before this value's start.
+    let mut map: HashMap<String, usize> = HashMap::new();
+    let mut free: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
+    let mut next_slot = 0usize;
+    let mut active: Vec<(usize, String)> = Vec::new(); // (last index, value)
+    for value in &order {
+        let start = first[value];
+        active.sort_by_key(|(end, _)| *end);
+        let expired = active.iter().take_while(|(end, _)| *end < start).count();
+        for (_, dead) in active.drain(0..expired) {
+            free.push(Reverse(map[&dead]));
+        }
+        let slot = free.pop().map(|Reverse(s)| s).unwrap_or_else(|| {
+            let s = next_slot;
+            next_slot += 1;
+            s
+        });
+        map.insert(value.clone(), slot);
+        active.push((last[value], value.clone()));
+    }
+    // Invariant: two values sharing a slot must have disjoint live ranges.
+    #[cfg(debug_assertions)]
+    for (a, &sa) in &map {
+        for (b, &sb) in &map {
+            if a < b && sa == sb {
+                let (fa, la, fb, lb) = (first[a], last[a], first[b], last[b]);
+                assert!(
+                    la < fb || lb < fa,
+                    "rv64 v128 slot {sa} shared by overlapping ranges {a}[{fa},{la}] {b}[{fb},{lb}]"
+                );
+            }
+        }
+    }
+    map
+}
+
+/// plan-32-C: assign every distinct `v128` value a **physical vector register**
+/// `v1`–`v30` via the same live-range analysis and linear-scan reuse
+/// [`build_slot_map`] uses for memory slots — only the assigned resource differs.
+/// `v0` is reserved as the RVV mask register and `v31` as a lowering scratch (the
+/// mask bridge / slidedown temp), so the allocatable pool is `v1`–`v30`.
+///
+/// Returns `None` if the function's peak concurrent `v128` pressure exceeds the
+/// 30-register pool: that function then emits the scalar arm only (still one
+/// correct binary — the RVV arm is simply never selected for it). The scalar arm
+/// is untouched by this, so overflow costs performance, never correctness.
+pub(crate) fn build_vreg_map(instructions: &[MirInstruction]) -> Option<HashMap<String, u8>> {
+    /// Highest allocatable vector register (`v1`..=`V_REG_MAX`); `v0` (mask) and
+    /// `v31` (scratch) are reserved.
+    const V_REG_MAX: u8 = 30;
+    let (order, first, last) = v128_live_ranges(instructions);
+    // Linear scan over the bounded pool: recycle a register once its value's range
+    // ends, else claim the next fresh one; bail to scalar-only on exhaustion.
+    let mut map: HashMap<String, u8> = HashMap::new();
+    let mut free: BinaryHeap<Reverse<u8>> = BinaryHeap::new();
+    let mut next_reg: u8 = 1;
+    let mut active: Vec<(usize, String)> = Vec::new();
+    for value in &order {
+        let start = first[value];
+        active.sort_by_key(|(end, _)| *end);
+        let expired = active.iter().take_while(|(end, _)| *end < start).count();
+        for (_, dead) in active.drain(0..expired) {
+            free.push(Reverse(map[&dead]));
+        }
+        let reg = match free.pop() {
+            Some(Reverse(r)) => r,
+            None if next_reg <= V_REG_MAX => {
+                let r = next_reg;
+                next_reg += 1;
+                r
+            }
+            None => return None, // pressure exceeds v1..=v30 → scalar-arm-only
+        };
+        map.insert(value.clone(), reg);
+        active.push((last[value], value.clone()));
+    }
+    Some(map)
+}
+
+/// The live-range core shared by [`build_slot_map`] and [`build_vreg_map`]: each
+/// distinct `v128` value's `[first, last]` mention range (instruction indices),
+/// extended so any range overlapping a loop body spans the whole loop (so a
+/// loop-carried value never shares storage with another across the back-edge),
+/// with the values returned in ascending-start order for the linear scan.
+fn v128_live_ranges(
+    instructions: &[MirInstruction],
+) -> (Vec<String>, HashMap<String, usize>, HashMap<String, usize>) {
     // Live range [first, last] (instruction index) for each vector value, in
     // first-appearance order.
     let mut first: HashMap<String, usize> = HashMap::new();
@@ -223,41 +312,7 @@ pub(crate) fn build_slot_map(instructions: &[MirInstruction]) -> HashMap<String,
     // starts earlier, so re-sort before allocating.
     order.sort_by_key(|value| first[value]);
 
-    // Linear scan: assign each value (in start order) the lowest free slot,
-    // recycling slots whose range ended strictly before this value's start.
-    let mut map: HashMap<String, usize> = HashMap::new();
-    let mut free: BinaryHeap<Reverse<usize>> = BinaryHeap::new();
-    let mut next_slot = 0usize;
-    let mut active: Vec<(usize, String)> = Vec::new(); // (last index, value)
-    for value in &order {
-        let start = first[value];
-        active.sort_by_key(|(end, _)| *end);
-        let expired = active.iter().take_while(|(end, _)| *end < start).count();
-        for (_, dead) in active.drain(0..expired) {
-            free.push(Reverse(map[&dead]));
-        }
-        let slot = free.pop().map(|Reverse(s)| s).unwrap_or_else(|| {
-            let s = next_slot;
-            next_slot += 1;
-            s
-        });
-        map.insert(value.clone(), slot);
-        active.push((last[value], value.clone()));
-    }
-    // Invariant: two values sharing a slot must have disjoint live ranges.
-    #[cfg(debug_assertions)]
-    for (a, &sa) in &map {
-        for (b, &sb) in &map {
-            if a < b && sa == sb {
-                let (fa, la, fb, lb) = (first[a], last[a], first[b], last[b]);
-                assert!(
-                    la < fb || lb < fa,
-                    "rv64 v128 slot {sa} shared by overlapping ranges {a}[{fa},{la}] {b}[{fb},{lb}]"
-                );
-            }
-        }
-    }
-    map
+    (order, first, last)
 }
 
 fn f(fields: &[(&'static str, String)], name: &str) -> String {
@@ -990,6 +1045,64 @@ mod tests {
             peak(&slots),
             6,
             "loop extension keeps all six values distinct"
+        );
+    }
+
+    /// plan-32-C: `build_vreg_map` reproduces the slot map's liveness as physical
+    /// vector registers — reuse across disjoint ranges packs into few registers,
+    /// loop-carried values stay distinct, and pressure past the `v1`–`v30` pool
+    /// falls back to `None` (scalar-arm-only).
+    #[test]
+    fn vreg_map_reuse_loop_distinctness_and_overflow() {
+        use crate::target::shared::code::mir::MirOp;
+        use std::collections::HashSet;
+
+        // Reuse: six values across two disjoint straight-line ops → three regs.
+        let straight = vec![
+            mir(MirOp::FAddV, &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")]),
+            mir(MirOp::FAddV, &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")]),
+        ];
+        let regs = build_vreg_map(&straight).expect("fits the pool");
+        assert_eq!(regs.len(), 6, "all six values are assigned a register");
+        let distinct: HashSet<u8> = regs.values().copied().collect();
+        assert_eq!(distinct.len(), 3, "only three registers are live at once");
+        assert!(
+            regs.values().all(|&r| (1..=30).contains(&r)),
+            "registers come from the v1..=v30 allocatable pool"
+        );
+
+        // Loop-carried: the same ops inside a loop keep all six distinct.
+        let looped = vec![
+            mir(MirOp::Label, &[("name", "top")]),
+            mir(MirOp::FAddV, &[("dst", "%f0"), ("lhs", "%f1"), ("rhs", "%f2")]),
+            mir(MirOp::FAddV, &[("dst", "%f3"), ("lhs", "%f4"), ("rhs", "%f5")]),
+            mir(MirOp::BranchEq, &[("lhs", "a0"), ("rhs", "a1"), ("target", "top")]),
+        ];
+        let looped_regs = build_vreg_map(&looped).expect("six fits the pool");
+        let looped_distinct: HashSet<u8> = looped_regs.values().copied().collect();
+        assert_eq!(looped_distinct.len(), 6, "loop extension keeps all six distinct");
+
+        // Overflow: N values all live at once (loaded, then all stored). 30 fits
+        // the pool; 31 exceeds it and falls back to scalar-only (`None`).
+        let all_live = |n: usize| -> Vec<MirInstruction> {
+            let mut v = Vec::new();
+            for i in 0..n {
+                v.push(mir(MirOp::LdrQ, &[("dst", "%f0"), ("base", "a0"), ("offset", "0")]));
+                // Overwrite dst with a distinct name each iteration.
+                *v.last_mut().unwrap().fields.iter_mut().find(|(k, _)| *k == "dst").unwrap() =
+                    ("dst", format!("%f{i}"));
+            }
+            for i in 0..n {
+                v.push(mir(MirOp::StrQ, &[("src", "%f0"), ("base", "a0"), ("offset", "0")]));
+                *v.last_mut().unwrap().fields.iter_mut().find(|(k, _)| *k == "src").unwrap() =
+                    ("src", format!("%f{i}"));
+            }
+            v
+        };
+        assert!(build_vreg_map(&all_live(30)).is_some(), "30 concurrent fits v1..=v30");
+        assert!(
+            build_vreg_map(&all_live(31)).is_none(),
+            "31 concurrent overflows the pool → scalar-arm-only"
         );
     }
 

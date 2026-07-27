@@ -159,15 +159,19 @@ matching the AArch64 goldens both ways.
 Land assignment + the safety fallback; still emit scalar-only (dispatch inert)
 so it is provable in isolation.
 
-- [ ] Factor the liveness+loop-extension core of `build_slot_map` into a shared
-      helper; add `build_vreg_map(instructions) -> Option<HashMap<String,u8>>`
-      assigning `v1`–`v31` (reserve `v0`+scratch), `None` on overflow.
-- [ ] Tests: reuse across disjoint ranges packs into few v-regs; loop-carried
-      values stay distinct; overflow returns `None` (mirror the slot-map tests).
+- [x] Factor the liveness+loop-extension core of `build_slot_map` into a shared
+      helper (`v128_live_ranges`); add `build_vreg_map(instructions) ->
+      Option<HashMap<String,u8>>` assigning `v1`–`v30` (reserve `v0` mask + `v31`
+      scratch), `None` on overflow.
+- [x] Tests: reuse across disjoint ranges packs into 3 regs; loop-carried values
+      stay distinct (6); 30 concurrent fits, 31 overflows to `None`
+      (`vreg_map_reuse_loop_distinctness_and_overflow`).
 
 Acceptance: `build_vreg_map` reproduces slot-map liveness as register numbers;
-overflow falls back. Output still scalar; riscv64 suite green.
-Commit: —
+overflow falls back. Output still scalar; riscv64 suite green. **MET** — 30 v128
+tests pass; artifact-gate 0 linux-riscv64 diffs (the refactor is byte-identical,
+`build_vreg_map` is inert).
+Commit: <C1>
 
 ### Phase 2 — dual-path dispatch + per-op RVV lowering (non-mask ops)
 
