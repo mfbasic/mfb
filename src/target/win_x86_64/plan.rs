@@ -70,6 +70,33 @@ impl NativePlanPlatform for Platform {
         vec![import("ExitProcess", KERNEL32, required_by)]
     }
 
+    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+        // plan-66-J: the Win32 app-mode floor (win_x86_64::app). `_main` builds a
+        // RegisterClassExW/CreateWindowExW window and runs a GetMessageW loop; the
+        // worker is a CreateThread routine; console output rides GetStdHandle +
+        // WriteFile. Duplicates with kernel32 runtime imports (CreateThread,
+        // GetStdHandle, WriteFile, GetEnvironmentVariableW) are deduped in the
+        // merged import table. The `.rsrc`/subsystem work is plan-66-K/I.
+        const USER32: &str = "user32.dll";
+        vec![
+            import("GetModuleHandleW", KERNEL32, "_main"),
+            import("GetEnvironmentVariableW", KERNEL32, "_main"),
+            import("CreateThread", KERNEL32, "_main"),
+            import("WaitForSingleObject", KERNEL32, "_main"),
+            import("ExitThread", KERNEL32, "_main"),
+            import("GetStdHandle", KERNEL32, "_main"),
+            import("WriteFile", KERNEL32, "_main"),
+            import("ExitProcess", KERNEL32, "_main"),
+            import("RegisterClassExW", USER32, "_main"),
+            import("CreateWindowExW", USER32, "_main"),
+            import("GetMessageW", USER32, "_main"),
+            import("TranslateMessage", USER32, "_main"),
+            import("DispatchMessageW", USER32, "_main"),
+            import("DefWindowProcW", USER32, "_main"),
+            import("PostQuitMessage", USER32, "_main"),
+        ]
+    }
+
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         let required_by = crate::target::shared::runtime::symbol_for_call(spec.helper, spec.call);
         let required_by = required_by.as_str();

@@ -13,6 +13,7 @@ use crate::target::shared::{lower, validate};
 use crate::target::{BackendCapabilities, BuildTarget, NativeBackend, NativeBuildMode};
 use std::path::{Path, PathBuf};
 
+pub(crate) mod app;
 pub(crate) mod code;
 pub(crate) mod plan;
 

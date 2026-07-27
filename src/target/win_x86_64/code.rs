@@ -23,9 +23,10 @@ use std::path::PathBuf;
 use crate::arch::aarch64::abi;
 use crate::arch::x86_64::backend::WIN64_BACKEND;
 use crate::target::shared::code::{
-    self, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, FsPathOperation, MirPlan,
-    NativeCodePlan, ProgramEntrySpec, RelocIntent,
+    self, AppEntrySpec, AppHookBody, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation,
+    FsPathOperation, MirPlan, NativeCodePlan, ProgramEntrySpec, RelocIntent,
 };
+use crate::target::win_x86_64::app;
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
@@ -2735,8 +2736,36 @@ impl code::CodegenPlatform for Platform {
         code::lower_thread_trampoline(platform_imports, self, uses_stdin, arena_init)
     }
 
-    fn app_mode_data_objects(&self, _project_name: &str) -> Vec<CodeDataObject> {
-        // Console subsystem only (master §Non-goals); no app-mode data objects.
-        Vec::new()
+    // ---- plan-66-J Win32 app-mode floor (delegates to win_x86_64::app) --------
+
+    fn emit_app_program_entry(
+        &self,
+        spec: &AppEntrySpec,
+        platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<Vec<CodeFunction>, String>> {
+        Some(app::emit_app_program_entry(spec, platform_imports))
+    }
+
+    fn emit_app_io_write_helper(
+        &self,
+        symbol: &str,
+        stderr: bool,
+        newline: bool,
+        _term_state_offset: Option<usize>,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<AppHookBody, String>> {
+        Some(Ok(app::emit_app_io_write_helper(symbol, stderr, newline)))
+    }
+
+    fn emit_app_io_flush_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
+        Some(Ok(app::emit_app_io_flush_helper(symbol)))
+    }
+
+    fn emit_app_io_is_terminal_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
+        Some(Ok(app::emit_app_io_is_terminal_helper(symbol)))
+    }
+
+    fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {
+        app::app_mode_data_objects(project_name)
     }
 }

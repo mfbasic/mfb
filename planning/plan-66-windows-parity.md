@@ -526,7 +526,14 @@ Commit: d9025af8c / merged e5c500020
 
 **Sub-plan split (executed on resume 2026-07-26; J-1 already done):**
 - **J-1 — message-loop↔worker spike.** DONE + box-proven (above), `spike.rs`.
-- **J-2 — bootstrap floor.** New `win_x86_64/app/` module. `emit_app_program_entry`
+- **J-2 — bootstrap floor. DONE + box-proven.** New `win_x86_64/app/mod.rs`:
+  `emit_app_program_entry` → `_main`+worker+`WndProc` (ported from `spike.rs` via the
+  neutral abi), `MFB_WINAPP_HEADLESS` gate, `emit_app_io_write_helper` (WriteFile to
+  the inherited std handle), flush/is_terminal, `app_mode_data_objects` (UTF-16), +
+  `plan.rs` `app_mode_imports` (user32/kernel32). Subsystem=2 verified; 4 unit tests.
+  Box (2230, headless, stdout→file): a `-app` hello ran the worker/program and emitted
+  `hello-from-winapp`/`second-line`. Commit `<pending>`.
+  (original J-2 description:) New `win_x86_64/app/` module. `emit_app_program_entry`
   emits `_main` (GetModuleHandleW → RegisterClassExW(WndProc) → CreateWindowExW →
   CreateThread(worker,hwnd) → GetMessageW loop) modeled on `spike.rs`, plus the
   worker shim (calls `MACAPP_PROGRAM_SYMBOL`) and a `WndProc`. An
