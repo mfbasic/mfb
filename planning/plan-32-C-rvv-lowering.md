@@ -221,7 +221,7 @@ sites) is bit-identical across v=true / v=false / macos-aarch64 at 17 decimals
 over 12 inputs. The remaining scalar-only ops (`FRint*`, `FCvtasV`, wide shifts,
 `AbsV`/`Cnt8bV`/`Addv8bV`, `SshlV`/`UshlV`) are individually bit-identical via the
 scalar arm — a deliberate coverage boundary, not a gap (Corrections C2/C3).
-Commit: <C3>
+Commit: cb7da7350
 
 ## Validation Plan
 
