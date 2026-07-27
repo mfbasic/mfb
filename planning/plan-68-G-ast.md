@@ -382,6 +382,43 @@ Commit: f97061251
 
 ## Corrections
 
-<Filled during execution — especially: any candidate branch the fresh
-`DA:LINE,0` list showed uncovered that this doc's enumeration missed; the
-disposition of the G4 collision arm; and any real defect a fixture surfaced.>
+Executed 2026-07-27 in worktree P-68-G. Commits: G1 `10bd87248`, G2 `401dbfd91`,
+G3 `bb6ecb537`, G4 `3b0e5bf73`, G5 `f97061251` (+ `ad9c3136c` hash-record). Full
+`cargo test` = `0 failed` before every commit. Edits confined to the five files'
+`#[cfg(test)] mod tests` (the `src/json.rs` line in the base…HEAD range is
+plan-68-A's `0c3451a2c`, not this letter's). No real defect surfaced; no
+production behavior change.
+
+- **The enumerations over-scoped every phase.** The fresh `DA:LINE,0` lists were
+  far narrower than each phase's authoring-time enumeration — most listed branches
+  are already exercised by acceptance / existing unit tests. Each phase NOTE
+  records the actual red set. Net new tests: G1 2, G2 13, G3 15, G4 8, G5 4.
+
+- **G4 collision arm — EXCEPTION-CANDIDATE for A.** `scope_privates.rs:41-49`
+  (`PRIVATE_PATH_HASH_COLLISION`, `Some(prev) if prev != &file.path`) stays red: a
+  distinct-path `file_scope_hash` collision, not constructible without a found
+  collision. NOT fabricated. A decides fence-vs-exception (cargo-llvm-cov 0.8.7
+  ignores inline markers → likely the exception FILE). The sibling duplicate-path
+  arm (`Some(_) => {}`, :50) IS now covered.
+
+- **G4 residual llvm-cov artifacts — also for A.** `scope_privates.rs:451` and
+  `:474` report 0 hits although the enclosing `if let Some(mangled)` blocks
+  execute (DA:447-449 = 14, DA:472 = 2). These are trailing closing-brace region
+  artifacts — NOT coverable by any test. Flag alongside the collision arm.
+
+- **G4 residual test-module lines.** `scope_privates.rs:720, 731, 776` are
+  pre-existing `assert!(…, "…", <expr>)` panic-message argument expressions that
+  only evaluate on assertion failure; uncoverable on a green run. Left untouched.
+
+- Despite the three residual groups, `scope_privates.rs` reaches ~97% (466/480);
+  every other file is at/near 100% of its reachable denominator. All five clear
+  ≥95% (parent verifies centrally per the standing rule; `scripts/coverage.sh` was
+  not run here).
+
+- **Technique notes for siblings:** (1) llvm-cov marks some trailing `}` lines
+  uncovered even when the block runs — check a neighbor's hit count before chasing
+  a brace. (2) `res`/`in` lex as keywords — a BIND-STATE/BIND-IN slot named `res`
+  fails `consume_identifier`; use a non-keyword slot name in fixtures.
+  (3) The parse-time Eof guard (`expr.rs` bug-89) needs a source with NO trailing
+  newline so the operator is the last token before `Eof`. (4) Depth-guard fixtures
+  (~300 levels) need a 64 MB test thread (see `on_big_stack`).
