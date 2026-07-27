@@ -85,19 +85,21 @@ network; all three are directly unit-coverable without the build pipeline. The
 the error/warning arms + `generate_coverage_report`'s body. Add to
 `src/cli/build/mod.rs mod tests`:
 
-- [ ] `run_test_binary` (test_mode.rs:56–65) — exercise all three arms directly,
+- [x] `run_test_binary` (test_mode.rs:56–65) — exercise all three arms directly,
       no build needed: `run_test_binary(Path::new("/usr/bin/true"))` → `Ok(())`;
       `run_test_binary(Path::new("/usr/bin/false"))` → `Err(())` (the
       `Ok(_) => Err(())` arm); `run_test_binary(Path::new("/no/such/binary"))` →
       `Err(())` (the `Err(err)` spawn-failure arm, printing "failed to run"). Gate
       the exact paths on `#[cfg(unix)]` (mirrors the file's other unix tests).
-- [ ] `make_temp_output_dir` (test_mode.rs:30–52) — call it, assert the returned
-      `PathBuf` `is_dir()` and its file name starts with `mfb-test-`, then
-      `remove_dir_all` it. Covers the `Ok(())=>return Ok(dir)` success arm and the
-      loop entry. (The `AlreadyExists` retry and the terminal `Err(())` require a
-      pre-planted collision on an unpredictable pid+nanos path — leave those two
-      arms; they are a minority and non-deterministic to force.)
-- [ ] `generate_coverage_report` (test_mode.rs:6–22) — two tests over a
+- [x] `make_temp_output_dir` (test_mode.rs:30–52) — success arm already covered.
+      **The error/retry arms (43–46, 50–51) are NOT unit-reachable**: the
+      `AlreadyExists` retry (43) and the 64-retry terminal `Err` (50–51) require a
+      collision on an unpredictable pid+nanos path, and the create-failure arm
+      (44–46) is forceable only by mutating the global `TMPDIR`, which is unsafe
+      under parallel `cargo test` (every `tempfile::tempdir()` reads it). Left as
+      an exception-candidate (see Corrections). test_mode.rs therefore caps at
+      ~85.7%; even with the unsafe TMPDIR test it is ~92.9% (43/50/51 unreachable).
+- [x] `generate_coverage_report` (test_mode.rs:6–22) — two tests over a
       `tempfile::tempdir`: (a) an empty dir → hits the
       `read_covmap(...) is None` arm, asserting the "coverage map missing" warning
       path returns without writing `coverage.html`; (b) a dir seeded with a real
@@ -110,7 +112,7 @@ the error/warning arms + `generate_coverage_report`'s body. Add to
 
 Acceptance: `sh scripts/coverage-check.sh src/cli/build/test_mode.rs` shows ≥95%
 (requires a fresh `sh scripts/coverage.sh` first).
-Commit: —
+Commit: 5144fe442 (gcr+run_test_binary; make_temp arms → exception-candidate)
 
 ## Phase B2 — packages.rs (88/143)
 
@@ -134,14 +136,14 @@ unsigned one). Signed `.mfp` fixtures exist under
 → 114 files). Add to `src/cli/build/mod.rs mod tests` (confirm each fixture's
 `signature_type` and expected refusal against A's fresh region list):
 
-- [ ] Signed pkg + `trust_anchor = None` → `Tampered`,
+- [x] Signed pkg + `trust_anchor = None` → `Tampered`,
       `PACKAGE_IDENT_KEY_UNTRUSTED` "pins no identKey" (packages.rs:172–177).
-- [ ] Signed pkg + a malformed `trust_anchor` (e.g. `"not-base64!"`) →
+- [x] Signed pkg + a malformed `trust_anchor` (e.g. `"not-base64!"`) →
       `Tampered`, `PACKAGE_IDENT_KEY_UNTRUSTED` "malformed" (packages.rs:178–186).
-- [ ] Signed pkg + a well-formed-but-wrong `trust_anchor` (a valid ed25519 key
+- [x] Signed pkg + a well-formed-but-wrong `trust_anchor` (a valid ed25519 key
       that is not the package's) → `Tampered`, header-≠-pinned arm
       (packages.rs:197–202).
-- [ ] Signed pkg + the *correct* pinned `trust_anchor` but **no pinned server
+- [x] Signed pkg + the *correct* pinned `trust_anchor` but **no pinned server
       key** on the (hermetic `MFB_HOME`) machine → `Tampered`,
       `PACKAGE_ATTESTATION_INVALID` "no pinned registry key" (packages.rs:210–218).
       Use the `EnvVarGuard`/`ENV_LOCK` pattern from `src/cli/mod.rs mod tests` to
@@ -157,7 +159,7 @@ unsigned one). Signed `.mfp` fixtures exist under
 
 Acceptance: `sh scripts/coverage-check.sh src/cli/build/packages.rs` shows ≥95%
 (fresh `sh scripts/coverage.sh` first).
-Commit: —
+Commit: 8692ef9b2 (hermetic signed fixture: full §3.5 chain + verify_and_report arms)
 
 ## Phase B3 — resources.rs (72/97)
 
@@ -169,21 +171,21 @@ Commit: —
 uncovered lines are the remaining `copy_resources` branches. Add to
 `src/cli/build/mod.rs mod tests`:
 
-- [ ] Root-level glob (`resource_src_fixed_prefix` empty) → exercises the
+- [x] Root-level glob (`resource_src_fixed_prefix` empty) → exercises the
       `walk_root = project_root` branch (resources.rs:64–66) and the
       `dest_relative = rel` empty-prefix branch (114–116): a `src: "*.png"` entry
       copying a project-root file to `<dst>/`. The current worked-examples test
       uses only prefixed globs, so this branch is uncovered.
-- [ ] Absent fixed-prefix directory → the `!walk_root.is_dir() { continue }`
+- [x] Absent fixed-prefix directory → the `!walk_root.is_dir() { continue }`
       no-op (resources.rs:70–72): an entry whose prefix dir does not exist copies
       nothing and is not an error. (The worked-examples "nowhere/*.dat" case
       matches nothing but its parent may still be absent — confirm from the report
       whether line 71 is already hit; if so, drop this task.)
-- [ ] A file present under the walk root that does **not** match the `src` glob →
+- [x] A file present under the walk root that does **not** match the `src` glob →
       the `glob_matches ... { continue }` skip (resources.rs:110–112): seed a
       `data/keep.txt` beside a matched `data/x.ogg` with `src: "data/*.ogg"`,
       assert only the `.ogg` is copied.
-- [ ] Multi-level recursion in `collect_files_recursive` (resources.rs:35–46):
+- [x] Multi-level recursion in `collect_files_recursive` (resources.rs:35–46):
       the worked-examples test already nests `data/loops/`; if the report shows
       the `is_dir()` recursion arm still uncovered, add a deeper `a/b/c/` tree.
 
@@ -195,7 +197,7 @@ filesystem-error tail) and confirm ≥95% is still met without them.
 
 Acceptance: `sh scripts/coverage-check.sh src/cli/build/resources.rs` shows ≥95%
 (fresh `sh scripts/coverage.sh` first).
-Commit: —
+Commit: 5144fe442 (root glob + FS-error arms; canonicalize-err closures → exception-candidate)
 
 ## Phase B4 — native_libs.rs (180/251)
 
@@ -208,7 +210,7 @@ lines are the assembly/verify helpers, all pure over a tempdir + crafted
 IR/manifest (no network). Add to `src/cli/build/mod.rs mod tests`, reusing
 `resolved(...)`, `write_vendor_source(...)`, `vendor_locator(...)`:
 
-- [ ] `verify_vendor_libraries` (native_libs.rs:137–193) — three arms over
+- [x] `verify_vendor_libraries` (native_libs.rs:137–193) — three arms over
       tempdir fixtures: (a) missing vendor file → `false` +
       `NATIVE_LIBRARY_FILE_MISSING` (147–160); (b) a `ResolvedLibrary` whose
       `locator.hash` is `None` → `false` + `NATIVE_LIBRARY_HASH_MISMATCH`
@@ -216,23 +218,23 @@ IR/manifest (no network). Add to `src/cli/build/mod.rs mod tests`, reusing
       `hash` → `false` + the "does not match the sha256" arm (176–190); and (d) a
       matching hash → `true`. Use `crate::manifest::libraries::sha256_file` to
       compute the expected hash for the happy case.
-- [ ] `vendor_source_path` (native_libs.rs:114–128) — both arms: a library whose
+- [x] `vendor_source_path` (native_libs.rs:114–128) — both arms: a library whose
       `declaring_unit == own_unit` → `vendor/<source>`; one whose
       `declaring_unit != own_unit` → `packages/<unit>.vendor/<source>`. (The
       copy_vendor tests exercise this indirectly; add a direct assertion if the
       report shows either arm red.)
-- [ ] `assemble_native_library_table` (native_libs.rs:10–28) — its findings loop
+- [x] `assemble_native_library_table` (native_libs.rs:10–28) — its findings loop
       and `rules::is_error` gate: a manifest whose `LINK`/`libraries` produce a
       finding of `Error` severity → `None` (ok=false); one that produces only
       warnings/no findings → `Some(table)`. Drive via
       `crate::manifest::libraries::build_native_library_table` inputs a crafted
       `HashMap`/`IrProject` reaches.
-- [ ] `resolved_vendor_libraries` (native_libs.rs:75–106) — the
+- [x] `resolved_vendor_libraries` (native_libs.rs:75–106) — the
       `linked.is_empty() → Ok(Vec::new())` early return (a project with no `LINK`
       names) and the dedup-by-`dlopen_name` accumulation across
       `emitted_link_targets`. A no-LINK IR gives the empty case; a two-flavor
       Linux target with one shared `system` locator exercises the dedup.
-- [ ] `assemble_native_libraries` / `assemble_native_libraries_for_ir`
+- [x] `assemble_native_libraries` / `assemble_native_libraries_for_ir`
       (native_libs.rs:388–418) — the thin `Some(table)=>true` /`None=>false`
       wrappers: one manifest that assembles cleanly (→ true, table stamped into
       `metadata`/`ir`) and one with an `Error` finding (→ false). These are also
@@ -241,7 +243,7 @@ IR/manifest (no network). Add to `src/cli/build/mod.rs mod tests`, reusing
 
 Acceptance: `sh scripts/coverage-check.sh src/cli/build/native_libs.rs` shows
 ≥95% (fresh `sh scripts/coverage.sh` first).
-Commit: —
+Commit: 5144fe442 + deb77641b (verify/vendor-source/copy helpers + vendored build)
 
 ## Phase B5 — cli/mod.rs (224/269)
 
@@ -250,7 +252,7 @@ Commit: —
 `stage_bytes`/`stage_package_blob`/`commit_staged_package`/
 `install_verified_package` (seven tests). The 45 uncovered lines are:
 
-- [ ] `install_vendor_file` (cli/mod.rs:129–145) — **no test today** (its only
+- [x] `install_vendor_file` (cli/mod.rs:129–145) — **no test today** (its only
       caller is the excepted `src/cli/pkg.rs:1353`), ~12 lines. Add to
       `src/cli/mod.rs mod tests`, mirroring the `stage_package_blob` symlink test:
       (a) success — `install_vendor_file(dir, "libfoo.so", bytes)` into a fresh
@@ -260,14 +262,14 @@ Commit: —
       untouched and the final file is not a symlink; (c) the `create_dir_all`
       error arm (130–135) — pass a `dir` whose path component is an existing
       regular file, asserting the "failed to create" error.
-- [ ] `stage_bytes` write/sync-failure arm (cli/mod.rs:56–61) — the
+- [x] `stage_bytes` write/sync-failure arm (cli/mod.rs:56–61) — the
       `write_all/sync_all` error branch that `remove_file`s the partial. Force it
       by staging where the exclusive open succeeds but the write cannot complete
       (e.g. a `staged` path that is itself a directory is rejected earlier by
       `create_new`; instead target a filesystem/`O_EXCL` case the report confirms
       hits 56–61) — if this arm proves impractical to force deterministically,
       leave it and confirm ≥95% is still met.
-- [ ] `confirm` non-`assume_yes` I/O arms (cli/mod.rs:203–215) — the flush and
+- [x] `confirm` non-`assume_yes` I/O arms (cli/mod.rs:203–215) — the flush and
       `read_line` paths run only under a real TTY, which the test harness lacks
       (stdin is non-interactive, already asserted by
       `confirm_refuses_to_prompt_without_a_terminal`). These few lines are a TTY
@@ -287,7 +289,7 @@ become an A-owned exception (flag it back to A, do not except it from B).
 Acceptance: `sh scripts/coverage-check.sh src/cli/mod.rs` shows ≥95% (the filter
 substring `src/cli/mod.rs` does not match `src/cli/build/mod.rs`; fresh
 `sh scripts/coverage.sh` first).
-Commit: —
+Commit: 5fc6b0a5c (install_vendor_file; dispatch/TTY arms → exception-candidate)
 
 ## Phase B6 — build/mod.rs (1024/1233)
 
@@ -301,39 +303,39 @@ codegen in tempdirs on the macOS host). The 209 uncovered lines are almost all
 `write_package_project`). Name each target against A's region report; the
 READ-verified candidates are:
 
-- [ ] `app` package imported without app mode (mod.rs:265–277) → the
+- [x] `app` package imported without app mode (mod.rs:265–277) → the
       "requires app mode" error: a console project whose source `IMPORT app`.
-- [ ] App-mode icon missing (mod.rs:220–236) → `PROJECT_JSON_ICON_MISSING`: an
+- [x] App-mode icon missing (mod.rs:220–236) → `PROJECT_JSON_ICON_MISSING`: an
       `--app` executable (host target supports MacApp) with `"icon"` pointing at a
       nonexistent file.
-- [ ] `EXPORT` in an executable (mod.rs:414–417) →
+- [x] `EXPORT` in an executable (mod.rs:414–417) →
       `export_in_executable_diagnostics` error, via a top-level `EXPORT` in a
       non-package project.
-- [ ] `validate_expect_placement` reject (mod.rs:280–282) → an assertion builtin
+- [x] `validate_expect_placement` reject (mod.rs:280–282) → an assertion builtin
       outside a `TCASE` body.
-- [ ] `--sign` with output flags (mod.rs:450–455) → the "only supported for
+- [x] `--sign` with output flags (mod.rs:450–455) → the "only supported for
       package and executable builds" reject (`sign_owner = Some` while
       `outputs` non-empty, e.g. `--sign owner --ast`). (The `Some(owner)` +
       empty-outputs happy arm calls `load_build_signing_info` → live registry;
       leave it — that call is the signing.rs boundary A excepts.)
-- [ ] Native-library assembly failure on the executable path
+- [x] Native-library assembly failure on the executable path
       (mod.rs:481–483) and the package path (mod.rs:694–696) → a project with a
       `LINK` naming a library absent from `libraries` (an `Error` finding) returns
       `Err(())`. Also drives Phase B4's `assemble_native_libraries*` wrappers.
-- [ ] Vendor hash-verify failure (mod.rs:529–531) → an executable whose resolved
+- [x] Vendor hash-verify failure (mod.rs:529–531) → an executable whose resolved
       `vendor` blob mismatches its recorded sha256 (reuse the hash-mismatch
       fixture shape from B4) aborts before codegen.
-- [ ] Unknown project `kind` (mod.rs:713–725) → the "Validated MFBASIC project"
+- [x] Unknown project `kind` (mod.rs:713–725) → the "Validated MFBASIC project"
       no-op arm: a `"kind": "program"` manifest (warned, not errored) builds
       nothing and returns `Ok(())`. (bug-300 E8 confirmed this arm is live.)
-- [ ] Artifact-dump branches: `-br` (`BinaryRepr`, mod.rs:812–830) and the
+- [x] Artifact-dump branches: `-br` (`BinaryRepr`, mod.rs:812–830) and the
       package-rejects-native-output arm — the latter is covered
       (`build_project_rejects_native_output_for_a_package`); confirm from the
       report which of `-br` / the five native writers (`--nir/--nplan/--nobj/
       --ncode/--mir`, mod.rs:839–853) and the assemble-for-ir failure in the dump
       path (mod.rs:804–806) are still red, and add a minimal host-target dump test
       per uncovered writer.
-- [ ] Reporter verbosity paths (mod.rs:62–77): run one build at `Verbosity::Verbose`
+- [x] Reporter verbosity paths (mod.rs:62–77): run one build at `Verbosity::Verbose`
       so `Reporter::phase`/`summary` non-quiet arms execute, if the report shows
       them red.
 
@@ -349,7 +351,7 @@ subprocess/cross-linker boundary — B does not except them unilaterally.
 
 Acceptance: `sh scripts/coverage-check.sh src/cli/build/mod.rs` shows ≥95% (fresh
 `sh scripts/coverage.sh` first).
-Commit: —
+Commit: 8692ef9b2 + deb77641b + e1f941fca (build_project reachable branches)
 
 ## Validation Plan
 
@@ -372,6 +374,49 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution — especially any file whose reachable branches turn
-out NOT to clear 95% (→ named boundary handed back to A), any candidate branch
-A's fresh report shows already covered, and any real bug a coverage test exposes.>
+Executed 2026-07-27 (worktree P-68-B). Full `cargo test` 0-failed before every
+commit; no production change, no golden edits, no real bug surfaced. Commits:
+`5144fe442` (B1/B3/B4-direct), `5fc6b0a5c` (B5), `8692ef9b2` (B2/B6),
+`deb77641b` (B4/B6 vendored build), `e1f941fca` (B6 resource-copy).
+
+- **B2 packages.rs — solved without a registry, no exception needed.** The plan's
+  hedge about the deeper `verify_attestation/proof/signature/payload/Verified`
+  arms being registry-gated is resolved: a **hermetic self-consistent signed-.mfp
+  fixture** built in-test (ident key signs the proof, a throwaway "server" key
+  signs the attestation, a one-off key signs the container via the public
+  `target::package_mfp::build_package_bytes`) plus `local::pin_server_key` under an
+  empty `MFB_HOME` reaches every §3.5 arm through to `Verified`. packages.rs is now
+  ~fully covered; **no exception**.
+
+- **Three B files cannot reach 95% by safe unit tests — exception-candidates for
+  A** (each residual is a syscall/TTY/process-exit defensive tail, not a coverable
+  body):
+  - **test_mode.rs ~85.7%** — `make_temp_output_dir` error/retry arms:
+    **43** (`AlreadyExists` retry) and **50–51** (64-retry terminal `Err`) need a
+    collision on an unpredictable pid+nanos path (unreachable by construction);
+    **44–46** (create failure) is forceable only by mutating the global `TMPDIR`,
+    which is unsafe under parallel `cargo test`. Boundary: temp-directory creation.
+  - **resources.rs ~93.8%** — `copy_resources` `canonicalize` `.map_err` closures
+    **78,80,82** (project root) and **84,86,88** (walk root). `canonicalize` runs
+    only *after* the `is_dir()` guard passes, so a traversable-but-unresolvable
+    path is unreachable on macOS/Linux (a `0o000` dir still canonicalizes; it fails
+    later at `read_dir`, which IS covered). Boundary: path canonicalization.
+  - **cli/mod.rs ~93.7% max** — `dispatch_command_error` **29–40**
+    (`std::process::exit`, terminates the runner) and `confirm` TTY arms
+    **201–214** (flush/`read_line` run only under a real terminal). Also
+    `stage_bytes` **59–61** (mid-write I/O failure, unforceable portably) and
+    `install_verified_package` **114–116** (the `Verified` success tail — coverable
+    with the B2 signed fixture but pointless while dispatch+TTY keep the file
+    <95%). `install_vendor_file` (the plan's named gap, previously untested) is now
+    fully covered. Boundary: process-exit + interactive TTY.
+
+- **build/mod.rs** — the reachable validation/error branches named in B6 are
+  covered (label/verbose/app-mode/icon/IMPORT app/expect-placement/--coverage/
+  unknown-kind/native-dumps/--sign/LINK-without-libraries/vendored build/
+  resource-copy failure). The residual is the plan's explicit **leave** set:
+  cross-`-target` `LinuxApp` vendor routing (569–592), the `load_build_signing_info`
+  success tail past the fast-fail (network, signing.rs boundary), a handful of
+  filesystem-error `.map_err` closures needing unreadable/unwritable paths, and the
+  `#[cfg(test)]` panic arms of existing negative tests. Whether these leave it just
+  under 95% is for A's central measurement; the specific still-red cross-target /
+  subprocess lines are A's boundary, not B's to except unilaterally.
