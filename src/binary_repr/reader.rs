@@ -594,6 +594,7 @@ pub(super) fn decode_type_export(
         fields,
         variants,
         members,
+        foreign_owner: None,
     })
 }
 
@@ -1276,7 +1277,14 @@ pub(super) fn validate_abi_index(
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, entry)| entry.kind == entry_kind && entry.name == abi_export.name)
+            // bug-390: a re-exported foreign type (FOREIGN_TYPE_KIND) surfaces under
+            // the owning package's Type/Union/Enum export kind, so accept it here
+            // too — its `type_sig_hash` reproduces the stored hash from the payload's
+            // owning ABI hash, exactly as the writer computed it.
+            .filter(|(_, entry)| {
+                (entry.kind == entry_kind || entry.kind == FOREIGN_TYPE_KIND)
+                    && entry.name == abi_export.name
+            })
             .map(|(index, _)| FIRST_TABLE_TYPE_ID + index as u32)
             .collect::<Vec<_>>();
         if candidates.is_empty() {

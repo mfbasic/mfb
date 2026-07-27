@@ -403,6 +403,110 @@ impl TypeTable {
         }
         bytes
     }
+
+    /// bug-390: mark every foreign-reference entry (kind 12) reachable from one of
+    /// this package's own exported symbols as re-exported, so a consumer importing
+    /// this package sees the dependency's type under its original identity (true
+    /// namespace re-export). A foreign type reached only through an imported
+    /// function's signature — interned for table-order stability but never named
+    /// in this package's own API — is deliberately left unexported (the acceptance
+    /// model's "pB never re-exports the unused `C`").
+    pub(super) fn mark_reexported_foreign_types(
+        &mut self,
+        functions: &[Function],
+    ) -> Result<(), String> {
+        let mut reachable = HashSet::new();
+        for function in functions {
+            if !is_exported_function(function) {
+                continue;
+            }
+            self.collect_reachable(function.return_type, &mut reachable)?;
+            for param in &function.params {
+                self.collect_reachable(param.type_id, &mut reachable)?;
+            }
+        }
+        // An exported record/union surfaces its field types too, so a foreign type
+        // reached only through an exported type's field is still re-exported.
+        for index in 0..self.entries.len() {
+            if self.entries[index].abi_export_kind.is_some() {
+                self.collect_reachable(FIRST_TABLE_TYPE_ID + index as u32, &mut reachable)?;
+            }
+        }
+        for id in reachable {
+            let index = (id - FIRST_TABLE_TYPE_ID) as usize;
+            let Some(entry) = self.entries.get_mut(index) else {
+                continue;
+            };
+            if entry.kind == FOREIGN_TYPE_KIND && entry.abi_export_kind.is_none() {
+                entry.abi_export_kind = Some(decode_export_kind(checked_u16_at(&entry.payload, 0)?)?);
+            }
+        }
+        Ok(())
+    }
+
+    /// Collect every table type id reachable from `id` (including `id` itself),
+    /// mirroring `AbiSerializer::serialize_type_inner`'s payload traversal.
+    fn collect_reachable(&self, id: u32, acc: &mut HashSet<u32>) -> Result<(), String> {
+        let Some(index) = id.checked_sub(FIRST_TABLE_TYPE_ID) else {
+            return Ok(()); // primitive / handle sentinel: no table entry.
+        };
+        let index = index as usize;
+        if index >= self.entries.len() || !acc.insert(id) {
+            return Ok(());
+        }
+        let payload = self.entries[index].payload.clone();
+        match self.entries[index].kind {
+            1 => {
+                let mut offset = 0;
+                let field_count = cursor_u32(&payload, &mut offset)?;
+                for _ in 0..field_count {
+                    let _name = cursor_u32(&payload, &mut offset)?;
+                    let type_id = cursor_u32(&payload, &mut offset)?;
+                    let _visibility = cursor_u32(&payload, &mut offset)?;
+                    self.collect_reachable(type_id, acc)?;
+                }
+            }
+            2 => {
+                let mut offset = 0;
+                let variant_count = cursor_u32(&payload, &mut offset)?;
+                for _ in 0..variant_count {
+                    let _name = cursor_u32(&payload, &mut offset)?;
+                    let field_count = cursor_u32(&payload, &mut offset)?;
+                    for _ in 0..field_count {
+                        let _field_name = cursor_u32(&payload, &mut offset)?;
+                        let field_type = cursor_u32(&payload, &mut offset)?;
+                        self.collect_reachable(field_type, acc)?;
+                    }
+                }
+            }
+            4 | 6 => self.collect_reachable(checked_u32_at(&payload, 0)?, acc)?,
+            5 | 9 | 11 => {
+                self.collect_reachable(checked_u32_at(&payload, 0)?, acc)?;
+                self.collect_reachable(checked_u32_at(&payload, 4)?, acc)?;
+            }
+            7 | 10 => {
+                self.collect_reachable(checked_u32_at(&payload, 0)?, acc)?;
+                self.collect_reachable(checked_u32_at(&payload, 4)?, acc)?;
+                if payload.len() >= 12 {
+                    self.collect_reachable(checked_u32_at(&payload, 8)?, acc)?;
+                }
+            }
+            8 => {
+                let mut offset = 0;
+                let _isolated = cursor_u32(&payload, &mut offset)?;
+                let param_count = cursor_u32(&payload, &mut offset)?;
+                let return_type = cursor_u32(&payload, &mut offset)?;
+                self.collect_reachable(return_type, acc)?;
+                for _ in 0..param_count {
+                    let param_type = cursor_u32(&payload, &mut offset)?;
+                    self.collect_reachable(param_type, acc)?;
+                }
+            }
+            // enum (3), foreign (12), and any leaf kind: no outgoing type refs.
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 impl ConstPool {

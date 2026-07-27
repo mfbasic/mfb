@@ -238,6 +238,11 @@ pub struct BinaryReprTypeExport {
     pub fields: Vec<BinaryReprTypeField>,
     pub variants: Vec<BinaryReprTypeVariant>,
     pub members: Vec<String>,
+    /// bug-390: `Some(owning_package)` when this export is a type re-exported
+    /// from a dependency (a `FOREIGN_TYPE_KIND` table entry) rather than defined
+    /// here. `read_package_type_exports` fills in the real fields/variants from
+    /// the owner's sibling `.mfp`; `None` for a type this package defines.
+    pub foreign_owner: Option<String>,
 }
 
 #[derive(Clone)]
@@ -513,9 +518,60 @@ pub fn package_info_from_mfp(bytes: &[u8]) -> Result<BinaryReprPackageInfo, Stri
 }
 
 pub fn read_package_type_exports(path: &Path) -> Result<Vec<BinaryReprTypeExport>, String> {
+    read_package_type_exports_resolved(path, 0)
+}
+
+/// bug-390: resolve any re-exported foreign type (`foreign_owner: Some`) to the
+/// owning dependency's real definition, read from its sibling `.mfp` in the same
+/// `packages/` directory. This delivers true namespace re-export — an importer of
+/// the intermediary package sees the dependency's type with fields/variants
+/// intact and under the owning package's identity, idempotently however many
+/// intermediaries surface it. A package with no foreign type reads no siblings,
+/// so existing outputs are untouched. The depth cap breaks a pathological
+/// re-export cycle (packages form a DAG, so a real chain is shallow).
+fn read_package_type_exports_resolved(
+    path: &Path,
+    depth: usize,
+) -> Result<Vec<BinaryReprTypeExport>, String> {
+    const MAX_REEXPORT_DEPTH: usize = 64;
     let package = read_package_binary_repr(path)?;
-    package_type_exports(&package)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
+    let mut exports = package_type_exports(&package)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    if !exports.iter().any(|export| export.foreign_owner.is_some()) {
+        return Ok(exports);
+    }
+    if depth >= MAX_REEXPORT_DEPTH {
+        return Err(format!(
+            "package re-export chain exceeds {MAX_REEXPORT_DEPTH} levels at '{}'",
+            path.display()
+        ));
+    }
+    let packages_dir = path.parent();
+    for export in &mut exports {
+        let Some(owner) = export.foreign_owner.clone() else {
+            continue;
+        };
+        let Some(dir) = packages_dir else {
+            continue;
+        };
+        let owner_path = dir.join(format!("{owner}.mfp"));
+        if !owner_path.is_file() {
+            // The owner is not installed alongside the intermediary; the type's
+            // name still resolves, but its fields cannot be filled in here.
+            continue;
+        }
+        let owner_exports = read_package_type_exports_resolved(&owner_path, depth + 1)?;
+        if let Some(def) = owner_exports
+            .into_iter()
+            .find(|candidate| candidate.name == export.name)
+        {
+            export.kind = def.kind;
+            export.fields = def.fields;
+            export.variants = def.variants;
+            export.members = def.members;
+        }
+    }
+    Ok(exports)
 }
 
 /// Decode an imported package's `RESOURCE_TABLE` so the importer can register
