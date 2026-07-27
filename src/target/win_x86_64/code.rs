@@ -901,27 +901,95 @@ impl code::CodegenPlatform for Platform {
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
         // poll(&pollfd, 1, timeout) for fd 0: the shared caller passes the pollfd
-        // pointer in the return register, nfds=1 in ARG[1], and the timeout (ms, -1 =
-        // infinite) in ARG[2]. Windows has no poll(); wait on the stdin handle with
-        // WaitForSingleObject(hStdin, timeout) — a -1 timeout's low 32 bits are
-        // 0xFFFFFFFF == INFINITE, and a positive ms passes through. Map WAIT_OBJECT_0
-        // (0) → 1 (ready), WAIT_TIMEOUT (258) → 0, anything else → -1 (the caller
-        // routes <0 to its retry/error tail). plan-66-C.
+        // pointer in the return register, nfds=1 in ARG[1], and the timeout (ms, < 0 =
+        // infinite) in ARG[2]. Windows has no poll(). Two cases by stdin handle type:
+        //
+        //  * a console handle → WaitForSingleObject(hStdin, timeout) signals on input.
+        //  * a PIPE (app mode redirects fd 0 to the window input pipe, plan-66-J-4) →
+        //    WaitForSingleObject is USELESS: an anonymous pipe read handle is signaled
+        //    whether or not bytes are queued, so it would report ready with no input.
+        //    PeekNamedPipe reports the actual queued byte count; poll it in a Sleep(10)
+        //    countdown until data arrives or the timeout elapses.
+        //
+        // Result: WAIT_OBJECT_0 / bytes-available → 1 (ready), timeout → 0, error → -1
+        // (the caller routes <0 to its retry/error tail). plan-66-C / plan-66-J-4.
         let n = instructions.len();
         let ready = format!("{from}_poll_ready_{n}");
         let timeout = format!("{from}_poll_timeout_{n}");
         let done = format!("{from}_poll_done_{n}");
+        let pipe_loop = format!("{from}_poll_pipe_{n}");
+        let pipe_sleep = format!("{from}_poll_sleep_{n}");
+        let console = format!("{from}_poll_console_{n}");
+        let inf_set = format!("{from}_poll_inf_{n}");
+        // Frame (multiple of 16, preserves the caller helper's alignment like the
+        // original 0x30): &avail@0x20, NULL@0x28 (PeekNamedPipe stack args 5/6),
+        // avail@0x30, hStdin@0x38, remaining@0x40, infinite@0x48.
+        const F: usize = 0x50;
         instructions.extend([
-            abi::subtract_stack(0x30),
-            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // save timeout
+            abi::subtract_stack(F),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x40), // remaining = timeout
+            // infinite = (timeout < 0) ? 1 : 0 (poll() infinite semantics).
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x48),
+            abi::compare_immediate(abi::ARG[2], "0"),
+            abi::branch_ge(&inf_set),
+            abi::move_immediate(abi::ARG[0], "Integer", "1"),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x48),
+            abi::label(&inf_set),
             // GetStdHandle(STD_INPUT_HANDLE = -10) without a negative immediate.
             abi::move_immediate(abi::ARG[0], "Integer", "0"),
             abi::subtract_immediate(abi::ARG[0], abi::ARG[0], 10),
         ]);
         call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
         instructions.extend([
-            abi::move_register(abi::ARG[0], abi::return_register()), // hHandle
-            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x28),  // dwMilliseconds
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x38), // hStdin
+            // GetFileType(hStdin): FILE_TYPE_PIPE (3) → the app-mode input pipe.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x38),
+        ]);
+        call_external(from, "GetFileType", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "3"), // FILE_TYPE_PIPE
+            abi::branch_ne(&console),
+            // ---- pipe path: PeekNamedPipe countdown ----
+            abi::label(&pipe_loop),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // avail = 0
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), 0x30), // &avail
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20), // 5th arg lpTotalBytesAvail
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28),   // 6th arg NULL
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x38),  // hStdin
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // lpBuffer NULL
+            abi::move_immediate(abi::ARG[2], "Integer", "0"),        // nBufferSize 0
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),        // lpBytesRead NULL
+        ]);
+        call_external(from, "PeekNamedPipe", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x30), // avail
+            abi::compare_immediate(abi::ARG[0], "0"),
+            abi::branch_ne(&ready), // bytes queued → ready
+            // not ready: infinite → keep polling; else if remaining <= 0 → timeout.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x48), // infinite
+            abi::compare_immediate(abi::ARG[0], "0"),
+            abi::branch_ne(&pipe_sleep),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // remaining
+            abi::compare_immediate(abi::ARG[0], "0"),
+            abi::branch_le(&timeout),
+            abi::label(&pipe_sleep),
+            abi::move_immediate(abi::ARG[0], "Integer", "10"), // Sleep(10 ms)
+        ]);
+        call_external(from, "Sleep", KERNEL32, instructions, relocations);
+        instructions.extend([
+            // Decrement the countdown unless infinite.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x48), // infinite
+            abi::compare_immediate(abi::ARG[0], "0"),
+            abi::branch_ne(&pipe_loop),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // remaining
+            abi::subtract_immediate(abi::ARG[0], abi::ARG[0], 10),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x40),
+            abi::branch(&pipe_loop),
+            // ---- console path: WaitForSingleObject ----
+            abi::label(&console),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x38), // hStdin
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x40), // dwMilliseconds
         ]);
         call_external(from, "WaitForSingleObject", KERNEL32, instructions, relocations);
         instructions.extend([
@@ -938,7 +1006,7 @@ impl code::CodegenPlatform for Platform {
             abi::label(&timeout),
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::label(&done),
-            abi::add_stack(0x30),
+            abi::add_stack(F),
         ]);
         Ok(())
     }
@@ -2775,6 +2843,19 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_app_io_flush_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
         Some(Ok(app::emit_app_io_flush_helper(symbol)))
+    }
+
+    fn emit_app_io_input_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
+        Some(Ok(app::emit_app_io_input_helper(symbol)))
+    }
+
+    fn emit_app_raw_input_mode(
+        &self,
+        _symbol: &str,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        Some(app::emit_app_raw_input_mode())
     }
 
     fn emit_app_io_is_terminal_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {

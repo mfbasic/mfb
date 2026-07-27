@@ -201,7 +201,11 @@ fn emit_stdin_byte_read(
     if app_mode {
         ctx.instructions.extend([
             abi::label(retry_label),
-            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            // fd 0 (stdin) goes in ARG[0], the read() first-arg register that
+            // emit_read_file reads it from. Using return_register() worked only by
+            // accident on aarch64 (x0 == ARG[0]); on Win64 return_register() is rax,
+            // not ARG[0]=rcx, so emit_read_file read garbage as the fd (plan-66-J-4).
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
             abi::add_immediate(abi::ARG[1], abi::stack_pointer(), byte_offset),
             abi::move_immediate(abi::ARG[2], "Integer", "1"),
         ]);

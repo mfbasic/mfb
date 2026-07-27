@@ -562,18 +562,39 @@ Commit: d9025af8c / merged e5c500020
   `hello-from-winapp`/`second-line` (io::print reached the EDIT control); without
   it the non-headless run exits cleanly (0) with no side effect; headless still
   prints. Commit `d997031e6`.
-- **J-4 — input round-trip.** A pipe (`CreatePipe`) whose read end is dup'd onto the
-  worker's stdin path; WndProc `WM_CHAR`/`WM_KEYDOWN` does line editing + commit to
-  the pipe; `emit_app_io_input_helper` + `emit_app_raw_input_mode` wired. **Acceptance:**
-  box run reads a typed line.
+- **J-4 — input round-trip. DONE + box-proven.** `_main` creates an anonymous
+  `CreatePipe`, redirects fd 0 to the read end via `SetStdHandle(STD_INPUT, hRead)`
+  (the Win32 analog of macOS's `dup2(readEnd, 0)`), and subclasses the transcript
+  EDIT (`SetWindowLongPtrW(GWLP_WNDPROC)`). The subclass `editproc` writes each
+  `WM_CHAR` byte straight to the pipe (translating Enter `\r`→`\n` so `readLine`
+  terminates) — the per-character macOS keyDown model, NOT a fragile line
+  read-back — then `CallWindowProcW`-chains EVERY message to the stock EDIT proc,
+  so J-3's `EM_REPLACESEL` transcript appends are untouched (no regression).
+  `emit_app_io_input_helper` (prompt via `io.write` → `io.readLine`) and
+  `emit_app_raw_input_mode` (no-op: the pipe is already unbuffered per-key) are
+  wired via `code.rs`. A `MFB_WINAPP_INPUT` env test hook injects `WM_CHAR`s so the
+  round-trip is box-provable over ssh without a keyboard. **Two genuine fixes
+  landed with it:** (a) shared `io_stdin.rs` `emit_stdin_byte_read` set the
+  app-mode read fd via `return_register()` — right on aarch64 (x0==ARG[0]) but
+  garbage on any x86 ABI (rax≠ARG[0]); now `ARG[0]` (byte-identical on aarch64,
+  fixes a latent linux_gtk app bug too). (b) win `emit_poll_input` used
+  `WaitForSingleObject`, which false-positives on an anonymous pipe (signals with
+  no data queued); added a `GetFileType`→`PeekNamedPipe` Sleep-countdown branch.
+  **Acceptance MET** — box (2230): `io::input("Name? ")` with injected `ZaphodB`
+  → program prints `GOT[ZaphodB]END`, EXIT=0; `io::readChar` → `CHAR[Q]`;
+  `io::pollInput(300)` with no input → `READY[FALSE]` (was TRUE), with input →
+  `READY[TRUE]LINE[Hi]`; J-3 transcript still shows both `io::print` lines.
+  Commit: `<pending>`.
 - **J-5 — term:: TUI grid + mode reconcile + full box proof.** `emit_app_term_helper`
   (cell-grid custom draw: colors/cursor/clear, modeled on `term_view.rs`),
   `emit_app_mode_reconcile` + reconcile data objects. **Acceptance:** the full Phase-J
   acceptance below, box-proven.
-- [ ] Tests: box run showing a window with transcript output + keystroke input.
+- [~] Tests: box run showing a window with transcript output + keystroke input.
+  DONE for J-2/J-3/J-4 (transcript readback + injected-keystroke round-trip both
+  box-proven on 2230); the TUI-grid custom draw is J-5.
 
-Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **NOT MET** — spike proves the mechanics; building J-2..J-5 (see split above).
-Commit: 9718fd97d (spike) / merged e5c500020
+Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **MET for the core (J-2 bootstrap + J-3 transcript + J-4 input all box-proven on 2230); J-5 (`term::` TUI grid + mode reconcile) is the remaining refinement.**
+Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 `<pending>`
 
 ### Phase K — PE resource packaging  (NOT STARTED)
 - [ ] `.ico` encoder (`os/windows/icon.rs` reusing `os/icon/mod.rs::render_png`);
@@ -659,6 +680,24 @@ Commit: —
   re-run all five **MET** this date; box `BOX_OK`; debug build green (18.4s). Resuming
   J-4 with resume-option (1): use `cdb` to trace where the GUI worker's
   `ReadFile(GetStdHandle(STD_INPUT))` blocks, then re-apply the two genuine fixes.
+- **2026-07-27 (Phase J-4 DONE — clean rebuild, no hang).** Rebuilt the input
+  plumbing from scratch instead of restoring the reverted (twice-buggy) change set;
+  `cdb` was on standby but never needed — the hang did not reproduce. The key design
+  change vs the reverted attempt: `editproc` writes each `WM_CHAR` byte to the pipe
+  **per keystroke** (the macOS keyDown model) and `CallWindowProcW`-chains every
+  message, rather than the reverted attempt's `EM_GETLINE` line read-back + a subclass
+  that swallowed messages (which broke J-3). Whatever the reverted attempt's two bugs
+  were (a suspected handle/register issue + a non-chaining subclass), the from-scratch
+  rebuild avoided both. `SetStdHandle(STD_INPUT, hRead)` DID take effect for the GUI
+  worker — the memory's "SetStdHandle doesn't connect" hypothesis was wrong. Box-proven
+  on 2230: `io::input`/`readLine`/`readChar`/`pollInput` all correct, J-3 transcript
+  intact, EXIT=0. The reverted attempt's fix (a) (fd via `ARG[0]` not
+  `return_register()`) and fix (b) (`emit_poll_input` `PeekNamedPipe` for pipes) were
+  both genuine and re-derived independently here — fix (a) ALSO corrects a latent
+  linux_gtk x86 app-mode bug (`RET[0]=rax ≠ ARG[0]=rdi`); fix (b) was confirmed
+  empirically (`pollInput` with no input returned TRUE before, FALSE after). No
+  app-mode goldens exist for x86 (only 3 macOS-aarch64), so fix (a) is byte-identical
+  for every existing golden.
 - **2026-07-26 (Phase E REGRESSION — merge dropped the advertising for 9 landed
   fs calls).** On resume, a census (`comm -23` of macOS vs Windows `"fs.` advertise
   sets) found that `win_x86_64/mod.rs` advertises only 26 fs calls where macOS has

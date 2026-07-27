@@ -36,6 +36,13 @@ const USER32: &str = "user32.dll";
 const MAIN_SYMBOL: &str = "_main";
 const WORKER_SYMBOL: &str = "_mfb_winapp_worker";
 const WNDPROC_SYMBOL: &str = "_mfb_winapp_wndproc";
+const EDITPROC_SYMBOL: &str = "_mfb_winapp_editproc";
+
+/// The shared runtime io helpers the app-mode `io.input` body chains to (the
+/// same symbols the console lowering emits): render the prompt, then read a line
+/// from fd 0 — which app mode has redirected to the window input pipe.
+const IO_WRITE_SYMBOL: &str = "_mfb_rt_io_io_write";
+const IO_READ_LINE_SYMBOL: &str = "_mfb_rt_io_io_readLine";
 
 pub(super) const FINISH_SYMBOL: &str = "_mfb_winapp_program_finish";
 
@@ -52,6 +59,25 @@ const EDIT_HWND_SYM: &str = "_mfb_winapp_edit_hwnd";
 /// Writable 8-byte global holding the main window HWND (the worker's finish helper
 /// reads it to signal the UI thread to quit).
 const MAIN_HWND_SYM: &str = "_mfb_winapp_main_hwnd";
+/// Writable 8-byte global holding the input pipe's WRITE handle. `_main` (UI
+/// thread) creates the pipe and stores the write end here; the EDIT subclass
+/// (`editproc`, also UI thread) writes each typed byte to it. The worker thread
+/// drains the READ end via fd 0 (`SetStdHandle(STD_INPUT, readEnd)`), so
+/// `io::readLine`/`readChar` consume window keystrokes (plan-66-J-4).
+const STDIN_WRITE_SYM: &str = "_mfb_winapp_stdin_write";
+/// Writable 8-byte global holding the transcript EDIT control's original window
+/// procedure (`SetWindowLongPtrW` returns it). `editproc` chains every message it
+/// does not consume back to this proc, so the stock EDIT behaviour (painting,
+/// `EM_REPLACESEL` transcript appends from J-3) is preserved.
+const EDIT_OLDPROC_SYM: &str = "_mfb_winapp_edit_oldproc";
+/// Read-only UTF-16 name of the `MFB_WINAPP_INPUT` env var: a test affordance that
+/// makes `_main` inject each character of its value as a `WM_CHAR` to the EDIT
+/// (then a final Enter), so the full subclass → pipe → `readLine` round-trip is
+/// box-provable over ssh without a real keyboard.
+const INPUT_ENV_SYM: &str = "_mfb_winapp_input_env";
+/// Writable UTF-16 scratch buffer the keystroke-injection reads `MFB_WINAPP_INPUT`
+/// into (250 wide chars + slack).
+const INPUT_BUF_SYM: &str = "_mfb_winapp_inputbuf";
 /// A custom worker→UI quit signal (`WM_APP`). The message loop catches it and exits
 /// so the UI thread — which owns the window — performs teardown; a worker-thread
 /// `ExitProcess` while the window/message-loop is live faults in GDI teardown.
@@ -72,7 +98,11 @@ const WS_OVERLAPPED_VISIBLE: &str = "282001408"; // 0x10CF0000
 const CW_USEDEFAULT: &str = "2147483648"; // 0x80000000
 const FILE_FLAG_STDOUT_FD: usize = 11; // -(-11) STD_OUTPUT_HANDLE
 const FILE_FLAG_STDERR_FD: usize = 12; // -(-12) STD_ERROR_HANDLE
+const STD_INPUT_FD: usize = 10; // -(-10) STD_INPUT_HANDLE
 const WM_DESTROY: &str = "2";
+const WM_CHAR: &str = "258"; // 0x0102
+const VK_RETURN: &str = "13"; // '\r' (WM_CHAR wParam on Enter)
+const GWLP_WNDPROC: usize = 4; // -(-4) the SetWindowLongPtrW index for the wndproc
 
 /// `bl symbol` to an imported DLL function + its external relocation.
 fn call_external(
@@ -177,7 +207,13 @@ pub(super) fn emit_app_program_entry(
     _spec: &AppEntrySpec,
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
-    Ok(vec![emit_main(), emit_worker(), emit_wndproc(), emit_finish()])
+    Ok(vec![
+        emit_main(),
+        emit_worker(),
+        emit_wndproc(),
+        emit_editproc(),
+        emit_finish(),
+    ])
 }
 
 /// `_main`: the PE entry. Frame (mirrors spike.rs): shadow [0x00..0x20], outgoing
@@ -185,12 +221,17 @@ pub(super) fn emit_app_program_entry(
 /// hInstance @0xE0, hwnd @0xE8, worker HANDLE @0xF0. FRAME 0xF8 keeps the PE
 /// entry's `sp % 16 == 8` arrival 16-aligned before the first call.
 fn emit_main() -> CodeFunction {
-    const FRAME: usize = 0xF8;
+    const FRAME: usize = 0x118;
     const WNDCLASS: usize = 0x60;
     const MSG: usize = 0xB0;
     const HINSTANCE: usize = 0xE0;
     const HWND: usize = 0xE8;
     const WORKERH: usize = 0xF0;
+    // plan-66-J-4 input-pipe slots (above the J-2/J-3 frame; FRAME stays ≡8 mod 16).
+    const PIPEREAD: usize = 0xF8; // CreatePipe hReadPipe out-param
+    const PIPEWRITE: usize = 0x100; // CreatePipe hWritePipe out-param
+    const INJ_I: usize = 0x108; // keystroke-injection loop index
+    const INJ_N: usize = 0x110; // keystroke-injection wide-char count
     let from = MAIN_SYMBOL;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
@@ -289,6 +330,37 @@ fn emit_main() -> CodeFunction {
     load_addr(abi::ARG[1], EDIT_HWND_SYM, from, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::return_register(), abi::ARG[1], 0));
 
+    // ---- plan-66-J-4 input wiring (GUI path) ----
+    // CreatePipe(&hRead, &hWrite, NULL, 0): a byte pipe whose READ end becomes the
+    // worker's stdin (fd 0) and whose WRITE end the EDIT subclass feeds keystrokes.
+    ins.push(abi::add_immediate(abi::ARG[0], abi::stack_pointer(), PIPEREAD)); // &hRead
+    ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), PIPEWRITE)); // &hWrite
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0")); // lpPipeAttributes = NULL
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", "0")); // nSize = 0 (default buffer)
+    call_external(from, "CreatePipe", KERNEL32, &mut ins, &mut rel);
+    // SetStdHandle(STD_INPUT_HANDLE = -10, hRead): the worker's io::readLine reads
+    // fd 0, which win emit_read_file resolves via GetStdHandle(-10); redirecting it
+    // to the pipe read end makes readLine drain window keystrokes (plan-66-J-4).
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
+    ins.push(abi::subtract_immediate(abi::ARG[0], abi::ARG[0], STD_INPUT_FD)); // -10
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), PIPEREAD)); // hRead
+    call_external(from, "SetStdHandle", KERNEL32, &mut ins, &mut rel);
+    // Stash hWrite in its global so the EDIT subclass (UI thread) can commit bytes.
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), PIPEWRITE));
+    load_addr(abi::ARG[1], STDIN_WRITE_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ARG[0], abi::ARG[1], 0));
+    // Subclass the transcript EDIT: oldproc = SetWindowLongPtrW(edit, GWLP_WNDPROC =
+    // -4, &editproc). editproc writes each WM_CHAR to the pipe then chains to
+    // oldproc, so the stock EDIT behaviour (J-3 transcript appends) is preserved.
+    load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0)); // edit hwnd
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    ins.push(abi::subtract_immediate(abi::ARG[1], abi::ARG[1], GWLP_WNDPROC)); // -4
+    load_addr(abi::ARG[2], EDITPROC_SYMBOL, from, &mut ins, &mut rel); // &editproc
+    call_external(from, "SetWindowLongPtrW", USER32, &mut ins, &mut rel);
+    load_addr(abi::ARG[1], EDIT_OLDPROC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::return_register(), abi::ARG[1], 0)); // oldproc
+
     // CreateThread(NULL, 0, &worker, hwnd, 0, NULL)
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
@@ -298,6 +370,55 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // lpThreadId
     call_external(from, "CreateThread", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), WORKERH));
+
+    // ---- plan-66-J-4 keystroke injection (test affordance) ----
+    // If MFB_WINAPP_INPUT is set, post each of its characters as a WM_CHAR to the
+    // EDIT (then a final Enter), simulating typing so the subclass → pipe → readLine
+    // round-trip is box-provable over ssh without a keyboard. The message loop below
+    // dispatches these to editproc, which feeds the pipe on the UI thread.
+    // n = GetEnvironmentVariableW(L"MFB_WINAPP_INPUT", inputbuf, 250)
+    load_addr(abi::ARG[0], INPUT_ENV_SYM, from, &mut ins, &mut rel);
+    load_addr(abi::ARG[1], INPUT_BUF_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "250"));
+    call_external(from, "GetEnvironmentVariableW", KERNEL32, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), INJ_N)); // count
+    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::branch_eq("inject_enter")); // unset/empty → just send Enter? no — skip all
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), INJ_I)); // i = 0
+    ins.push(abi::label("inject_loop"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), INJ_I));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), INJ_N));
+    ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::branch_ge("inject_enter")); // i >= n → done, send Enter
+    // ch = inputbuf[i] (a UTF-16 code unit); PostMessageW(edit, WM_CHAR, ch, 0).
+    load_addr(abi::ARG[1], INPUT_BUF_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::shift_left_immediate(abi::ARG[0], abi::ARG[0], 1)); // i*2
+    ins.push(abi::add_registers(abi::ARG[1], abi::ARG[1], abi::ARG[0]));
+    ins.push(abi::load_u16(abi::ARG[2], abi::ARG[1], 0)); // wParam = ch
+    load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0)); // edit hwnd
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", WM_CHAR));
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", "0")); // lParam
+    call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), INJ_I));
+    ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), INJ_I));
+    ins.push(abi::branch("inject_loop"));
+    ins.push(abi::label("inject_enter"));
+    // A final Enter (WM_CHAR '\r') so readLine terminates the line.
+    load_addr(abi::ARG[0], INPUT_ENV_SYM, from, &mut ins, &mut rel);
+    load_addr(abi::ARG[1], INPUT_BUF_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "250"));
+    call_external(from, "GetEnvironmentVariableW", KERNEL32, &mut ins, &mut rel);
+    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::branch_eq("inject_done")); // MFB_WINAPP_INPUT unset → no injection at all
+    load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", WM_CHAR));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", VK_RETURN)); // '\r'
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", "0"));
+    call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
+    ins.push(abi::label("inject_done"));
 
     // Message loop.
     ins.push(abi::label("msg_loop"));
@@ -423,6 +544,78 @@ fn emit_wndproc() -> CodeFunction {
     ins.push(abi::add_stack(0x28));
     ins.push(abi::return_());
     code_function("winapp.wndproc", WNDPROC_SYMBOL, ins, rel)
+}
+
+/// `editproc(hwnd, msg, wParam, lParam)`: the transcript EDIT's subclass (plan-66-
+/// J-4). On `WM_CHAR` it writes the typed byte to the input pipe — translating
+/// Enter (`\r`) to `\n` so `io::readLine` terminates the line — then chains to the
+/// stock EDIT proc so the character still echoes into the transcript. Every other
+/// message chains straight through, so J-3's programmatic transcript appends
+/// (`EM_REPLACESEL` via `SendMessageW`) are untouched. The keystrokes reach the
+/// pipe per-character (the macOS keyDown model), so there is no fragile line
+/// read-back to distinguish typed text from program output.
+fn emit_editproc() -> CodeFunction {
+    // Frame: shadow[0..0x20], 5th-arg slot@0x20, written@0x28, byte@0x30,
+    // hwnd@0x38, msg@0x40, wParam@0x48, lParam@0x50. FRAME ≡ 8 (mod 16): the proc is
+    // entered at sp%16==8 (post-call), so 0x58 realigns to 16 before any call.
+    const FRAME: usize = 0x58;
+    const OVERLAPPED: usize = 0x20;
+    const WRITTEN: usize = 0x28;
+    const BYTEBUF: usize = 0x30;
+    const HWND: usize = 0x38;
+    const MSG: usize = 0x40;
+    const WPARAM: usize = 0x48;
+    const LPARAM: usize = 0x50;
+    let from = EDITPROC_SYMBOL;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    // Save the four WndProc arguments (calls below clobber the ARG registers).
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), HWND));
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), MSG));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), WPARAM));
+    ins.push(abi::store_u64(abi::ARG[3], abi::stack_pointer(), LPARAM));
+    // Only WM_CHAR feeds the pipe; everything else chains straight through.
+    ins.push(abi::compare_immediate(abi::ARG[1], WM_CHAR));
+    ins.push(abi::branch_ne("chain"));
+    // byte = (wParam == '\r') ? '\n' : (wParam & 0xFF). readLine terminates on '\n'.
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), WPARAM));
+    ins.push(abi::compare_immediate(abi::ARG[2], VK_RETURN));
+    ins.push(abi::branch_ne("not_cr"));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "10")); // '\n'
+    ins.push(abi::branch("store_byte"));
+    ins.push(abi::label("not_cr"));
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", "255"));
+    ins.push(abi::and_registers(abi::ARG[0], abi::ARG[2], abi::ARG[3])); // low byte
+    ins.push(abi::label("store_byte"));
+    ins.push(abi::store_u8(abi::ARG[0], abi::stack_pointer(), BYTEBUF));
+    // hWrite = *_mfb_winapp_stdin_write; skip if the pipe was never wired (headless).
+    load_addr(abi::ARG[0], STDIN_WRITE_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("chain"));
+    // WriteFile(hWrite, &byte, 1, &written, NULL)
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), OVERLAPPED)); // 5th arg NULL
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), WRITTEN));
+    ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), BYTEBUF)); // &byte
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "1"));
+    ins.push(abi::add_immediate(abi::ARG[3], abi::stack_pointer(), WRITTEN)); // &written
+    call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
+    // chain: CallWindowProcW(oldproc, hwnd, msg, wParam, lParam) — 5th arg on stack.
+    ins.push(abi::label("chain"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), LPARAM));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), OVERLAPPED)); // lParam (5th)
+    load_addr(abi::ARG[0], EDIT_OLDPROC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0)); // oldproc (rcx)
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), HWND)); // rdx
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), MSG)); // r8
+    ins.push(abi::load_u64(abi::ARG[3], abi::stack_pointer(), WPARAM)); // r9
+    call_external(from, "CallWindowProcW", USER32, &mut ins, &mut rel);
+    // CallWindowProcW's LRESULT is already in the return register; return it.
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    code_function("winapp.editproc", EDITPROC_SYMBOL, ins, rel)
 }
 
 /// App-mode program-completion path (`emit_program_exit` routes the worker here
@@ -587,6 +780,45 @@ pub(super) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
     )
 }
 
+/// App-mode `io.input` body (plan-66-J-4): render the prompt to the transcript
+/// (via the shared `io.write` helper, whose app-mode body appends to the EDIT),
+/// then read a line from fd 0 — which `_main` has redirected to the window input
+/// pipe — via the shared `io.readLine` helper. The prompt string arrives in
+/// `ARG[0]` and is consumed by `io.write`; `io.readLine` needs no argument and
+/// leaves its `String` Result in the Result registers, which this tail returns.
+/// Mirrors macOS `emit_app_io_input_helper`; on Win64 the return address is on the
+/// stack (no link register), so the frame only reserves shadow space for the calls.
+pub(super) fn emit_app_io_input_helper(symbol: &str) -> AppHookBody {
+    // Entered at sp%16==8 (post-call); 0x28 (shadow 0x20 + 8) realigns to 16.
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(0x28));
+    call_internal(from, IO_WRITE_SYMBOL, &mut ins, &mut rel); // ARG[0] = prompt
+    call_internal(from, IO_READ_LINE_SYMBOL, &mut ins, &mut rel); // result in Result regs
+    ins.push(abi::add_stack(0x28));
+    ins.push(abi::return_());
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        ins,
+        rel,
+    )
+}
+
+/// App-mode setup for immediate, no-echo key reads (`io.readChar`/`readByte`).
+/// On Windows the input pipe already delivers each keystroke byte as it is typed
+/// (the EDIT subclass writes per `WM_CHAR`, unbuffered), so a single-byte read of
+/// fd 0 returns the next key with no cooked-mode line buffering to disable — the
+/// raw-mode flip is a no-op. Returns `Ok(())` so the shared read helpers treat raw
+/// mode as supported (the trait's `None` would mean "not app mode").
+pub(super) fn emit_app_raw_input_mode() -> Result<(), String> {
+    Ok(())
+}
+
 /// App-mode `io.flush` body (J-2): standard-handle writes are unbuffered, so this
 /// is a no-op that returns `RESULT_OK_TAG`. (J-3 drives the transcript present.)
 pub(super) fn emit_app_io_flush_helper(_symbol: &str) -> AppHookBody {
@@ -660,14 +892,27 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         utf16z_data_object(EDIT_CLASS_SYM, "EDIT"),
         utf16z_data_object(DUMP_ENV_SYM, "MFB_WINAPP_DUMP"),
         utf16z_data_object(CRLF_SYM, "\r\n"),
+        utf16z_data_object(INPUT_ENV_SYM, "MFB_WINAPP_INPUT"),
         // Writable 8-byte globals (kind:"raw" → the writable data partition): the
         // transcript EDIT HWND and the main window HWND, both 0 until built.
         writable_qword(EDIT_HWND_SYM),
         writable_qword(MAIN_HWND_SYM),
+        // plan-66-J-4 input state: the pipe write handle and the EDIT's original
+        // window proc, both written by `_main` at window build (0 until then).
+        writable_qword(STDIN_WRITE_SYM),
+        writable_qword(EDIT_OLDPROC_SYM),
         CodeDataObject {
             symbol: "_mfb_winapp_testbuf".to_string(),
             kind: "raw".to_string(),
             layout: "u8[512] (writable readback scratch)".to_string(),
+            align: 2,
+            size: 512,
+            value: "00".repeat(512),
+        },
+        CodeDataObject {
+            symbol: INPUT_BUF_SYM.to_string(),
+            kind: "raw".to_string(),
+            layout: "u16[256] (writable keystroke-injection scratch)".to_string(),
             align: 2,
             size: 512,
             value: "00".repeat(512),
@@ -797,5 +1042,63 @@ mod tests {
         let ft: Vec<&str> = finish.relocations.iter().map(|r| r.to.as_str()).collect();
         assert!(ft.contains(&"PostMessageW"), "finish signals the UI thread");
         assert!(ft.contains(&"ExitThread") && !ft.contains(&"ExitProcess"));
+    }
+
+    #[test]
+    fn main_wires_input_pipe_and_subclasses_edit() {
+        // plan-66-J-4: _main creates the input pipe, redirects fd 0 to its read end,
+        // and subclasses the transcript EDIT so typed keystrokes reach the worker.
+        let fns = emit_app_program_entry(&spec(), &HashMap::new()).unwrap();
+        let main = fns.iter().find(|f| f.symbol == MAIN_SYMBOL).unwrap();
+        let targets: Vec<&str> = main.relocations.iter().map(|r| r.to.as_str()).collect();
+        for want in ["CreatePipe", "SetStdHandle", "SetWindowLongPtrW"] {
+            assert!(targets.contains(&want), "_main calls {want}: {targets:?}");
+        }
+        // Stashes the pipe write handle and the EDIT's original proc for editproc.
+        assert!(targets.contains(&STDIN_WRITE_SYM) && targets.contains(&EDIT_OLDPROC_SYM));
+        // The subclass function is emitted and installed.
+        assert!(targets.contains(&EDITPROC_SYMBOL), "installs editproc as the subclass");
+        assert!(
+            fns.iter().any(|f| f.symbol == EDITPROC_SYMBOL),
+            "editproc function is emitted"
+        );
+    }
+
+    #[test]
+    fn editproc_feeds_pipe_then_chains() {
+        // editproc must write typed bytes to the pipe (WriteFile) AND chain every
+        // message to the stock EDIT proc (CallWindowProcW) so J-3's transcript
+        // appends are preserved.
+        let fns = emit_app_program_entry(&spec(), &HashMap::new()).unwrap();
+        let ep = fns.iter().find(|f| f.symbol == EDITPROC_SYMBOL).unwrap();
+        let targets: Vec<&str> = ep.relocations.iter().map(|r| r.to.as_str()).collect();
+        assert!(targets.contains(&"WriteFile"), "editproc writes keystrokes to the pipe");
+        assert!(
+            targets.contains(&"CallWindowProcW"),
+            "editproc chains to the original EDIT proc (no J-3 regression)"
+        );
+        assert!(targets.contains(&STDIN_WRITE_SYM), "reads the pipe write handle global");
+        assert!(targets.contains(&EDIT_OLDPROC_SYM), "reads the saved original proc");
+    }
+
+    #[test]
+    fn input_helper_writes_prompt_then_reads_line() {
+        // io.input renders the prompt (io.write) then reads a line (io.readLine),
+        // which drains fd 0 — the window input pipe.
+        let (_frame, _ins, rel) = emit_app_io_input_helper("_test_input");
+        let targets: Vec<&str> = rel.iter().map(|r| r.to.as_str()).collect();
+        assert!(targets.contains(&IO_WRITE_SYMBOL), "renders the prompt via io.write");
+        assert!(targets.contains(&IO_READ_LINE_SYMBOL), "reads the line via io.readLine");
+    }
+
+    #[test]
+    fn input_data_objects_present() {
+        let objs = app_mode_data_objects("P");
+        // The injection env-var name (UTF-16) and the two input-state writable globals.
+        assert!(objs.iter().any(|o| o.symbol == INPUT_ENV_SYM));
+        let w = objs.iter().find(|o| o.symbol == STDIN_WRITE_SYM).unwrap();
+        assert_eq!(w.size, 8);
+        assert!(objs.iter().any(|o| o.symbol == EDIT_OLDPROC_SYM));
+        assert!(objs.iter().any(|o| o.symbol == INPUT_BUF_SYM));
     }
 }
