@@ -130,6 +130,7 @@ typeList       = type { "," type } ;
 templateType
                = ( "Map" | "MapEntry" ) "OF" type "TO" [ "RES" ] type
                | ( "List" ) "OF" [ "RES" ] type
+               | ( "Set" ) "OF" type                       (* elements comparable; no RES *)
                | "Result" "OF" type                       (* internal only; not user-writable *)
                | ( "Thread" | "ThreadWorker" ) "OF" threadBody
                | (ident | qualifiedIdent) "OF" type { "," type } ;
@@ -215,7 +216,7 @@ withExpr       = "WITH" memberAccess "{" fieldAssigns "}" ;
 memberAccess   = callOrCtor { "." ident } ;
 callOrCtor     = primary { "(" [ callArgList ] ")" | "[" [ callArgList ] "]" } ;
 primary        = literal | ident | qualifiedIdent | lambda
-               | enumMember | listLit | mapLit
+               | enumMember | listLit | setLit | mapLit
                | "(" expr ")" ;
 literal        = integer | decimal | string | scalar | "TRUE" | "FALSE" | "NOTHING" ;
 scalar         = "`" ( scalarChar | escape ) "`" ; (* one Unicode scalar; §2.3 *)
@@ -239,6 +240,7 @@ fieldAssigns   = fieldAssign { "," fieldAssign } ;
 fieldAssign    = ident ":=" expr ;
 listLit        = "[" [ exprList ] "]" ;
 exprList       = expr { "," expr } ;
+setLit         = "Set" "OF" type "{" [ exprList ] "}" ;
 mapLit         = "Map" "OF" type "TO" type "{" [ mapEntries ] "}" ;
 mapEntries     = mapEntry { "," mapEntry } ;
 mapEntry       = expr ":=" expr ;

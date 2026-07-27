@@ -1,0 +1,72 @@
+' Set-group benchmarks (collections:: over `Set OF T`, plan-63).
+'
+'   set build     — grow a set via repeated `add` (dedup probe on every insert)
+'                   and count membership, the O(1)-average hash-probe path.
+'   set ops       — a coverage row exercising the full Set surface: the native
+'                   members add/remove/contains/toList and the source-generic
+'                   algebra union/intersection/difference/symmetricDifference/
+'                   isSubset/isSuperset/isDisjoint/toSet.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+
+' Build a large set by repeated add (half the inserts are duplicates so the
+' idempotent-hit path is exercised too), then sum a membership sweep.
+FUNC test_set_build(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT s AS Set OF Integer = Set OF Integer { }
+    FOR i = 0 TO 19999
+      s = collections::add(s, i / 2)
+    NEXT
+    MUT hits AS Integer = 0
+    FOR i = 0 TO 19999
+      IF collections::contains(s, i) THEN
+        hits = hits + 1
+      END IF
+    NEXT
+    checksum = len(s) + hits
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("set_build = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("set", "build", times))
+END FUNC
+
+' One coverage row over the entire Set surface on two moderate sets.
+FUNC test_set_ops(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT a AS Set OF Integer = Set OF Integer { }
+    MUT b AS Set OF Integer = Set OF Integer { }
+    FOR i = 0 TO 999
+      a = collections::add(a, i)
+      b = collections::add(b, i + 500)
+    NEXT
+    LET u AS Set OF Integer = collections::union(a, b)
+    LET inter AS Set OF Integer = collections::intersection(a, b)
+    LET diff AS Set OF Integer = collections::difference(a, b)
+    LET sym AS Set OF Integer = collections::symmetricDifference(a, b)
+    LET withoutOne AS Set OF Integer = collections::remove(a, 0)
+    LET fromList AS Set OF Integer = collections::toSet(collections::toList(u))
+    MUT flags AS Integer = 0
+    IF collections::isSubset(inter, a) THEN
+      flags = flags + 1
+    END IF
+    IF collections::isSuperset(u, a) THEN
+      flags = flags + 2
+    END IF
+    IF collections::isDisjoint(diff, b) THEN
+      flags = flags + 4
+    END IF
+    checksum = len(u) + len(inter) + len(diff) + len(sym) + len(withoutOne) + len(fromList) + flags
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("set_ops = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("set", "ops", times))
+END FUNC
