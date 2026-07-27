@@ -145,7 +145,7 @@ One line: author, register, and test the set algebra as pure source generics.
 
 Acceptance: the fixture(s) run and print the expected results for all eight
 operations; `cargo test` green.
-Commit: —
+Commit: 8db869569
 
 ## Validation Plan
 
