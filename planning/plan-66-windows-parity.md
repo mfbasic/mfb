@@ -589,6 +589,47 @@ Commit: d9025af8c / merged e5c500020
   (cell-grid custom draw: colors/cursor/clear, modeled on `term_view.rs`),
   `emit_app_mode_reconcile` + reconcile data objects. **Acceptance:** the full Phase-J
   acceptance below, box-proven.
+
+  **J-5 SCOPING (2026-07-27, before build).** Key finding: term:: in Windows app mode
+  ALREADY WORKS via the shared console-ANSI fallback. `emit_app_term_helper` is the
+  trait default `None` on Windows today, and the shared dispatch (`mod.rs:1719-1746`)
+  falls through to `term::lower_term_helper` (the console backend) when it returns
+  `None`. A `-app` term:: program builds and, box-proven on 2230 (`-Wait`), emits a
+  complete 2216-byte 24-bit ANSI TUI stream to the inherited std handle:
+  `ESC[?1049h` (alt screen) · `ESC[38;2;255;0;0m` colors · `ESC[3;4H` cursor
+  (moveTo(2,3), 1-based) · `ESC[2J` clear · `ESC[?1049l` restore. So Windows app-mode
+  term:: is FUNCTIONAL — but writes to the inherited *console*, not the app window, so
+  it is (a) incoherent with `io::print` (which goes to the EDIT transcript) and (b)
+  invisible when the exe is double-clicked with no console. J-5's real work is a GDI
+  cell grid IN the window.
+  Windows advertises only 12 app-relevant term calls (no draw primitives — `drawBox`/
+  `fillRect`/`drawGlyph`/`drawText`/`drawHLine`/`drawVLine` are NOT advertised, unlike
+  macOS's 18), so the surface is smaller: `on`/`off`/`clear`/`moveTo`/`setForeground`/
+  `setBackground`/`setBold`/`setUnderline`/`showCursor`/`hideCursor`/`sync`/
+  `terminalSize` (the `get*`/`isOn` are pure `term_state` reads, no app helper).
+  term_state layout (`error_constants.rs:407`): active@0 fg@8 bg@16 bold@24
+  underline@32 cursorVisible@40 (all u64).
+  **Turnkey GDI design:** (1) data objects — a cell-grid buffer (rows×cols ×
+  {u16 char, u32 fg, u32 bg, u8 attr}), grid dims, a cached monospace HFONT, a cursor
+  row/col, a `_mfb_winapp_tui_active` flag. (2) a GDI surface — either a child window
+  or WM_PAINT on the main window that, when TUI active, iterates the grid and draws
+  each cell (CreateFontW Consolas once, SelectObject, per-cell SetTextColor/SetBkColor
+  + ExtTextOutW with opaque bg). (3) `emit_app_term_helper` for the 12 calls: `on` sets
+  the active flag + hides the EDIT + clears the grid; `off` restores the EDIT; `clear`
+  fills the grid with blanks; `moveTo` sets the cursor cell; `setForeground/Background`
+  store the current fg/bg; `setBold/Underline` store attrs; `sync` InvalidateRect →
+  WM_PAINT; `showCursor/hideCursor` toggle a caret; `terminalSize` returns the grid
+  dims. (4) route `emit_app_io_write_helper`'s term-active path (the `term_state_offset`
+  param it already receives) to write chars into the grid at the cursor instead of the
+  EDIT when TUI active (mirror macOS `app_io.rs` term_surface_path). (5)
+  `emit_app_mode_reconcile` — on `setMode`, build/teardown the grid surface for the new
+  mode (plan-62). Box proof (`-Wait`, `MFB_WINAPP_DUMP` grid readback or a WM_PAINT
+  proof file): a TUI program shows colored cells at the right positions. Model the cell
+  semantics (not the ObjC) on `macos_aarch64/app/term_view.rs`. **This is a large
+  cohesive unit (~800-1200 LOC codegen); it cannot be partially landed without a stub
+  (the term ops all write the grid that `sync` presents), so build it as one increment.**
+  Interim state: the console-ANSI fallback is production-valid for console-launched
+  runs, so nothing is broken while J-5 is unbuilt.
 - [~] Tests: box run showing a window with transcript output + keystroke input.
   DONE for J-2/J-3/J-4 (transcript readback + injected-keystroke round-trip both
   box-proven on 2230); the TUI-grid custom draw is J-5.
