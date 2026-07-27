@@ -29,6 +29,7 @@ impl TypeTable {
         Self {
             entries: Vec::new(),
             ids: HashMap::new(),
+            foreign_types: HashMap::new(),
         }
     }
 
@@ -185,6 +186,13 @@ impl TypeTable {
             _ => {
                 if let Some(id) = self.ids.get(name) {
                     *id
+                } else if let Some(fref) = self.foreign_types.get(name).cloned() {
+                    // bug-390: a type owned by an imported dependency, named in this
+                    // package's own API. Encode a foreign reference carrying the
+                    // owning package's identity instead of degrading it to an
+                    // empty-record placeholder (the old fallback below, which then
+                    // failed with `truncated binary representation`).
+                    self.foreign_type(strings, name, &fref)
                 } else {
                     self.add_entry(strings, "", name, 1, Vec::new())
                 }
@@ -331,6 +339,26 @@ impl TypeTable {
             put_u32(&mut payload, resource_type);
         }
         self.add_entry(strings, "thread", &name, 10, payload)
+    }
+
+    /// bug-390: intern a reference to a dependency's exported type. The entry's
+    /// `owner_package` is the declaring dependency and its payload is
+    /// `[u16 underlying-export-kind][32-byte owning ABI hash]` — enough to
+    /// re-export the type by the owning package's original identity and to
+    /// reconstruct its name on decode, without carrying (absent) field data.
+    pub(super) fn foreign_type(
+        &mut self,
+        strings: &mut StringPool,
+        name: &str,
+        fref: &ForeignTypeRef,
+    ) -> u32 {
+        if let Some(id) = self.ids.get(name) {
+            return *id;
+        }
+        let mut payload = Vec::new();
+        put_u16(&mut payload, encode_export_kind(fref.export_kind));
+        payload.extend_from_slice(&fref.abi_hash);
+        self.add_entry(strings, &fref.package, name, FOREIGN_TYPE_KIND, payload)
     }
 
     pub(super) fn add_entry(
@@ -1017,6 +1045,26 @@ impl<'a> AbiSerializer<'a> {
                 Ok(())
             }
             8 => self.serialize_function_type(entry),
+            // bug-390: a reference to a dependency's type. Hash it by the owning
+            // package's identity — its dependency name, original type name, and the
+            // owning package's ABI hash carried in the payload — rather than
+            // re-walking fields it does not have. Two intermediary packages that
+            // surface the same `pA::A` therefore contribute identical bytes here, so
+            // a consumer unifies them; and an intermediary built against an
+            // ABI-incompatible owner carries a different hash, which the consumer's
+            // `validate_abi_index` recompute rejects.
+            FOREIGN_TYPE_KIND => {
+                self.put_str("foreign");
+                self.put_str(string_at(self.strings, entry.owner_package)?);
+                self.put_str(string_at(self.strings, entry.name)?);
+                // payload = [u16 underlying-export-kind][32-byte owning ABI hash].
+                let hash = entry
+                    .payload
+                    .get(2..2 + ABI_HASH_LEN)
+                    .ok_or("truncated binary representation")?;
+                self.bytes.extend_from_slice(hash);
+                Ok(())
+            }
             // bug-277: a resource carrying `STATE T` (kind 11) is a composite of
             // two type ids and must hash structurally like kinds 4/5/7. Under the
             // opaque fallback it hashed its interned name `State#<baseId>#<stateId>`,

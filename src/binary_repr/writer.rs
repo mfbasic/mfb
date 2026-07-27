@@ -10,6 +10,7 @@ pub(super) fn lower_project(
         &HashMap::new(),
         &HashMap::new(),
         &HashMap::new(),
+        &HashMap::new(),
     )
 }
 
@@ -24,13 +25,81 @@ pub(super) fn lower_package_project(
         .collect::<Result<Vec<_>, _>>()?;
     let (external_function_ids, external_function_returns, external_function_abi_hashes) =
         external_function_metadata(ir.functions.len() as u32, &packages)?;
+    let external_types = external_type_metadata(&packages)?;
     lower_project_with_external_functions(
         ir,
         metadata,
         &external_function_ids,
         &external_function_returns,
         &external_function_abi_hashes,
+        &external_types,
     )
+}
+
+/// bug-390: per dependency, the exported types this build may re-surface in its
+/// own public API, keyed by original type name. For a type the dependency
+/// *defines* the identity is (dep name, dep's ABI hash for it); for a type the
+/// dependency itself *re-exports* (a `FOREIGN_TYPE_KIND` entry) the original
+/// owner and owning ABI hash are read back from the entry, so the same underlying
+/// `pA::A` keeps one identity however many intermediaries it passes through.
+pub(super) fn external_type_metadata(
+    packages: &[PackageBinaryRepr],
+) -> Result<HashMap<String, ForeignTypeRef>, String> {
+    let mut external_types = HashMap::new();
+    for package in packages {
+        let strings = &package.project.strings.values;
+        let package_name = string_at(strings, package.project.manifest.package_name)?;
+        let type_names = type_entry_names(&package.project.types, strings)?;
+        let type_by_name = package
+            .project
+            .types
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                let id = FIRST_TABLE_TYPE_ID + index as u32;
+                type_name(&type_names, id).ok().map(|name| (name, entry))
+            })
+            .collect::<HashMap<_, _>>();
+        for export in &package.project.abi.exports {
+            if !matches!(
+                export.kind,
+                BinaryReprExportKind::Type
+                    | BinaryReprExportKind::Union
+                    | BinaryReprExportKind::Enum
+            ) {
+                continue;
+            }
+            let name = string_at(strings, export.name)?;
+            let fref = match type_by_name.get(name) {
+                // The dependency re-exports a type it does not own: carry the
+                // original owner and owning ABI hash through unchanged.
+                Some(entry) if entry.kind == FOREIGN_TYPE_KIND => {
+                    let owner = string_at(strings, entry.owner_package)?.to_string();
+                    let export_kind = decode_export_kind(checked_u16_at(&entry.payload, 0)?)?;
+                    let hash_slice = entry
+                        .payload
+                        .get(2..2 + ABI_HASH_LEN)
+                        .ok_or("truncated binary representation")?;
+                    let mut abi_hash = [0u8; ABI_HASH_LEN];
+                    abi_hash.copy_from_slice(hash_slice);
+                    ForeignTypeRef {
+                        package: owner,
+                        export_kind,
+                        abi_hash,
+                    }
+                }
+                // The dependency owns the type: it is the identity source.
+                _ => ForeignTypeRef {
+                    package: package_name.to_string(),
+                    export_kind: export.kind,
+                    abi_hash: export.sig_hash,
+                },
+            };
+            external_types.insert(name.to_string(), fref);
+        }
+    }
+    Ok(external_types)
 }
 
 pub(super) fn external_function_metadata(
@@ -99,6 +168,7 @@ pub(super) fn lower_project_with_external_functions(
     external_function_ids: &HashMap<String, u32>,
     external_function_returns: &HashMap<String, String>,
     external_function_abi_hashes: &HashMap<String, [u8; ABI_HASH_LEN]>,
+    external_types: &HashMap<String, ForeignTypeRef>,
 ) -> Result<BinaryReprProject, String> {
     let mut strings = StringPool::new();
     let ident = if metadata.ident.is_empty() {
@@ -124,6 +194,10 @@ pub(super) fn lower_project_with_external_functions(
     let mut imports = ImportTable::from_metadata(&mut strings, metadata);
 
     let mut types = TypeTable::new();
+    // bug-390: seed the imported-type identities before any `type_id` call so a
+    // dependency type named in this package's own API encodes as a foreign
+    // reference rather than an empty-record placeholder.
+    types.foreign_types = external_types.clone();
     for ir_type in &ir.types {
         types.reserve_source_type(&mut strings, &metadata.name, ir_type);
     }

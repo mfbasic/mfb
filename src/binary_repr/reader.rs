@@ -687,7 +687,13 @@ pub(super) fn read_type_entries(bytes: &[u8], strings: &[String]) -> Result<Type
         });
     }
 
-    Ok(TypeTable { entries, ids })
+    Ok(TypeTable {
+        entries,
+        ids,
+        // The read path never re-writes foreign references, so no owning-type
+        // metadata is needed here (bug-390).
+        foreign_types: HashMap::new(),
+    })
 }
 
 pub(super) fn type_entry_names(

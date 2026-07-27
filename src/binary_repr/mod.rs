@@ -133,6 +133,18 @@ pub(crate) const TYPE_TERM_SIZE: u32 = 0xffff_fefc;
 // by plan-41-B; ids 11–19 are the reserved primitive band (see `TYPE_SCALAR`).
 const FIRST_TABLE_TYPE_ID: u32 = 20;
 
+// bug-390: a type-table entry kind for a reference to a type owned by an imported
+// dependency package. Unlike an inline definition (kinds 1/2/3) it carries no
+// fields of its own — its payload is `[u16 underlying-export-kind][32-byte owning
+// ABI hash]`, its `name` is the type's original name and its `owner_package` the
+// declaring dependency. This lets a package's exported API name a dependency's
+// type without degrading it to a zero-field record (the old `_` fallback, which
+// failed downstream with `truncated binary representation`). Serializing it by the
+// owning package's ABI hash (never re-walking absent fields) gives the "original
+// identity, no re-mangle" property, so the same `pA::A` surfaced through two
+// intermediaries hashes identically and unifies at the consumer.
+const FOREIGN_TYPE_KIND: u16 = 12;
+
 const FUNCTION_BINARY_REPR: u16 = 1;
 
 const FUNCTION_FLAG_ISOLATED: u16 = 1 << 2;
@@ -681,6 +693,23 @@ struct StringPool {
 struct TypeTable {
     entries: Vec<TypeEntry>,
     ids: HashMap<String, u32>,
+    /// bug-390: imported dependency types (by original name) that this build may
+    /// surface in its own exported API. Populated on the *write* path before
+    /// lowering (from each dependency's ABI type exports); empty on the read path.
+    /// `TypeTable::type_id`'s fallback consults this to emit a `FOREIGN_TYPE_KIND`
+    /// reference instead of an empty-record placeholder.
+    foreign_types: HashMap<String, ForeignTypeRef>,
+}
+
+/// bug-390: the identity of a dependency's exported type, carried so a package
+/// that names it in its own public API can re-export it by the owning package's
+/// original ABI identity. `abi_hash` is the owning package's `type_sig_hash` for
+/// this type — the load-bearing field a name alone cannot supply.
+#[derive(Clone)]
+struct ForeignTypeRef {
+    package: String,
+    export_kind: BinaryReprExportKind,
+    abi_hash: [u8; ABI_HASH_LEN],
 }
 
 struct TypeEntry {
