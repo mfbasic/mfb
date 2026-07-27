@@ -928,3 +928,173 @@ impl<'a> FileParser<'a> {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn parse(src: &str) -> Result<crate::ast::AstFile, ()> {
+        crate::ast::parse_source(Path::new("main.mfb"), "main.mfb", src)
+    }
+
+    // ---- Depth guards (bug-171 / bug-191): a nesting past MAX_*_DEPTH (256) ----
+    // Parsing (then unwinding) ~300 recursive levels needs more than a test
+    // thread's default stack, so run each on a generous one (matching the
+    // existing statement-depth-cap test in `tests.rs`).
+
+    fn on_big_stack(f: impl FnOnce() + Send + 'static) {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(f)
+            .expect("spawn")
+            .join()
+            .expect("deep-nesting parse must not overflow the stack");
+    }
+
+    #[test]
+    fn expr_depth_guard_grouping() {
+        // ~300 nested `(` drives `parse_expression`'s `enter_expr` past the cap:
+        // the `enter_expr` false body (26-33) and `parse_expression`'s bail (45).
+        on_big_stack(|| {
+            let src = format!(
+                "FUNC f AS Integer\n  RETURN {}1{}\nEND FUNC\n",
+                "(".repeat(300),
+                ")".repeat(300),
+            );
+            assert!(parse(&src).is_err());
+        });
+    }
+
+    #[test]
+    fn expr_depth_guard_not_chain() {
+        // A deep `NOT NOT …` chain trips `parse_not`'s own `enter_expr` bail (114).
+        on_big_stack(|| {
+            let src = format!(
+                "FUNC f AS Integer\n  RETURN {}a\nEND FUNC\n",
+                "NOT ".repeat(300),
+            );
+            assert!(parse(&src).is_err());
+        });
+    }
+
+    #[test]
+    fn expr_depth_guard_power_chain() {
+        // A deep `^` chain trips `parse_power`'s `enter_expr` bail (236).
+        on_big_stack(|| {
+            let src = format!(
+                "FUNC f AS Integer\n  RETURN 2{}\nEND FUNC\n",
+                "^2".repeat(300),
+            );
+            assert!(parse(&src).is_err());
+        });
+    }
+
+    #[test]
+    fn expr_depth_guard_unary_minus_chain() {
+        // A deep unary-minus chain trips `parse_unary`'s `enter_expr` bail (256).
+        on_big_stack(|| {
+            let src = format!(
+                "FUNC f AS Integer\n  RETURN {}a\nEND FUNC\n",
+                "-".repeat(300),
+            );
+            assert!(parse(&src).is_err());
+        });
+    }
+
+    #[test]
+    fn type_depth_guard_list_chain() {
+        // ~300 nested `List OF …` trips `parse_type_name`'s `enter_type` false
+        // body (569-582) and its bail (597).
+        on_big_stack(|| {
+            let src = format!(
+                "SUB s(x AS {}Integer)\nEND SUB\n",
+                "List OF ".repeat(300),
+            );
+            assert!(parse(&src).is_err());
+        });
+    }
+
+    // ---- parse_primary ----
+
+    #[test]
+    fn primary_eof_after_trailing_operator() {
+        // A trailing operator with no following token (no newline before Eof)
+        // re-enters `parse_primary` at end-of-input, hitting the bug-89 Eof guard
+        // (460-466) instead of re-reading an already-consumed token.
+        assert!(parse("FUNC f AS Integer\n  RETURN a +").is_err());
+    }
+
+    #[test]
+    fn primary_scalar_literal() {
+        // A backtick scalar literal reaches the `Scalar` primary arm (472).
+        let file = crate::testutil::parse_file("FUNC f AS Integer\n  LET x = `A`\n  RETURN 0\nEND FUNC\n");
+        // A successful parse is enough to exercise the arm; confirm it parsed.
+        assert!(!file.items.is_empty());
+    }
+
+    #[test]
+    fn set_literal_rejects_res_element() {
+        // `Set OF RES …` in expression (literal) position is rejected (508-514).
+        assert!(
+            parse("FUNC f AS Integer\n  LET x = Set OF RES File { }\n  RETURN 0\nEND FUNC\n")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn map_literal_missing_open_brace() {
+        // `Map OF K TO V` with no `{` bails in `parse_map_literal` (882).
+        assert!(
+            parse("FUNC f AS Integer\n  LET m = Map OF Integer TO Integer 5\n  RETURN 0\nEND FUNC\n")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn set_literal_missing_open_brace() {
+        // `Set OF T` with no `{` bails in `parse_set_literal` (913).
+        assert!(
+            parse("FUNC f AS Integer\n  LET s = Set OF Integer 5\n  RETURN 0\nEND FUNC\n").is_err()
+        );
+    }
+
+    #[test]
+    fn set_literal_multiple_elements() {
+        // A non-empty set literal with a comma walks the element loop (918-921).
+        let file = crate::testutil::parse_file(
+            "FUNC f AS Integer\n  LET s = Set OF Integer { 1, 2 }\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(!file.items.is_empty());
+    }
+
+    // ---- Defensive `detail`-selection arms in the argument-list parsers ----
+    // `parse_argument_list` is only ever invoked with `RParen` and
+    // `parse_constructor_argument_list` only with `RBracket`, so the other
+    // `match closing` arms that pick the error string are unreachable through the
+    // grammar. Both fns are `pub(super)`, so drive those arms with a direct call
+    // whose leading token is the requested closing delimiter (the loop is then
+    // skipped and the `detail` match still runs).
+
+    fn parser_over(src: &str) -> FileParser<'static> {
+        let tokens = crate::lexer::lex(Path::new("m"), src).expect("lex");
+        FileParser::new(Path::new("m"), tokens)
+    }
+
+    #[test]
+    fn argument_list_detail_arms() {
+        // `RBracket` closing → the RBracket detail arm (405).
+        let mut p = parser_over("]");
+        assert!(p.parse_argument_list(TokenKind::RBracket).is_some());
+        // A closing that is neither `RParen` nor `RBracket` → the `_` arm (406).
+        let mut p = parser_over("}");
+        assert!(p.parse_argument_list(TokenKind::RBrace).is_some());
+    }
+
+    #[test]
+    fn constructor_argument_list_detail_default_arm() {
+        // A non-`RBracket` closing → the `_` detail arm (445).
+        let mut p = parser_over(")");
+        assert!(p.parse_constructor_argument_list(TokenKind::RParen).is_some());
+    }
+}

@@ -122,7 +122,7 @@ substitute:127-134, Trapped contains:32 + substitute:162-171); the rest of the
 enumerated arms are already covered by the existing
 `pipeline_placeholder_each_expression_kind_as_rhs` fixture in `tests.rs`. Added an
 inline `mod tests` in `pipeline.rs` with two direct-call fixtures for those arms.
-Commit: <PIPELINE_COMMIT>
+Commit: 10bd87248
 
 ### Phase G2 — `src/ast/expr.rs` (53 uncov)
 
@@ -130,44 +130,44 @@ Expression + type-name grammar. Covered productions are dense (acceptance drives
 them); uncovered lines are error arms, rare productions, and the depth guards.
 Confirm against the `DA:LINE,0` list, then cover:
 
-- [ ] **Depth guards** (`enter_expr`/`enter_type` false paths, ~lines 25–36,
+- [x] **Depth guards** (`enter_expr`/`enter_type` false paths, ~lines 25–36,
       113, 235, 255, 566–586): a source nesting past `MAX_EXPR_DEPTH`/
       `MAX_TYPE_DEPTH` (256) — e.g. 300 nested `(` for the expr guard, `List OF
       List OF …`×300 for the type guard. Assert `parse_source(…).is_err()` and
       the `MFB_PARSE_…too deep` diagnostic. (bug-171 / bug-191 may already cover
       some — check the list before adding.)
-- [ ] **`parse_pipeline` missing-placeholder** (58–63): `a |> f(1)` (no `_`) →
+- [x] **`parse_pipeline` missing-placeholder** (58–63): `a |> f(1)` (no `_`) →
       `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING`.
-- [ ] **`parse_or` XOR** (Keyword::Xor, ~72–80): `a XOR b`.
-- [ ] **`parse_multiplication` MOD / DIV** (206–217): `a MOD b`, `a DIV b`.
-- [ ] **`parse_with_update` errors** (276, 289–293, 302): missing `{`, missing
+- [x] **`parse_or` XOR** (Keyword::Xor, ~72–80): `a XOR b`.
+- [x] **`parse_multiplication` MOD / DIV** (206–217): `a MOD b`, `a DIV b`.
+- [x] **`parse_with_update` errors** (276, 289–293, 302): missing `{`, missing
       `:=`, non-identifier field, missing `}`.
-- [ ] **`parse_call_or_constructor` non-identifier callee / constructor**
+- [x] **`parse_call_or_constructor` non-identifier callee / constructor**
       (330–338, 355–363): `(a + b)(1)` and `(a + b)[1]`.
-- [ ] **`parse_primary`**: Eof guard (459–467) — a bare trailing operator (e.g.
+- [x] **`parse_primary`**: Eof guard (459–467) — a bare trailing operator (e.g.
       `RETURN a +` at EOF); Map-literal missing `TO` (483–491) —
       `Map OF Integer Integer { }`; Set-literal `RES` forbidden (507–515) —
       `Set OF RES File { }`; the `NOTHING` / `TRUE` / `FALSE` / `Scalar`
       primaries if the list shows them uncovered.
-- [ ] **`finish_qualified_name` three-part error** (550–558): `a::b::c`.
-- [ ] **`parse_type_name_inner`**: ISOLATED FUNC (608–612) —
+- [x] **`finish_qualified_name` three-part error** (550–558): `a::b::c`.
+- [x] **`parse_type_name_inner`**: ISOLATED FUNC (608–612) —
       `AS ISOLATED FUNC(Integer) AS Integer`; grouped type `(T)` (614–617);
       Map-type missing `TO` (628–636); Set-type `RES` forbidden (673–681);
       multi-arg template `Foo OF A, B` (688–706).
-- [ ] **`parse_thread_type_name`** (714–753): the three shapes —
+- [x] **`parse_thread_type_name`** (714–753): the three shapes —
       `Thread OF RES Res TO Out` (RES-first, message defaults to Nothing),
       `Thread OF Msg RES Res TO Out`, `Thread OF Msg TO Out`; and the missing-`TO`
       error. `ThreadWorker` variant for the `canonical` branch.
-- [ ] **`parse_resource_plane_type` STATE** (760–765): `RES File STATE Cursor`
+- [x] **`parse_resource_plane_type` STATE** (760–765): `RES File STATE Cursor`
       inside a thread plane.
-- [ ] **`parse_function_type_name` errors** (769–787): missing `(`, missing `)`,
+- [x] **`parse_function_type_name` errors** (769–787): missing `(`, missing `)`,
       missing `AS`.
-- [ ] **`parse_lambda`**: assign-target body `LAMBDA(x AS Integer) -> c = c + x`
+- [x] **`parse_lambda`**: assign-target body `LAMBDA(x AS Integer) -> c = c + x`
       (815–829) and the error arms — missing `(`, missing `)`, missing `->`.
-- [ ] **`parse_type_base_name`**: `Nothing` keyword arm (844–847) — a param typed
+- [x] **`parse_type_base_name`**: `Nothing` keyword arm (844–847) — a param typed
       `AS Nothing`; invalid-identifier error (848–852) — a type position holding a
       non-name token.
-- [ ] **`parse_map_literal` / `parse_set_literal` error arms** (missing `{`,
+- [x] **`parse_map_literal` / `parse_set_literal` error arms** (missing `{`,
       missing `:=` in map) if the list flags them.
 
 Note: `expr.rs` already carries `coverage:off/on` around the `unreachable!()`
@@ -177,7 +177,25 @@ are excluded from the denominator, so do **not** chase them.
 
 Acceptance: `sh scripts/coverage.sh` (fresh) then
 `sh scripts/coverage-check.sh src/ast/expr.rs` shows ≥95%.
-Commit: —
+
+NOTE (fresh lcov): most enumerated branches (XOR, MOD/DIV, with_update errors,
+non-identifier callee/constructor, `finish_qualified_name` 3-part, ISOLATED FUNC,
+grouped type, map/set/thread type shapes, resource-plane STATE, function-type
+errors, lambda, `type_base_name` Nothing/invalid) are ALREADY covered — their
+lines are absent from the `DA:LINE,0` list. The genuinely-red set was: expr-depth
+guard (`enter_expr` false body + the four `return None` bails: parse_expression 45,
+parse_not 114, parse_power 236, parse_unary 256), type-depth guard (`enter_type`
+false body 569-582 + `parse_type_name` bail 597), parse_primary Eof guard 460-466,
+Scalar primary 472, Set-`RES`-literal 508-514, `parse_map_literal` missing-`{` 882,
+`parse_set_literal` missing-`{` 913 + element loop 918-921, and the DEFENSIVE
+`detail`-selection arms 405/406 (`parse_argument_list`) + 445
+(`parse_constructor_argument_list`) — those two fns are each only ever called with
+one closing token, so those arms are unreachable through the grammar; covered by a
+direct `pub(super)` call whose leading token is the requested closing delimiter
+(not a fabricated grammar path). Added an inline `mod tests` (13 tests). The
+`coverage:off` `unreachable!()` arms (78/148/187/215) and empty-args guard
+(695-701) were left alone per the note above.
+Commit: <EXPR_COMMIT>
 
 ### Phase G3 — `src/ast/link_items.rs` (81 uncov)
 
