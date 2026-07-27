@@ -388,6 +388,12 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     // Assign a memory slot to every distinct `v128` value the function uses, so
     // the SIMD ops can be scalarized onto the slot region (plan-99 §6).
     let v128_slots = super::v128::build_slot_map(instructions);
+    // plan-32-C: physical vector-register assignment for the native-RVV arm of the
+    // dual-path v128 lowering. `None` (register pressure past the v1..=v30 pool)
+    // means this function emits the scalar arm only. `v128_seq` gives each v128
+    // site a unique pair of arm labels.
+    let v128_vregs = super::v128::build_vreg_map(instructions);
+    let mut v128_seq = 0usize;
     // Slots are recycled across non-overlapping live ranges, so the region size
     // is the peak concurrent slot count (highest index + 1), not the number of
     // distinct values.
@@ -577,11 +583,14 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         // §6): RV64GC has no 128-bit vector file.
         if let Some(code_op) = instruction.op.to_code() {
             if super::v128::is_v128(code_op) {
-                out.extend(super::v128::scalarize_v128(
+                out.extend(super::v128::lower_v128(
                     code_op,
                     &instruction.fields,
                     &v128_slots,
+                    v128_vregs.as_ref(),
+                    v128_seq,
                 ));
+                v128_seq += 1;
                 continue;
             }
         }

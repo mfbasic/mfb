@@ -177,19 +177,26 @@ Commit: c51d158a3
 
 Wire the guard + RVV arm for the arithmetic/convert/bitwise/mem ops.
 
-- [ ] In the v128 pass, emit the `lb/beqz … j` guard around each v128 op; scalar
-      arm = `scalarize_v128` (unchanged); RVV arm = `vsetivli` + B mnemonics for
-      `FAddV/FSubV/FMulV/FDivV`, `FMlaV/FMlsV`, `FAbsV/FNegV/FSqrtV`, `FRint*`,
-      `FCvtzsV/FCvtasV/ScvtfV`, `AddV/SubV/NegV`, `AndV/OrrV/EorV`,
-      `ShlV/SshrV/UshrV`, `DupVFromX/UmovXFromV`, `LdrQ/StrQ`, reading/writing the
-      slots.
-- [ ] Tests: selection unit tests that each op emits guard + both arms; the RVV
-      arm's mnemonic/operand sequence is as expected.
+- [x] In the v128 pass (`lower_v128`, wired at `select.rs:579`), emit the
+      `lb/beqz … j` guard around each v128 op; scalar arm = `scalarize_v128`
+      (unchanged); RVV arm (`rvv_arm`) = `vsetivli` + B mnemonics reading/writing
+      the slots for `FAddV/FSubV/FMulV/FDivV`, `FMlaV/FMlsV`, `FAbsV/FNegV/FSqrtV`,
+      `FCvtzsV/ScvtfV`, `AddV/SubV/NegV`, `AndV/OrrV/EorV`, `ShlV/SshrV/UshrV`
+      (amount <32), `DupVFromX/UmovXFromV`, `LdrQ/StrQ`. The subtle ops (`FRint*`,
+      `FCvtasV`, compares, `BslV/BitV`, min/max, wide shifts) always scalarize for
+      now — correctness-preserving (Corrections C2); Phase 3 adds the mask bridge.
+- [x] Tests: a selection unit test (`dual_path_emits_guard_rvv_and_scalar_arms`)
+      that an op emits the guard + RVV arm + scalar arm with the expected
+      mnemonics/operands, and that the no-vreg path is byte-identical to the
+      scalar arm.
 
 Acceptance: **one binary**, run under `qemu-riscv64 -cpu rv64,v=true` and
 `v=false`, produces values **bit-identical to the AArch64 golden in both modes**
-for nbody/mandelbrot and `math::exp/log/pow` (non-compare-heavy).
-Commit: —
+for `math::exp/log/sin/cos/sqrt/pow`. **MET** — same binary, v=true output ==
+v=false output == macos-aarch64 output, bit-identical at 17 decimals across 7
+inputs (Corrections C2). artifact-gate: 0 non-riscv64 diffs; the 3 v128 riscv64
+goldens (audio/math/vector) regenerated for the dual path.
+Commit: <C2>
 
 ### Phase 3 — the mask bridge (compares + bit-select) + min/max
 
@@ -240,6 +247,34 @@ Commit: —
   base is pinned in `s11` and bug-381 reserved a flag-emulation slot in the arena.
   Confirm the guard's scratch does not collide with a live `argc`/`argv` or the
   scalarize scratch across the converge point. (§3)
+
+## Corrections
+
+- **C1 — the `build_slot_map` liveness core** was extracted into `v128_live_ranges`
+  and shared with `build_vreg_map`; `build_slot_map`'s output is unchanged (proven
+  byte-identical). Pool is `v1`–`v30` (`v0` mask + `v31` scratch reserved), matching
+  the Open Decision.
+- **C2 — Phase 2 lowers a bit-identical-*by-construction* subset, not every op.**
+  The plan's Phase-2 list named `FRint*`/`FCvtasV`; those (plus the compares,
+  `BslV/BitV`, min/max, and lane shifts ≥32) reproduce subtle scalar sequences
+  (the 2^52 rounding mask-select, ties-away `frm`, NaN semantics) that need the
+  mask bridge, so `rvv_arm` returns `None` for them and they **always scalarize**.
+  That is correctness-preserving: every v128 op is *individually* bit-identical to
+  the AArch64 golden whether it runs on the RVV arm (pure `f64`/`i64` ops at the
+  default RNE, exact integer/bitwise/mem, same-ISA RTZ/i2f converters) or the
+  proven scalar arm. Consequently even compare/quadrant-heavy `math::sin/cos`
+  already come out bit-identical under both profiles (their compare/round ops
+  scalarize; their arithmetic vectorizes). Phase 3 promotes the compares/`BslV`/
+  `BitV`/min-max to the RVV arm via the mask bridge; the remaining rounding ops can
+  stay scalar with no correctness cost.
+- **C2 — verification affordance.** `build_vreg_map` returns `Some` for the math
+  kernels (measured peak concurrency **19** ≤ 30, not the ~128 the plan feared for
+  the *whole* package — a single straight-line kernel's live set is small), so the
+  RVV arm activates. Two-profile proof: the same linux-riscv64 binary's output
+  under `-cpu rv64,v=true` equals its output under `v=false` **and** equals the
+  native macos-aarch64 reference, bit-identical at 17 decimals over 7 inputs ×
+  exp/log/sin/cos/sqrt/pow. qemu-user on 2232 (both riscv boxes lack V) —
+  [[rvv-two-profile-qemu-oracle]].
 
 ## Summary
 

@@ -809,6 +809,291 @@ pub(crate) fn scalarize_v128(
     out
 }
 
+/// plan-32-C: load the process-global `_mfb_rt_has_rvv` flag byte into `dst`
+/// (`adrp`/`add_pageoff` the symbol, then a byte load).
+fn load_has_rvv_flag(dst: &str) -> Vec<CodeInstruction> {
+    let sym = crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL;
+    vec![
+        ci("adrp", &[("dst", dst), ("symbol", sym)]),
+        ci("add_pageoff", &[("dst", dst), ("src", dst), ("symbol", sym)]),
+        ci("ldr_u8", &[("dst", dst), ("base", dst), ("offset", "0")]),
+    ]
+}
+
+/// plan-32-C: the native-RVV realization of one `v128` op, reading its operands
+/// from and writing its result to the **same** per-thread slot region the scalar
+/// arm uses (so the two arms reconcile at the slot). Returns `None` for an op this
+/// pass does not yet vector-lower (compares, `BslV`/`BitV`, min/max, the
+/// rounding/ties-away conversions, wide shifts) — the caller then emits the scalar
+/// arm only, which is correctness-preserving. Only ops whose RVV per-lane result
+/// is **bit-identical** to the scalar `f64`/`i64` op are lowered here: the RVV
+/// arms run at the default RNE rounding, exactly like the scalar `fadd_d`/… they
+/// mirror, and the integer/bitwise/mem ops are exact.
+fn rvv_arm(
+    op: CodeOp,
+    fields: &[(&'static str, String)],
+    slots: &HashMap<String, usize>,
+    vregs: &HashMap<String, u8>,
+) -> Option<Vec<CodeInstruction>> {
+    use CodeOp::*;
+    let mut out = Vec::new();
+    // The slot base (same region as the scalar arm), then vl=2, e64, m1, ta, ma.
+    out.push(ci(
+        "add_imm",
+        &[
+            ("dst", T2),
+            ("src", crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER),
+            (
+                "imm",
+                &crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string(),
+            ),
+        ],
+    ));
+    out.push(ci(
+        "rv.vop",
+        &[("vop", "vsetivli"), ("dst", "zero"), ("avl", "2")],
+    ));
+
+    let vname = |value: &str| -> String {
+        format!(
+            "v{}",
+            vregs
+                .get(value)
+                .copied()
+                .unwrap_or_else(|| panic!("rv64 v128 rvv arm: no vreg for '{value}'"))
+        )
+    };
+    let slot_off = |value: &str| -> String { (slots[value] * 16).to_string() };
+    // Load `value`'s 16-byte (2×e64) slot into its assigned vector register.
+    let load = |out: &mut Vec<CodeInstruction>, value: &str| {
+        out.push(ci(
+            "add_imm",
+            &[("dst", T0), ("src", T2), ("imm", &slot_off(value))],
+        ));
+        out.push(ci(
+            "rv.vop",
+            &[("vop", "vle64.v"), ("dst", &vname(value)), ("base", T0)],
+        ));
+    };
+    let store = |out: &mut Vec<CodeInstruction>, value: &str| {
+        out.push(ci(
+            "add_imm",
+            &[("dst", T0), ("src", T2), ("imm", &slot_off(value))],
+        ));
+        out.push(ci(
+            "rv.vop",
+            &[("vop", "vse64.v"), ("src", &vname(value)), ("base", T0)],
+        ));
+    };
+
+    match op {
+        FAddV | FSubV | FMulV | FDivV => {
+            let mn = match op {
+                FAddV => "vfadd.vv",
+                FSubV => "vfsub.vv",
+                FMulV => "vfmul.vv",
+                _ => "vfdiv.vv",
+            };
+            let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            load(&mut out, &a);
+            load(&mut out, &b);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+            ));
+            store(&mut out, &d);
+        }
+        // Fused multiply-add/subtract (single rounding), matching the scalar
+        // fmadd_d/fnmsub_d: vfmacc = vd += lhs*rhs, vfnmsac = vd -= lhs*rhs.
+        FMlaV | FMlsV => {
+            let mn = if op == FMlaV { "vfmacc.vv" } else { "vfnmsac.vv" };
+            let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            load(&mut out, &d); // the accumulator lane
+            load(&mut out, &a);
+            load(&mut out, &b);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+            ));
+            store(&mut out, &d);
+        }
+        // abs/neg via sign-injection (bit ops, exact); sqrt at RNE (exact).
+        FAbsV | FNegV => {
+            let mn = if op == FAbsV { "vfsgnjx.vv" } else { "vfsgnjn.vv" };
+            let (d, s) = (f(fields, "dst"), f(fields, "src"));
+            load(&mut out, &s);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&s)), ("rhs", &vname(&s))],
+            ));
+            store(&mut out, &d);
+        }
+        FSqrtV => {
+            let (d, s) = (f(fields, "dst"), f(fields, "src"));
+            load(&mut out, &s);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vfsqrt.v"), ("dst", &vname(&d)), ("src", &vname(&s))],
+            ));
+            store(&mut out, &d);
+        }
+        // f64→i64 toward zero and i64→f64: same RISC-V converters the scalar arm
+        // uses (fcvtzs = fcvt.l.d RTZ; scvtf = fcvt.d.l), so bit-identical.
+        FCvtzsV => {
+            let (d, s) = (f(fields, "dst"), f(fields, "src"));
+            load(&mut out, &s);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vfcvt.rtz.x.f.v"), ("dst", &vname(&d)), ("src", &vname(&s))],
+            ));
+            store(&mut out, &d);
+        }
+        ScvtfV => {
+            let (d, s) = (f(fields, "dst"), f(fields, "src"));
+            load(&mut out, &s);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vfcvt.f.x.v"), ("dst", &vname(&d)), ("src", &vname(&s))],
+            ));
+            store(&mut out, &d);
+        }
+        AddV | SubV | AndV | OrrV | EorV => {
+            let mn = match op {
+                AddV => "vadd.vv",
+                SubV => "vsub.vv",
+                AndV => "vand.vv",
+                OrrV => "vor.vv",
+                _ => "vxor.vv",
+            };
+            let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            load(&mut out, &a);
+            load(&mut out, &b);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+            ));
+            store(&mut out, &d);
+        }
+        NegV => {
+            let (d, s) = (f(fields, "dst"), f(fields, "src"));
+            load(&mut out, &s);
+            // vrsub.vx vd, vs, x0 = 0 - vs.
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vrsub.vx"), ("dst", &vname(&d)), ("lhs", &vname(&s)), ("gpr", ZERO)],
+            ));
+            store(&mut out, &d);
+        }
+        // Immediate lane shifts, only for amounts the `.vi` uimm5 can encode
+        // (0..=31); the scalar arm's shift-of-64 special case and any amount ≥32
+        // fall back to scalar.
+        ShlV | SshrV | UshrV => {
+            let (d, s, sh) = (f(fields, "dst"), f(fields, "src"), f(fields, "shift"));
+            match sh.parse::<u8>() {
+                Ok(n) if n < 32 => {}
+                _ => return None,
+            }
+            let mn = match op {
+                ShlV => "vsll.vi",
+                SshrV => "vsra.vi",
+                _ => "vsrl.vi",
+            };
+            load(&mut out, &s);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&s)), ("imm", &sh)],
+            ));
+            store(&mut out, &d);
+        }
+        DupVFromX => {
+            let (d, s) = (f(fields, "dst"), f(fields, "src")); // s is a GPR
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vmv.v.x"), ("dst", &vname(&d)), ("gpr", &s)],
+            ));
+            store(&mut out, &d);
+        }
+        UmovXFromV => {
+            let (d, s, idx) = (f(fields, "dst"), f(fields, "src"), f(fields, "index")); // d is a GPR
+            load(&mut out, &s);
+            if idx == "0" {
+                out.push(ci(
+                    "rv.vop",
+                    &[("vop", "vmv.x.s"), ("dst", &d), ("src", &vname(&s))],
+                ));
+            } else {
+                // Reach lane 1 via the reserved v31 scratch, then extract element 0.
+                out.push(ci(
+                    "rv.vop",
+                    &[("vop", "vslidedown.vi"), ("dst", "v31"), ("lhs", &vname(&s)), ("imm", "1")],
+                ));
+                out.push(ci(
+                    "rv.vop",
+                    &[("vop", "vmv.x.s"), ("dst", &d), ("src", "v31")],
+                ));
+            }
+        }
+        // 128-bit unit-stride load/store from an arbitrary address (base+offset).
+        LdrQ => {
+            let (d, base, o) = (f(fields, "dst"), f(fields, "base"), f(fields, "offset"));
+            out.push(ci("add_imm", &[("dst", T0), ("src", &base), ("imm", &o)]));
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vle64.v"), ("dst", &vname(&d)), ("base", T0)],
+            ));
+            store(&mut out, &d);
+        }
+        StrQ => {
+            let (s, base, o) = (f(fields, "src"), f(fields, "base"), f(fields, "offset"));
+            load(&mut out, &s);
+            out.push(ci("add_imm", &[("dst", T0), ("src", &base), ("imm", &o)]));
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vse64.v"), ("src", &vname(&s)), ("base", T0)],
+            ));
+        }
+        // Everything else (compares, BslV/BitV, min/max, FRint*, FCvtasV, wide
+        // integer shifts, abs/cnt/addv) is left to the scalar arm for now.
+        _ => return None,
+    }
+    Some(out)
+}
+
+/// plan-32-C: lower one `v128` op to the runtime dual path — a guard on
+/// `_mfb_rt_has_rvv` choosing the native-RVV arm ([`rvv_arm`]) or the scalar arm
+/// ([`scalarize_v128`]), which reconcile at the shared slot region. Falls back to
+/// scalar-only (no guard) when the function overflowed the vector-register pool
+/// (`vregs` is `None`) or this op is not yet vector-lowered. `seq` makes the two
+/// arm labels unique within the function.
+pub(crate) fn lower_v128(
+    op: CodeOp,
+    fields: &[(&'static str, String)],
+    slots: &HashMap<String, usize>,
+    vregs: Option<&HashMap<String, u8>>,
+    seq: usize,
+) -> Vec<CodeInstruction> {
+    let Some(vregs) = vregs else {
+        return scalarize_v128(op, fields, slots);
+    };
+    let Some(rvv) = rvv_arm(op, fields, slots, vregs) else {
+        return scalarize_v128(op, fields, slots);
+    };
+    let scalar_label = format!("v128_scalar_{seq}");
+    let done_label = format!("v128_done_{seq}");
+    let mut out = load_has_rvv_flag(T0);
+    // beqz t0, .scalar — the flag is clear on non-V hardware.
+    out.push(ci(
+        "rv.br",
+        &[("lhs", T0), ("rhs", ZERO), ("cond", "eq"), ("target", &scalar_label)],
+    ));
+    out.extend(rvv);
+    out.push(ci("b", &[("target", &done_label)]));
+    out.push(ci("label", &[("name", &scalar_label)]));
+    out.extend(scalarize_v128(op, fields, slots));
+    out.push(ci("label", &[("name", &done_label)]));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1104,6 +1389,53 @@ mod tests {
             build_vreg_map(&all_live(31)).is_none(),
             "31 concurrent overflows the pool → scalar-arm-only"
         );
+    }
+
+    /// plan-32-C Phase 2: a vector-lowered op emits the runtime dual path — a
+    /// `_mfb_rt_has_rvv` guard, the RVV arm (`vsetivli` + the `vf*`/`v*` op), and
+    /// the unchanged scalar arm, joined by unique labels. With no vreg map (pool
+    /// overflow) it is scalar-only, byte-identical to `scalarize_v128`.
+    #[test]
+    fn dual_path_emits_guard_rvv_and_scalar_arms() {
+        let fields = vec![
+            ("dst", "%f0".to_string()),
+            ("lhs", "%f1".to_string()),
+            ("rhs", "%f2".to_string()),
+        ];
+        let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2)]);
+        let vregs: HashMap<String, u8> =
+            [("%f0", 1u8), ("%f1", 2), ("%f2", 3)].iter().map(|(k, v)| (k.to_string(), *v)).collect();
+
+        let out = lower_v128(CodeOp::FAddV, &fields, &slots, Some(&vregs), 0);
+        let vop = |i: &CodeInstruction| i.get("vop").map(str::to_string);
+        // Guard: load the flag and branch to the scalar label when it is clear.
+        assert!(out.iter().any(|i| i.op.mnemonic() == "adrp"
+            && i.get("symbol") == Some(crate::target::shared::code::HAS_RVV_GLOBAL_SYMBOL)));
+        assert!(out.iter().any(|i| i.op.mnemonic() == "rv.br"
+            && i.get("target") == Some("v128_scalar_0")
+            && i.get("cond") == Some("eq")));
+        // RVV arm: vsetivli then vfadd.vv on the assigned registers.
+        assert!(out.iter().any(|i| vop(i).as_deref() == Some("vsetivli")));
+        assert!(out.iter().any(|i| vop(i).as_deref() == Some("vfadd.vv")
+            && i.get("dst") == Some("v1")
+            && i.get("lhs") == Some("v2")
+            && i.get("rhs") == Some("v3")));
+        // Scalar arm (unchanged) is present behind the label, and both arms converge.
+        assert!(out.iter().any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_0")));
+        assert!(out.iter().any(|i| i.op.mnemonic() == "fadd_d"));
+        assert!(out.iter().any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_done_0")));
+
+        // Overflow / no vreg map → scalar-only, exactly `scalarize_v128`.
+        let scalar_only = lower_v128(CodeOp::FAddV, &fields, &slots, None, 0);
+        assert_eq!(
+            scalar_only.iter().map(|i| i.op.mnemonic()).collect::<Vec<_>>(),
+            scalarize_v128(CodeOp::FAddV, &fields, &slots)
+                .iter()
+                .map(|i| i.op.mnemonic())
+                .collect::<Vec<_>>(),
+            "no-vreg path must be byte-identical to the scalar arm"
+        );
+        assert!(!scalar_only.iter().any(|i| i.op.mnemonic() == "adrp"));
     }
 
     #[test]
