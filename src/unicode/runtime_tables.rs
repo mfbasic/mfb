@@ -476,6 +476,80 @@ mod tests {
     }
 
     #[test]
+    fn every_hex_serializer_emits_even_length_hex() {
+        // Each `*_hex` serializer is only used by codegen, never by the runtime
+        // tests, so drive them all once. A hex string is two chars per byte, so it
+        // is always even length; the underlying tables are all non-empty.
+        for (label, hex) in [
+            ("stage1", stage1_hex()),
+            ("stage2", stage2_hex()),
+            ("sequences", sequences_hex()),
+            ("properties", properties_hex()),
+            ("combinations_second", combinations_second_hex()),
+            ("combinations_combined", combinations_combined_hex()),
+            ("nfd_entries", nfd_entries_hex()),
+            ("nfd_sequences", nfd_sequences_hex()),
+            ("uppercase_entries", uppercase_entries_hex()),
+            ("uppercase_sequences", uppercase_sequences_hex()),
+            ("lowercase_entries", lowercase_entries_hex()),
+            ("lowercase_sequences", lowercase_sequences_hex()),
+            ("casefold_entries", casefold_entries_hex()),
+            ("casefold_sequences", casefold_sequences_hex()),
+        ] {
+            assert!(!hex.is_empty(), "{label} hex should be non-empty");
+            assert_eq!(hex.len() % 2, 0, "{label} hex should be even length");
+            assert!(
+                hex.bytes().all(|b| b.is_ascii_hexdigit()),
+                "{label} hex should be all hex digits"
+            );
+        }
+    }
+
+    #[test]
+    fn u16_and_u32_hex_encode_little_endian() {
+        assert_eq!(u16_hex(&[0x0102]), "0201");
+        assert_eq!(u32_hex(&[0x0102_0304]), "04030201");
+    }
+
+    #[test]
+    fn field_value_tables_map_last_arm_and_bools() {
+        // The `E_ZWG` boundclass and the boolean parser's success arms are not
+        // exercised by every corpus walk; assert them directly.
+        assert_eq!(boundclass_value("UTF8PROC_BOUNDCLASS_E_ZWG"), 20);
+        assert_eq!(decomp_type_value("UTF8PROC_DECOMP_TYPE_COMPAT"), 16);
+        assert_eq!(
+            indic_conjunct_break_value("UTF8PROC_INDIC_CONJUNCT_BREAK_EXTEND"),
+            3
+        );
+        assert!(parse_bool("true"));
+        assert!(!parse_bool("false"));
+    }
+
+    #[test]
+    #[should_panic(expected = "not true/false")]
+    fn parse_bool_rejects_non_boolean() {
+        let _ = parse_bool("maybe");
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown utf8proc decomposition type")]
+    fn decomp_type_rejects_unknown() {
+        let _ = decomp_type_value("UTF8PROC_DECOMP_TYPE_BOGUS");
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown utf8proc boundclass")]
+    fn boundclass_rejects_unknown() {
+        let _ = boundclass_value("UTF8PROC_BOUNDCLASS_BOGUS");
+    }
+
+    #[test]
+    #[should_panic(expected = "unknown utf8proc indic conjunct break")]
+    fn indic_conjunct_break_rejects_unknown() {
+        let _ = indic_conjunct_break_value("UTF8PROC_INDIC_CONJUNCT_BREAK_BOGUS");
+    }
+
+    #[test]
     fn builds_flattened_nfd_tables() {
         let tables = tables();
         let entry = tables
