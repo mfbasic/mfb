@@ -186,6 +186,16 @@ impl CodeBuilder<'_> {
                                 self.reset_string_capacity_shadow(name);
                                 return Ok(());
                             }
+                            // plan-64-I: if this binds an inline-conversion
+                            // `CallResult` whose trapped error is provably unused,
+                            // flag its lowering so the error path emits only a tag
+                            // (no ErrorLoc / flat `Error` block). Reset immediately
+                            // after — the flag is scoped to this one initializer.
+                            let discard_error = matches!(value, NirValue::CallResult { .. })
+                                && self.trap_discard_error_results.contains(name);
+                            if discard_error {
+                                self.raw_result_discard_error = true;
+                            }
                             // Deep-copy aliasing sources so this binding owns an
                             // independent flat block (plan-02 Phase 8); an aliased
                             // variant binding or by-ref capture slot aliases its
@@ -195,6 +205,7 @@ impl CodeBuilder<'_> {
                             } else {
                                 self.lower_value_owned(value)?
                             };
+                            self.raw_result_discard_error = false;
                             // Observation boundary: a `Float` becoming a named
                             // binding must be finite (plan-17).
                             self.observe_float(value, &result)?;

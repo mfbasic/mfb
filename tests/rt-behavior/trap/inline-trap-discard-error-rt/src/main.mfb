@@ -1,0 +1,62 @@
+IMPORT io
+IMPORT collections
+
+' plan-64-I regression coverage: an inline TRAP whose RECOVER handler never
+' reads the bound error `err` elides the ErrorLoc + flat Error assembly (the
+' error path materializes a bare tag). Correctness must be identical to the
+' full-error path, for both the value delivered on Ok and the value recovered
+' on Err, across the conversion (`toInt`) receiver and a user-FUNC receiver.
+
+' Conversion receiver, err DISCARDED (the optimized path): recover -1.
+FUNC parseOrDiscard(value AS String) AS Integer
+  LET n AS Integer = toInt(value) TRAP(err)
+    RECOVER 0 - 1
+  END TRAP
+  RETURN n
+END FUNC
+
+' Conversion receiver, err USED (the full-error path must still work): the
+' recovered value encodes whether a real Error message was produced.
+FUNC parseOrReport(value AS String) AS Integer
+  LET n AS Integer = toInt(value) TRAP(err)
+    IF len(err.message) > 0 THEN
+      RECOVER 0 - 2
+    ELSE
+      RECOVER 0 - 3
+    END IF
+  END TRAP
+  RETURN n
+END FUNC
+
+' Non-conversion (user FUNC) receiver, err DISCARDED: the IR still drops the
+' dead `Bind err`, but codegen keeps the full Error build (only conversions get
+' the bare-tag shortcut). Proves the dead-err elision is safe beyond conversions.
+FUNC firstElement(xs AS List OF Integer) AS Integer
+  RETURN collections::get(xs, 0)
+END FUNC
+
+FUNC headOrDiscard(xs AS List OF Integer) AS Integer
+  LET h AS Integer = firstElement(xs) TRAP(err)
+    RECOVER 0 - 9
+  END TRAP
+  RETURN h
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(parseOrDiscard("42")))
+  io::print(toString(parseOrDiscard("not-a-number")))
+  io::print(toString(parseOrReport("bad")))
+  io::print(toString(parseOrReport("7")))
+  LET toks AS List OF String = ["10", "bad", "20", "x", "30"]
+  MUT acc AS Integer = 0
+  FOR EACH t IN toks
+    MUT v AS Integer = toInt(t) TRAP(err)
+      RECOVER 0 - 1
+    END TRAP
+    acc = acc + v
+  NEXT
+  io::print(toString(acc))
+  io::print(toString(headOrDiscard([5, 6])))
+  io::print(toString(headOrDiscard([])))
+  RETURN 0
+END FUNC

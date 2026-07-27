@@ -3075,7 +3075,6 @@
         { "op": "assign", "line": 1051, "name": "$trap_val6", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res5" } } }
         ],
         "else": [
-        { "op": "bind", "line": 1051, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res5" } } },
         { "op": "fail", "line": 1052, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid regex" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/regex.mfb" }, { "kind": "const", "type": "Integer", "value": "1052" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ]
       },
@@ -3116,7 +3115,6 @@
       { "op": "assign", "line": 1063, "name": "$trap_val8", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res7" } } }
       ],
       "else": [
-      { "op": "bind", "line": 1063, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res7" } } },
       { "op": "fail", "line": 1064, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid regex" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/regex.mfb" }, { "kind": "const", "type": "Integer", "value": "1064" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ]
     },

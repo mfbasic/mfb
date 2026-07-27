@@ -148,7 +148,6 @@
         { "op": "assign", "line": 37, "name": "$trap_val4", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res3" } } }
         ],
         "else": [
-        { "op": "bind", "line": 37, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res3" } } },
         { "op": "continueLoop", "line": 38, "loop": "for" }
         ]
       },

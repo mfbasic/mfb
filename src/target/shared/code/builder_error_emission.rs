@@ -496,6 +496,22 @@ impl CodeBuilder<'_> {
         code_register: &str,
         message: &str,
     ) -> Result<(), String> {
+        // plan-64-I: inside an inline `TRAP` whose error is provably unused
+        // (`raw_result_discard_error`), skip the entire error assembly — no
+        // `_mfb_make_error_result` (ErrorLoc + message), no parked `Error`
+        // block. The catcher (`materialize_current_result`, same flag) needs
+        // only the tag. Set `RESULT_ERR_TAG` and join the capture point.
+        if self.raw_result_discard_error {
+            if let Some(label) = self.raw_result_capture.clone() {
+                self.emit(abi::move_immediate(
+                    RESULT_TAG_REGISTER,
+                    "Integer",
+                    RESULT_ERR_TAG,
+                ));
+                self.emit(abi::branch(&label));
+                return Ok(());
+            }
+        }
         // The whole error-Result assembly (build the ErrorLoc, then land
         // tag/value/message/source in the return registers) is out-of-line in
         // `_mfb_make_error_result` (plan-16): each trap site just loads the five

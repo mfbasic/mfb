@@ -125,7 +125,6 @@
         "then": [
         ],
         "else": [
-        { "op": "bind", "line": 71, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } }
         ]
       },
       { "op": "assign", "line": 74, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }

@@ -37,7 +37,6 @@
       "then": [
       ],
       "else": [
-      { "op": "bind", "line": 17, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
       { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "recoverFile" }] } }
       ]
     },

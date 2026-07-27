@@ -276,6 +276,18 @@ struct CodeBuilder<'a> {
     /// (`toInt`, …) trappable: an inline `TRAP` materializes the raw `Result`
     /// rather than auto-propagating.
     raw_result_capture: Option<String>,
+    /// plan-64-I: names of inline-conversion `CallResult` Result-locals whose
+    /// trapped error is provably unused — the paired `Bind err = ResultError`
+    /// binds an `err` that the `RECOVER` handler never reads (or there is no
+    /// `ResultError` at all). `CallResult` is produced *only* by the inline-
+    /// `TRAP` desugar, so such a local's error object is never observed and the
+    /// error path can skip building the ErrorLoc + flat `Error` block, keeping
+    /// only the tag. Populated once per function before lowering the body.
+    trap_discard_error_results: HashSet<String>,
+    /// Set transiently (compile-time) while lowering a `Bind` whose Result-local
+    /// is in [`trap_discard_error_results`]: it makes `emit_error_register_return`
+    /// and `materialize_current_result` emit only a bare tag on the error path.
+    raw_result_discard_error: bool,
     /// Re-entrancy guard for the inline-error → function-`TRAP` route (bug-03).
     /// Set while `emit_error_register_return` is routing an inline failure to the
     /// enclosing trap; the trap route itself builds an `Error` inline, whose OOM

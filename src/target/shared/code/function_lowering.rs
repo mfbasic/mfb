@@ -59,6 +59,86 @@ fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
     Collector { out }.visit_value(value);
 }
 
+/// Inline-conversion built-ins that produce a raw `Result` under an inline
+/// `TRAP` (`lower_inline_conversion_raw`). Their error path is a single
+/// `emit_error_register_return` seam, which is what plan-64-I elides.
+fn is_trap_discard_conversion(target: &str) -> bool {
+    matches!(
+        target,
+        "toInt" | "toFloat" | "toFixed" | "toByte" | "toMoney" | "toScalar"
+    )
+}
+
+/// plan-64-I: names of inline-conversion `CallResult` Result-locals whose
+/// trapped error is provably unused. `CallResult` is produced *only* by the
+/// inline-`TRAP` desugar (`ir::lower::lower_inline_trap`), which binds the raw
+/// `Result` to a temp consumed solely by `ResultIsOk`/`ResultValue`/`ResultError`
+/// and, on the error branch, `Bind err = ResultError(result)`. So a conversion
+/// `CallResult` local is error-discardable when its paired `err` binding is
+/// never read (the `RECOVER` handler ignores `err`), or when no `ResultError`
+/// of it exists at all. Such a local's `Error` object is never observed, so the
+/// error path can skip building the ErrorLoc + flat `Error` block and keep only
+/// the tag. Conservative: an unrelated read of an identically-named local only
+/// keeps the (correct) full error build.
+fn trap_discard_error_results(ops: &[NirOp]) -> HashSet<String> {
+    use nir::visit::{walk_op, walk_value, NirVisitor};
+    struct Collector {
+        // Conversion `CallResult` Result-locals.
+        candidates: HashSet<String>,
+        // Result-local -> the `err` local bound from `ResultError(result)`.
+        err_binding: HashMap<String, String>,
+        // Every `Local` read anywhere in the function.
+        reads: HashSet<String>,
+    }
+    impl NirVisitor for Collector {
+        fn visit_op(&mut self, op: &NirOp) {
+            if let NirOp::Bind {
+                name,
+                value: Some(value),
+                ..
+            } = op
+            {
+                match value {
+                    NirValue::CallResult { target, .. } if is_trap_discard_conversion(target) => {
+                        self.candidates.insert(name.clone());
+                    }
+                    NirValue::ResultError { value: inner } => {
+                        if let NirValue::Local(result) = inner.as_ref() {
+                            self.err_binding.insert(result.clone(), name.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            walk_op(self, op);
+        }
+        fn visit_value(&mut self, value: &NirValue) {
+            if let NirValue::Local(name) = value {
+                self.reads.insert(name.clone());
+            }
+            walk_value(self, value);
+        }
+    }
+    let mut collector = Collector {
+        candidates: HashSet::new(),
+        err_binding: HashMap::new(),
+        reads: HashSet::new(),
+    };
+    collector.visit_ops(ops);
+    let Collector {
+        candidates,
+        err_binding,
+        reads,
+    } = collector;
+    candidates
+        .into_iter()
+        .filter(|name| match err_binding.get(name) {
+            Some(err_local) => !reads.contains(err_local),
+            None => true,
+        })
+        .collect()
+}
+
 /// Small-vector locals safe to keep in registers (their lanes) for their whole
 /// lifetime, with no arena block (plan-01-vector). A candidate is a binding of a
 /// vector type (`Float2/3/4`, `Fixed*`, `Integer*`) whose initializer produces a
@@ -467,6 +547,8 @@ pub(super) fn lower_function(
         escaping_value_slot: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
+        trap_discard_error_results: HashSet::new(),
+        raw_result_discard_error: false,
         emitting_error_route: false,
         building_error_block: false,
         current_file: function.file.clone(),
@@ -562,6 +644,9 @@ pub(super) fn lower_function(
     // no arena block (plan-01-vector).
     builder.promotable_vector_locals =
         promotable_vector_locals(&function.body, &builder.address_taken_locals);
+    // plan-64-I: inline-conversion `CallResult` Result-locals whose trapped error
+    // is provably unused, so the error path builds only a tag (no ErrorLoc/Error).
+    builder.trap_discard_error_results = trap_discard_error_results(&function.body);
     builder.lower_ops(&function.body)?;
     if !builder.current_block_returns() {
         builder.emit_return_exit(None)?;
@@ -720,6 +805,8 @@ pub(super) fn lower_builtin_function_wrapper(
         escaping_value_slot: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
+        trap_discard_error_results: HashSet::new(),
+        raw_result_discard_error: false,
         emitting_error_route: false,
         building_error_block: false,
         current_file: String::new(),
