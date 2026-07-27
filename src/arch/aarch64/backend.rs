@@ -35,3 +35,32 @@ impl Backend for Aarch64Backend {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::regmodel::RegClass;
+
+    #[test]
+    fn backend_identifies_as_aarch64() {
+        assert!(AARCH64_BACKEND.is_aarch64());
+    }
+
+    #[test]
+    fn backend_register_model_is_aarch64_model() {
+        // Call one RegisterModel method on the returned model to exercise the
+        // `register_model` body and prove it hands back the AArch64 model.
+        let model = AARCH64_BACKEND.register_model();
+        // x0 is the AArch64 arena base register; the model must classify it.
+        assert!(model.class_of(model.arena_base()).is_some());
+        // The integer class must be non-empty for a real AArch64 model.
+        assert!(!model.allocatable(RegClass::Int).is_empty());
+    }
+
+    #[test]
+    fn backend_select_empty_is_empty() {
+        // `select_aarch64` loops over the input, so an empty slice yields an
+        // empty Vec (no panic) — exercises the `select` body.
+        assert!(AARCH64_BACKEND.select(&[]).is_empty());
+    }
+}

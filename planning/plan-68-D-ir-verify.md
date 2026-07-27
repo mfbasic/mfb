@@ -86,12 +86,12 @@ impl (`Aarch64Backend`, `src/arch/aarch64/backend.rs:19-37`). The 3 uncovered
 lines are its three method bodies, exercised today only through full codegen
 integration — but each is trivially callable in isolation:
 
-- [ ] Add a `#[cfg(test)] mod tests` to `backend.rs` (the file has none). Assert
+- [x] Add a `#[cfg(test)] mod tests` to `backend.rs` (the file has none). Assert
       `AARCH64_BACKEND.is_aarch64()` is `true` (covers `backend.rs:34-36`).
-- [ ] Assert `AARCH64_BACKEND.register_model()` returns a model whose behavior
+- [x] Assert `AARCH64_BACKEND.register_model()` returns a model whose behavior
       identifies as AArch64 — call one `RegisterModel` method on the returned
       `&AARCH64_MODEL` (covers `:30-31`).
-- [ ] Assert `AARCH64_BACKEND.select(&[])` returns an empty `Vec` (covers `:26-28`;
+- [x] Assert `AARCH64_BACKEND.select(&[])` returns an empty `Vec` (covers `:26-28`;
       `select_aarch64` loops over the input, so the empty slice is safe — verified
       `src/arch/aarch64/select.rs:20-22`). This closes the overview's Open
       Decision in favor of **backfill**: no codegen-integration boundary is needed;
@@ -105,7 +105,7 @@ integration — but each is trivially callable in isolation:
 `struct`/`impl` declarations (not in the denominator). The 3 uncovered lines are
 that function's body, including the `if !names.contains(...)` dedup arm.
 
-- [ ] In `src/ir/verify/tests.rs` (or a new `#[cfg(test)]` in `types.rs`),
+- [x] In `src/ir/verify/tests.rs` (or a new `#[cfg(test)]` in `types.rs`),
       construct an `IrProject` (via `project_fixture`) whose `link_functions`
       declare libraries in the order `["a", "b", "a"]`; assert
       `link_library_names()` returns `["a", "b"]` — covers the loop, the push, and
@@ -114,7 +114,7 @@ that function's body, including the `if !names.contains(...)` dedup arm.
 Acceptance: after a fresh `sh scripts/coverage.sh`,
 `sh scripts/coverage-check.sh src/arch/aarch64/backend.rs src/ir/types.rs` shows
 both ≥95%.
-Commit: —
+Commit: 15f206a71
 
 ### Phase D2 — `ir/verify/calls.rs` STATE-agreement family (68 uncov)
 
@@ -125,22 +125,22 @@ The 68 uncovered lines are concentrated in the **resource-STATE agreement**
 functions — dense multi-arm matches with no `tests.rs` reference to their
 `TYPE_STATE_MISMATCH` / `TYPE_STATE_OPAQUE_NARROWING` messages:
 
-- [ ] `check_argument_state_agreement` (`calls.rs:238-267`): fixture a call whose
+- [x] `check_argument_state_agreement` (`calls.rs:238-267`): fixture a call whose
       callee parameter is declared `RES p AS File STATE Cursor` and pass an
       argument carrying `STATE Label` → `TYPE_STATE_MISMATCH` (the "carries STATE
       T2" arm, `:252-255`); and pass a stateless argument → the "carries no STATE"
       arm (`:256-258`). A bare param (`state_type_name(param_type)` = `None`) must
       **accept** anything — add the accepting case too (guards `:245`).
-- [ ] `check_thread_state_agreement` (`calls.rs:~180-205`): fixture a
+- [x] `check_thread_state_agreement` (`calls.rs:~180-205`): fixture a
       `thread::transfer` whose plane resource and transferred resource disagree —
       cover all three detail arms: `(Some,Some)` mismatch, `(Some,None)`
       plane-declares-but-carries-none, `(None,Some)` bare-plane-but-carries-state
       → `TYPE_STATE_MISMATCH` each (`:187-204`).
-- [ ] `check_return_state_declaration` (`calls.rs:281-304`): a FUNC returning a
+- [x] `check_return_state_declaration` (`calls.rs:281-304`): a FUNC returning a
       resource **union** with a STATE → `TYPE_UNION_STATE_FORBIDDEN` (`:287`); a
       FUNC whose return STATE type is non-defaultable → `TYPE_STATE_INVALID`
       (`:296`).
-- [ ] `check_binding_state_agreement` (`calls.rs:351-400`): bind a bare `RES`
+- [x] `check_binding_state_agreement` (`calls.rs:351-400`): bind a bare `RES`
       parameter (opaque state) under a concrete `STATE T` →
       `TYPE_STATE_OPAQUE_NARROWING` (`:369`, requires seeding
       `current_opaque_params` — mirror how a bare-`RES`-param function body is set
@@ -151,7 +151,7 @@ functions — dense multi-arm matches with no `tests.rs` reference to their
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/calls.rs` shows ≥95%.
-Commit: —
+Commit: e95d0ed31 (calls.rs:199 (None,None) transfer arm unreachable — see Corrections)
 
 ### Phase D3 — `ir/verify/link.rs` native-LINK arms (137 uncov)
 
@@ -162,32 +162,32 @@ native-ABI marshaling rule on the decoded-package path. The `NATIVE_ABI_*`,
 uncovered lines are the arms with **no** `tests.rs` reference — build each with
 the existing `link_fn()`/`cstruct()`/`project_with_cstructs()` helpers:
 
-- [ ] **`NATIVE_BIND_IN_INVALID`** — all four arms in `check_link_cstructs`
+- [x] **`NATIVE_BIND_IN_INVALID`** — all four arms in `check_link_cstructs`
       (`link.rs:104-160`): a `BIND IN` naming a nonexistent ABI slot (`:106`); a
       slot that is not a CSTRUCT (`:120`); a field the CSTRUCT does not declare
       (`:131`); a field binding neither/both of param+literal (`:140`); a field
       binding an unknown parameter (`:151`). Set `lf.bind_in` with an
       `IrBindIn`/field shape for each.
-- [ ] **`NATIVE_STRUCT_FIELD_MISMATCH` maps-to-not-a-record arm** (`link.rs:74`):
+- [x] **`NATIVE_STRUCT_FIELD_MISMATCH` maps-to-not-a-record arm** (`link.rs:74`):
       a CSTRUCT whose `maps_to` names a type absent from `project.types` (or a
       non-`type`/`record` kind), referenced by an `abi_slot`'s `ctype`.
-- [ ] **`NATIVE_CSTRUCT_INVALID` duplicate-name arm** (`link.rs:38`): two CSTRUCTs
+- [x] **`NATIVE_CSTRUCT_INVALID` duplicate-name arm** (`link.rs:38`): two CSTRUCTs
       with the same `alias` + `name`.
-- [ ] **`NATIVE_CSTRUCT_ESCAPE` via `check_link_cstructs`** (`link.rs:181,190`): a
+- [x] **`NATIVE_CSTRUCT_ESCAPE` via `check_link_cstructs`** (`link.rs:181,190`): a
       link function whose param/return type names a sibling CSTRUCT (distinct from
       the `check_link_functions` C-ABI-escape path if A's report shows this one
       uncovered).
-- [ ] **`NATIVE_BIND_STATE_INVALID`** — all four arms (`link.rs:505-568`): a
+- [x] **`NATIVE_BIND_STATE_INVALID`** — all four arms (`link.rs:505-568`): a
       `bind_state` naming a slot that is not an OUT CSTRUCT slot (`:515`); a
       `bind_state` present but the function does not return a stateful resource
       (`:523`); the CSTRUCT's `maps_to` disagreeing with `return_state_type`
       (`:533`); `bind_state_resource` naming a slot other than the returned one
       (`:559`).
-- [ ] **`TYPE_STATE_MISMATCH` native cross-declaration arm** (`link.rs:582`): two
+- [x] **`TYPE_STATE_MISMATCH` native cross-declaration arm** (`link.rs:582`): two
       link functions declaring the same native resource base type with **different**
       STATE types (one as a producer `return_state_type`, one as a param's
       `state_type_name`).
-- [ ] **Helper branches** — if A's report shows them uncovered: the collection
+- [x] **Helper branches** — if A's report shows them uncovered: the collection
       recursion in `contains_resource_or_thread` (`link.rs:619-635`, `List OF`/
       `Map OF`/record-field/cycle arms), the union/collection arms of
       `provably_data_type` (`:642-659`), and the `consumed_resource`
@@ -195,7 +195,7 @@ the existing `link_fn()`/`cstruct()`/`project_with_cstructs()` helpers:
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/link.rs` shows ≥95%.
-Commit: —
+Commit: ebc83a5fd
 
 ### Phase D4 — `ir/verify/values.rs` money + set/field arms (101 uncov)
 
@@ -203,28 +203,28 @@ The literal-range, collection-element, member-access, and binary-operator rules
 are largely tested. The uncovered cluster (rule-ids absent from `tests.rs`) is the
 **Money** algebra plus a few member/collection arms:
 
-- [ ] **Money literals — `check_const_literal` Money arm** (`values.rs:373-385`):
+- [x] **Money literals — `check_const_literal` Money arm** (`values.rs:373-385`):
       a `Money` const with >5 fractional digits → `TYPE_MONEY_LITERAL_PRECISION`
       (`:374`); a `Money` const outside range (converter `Err`) →
       `TYPE_MONEY_LITERAL_OVERFLOW` (`:381`).
-- [ ] **Money literals — `check_negated_const_literal` Money arm**
+- [x] **Money literals — `check_negated_const_literal` Money arm**
       (`values.rs:430-442`): a negated Money with >5 fractional digits →
       `TYPE_MONEY_LITERAL_PRECISION` (`:431`); a negated Money below range →
       `TYPE_MONEY_LITERAL_UNDERFLOW` (`:438`). Feed via a `Unary { op: "-", .. }`
       over a `Const { type_: "Money", .. }` (the `check_literal_range` dispatch at
       `:302-308`).
-- [ ] **`check_money_operands`** (`values.rs:681-715`): a Money-vs-non-Money
+- [x] **`check_money_operands`** (`values.rs:681-715`): a Money-vs-non-Money
       comparison (`=`,`<`,… with `l_money != r_money`) → `TYPE_MONEY_OPERATION_INVALID`
       (`:687`); each invalid-arithmetic reason arm — `+`/`-`/`MOD` with a
       non-Money operand, `Money * Money`, non-Money `/` Money, `Money ^ x`
       (`:700-714`). Accept-cases: same-dimension add, `M/M`, scalar scale (guard
       `:696`).
-- [ ] **`TYPE_UNKNOWN_FIELD`** in `check_member_access` (`values.rs:543`): a
+- [x] **`TYPE_UNKNOWN_FIELD`** in `check_member_access` (`values.rs:543`): a
       `MemberAccess` on a known record whose complete field set does **not**
       contain the member. (`TYPE_MEMBER_NOT_VISIBLE` `:547` may already be tested —
       confirm against A's report; if uncovered, add a private-field-cross-file
       fixture via `hidden_from_here`.)
-- [ ] **`TYPE_REQUIRES_COMPARABLE` Set-element arm + `TYPE_COLLECTION_OWNERSHIP_VIOLATION`
+- [x] **`TYPE_REQUIRES_COMPARABLE` Set-element arm + `TYPE_COLLECTION_OWNERSHIP_VIOLATION`
       Set arm** in `check_map_key_comparable` (`values.rs:734-756`): a `Set OF T`
       whose element is incomparable → `TYPE_REQUIRES_COMPARABLE` (`:749`); a
       `Set OF T` whose element contains a resource/thread →
@@ -232,7 +232,7 @@ are largely tested. The uncovered cluster (rule-ids absent from `tests.rs`) is t
       under D; the source rule is `TYPE_SET_ELEMENT_MISMATCH` at the collection
       literal path — check A's report for whether the set-literal-element arm or
       the set-type-key arm is the uncovered one, and cover whichever it is.)
-- [ ] **`is_comparable_seen` / `is_comparable_defaultable` recursion arms**
+- [x] **`is_comparable_seen` / `is_comparable_defaultable` recursion arms**
       (`values.rs:784-819`) and the `check_binary_operands` equality
       compatible-but-not-comparable vs incompatible split (`:646-673`): cover per
       A's report — an `=` over two incompatible types (operator-mismatch arm) vs
@@ -240,28 +240,28 @@ are largely tested. The uncovered cluster (rule-ids absent from `tests.rs`) is t
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/values.rs` shows ≥95%.
-Commit: —
+Commit: 34218c19d
 
 ### Phase D5 — `ir/verify/resources.rs` (32 uncov)
 
 Small, three rule-ids. Concentrated in the RES-ownership axis and the
 use-after-move dataflow:
 
-- [ ] **`collection_axis_element`** (`resources.rs:455-477`): a collection whose
+- [x] **`collection_axis_element`** (`resources.rs:455-477`): a collection whose
       element is a bare resource type (`List OF File`, not `RES File`) →
       `TYPE_RESOURCE_REQUIRES_RES` (`:461`); a collection element marked `RES` over
       a provably-data type (`List OF RES Integer`) → `TYPE_RES_REQUIRES_RESOURCE`
       (`:468`); and the nested-collection recursion (`List OF List OF RES File`,
       `:476`) plus the `Map OF … TO …` value arm (`check_collection_res_axis`,
       `:450`).
-- [ ] **`TYPE_USE_AFTER_MOVE`** in `check_resource_moves` (`resources.rs:110-116`):
+- [x] **`TYPE_USE_AFTER_MOVE`** in `check_resource_moves` (`resources.rs:110-116`):
       a function body that closes/returns a resource binding and then reads it
       again (double-close / read-after-move). Also cover the alias-tracking arm
       (`:90-98`) if A's report shows it uncovered.
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/resources.rs` shows ≥95%.
-Commit: —
+Commit: d524f9ac6 (resources.rs:436 match_covers_all has_unguarded_else arm unreachable — see Corrections)
 
 ### Phase D6 — `ir/verify/compat.rs` (33 uncov) + `ir/verify/mod.rs` (39 uncov)
 
@@ -272,7 +272,7 @@ helpers, and scattered driver edges in `mod.rs`. These are the two files where
 guessing from rule-ids is insufficient: **open A's fresh report and cover the
 named uncovered lines directly.**
 
-- [ ] **compat.rs**: from A's report, enumerate the uncovered arms of the
+- [x] **compat.rs**: from A's report, enumerate the uncovered arms of the
       compatibility matrix (`compat.rs` emits `TYPE_ASSIGNMENT_MISMATCH`,
       `TYPE_RETURN_MISMATCH`, `TYPE_BINDING_MISMATCH`, `TYPE_CONSTRUCTOR_*`,
       `TYPE_CONDITION_REQUIRES_BOOLEAN`, `TYPE_RESULT_IS_IMPLICIT`,
@@ -283,7 +283,7 @@ named uncovered lines directly.**
       required-for-exhaustiveness match arm the front-end can never emit), do NOT
       contort a fixture — flag it to A as a candidate line-level exception with the
       reason, per the overview's except-vs-backfill rule.
-- [ ] **mod.rs**: cover the driver edges A's report flags. Known candidate:
+- [x] **mod.rs**: cover the driver edges A's report flags. Known candidate:
       **`TYPE_RESOURCE_RETURN_ORDER`** (`mod.rs:378`), reached only when a
       function's `resource_owners` map carries a `ResOwner::FloatBlocked(collection)`
       — a resource returned inside a collection declared after it. Also confirm the
@@ -295,7 +295,7 @@ named uncovered lines directly.**
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/compat.rs src/ir/verify/mod.rs`
 shows both ≥95%.
-Commit: —
+Commit: 28466caab
 
 ### Phase D7 — `src/arch/x86_64/encode/emitter.rs` (1471/1554, 83 uncov) — added by A
 
@@ -307,10 +307,10 @@ instruction encoder — no I/O, no integration boundary. Read A's fresh
 uncovered lines, then cover them by emitting the un-exercised instruction forms /
 error arms directly against the emitter's public/`pub(crate)` surface.
 
-- [ ] From A's fresh report, enumerate emitter.rs's uncovered lines and group them
+- [x] From A's fresh report, enumerate emitter.rs's uncovered lines and group them
       by the encode helper they sit in (ModRM/SIB forms, REX-prefix arms, immediate
       widths, displacement sizes, the rejected/`unreachable`-guard arms).
-- [ ] Add a `#[cfg(test)] mod tests` (or extend the nearest existing arch test
+- [x] Add a `#[cfg(test)] mod tests` (or extend the nearest existing arch test
       module) that drives each uncovered encode arm and asserts the exact emitted
       byte sequence; for any genuinely-unreachable defensive/`unreachable!` arm,
       flag it to A as a line-level exception with the reason (do NOT fabricate an
@@ -318,7 +318,7 @@ error arms directly against the emitter's public/`pub(crate)` surface.
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/arch/x86_64/encode/emitter.rs` shows ≥95%.
-Commit: —
+Commit: 45ea7c62a
 
 ## Validation Plan
 
@@ -340,6 +340,35 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution — including any arm A's fresh report proves
-unreachable (→ A exception) rather than backfill, and any delta between the
-covered/total figures above and A1's regenerated report.>
+All eight files backfilled with `#[cfg(test)]` unit tests (no production change;
+no real verifier bug surfaced). Uncovered lines were read from the sibling P-68
+worktree's fresh `target/coverage/lcov.info`. Full `cargo test` = `0 failed`
+before each commit.
+
+**Exception candidates (unreachable-by-construction; handed to A for line-level
+exceptions rather than contorted fixtures):**
+
+- `src/ir/verify/calls.rs:199` — `check_thread_transfer_state`'s
+  `(None, None) => return` match arm. Both-`None` (plane and resource both bare)
+  is the agreeing case already returned at `:184` (`plane_state == resource_state`),
+  so this arm exists only for match exhaustiveness and can never execute.
+- `src/ir/verify/resources.rs:436` — `match_covers_all`'s
+  `if has_unguarded_else { return true }`. Its sole caller, `block_always_returns`
+  (`resources.rs:390`), short-circuits `has_else || match_covers_all(...)` on an
+  *equivalent* unguarded-`Else` test computed from the same `cases`, so
+  `match_covers_all` is never called when an unguarded ELSE is present.
+- `src/arch/x86_64/encode/emitter.rs:232` and `:241` — the `REX.B` prefix push in
+  `enc_push_reg` / `enc_pop_reg` for a register `>= 8`. The only caller
+  (`fcvtas_x_from_d`, `:907`/`:915`) commandeers `rax`(0) or `rcx`(1) as scratch,
+  never `r8`–`r15`, so the `>= 8` branch is unreachable via the public encode path
+  (the private helpers are not callable from the encode test module).
+- `src/arch/x86_64/encode/emitter.rs:1350-1353` — `alu3`'s zero-lhs `other =>`
+  unsupported-opcode error. `alu3` is only ever dispatched with opcodes
+  `0x01/0x09/0x21/0x29/0x31` (add/orr/and/sub/eor), all handled by explicit arms,
+  so `other` cannot fire.
+- `src/arch/x86_64/encode/emitter.rs:1921` — `JccKind::Jmp => unreachable!()` inside
+  the non-`Jmp` `other` arm of `jmp_label`; `Jmp` is matched by the outer arm first,
+  so this exhaustiveness stub is unreachable.
+
+No delta found between the plan's covered/total figures and the fresh report
+beyond D1's already-noted 6/9 (vs 3/9) for `aarch64/backend.rs`.
