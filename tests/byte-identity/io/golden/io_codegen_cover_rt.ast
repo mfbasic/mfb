@@ -1,0 +1,54 @@
+{
+  "project": "io_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "hello" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.printError", "arguments": [{ "kind": "string", "value": "hello" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "hello" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.writeError", "arguments": [{ "kind": "string", "value": "hello" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.flush", "arguments": [] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.setBuffered", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "buffered", "type": "Boolean", "value": { "kind": "call", "callee": "io.isBuffered", "arguments": [] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "buffered" }] }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "callee": "io.input", "arguments": [] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "line" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "prompted", "type": "String", "value": { "kind": "call", "callee": "io.input", "arguments": [{ "kind": "string", "value": "Name: " }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "prompted" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Byte", "value": { "kind": "call", "callee": "io.readByte", "arguments": [] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "call", "callee": "io.readChar", "arguments": [] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "ch" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "raw", "type": "String", "value": { "kind": "call", "callee": "io.readLine", "arguments": [] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "raw" }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "ready", "type": "Boolean", "value": { "kind": "call", "callee": "io.pollInput", "arguments": [] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ready" }] }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "readyTimeout", "type": "Boolean", "value": { "kind": "call", "callee": "io.pollInput", "arguments": [{ "kind": "number", "value": "1000" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "readyTimeout" }] }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "inTerm", "type": "Boolean", "value": { "kind": "call", "callee": "io.isInputTerminal", "arguments": [] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "inTerm" }] }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "outTerm", "type": "Boolean", "value": { "kind": "call", "callee": "io.isOutputTerminal", "arguments": [] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "outTerm" }] }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "errTerm", "type": "Boolean", "value": { "kind": "call", "callee": "io.isErrorTerminal", "arguments": [] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "errTerm" }] }] }, "line": 44 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 46 }
+      ]
+    }
+    ]
+  }
+  ]
+}

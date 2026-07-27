@@ -3,9 +3,42 @@ IMPORT io
 IMPORT tls
 
 FUNC main() AS Integer
+  ' connect: all three overloads
   RES sock AS TlsSocket = tls::connect("example.com", 443)
+  RES sock2 AS TlsSocket = tls::connect("example.com", 443, 5000)
+  RES sock3 AS TlsSocket = tls::connect("example.com", 443, 5000, "example.com")
+
+  ' read / write (List OF Byte)
   LET got = tls::read(sock, 64)
   tls::write(sock, got)
   io::print(toString(len(got)))
+
+  ' readText / writeText (String)
+  LET txt = tls::readText(sock2, 4096)
+  tls::writeText(sock2, txt)
+  io::print(toString(len(txt)))
+  tls::writeText(sock3, "GET / HTTP/1.0")
+
+  ' close: TlsSocket overload
+  tls::close(sock)
+  tls::close(sock2)
+  tls::close(sock3)
+
+  ' listen: both overloads
+  RES server AS TlsListener = tls::listen("", 8443, "cert.pem", "key.pem")
+  RES server2 AS TlsListener = tls::listen("", 8444, "cert.pem", "key.pem", 16)
+
+  ' accept: both overloads
+  RES client AS TlsSocket = tls::accept(server)
+  RES client2 AS TlsSocket = tls::accept(server2, 5000)
+  LET reply = tls::readText(client, 4096)
+  io::print(toString(len(reply)))
+  tls::writeText(client2, "hi")
+  tls::close(client)
+  tls::close(client2)
+
+  ' close: TlsListener overload
+  tls::close(server)
+  tls::close(server2)
   RETURN 0
 END FUNC

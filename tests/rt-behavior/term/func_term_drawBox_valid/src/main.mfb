@@ -1,0 +1,17 @@
+' drawBox draws four edges (this style's line glyph) then the four corners; dash
+' styles reuse the Light/Heavy corners. Points are opposite corners (x=col, y=row)
+' in either order, and each edge/corner clamps to the grid independently. Runs
+' under the non-tty harness (24x80 fallback), so the escape stream is deterministic.
+IMPORT term
+
+FUNC main AS Integer
+  term::on()
+  term::setForeground(0, 255, 0)
+  term::drawBox(LineStyle.Light, 2, 1, 12, 5)         ' cols 2..12, rows 1..5
+  term::drawBox(LineStyle.HeavyDash, 30, 8, 20, 2)    ' reversed points; dashed edges, heavy corners
+  term::drawBox(LineStyle.Double, 40, 0, 46, 4)
+  term::drawBox(LineStyle.Light, 60, 20, 200, 40)     ' partly off-grid: draws the visible part
+  term::sync()
+  term::off()
+  RETURN 0
+END FUNC

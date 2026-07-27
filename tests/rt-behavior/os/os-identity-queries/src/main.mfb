@@ -1,0 +1,19 @@
+IMPORT io
+IMPORT os
+IMPORT strings
+
+REM plan-66-B: os::hostName / userName / executablePath across every native target.
+REM The actual values are host-specific, so the fixture asserts only host-neutral
+REM shape: each is non-empty, and the executable path contains this program's name.
+FUNC main AS Integer
+  io::print("host_nonempty=" & toString(len(os::hostName()) > 0))
+  io::print("user_nonempty=" & toString(len(os::userName()) > 0))
+  LET exe AS String = os::executablePath()
+  io::print("exe_nonempty=" & toString(len(exe) > 0))
+  io::print("exe_has_name=" & toString(strings::contains(exe, "os_identity_queries")))
+  RETURN 0
+  TRAP(err)
+    io::print("TRAP=" & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC

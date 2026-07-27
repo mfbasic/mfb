@@ -1,0 +1,33 @@
+' bug-389 byte-identity codegen coverage for package regex: compile-only, never executed.
+IMPORT io
+IMPORT regex
+
+FUNC main() AS Integer
+  MUT acc AS Integer = 0
+
+  ' find: 2 overloads
+  LET f1 AS Integer = regex::find("a1b2c3", "\\d")
+  LET f2 AS Integer = regex::find("a1b2c3", "\\d", 3)
+  acc = acc + f1 + f2
+
+  ' findAll: 2 overloads (List OF Integer -> len)
+  LET fa1 AS List OF Integer = regex::findAll("a1b2c3", "\\d")
+  LET fa2 AS List OF Integer = regex::findAll("a1b2c3", "\\d", 3)
+  acc = acc + len(fa1) + len(fa2)
+  FOR EACH i IN fa1
+    acc = acc + i
+  NEXT
+
+  ' match: 1 overload (Boolean)
+  LET m1 AS Boolean = regex::match("abc123", "\\d+")
+  IF m1 THEN
+    acc = acc + 1
+  END IF
+
+  ' replace: 1 overload (String -> len)
+  LET r1 AS String = regex::replace("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1")
+  acc = acc + len(r1)
+
+  io::print("acc=" & toString(acc))
+  RETURN 0
+END FUNC

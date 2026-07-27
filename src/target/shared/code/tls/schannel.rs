@@ -18,7 +18,7 @@ use super::super::emit_alloc;
 use super::super::native_helpers::{emit_build_byte_list, emit_fail};
 use super::super::net::emit_string_result_build;
 use super::super::*;
-use super::{TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_RECORD_SIZE};
+use super::{TLS_LISTENER_OFFSET_CLOSED, TLS_OFFSET_CLOSED, TLS_OFFSET_FD, TLS_RECORD_SIZE};
 use crate::target::shared::abi;
 
 const SECUR32: &str = "secur32.dll";
@@ -54,6 +54,10 @@ mod st {
     pub const HEADER: usize = 32; // stream header size (u32)
     pub const TRAILER: usize = 36; // stream trailer size (u32)
     pub const MAXMSG: usize = 40; // stream max message (u32)
+    // 44: server-side marker (u32). Set to 1 by `lower_tls_accept`; 0 on the
+    // client path (the whole header 0..RECV is zeroed there). Read by
+    // `lower_tls_close` to skip freeing the listener-owned credential.
+    pub const SERVER: usize = 44;
     pub const RECV_LEN: usize = 48; // bytes currently in RECV (ciphertext)
     pub const LEFT_OFF: usize = 56; // read cursor into LEFT plaintext buffer
     pub const LEFT_LEN: usize = 64; // undelivered plaintext bytes in LEFT
@@ -117,7 +121,9 @@ fn wide_cstr(symbol: &str, text: &str) -> CodeDataObject {
     }
 }
 
-/// Read-only wide strings the Schannel helpers reference (the package name).
+/// Read-only wide strings the Schannel helpers reference (the SSPI package name).
+/// The server helpers add no data objects (their CryptoAPI calls use integer
+/// struct-type selectors and a NULL provider name).
 pub(crate) fn data_objects() -> Vec<CodeDataObject> {
     vec![wide_cstr(&sym(USP_NAME), USP_NAME)]
 }
@@ -218,3 +224,4 @@ fn sspi_call_ext(
 }
 
 include!("schannel_impl.rs");
+include!("schannel_server.rs");

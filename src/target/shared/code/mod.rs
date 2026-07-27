@@ -834,6 +834,7 @@ pub(crate) fn lower_module_for_platform(
             // The Windows TLS data objects are the Schannel package-name wide
             // string (plan-47-J).
             PlatformFamily::Windows => {
+                let _ = tls_server;
                 data_objects.extend(tls::schannel::data_objects());
             }
         }

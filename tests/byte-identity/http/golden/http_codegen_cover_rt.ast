@@ -1,0 +1,91 @@
+{
+  "project": "http_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 5 },
+    { "module": "http", "line": 6 },
+    { "module": "net", "line": 7 },
+    { "module": "tls", "line": 8 },
+    { "module": "fs", "line": 9 },
+    { "module": "collections", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "coverHandler",
+      "line": 13,
+      "params": [
+      { "name": "req", "type": "Request", "default": null, "line": 13 }
+      ],
+      "returnType": "Response",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "http.respondPath", "arguments": [{ "kind": "identifier", "value": "req" }, { "kind": "string", "value": "target/http-root" }] }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "okr", "type": null, "value": { "kind": "call", "callee": "http.ok", "arguments": [{ "kind": "string", "value": "welcome" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "okr" }, "member": "status" }] }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "jr", "type": null, "value": { "kind": "call", "callee": "http.json", "arguments": [{ "kind": "string", "value": "{\"ok\":true}" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "jr" }, "member": "status" }] }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "dr", "type": null, "value": { "kind": "call", "callee": "http.responseDefault", "arguments": [] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "dr" }, "member": "status" }] }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "sr", "type": null, "value": { "kind": "call", "callee": "http.status", "arguments": [{ "kind": "number", "value": "404" }, { "kind": "string", "value": "nope" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "sr" }, "member": "status" }] }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "wr", "type": null, "value": { "kind": "call", "callee": "http.withHeader", "arguments": [{ "kind": "identifier", "value": "okr" }, { "kind": "string", "value": "Cache-Control" }, { "kind": "string", "value": "no-store" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "wr" }, "member": "headers" }] }] }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "bd", "type": null, "value": { "kind": "call", "callee": "http.bytes", "arguments": [{ "kind": "string", "value": "payload" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "bd" }] }] }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f1", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }, "line": 33 },
+      { "kind": "binding", "mutable": false, "name": "rf1", "type": null, "value": { "kind": "call", "callee": "http.respondFile", "arguments": [{ "kind": "identifier", "value": "f1" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rf1" }, "member": "status" }] }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f2", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "target/cover.bin" }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "rf2", "type": null, "value": { "kind": "call", "callee": "http.respondFile", "arguments": [{ "kind": "identifier", "value": "f2" }, { "kind": "string", "value": "text/plain" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "rf2" }, "member": "status" }] }] }, "line": 38 },
+      { "kind": "binding", "mutable": false, "name": "url", "type": null, "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "string", "value": "http://example.com/items" }] }, "line": 41 },
+      { "kind": "binding", "mutable": true, "name": "hdrs", "type": "Map OF String TO String", "value": { "kind": "map", "keyType": "String", "valueType": "String", "entries": [] }, "line": 42 },
+      { "kind": "assignment", "name": "hdrs", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "identifier", "value": "hdrs" }, { "kind": "string", "value": "x-test" }, { "kind": "string", "value": "1" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "r1", "type": null, "value": { "kind": "call", "callee": "http.read", "arguments": [{ "kind": "identifier", "value": "url" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r1" }, "member": "status" }] }] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "r2", "type": null, "value": { "kind": "call", "callee": "http.read", "arguments": [{ "kind": "identifier", "value": "url" }, { "kind": "identifier", "value": "hdrs" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r2" }, "member": "status" }] }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "r3", "type": null, "value": { "kind": "call", "callee": "http.read", "arguments": [{ "kind": "identifier", "value": "url" }, { "kind": "identifier", "value": "hdrs" }, { "kind": "string", "value": "HEAD" }] }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r3" }, "member": "status" }] }] }, "line": 49 },
+      { "kind": "binding", "mutable": false, "name": "w1", "type": null, "value": { "kind": "call", "callee": "http.write", "arguments": [{ "kind": "identifier", "value": "url" }, { "kind": "string", "value": "body" }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "w1" }, "member": "status" }] }] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "w2", "type": null, "value": { "kind": "call", "callee": "http.write", "arguments": [{ "kind": "identifier", "value": "url" }, { "kind": "string", "value": "body" }, { "kind": "identifier", "value": "hdrs" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "w2" }, "member": "status" }] }] }, "line": 53 },
+      { "kind": "binding", "mutable": false, "name": "w3", "type": null, "value": { "kind": "call", "callee": "http.write", "arguments": [{ "kind": "identifier", "value": "url" }, { "kind": "string", "value": "body" }, { "kind": "identifier", "value": "hdrs" }, { "kind": "string", "value": "PUT" }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "w3" }, "member": "status" }] }] }, "line": 55 },
+      { "kind": "binding", "mutable": true, "name": "routes", "type": "List OF Route", "value": { "kind": "list", "values": [] }, "line": 58 },
+      { "kind": "assignment", "name": "routes", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "routes" }, { "kind": "call", "callee": "http.route", "arguments": [{ "kind": "string", "value": "/static/*" }, { "kind": "identifier", "value": "coverHandler" }] }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "routes" }] }] }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "lst1", "type": "Listener", "value": { "kind": "call", "callee": "http.server", "arguments": [{ "kind": "number", "value": "8080" }] }, "line": 63 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "lst2", "type": "Listener", "value": { "kind": "call", "callee": "http.server", "arguments": [{ "kind": "number", "value": "8081" }, { "kind": "string", "value": "0.0.0.0" }] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "lst3", "type": "Listener", "value": { "kind": "call", "callee": "http.server", "arguments": [{ "kind": "number", "value": "8082" }, { "kind": "string", "value": "0.0.0.0" }, { "kind": "number", "value": "16" }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "lst2" }] }, "member": "port" }] }] }, "line": 66 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "net.localAddress", "arguments": [{ "kind": "identifier", "value": "lst3" }] }, "member": "port" }] }] }, "line": 67 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "tl1", "type": "TlsListener", "value": { "kind": "call", "callee": "http.serverSSL", "arguments": [{ "kind": "number", "value": "8443" }, { "kind": "string", "value": "cert.pem" }, { "kind": "string", "value": "key.pem" }] }, "line": 70 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "tl2", "type": "TlsListener", "value": { "kind": "call", "callee": "http.serverSSL", "arguments": [{ "kind": "number", "value": "8444" }, { "kind": "string", "value": "cert.pem" }, { "kind": "string", "value": "key.pem" }, { "kind": "string", "value": "0.0.0.0" }] }, "line": 71 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "tl3", "type": "TlsListener", "value": { "kind": "call", "callee": "http.serverSSL", "arguments": [{ "kind": "number", "value": "8445" }, { "kind": "string", "value": "cert.pem" }, { "kind": "string", "value": "key.pem" }, { "kind": "string", "value": "0.0.0.0" }, { "kind": "number", "value": "16" }] }, "line": 72 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "http.handleRequest", "arguments": [{ "kind": "identifier", "value": "lst1" }, { "kind": "identifier", "value": "routes" }] }, "line": 75 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "http.handleRequest", "arguments": [{ "kind": "identifier", "value": "tl1" }, { "kind": "identifier", "value": "routes" }] }, "line": 76 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 78 }
+      ]
+    }
+    ]
+  }
+  ]
+}

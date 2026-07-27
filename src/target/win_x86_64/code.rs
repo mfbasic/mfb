@@ -30,6 +30,8 @@ use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
 
 const KERNEL32: &str = "kernel32.dll";
+const ADVAPI32: &str = "advapi32.dll";
+const SHELL32: &str = "shell32.dll";
 const WS2_32: &str = "ws2_32.dll";
 // ioctlsocket command to toggle blocking mode: FIONBIO = 0x8004667E.
 const FIONBIO: &str = "2147767422";
@@ -66,6 +68,89 @@ const MARSHAL_WBUF_SLOT: usize = 0x38;
 /// entry the UTF-8 path pointer is in `ARG[0]`; on return the wide string's arena
 /// pointer is at `sp + MARSHAL_WBUF_SLOT` (and also live in `ARG[0]`... clobbered —
 /// the caller reloads from the slot).
+/// `_mfb_arena_alloc(size, align=2) -> RET[1]`, storing the returned buffer
+/// pointer at `sp + slot`. The 64 KiB-ish requests never OOM in practice (the
+/// arena maps fresh 1 MiB+ blocks), so the Result tag is not checked (matching
+/// `emit_marshal_path`). plan-66-B.
+fn arena_alloc_to_slot(
+    from: &str,
+    size: &str,
+    slot: usize,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::move_immediate(abi::return_register(), "Integer", size),
+        abi::move_immediate(abi::ARG[1], "Integer", "2"),
+        abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(CodeRelocation {
+        from: from.to_string(),
+        to: code::ARENA_ALLOC_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+    instructions.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), slot));
+}
+
+/// Emit `WideCharToMultiByte(CP_UTF8, 0, [wide_slot], -1, [u8_slot], u8_cap, NULL,
+/// NULL)`, converting the NUL-terminated UTF-16 buffer at `sp + wide_slot` into the
+/// UTF-8 buffer at `sp + u8_slot`. The caller owns the frame (shadow space +
+/// [0x20]/[0x28]/[0x30]/[0x38] stack-arg slots). Returns the byte count (incl. NUL)
+/// in the return register. plan-66-B.
+fn emit_wide_slot_to_utf8(
+    from: &str,
+    wide_slot: usize,
+    u8_slot: usize,
+    u8_cap: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), u8_slot), // lpMultiByteStr (5th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
+        abi::move_immediate(abi::ARG[2], "Integer", u8_cap), // cbMultiByte (6th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28),
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // lpDefaultChar (7th) NULL
+        abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // lpUsedDefaultChar (8th) NULL
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), wide_slot), // lpWideCharStr (3rd)
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
+    ]);
+    call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+}
+
+/// Emit `MultiByteToWideChar(CP_UTF8, 0, [src_slot], -1, [dst_slot], wchar_cap)`,
+/// converting the NUL-terminated UTF-8 C-string at `sp + src_slot` into the UTF-16
+/// buffer at `sp + dst_slot`. Stages the two stack args (5th/6th) through `ARG[2]`
+/// as a caller-saved scratch before it is set to its real 3rd-arg value — the same
+/// discipline as `emit_marshal_path` (the SCRATCH pool must not be used on Win64).
+/// The caller owns the surrounding frame (shadow space + [0x20]/[0x28] arg slots).
+fn emit_utf8_slot_to_wide(
+    from: &str,
+    src_slot: usize,
+    dst_slot: usize,
+    wchar_cap: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    instructions.extend([
+        abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+        abi::move_immediate(abi::ARG[1], "Integer", "0"),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), dst_slot), // lpWideCharStr (5th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
+        abi::move_immediate(abi::ARG[2], "Integer", wchar_cap), // cchWideChar (6th)
+        abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28),
+        abi::load_u64(abi::ARG[2], abi::stack_pointer(), src_slot), // lpMultiByteStr (3rd)
+        abi::move_immediate(abi::ARG[3], "Integer", "0"),
+        abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cbMultiByte = -1 (NUL-terminated)
+    ]);
+    call_external(from, "MultiByteToWideChar", KERNEL32, instructions, relocations);
+}
+
 fn emit_marshal_path(
     from: &str,
     instructions: &mut Vec<CodeInstruction>,
@@ -325,11 +410,6 @@ fn emit_ioctl_fionbio(
     instructions.push(abi::add_stack(FRAME));
 }
 
-/// Every surface this floor does not implement rejects loudly if it is ever
-/// reached — which it cannot be, since the backend does not advertise it.
-fn unsupported(surface: &str) -> String {
-    format!("windows-x86_64: the {surface} surface is not yet implemented (plan-47-D..J)")
-}
 
 impl code::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
@@ -350,6 +430,108 @@ impl code::CodegenPlatform for Platform {
         // The PE loader `call`s the image entry, so it arrives at `sp % 16 == 8`;
         // the shared preamble realigns with one `sub rsp, 8`.
         true
+    }
+
+    fn defers_arg_capture(&self) -> bool {
+        // A raw PE entry receives no argc/argv; os::args is built from
+        // GetCommandLineW after the arena is mapped (emit_build_argv_utf8). plan-66-B.
+        true
+    }
+
+    fn emit_build_argv_utf8(
+        &self,
+        entry_symbol: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // Build a POSIX UTF-8 argv from GetCommandLineW → CommandLineToArgvW, then
+        // marshal each UTF-16 arg into the arena, leaving `argc` in ARG[0] and the
+        // `char**` in ARG[1]. Frame (subtract_stack(0x70)): shadow [0x00..0x20),
+        // marshal stack args [0x20..0x40), [0x40] argc (int, out), [0x48] wide argv
+        // (LocalAlloc'd by CommandLineToArgvW), [0x50] UTF-8 argv array, [0x58] loop
+        // index, [0x60] current wide arg ptr, [0x68] current UTF-8 buffer. plan-66-B.
+        const ARGC: usize = 0x40;
+        const WARGV: usize = 0x48;
+        const U8ARGV: usize = 0x50;
+        const IDX: usize = 0x58;
+        const WARG: usize = 0x60;
+        const U8ARG: usize = 0x68;
+        const ARG_CAP: &str = "131072";
+        let from = entry_symbol;
+        let n = instructions.len();
+        let l = |s: &str| format!("{from}_argv_{s}_{n}");
+        let (loop_top, loop_done) = (l("lt"), l("ld"));
+        instructions.push(abi::subtract_stack(0x70));
+        call_external(from, "GetCommandLineW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // lpCmdLine
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), ARGC), // &argc
+        ]);
+        call_external(from, "CommandLineToArgvW", SHELL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), WARGV),
+            // arena-alloc the UTF-8 argv array: (argc+1) * 8 bytes.
+            abi::load_u32(abi::return_register(), abi::stack_pointer(), ARGC),
+            abi::add_immediate(abi::return_register(), abi::return_register(), 1),
+            abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3),
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::store_u64(abi::RET[1], abi::stack_pointer(), U8ARGV),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), IDX),
+            // for (idx = 0; idx < argc; idx++) argv8[idx] = utf8(wargv[idx]).
+            abi::label(&loop_top),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), IDX),
+            abi::load_u32(abi::ARG[1], abi::stack_pointer(), ARGC),
+            abi::compare_registers(abi::ARG[0], abi::ARG[1]),
+            abi::branch_ge(&loop_done),
+            // wargv[idx] → WARG slot for the marshal helper.
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), WARGV),
+            abi::shift_left_immediate(abi::ARG[3], abi::ARG[0], 3),
+            abi::add_registers(abi::ARG[2], abi::ARG[2], abi::ARG[3]),
+            abi::load_u64(abi::ARG[2], abi::ARG[2], 0),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), WARG),
+        ]);
+        arena_alloc_to_slot(from, ARG_CAP, U8ARG, instructions, relocations);
+        emit_wide_slot_to_utf8(from, WARG, U8ARG, ARG_CAP, instructions, relocations);
+        instructions.extend([
+            // argv8[idx] = u8arg.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), U8ARGV),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::ARG[2], abi::ARG[1], 3),
+            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), U8ARG),
+            abi::store_u64(abi::ARG[2], abi::ARG[0], 0),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::branch(&loop_top),
+            abi::label(&loop_done),
+            // argv8[argc] = NULL.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), U8ARGV),
+            abi::load_u32(abi::ARG[1], abi::stack_pointer(), ARGC),
+            abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3),
+            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+            abi::store_u64(abi::ZERO, abi::ARG[0], 0),
+            // LocalFree(wargv) — CommandLineToArgvW returns a single LocalAlloc block.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WARGV),
+        ]);
+        call_external(from, "LocalFree", KERNEL32, instructions, relocations);
+        instructions.extend([
+            // Leave argc in ARG[0], argv in ARG[1] for the shared entry stores.
+            abi::load_u32(abi::ARG[0], abi::stack_pointer(), ARGC),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), U8ARGV),
+            abi::add_stack(0x70),
+        ]);
+        Ok(())
     }
 
     // --- the machine floor -------------------------------------------------
@@ -602,14 +784,102 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_heap_alloc(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // malloc(size) → HeapAlloc(GetProcessHeap(), 0, size). size in ARG[0], the
+        // block pointer in the return register (0 on failure). Balanced frame so the
+        // caller sees the plain malloc contract. plan-66-C.
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x28), // save size
+        ]);
+        call_external(from, "GetProcessHeap", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // hHeap
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // dwFlags
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x28),  // dwBytes
+        ]);
+        call_external(from, "HeapAlloc", KERNEL32, instructions, relocations);
+        instructions.push(abi::add_stack(0x30));
+        Ok(())
+    }
+
+    fn emit_heap_free(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // free(ptr) → HeapFree(GetProcessHeap(), 0, ptr). ptr in ARG[0]. plan-66-C.
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x28), // save ptr
+        ]);
+        call_external(from, "GetProcessHeap", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // hHeap
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // dwFlags
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x28),  // lpMem
+        ]);
+        call_external(from, "HeapFree", KERNEL32, instructions, relocations);
+        instructions.push(abi::add_stack(0x30));
+        Ok(())
+    }
+
     fn emit_poll_input(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("console input"))
+        // poll(&pollfd, 1, timeout) for fd 0: the shared caller passes the pollfd
+        // pointer in the return register, nfds=1 in ARG[1], and the timeout (ms, -1 =
+        // infinite) in ARG[2]. Windows has no poll(); wait on the stdin handle with
+        // WaitForSingleObject(hStdin, timeout) — a -1 timeout's low 32 bits are
+        // 0xFFFFFFFF == INFINITE, and a positive ms passes through. Map WAIT_OBJECT_0
+        // (0) → 1 (ready), WAIT_TIMEOUT (258) → 0, anything else → -1 (the caller
+        // routes <0 to its retry/error tail). plan-66-C.
+        let n = instructions.len();
+        let ready = format!("{from}_poll_ready_{n}");
+        let timeout = format!("{from}_poll_timeout_{n}");
+        let done = format!("{from}_poll_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28), // save timeout
+            // GetStdHandle(STD_INPUT_HANDLE = -10) without a negative immediate.
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[0], abi::ARG[0], 10),
+        ]);
+        call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::move_register(abi::ARG[0], abi::return_register()), // hHandle
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x28),  // dwMilliseconds
+        ]);
+        call_external(from, "WaitForSingleObject", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"), // WAIT_OBJECT_0
+            abi::branch_eq(&ready),
+            abi::compare_immediate(abi::return_register(), "258"), // WAIT_TIMEOUT
+            abi::branch_eq(&timeout),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1 error
+            abi::branch(&done),
+            abi::label(&ready),
+            abi::move_immediate(abi::return_register(), "Integer", "1"),
+            abi::branch(&done),
+            abi::label(&timeout),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(0x30),
+        ]);
+        Ok(())
     }
 
     fn emit_is_terminal(
@@ -813,12 +1083,385 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_environ_pointer(
         &self,
-        _from: &str,
+        from: &str,
         _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("environment"))
+        // Synthesize a POSIX `char**` (NULL-terminated array of UTF-8 "KEY=VALUE"
+        // C-strings) from GetEnvironmentStringsW, so the shared `lower_environ`
+        // walker is reused unchanged. The wide block is "K=V\0K=V\0…\0\0". Windows
+        // prepends hidden per-drive `=C:=…` entries whose key is empty; the shared
+        // walker splits on the first `=`, so those must be skipped (a leading `=`).
+        // Two passes over the block: count non-drive entries, then marshal each into
+        // the arena and fill the pointer array. Registers do not survive the
+        // arena_alloc / WideCharToMultiByte calls, so all loop state lives in stack
+        // slots. plan-66-B.
+        //
+        // Frame (subtract_stack(0x70)): shadow [0x00..0x20), marshal stack args
+        // [0x20..0x40), [0x40] block base, [0x48] array base, [0x50] cursor,
+        // [0x58] index, [0x60] per-entry UTF-8 buffer, [0x68] next cursor.
+        const BLOCK: usize = 0x40;
+        const ARRAY: usize = 0x48;
+        const CURSOR: usize = 0x50;
+        const IDX: usize = 0x58;
+        const U8BUF: usize = 0x60;
+        const NEXT: usize = 0x68;
+        // Fixed per-entry UTF-8 buffer: a single VAR=VALUE caps at ~32767 wchars →
+        // ≤ ~128 KiB UTF-8; use 128 KiB with a matching WideCharToMultiByte cap so
+        // the call can never overrun the buffer.
+        const ENTRY_CAP: &str = "131072";
+        let n = instructions.len();
+        let l = |s: &str| format!("{from}_environ_{s}_{n}");
+        let (count_loop, count_scan, count_scan_done, count_next, count_done) =
+            (l("cl"), l("cs"), l("csd"), l("cn"), l("cd"));
+        let (fill_loop, fill_scan, fill_scan_done, fill_skip, fill_done) =
+            (l("fl"), l("fs"), l("fsd"), l("fk"), l("fd"));
+        instructions.push(abi::subtract_stack(0x70));
+        call_external(from, "GetEnvironmentStringsW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), BLOCK),
+            abi::move_register(abi::ARG[0], abi::return_register()), // cursor (entry start)
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),        // count
+            // --- Pass 1: count non-drive entries (no calls, so ARG regs survive) ---
+            abi::label(&count_loop),
+            abi::load_u16(abi::ARG[3], abi::ARG[0], 0), // first wide char
+            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::branch_eq(&count_done), // double-NUL → end of block
+            abi::move_register(abi::ARG[2], abi::ARG[0]), // scan
+            abi::label(&count_scan),
+            abi::load_u16(abi::ARG[3], abi::ARG[2], 0),
+            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::branch_eq(&count_scan_done),
+            abi::add_immediate(abi::ARG[2], abi::ARG[2], 2),
+            abi::branch(&count_scan),
+            abi::label(&count_scan_done),
+            // reload the first char; skip if '=' (0x3D = 61, a hidden drive entry).
+            abi::load_u16(abi::ARG[3], abi::ARG[0], 0),
+            abi::compare_immediate(abi::ARG[3], "61"),
+            abi::branch_eq(&count_next),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1), // count++
+            abi::label(&count_next),
+            abi::add_immediate(abi::ARG[0], abi::ARG[2], 2), // next entry
+            abi::branch(&count_loop),
+            abi::label(&count_done),
+        ]);
+        // --- Allocate the (count+1) pointer array ---
+        instructions.extend([
+            abi::add_immediate(abi::return_register(), abi::ARG[1], 1),
+            abi::shift_left_immediate(abi::return_register(), abi::return_register(), 3), // *8
+            abi::move_immediate(abi::ARG[1], "Integer", "8"),
+            abi::branch_link(code::ARENA_ALLOC_SYMBOL),
+        ]);
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: code::ARENA_ALLOC_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
+        instructions.extend([
+            abi::store_u64(abi::RET[1], abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), BLOCK),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), IDX),
+            // --- Pass 2: marshal each non-drive entry into the array ---
+            abi::label(&fill_loop),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
+            abi::load_u16(abi::ARG[1], abi::ARG[0], 0), // first char
+            abi::compare_immediate(abi::ARG[1], "0"),
+            abi::branch_eq(&fill_done),
+            abi::move_register(abi::ARG[2], abi::ARG[0]), // scan
+            abi::label(&fill_scan),
+            abi::load_u16(abi::ARG[3], abi::ARG[2], 0),
+            abi::compare_immediate(abi::ARG[3], "0"),
+            abi::branch_eq(&fill_scan_done),
+            abi::add_immediate(abi::ARG[2], abi::ARG[2], 2),
+            abi::branch(&fill_scan),
+            abi::label(&fill_scan_done),
+            abi::add_immediate(abi::ARG[3], abi::ARG[2], 2), // next cursor = NUL + 2
+            abi::store_u64(abi::ARG[3], abi::stack_pointer(), NEXT),
+            // skip drive entries (leading '=', ARG[1] still holds the first char).
+            abi::compare_immediate(abi::ARG[1], "61"),
+            abi::branch_eq(&fill_skip),
+        ]);
+        arena_alloc_to_slot(from, ENTRY_CAP, U8BUF, instructions, relocations);
+        // WideCharToMultiByte(CP_UTF8, 0, [CURSOR], -1, [U8BUF], ENTRY_CAP, NULL, NULL).
+        emit_wide_slot_to_utf8(from, CURSOR, U8BUF, ENTRY_CAP, instructions, relocations);
+        instructions.extend([
+            // array[idx] = u8buf; idx++.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::ARG[2], abi::ARG[1], 3),
+            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), U8BUF),
+            abi::store_u64(abi::ARG[2], abi::ARG[0], 0),
+            abi::add_immediate(abi::ARG[1], abi::ARG[1], 1),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::label(&fill_skip),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), NEXT),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), CURSOR),
+            abi::branch(&fill_loop),
+            abi::label(&fill_done),
+            // NULL-terminate the array at [idx].
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), ARRAY),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), IDX),
+            abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3),
+            abi::add_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+            abi::store_u64(abi::ZERO, abi::ARG[0], 0),
+            // FreeEnvironmentStringsW(block).
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), BLOCK),
+        ]);
+        call_external(from, "FreeEnvironmentStringsW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), ARRAY),
+            abi::add_stack(0x70),
+        ]);
+        Ok(())
+    }
+
+    fn emit_enable_vt_output(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // term::on calls this before its first ANSI write. Classic conhost does not
+        // interpret VT sequences unless ENABLE_VIRTUAL_TERMINAL_PROCESSING (0x04) is
+        // set on the stdout console mode; Windows Terminal sets it by default, but
+        // enabling it is harmless there. Resolve STD_OUTPUT (GetStdHandle(-11)), read
+        // the current mode, OR in the VT bit, and write it back. Best-effort: if
+        // GetConsoleMode fails (stdout redirected to a file/pipe, not a console),
+        // skip the SetConsoleMode so a non-console stdout is left untouched. Uses a
+        // self-contained frame (shadow space + a mode slot + a saved-handle slot).
+        let n = instructions.len();
+        let skip = format!("{from}_vt_skip_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x30),
+            // GetStdHandle(STD_OUTPUT_HANDLE = -11), built without a negative immediate.
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[0], abi::ARG[0], 11),
+        ]);
+        call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x28), // save handle
+            abi::move_register(abi::ARG[0], abi::return_register()),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // zero the DWORD mode slot
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), 0x20), // &mode
+        ]);
+        call_external(from, "GetConsoleMode", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&skip), // not a console → leave stdout untouched
+            abi::load_u32(abi::ARG[1], abi::stack_pointer(), 0x20), // current mode
+            abi::move_immediate(abi::ARG[2], "Integer", "4"), // ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            abi::or_registers(abi::ARG[1], abi::ARG[1], abi::ARG[2]),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x28), // handle
+        ]);
+        call_external(from, "SetConsoleMode", KERNEL32, instructions, relocations);
+        instructions.extend([abi::label(&skip), abi::add_stack(0x30)]);
+        Ok(())
+    }
+
+    fn emit_env_get(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // GetEnvironmentVariableW over a UTF-8 name in ARG[0]; leaves a UTF-8
+        // NUL-terminated value C-string pointer in the return register (0 = unset),
+        // matching the POSIX getenv contract the shared helper consumes. Frame
+        // (after subtract_stack(0x60)): [0x00..0x20) shadow, [0x20]/[0x28] marshal
+        // 5th/6th stack args, [0x40] saved UTF-8 name, [0x48] wide name buf, [0x50]
+        // wide value buf, [0x58] UTF-8 value buf. Env values cap at 32767 wchars, so
+        // 64 KiB wide buffers hold any value; the UTF-8 out buffer is 128 KiB (worst
+        // case ~3 bytes/char). plan-66-B.
+        const NAME_SLOT: usize = 0x40;
+        const WNAME_SLOT: usize = 0x48;
+        const WVAL_SLOT: usize = 0x50;
+        const U8VAL_SLOT: usize = 0x58;
+        let n = instructions.len();
+        let not_found = format!("{from}_env_get_nf_{n}");
+        let done = format!("{from}_env_get_done_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x60),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), NAME_SLOT), // save name (arena_alloc clobbers)
+        ]);
+        arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
+        arena_alloc_to_slot(from, "65536", WVAL_SLOT, instructions, relocations);
+        arena_alloc_to_slot(from, "131072", U8VAL_SLOT, instructions, relocations);
+        // name (UTF-8) -> wide name.
+        emit_utf8_slot_to_wide(from, NAME_SLOT, WNAME_SLOT, "32768", instructions, relocations);
+        // GetEnvironmentVariableW(wideName, wideVal, 32768) -> char count (0 = unset).
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WNAME_SLOT),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), WVAL_SLOT),
+            abi::move_immediate(abi::ARG[2], "Integer", "32768"),
+        ]);
+        call_external(from, "GetEnvironmentVariableW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_eq(&not_found),
+            // WideCharToMultiByte(CP_UTF8, 0, wideVal, -1, u8Val, 131072, NULL, NULL).
+            abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+            abi::move_immediate(abi::ARG[1], "Integer", "0"),
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), U8VAL_SLOT), // lpMultiByteStr (5th)
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::ARG[2], "Integer", "131072"), // cbMultiByte (6th)
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // lpDefaultChar (7th) = NULL
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38), // lpUsedDefaultChar (8th) = NULL
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), WVAL_SLOT), // lpWideCharStr (3rd)
+            abi::move_immediate(abi::ARG[3], "Integer", "0"),
+            abi::subtract_immediate(abi::ARG[3], abi::ARG[3], 1), // cchWideChar = -1
+        ]);
+        call_external(from, "WideCharToMultiByte", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), U8VAL_SLOT), // UTF-8 value ptr
+            abi::branch(&done),
+            abi::label(&not_found),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(0x60),
+        ]);
+        Ok(())
+    }
+
+    fn emit_env_set(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // SetEnvironmentVariableW(wideName, wideValue|NULL). ARG[0] = UTF-8 name,
+        // ARG[1] = UTF-8 value (0 to delete). Frame (after subtract_stack(0x50)):
+        // shadow [0x00..0x20), [0x20]/[0x28] marshal stack args, [0x30] wide name,
+        // [0x38] wide value (or NULL), [0x40] saved name, [0x48] saved value.
+        // plan-66-B.
+        const WNAME_SLOT: usize = 0x30;
+        const WVAL_SLOT: usize = 0x38;
+        const NAME_SLOT: usize = 0x40;
+        const VAL_SLOT: usize = 0x48;
+        let n = instructions.len();
+        let set_null = format!("{from}_env_set_null_{n}");
+        let do_set = format!("{from}_env_set_do_{n}");
+        instructions.extend([
+            abi::subtract_stack(0x50),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), NAME_SLOT),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), VAL_SLOT),
+        ]);
+        arena_alloc_to_slot(from, "65536", WNAME_SLOT, instructions, relocations);
+        emit_utf8_slot_to_wide(from, NAME_SLOT, WNAME_SLOT, "32768", instructions, relocations);
+        // value == 0 → delete (wideValue = NULL); else marshal the value.
+        instructions.extend([
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), VAL_SLOT),
+            abi::compare_immediate(abi::ARG[0], "0"),
+            abi::branch_eq(&set_null),
+        ]);
+        arena_alloc_to_slot(from, "131072", WVAL_SLOT, instructions, relocations);
+        emit_utf8_slot_to_wide(from, VAL_SLOT, WVAL_SLOT, "65536", instructions, relocations);
+        instructions.extend([
+            abi::branch(&do_set),
+            abi::label(&set_null),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), WVAL_SLOT), // lpValue = NULL → delete
+            abi::label(&do_set),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WNAME_SLOT),
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), WVAL_SLOT),
+        ]);
+        call_external(from, "SetEnvironmentVariableW", KERNEL32, instructions, relocations);
+        // SetEnvironmentVariableW returns BOOL (nonzero = success); invert to the
+        // POSIX setenv/unsetenv convention (0 = success, nonzero = failure) the
+        // shared helper's branch expects.
+        let ok = format!("{from}_env_set_ok_{n}");
+        let out = format!("{from}_env_set_out_{n}");
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&ok), // BOOL != 0 → success
+            abi::move_immediate(abi::return_register(), "Integer", "1"), // failure
+            abi::branch(&out),
+            abi::label(&ok),
+            abi::move_immediate(abi::return_register(), "Integer", "0"), // success
+            abi::label(&out),
+            abi::add_stack(0x50),
+        ]);
+        Ok(())
+    }
+
+    fn emit_os_wide_string(
+        &self,
+        which: &str,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // Run the `*W` OS query for `which` into a wide buffer, marshal to a UTF-8
+        // C-string, and leave the pointer in the return register (0 on failure).
+        // Frame (after subtract_stack(0x60)): shadow [0x00..0x20), marshal stack args
+        // [0x20..0x40), [0x40] size DWORD (in/out for the Ex/User queries), [0x48]
+        // wide buffer (2048 wchars), [0x50] UTF-8 buffer (8 KiB). plan-66-B.
+        const SIZE_SLOT: usize = 0x40;
+        const WIDE_SLOT: usize = 0x48;
+        const U8_SLOT: usize = 0x50;
+        let n = instructions.len();
+        let fail = format!("{from}_oswq_fail_{n}");
+        let done = format!("{from}_oswq_done_{n}");
+        instructions.push(abi::subtract_stack(0x60));
+        arena_alloc_to_slot(from, "4096", WIDE_SLOT, instructions, relocations); // 2048 wchars
+        arena_alloc_to_slot(from, "8192", U8_SLOT, instructions, relocations);
+        match which {
+            // GetComputerNameExW(ComputerNameDnsHostname=1, lpBuffer, &nSize) → BOOL.
+            "hostName" => {
+                instructions.extend([
+                    abi::move_immediate(abi::ARG[0], "Integer", "2048"),
+                    abi::store_u32(abi::ARG[0], abi::stack_pointer(), SIZE_SLOT),
+                    abi::move_immediate(abi::ARG[0], "Integer", "1"),
+                    abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDE_SLOT),
+                    abi::add_immediate(abi::ARG[2], abi::stack_pointer(), SIZE_SLOT),
+                ]);
+                call_external(from, "GetComputerNameExW", KERNEL32, instructions, relocations);
+                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::branch_eq(&fail)); // BOOL 0 = failure
+            }
+            // GetUserNameW(lpBuffer, &pcbBuffer) → BOOL (advapi32).
+            "userName" => {
+                instructions.extend([
+                    abi::move_immediate(abi::ARG[0], "Integer", "2048"),
+                    abi::store_u32(abi::ARG[0], abi::stack_pointer(), SIZE_SLOT),
+                    abi::load_u64(abi::ARG[0], abi::stack_pointer(), WIDE_SLOT),
+                    abi::add_immediate(abi::ARG[1], abi::stack_pointer(), SIZE_SLOT),
+                ]);
+                call_external(from, "GetUserNameW", ADVAPI32, instructions, relocations);
+                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::branch_eq(&fail));
+            }
+            // GetModuleFileNameW(NULL, lpFilename, nSize) → char count (0 = failure).
+            "executablePath" => {
+                instructions.extend([
+                    abi::move_immediate(abi::ARG[0], "Integer", "0"),
+                    abi::load_u64(abi::ARG[1], abi::stack_pointer(), WIDE_SLOT),
+                    abi::move_immediate(abi::ARG[2], "Integer", "2048"),
+                ]);
+                call_external(from, "GetModuleFileNameW", KERNEL32, instructions, relocations);
+                instructions.push(abi::compare_immediate(abi::return_register(), "0"));
+                instructions.push(abi::branch_eq(&fail));
+            }
+            other => return Err(format!("unknown os wide-string query '{other}'")),
+        }
+        emit_wide_slot_to_utf8(from, WIDE_SLOT, U8_SLOT, "8192", instructions, relocations);
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), U8_SLOT),
+            abi::branch(&done),
+            abi::label(&fail),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::label(&done),
+            abi::add_stack(0x60),
+        ]);
+        Ok(())
     }
 
     fn emit_fs_path_operation(
@@ -942,22 +1585,45 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // read(fd, buf, len): HANDLE in ARG[0], buffer in ARG[1], length in ARG[2];
-        // return the byte count (0 = EOF, negative = error). ReadFile(hFile,
-        // lpBuffer, nToRead, &nRead, NULL) — the 5th arg (lpOverlapped) is a stack
-        // arg that MUST be NULL; the bytes-read out-param and the NULL live in the
-        // outgoing frame. On BOOL failure return -1; otherwise return nRead (which
-        // is 0 at end of file, exactly the read() contract).
+        // read(fd, buf, len): fd/HANDLE in ARG[0], buffer in ARG[1], length in
+        // ARG[2]; return the byte count (0 = EOF, negative = error). fd 0 (stdin —
+        // the io:: input path passes the POSIX fd, not a handle) resolves to
+        // GetStdHandle(STD_INPUT_HANDLE = -10) the same way emit_write resolves
+        // stdout/stderr; a CreateFileW handle (always ≥ 4) passes through. ReadFile(
+        // hFile, lpBuffer, nToRead, &nRead, NULL) — the 5th arg (lpOverlapped) is a
+        // stack arg that MUST be NULL. On BOOL failure return -1; otherwise nRead
+        // (0 at EOF, exactly the read() contract). plan-66-C.
         let n = instructions.len();
         let ok = format!("{from}_read_ok_{n}");
         let done = format!("{from}_read_done_{n}");
+        let file_handle = format!("{from}_read_fileh_{n}");
+        let have_handle = format!("{from}_read_haveh_{n}");
         instructions.extend([
-            abi::subtract_stack(0x40),
+            abi::subtract_stack(0x50),
+            abi::store_u64(abi::ARG[1], abi::stack_pointer(), 0x30), // save buf
+            abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x38), // save len
+            abi::compare_immediate(abi::ARG[0], "2"),
+            abi::branch_gt(&file_handle),
+            // std fd → GetStdHandle(-(fd+10)) without a negative immediate.
+            abi::add_immediate(abi::ARG[1], abi::ARG[0], 10),
+            abi::move_immediate(abi::ARG[0], "Integer", "0"),
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]),
+        ]);
+        call_external(from, "GetStdHandle", KERNEL32, instructions, relocations);
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x40), // hFile
+            abi::branch(&have_handle),
+            abi::label(&file_handle),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // hFile = handle directly
+            abi::label(&have_handle),
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20), // lpOverlapped = NULL (5th)
             // Zero the nRead slot first — it is a DWORD (32-bit) out-param, so
             // ReadFile writes only the low 32 bits; the load_u64 below would
             // otherwise return garbage in the high 32 bits (see emit_write).
             abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28),
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x40), // hFile
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x30), // lpBuffer
+            abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x38), // nToRead
             abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0x28), // &nRead (4th)
         ]);
         call_external(from, "ReadFile", KERNEL32, instructions, relocations);
@@ -970,7 +1636,7 @@ impl code::CodegenPlatform for Platform {
             abi::label(&ok),
             abi::load_u64(abi::return_register(), abi::stack_pointer(), 0x28), // nRead
             abi::label(&done),
-            abi::add_stack(0x40),
+            abi::add_stack(0x50),
         ]);
         Ok(())
     }
@@ -1129,12 +1795,112 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_mkstemps(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err(unsupported("filesystem"))
+        // POSIX mkstemps over Win32 (plan-66-E). On entry: return_register() = a
+        // mutable UTF-8 template C-string ending in "XXXXXX<suffix>", ARG[1] = suffix
+        // byte length. Replace the 6 X markers with random lowercase letters, then
+        // CreateFileW(CREATE_NEW) — retrying on a name collision — and return the
+        // handle (a small positive value that the shared caller's sign-extend +
+        // `>= 0` check treats as a valid fd) or -1. The template is modified in place
+        // so the caller can rename the temp path afterward. Frame (subtract_stack(
+        // 0x60)): shadow [0x00..0x20), CreateFileW stack args [0x20..0x38), [0x38]
+        // template ptr, [0x40] X-markers ptr, [0x48] wide buffer, [0x50] retry count,
+        // [0x58] 8-byte random scratch.
+        const TMPL: usize = 0x38;
+        const XSTART: usize = 0x40;
+        const WIDE: usize = 0x48;
+        const RETRY: usize = 0x50;
+        const RAND: usize = 0x58;
+        const X_MARKER_COUNT: usize = 6;
+        let n = instructions.len();
+        let l = |s: &str| format!("{from}_mkstemps_{s}_{n}");
+        let (strlen_loop, strlen_done) = (l("sl"), l("sd"));
+        let (retry_loop, fill_loop, fill_done, success, giveup, done) =
+            (l("rl"), l("fl"), l("fd"), l("ok"), l("gu"), l("dn"));
+        instructions.push(abi::subtract_stack(0x60));
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), TMPL),
+            // X-markers start = strlen(template) - suffix_len - 6.
+            abi::move_register(abi::ARG[0], abi::return_register()),
+            abi::label(&strlen_loop),
+            abi::load_u8(abi::ARG[2], abi::ARG[0], 0),
+            abi::compare_immediate(abi::ARG[2], "0"),
+            abi::branch_eq(&strlen_done),
+            abi::add_immediate(abi::ARG[0], abi::ARG[0], 1),
+            abi::branch(&strlen_loop),
+            abi::label(&strlen_done),
+            abi::subtract_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]), // - suffix_len
+            abi::subtract_immediate(abi::ARG[0], abi::ARG[0], X_MARKER_COUNT), // - 6
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), XSTART),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), RETRY),
+        ]);
+        arena_alloc_to_slot(from, "65536", WIDE, instructions, relocations);
+        instructions.push(abi::label(&retry_loop));
+        // 6 random bytes into the RAND scratch, then map each to 'a'+(byte % 26).
+        instructions.extend([
+            abi::add_immediate(abi::ARG[0], abi::stack_pointer(), RAND),
+            abi::move_immediate(abi::ARG[1], "Integer", "6"),
+        ]);
+        self.emit_random_bytes(from, platform_imports, instructions, relocations)?;
+        instructions.extend([
+            abi::move_immediate(abi::ARG[0], "Integer", "0"), // i
+            abi::label(&fill_loop),
+            abi::compare_immediate(abi::ARG[0], "6"),
+            abi::branch_ge(&fill_done),
+            abi::add_immediate(abi::ARG[1], abi::stack_pointer(), RAND),
+            abi::add_registers(abi::ARG[1], abi::ARG[1], abi::ARG[0]),
+            abi::load_u8(abi::ARG[2], abi::ARG[1], 0), // random byte
+            abi::move_immediate(abi::ARG[3], "Integer", "26"),
+            abi::unsigned_divide_registers(abi::ARG[1], abi::ARG[2], abi::ARG[3]), // q
+            abi::multiply_subtract_registers(abi::ARG[2], abi::ARG[1], abi::ARG[3], abi::ARG[2]), // r = b - q*26
+            abi::add_immediate(abi::ARG[2], abi::ARG[2], 97), // 'a' + r
+            abi::load_u64(abi::ARG[1], abi::stack_pointer(), XSTART),
+            abi::add_registers(abi::ARG[1], abi::ARG[1], abi::ARG[0]),
+            abi::store_u8(abi::ARG[2], abi::ARG[1], 0),
+            abi::add_immediate(abi::ARG[0], abi::ARG[0], 1),
+            abi::branch(&fill_loop),
+            abi::label(&fill_done),
+        ]);
+        // Marshal template UTF-8 → UTF-16, then
+        // CreateFileW(lpFileName, GENERIC_READ|GENERIC_WRITE, 0, NULL, CREATE_NEW,
+        //   FILE_ATTRIBUTE_NORMAL, NULL). Stage the three stack args (5th/6th/7th)
+        // with ARG[0] as a temp BEFORE loading the four register args.
+        emit_utf8_slot_to_wide(from, TMPL, WIDE, "32768", instructions, relocations);
+        instructions.extend([
+            abi::move_immediate(abi::ARG[0], "Integer", "1"), // CREATE_NEW
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20),
+            abi::move_immediate(abi::ARG[0], "Integer", "128"), // FILE_ATTRIBUTE_NORMAL
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x28),
+            abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30), // hTemplateFile = NULL
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), WIDE), // lpFileName
+            abi::move_immediate(abi::ARG[1], "Integer", "3221225472"), // GENERIC_READ|GENERIC_WRITE
+            abi::move_immediate(abi::ARG[2], "Integer", "0"), // dwShareMode
+            abi::move_immediate(abi::ARG[3], "Integer", "0"), // lpSecurityAttributes NULL
+        ]);
+        call_external(from, "CreateFileW", KERNEL32, instructions, relocations);
+        instructions.extend([
+            // INVALID_HANDLE_VALUE = -1; a real handle is a small positive value.
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_gt(&success),
+            // collision or error: retry up to 100 times, then give up.
+            abi::load_u64(abi::ARG[0], abi::stack_pointer(), RETRY),
+            abi::add_immediate(abi::ARG[0], abi::ARG[0], 1),
+            abi::store_u64(abi::ARG[0], abi::stack_pointer(), RETRY),
+            abi::compare_immediate(abi::ARG[0], "100"),
+            abi::branch_lt(&retry_loop),
+            abi::label(&giveup),
+            abi::move_immediate(abi::return_register(), "Integer", "0"),
+            abi::subtract_immediate(abi::return_register(), abi::return_register(), 1), // -1
+            abi::branch(&done),
+            abi::label(&success),
+            abi::label(&done),
+            abi::add_stack(0x60),
+        ]);
+        Ok(())
     }
 
     fn emit_random_bytes(

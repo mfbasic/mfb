@@ -15,6 +15,12 @@ use std::borrow::Cow;
 
 pub(crate) const TERM_COLOR_TYPE: &str = "TermColor";
 pub(crate) const TERM_SIZE_TYPE: &str = "TermSize";
+/// The `LineStyle` enum (`Light`…`Double`) selecting the box-drawing weight for
+/// `term::drawHLine` / `term::drawVLine`. Unlike the two records above it is a
+/// real enum, declared in `term_package.mfb` (native `builtin_type_fields` can
+/// only declare records), so the resolver learns its members from the injected
+/// package source while `is_builtin_type` accepts the bare type name here.
+pub(crate) const LINE_STYLE_TYPE: &str = "LineStyle";
 
 pub(crate) const ON: &str = "term.on";
 pub(crate) const OFF: &str = "term.off";
@@ -28,6 +34,9 @@ pub(crate) const HIDE_CURSOR: &str = "term.hideCursor";
 pub(crate) const CLEAR: &str = "term.clear";
 pub(crate) const SYNC: &str = "term.sync";
 pub(crate) const MOVE_TO: &str = "term.moveTo";
+pub(crate) const DRAW_HLINE: &str = "term.drawHLine";
+pub(crate) const DRAW_VLINE: &str = "term.drawVLine";
+pub(crate) const DRAW_BOX: &str = "term.drawBox";
 pub(crate) const GET_FOREGROUND: &str = "term.getForeground";
 pub(crate) const GET_BACKGROUND: &str = "term.getBackground";
 pub(crate) const GET_BOLD: &str = "term.getBold";
@@ -53,6 +62,9 @@ pub(crate) fn is_term_call(name: &str) -> bool {
             | CLEAR
             | SYNC
             | MOVE_TO
+            | DRAW_HLINE
+            | DRAW_VLINE
+            | DRAW_BOX
             | GET_FOREGROUND
             | GET_BACKGROUND
             | GET_BOLD
@@ -62,7 +74,7 @@ pub(crate) fn is_term_call(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == TERM_COLOR_TYPE || name == TERM_SIZE_TYPE
+    name == TERM_COLOR_TYPE || name == TERM_SIZE_TYPE || name == LINE_STYLE_TYPE
 }
 
 pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
@@ -80,6 +92,9 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         SET_FOREGROUND | SET_BACKGROUND => Some(&[&["r"], &["g"], &["b"]]),
         SET_BOLD | SET_UNDERLINE => Some(&[&["enabled"]]),
         MOVE_TO => Some(&[&["row"], &["column"]]),
+        DRAW_HLINE => Some(&[&["line"], &["row"], &["colA"], &["colB"]]),
+        DRAW_VLINE => Some(&[&["line"], &["col"], &["rowA"], &["rowB"]]),
+        DRAW_BOX => Some(&[&["line"], &["x1"], &["y1"], &["x2"], &["y2"]]),
         _ => None,
     }
 }
@@ -93,6 +108,8 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
         SET_FOREGROUND | SET_BACKGROUND => Some(&["Byte", "Byte", "Byte"]),
         SET_BOLD | SET_UNDERLINE => Some(&["Boolean"]),
         MOVE_TO => Some(&["Integer", "Integer"]),
+        DRAW_HLINE | DRAW_VLINE => Some(&[LINE_STYLE_TYPE, "Integer", "Integer", "Integer"]),
+        DRAW_BOX => Some(&[LINE_STYLE_TYPE, "Integer", "Integer", "Integer", "Integer"]),
         _ => None,
     }
 }
@@ -100,7 +117,9 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         ON | OFF | SET_FOREGROUND | SET_BACKGROUND | SET_BOLD | SET_UNDERLINE | SHOW_CURSOR
-        | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO => Some("Nothing"),
+        | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO | DRAW_HLINE | DRAW_VLINE | DRAW_BOX => {
+            Some("Nothing")
+        }
         IS_ON | GET_BOLD | GET_UNDERLINE => Some("Boolean"),
         GET_FOREGROUND | GET_BACKGROUND => Some(TERM_COLOR_TYPE),
         TERMINAL_SIZE => Some(TERM_SIZE_TYPE),
@@ -132,6 +151,18 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     Some((count, count))
 }
 
+// The `term::` package source declares the `LineStyle` enum (the drawHLine /
+// drawVLine weight selector). It is injected into the user's project only when a
+// program `IMPORT term`s (the shared glue's `uses_package` gate); the records
+// `TermColor` / `TermSize` stay native (`builtin_type_fields`) since they predate
+// this source companion.
+super::package_source_glue!(
+    "term",
+    "<builtin-term>",
+    "builtins/term.mfb",
+    include_str!("term_package.mfb")
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +180,9 @@ mod tests {
         CLEAR,
         SYNC,
         MOVE_TO,
+        DRAW_HLINE,
+        DRAW_VLINE,
+        DRAW_BOX,
         GET_FOREGROUND,
         GET_BACKGROUND,
         GET_BOLD,
@@ -185,8 +219,11 @@ mod tests {
     fn builtin_types() {
         assert!(is_builtin_type(TERM_COLOR_TYPE));
         assert!(is_builtin_type(TERM_SIZE_TYPE));
+        assert!(is_builtin_type(LINE_STYLE_TYPE));
         assert!(!is_builtin_type("String"));
         assert!(!is_builtin_type("File"));
+        // LineStyle is an enum, not a record, so it has no native field layout.
+        assert_eq!(builtin_type_fields(LINE_STYLE_TYPE), None);
         assert_eq!(
             builtin_type_fields(TERM_COLOR_TYPE),
             Some(&[("r", "Byte"), ("g", "Byte"), ("b", "Byte")][..])
@@ -258,6 +295,29 @@ mod tests {
             Some(&[&["row"][..], &["column"][..]][..])
         );
         assert_eq!(param_types(MOVE_TO), Some(&["Integer", "Integer"][..]));
+        assert_eq!(
+            call_param_names(DRAW_HLINE),
+            Some(&[&["line"][..], &["row"][..], &["colA"][..], &["colB"][..]][..])
+        );
+        assert_eq!(
+            call_param_names(DRAW_VLINE),
+            Some(&[&["line"][..], &["col"][..], &["rowA"][..], &["rowB"][..]][..])
+        );
+        for name in [DRAW_HLINE, DRAW_VLINE] {
+            assert_eq!(
+                param_types(name),
+                Some(&["LineStyle", "Integer", "Integer", "Integer"][..]),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            call_param_names(DRAW_BOX),
+            Some(&[&["line"][..], &["x1"][..], &["y1"][..], &["x2"][..], &["y2"][..]][..])
+        );
+        assert_eq!(
+            param_types(DRAW_BOX),
+            Some(&["LineStyle", "Integer", "Integer", "Integer", "Integer"][..])
+        );
     }
 
     #[test]
@@ -274,6 +334,9 @@ mod tests {
             CLEAR,
             SYNC,
             MOVE_TO,
+            DRAW_HLINE,
+            DRAW_VLINE,
+            DRAW_BOX,
         ] {
             assert_eq!(call_return_type_name(name), Some("Nothing"), "{name}");
         }
@@ -316,6 +379,18 @@ mod tests {
             expected_arguments(MOVE_TO).as_deref(),
             Some("Integer, Integer")
         );
+        assert_eq!(
+            expected_arguments(DRAW_HLINE).as_deref(),
+            Some("LineStyle, Integer, Integer, Integer")
+        );
+        assert_eq!(
+            expected_arguments(DRAW_VLINE).as_deref(),
+            Some("LineStyle, Integer, Integer, Integer")
+        );
+        assert_eq!(
+            expected_arguments(DRAW_BOX).as_deref(),
+            Some("LineStyle, Integer, Integer, Integer, Integer")
+        );
     }
 
     #[test]
@@ -330,5 +405,8 @@ mod tests {
             assert_eq!(arity(name), Some((1, 1)), "{name}");
         }
         assert_eq!(arity(MOVE_TO), Some((2, 2)));
+        assert_eq!(arity(DRAW_HLINE), Some((4, 4)));
+        assert_eq!(arity(DRAW_VLINE), Some((4, 4)));
+        assert_eq!(arity(DRAW_BOX), Some((5, 5)));
     }
 }

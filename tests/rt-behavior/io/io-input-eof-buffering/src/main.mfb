@@ -1,0 +1,21 @@
+IMPORT io
+
+REM plan-66-C: io:: console input + buffering across every native target. The
+REM acceptance harness feeds an empty stdin (/dev/null), so readLine hits EOF and
+REM traps — deterministic and host-neutral. isBuffered/setBuffered/flush are the
+REM buffer-flag family. On Windows the read path resolves fd 0 -> GetStdHandle +
+REM ReadFile through the stdin-broadcast log (SRWLOCK/CONDITION_VARIABLE + HeapAlloc);
+REM the box run (with piped input) proves readChar/readByte/readLine/pollInput/input.
+FUNC main AS Integer
+  io::print("buf_default=" & toString(io::isBuffered()))
+  io::setBuffered(TRUE)
+  io::print("buf_after=" & toString(io::isBuffered()))
+  io::flush()
+  LET line AS String = io::readLine()
+  io::print("eof_line=[" & line & "]")
+  RETURN 0
+  TRAP(err)
+    io::print("eof_trap=TRUE")
+    RETURN 0
+  END TRAP
+END FUNC

@@ -1,0 +1,71 @@
+{
+  "project": "encoding_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 6 },
+    { "module": "encoding", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "acc", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 10 },
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "" }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "raw", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "102" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "111" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "111" }] }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "s32", "type": null, "value": { "kind": "call", "callee": "encoding.base32Encode", "arguments": [{ "kind": "identifier", "value": "raw" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "s64", "type": null, "value": { "kind": "call", "callee": "encoding.base64Encode", "arguments": [{ "kind": "identifier", "value": "raw" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "s64u", "type": null, "value": { "kind": "call", "callee": "encoding.base64UrlEncode", "arguments": [{ "kind": "identifier", "value": "raw" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "shex", "type": null, "value": { "kind": "call", "callee": "encoding.hexEncode", "arguments": [{ "kind": "identifier", "value": "raw" }] }, "line": 19 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "identifier", "value": "s32" } }, "right": { "kind": "identifier", "value": "s64" } }, "right": { "kind": "identifier", "value": "s64u" } }, "right": { "kind": "identifier", "value": "shex" } }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "b32", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.base32Decode", "arguments": [{ "kind": "identifier", "value": "s32" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "b64", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.base64Decode", "arguments": [{ "kind": "identifier", "value": "s64" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "b64u", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.base64UrlDecode", "arguments": [{ "kind": "identifier", "value": "s64u" }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "bhex", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "identifier", "value": "shex" }] }, "line": 25 },
+      { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b32" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b64" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "b64u" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "bhex" }] } }, "line": 26 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.formUrlEncode", "arguments": [{ "kind": "string", "value": "a b+c&d" }] } }, "line": 29 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.formUrlDecode", "arguments": [{ "kind": "string", "value": "a+b%2Bc" }] } }, "line": 30 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.percentEncode", "arguments": [{ "kind": "string", "value": "a b/c?=&" }] } }, "line": 31 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.percentDecode", "arguments": [{ "kind": "string", "value": "a%20b%2Fc" }] } }, "line": 32 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.htmlEscape", "arguments": [{ "kind": "string", "value": "<a href=\"x\">&'" }] } }, "line": 33 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.htmlUnescape", "arguments": [{ "kind": "string", "value": "&lt;a&gt;&amp; &#233;" }] } }, "line": 34 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.punycodeEncode", "arguments": [{ "kind": "string", "value": "münchen.de" }] } }, "line": 35 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.punycodeDecode", "arguments": [{ "kind": "string", "value": "xn--mnchen-3ya.de" }] } }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "sleb", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.sleb128Encode", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "123456" } }] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "uleb", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.uleb128Encode", "arguments": [{ "kind": "number", "value": "624485" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "vint", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.varintEncode", "arguments": [{ "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0" }, "right": { "kind": "number", "value": "75" } }] }, "line": 41 },
+      { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "sleb" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "uleb" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "vint" }] } }, "line": 42 },
+      { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "encoding.sleb128Decode", "arguments": [{ "kind": "identifier", "value": "sleb" }] } }, "line": 43 },
+      { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "encoding.uleb128Decode", "arguments": [{ "kind": "identifier", "value": "uleb" }] } }, "line": 44 },
+      { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "encoding.varintDecode", "arguments": [{ "kind": "identifier", "value": "vint" }] } }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "u16", "type": "List OF Integer", "value": { "kind": "call", "callee": "encoding.utf16Encode", "arguments": [{ "kind": "string", "value": "héllo" }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "name": "u32", "type": "List OF Integer", "value": { "kind": "call", "callee": "encoding.utf32Encode", "arguments": [{ "kind": "string", "value": "A😀" }] }, "line": 49 },
+      { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "u16" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "u32" }] } }, "line": 50 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf16Decode", "arguments": [{ "kind": "identifier", "value": "u16" }] } }, "line": 51 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf32Decode", "arguments": [{ "kind": "identifier", "value": "u32" }] } }, "line": 52 },
+      { "kind": "binding", "mutable": false, "name": "eb", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 55 },
+      { "kind": "binding", "mutable": false, "name": "ei", "type": "List OF Integer", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 56 },
+      { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "eb" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ei" }] } }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "hb", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8EncodeBytes", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "hi", "type": "List OF Integer", "value": { "kind": "call", "callee": "encoding.utf8EncodeInts", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 61 },
+      { "kind": "assignment", "name": "acc", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "acc" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "hb" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "hi" }] } }, "line": 62 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "identifier", "value": "hb" }] } }, "line": 65 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf8Decode", "arguments": [{ "kind": "identifier", "value": "hi" }] } }, "line": 66 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf8DecodeBytes", "arguments": [{ "kind": "identifier", "value": "hb" }] } }, "line": 67 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "encoding.utf8DecodeInts", "arguments": [{ "kind": "identifier", "value": "hi" }] } }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "acc" }] }, "right": { "kind": "identifier", "value": "s" } }] }, "line": 70 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 71 }
+      ]
+    }
+    ]
+  }
+  ]
+}

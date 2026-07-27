@@ -1043,6 +1043,434 @@ pub(super) fn emit_term_clear_helper() -> CodeFunction {
     }
 }
 
+/// IMP for `TermView mfbDrawLine:` (`void mfbDrawLine:(id self, SEL _cmd, id)`):
+/// stamp the box-drawing glyph the worker resolved (`TV_DRAW_GLYPH`) across a run
+/// of cells with the current attributes, honouring the parked parameters
+/// (`TV_DRAW_FIXED`/`LO`/`HI`/`HORIZ`). Main-thread only (invoked via
+/// performSelectorOnMainThread), so grid mutation is serialised with the other
+/// surface ops. Mirrors the console `emit_draw_line`: the fixed coordinate off the
+/// grid, or a span with no on-grid cell, draws nothing; endpoints may be given in
+/// either order. The draw does **not** request a redraw — the surface repaints on
+/// the next present (`term::sync`/`io::flush`), mandatory-present (plan-35-D §3).
+pub(super) fn emit_term_draw_line_helper() -> CodeFunction {
+    let mut asm = Asm::new(MFB_DRAW_LINE_SYMBOL);
+    // Frame: lr@0, then callee-saved loop-invariants — state@8, cells@16, cols@24,
+    // glyph@32, fixed@40, horiz@48, hi@56, pos@64. Transients live in SCRATCH
+    // (no calls follow the single objc_getAssociatedObject, so they persist).
+    let frame = 80;
+    let state = abi::LOCAL[0];
+    let cells = abi::LOCAL[1];
+    let cols = abi::LOCAL[2];
+    let glyph = abi::LOCAL[3];
+    let fixed = abi::LOCAL[4];
+    let horiz = abi::LOCAL[5];
+    let hi = abi::LOCAL[6];
+    let pos = abi::LOCAL[7];
+    let rows = abi::SCRATCH[0];
+    let lo = abi::SCRATCH[1];
+    let fixed_bound = abi::SCRATCH[2];
+    let span_bound = abi::SCRATCH[3];
+    let tmp = abi::SCRATCH[4];
+    let idx = abi::SCRATCH[0]; // reused after the pre-loop clamps (rows is dead)
+    let cell = abi::SCRATCH[1];
+    let attr = abi::SCRATCH[2];
+
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        (state, 8),
+        (cells, 16),
+        (cols, 24),
+        (glyph, 32),
+        (fixed, 40),
+        (horiz, 48),
+        (hi, 56),
+        (pos, 64),
+    ] {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+
+    // state = objc_getAssociatedObject(self, &TVSTATE_KEY)  (x0 = self)
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(state, "x0"));
+    asm.push(abi::compare_immediate(state, "0"));
+    asm.push(abi::branch_eq("dl_done"));
+    asm.push(abi::load_u64(cells, state, TV_CELLS_OFFSET));
+    asm.push(abi::compare_immediate(cells, "0"));
+    asm.push(abi::branch_eq("dl_done"));
+    asm.push(abi::load_u64(rows, state, TV_ROWS_OFFSET));
+    asm.push(abi::load_u64(cols, state, TV_COLS_OFFSET));
+    asm.push(abi::load_u64(glyph, state, TV_DRAW_GLYPH_OFFSET));
+    asm.push(abi::load_u64(fixed, state, TV_DRAW_FIXED_OFFSET));
+    asm.push(abi::load_u64(horiz, state, TV_DRAW_HORIZ_OFFSET));
+    asm.push(abi::load_u64(lo, state, TV_DRAW_LO_OFFSET));
+    asm.push(abi::load_u64(hi, state, TV_DRAW_HI_OFFSET));
+
+    // fixed_bound / span_bound depend on the direction: horizontal spans columns
+    // on a fixed row, vertical spans rows on a fixed column.
+    asm.push(abi::compare_immediate(horiz, "0"));
+    asm.push(abi::branch_eq("dl_vert"));
+    asm.push(abi::move_register(fixed_bound, rows));
+    asm.push(abi::move_register(span_bound, cols));
+    asm.push(abi::branch("dl_bounds_done"));
+    asm.push(abi::label("dl_vert"));
+    asm.push(abi::move_register(fixed_bound, cols));
+    asm.push(abi::move_register(span_bound, rows));
+    asm.push(abi::label("dl_bounds_done"));
+
+    // Fixed coordinate must be on the grid: [0, fixed_bound-1], else nothing.
+    asm.push(abi::compare_immediate(fixed, "0"));
+    asm.push(abi::branch_lt("dl_done"));
+    asm.push(abi::compare_registers(fixed, fixed_bound));
+    asm.push(abi::branch_ge("dl_done"));
+
+    // Normalise the span so lo <= hi.
+    asm.push(abi::compare_registers(lo, hi));
+    asm.push(abi::branch_le("dl_span_ok"));
+    asm.push(abi::move_register(tmp, lo));
+    asm.push(abi::move_register(lo, hi));
+    asm.push(abi::move_register(hi, tmp));
+    asm.push(abi::label("dl_span_ok"));
+
+    // Clamp lo up to 0 and hi down to span_bound-1; empty span → nothing.
+    asm.push(abi::compare_immediate(lo, "0"));
+    asm.push(abi::branch_ge("dl_lo_ok"));
+    asm.push(abi::move_immediate(lo, "Integer", "0"));
+    asm.push(abi::label("dl_lo_ok"));
+    asm.push(abi::subtract_immediate(tmp, span_bound, 1));
+    asm.push(abi::compare_registers(hi, tmp));
+    asm.push(abi::branch_le("dl_hi_ok"));
+    asm.push(abi::move_register(hi, tmp));
+    asm.push(abi::label("dl_hi_ok"));
+    asm.push(abi::compare_registers(lo, hi));
+    asm.push(abi::branch_gt("dl_done"));
+
+    // pos = lo..=hi, stamping the glyph + current attributes into each cell.
+    asm.push(abi::move_register(pos, lo));
+    asm.push(abi::label("dl_loop"));
+    asm.push(abi::compare_registers(pos, hi));
+    asm.push(abi::branch_gt("dl_done"));
+    // idx = horiz ? fixed*cols + pos : pos*cols + fixed
+    asm.push(abi::compare_immediate(horiz, "0"));
+    asm.push(abi::branch_eq("dl_v_idx"));
+    asm.push(abi::multiply_registers(idx, fixed, cols));
+    asm.push(abi::add_registers(idx, idx, pos));
+    asm.push(abi::branch("dl_idx_done"));
+    asm.push(abi::label("dl_v_idx"));
+    asm.push(abi::multiply_registers(idx, pos, cols));
+    asm.push(abi::add_registers(idx, idx, fixed));
+    asm.push(abi::label("dl_idx_done"));
+    asm.push(abi::shift_left_immediate(idx, idx, 4)); // * CELL_SIZE (16)
+    asm.push(abi::add_registers(cell, cells, idx));
+    asm.push(abi::store_u32(glyph, cell, CELL_GLYPH_OFFSET));
+    asm.push(abi::load_u64(attr, state, TV_CUR_FG_OFFSET));
+    asm.push(abi::store_u32(attr, cell, CELL_FG_OFFSET));
+    asm.push(abi::load_u64(attr, state, TV_CUR_BG_OFFSET));
+    asm.push(abi::store_u32(attr, cell, CELL_BG_OFFSET));
+    asm.push(abi::load_u64(attr, state, TV_CUR_BOLD_OFFSET));
+    asm.push(abi::store_u8(attr, cell, CELL_BOLD_OFFSET));
+    asm.push(abi::load_u64(attr, state, TV_CUR_UNDERLINE_OFFSET));
+    asm.push(abi::store_u8(attr, cell, CELL_UNDERLINE_OFFSET));
+    asm.push(abi::add_immediate(pos, pos, 1));
+    asm.push(abi::branch("dl_loop"));
+
+    asm.push(abi::label("dl_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in [
+        (state, 8),
+        (cells, 16),
+        (cols, 24),
+        (glyph, 32),
+        (fixed, 40),
+        (horiz, 48),
+        (hi, 56),
+        (pos, 64),
+    ] {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.term.drawLine".to_string(),
+        symbol: MFB_DRAW_LINE_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// Grid context + scratch registers for the `mfbDrawBox:` stampers. `state`
+/// (callee-saved) is read for the current attributes per cell; `cells`/`rows`/
+/// `cols` are the grid; the rest are caller-saved scratch (`SCRATCH[1..8]` →
+/// `x10..x17`) the stampers clobber. No objc calls run inside the stampers, so the
+/// scratch is stable across the whole draw.
+struct AppStampCtx {
+    state: &'static str,
+    cells: &'static str,
+    rows: &'static str,
+    cols: &'static str,
+    lo: &'static str,
+    hi: &'static str,
+    pos: &'static str,
+    idx: &'static str,
+    cell: &'static str,
+    tmp: &'static str,
+    attr: &'static str,
+}
+
+/// Store `glyph` + the current attributes into `cell` (already the cell address).
+fn app_stamp_attrs(asm: &mut Asm, ctx: &AppStampCtx, glyph: &str) {
+    asm.push(abi::store_u32(glyph, ctx.cell, CELL_GLYPH_OFFSET));
+    asm.push(abi::load_u64(ctx.attr, ctx.state, TV_CUR_FG_OFFSET));
+    asm.push(abi::store_u32(ctx.attr, ctx.cell, CELL_FG_OFFSET));
+    asm.push(abi::load_u64(ctx.attr, ctx.state, TV_CUR_BG_OFFSET));
+    asm.push(abi::store_u32(ctx.attr, ctx.cell, CELL_BG_OFFSET));
+    asm.push(abi::load_u64(ctx.attr, ctx.state, TV_CUR_BOLD_OFFSET));
+    asm.push(abi::store_u8(ctx.attr, ctx.cell, CELL_BOLD_OFFSET));
+    asm.push(abi::load_u64(ctx.attr, ctx.state, TV_CUR_UNDERLINE_OFFSET));
+    asm.push(abi::store_u8(ctx.attr, ctx.cell, CELL_UNDERLINE_OFFSET));
+}
+
+/// Stamp `glyph` across a clamped run (the `mfbDrawBox:` edge stamper — the app
+/// twin of the console `emit_stamp_run`). `fixed`/`ea`/`eb` are registers; the
+/// span is normalised + clamped to the grid; a `fixed` off the grid or an empty
+/// span branches to `skip` (placed by the caller). Does not clobber
+/// `fixed`/`ea`/`eb`.
+#[allow(clippy::too_many_arguments)]
+fn app_stamp_run(
+    asm: &mut Asm,
+    ctx: &AppStampCtx,
+    is_horizontal: bool,
+    fixed: &str,
+    ea: &str,
+    eb: &str,
+    glyph: &str,
+    tag: &str,
+    skip: &str,
+) {
+    let (fixed_limit, span_limit) = if is_horizontal {
+        (ctx.rows, ctx.cols)
+    } else {
+        (ctx.cols, ctx.rows)
+    };
+    let span_ok = format!("{tag}_span_ok");
+    let lo_ok = format!("{tag}_lo_ok");
+    let hi_ok = format!("{tag}_hi_ok");
+    let loop_top = format!("{tag}_loop");
+    let loop_done = format!("{tag}_loop_done");
+    asm.push(abi::compare_immediate(fixed, "0"));
+    asm.push(abi::branch_lt(skip));
+    asm.push(abi::compare_registers(fixed, fixed_limit));
+    asm.push(abi::branch_ge(skip));
+    asm.push(abi::move_register(ctx.lo, ea));
+    asm.push(abi::move_register(ctx.hi, eb));
+    asm.push(abi::compare_registers(ctx.lo, ctx.hi));
+    asm.push(abi::branch_le(&span_ok));
+    asm.push(abi::move_register(ctx.tmp, ctx.lo));
+    asm.push(abi::move_register(ctx.lo, ctx.hi));
+    asm.push(abi::move_register(ctx.hi, ctx.tmp));
+    asm.push(abi::label(&span_ok));
+    asm.push(abi::compare_immediate(ctx.lo, "0"));
+    asm.push(abi::branch_ge(&lo_ok));
+    asm.push(abi::move_immediate(ctx.lo, "Integer", "0"));
+    asm.push(abi::label(&lo_ok));
+    asm.push(abi::subtract_immediate(ctx.tmp, span_limit, 1));
+    asm.push(abi::compare_registers(ctx.hi, ctx.tmp));
+    asm.push(abi::branch_le(&hi_ok));
+    asm.push(abi::move_register(ctx.hi, ctx.tmp));
+    asm.push(abi::label(&hi_ok));
+    asm.push(abi::compare_registers(ctx.lo, ctx.hi));
+    asm.push(abi::branch_gt(skip));
+    asm.push(abi::move_register(ctx.pos, ctx.lo));
+    asm.push(abi::label(&loop_top));
+    asm.push(abi::compare_registers(ctx.pos, ctx.hi));
+    asm.push(abi::branch_gt(&loop_done));
+    if is_horizontal {
+        asm.push(abi::multiply_registers(ctx.idx, fixed, ctx.cols));
+        asm.push(abi::add_registers(ctx.idx, ctx.idx, ctx.pos));
+    } else {
+        asm.push(abi::multiply_registers(ctx.idx, ctx.pos, ctx.cols));
+        asm.push(abi::add_registers(ctx.idx, ctx.idx, fixed));
+    }
+    asm.push(abi::shift_left_immediate(ctx.idx, ctx.idx, 4));
+    asm.push(abi::add_registers(ctx.cell, ctx.cells, ctx.idx));
+    app_stamp_attrs(asm, ctx, glyph);
+    asm.push(abi::add_immediate(ctx.pos, ctx.pos, 1));
+    asm.push(abi::branch(&loop_top));
+    asm.push(abi::label(&loop_done));
+}
+
+/// Stamp a single cell `(row, col)` with `glyph` when on the grid, else branch to
+/// `skip` (placed by the caller). The `mfbDrawBox:` corner stamper.
+fn app_stamp_cell(
+    asm: &mut Asm,
+    ctx: &AppStampCtx,
+    row: &str,
+    col: &str,
+    glyph: &str,
+    skip: &str,
+) {
+    asm.push(abi::compare_immediate(row, "0"));
+    asm.push(abi::branch_lt(skip));
+    asm.push(abi::compare_registers(row, ctx.rows));
+    asm.push(abi::branch_ge(skip));
+    asm.push(abi::compare_immediate(col, "0"));
+    asm.push(abi::branch_lt(skip));
+    asm.push(abi::compare_registers(col, ctx.cols));
+    asm.push(abi::branch_ge(skip));
+    asm.push(abi::multiply_registers(ctx.idx, row, ctx.cols));
+    asm.push(abi::add_registers(ctx.idx, ctx.idx, col));
+    asm.push(abi::shift_left_immediate(ctx.idx, ctx.idx, 4));
+    asm.push(abi::add_registers(ctx.cell, ctx.cells, ctx.idx));
+    app_stamp_attrs(asm, ctx, glyph);
+}
+
+/// IMP for `TermView mfbDrawBox:` (`void mfbDrawBox:(id self, SEL, id)`): draw the
+/// rectangle `term::drawBox` requested. The worker resolved the six box glyphs
+/// (edges + corners) to unichars and parked them plus the two raw corner points in
+/// the TermView state; this reads them, normalises the points, stamps the four
+/// clamped edges (this style's H/V glyph), then overwrites the four corner cells.
+/// Main-thread only (marshaled), so grid mutation is serialised; present-driven,
+/// so it requests no redraw (plan-35-D §3).
+pub(super) fn emit_term_draw_box_helper() -> CodeFunction {
+    let mut asm = Asm::new(MFB_DRAW_BOX_SYMBOL);
+    // Frame: lr@0, then callee-saved state@8, cells@16, rows@24, cols@32,
+    // xlo@40, xhi@48, ylo@56, yhi@64.
+    let frame = 80;
+    let state = abi::LOCAL[0];
+    let cells = abi::LOCAL[1];
+    let rows = abi::LOCAL[2];
+    let cols = abi::LOCAL[3];
+    let xlo = abi::LOCAL[4];
+    let xhi = abi::LOCAL[5];
+    let ylo = abi::LOCAL[6];
+    let yhi = abi::LOCAL[7];
+    let glyph = abi::SCRATCH[0];
+    let a = abi::SCRATCH[1]; // reused as a normalise temp before the run loop
+    let b = abi::SCRATCH[2];
+    let ctx = AppStampCtx {
+        state,
+        cells,
+        rows,
+        cols,
+        lo: abi::SCRATCH[1],
+        hi: abi::SCRATCH[2],
+        pos: abi::SCRATCH[3],
+        idx: abi::SCRATCH[4],
+        cell: abi::SCRATCH[5],
+        tmp: abi::SCRATCH[6],
+        attr: abi::SCRATCH[7],
+    };
+    let saved: [(&str, usize); 8] = [
+        (state, 8),
+        (cells, 16),
+        (rows, 24),
+        (cols, 32),
+        (xlo, 40),
+        (xhi, 48),
+        (ylo, 56),
+        (yhi, 64),
+    ];
+
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+
+    // state = objc_getAssociatedObject(self, &TVSTATE_KEY)  (x0 = self)
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(state, "x0"));
+    asm.push(abi::compare_immediate(state, "0"));
+    asm.push(abi::branch_eq("db_done"));
+    asm.push(abi::load_u64(cells, state, TV_CELLS_OFFSET));
+    asm.push(abi::compare_immediate(cells, "0"));
+    asm.push(abi::branch_eq("db_done"));
+    asm.push(abi::load_u64(rows, state, TV_ROWS_OFFSET));
+    asm.push(abi::load_u64(cols, state, TV_COLS_OFFSET));
+
+    // Normalise the two corner points: xlo/xhi over columns, ylo/yhi over rows.
+    asm.push(abi::load_u64(a, state, TV_BOX_X1_OFFSET));
+    asm.push(abi::load_u64(b, state, TV_BOX_X2_OFFSET));
+    asm.push(abi::move_register(xlo, a));
+    asm.push(abi::move_register(xhi, b));
+    asm.push(abi::compare_registers(a, b));
+    asm.push(abi::branch_le("db_x_ok"));
+    asm.push(abi::move_register(xlo, b));
+    asm.push(abi::move_register(xhi, a));
+    asm.push(abi::label("db_x_ok"));
+    asm.push(abi::load_u64(a, state, TV_BOX_Y1_OFFSET));
+    asm.push(abi::load_u64(b, state, TV_BOX_Y2_OFFSET));
+    asm.push(abi::move_register(ylo, a));
+    asm.push(abi::move_register(yhi, b));
+    asm.push(abi::compare_registers(a, b));
+    asm.push(abi::branch_le("db_y_ok"));
+    asm.push(abi::move_register(ylo, b));
+    asm.push(abi::move_register(yhi, a));
+    asm.push(abi::label("db_y_ok"));
+
+    // Four edges: top/bottom use the H glyph, left/right the V glyph. Each edge's
+    // glyph is loaded into `glyph` (SCRATCH[0]) just before it is stamped.
+    let edges: [(bool, &str, &str, &str, usize, &str); 4] = [
+        (true, ylo, xlo, xhi, TV_BOX_HG_OFFSET, "db_e0"),
+        (true, yhi, xlo, xhi, TV_BOX_HG_OFFSET, "db_e1"),
+        (false, xlo, ylo, yhi, TV_BOX_VG_OFFSET, "db_e2"),
+        (false, xhi, ylo, yhi, TV_BOX_VG_OFFSET, "db_e3"),
+    ];
+    for (is_h, fixed, ea, eb, glyph_off, tag) in edges {
+        let skip = format!("{tag}_skip");
+        asm.push(abi::load_u64(glyph, state, glyph_off));
+        app_stamp_run(&mut asm, &ctx, is_h, fixed, ea, eb, glyph, tag, &skip);
+        asm.push(abi::label(&skip));
+    }
+    // Four corners on top of the edges.
+    let corners: [(&str, &str, usize, &str); 4] = [
+        (ylo, xlo, TV_BOX_CTL_OFFSET, "db_ctl"),
+        (ylo, xhi, TV_BOX_CTR_OFFSET, "db_ctr"),
+        (yhi, xlo, TV_BOX_CBL_OFFSET, "db_cbl"),
+        (yhi, xhi, TV_BOX_CBR_OFFSET, "db_cbr"),
+    ];
+    for (row, col, glyph_off, tag) in corners {
+        let skip = format!("{tag}_skip");
+        asm.push(abi::load_u64(glyph, state, glyph_off));
+        app_stamp_cell(&mut asm, &ctx, row, col, glyph, &skip);
+        asm.push(abi::label(&skip));
+    }
+
+    asm.push(abi::label("db_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.term.drawBox".to_string(),
+        symbol: MFB_DRAW_BOX_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
 /// `void _mfb_macapp_term_scroll(void *state /*x0*/)`: scroll the grid up one row
 /// (memmove rows 1.. to 0.., then clear the new bottom row). Main-thread only.
 pub(super) fn emit_term_scroll_helper() -> CodeFunction {

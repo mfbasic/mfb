@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT os
+
+REM plan-66-B: os::args() across every native target. The acceptance harness runs
+REM the program with no extra arguments, so os::args (which excludes argv[0]) is the
+REM empty list — deterministic and host-neutral. On Windows the argv is built in the
+REM program entry from GetCommandLineW/CommandLineToArgvW after the arena is mapped;
+REM the box run (with real args) proves the marshaling incl. quoted + Unicode args.
+FUNC main AS Integer
+  LET a AS List OF String = os::args()
+  io::print("argc=" & toString(len(a)))
+  RETURN 0
+END FUNC

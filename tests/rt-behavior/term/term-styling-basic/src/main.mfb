@@ -1,0 +1,20 @@
+IMPORT io
+IMPORT term
+
+REM plan-66-D: the term:: styling family across every native target. The ANSI the
+REM shadow-grid emits is platform-neutral; on Windows term::on additionally enables
+REM ENABLE_VIRTUAL_TERMINAL_PROCESSING so conhost renders it. Output here is the
+REM before/after markers plus the isOn transitions, which are deterministic and
+REM host-neutral (independent of terminal size).
+FUNC main AS Integer
+  io::print("isOn0=" & toString(term::isOn()))
+  term::on()
+  io::print("isOn1=" & toString(term::isOn()))
+  term::setForeground(255, 0, 0)
+  term::setBold(TRUE)
+  term::moveTo(1, 0)
+  term::sync()
+  term::off()
+  io::print("isOn2=" & toString(term::isOn()))
+  RETURN 0
+END FUNC

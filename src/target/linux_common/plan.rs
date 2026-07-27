@@ -300,7 +300,8 @@ impl LinuxPlan<'_> {
             // no syscall, nothing to import. Spelled out rather than left to the
             // catch-all so the shadow-grid contract is visible here.
             "term.setForeground" | "term.setBackground" | "term.setBold" | "term.setUnderline"
-            | "term.showCursor" | "term.hideCursor" | "term.clear" | "term.moveTo" => Vec::new(),
+            | "term.showCursor" | "term.hideCursor" | "term.clear" | "term.moveTo"
+            | "term.drawHLine" | "term.drawVLine" | "term.drawBox" => Vec::new(),
             // `term::sync` presents the grid with `write` and re-reads the
             // terminal size via libc `ioctl` to detect a resize.
             "term.sync" => {

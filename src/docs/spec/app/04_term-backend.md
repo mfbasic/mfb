@@ -34,7 +34,8 @@ Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/target/sh
 | (reserved) | 56 | one reserved slot (future: scroll region / damage rect) |
 
 The GUI `term::on`/`off`/`setForeground`/`setBackground`/`setBold`/
-`setUnderline`/`showCursor`/`hideCursor`/`moveTo`/`clear` helpers update these
+`setUnderline`/`showCursor`/`hideCursor`/`moveTo`/`clear`/`drawHLine`/`drawVLine`/
+`drawBox` helpers update these
 exactly as the console backend would, then additionally drive the surface (below).
 Pure readers — `term::isOn` and the attribute getters — keep the shared console
 implementation; the app dispatcher returns `None` for them so they read the global
@@ -48,9 +49,14 @@ term_state_offset+field]`. [[src/target/macos_aarch64/app/app_io.rs:store_term_s
 While TUI mode is on, `term::` is a **retained, double-buffered** surface with one
 programming model across the console and app backends. Drawing calls —
 `io::print`/`io::write` and `term::moveTo`/`setForeground`/`setBackground`/
-`setBold`/`setUnderline`/`clear`/`showCursor`/`hideCursor` — do **not** touch the
+`setBold`/`setUnderline`/`clear`/`showCursor`/`hideCursor`/`drawHLine`/`drawVLine`/
+`drawBox` — do **not** touch the
 terminal; each mutates an in-memory **cell grid** plus a **shadow cursor** and a
-**current-attribute set**. A single builtin, **`term::sync()`**, is the *only*
+**current-attribute set**. `term::drawHLine`/`drawVLine` stamp a box-drawing glyph
+(chosen by the `LineStyle` enum) across a clamped run of cells with the current
+attributes without moving the shadow cursor; `term::drawBox` draws the four edges
+(each a run) then overwrites the four corner cells, dash/dot styles reusing the
+Light or Heavy corners. A single builtin, **`term::sync()`**, is the *only*
 operation that presents a frame: on the console it diffs the just-drawn back buffer
 against the last-presented front buffer and writes only the changed cells (minimal
 cursor moves + coalesced SGR runs + glyphs); in app mode it coalesces the frame
@@ -116,7 +122,7 @@ The `_main` bootstrap synthesizes `TermView` at runtime via
 `objc_allocateClassPair(NSView, "TermView", 0)` (zero extra instance bytes — the
 grid state is a separate `calloc`'d buffer, attached as an associated object,
 because `object_getIndexedIvars` storage is not reliably backed for
-runtime-synthesized classes). Seven methods are added, then
+runtime-synthesized classes). Nine methods are added, then
 `objc_registerClassPair`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 | Selector | Type encoding | IMP symbol |
@@ -124,6 +130,8 @@ runtime-synthesized classes). Seven methods are added, then
 | `drawRect:` | `v@:{CGRect=dddd}` | `_mfb_macapp_term_drawRect` |
 | `isFlipped` | `c@:` | `_mfb_macapp_term_isFlipped` |
 | `mfbWriteString:` | `v@:@` | `_mfb_macapp_term_writeString` |
+| `mfbDrawLine:` | `v@:@` | `_mfb_macapp_term_drawLine` |
+| `mfbDrawBox:` | `v@:@` | `_mfb_macapp_term_drawBox` |
 | `acceptsFirstResponder` | `c@:` | `_mfb_macapp_term_acceptsFR` |
 | `keyDown:` | `v@:@` | `_mfb_macapp_term_keyDown` |
 | `mfbClear:` | `v@:@` | `_mfb_macapp_term_clear` |
@@ -147,7 +155,7 @@ view are likewise stashed under `_mfb_macapp_window_key`,
 
 A `calloc`'d buffer attached to the view via `objc_setAssociatedObject(view,
 &TVSTATE_KEY, state, OBJC_ASSOCIATION_ASSIGN)` — a plain C buffer the runtime
-never messages. Twelve 8-byte fields = 96 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
+never messages. Twenty-seven 8-byte fields = 216 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
 
 | Field | Offset | Type | Meaning |
 |-------|--------|------|---------|
@@ -163,12 +171,24 @@ never messages. Twelve 8-byte fields = 96 bytes (`TV_STATE_SIZE`). [[src/target/
 | `TV_CUR_BG` | 72 | u32 | current packed bg (default 0 = black) |
 | `TV_CUR_BOLD` | 80 | i64 | current bold flag |
 | `TV_CUR_UNDERLINE` | 88 | i64 | current underline flag |
+| `TV_DRAW_GLYPH` | 96 | u32 | `drawHLine`/`drawVLine` glyph (unichar, resolved by the worker) |
+| `TV_DRAW_FIXED` | 104 | i64 | fixed line coordinate (raw row or column) |
+| `TV_DRAW_LO` | 112 | i64 | span endpoint A (raw, either order) |
+| `TV_DRAW_HI` | 120 | i64 | span endpoint B (raw, either order) |
+| `TV_DRAW_HORIZ` | 128 | i64 | 1 = horizontal, 0 = vertical |
+| `TV_BOX_HG` | 136 | u32 | `drawBox` horizontal edge glyph (unichar) |
+| `TV_BOX_VG` | 144 | u32 | `drawBox` vertical edge glyph |
+| `TV_BOX_CTL`/`CTR`/`CBL`/`CBR` | 152/160/168/176 | u32 | the four corner glyphs |
+| `TV_BOX_X1`/`Y1`/`X2`/`Y2` | 184/192/200/208 | i64 | the two corner points (raw) |
 
 The `TV_CUR_*` attribute fields (64..96) are the app-mode mirror of the
 term-state global: the GUI setters write **both** the global (for readers) and
 this view-local copy (readable from the main-thread write/draw path without
 touching the worker's `x19`). f64 fields store the raw IEEE bits via
-`str`/`ldr`.
+`str`/`ldr`. The `TV_DRAW_*` fields (96..136) are the scratch the worker parks
+`drawHLine`/`drawVLine` parameters in before marshaling `mfbDrawLine:` (below);
+only scalars are written from the worker, never the realloc-able `TV_CELLS`
+pointer.
 
 ### `TermCell` layout (16 bytes, `CELL_SIZE`)
 
@@ -268,6 +288,37 @@ serialized in program order with the other surface ops. Iterates
   the surface repaints only on the next `term::sync`/`io::flush`, so a
   program that draws without a following present shows nothing new (mandatory
   present).
+
+### `mfbDrawLine:` — grid line draw
+
+`void mfbDrawLine:(id self, SEL, id)`. The worker side of `term::drawHLine`/
+`drawVLine` resolves the `LineStyle` ordinal to a unichar (choosing the
+horizontal or vertical glyph at emit time), parks it plus the fixed line and the
+two span endpoints in `TV_DRAW_GLYPH`/`TV_DRAW_FIXED`/`TV_DRAW_LO`/`TV_DRAW_HI`/
+`TV_DRAW_HORIZ`, then marshals `mfbDrawLine:` on the main thread
+(`waitUntilDone:YES`, like `mfbClear:`) so the cell buffer is mutated there. The
+IMP reads those fields, picks `fixed`/`span` bounds by `TV_DRAW_HORIZ` (horizontal
+spans columns on a fixed row, vertical spans rows on a fixed column), normalises
+the endpoints (`lo <= hi`), clamps the span to the grid, and — for a fixed
+coordinate on the grid and a non-empty span — stamps each cell at
+`cells + (idx)*16` (idx = `fixed*cols+pos` horizontally, `pos*cols+fixed`
+vertically) with the glyph and the `TV_CUR_*` attributes. A fixed coordinate off
+the grid, or a span with no on-grid cell, draws nothing. Present-driven like the
+writer — it requests no redraw. [[src/target/macos_aarch64/app/term_view.rs:emit_term_draw_line_helper]] [[src/target/macos_aarch64/app/app_io.rs:emit_app_draw_line]]
+
+### `mfbDrawBox:` — grid box draw
+
+`void mfbDrawBox:(id self, SEL, id)`. The worker side of `term::drawBox` resolves
+the `LineStyle` ordinal to the six box glyphs — the horizontal edge, the vertical
+edge, and the four corners (dash/dot styles reusing the Light/Heavy corners) — as
+unichars, parks them plus the two raw corner points in `TV_BOX_HG`…`TV_BOX_Y2`,
+and marshals `mfbDrawBox:` on the main thread (`waitUntilDone:YES`). The IMP
+normalises the points (`xlo`/`xhi` over columns, `ylo`/`yhi` over rows), stamps
+the four edges as clamped runs (top/bottom with the H glyph, left/right with the V
+glyph — the same clamp/loop the line drawer uses), then overwrites the four corner
+cells with the corner glyphs. Each edge and corner is clamped independently, so a
+box partly off the grid draws its visible part. Present-driven — no redraw
+request. [[src/target/macos_aarch64/app/term_view.rs:emit_term_draw_box_helper]] [[src/target/macos_aarch64/app/app_io.rs:emit_app_draw_box]]
 
 ### `term_scroll` and `term_clear`
 

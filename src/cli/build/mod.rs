@@ -192,7 +192,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
         if !target::target_supports_app_mode(&target) {
             eprintln!(
-                "error: app mode requires a macOS or Linux target (got {})",
+                "error: app mode requires a macOS, Linux, or Windows target (got {})",
                 target.name()
             );
             return Err(());
@@ -203,6 +203,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let build_mode = if app_mode {
         match target.os.as_str() {
             "linux" => target::NativeBuildMode::LinuxApp,
+            // plan-66-I: an explicit Windows arm — the `_ => MacApp` fallthrough
+            // otherwise misroutes a Windows `-app` build into the macOS toolkit.
+            "windows" => target::NativeBuildMode::WindowsApp,
             _ => target::NativeBuildMode::MacApp,
         }
     } else {

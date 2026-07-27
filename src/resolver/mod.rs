@@ -75,6 +75,9 @@ pub fn resolve_project_with(
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
     let augmented = builtins::money::augmented_project(&augmented)?;
+    // `term_package.mfb` declares only the `LineStyle` enum and imports nothing,
+    // so it has no source ordering dependency.
+    let augmented = builtins::term::augmented_project(&augmented)?;
     // `vector` imports only the intrinsic `math` package, so it has no source
     // ordering dependency (plan-06-vector.md §5).
     let augmented = builtins::vector::augmented_project(&augmented)?;

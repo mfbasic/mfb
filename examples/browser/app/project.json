@@ -1,0 +1,22 @@
+{
+  "name": "browser",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": ["**/*.mfb"]
+    }
+  ],
+  "packages": [
+    {
+      "name": "backend",
+      "version": "=0.1.0",
+      "source": "file:packages/backend.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

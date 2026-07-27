@@ -14,6 +14,10 @@
 //! since nothing calls `write_executable` until the backend is wired.
 
 mod pe;
+// plan-66-J: the message-loop ↔ worker spike (test-only), proving the app-mode
+// premise before the full Win32 floor is built.
+#[cfg(test)]
+mod spike;
 
 use crate::arch::image::{EncodedImage, EncodedSection, ImportKind};
 use pe::{
@@ -266,7 +270,18 @@ fn patch_relocations(
 
 /// Link `image` into a complete PE32+ `.exe` byte image. The entry symbol must
 /// resolve to `.text`.
-pub(crate) fn write_executable(image: &EncodedImage) -> Result<Vec<u8>, String> {
+///
+/// `gui` selects the PE subsystem: `false` → console (`WINDOWS_CUI`, 3), `true` →
+/// GUI (`WINDOWS_GUI`, 2) for app-mode builds (plan-66-I). `app_icon`/`app_version`
+/// carry the resources packaged into the `.rsrc` section (plan-66-K).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn write_executable(
+    image: &EncodedImage,
+    gui: bool,
+    app_icon: Option<&std::path::Path>,
+    app_version: Option<&str>,
+) -> Result<Vec<u8>, String> {
+    let _ = (app_icon, app_version);
     // Entry must be a text symbol (§4.6, mirroring the ELF requirement).
     let entry_offset = image
         .symbols
@@ -407,6 +422,7 @@ pub(crate) fn write_executable(image: &EncodedImage) -> Result<Vec<u8>, String> 
         &sections,
         text_rva + entry_offset as u32,
         dirs,
+        gui,
     ))
 }
 
@@ -514,7 +530,7 @@ mod tests {
         let Ok(path) = std::env::var("MFB_EXIT42_OUT") else {
             return;
         };
-        let bytes = write_executable(&runnable_exit42_image()).expect("link exit42");
+        let bytes = write_executable(&runnable_exit42_image(), false, None, None).expect("link exit42");
         std::fs::write(&path, &bytes).expect("write exit42.exe");
         eprintln!("wrote {} bytes to {path}", bytes.len());
     }
@@ -552,7 +568,7 @@ mod tests {
     #[test]
     fn minimal_text_only_image_links() {
         let img = image(vec![0xc3]); // ret
-        let bytes = write_executable(&img).expect("link");
+        let bytes = write_executable(&img, false, None, None).expect("link");
         assert_eq!(&bytes[0..2], b"MZ");
         // One section (.text), no import directories.
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
@@ -563,7 +579,7 @@ mod tests {
     fn entry_not_in_text_is_rejected() {
         let mut img = image(vec![0xc3]);
         img.symbols[0].section = EncodedSection::Data;
-        assert!(write_executable(&img)
+        assert!(write_executable(&img, false, None, None)
             .expect_err("entry not in text")
             .contains("does not resolve to text"));
     }
@@ -589,7 +605,7 @@ mod tests {
             binding: "internal".to_string(),
             library: None,
         });
-        let bytes = write_executable(&img).expect("link");
+        let bytes = write_executable(&img, false, None, None).expect("link");
         let text_rva = le_u32(&bytes, le_u32(&bytes, 0x3C) as usize + 4 + 20 + 20 + 12); // .text vaddr
         let patched = read_at_rva(&bytes, text_rva + 1, 4);
         assert_eq!(
@@ -636,7 +652,7 @@ mod tests {
 
     #[test]
     fn exit_process_image_has_text_and_idata_and_bound_call() {
-        let bytes = write_executable(&exit_process_42_image()).expect("link");
+        let bytes = write_executable(&exit_process_42_image(), false, None, None).expect("link");
         let e_lfanew = le_u32(&bytes, 0x3C) as usize;
         // Two sections: .text (with the appended thunk) and .idata.
         assert_eq!(le_u16(&bytes, e_lfanew + 6), 2);

@@ -339,6 +339,33 @@ pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
 /// by `term::off` and by `io::input`/`io::readLine` for their own read, and the
 /// raw discipline re-applied afterward). Zero-initialized by the entry's
 /// global-slot clear, which is the inert (TUI-off, raw-inactive) default.
+/// `LineStyle` ordinal (0..=6, in `term_package.mfb` order: Light, Heavy,
+/// LightDash, HeavyDash, LightDot, HeavyDot, Double) → the box-drawing code point
+/// `term::drawHLine` (horizontal form) and `term::drawVLine` (vertical form)
+/// stamp into a cell. Shared by the console backend (which packs the code point's
+/// UTF-8 bytes into the grid `glyph`) and the macOS app backend (which stores the
+/// code point directly as a `unichar`), so the two can never drift.
+pub(crate) const TERM_HLINE_CODEPOINTS: [u32; 7] =
+    [0x2500, 0x2501, 0x2504, 0x2505, 0x2508, 0x2509, 0x2550];
+pub(crate) const TERM_VLINE_CODEPOINTS: [u32; 7] =
+    [0x2502, 0x2503, 0x2506, 0x2507, 0x250A, 0x250B, 0x2551];
+
+/// `term::drawBox` corner code points, indexed by `LineStyle` ordinal (same order
+/// as above). Dash/dot styles have no dashed corner glyphs, so they reuse the
+/// Light (`Light`/`LightDash`/`LightDot`) or Heavy (`Heavy`/`HeavyDash`/`HeavyDot`)
+/// corners; `Double` uses the double corners. One table per corner position so the
+/// glyph is selected by the same ordinal chain the edge glyphs use.
+///   weight per ordinal: 0,2,4 → Light   1,3,5 → Heavy   6 → Double
+/// TL ┌┏╔  TR ┐┓╗  BL └┗╚  BR ┘┛╝
+pub(crate) const TERM_CORNER_TL_CODEPOINTS: [u32; 7] =
+    [0x250C, 0x250F, 0x250C, 0x250F, 0x250C, 0x250F, 0x2554];
+pub(crate) const TERM_CORNER_TR_CODEPOINTS: [u32; 7] =
+    [0x2510, 0x2513, 0x2510, 0x2513, 0x2510, 0x2513, 0x2557];
+pub(crate) const TERM_CORNER_BL_CODEPOINTS: [u32; 7] =
+    [0x2514, 0x2517, 0x2514, 0x2517, 0x2514, 0x2517, 0x255A];
+pub(crate) const TERM_CORNER_BR_CODEPOINTS: [u32; 7] =
+    [0x2518, 0x251B, 0x2518, 0x251B, 0x2518, 0x251B, 0x255D];
+
 pub(crate) const TERM_STATE_ACTIVE_OFFSET: usize = 0;
 pub(crate) const TERM_STATE_FG_OFFSET: usize = 8;
 pub(crate) const TERM_STATE_BG_OFFSET: usize = 16;

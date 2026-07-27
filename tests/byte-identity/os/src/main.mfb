@@ -13,5 +13,15 @@ FUNC main() AS Integer
   FOR EACH k IN collections::keys(os::environ())
     io::print(k)
   NEXT
+  io::print(os::name())
+  io::print(os::arch())
+  io::print(toString(os::pid()))
+  io::print(toString(os::cpuCount()))
+  os::setEnv("MFB_COVER", "1")
+  io::print(os::getEnv("MFB_COVER"))
+  io::print(os::getEnvOr("MFB_MISSING", "fallback"))
+  io::print(toString(os::hasEnv("MFB_COVER")))
+  os::unsetEnv("MFB_COVER")
+  io::print(os::resourcePath("data/asset.txt"))
   RETURN 0
 END FUNC

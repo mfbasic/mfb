@@ -244,7 +244,12 @@ pub(super) fn vendor_output_dirs(
         // one `vendor/`. That is sound only because vendor `source` filenames are
         // unique project-wide (plan-46-A §4.3), so a glibc blob and a musl blob
         // never collide.
-        target::NativeBuildMode::Console => vec![build_dir.join(crate::os::VENDOR_DIR)],
+        // The Windows app is a single GUI `.exe` in `build/` (no bundle
+        // directory), so its vendored libraries sit beside it exactly as a console
+        // build's do (plan-66-I/J).
+        target::NativeBuildMode::Console | target::NativeBuildMode::WindowsApp => {
+            vec![build_dir.join(crate::os::VENDOR_DIR)]
+        }
     }
 }
 
@@ -292,7 +297,9 @@ pub(super) fn resource_output_dirs(
                     .join(project_name)
             })
             .collect(),
-        target::NativeBuildMode::Console => vec![build_dir],
+        // Windows app resources sit in `build/` beside the single `.exe`, like a
+        // console build (plan-66-I/J).
+        target::NativeBuildMode::Console | target::NativeBuildMode::WindowsApp => vec![build_dir],
     }
 }
 

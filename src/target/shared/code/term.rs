@@ -254,6 +254,9 @@ pub(super) fn lower_term_helper(
             ));
         }
         "term.moveTo" => emit_move_to(symbol, term_state_offset, &mut instructions),
+        "term.drawHLine" => emit_draw_line(symbol, term_state_offset, true, &mut instructions),
+        "term.drawVLine" => emit_draw_line(symbol, term_state_offset, false, &mut instructions),
+        "term.drawBox" => emit_draw_box(symbol, term_state_offset, &mut instructions),
         "term.getForeground" => emit_get_color(
             symbol,
             term_state_offset,
@@ -354,6 +357,11 @@ fn emit_on(ctx: &mut EmitCtx, term_state_offset: usize, done: &str) -> Result<()
             term_state_offset + offset,
         ));
     }
+    // Enable ANSI/VT output interpretation before the first escape write. No-op on
+    // POSIX terminals; on Windows this sets ENABLE_VIRTUAL_TERMINAL_PROCESSING on
+    // the stdout console handle so the ESC_ON sequence (and every later styling
+    // write) renders instead of printing raw (plan-66-D).
+    platform.emit_enable_vt_output(symbol, platform_imports, ctx.instructions, ctx.relocations)?;
     emit_write_const(
         &mut EmitCtx {
             symbol,
@@ -693,6 +701,467 @@ fn emit_move_to(symbol: &str, term_state_offset: usize, instructions: &mut Vec<C
         abi::store_u64("%v12", "%v9", 16), // cursorRow
         abi::store_u64("%v13", "%v9", 24), // cursorCol
     ]);
+    instructions.push(abi::label(&inactive));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// Pack a code point's UTF-8 bytes little-endian into the u32 grid `glyph`
+/// encoding (`byte0 | byte1<<8 | byte2<<16`, the same layout `term_grid` writes
+/// and `term::sync` reads back). Every box-drawing glyph here is a 3-byte run.
+fn packed_glyph(codepoint: u32) -> u32 {
+    let ch = char::from_u32(codepoint).expect("box-drawing code point is valid");
+    let mut buf = [0u8; 4];
+    let bytes = ch.encode_utf8(&mut buf).as_bytes();
+    let mut packed = 0u32;
+    for (index, byte) in bytes.iter().enumerate() {
+        packed |= (*byte as u32) << (8 * index as u32);
+    }
+    packed
+}
+
+/// Emit `dst = packed_glyph(table[ord])`, a select-by-ordinal chain over a 7-entry
+/// `LineStyle` code-point table. Ordinal 0 is the fall-through default, so an
+/// out-of-range ordinal can never strand `dst`. `tag` uniquifies the labels.
+fn emit_select_glyph(
+    ord: &str,
+    dst: &str,
+    table: &[u32; 7],
+    tag: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let done = format!("{tag}_done");
+    instructions.push(abi::move_immediate(
+        dst,
+        "Integer",
+        &packed_glyph(table[0]).to_string(),
+    ));
+    for (ordinal, codepoint) in table.iter().enumerate().skip(1) {
+        let next = format!("{tag}_{ordinal}");
+        instructions.extend([
+            abi::compare_immediate(ord, &ordinal.to_string()),
+            abi::branch_ne(&next),
+            abi::move_immediate(dst, "Integer", &packed_glyph(*codepoint).to_string()),
+            abi::branch(&done),
+            abi::label(&next),
+        ]);
+    }
+    instructions.push(abi::label(&done));
+}
+
+/// Grid context + throwaway scratch registers shared by the run/cell stampers.
+/// `rows`/`cols` are the grid dims, `back` the back-cell base, and the four
+/// attribute registers the current fg/bg/bold/underline; the remaining fields are
+/// scratch the stampers clobber, which the caller must keep disjoint from any
+/// value that must stay live across a stamp (e.g. the normalised box extents).
+struct StampCtx<'a> {
+    rows: &'a str,
+    cols: &'a str,
+    back: &'a str,
+    fg: &'a str,
+    bg: &'a str,
+    bold: &'a str,
+    un: &'a str,
+    lo: &'a str,
+    hi: &'a str,
+    idx: &'a str,
+    cell: &'a str,
+    pos: &'a str,
+    tmp: &'a str,
+}
+
+/// Stamp `glyph` (with the ctx attributes) across a clamped run. `fixed` is the
+/// line coordinate and `ea`/`eb` the two span endpoints (either order). When
+/// `is_horizontal`, `fixed` is the row and the run spans columns; otherwise
+/// `fixed` is the column and the run spans rows. The span is normalised (lo<=hi)
+/// and clamped to the grid; a `fixed` off the grid, or a span with no on-grid
+/// cell, branches to `skip` (which the caller places after the call). Does not
+/// clobber `fixed`/`ea`/`eb` or the ctx attributes — only ctx scratch — so a
+/// caller can reuse the extents for further runs and corners.
+#[allow(clippy::too_many_arguments)]
+fn emit_stamp_run(
+    ctx: &StampCtx,
+    is_horizontal: bool,
+    fixed: &str,
+    ea: &str,
+    eb: &str,
+    glyph: &str,
+    tag: &str,
+    skip: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let fixed_limit = if is_horizontal { ctx.rows } else { ctx.cols };
+    let span_limit = if is_horizontal { ctx.cols } else { ctx.rows };
+    let span_ok = format!("{tag}_span_ok");
+    let lo_ok = format!("{tag}_lo_ok");
+    let hi_ok = format!("{tag}_hi_ok");
+    let loop_top = format!("{tag}_loop");
+    let loop_done = format!("{tag}_loop_done");
+    instructions.extend([
+        // The fixed coordinate must be on the grid: [0, fixed_limit-1].
+        abi::compare_immediate(fixed, "0"),
+        abi::branch_lt(skip),
+        abi::compare_registers(fixed, fixed_limit),
+        abi::branch_ge(skip),
+        // lo = min(ea, eb), hi = max(ea, eb).
+        abi::move_register(ctx.lo, ea),
+        abi::move_register(ctx.hi, eb),
+        abi::compare_registers(ctx.lo, ctx.hi),
+        abi::branch_le(&span_ok),
+        abi::move_register(ctx.tmp, ctx.lo),
+        abi::move_register(ctx.lo, ctx.hi),
+        abi::move_register(ctx.hi, ctx.tmp),
+        abi::label(&span_ok),
+        // Clamp lo up to 0 and hi down to span_limit-1; empty span → skip.
+        abi::compare_immediate(ctx.lo, "0"),
+        abi::branch_ge(&lo_ok),
+        abi::move_immediate(ctx.lo, "Integer", "0"),
+        abi::label(&lo_ok),
+        abi::subtract_immediate(ctx.tmp, span_limit, 1),
+        abi::compare_registers(ctx.hi, ctx.tmp),
+        abi::branch_le(&hi_ok),
+        abi::move_register(ctx.hi, ctx.tmp),
+        abi::label(&hi_ok),
+        abi::compare_registers(ctx.lo, ctx.hi),
+        abi::branch_gt(skip),
+        abi::move_register(ctx.pos, ctx.lo),
+        abi::label(&loop_top),
+        abi::compare_registers(ctx.pos, ctx.hi),
+        abi::branch_gt(&loop_done),
+    ]);
+    // Cell index: H → fixed*cols + pos ; V → pos*cols + fixed (`cols` is stride).
+    if is_horizontal {
+        instructions.extend([
+            abi::multiply_registers(ctx.idx, fixed, ctx.cols),
+            abi::add_registers(ctx.idx, ctx.idx, ctx.pos),
+        ]);
+    } else {
+        instructions.extend([
+            abi::multiply_registers(ctx.idx, ctx.pos, ctx.cols),
+            abi::add_registers(ctx.idx, ctx.idx, fixed),
+        ]);
+    }
+    instructions.extend([
+        abi::shift_left_immediate(ctx.idx, ctx.idx, 4), // * CELL_SIZE (16)
+        abi::add_registers(ctx.cell, ctx.back, ctx.idx),
+        abi::store_u32(glyph, ctx.cell, term_grid::C_GLYPH),
+        abi::store_u32(ctx.fg, ctx.cell, term_grid::C_FG),
+        abi::store_u32(ctx.bg, ctx.cell, term_grid::C_BG),
+        abi::store_u8(ctx.bold, ctx.cell, term_grid::C_BOLD),
+        abi::store_u8(ctx.un, ctx.cell, term_grid::C_UN),
+        abi::add_immediate(ctx.pos, ctx.pos, 1),
+        abi::branch(&loop_top),
+        abi::label(&loop_done),
+    ]);
+}
+
+/// Stamp a single cell `(row, col)` with `glyph` + the ctx attributes when it is
+/// on the grid (`0<=row<rows`, `0<=col<cols`); otherwise branch to `skip` (placed
+/// by the caller after the call). Used for `drawBox` corners.
+fn emit_stamp_cell(
+    ctx: &StampCtx,
+    row: &str,
+    col: &str,
+    glyph: &str,
+    skip: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    instructions.extend([
+        abi::compare_immediate(row, "0"),
+        abi::branch_lt(skip),
+        abi::compare_registers(row, ctx.rows),
+        abi::branch_ge(skip),
+        abi::compare_immediate(col, "0"),
+        abi::branch_lt(skip),
+        abi::compare_registers(col, ctx.cols),
+        abi::branch_ge(skip),
+        abi::multiply_registers(ctx.idx, row, ctx.cols),
+        abi::add_registers(ctx.idx, ctx.idx, col),
+        abi::shift_left_immediate(ctx.idx, ctx.idx, 4),
+        abi::add_registers(ctx.cell, ctx.back, ctx.idx),
+        abi::store_u32(glyph, ctx.cell, term_grid::C_GLYPH),
+        abi::store_u32(ctx.fg, ctx.cell, term_grid::C_FG),
+        abi::store_u32(ctx.bg, ctx.cell, term_grid::C_BG),
+        abi::store_u8(ctx.bold, ctx.cell, term_grid::C_BOLD),
+        abi::store_u8(ctx.un, ctx.cell, term_grid::C_UN),
+    ]);
+}
+
+/// Load the grid pointer, dims, back base, and current attributes into the given
+/// registers; branch to `inactive` when the grid is unallocated. Shared prologue
+/// for the drawing helpers.
+#[allow(clippy::too_many_arguments)]
+fn emit_load_grid(
+    term_state_offset: usize,
+    gp: &str,
+    rows: &str,
+    cols: &str,
+    back: &str,
+    fg: &str,
+    bg: &str,
+    bold: &str,
+    un: &str,
+    inactive: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    instructions.extend([
+        abi::load_u64(
+            gp,
+            ARENA_STATE_REGISTER,
+            term_state_offset + term_grid::TERM_STATE_GRID_OFFSET,
+        ),
+        abi::compare_immediate(gp, "0"),
+        abi::branch_eq(inactive),
+        abi::load_u64(rows, gp, 0),
+        abi::load_u64(cols, gp, 8),
+        abi::add_immediate(back, gp, term_grid::HDR_SIZE),
+        abi::load_u64(fg, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_FG_OFFSET),
+        abi::load_u64(bg, ARENA_STATE_REGISTER, term_state_offset + TERM_STATE_BG_OFFSET),
+        abi::load_u64(
+            bold,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_BOLD_OFFSET,
+        ),
+        abi::load_u64(
+            un,
+            ARENA_STATE_REGISTER,
+            term_state_offset + TERM_STATE_UNDERLINE_OFFSET,
+        ),
+    ]);
+}
+
+/// `term::drawHLine`/`drawVLine` (console): stamp a fixed box-drawing glyph across
+/// a run of back-buffer cells with the current colours/attributes; the run is
+/// shown on the next `term::sync`. A no-op while TUI mode is off or the grid is
+/// unallocated — the same gate every writer honours (§4.2.1).
+///
+/// Arguments arrive in registers as `ARG[0]` = the `LineStyle` ordinal, then the
+/// fixed line and the two span endpoints:
+///   drawHLine(line, row, colA, colB) — fixed `row`, span over columns.
+///   drawVLine(line, col, rowA, rowB) — fixed `col`, span over rows.
+/// `is_horizontal` selects, at emit time, the glyph table; the span endpoints may
+/// be given in either order and are clamped to the grid; a fixed coordinate off
+/// the grid, or a span with no on-grid cell, draws nothing.
+fn emit_draw_line(
+    symbol: &str,
+    term_state_offset: usize,
+    is_horizontal: bool,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let inactive = format!("{symbol}_inactive");
+    let ord = "%v9";
+    let fixed = "%v10";
+    let ea = "%v11";
+    let eb = "%v12";
+    let gp = "%v13";
+    let rows = "%v14";
+    let cols = "%v15";
+    let back = "%v16";
+    let glyph = "%v17";
+    let fg = "%v18";
+    let bg = "%v19";
+    let bold = "%v20";
+    let un = "%v21";
+    let ctx = StampCtx {
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        lo: "%v22",
+        hi: "%v23",
+        idx: "%v24",
+        cell: "%v25",
+        pos: "%v26",
+        tmp: "%v27",
+    };
+
+    emit_gate_inactive(term_state_offset, &inactive, instructions);
+    instructions.extend([
+        abi::move_register(ord, abi::ARG[0]),
+        abi::move_register(fixed, abi::ARG[1]),
+        abi::move_register(ea, abi::ARG[2]),
+        abi::move_register(eb, abi::ARG[3]),
+    ]);
+    emit_load_grid(
+        term_state_offset,
+        gp,
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        &inactive,
+        instructions,
+    );
+    let table = if is_horizontal {
+        &TERM_HLINE_CODEPOINTS
+    } else {
+        &TERM_VLINE_CODEPOINTS
+    };
+    emit_select_glyph(ord, glyph, table, &format!("{symbol}_dl_glyph"), instructions);
+    emit_stamp_run(
+        &ctx,
+        is_horizontal,
+        fixed,
+        ea,
+        eb,
+        glyph,
+        &format!("{symbol}_dl"),
+        &inactive,
+        instructions,
+    );
+    instructions.push(abi::label(&inactive));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// `term::drawBox(line, x1, y1, x2, y2)` (console): draw a rectangle in the given
+/// `LineStyle`. The two points are opposite corners (x = column, y = row, either
+/// order). Draws the four edges — top/bottom horizontal runs and left/right
+/// vertical runs, each using this style's own line glyph (so dashed/dotted styles
+/// get dashed/dotted edges) — then overwrites the four corner cells with the
+/// matching corner glyph (`*Dash`/`*Dot` reuse the Light or Heavy corners). Each
+/// edge and corner is clamped independently, so a box partly off the grid draws
+/// the visible part; a fully off-grid box draws nothing. Shown on the next
+/// `term::sync`; a no-op while TUI mode is off.
+fn emit_draw_box(
+    symbol: &str,
+    term_state_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let inactive = format!("{symbol}_inactive");
+    let ord = "%v9";
+    let ax1 = "%v10";
+    let ay1 = "%v11";
+    let ax2 = "%v12";
+    let ay2 = "%v13";
+    let gp = "%v14";
+    let rows = "%v15";
+    let cols = "%v16";
+    let back = "%v17";
+    let fg = "%v18";
+    let bg = "%v19";
+    let bold = "%v20";
+    let un = "%v21";
+    let xlo = "%v22";
+    let xhi = "%v23";
+    let ylo = "%v24";
+    let yhi = "%v25";
+    let hglyph = "%v26";
+    let vglyph = "%v27";
+    let ctl = "%v28";
+    let ctr = "%v29";
+    let cbl = "%v30";
+    let cbr = "%v31";
+    let ctx = StampCtx {
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        lo: "%v32",
+        hi: "%v33",
+        idx: "%v34",
+        cell: "%v35",
+        pos: "%v36",
+        tmp: "%v37",
+    };
+
+    emit_gate_inactive(term_state_offset, &inactive, instructions);
+    instructions.extend([
+        abi::move_register(ord, abi::ARG[0]),
+        abi::move_register(ax1, abi::ARG[1]),
+        abi::move_register(ay1, abi::ARG[2]),
+        abi::move_register(ax2, abi::ARG[3]),
+        abi::move_register(ay2, abi::ARG[4]),
+    ]);
+    emit_load_grid(
+        term_state_offset,
+        gp,
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        &inactive,
+        instructions,
+    );
+    // Normalise the two corners: xlo/xhi over columns, ylo/yhi over rows. Edges
+    // and corners are placed from these, so left is always the smaller column etc.
+    let x_ok = format!("{symbol}_box_x_ok");
+    let y_ok = format!("{symbol}_box_y_ok");
+    instructions.extend([
+        abi::move_register(xlo, ax1),
+        abi::move_register(xhi, ax2),
+        abi::compare_registers(ax1, ax2),
+        abi::branch_le(&x_ok),
+        abi::move_register(xlo, ax2),
+        abi::move_register(xhi, ax1),
+        abi::label(&x_ok),
+        abi::move_register(ylo, ay1),
+        abi::move_register(yhi, ay2),
+        abi::compare_registers(ay1, ay2),
+        abi::branch_le(&y_ok),
+        abi::move_register(ylo, ay2),
+        abi::move_register(yhi, ay1),
+        abi::label(&y_ok),
+    ]);
+    // Resolve the edge glyphs (this style's H/V forms) and the four corner glyphs.
+    emit_select_glyph(ord, hglyph, &TERM_HLINE_CODEPOINTS, &format!("{symbol}_box_h"), instructions);
+    emit_select_glyph(ord, vglyph, &TERM_VLINE_CODEPOINTS, &format!("{symbol}_box_v"), instructions);
+    emit_select_glyph(ord, ctl, &TERM_CORNER_TL_CODEPOINTS, &format!("{symbol}_box_tl"), instructions);
+    emit_select_glyph(ord, ctr, &TERM_CORNER_TR_CODEPOINTS, &format!("{symbol}_box_tr"), instructions);
+    emit_select_glyph(ord, cbl, &TERM_CORNER_BL_CODEPOINTS, &format!("{symbol}_box_bl"), instructions);
+    emit_select_glyph(ord, cbr, &TERM_CORNER_BR_CODEPOINTS, &format!("{symbol}_box_br"), instructions);
+    // Four edges (each clamped/skipped independently), then four corners on top.
+    // top: row ylo, cols xlo..xhi ; bottom: row yhi.
+    let edges: &[(bool, &str, &str, &str, &str, &str)] = &[
+        (true, ylo, xlo, xhi, hglyph, "e0"),
+        (true, yhi, xlo, xhi, hglyph, "e1"),
+        (false, xlo, ylo, yhi, vglyph, "e2"),
+        (false, xhi, ylo, yhi, vglyph, "e3"),
+    ];
+    for (is_h, fixed, ea, eb, glyph, tag) in edges {
+        let skip = format!("{symbol}_box_{tag}_skip");
+        emit_stamp_run(
+            &ctx,
+            *is_h,
+            fixed,
+            ea,
+            eb,
+            glyph,
+            &format!("{symbol}_box_{tag}"),
+            &skip,
+            instructions,
+        );
+        instructions.push(abi::label(&skip));
+    }
+    let corners: &[(&str, &str, &str, &str)] = &[
+        (ylo, xlo, ctl, "cTL"),
+        (ylo, xhi, ctr, "cTR"),
+        (yhi, xlo, cbl, "cBL"),
+        (yhi, xhi, cbr, "cBR"),
+    ];
+    for (row, col, glyph, tag) in corners {
+        let skip = format!("{symbol}_box_{tag}_skip");
+        emit_stamp_cell(&ctx, row, col, glyph, &skip, instructions);
+        instructions.push(abi::label(&skip));
+    }
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,

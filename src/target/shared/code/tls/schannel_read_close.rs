@@ -347,6 +347,7 @@ pub(super) fn lower_tls_close(
     const SHUT: usize = 32; // DWORD SCHANNEL_SHUTDOWN
     const BUFS: usize = 48; // SecBuffer[1] (ApplyControlToken input, stack)
     const DESC: usize = 64;
+    const SRV: usize = 72; // cached st::SERVER marker (server-accepted socket)
     // The close_notify ISC's SecBuffer/desc/attrs/expiry live in the arena STATE
     // (st::OUTBUF/OUTDESC/ATTRS/EXPIRY) so their pointers survive sspi_call_ext's
     // sub_sp (see there); the 2-arg ApplyControlToken keeps its stack input.
@@ -355,6 +356,7 @@ pub(super) fn lower_tls_close(
     let already = format!("{symbol}_already");
     let done = format!("{symbol}_done");
     let no_tok = format!("{symbol}_notok");
+    let skip_free = format!("{symbol}_skip_free");
 
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
@@ -367,6 +369,15 @@ pub(super) fn lower_tls_close(
         abi::store_u64("%v9", abi::stack_pointer(), STATE),
         abi::load_u64("%v10", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("%v10", abi::stack_pointer(), FD),
+        // A server-accepted socket (st::SERVER) shares the listener's credential
+        // and has a server-side context; it must NOT generate a client
+        // close_notify via ISC, nor free the shared credential. Skip straight to
+        // DeleteSecurityContext + closesocket.
+        abi::load_u64("%v9", abi::stack_pointer(), STATE),
+        abi::load_u32("%v9", "%v9", st::SERVER),
+        abi::store_u64("%v9", abi::stack_pointer(), SRV),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&no_tok),
         // ApplyControlToken with SCHANNEL_SHUTDOWN(1).
         abi::move_immediate("%v9", "Integer", "1"),
         abi::store_u32("%v9", abi::stack_pointer(), SHUT),
@@ -427,11 +438,17 @@ pub(super) fn lower_tls_close(
         abi::add_immediate(abi::return_register(), abi::return_register(), st::CTXT),
     ]);
     sspi_call(symbol, "DeleteSecurityContext", SECUR32, 1, imports, platform, &mut ins, &mut rel)?;
+    // FreeCredentialsHandle only for a client-owned credential; a server-accepted
+    // socket shares the listener's, freed once at closeListener.
     ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SRV),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&skip_free),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), STATE),
         abi::add_immediate(abi::return_register(), abi::return_register(), st::CRED),
     ]);
     sspi_call(symbol, "FreeCredentialsHandle", SECUR32, 1, imports, platform, &mut ins, &mut rel)?;
+    ins.push(abi::label(&skip_free));
     ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD));
     platform.emit_libc_call("closesocket", symbol, imports, &mut ins, &mut rel)?;
     // Mark closed.

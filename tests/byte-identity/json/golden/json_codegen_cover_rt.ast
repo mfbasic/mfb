@@ -1,0 +1,55 @@
+{
+  "project": "json_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 3 },
+    { "module": "json", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "doc", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "string", "value": "{\"a\":[1,2,3]}" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "doc2", "type": "Json", "value": { "kind": "call", "callee": "json.parse", "arguments": [{ "kind": "named", "name": "text", "value": { "kind": "string", "value": "{\"a\":[1,2,3]}" } }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "s1", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "doc" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "s2", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "s3", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonBool", "arguments": [{ "kind": "boolean", "value": true }] }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "s4", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonNum", "arguments": [{ "kind": "number", "value": "42.0" }] }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "s5", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonStr", "arguments": [{ "kind": "string", "value": "hi" }] }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "items", "type": "List OF Json", "value": { "kind": "list", "values": [{ "kind": "constructor", "type": "JsonNum", "arguments": [{ "kind": "number", "value": "1.0" }] }, { "kind": "constructor", "type": "JsonNum", "arguments": [{ "kind": "number", "value": "2.0" }] }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "s6", "type": "String", "value": { "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "constructor", "type": "JsonArr", "arguments": [{ "kind": "identifier", "value": "items" }] }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF String", "value": { "kind": "list", "values": [] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "g1", "type": "Json", "value": { "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "doc" }, { "kind": "identifier", "value": "empty" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "g2", "type": "Json", "value": { "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "doc" }, { "kind": "list", "values": [{ "kind": "string", "value": "a" }] }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "g3", "type": "Json", "value": { "kind": "call", "callee": "json.get", "arguments": [{ "kind": "identifier", "value": "doc2" }, { "kind": "named", "name": "key", "value": { "kind": "list", "values": [{ "kind": "string", "value": "a" }] } }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "o1", "type": "Json", "value": { "kind": "call", "callee": "json.getOr", "arguments": [{ "kind": "identifier", "value": "doc" }, { "kind": "list", "values": [{ "kind": "string", "value": "a" }] }, { "kind": "constructor", "type": "JsonNull", "arguments": [{ "kind": "identifier", "value": "NOTHING" }] }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "o2", "type": "Json", "value": { "kind": "call", "callee": "json.getOr", "arguments": [{ "kind": "identifier", "value": "doc" }, { "kind": "named", "name": "key", "value": { "kind": "list", "values": [{ "kind": "string", "value": "missing" }] } }, { "kind": "named", "name": "default", "value": { "kind": "constructor", "type": "JsonBool", "arguments": [{ "kind": "boolean", "value": false }] } }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "o3", "type": "Json", "value": { "kind": "call", "callee": "json.getOr", "arguments": [{ "kind": "identifier", "value": "doc" }, { "kind": "list", "values": [{ "kind": "string", "value": "x" }] }, { "kind": "named", "name": "fallback", "value": { "kind": "constructor", "type": "JsonNum", "arguments": [{ "kind": "number", "value": "0.0" }] } }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s1" }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s2" }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s3" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s4" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s5" }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s6" }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "g1" }] }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "g2" }] }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "g3" }] }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "o1" }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "o2" }] }] }, "line": 42 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "json.stringify", "arguments": [{ "kind": "identifier", "value": "o3" }] }] }, "line": 43 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 45 }
+      ]
+    }
+    ]
+  }
+  ]
+}

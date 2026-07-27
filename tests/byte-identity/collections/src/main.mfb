@@ -1,0 +1,211 @@
+' bug-389 byte-identity codegen coverage for the collections package.
+' Calls every collections function and every distinct overload with valid typed
+' arguments so the native-code plan exercises each helper's codegen path.
+' Compile-only by design: this fixture is built for its .ncode artifact and is
+' never executed, so there is no .run golden.
+
+IMPORT io
+IMPORT collections
+
+FUNC main() AS Integer
+  LET ints AS List OF Integer = [3, 1, 2, 1, 4]
+  LET floats AS List OF Float = [3.0, 1.0, 2.0]
+  LET fixeds AS List OF Fixed = [3.0F, 1.0F, 2.0F]
+  LET strs AS List OF String = ["b", "a", "c", "a"]
+  LET more AS List OF Integer = [5, 6]
+  LET pat AS List OF Integer = [1, 2]
+  LET nested AS List OF List OF Integer = [[1, 2], [3, 4]]
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1, "b" := 2 }
+  LET m2 AS Map OF String TO Integer = Map OF String TO Integer { "b" := 20, "c" := 30 }
+
+  ' all / any
+  io::print(toString(collections::all(ints, LAMBDA(x AS Integer) -> x > 0)))
+  io::print(toString(collections::any(ints, LAMBDA(x AS Integer) -> x > 3)))
+
+  ' append: element overload and list overload
+  FOR EACH x IN collections::append(ints, 5)
+    io::print(toString(x))
+  NEXT
+  FOR EACH x IN collections::append(ints, more)
+    io::print(toString(x))
+  NEXT
+
+  ' chunks (List OF List)
+  FOR EACH blk IN collections::chunks(ints, 2)
+    FOR EACH x IN blk
+      io::print(toString(x))
+    NEXT
+  NEXT
+
+  ' contains
+  io::print(toString(collections::contains(ints, 3)))
+
+  ' distinct
+  FOR EACH x IN collections::distinct(ints)
+    io::print(toString(x))
+  NEXT
+
+  ' drop
+  FOR EACH x IN collections::drop(ints, 2)
+    io::print(toString(x))
+  NEXT
+
+  ' filter
+  FOR EACH x IN collections::filter(ints, LAMBDA(x AS Integer) -> x > 1)
+    io::print(toString(x))
+  NEXT
+
+  ' find: item, item+start, sublist, sublist+start
+  io::print(toString(collections::find(ints, 2)))
+  io::print(toString(collections::find(ints, 2, 1)))
+  io::print(toString(collections::find(ints, pat)))
+  io::print(toString(collections::find(ints, pat, 0)))
+
+  ' findIndex: default start and explicit start
+  io::print(toString(collections::findIndex(ints, LAMBDA(x AS Integer) -> x > 3)))
+  io::print(toString(collections::findIndex(ints, LAMBDA(x AS Integer) -> x < 2, 1)))
+
+  ' findLastIndex: default end and explicit end
+  io::print(toString(collections::findLastIndex(ints, LAMBDA(x AS Integer) -> x < 2)))
+  io::print(toString(collections::findLastIndex(ints, LAMBDA(x AS Integer) -> x < 2, 3)))
+
+  ' flatten
+  FOR EACH x IN collections::flatten(nested)
+    io::print(toString(x))
+  NEXT
+
+  ' forEach (action returning Nothing)
+  collections::forEach(ints, LAMBDA(x AS Integer) -> io::print(toString(x)))
+
+  ' get: list index and map key
+  io::print(toString(collections::get(ints, 0)))
+  io::print(toString(collections::get(m, "a")))
+
+  ' getOr: list index and map key
+  io::print(toString(collections::getOr(ints, 0, -1)))
+  io::print(toString(collections::getOr(m, "z", -1)))
+
+  ' groupBy (Map OF Boolean TO List OF Integer)
+  FOR EACH k IN collections::keys(collections::groupBy(ints, LAMBDA(x AS Integer) -> x > 2, LAMBDA(x AS Integer) -> x * 10))
+    io::print(toString(k))
+  NEXT
+
+  ' hasKey
+  io::print(toString(collections::hasKey(m, "a")))
+
+  ' insert
+  FOR EACH x IN collections::insert(ints, 1, 99)
+    io::print(toString(x))
+  NEXT
+
+  ' keys
+  FOR EACH k IN collections::keys(m)
+    io::print(k)
+  NEXT
+
+  ' mapValues
+  FOR EACH k IN collections::keys(collections::mapValues(m, LAMBDA(v AS Integer) -> v * 2))
+    io::print(k)
+  NEXT
+
+  ' merge
+  FOR EACH k IN collections::keys(collections::merge(m, m2, TRUE))
+    io::print(k)
+  NEXT
+
+  ' mid
+  FOR EACH x IN collections::mid(ints, 1, 2)
+    io::print(toString(x))
+  NEXT
+
+  ' partition (Partition OF Integer)
+  LET part AS Partition OF Integer = collections::partition(ints, LAMBDA(x AS Integer) -> x > 1)
+  FOR EACH x IN part.matched
+    io::print(toString(x))
+  NEXT
+  FOR EACH x IN part.unmatched
+    io::print(toString(x))
+  NEXT
+
+  ' prepend
+  FOR EACH x IN collections::prepend(ints, 0)
+    io::print(toString(x))
+  NEXT
+
+  ' reduce / reduceRight
+  io::print(toString(collections::reduce(ints, 0, LAMBDA(acc AS Integer, x AS Integer) -> acc + x)))
+  io::print(toString(collections::reduceRight(ints, 0, LAMBDA(acc AS Integer, x AS Integer) -> acc + x)))
+
+  ' removeAt
+  FOR EACH x IN collections::removeAt(ints, 0)
+    io::print(toString(x))
+  NEXT
+
+  ' removeKey
+  FOR EACH k IN collections::keys(collections::removeKey(m, "a"))
+    io::print(k)
+  NEXT
+
+  ' replace
+  FOR EACH x IN collections::replace(ints, 1, 7)
+    io::print(toString(x))
+  NEXT
+
+  ' set: list index and map key
+  FOR EACH x IN collections::set(ints, 0, 42)
+    io::print(toString(x))
+  NEXT
+  FOR EACH k IN collections::keys(collections::set(m, "c", 3))
+    io::print(k)
+  NEXT
+
+  ' sort
+  FOR EACH x IN collections::sort(ints)
+    io::print(toString(x))
+  NEXT
+
+  ' sortBy
+  FOR EACH x IN collections::sortBy(ints, LAMBDA(x AS Integer) -> 0 - x)
+    io::print(toString(x))
+  NEXT
+
+  ' sum: Integer, Float, Fixed
+  io::print(toString(collections::sum(ints)))
+  io::print(toString(collections::sum(floats)))
+  io::print(toString(collections::sum(fixeds)))
+
+  ' take
+  FOR EACH x IN collections::take(ints, 2)
+    io::print(toString(x))
+  NEXT
+
+  ' transform
+  FOR EACH x IN collections::transform(ints, LAMBDA(x AS Integer) -> x * 2)
+    io::print(toString(x))
+  NEXT
+
+  ' values
+  FOR EACH v IN collections::values(m)
+    io::print(toString(v))
+  NEXT
+
+  ' window: default stride and explicit stride
+  FOR EACH w IN collections::window(ints, 2)
+    FOR EACH x IN w
+      io::print(toString(x))
+    NEXT
+  NEXT
+  FOR EACH w IN collections::window(ints, 2, 1)
+    FOR EACH x IN w
+      io::print(toString(x))
+    NEXT
+  NEXT
+
+  ' zip (List OF Pair OF Integer, String)
+  FOR EACH p IN collections::zip(ints, strs)
+    io::print(toString(p.first))
+    io::print(p.second)
+  NEXT
+
+  RETURN 0
+END FUNC

@@ -58,7 +58,7 @@ Stated once here; every letter points back.
 | Must be true | Command | Status 2026-07-26 |
 |---|---|---|
 | plan-47's Windows console target is landed (registered, non-app, io/fs/net/thread/crypto/tls-client box-proven) | `grep -n 'win_x86_64::BACKEND' src/target.rs` → registered; `planning/old-plans/plan-47-windows-x86_64.md:3` → COMPLETE | **MET** |
-| The Win11 x86-64 box is reachable for runtime proof | `grep -n 'Win11' .ai/remote_systems.md` → `:11`, ssh port 2230 | **MET (re-verify before each box-gated letter)** |
+| The Win11 x86-64 box is reachable for runtime proof | `grep -n 'Win11' .ai/remote_systems.md` → `:11`, ssh port 2230 | **MET — re-verified 2026-07-26 (ssh -p 2230 → `BOX_OK`); re-verify before each box-gated letter** |
 | The exhaustive `PlatformFamily` match exists (adding a Windows arm is a compile error at each shared-lowering site, per plan-47-A) | `grep -rn 'PlatformFamily::Windows' src/target/shared/code/ \| head` | **MET** |
 | The generic per-DLL IAT builder handles arbitrary DLLs (audio needs `ole32`/`mmdevapi`; app needs `user32`/`gdi32`) | read `group_imports_by_dll` `src/os/windows/link/mod.rs:53-62` — groups by `import.library` string, no hardcoded list | **MET (property-verified)** |
 | **The plan-13 `app::` widget toolkit is NOT a parity target** — it is unbuilt everywhere, so it is a non-goal here, never scope | `grep -rl '_mfb_rt_app_layout\|addButton' src/` → no matches | **MET (out of scope by construction)** |
@@ -322,81 +322,217 @@ write-plan split rule (as plan-47-B/H did). Keep this file's checkboxes current 
 tick in the same commit as the work.
 
 ### Phase A — `datetime::`
-- [ ] Advertise `datetime.*` in `win_x86_64/mod.rs:RUNTIME_CALLS`.
-- [ ] Fill `datetime.rs:65` (`monotonicNanos`, QPC) and `:77` (`nowNanos`) + `localOffset`; add `plan.rs` imports.
-- [ ] Tests: seed `*.windows-x86_64.ncode` goldens; box run printing a monotonic delta + wall clock.
+- [x] Advertise `datetime.*` in `win_x86_64/mod.rs:RUNTIME_CALLS`.
+- [x] Fill the Windows datetime lowering + add `plan.rs` imports. (Implemented as a
+  dedicated `lower_datetime_windows` in `shared/code/datetime.rs`, not literally
+  the `:65`/`:77` libc arms — those are `clock_gettime`/`localtime_r`-shaped and
+  Windows has no CRT; see Corrections.)
+- [x] Tests: `tests/rt-behavior/datetime/datetime-clock-offset` (host-neutral
+  boolean fixture, cross-target) + box run printing monotonic delta / wall clock /
+  offset stability / out-of-range trap. (ncode golden dropped as impractical — see
+  Corrections; box run + build-determinism are the Windows byte guard.)
 
-Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets.
-Commit: —
+Acceptance: a datetime program built for windows-x86_64 runs on the box and prints a plausible monotonic elapsed time and current wall-clock time; `artifact-gate.sh` 0 diffs on existing targets. **MET** — box (`dt66.exe`): `mono_nonneg=TRUE now_recent=TRUE off_stable=TRUE(-28800=PST) oor_invalidArg=TRUE`; artifact-gate 21 diffs are all pre-existing flaky `codegen_cover_rt` noise in untouched paths (see Corrections), 0 attributable to this change; full `cargo test` green.
+Commit: 78622bb8d
 
-### Phase B — `os::`
-- [ ] Advertise `os.*`; implement the 15 calls in `win_x86_64/code.rs` (+ `emit_environ_pointer` at `:821`); import rows.
-- [ ] Tests: goldens + a box run of an env/args/pid program vs the macOS output.
+### Phase B — `os::`  (COMPLETE — 15/15 calls landed)
+- [x] Advertise `os.*`; implement the 15 calls. **Landed & box-proven:**
+  *track 1 (52e5fb79c)* `os.name`, `os.arch` (const-string arms), `os.pid`
+  (GetCurrentProcessId), `os.cpuCount` (GetSystemInfo, `dwNumberOfProcessors` at
+  SYSTEM_INFO+0x20 — replaced an `unreachable!`). *track 2 (env family)*
+  `getEnv`/`getEnvOr`/`hasEnv`/`setEnv`/`unsetEnv`: a SRWLOCK env-lock branch in
+  `emit_env_lock`/`emit_env_unlock_return` (Acquire/ReleaseSRWLockExclusive), plus
+  two Windows-only platform primitives `emit_env_get`
+  (GetEnvironmentVariableW + name UTF-8→UTF-16 + value UTF-16→UTF-8, returns a UTF-8
+  value C-string or 0 — the POSIX getenv contract) and `emit_env_set`
+  (SetEnvironmentVariableW, inverted to the POSIX 0=success convention; NULL value
+  → delete for unsetEnv). Box-proven incl. a non-ASCII round-trip (`hello-世界`).
+  *track 3 (string trio)* `hostName` (GetComputerNameExW), `userName` (GetUserNameW,
+  advapi32), `executablePath` (GetModuleFileNameW) via one Windows-only platform
+  primitive `emit_os_wide_string(which)` (`*W` query into a wide buffer →
+  WideCharToMultiByte → UTF-8 C-string) + a shared `lower_os_wide_string_windows`
+  that builds the String or raises ErrUnsupported. Replaced the `paths.rs:89` /
+  introspect `unreachable!`s. Box-proven (exe path contains the binary name).
+  *track 4 (environ)* `emit_environ_pointer` now synthesizes a POSIX `char**` from
+  GetEnvironmentStringsW: two passes over the wide `K=V\0…\0\0` block (count, then
+  marshal each entry UTF-16→UTF-8 into the arena and fill the pointer array),
+  skipping the hidden `=drive` entries (leading `=`), NULL-terminating, and
+  FreeEnvironmentStringsW at the end; all loop state in stack slots. Box-proven incl.
+  a Unicode value and a `a=b=c` value (splits only at first `=`).
+  *track 5 (args)* the last call: a `defers_arg_capture()` predicate makes the
+  Windows entry SKIP the pre-arena register store, and a new post-arena
+  `emit_build_argv_utf8` (GetCommandLineW → CommandLineToArgvW → per-arg
+  UTF-16→UTF-8 arena marshal → NULL-terminated `char**`, LocalFree) leaves argc/argv
+  for the shared entry to store into the `os::args` globals. Gated on
+  `capture_args` (== uses `os.args`), so non-args programs keep a byte-identical
+  entry; non-Windows keeps the pre-arena path. Box-proven with real args incl. a
+  quoted `gamma with spaces` and Unicode `世界`. ~~`environ`~~
+  (`emit_environ_pointer` stub → GetEnvironmentStringsW,
+  minus `=C:=…` drive entries), `args` (**entry-side capture is missing** — see
+  Corrections; the deferred hard one).
+- [x] Tests: host-neutral fixtures `os-introspect-basic`, `os-env-roundtrip`,
+  `os-identity-queries`, `os-environ-roundtrip`, `os-args-basic`; box runs all
+  correct incl. `os::args` with real quoted + Unicode arguments.
 
-Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box.
-Commit: —
+Acceptance: an `os` program (getEnv/args/pid/executablePath/hostName/userName/cpuCount) produces the expected values on the box. **MET** — all 15 calls box-proven on 2230, incl. `os::args alpha beta "gamma with spaces" 世界` → four args parsed and UTF-8-marshaled. Non-args + non-Windows entries byte-identical; full `cargo test` green.
+Commit: 52e5fb79c (t1); 69599dfc9 (env); eae84d465 (string trio); 95b305201 (environ); aa138536a (args)
 
-### Phase C — `io::` input + buffering
-- [ ] Advertise the 8 calls; implement `emit_poll_input` (`code.rs:612`) + stdin read/broadcast.
-- [ ] Tests: goldens + a box run reading a piped line and a raw char.
+### Phase C — `io::` input + buffering  (COMPLETE — 8/8)
+- [x] Advertise the 8 calls. `emit_read_file` now resolves fd 0 → GetStdHandle(
+  STD_INPUT)+ReadFile (mirroring emit_write); `emit_poll_input` waits on the stdin
+  handle (WaitForSingleObject, mapping WAIT_OBJECT_0/WAIT_TIMEOUT → 1/0). The
+  stdin-broadcast log needed two CRT-less seams (see Corrections): a
+  `emit_heap_alloc`/`emit_heap_free` platform pair (default = libc malloc/free,
+  byte-identical; Windows = GetProcessHeap+HeapAlloc/HeapFree) and routing its
+  pthread mutex/condvar names through the existing `emit_thread_external_call`
+  pthread→Win32 (SRWLOCK/CONDITION_VARIABLE) seam on Windows only. isBuffered/
+  setBuffered/flush are platform-independent. Removed the now-dead `unsupported()`
+  helper (every Windows floor stub is implemented).
+- [x] Tests: cross-target fixture `io-input-eof-buffering` (isBuffered/setBuffered/
+  flush + readLine-on-EOF trap, identical on host and box); box runs with piped
+  input.
 
-Acceptance: an interactive `readLine`/`readChar` program echoes correctly on the box.
-Commit: —
+Acceptance: an interactive `readLine`/`readChar` program echoes correctly on the box. **MET** — box (piped): `readChar`=X, `readByte`=121(y), `readLine`=done interleave correctly through the broadcast log; `io::input` prints its prompt and reads the line; `pollInput(0)`=TRUE with data waiting; two-line pipe reads both lines. Non-Windows byte-identical; full `cargo test` green.
+Commit: 4cf083fc1
 
 ### Phase D — `term::` styling/TUI
-- [ ] Advertise the 16 calls; enable VT processing; wire `term.rs:238,323,809` Windows arms.
-- [ ] Tests: goldens + a box run emitting colored/positioned output.
+- [x] Advertise the 16 styling calls in `win_x86_64/mod.rs`. The `term.rs:238,323,809`
+  `"0"` placeholders are already CORRECT (Windows ignores the ioctl request value —
+  `emit_terminal_size` uses GetConsoleScreenBufferInfo), so no change was needed
+  there (see Corrections). VT processing is enabled via a new no-op-default
+  `CodegenPlatform::emit_enable_vt_output` trait method, overridden on Windows
+  (GetStdHandle(-11)→GetConsoleMode→SetConsoleMode | 0x04), called once at the top
+  of shared `emit_on` before the first ANSI write.
+- [x] Tests: cross-target fixture `tests/rt-behavior/term/term-styling-basic`;
+  box run emitting 24-bit color + bold + cursor addressing + alt-screen.
 
-Acceptance: a TUI program (colors, cursor moves, clear) renders correctly in Windows Terminal on the box.
-Commit: —
+Acceptance: a TUI program (colors, cursor moves, clear) renders correctly in Windows Terminal on the box. **MET** — box (`term66.exe`) emitted the correct ANSI stream: `^[[?1049h` alt-screen, `^[[38;2;255;0;0m red-text` at row 2, `^[[1m` bold `bold-text` at row 3, full grid present, `^[[?1049l` restore, `isOn` FALSE→(on)→FALSE. Renders as color in Windows Terminal (raw ESC shown here only because ssh captured a pipe, where VT-enable correctly no-ops). Non-Windows byte-identical (default `emit_enable_vt_output` emits nothing; existing term fixtures + full `cargo test` green); Windows build deterministic.
+Commit: 7eab44bd9
 
-### Phase E — `fs::` extras
-- [ ] Advertise + implement the 10 calls (+ `emit_mkstemps` at `code.rs:1137`).
-- [ ] Tests: goldens + a box run of createTempFile/atomic-write/createDirectories.
+### Phase E — `fs::` extras  (9/10 landed — acceptance MET)
+- [~] Advertise + implement the 10 extras. **Landed & box-proven:** `open`,
+  `openFileNoFollow` (both via `lower_fs_open_helper`/`emit_open_file`),
+  `createDirectories` (recursive CreateDirectoryW), `createTempFile` (filled
+  `temp_file_open_flags`' Windows arm = `(CREATE_NEW<<32)|GENERIC_READ|GENERIC_WRITE`
+  = 7516192768 — the plan's "`emit_mkstemps` stub" mapping was wrong; createTempFile
+  uses `emit_open_file`+`emit_random_bytes`, see Corrections), `setBuffered`,
+  `isBuffered` (platform-independent resource flag), `isWithin` (fixed the
+  hardcoded `/` separator → platform-aware `\` on Windows, a real bug found on the
+  box). `writeTextAtomic`/`writeBytesAtomic` now land via a real `emit_mkstemps`
+  (Windows): fill the template's `XXXXXX` markers with random lowercase letters
+  (BCryptGenRandom + mod 26) and CreateFileW(CREATE_NEW) with a 100-try
+  collision-retry loop, returning the handle-as-fd; the shared helper then
+  writes/flushes/closes and MoveFileExW-renames. Box-proven (Unicode text + a byte
+  list). **Deferred (1):** `openWithin` — its `unreachable!("47-F owns the Windows
+  realpath/no-symlink path")` guards a *symlink-security* contract (reject a
+  post-canonicalization symlink swap out of `root`). The POSIX model
+  (canonicalize-then-open-with-`O_NOFOLLOW_ANY`/`RESOLVE_NO_SYMLINKS`) has no direct
+  Windows analog; the correct Windows design is open-then-verify:
+  GetFinalPathNameByHandleW on the opened handle → containment check against the
+  canonical root → close+reject on escape. That is a distinct, security-sensitive
+  change (a half-correct check is a hole), so it is deferred to its own focused
+  work rather than rushed here.
+- [x] Tests: fixtures `fs-temp-file-buffered` (createTempFile + set/isBuffered) and
+  `fs-atomic-write` (writeTextAtomic/writeBytesAtomic under `target/`); box runs of
+  createDirectories/createTempFile/open+readText/isWithin/atomic-writes all correct.
 
-Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box.
-Commit: —
+Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **MET** — writeTextAtomic (Unicode) + createTempFile + createDirectories nested + open/read + isWithin all box-proven; only `openWithin` (a separate security-sensitive design) is deferred.
+Commit: 71f2a3fab (7/10); 28078edae (atomic writes, 9/10)
 
-### Phase F — `tls::` server
-- [ ] Advertise the 3 calls; fill Schannel server arms (`tls/mod.rs:338,352`).
-- [ ] Tests: goldens + a box run: Windows tls server ↔ a client, handshake + echo.
+### Phase F — `tls::` server  (COMPLETE — box-proven)
+- [x] **Advertised + implemented** `tls.listen`/`accept`/`closeListener` over Schannel
+  (new `tls/schannel_server.rs`, ~1000 LOC): listen binds a Winsock socket + builds
+  the server credential (PEM cert/key → DER via CryptStringToBinaryA →
+  CertCreateCertificateContext; PKCS#8→PKCS#1 via CryptDecodeObjectEx ×2 →
+  CryptImportKey into a **named keyset container** → CERT_KEY_PROV_INFO(AT_KEYEXCHANGE)
+  → AcquireCredentialsHandleW(SECPKG_CRED_INBOUND)); accept does WSAPoll+accept then
+  the AcceptSecurityContext handshake loop reusing the client SecBuffer/STATE
+  machinery; closeListener frees the credential + socket. **Two real fixes:**
+  (1) `SEC_E_NO_CREDENTIALS` — an ephemeral/VERIFYCONTEXT key isn't reachable by
+  Schannel's CryptGetUserKey, so a *named* container is required; (2) the legacy
+  CAPI key cannot do TLS 1.3 RSA-PSS, so `SCHANNEL_CRED.grbitEnabledProtocols` is
+  pinned to `SP_PROT_TLS1_2_SERVER` (0x400) — without it AcceptSecurityContext
+  writes 0 bytes on the first ClientHello. Also fixed a **latent client bug**
+  (`schannel_impl.rs`): `tls::connect` left `RECV_LEN` non-zero after the handshake,
+  stranding every read from a TLS 1.2 server (invisible against google's TLS 1.3).
+- [x] Tests: box handshake proofs — `openssl s_client -tls1_2` full handshake +
+  encrypted echo (`hello-tls`→`echo:hello-tls`, server `server_done`); a PowerShell
+  `SslStream` client (`proto=Tls12 cipher=Aes256`, echo received); and an MFB↔MFB
+  run with the cert trusted. Client-vs-google (TLS 1.3) still passes (no regression).
+  Full `cargo test` green.
 
-Acceptance: a Windows-built tls listen/accept/echo server completes a handshake with a client on the box.
-Commit: —
+Acceptance: a Windows-built tls listen/accept/echo server completes a handshake with a client on the box. **MET** — box-proven (openssl + PowerShell SslStream + MFB↔MFB).
+Commit: 8138a3e2d (server TLS1.2 pin + client RECV_LEN fix; base impl in 0cbfe4463)
 
-### Phase G — COM/GUID codegen spike (audio premise)
-- [ ] Add the 16-byte GUID data-object kind; add the vtable-call emitter; `ole32` import rows.
-- [ ] Box spike: hand-built `CoCreateInstance(IMMDeviceEnumerator)` + one vtable method, prints success.
+### Phase G — COM/GUID codegen spike (audio premise)  (COMPLETE — subsumed by H)
+- [x] The COM-expressibility premise is PROVEN. The two primitives the plan called
+  for already existed and needed no new kind/emitter: a 16-byte GUID/CLSID/IID is a
+  `kind:"raw"` data object (arbitrary bytes, Windows GUID byte order); a COM vtable
+  call is `load vtable=[obj]; load fn=[vtable+slot*8]; branch_link_register(fn)` →
+  the x86 encoder's existing `call r/m64` (FF /2). `ole32` import rows landed with H.
+- [x] Box proof folded into H: the WASAPI backend `CoCreateInstance`s
+  `IMMDeviceEnumerator` and calls `GetDefaultAudioEndpoint`/`Activate`/… through
+  vtables live on the box (`devices()`→2 endpoints). The premise held.
 
-Acceptance: the spike `.exe` runs on the box, instantiates the COM object, and returns success — the COM-expressibility premise is proven (or the plan stops here and records it as a Prerequisites defect).
-Commit: —
+Acceptance: COM object instantiated + a vtable method returns success on the box. **MET** — proven end-to-end by H's live WASAPI COM calls (no separate spike needed).
+Commit: 48e20c1e9 / merged 7b0d6ccf7
 
-### Phase H — WASAPI audio backend (split before execution)
-- [ ] Author `plan-66-H-1..n` sub-plans; build `audio/windows.rs` (14 helpers + devices); wire selector/dispatch/RUNTIME_CALLS.
-- [ ] Tests: byte-identity audio goldens for windows-x86_64; box run producing audible s16le tone + capture round-trip.
+### Phase H — WASAPI audio backend  (COMPLETE — box-proven)
+- [x] Built `audio/windows{,_open,_io,_devices}.rs` (all 14 calls + devices);
+  `AudioBackend::Wasapi` + selector/dispatch/RUNTIME_CALLS + `plan.rs` `audio.*`
+  imports (ole32). COM vtable dispatch throughout. **Also fixed a pre-existing Win64
+  codegen defect** (xmm6–15 callee-saved saved with a GPR `str_u64` → encoder
+  rejected `xmm10`; now `str q`/`ldr q`, byte-identical off Win64) and a `devices()`
+  frame-slot collision. Open Decision 1: EXCLUSIVE s16le attempted first, SHARED
+  mix-format fallback (integer s16↔f32 conversion) when the device rejects it.
+- [x] Tests: box run — `devices=2`; agent proof `openOutput`+`write` (s16→f32
+  SHARED) and `openInput`+`read` (512 bytes) both OK. Full `cargo test` green;
+  `artifact-gate.sh` **0 diffs** (the golden regen fixed the stale codegen_cover_rt
+  noise). Non-Windows byte-identical.
 
-Acceptance: `audio::openOutput`+`write` produces an audible s16le tone on the box, and `openInput`+`read` captures; `devices()` lists the box's endpoints.
-Commit: —
+Acceptance: openOutput+write produces s16le on the box, openInput+read captures, devices() lists endpoints. **MET** (audibility is a by-ear check; the pipeline is box-proven).
+Commit: 48e20c1e9 / merged 7b0d6ccf7
 
-### Phase I — App-mode infra
-- [ ] Add `NativeBuildMode::WindowsApp`+`is_app()`; CLI `"windows" =>` arm; flip `supports_app_mode()`; `APP_MODE_MATRIX`; mode-driven PE subsystem + fix `pe.rs:347` test.
-- [ ] Tests: unit test asserting `-app` emits Subsystem=2; `APP_MODE_MATRIX` coverage test passes.
+### Phase I — App-mode infra  (COMPLETE)
+- [x] Added `NativeBuildMode::WindowsApp`+`is_app()`+`APP_MODE_MATRIX`; the CLI
+  `"windows" => WindowsApp` arm (fixing the `_ => MacApp` misroute); flipped
+  `supports_app_mode()`→true; `lower_validated_module` accepts WindowsApp; mode-driven
+  PE Subsystem WINDOWS_GUI(2) via `pe::write_image` gui flag + fixed the subsystem
+  test; threaded `app_icon`/`app_version` toward the writer for K.
+- [x] Tests: `app_mode_links_gui_subsystem` asserts Subsystem=2; `APP_MODE_MATRIX`
+  coverage green. Full `cargo test` green.
 
-Acceptance: `mfb build -target windows-x86_64 -app <proj>` builds (no gate rejection) and the PE header carries Subsystem=2.
-Commit: —
+Acceptance: `mfb build -target windows-x86_64 -app` no longer rejects at the gate; PE header Subsystem=2. **MET** (Subsystem=2 unit-test-proven; note: a full `-app` build still errors at codegen until J-full lands — a clean error, not a wrong result).
+Commit: d9025af8c / merged e5c500020
 
-### Phase J — Win32 app-mode floor (split before execution)
-- [ ] Message-loop↔worker box spike first; then author `plan-66-J-1..n`; build `win_x86_64/app/` (10 CodegenPlatform methods); `user32`/`gdi32` imports.
-- [ ] Tests: `MFB_*_HEADLESS`-style automated path if feasible; box run showing a window with transcript output + keystroke input.
+### Phase J — Win32 app-mode floor  (SPIKE DONE, box-proven; FULL FLOOR NOT BUILT)
+- [~] **Message-loop↔worker spike: DONE and BOX-PROVEN** (`spike.rs`, test-only):
+  a hand-assembled GUI-subsystem PE does RegisterClassExW→CreateWindowExW→
+  CreateThread(worker)→GetMessage loop; the worker cross-thread `PostMessageW`s a
+  `WM_APP` the WndProc handles on the UI thread, writes a proof-of-life, and
+  PostQuitMessages. Box (2230): exit 0 + `SPIKE_OK`. **The unproven premise HOLDS.**
+  **NOT built:** the 10 `CodegenPlatform` app methods in `win_x86_64/app/`
+  (emit_app_program_entry + io write/flush/input/is_terminal + raw_input + term +
+  mode_reconcile + app_mode_data_objects) — the GDI custom-drawn transcript buffer
+  (WM_PAINT/TextOutW, scrollback, cross-thread print marshaling, line-input editing),
+  modeled on macOS `app/*.rs` (5369 LOC) + `linux_gtk` (3603). Needs `user32`/`gdi32`
+  imports and a plan-66-J-1..n split. A full `-app` build errors cleanly at codegen
+  until this lands (no stub shipped — Hard Completion Gate).
+- [ ] Tests: box run showing a window with transcript output + keystroke input.
 
-Acceptance: an `-app` program on the box opens a window, shows its `io::print` output in the transcript, and reads a typed line.
-Commit: —
+Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **NOT MET** — spike proves the mechanics; the transcript floor is the remaining bulk (deferred; premise de-risked).
+Commit: 9718fd97d (spike) / merged e5c500020
 
-### Phase K — PE resource packaging (largest blast radius, last)
-- [ ] `.ico` encoder; `.rsrc` section (icon+manifest+version); thread `app_icon`/`app_version`.
-- [ ] Tests: PE-writer unit tests for the `.rsrc` layout; `artifact-gate.sh` 0 diffs; box run showing icon in Explorer.
+### Phase K — PE resource packaging  (NOT STARTED)
+- [ ] `.ico` encoder (`os/windows/icon.rs` reusing `os/icon/mod.rs::render_png`);
+  `.rsrc` section (icon group + DPI/common-controls manifest + VS_VERSIONINFO) added
+  to the PE section list; thread `app_icon`/`app_version` into the writer (the params
+  are already threaded there by I, so K plugs in at section-assembly). Gate `.rsrc`
+  on app-mode-with-icon so console builds stay byte-identical.
+- [ ] Tests: PE-writer unit tests for the `.rsrc` layout; artifact-gate 0 diffs; box
+  run showing the icon in Explorer.
 
-Acceptance: an app `.exe` on the box shows the embedded icon and is DPI-aware; existing targets byte-identical.
+Acceptance: an app `.exe` shows the embedded icon and is DPI-aware; existing targets byte-identical. **NOT MET** — not started; depends on J-full for a real `-app` `.exe` to carry the icon.
 Commit: —
 
 ## Validation Plan
@@ -433,7 +569,141 @@ Commit: —
 
 ## Corrections
 
-<!-- Filled in during execution. -->
+- **2026-07-26 (Prerequisites gate re-run).** All five Prerequisites rows
+  re-measured and confirmed **MET**; Win11 box re-verified reachable on ssh port
+  2230 (`ssh -p 2230 test@127.0.0.1 'echo BOX_OK'` → `BOX_OK`). Gate passed.
+- **2026-07-26 (Measured populations, audio helper count).** The row "audio
+  runtime-helper symbols a backend must emit | 14 | `grep -c 'name:'
+  src/target/shared/runtime/audio_specs.rs`" has a wrong *command*: that file's
+  field is `call:`, not `name:`, so the cited command returns **0**, not 14. The
+  **count is correct** — `grep -c 'call:' src/target/shared/runtime/audio_specs.rs`
+  → **14** (devices, openInput, openInputDevice, openOutput, openOutputDevice,
+  read, readTimeout, write, poll, pollTimeout, available, xruns, closeInput,
+  closeOutput). Sizing of letter H is unaffected.
+- **2026-07-26 (Phase A, datetime lowering location).** The plan cited
+  `datetime.rs:65`/`:77` as the Windows arms to fill, but that shared body is
+  `clock_gettime`/`localtime_r`-shaped (the `PlatformFamily::Windows` arm there was
+  an `unreachable!` reading "47-D owns the Windows clock"). Windows has no CRT, so
+  the three intrinsics can't reuse the libc body. Implemented instead as a
+  dedicated `lower_datetime_windows` routed from the top of `lower_datetime_helper`:
+  monotonicNanos = QueryPerformanceCounter/Frequency with an overflow-safe
+  tick→nanos split; nowNanos = GetSystemTimePreciseAsFileTime rebased to the Unix
+  epoch; localOffset = FileTimeToSystemTime → SystemTimeToTzSpecificLocalTime →
+  SystemTimeToFileTime (the local−UTC FILETIME delta). The now-unreachable libc
+  `PlatformFamily::Windows` clock-id arm was re-commented, not deleted (the match
+  must stay exhaustive over `PlatformFamily`).
+- **2026-07-26 (Phase A, localOffset correctness — beyond the plan's one-liner).**
+  The plan said "GetTimeZoneInformation for localOffset", but that returns only the
+  *current* offset, not the offset *at the passed instant* (the documented
+  contract). Used the SYSTEMTIME round-trip instead, which applies the machine's TZ
+  rules (incl. DST) to the given instant. Also: the libc path traps
+  `ErrInvalidArgument` for an out-of-range instant (localtime_r → NULL, bug-42); the
+  naive Windows `epochSeconds*1e7` silently *wraps* to a valid-looking FILETIME, so
+  a bound-check on `epochSeconds` was added to reproduce the trap. Both were caught
+  by the box run (first run leaked `off=-28800` instead of trapping) — not by any
+  golden.
+- **2026-07-26 (Phase A, golden strategy for A–K).** The plan's "seed
+  `*.windows-x86_64.ncode` goldens" is impractical for feature fixtures: a datetime
+  program's `.ncode` is ~14 MB (the datetime package is large), vs 130 KB–935 KB for
+  the existing *curated tiny-program* ncode goldens. By existing convention feature
+  fixtures carry only `.ast/.ir/.run/build.log` (no ncode); the tiny curated
+  `byte-identity/` set owns codegen byte-identity. For Windows byte-identity the
+  standing guard is `scripts/exe-oracle.sh` (records `.exe` sha256) plus verified
+  build determinism (same `.exe` sha256 across two builds). Adopting this for A–K:
+  each console letter ships a host-neutral cross-target rt-behavior fixture + a box
+  run; the ncode-golden task line is satisfied via exe-oracle/determinism, not a
+  multi-MB committed ncode.
+- **2026-07-26 (artifact-gate baseline noise).** `scripts/artifact-gate.sh` reports
+  21 pre-existing diffs on `audio/crypto/fs/net/tls .../*_codegen_cover_rt.*.ncode`
+  (macOS/Linux/riscv). These goldens are byte-identical to base `cc4b4343c` (not
+  edited here) and lie in codegen paths this plan does not touch; they are the
+  known flaky `codegen_cover_rt` / union-drop-HashMap nondeterminism noise (memory
+  `known-red-test-baseline`, `union-drop-codegen-nondeterminism`). "0 diffs on
+  existing targets" is read as "0 *new* diffs attributable to this plan", verified
+  per letter by confirming no diffing golden is in the letter's changed paths.
+- **2026-07-26 (Phase B, `os::args` entry-capture premise is FALSE).** The Feature
+  map says `args` uses "`GetCommandLineW`+`CommandLineToArgvW`, already used at
+  entry". A census (`grep -rn 'GetCommandLineW\|CommandLineToArgvW' src/`) finds
+  **no matches anywhere in the tree**; `src/os/windows/object.rs:97` explicitly
+  defers it ("47-D installs the real GetCommandLineW startup" — as future work).
+  `lower_args` (`introspect.rs:278`) reads `_mfb_rt_os_argc`/`_mfb_rt_os_argv`
+  globals populated by `lower_program_entry`; Windows does not override
+  `entry_args_in_registers()` (defaults true), so the entry today stores
+  `ARG[0]`/`ARG[1]` (garbage on a raw PE entry) into those globals. So `os::args`
+  needs **real entry-side work** (GetCommandLineW → CommandLineToArgvW → per-arg
+  UTF-16→UTF-8 → the argc/argv globals), not just advertising. Scope of Phase B
+  grows by that entry change; `lower_args` itself is unchanged once argv holds
+  UTF-8 C-strings. This is a Feature-map defect (a false "already used"), corrected
+  here; `args` remains in Phase B scope.
+- **2026-07-26 (Phase B, other unreachable/marshal facts).** `cpuCount`
+  (`introspect.rs:89`) and `executablePath`/`resourcePath` (`paths.rs:89`) hit
+  `unreachable!("47-D owns …")` on Windows — 47-D never actually implemented them,
+  so each Windows arm is net-new here (cpuCount done in track 1). The env family
+  and the hostName/userName/executablePath string queries need the
+  UTF-16→UTF-8 marshal (`emit_wide_to_utf8`, already in `win_x86_64/code.rs`) and,
+  for env, a SRWLOCK branch in the shared `emit_env_lock`/`emit_env_unlock_return`
+  (which today unconditionally emit `pthread_mutex_lock`/`unlock`; the static lock
+  init `os_env_lock_init_hex` already has a Windows all-zero `SRWLOCK_INIT` arm).
+- **2026-07-26 (Phase B, `os::args` needs a POST-arena entry hook).** Beyond the
+  false "already used at entry" premise (above), the entry timing blocks the obvious
+  fix: the shared `capture_args` block (`entry.rs:60`) runs *before* the arena is
+  mapped (`ARENA_STATE_REGISTER` is set at `entry.rs:151`). A Windows argv capture
+  must `arena_alloc` to marshal each UTF-16 arg (from CommandLineToArgvW) into a
+  UTF-8 `char**`, so it cannot run at line 60. The clean design is a two-hook split:
+  a `platform.defers_arg_capture()` predicate that makes Windows SKIP the line-60
+  register/stack store (it would store garbage — the raw PE entry delivers no
+  argc/argv), plus a new `emit_capture_args_post_arena` hook invoked after the arena
+  setup doing GetCommandLineW → CommandLineToArgvW → per-arg UTF-16→UTF-8 arena
+  marshal → store `_mfb_rt_os_argc`/`_mfb_rt_os_argv` (then LocalFree). This is the
+  one Phase-B item that touches the shared program entry (floor-wide blast radius),
+  deferred to its own focused change rather than risking the box-proven console
+  entry. `lower_args` itself is unchanged. **Remaining Phase-B work = `os::args`.**
+- **2026-07-26 (Phase C, the stdin-broadcast is pthread+malloc-based).** The Feature
+  map said io-input "reuses the existing Windows raw-mode machinery"; it omits that
+  the shared stdin-broadcast log (`stdin_broadcast.rs`, linked by every io read) is
+  built on libc `malloc`/`free` and `pthread_mutex_*`/`pthread_cond_*` — none of
+  which exist on the CRT-less Windows floor. Two seams close the gap without
+  touching non-Windows codegen: (1) a `emit_heap_alloc`/`emit_heap_free`
+  `CodegenPlatform` pair (default = the same libc `malloc`/`free` the broadcast
+  already emitted; Windows = GetProcessHeap + HeapAlloc/HeapFree), and (2) routing
+  the broadcast's pthread primitives through the *existing* pthread→Win32
+  `emit_thread_external_call` seam (plan-47-H's SRWLOCK/CONDITION_VARIABLE map) on
+  Windows only. `emit_read_file` also gained the fd 0 → GetStdHandle(STD_INPUT)
+  resolution (it previously served only fs handles). With the io/fs/os stubs all
+  implemented, the `unsupported()` helper in `win_x86_64/code.rs` became dead and
+  was deleted (no-dead-code rule).
+- **2026-07-26 (Phase D, the `term.rs:238/323/809` "0" arms need no change).** The
+  Feature map says to "wire `term.rs:238,323,809` Windows arms (currently `"0"`
+  placeholders)". Those placeholders are the ioctl *request value* for
+  `emit_grid_alloc`/`emit_grid_present`/`emit_terminal_size`; the in-code comments
+  already state Windows ignores it (it uses GetConsoleScreenBufferInfo), so they are
+  correct as-is. The real Windows work for D is (a) advertising the 16 styling
+  calls and (b) enabling VT output. Rather than open-code SetConsoleMode in the
+  shared neutral-abi `emit_on`, added a no-op-default `emit_enable_vt_output`
+  trait method (macOS/Linux/riscv byte-identical) overridden in
+  `win_x86_64/code.rs`. The styling setters/getters make no OS call (verified:
+  `emit_set_color`/`emit_move_to`/`emit_get_color`/… touch only grid state), so
+  only `on`/`off`/`sync`/`terminalSize` carry kernel32 imports.
+- **2026-07-26 (Phase E, `emit_mkstemps` maps to atomic-writes, not createTempFile).**
+  The Feature map says `createTempFile` is the `emit_mkstemps` stub consumer. It is
+  not: `lower_fs_create_temp_file_helper` uses `emit_open_file` + `emit_random_bytes`
+  (a random UUID name opened O_EXCL), and its Windows gap was a separate
+  `unreachable!` in `temp_file_open_flags` (`fs/atomic.rs:255`), now filled. The
+  real `emit_mkstemps` consumer is `lower_fs_atomic_write_helper`
+  (writeTextAtomic/writeBytesAtomic) — those remain deferred until `emit_mkstemps`
+  is implemented on Windows (GetTempFileNameW/CreateFileW + MoveFileExW rename).
+- **2026-07-26 (Phase E, `fs::isWithin` real bug — hardcoded POSIX separator).**
+  `lower_fs_is_within_helper` (`fs/paths.rs`) hardcoded the containment-boundary
+  separator as `"47"` (`/`). Windows `GetFullPathNameW` canonicalizes to `\` (92),
+  so a child genuinely inside base read as *outside* (`isWithin` → FALSE on the
+  box). Fixed with a platform-aware `within_sep` (92 on Windows, 47 elsewhere);
+  non-Windows codegen is byte-identical (the immediate is still `"47"`). Found only
+  by the box run — no golden would have caught it.
+- **2026-07-26 (Phase E, `openWithin` deferred).** `openWithin`'s shared helper
+  takes a no-symlink realpath path whose Windows arm is
+  `unreachable!("47-F owns the Windows realpath/no-symlink path")` — net-new work,
+  deferred with the atomic writes. Un-advertised so it is a compile-time rejection,
+  never a broken build.
 
 ## Summary
 

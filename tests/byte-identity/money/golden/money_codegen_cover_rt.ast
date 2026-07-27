@@ -1,0 +1,53 @@
+{
+  "project": "money_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 2 },
+    { "module": "money", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Rounding" }, "member": "Commercial" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "money.setRounding", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "Rounding" }, "member": "Banker" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "mode", "type": "Rounding", "value": { "kind": "call", "callee": "money.getRounding", "arguments": [] }, "line": 11 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "mode" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Rounding" }, "member": "Banker" } },
+        "line": 12,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "banker" }] }, "line": 13 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Money", "value": { "kind": "number", "value": "0.12345m" }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "r0", "type": "Money", "value": { "kind": "call", "callee": "money.round", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "number", "value": "0" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "r1", "type": "Money", "value": { "kind": "call", "callee": "money.round", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "number", "value": "1" }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "r2", "type": "Money", "value": { "kind": "call", "callee": "money.round", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "number", "value": "2" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "r3", "type": "Money", "value": { "kind": "call", "callee": "money.round", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "number", "value": "3" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "r4", "type": "Money", "value": { "kind": "call", "callee": "money.round", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "number", "value": "4" }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "r5", "type": "Money", "value": { "kind": "call", "callee": "money.round", "arguments": [{ "kind": "identifier", "value": "v" }, { "kind": "number", "value": "5" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "r0" }] }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "r1" }] }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "r2" }] }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "r3" }] }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "r4" }] }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "r5" }] }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 31 }
+      ]
+    }
+    ]
+  }
+  ]
+}

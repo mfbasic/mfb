@@ -281,6 +281,32 @@ pub(crate) trait CodegenPlatform {
     fn entry_args_in_registers(&self) -> bool {
         true
     }
+    /// Whether `os::args` capture must be deferred until after the arena is mapped
+    /// (plan-66-B). A raw Windows PE entry receives no argc/argv, so the shared
+    /// pre-arena `capture_args` store (which parks the incoming registers) would
+    /// save garbage; instead the Windows backend builds a UTF-8 `argv` from
+    /// GetCommandLineW/CommandLineToArgvW — which needs `arena_alloc`, hence *after*
+    /// the arena setup — via `emit_build_argv_utf8`. Every other platform captures
+    /// pre-arena and returns false here (byte-identical entry).
+    fn defers_arg_capture(&self) -> bool {
+        false
+    }
+    /// Windows-only (plan-66-B): build a POSIX-shaped UTF-8 `argv` (a
+    /// NUL-terminated `char**` of UTF-8 C-strings, `argv[0]` = program) from
+    /// GetCommandLineW → CommandLineToArgvW, marshaling each arg UTF-16→UTF-8 into
+    /// the arena. Leaves `argc` in `ARG[0]` and the `argv` pointer in `ARG[1]` for
+    /// the shared entry to store into the `os::args` globals. Runs after the arena
+    /// is mapped; `ARENA_STATE_REGISTER` is pinned so it may clobber all caller-saved
+    /// registers.
+    fn emit_build_argv_utf8(
+        &self,
+        _entry_symbol: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("os::args UTF-8 argv build is only implemented on windows-x86_64".to_string())
+    }
     /// Whether the raw program entry arrives 8-bytes-misaligned relative to the
     /// 16-byte ABI stack and needs one `sub sp, 8` before the shared preamble.
     ///
@@ -303,6 +329,95 @@ pub(crate) trait CodegenPlatform {
     /// binary for free.
     fn libc(&self) -> Option<crate::manifest::libraries::Libc> {
         None
+    }
+    /// Enable terminal styling output on a platform that gates ANSI/VT escape
+    /// interpretation behind an explicit mode bit. `term::on` calls this once,
+    /// before writing its first escape sequence. The default emits nothing — a
+    /// POSIX terminal interprets ANSI unconditionally, so macOS/Linux/riscv stay
+    /// byte-identical. The Windows backend overrides it to set
+    /// `ENABLE_VIRTUAL_TERMINAL_PROCESSING` on the stdout console handle so the
+    /// shared ANSI-emitting `term::` arms render (plan-66-D).
+    fn emit_enable_vt_output(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
+    /// Windows-only `os::getEnv` primitive (plan-66-B). Reads a UTF-8 NUL-terminated
+    /// variable name from `ARG[0]`, looks it up via `GetEnvironmentVariableW`
+    /// (marshaling name → UTF-16 and the value UTF-16 → UTF-8), and leaves a
+    /// freshly arena-allocated UTF-8 NUL-terminated value C-string pointer in the
+    /// return register — or 0 when the variable is not set. Same register contract
+    /// as the POSIX `getenv` the other platforms call, so the shared helper's
+    /// found/not-found/build-string tail is reused unchanged. Non-Windows platforms
+    /// never take this arm; the default is an error rather than a silent stub.
+    fn emit_env_get(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("os::getEnv Windows primitive is only implemented on windows-x86_64".to_string())
+    }
+    /// Windows-only `os::setEnv`/`unsetEnv` primitive (plan-66-B). Reads a UTF-8
+    /// name from `ARG[0]` and a UTF-8 value from `ARG[1]` (or 0 in `ARG[1]` to
+    /// delete the variable), marshals both to UTF-16, and calls
+    /// `SetEnvironmentVariableW`, leaving its BOOL result (0 = failure) in the
+    /// return register. Non-Windows platforms call `setenv`/`unsetenv` directly.
+    fn emit_env_set(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("os::setEnv Windows primitive is only implemented on windows-x86_64".to_string())
+    }
+    /// Allocate `ARG[0]` bytes from the process heap, returning the pointer in the
+    /// return register (0 on failure) — the `malloc` contract. Defaults to a libc
+    /// `malloc` call (byte-identical on macOS/Linux/riscv); Windows has no CRT, so it
+    /// overrides this with GetProcessHeap + HeapAlloc (plan-66-C). Used by the
+    /// stdin-broadcast log, whose growable buffer lives outside the arena.
+    fn emit_heap_alloc(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.emit_libc_call("malloc", from, platform_imports, instructions, relocations)
+    }
+    /// Free the heap block whose pointer is in `ARG[0]` — the `free` contract.
+    /// Defaults to a libc `free` call; Windows overrides with GetProcessHeap +
+    /// HeapFree (plan-66-C).
+    fn emit_heap_free(
+        &self,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        self.emit_libc_call("free", from, platform_imports, instructions, relocations)
+    }
+    /// Windows-only string-query primitive (plan-66-B). Runs the `*W` OS query named
+    /// by `which` (`"hostName"` = GetComputerNameExW, `"userName"` = GetUserNameW,
+    /// `"executablePath"` = GetModuleFileNameW) into a wide buffer, marshals the
+    /// UTF-16 result to a fresh arena UTF-8 NUL-terminated C-string, and leaves that
+    /// pointer in the return register — or 0 on failure. The shared `os::hostName`/
+    /// `userName`/`executablePath` helpers build their `String` from that pointer.
+    fn emit_os_wide_string(
+        &self,
+        _which: &str,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Err("os wide-string query is only implemented on windows-x86_64".to_string())
     }
     /// Copy the saved terminal state at `base + original_offset` to
     /// `base + modified_offset`, then edit the copy into single-key raw mode:

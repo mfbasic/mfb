@@ -1,0 +1,36 @@
+{
+  "project": "csv_codegen_cover_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 6 },
+    { "module": "csv", "line": 7 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "gridA", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "string", "value": "name,age\nAda,36" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "gridA" }] }] }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "gridB", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "named", "name": "text", "value": { "kind": "string", "value": "a,b,c" } }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "gridB" }] }] }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "grid", "type": "List OF List OF String", "value": { "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "string", "value": "name" }, { "kind": "string", "value": "age" }] }, { "kind": "list", "values": [{ "kind": "string", "value": "Grace" }, { "kind": "string", "value": "Hop,per" }] }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "textA", "type": "String", "value": { "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "identifier", "value": "grid" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "textA" }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "textB", "type": "String", "value": { "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "named", "name": "value", "value": { "kind": "identifier", "value": "gridA" } }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "textB" }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 29 }
+      ]
+    }
+    ]
+  }
+  ]
+}
