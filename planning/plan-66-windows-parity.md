@@ -569,6 +569,17 @@ Commit: —
 
 ## Corrections
 
+- **2026-07-26 (Prerequisites gate re-run — resume for J-full/K/E-openWithin).**
+  Gate re-run in a fresh integration worktree `.claude/worktrees/P-66`
+  (`worktree-P-66` off main `b2227871a`, which already carries A–I+F/G/H merged as
+  ancestor `a3de67f94`). All five rows re-measured **MET**: `win_x86_64::BACKEND`
+  registered (`target.rs:210`); box reachable (`ssh -p 2230 … 'echo BOX_OK'` →
+  `BOX_OK`); `PlatformFamily::Windows` exhaustive across `shared/code/`;
+  `group_imports_by_dll` string-keyed (`os/windows/link/mod.rs:57`); widget toolkit
+  still absent (`grep -rl '_mfb_rt_app_layout\|addButton' src/` → no matches).
+  Windows now advertises **104** runtime calls (was 87 at plan authoring;
+  `grep -cE '"\w+\.' src/target/win_x86_64/mod.rs`), macOS 155. Remaining plan work:
+  **E `openWithin`**, **J-full** (10 app methods), **K** (`.ico`/`.rsrc`).
 - **2026-07-26 (Prerequisites gate re-run).** All five Prerequisites rows
   re-measured and confirmed **MET**; Win11 box re-verified reachable on ssh port
   2230 (`ssh -p 2230 test@127.0.0.1 'echo BOX_OK'` → `BOX_OK`). Gate passed.
