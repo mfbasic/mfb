@@ -604,9 +604,11 @@ Commit: d9025af8c / merged e5c500020
   reconcile can be added if a program drives `app::setMode` into TUI without
   `term::on`. 5 new unit tests. **A real bug fixed en route:** a `branch_lt`-based
   col-wrap mis-advanced the cursor on the x86 backend (cdb showed col running
-  backwards: R@col3, E@col2, D@col2); a separated `branch_ge` structure is correct
-  (R@col3, E@col4, D@col5). The `branch_lt` anomaly (also used at 3 sites in
-  `code.rs`) is filed for verification. **Acceptance MET** — box-proven on 2230
+  backwards: R@col3, E@col2, D@col2); a separated `branch_ge` structure (each branch
+  owns its store) is correct (R@col3, E@col4, D@col5). Root cause was the
+  shared-store-after-skip structure, NOT `branch_lt` (which is used correctly at 3
+  other `code.rs` sites on tested paths), so no compiler bug is filed. **Acceptance
+  MET** — box-proven on 2230
   (cdb TextOutW/SetTextColor trace, the grid renders into a hidden window so cdb is
   the ssh-visible oracle): `term::on; setForeground(255,0,0); moveTo(1,5);
   print("RED"); setForeground(0,255,0); moveTo(3,10); print("GRN"); sync; off` →

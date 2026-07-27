@@ -913,10 +913,13 @@ pub(super) fn emit_app_io_write_helper(
         ins.push(abi::shift_left_immediate(abi::ARG[2], abi::ARG[2], 4)); // y = row*16
         ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GMEMDC));
         call_external(symbol, "TextOutW", GDI32, &mut ins, &mut rel);
-        // col++; wrap at TUI_COLS → col=0, row++. An earlier branch_lt-based wrap
-        // (skip-block-then-shared-store) mis-advanced the cursor on the x86 backend
-        // (col ran backwards, box-observed); this separated branch_ge structure is
-        // verified correct on 2230. The branch_lt anomaly is filed for verification.
+        // col++; wrap at TUI_COLS → col=0, row++. NB: an earlier structure that
+        // branched OVER an inline wrap block to a SHARED store (branch_lt skip →
+        // fall-through store) mis-advanced the cursor on the x86 backend (cdb showed
+        // col running backwards). This separated-paths form (each branch owns its
+        // store) is verified correct on 2230. branch_lt itself is used correctly
+        // elsewhere in code.rs, so the fault was the shared-store structure, not the
+        // condition.
         load_addr(abi::ARG[2], TUI_COL_SYM, symbol, &mut ins, &mut rel);
         ins.push(abi::load_u64(abi::ARG[0], abi::ARG[2], 0));
         ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
