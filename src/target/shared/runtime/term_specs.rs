@@ -90,6 +90,12 @@ pub(crate) const TERM_DRAW_BOX_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     abi: RuntimeHelperAbi { returns: "Nothing" },
 };
 
+pub(crate) const TERM_FILL_RECT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Term,
+    call: "term.fillRect",
+    abi: RuntimeHelperAbi { returns: "Nothing" },
+};
+
 pub(crate) const TERM_GET_FOREGROUND_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Term,
     call: "term.getForeground",

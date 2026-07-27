@@ -23,6 +23,19 @@
     { "name": "HeavyDot" },
     { "name": "Double" }
     ]
+  },
+  {
+    "kind": "enum",
+    "visibility": "export",
+    "name": "FillStyle",
+    "members": [
+    { "name": "Filled" },
+    { "name": "Light" },
+    { "name": "Medium" },
+    { "name": "Dark" },
+    { "name": "Checker" },
+    { "name": "CheckerAlt" }
+    ]
   }
   ],
   "imports": [

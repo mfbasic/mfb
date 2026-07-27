@@ -8,6 +8,7 @@ the term package record and enum types
 term::TermColor
 term::TermSize
 term::LineStyle
+term::FillStyle
 ```
 
 ## Package
@@ -49,10 +50,14 @@ it again each frame rather than caching the
 result. [[src/builtins/term.rs:TERM_SIZE_TYPE]]
 
 `LineStyle` is an enum selecting the box-drawing weight and pattern for
-`term::drawHLine` and `term::drawVLine`. Its members are addressed as
-`LineStyle.Light`, `LineStyle.Heavy`, and so on. Each variant has a horizontal
-form (used by `drawHLine`) and a vertical form (used by `drawVLine`); the two
-functions pick the right form for their orientation. [[src/builtins/term.rs:LINE_STYLE_TYPE]]
+`term::drawHLine`, `term::drawVLine`, and `term::drawBox`. Its members are
+addressed as `LineStyle.Light`, `LineStyle.Heavy`, and so on. Each variant has a
+horizontal form (used by `drawHLine`) and a vertical form (used by `drawVLine`);
+the two functions pick the right form for their orientation, and `drawBox` uses
+both plus the matching corners. [[src/builtins/term.rs:LINE_STYLE_TYPE]]
+
+`FillStyle` is an enum selecting the block or shade glyph for `term::fillRect`,
+addressed as `FillStyle.Filled`, `FillStyle.Light`, and so on. [[src/builtins/term.rs:FILL_STYLE_TYPE]]
 
 Coordinates elsewhere in the package are zero-based from the top-left corner, so
 on a surface of `columns` by `rows` the valid cells are columns `0 .. columns - 1`
@@ -93,6 +98,19 @@ variant has a horizontal and a vertical form. [[src/builtins/term.rs:LINE_STYLE_
 | `LightDot` | `┈` | `┊` | Thin quadruple-dot line. |
 | `HeavyDot` | `┉` | `┋` | Thick quadruple-dot line. |
 | `Double` | `═` | `║` | Double line. |
+
+### term::FillStyle
+
+The block or shade glyph `term::fillRect` stamps into every cell of a region. [[src/builtins/term.rs:FILL_STYLE_TYPE]]
+
+| Variant | Glyph | Description |
+| --- | --- | --- |
+| `Filled` | `█` | Solid full block. |
+| `Light` | `░` | Light shade. |
+| `Medium` | `▒` | Medium shade. |
+| `Dark` | `▓` | Dark shade. |
+| `Checker` | `▚` | Upper-left + lower-right quadrants. |
+| `CheckerAlt` | `▞` | Upper-right + lower-left quadrants. |
 
 ## See also
 

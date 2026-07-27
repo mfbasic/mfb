@@ -1471,6 +1471,135 @@ pub(super) fn emit_term_draw_box_helper() -> CodeFunction {
     }
 }
 
+/// IMP for `TermView mfbFillRect:` (`void mfbFillRect:(id self, SEL, id)`): fill
+/// the rectangle `term::fillRect` requested. The worker resolved the `FillStyle`
+/// ordinal to a unichar and parked it plus the two raw corner points in the state;
+/// this normalises the points, clamps the row range to the grid, and stamps one
+/// clamped horizontal run per row with the fill glyph. Main-thread only;
+/// present-driven (no redraw request).
+pub(super) fn emit_term_fill_rect_helper() -> CodeFunction {
+    let mut asm = Asm::new(MFB_FILL_RECT_SYMBOL);
+    // Frame: lr@0, then callee-saved state@8, cells@16, rows@24, cols@32,
+    // xlo@40, xhi@48, ylo@56, yhi@64.
+    let frame = 80;
+    let state = abi::LOCAL[0];
+    let cells = abi::LOCAL[1];
+    let rows = abi::LOCAL[2];
+    let cols = abi::LOCAL[3];
+    let xlo = abi::LOCAL[4];
+    let xhi = abi::LOCAL[5];
+    let ylo = abi::LOCAL[6];
+    let yhi = abi::LOCAL[7];
+    let glyph = abi::SCRATCH[0];
+    let row = abi::SCRATCH[8];
+    let ctx = AppStampCtx {
+        state,
+        cells,
+        rows,
+        cols,
+        lo: abi::SCRATCH[1],
+        hi: abi::SCRATCH[2],
+        pos: abi::SCRATCH[3],
+        idx: abi::SCRATCH[4],
+        cell: abi::SCRATCH[5],
+        tmp: abi::SCRATCH[6],
+        attr: abi::SCRATCH[7],
+    };
+    let saved: [(&str, usize); 8] = [
+        (state, 8),
+        (cells, 16),
+        (rows, 24),
+        (cols, 32),
+        (xlo, 40),
+        (xhi, 48),
+        (ylo, 56),
+        (yhi, 64),
+    ];
+
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(state, "x0"));
+    asm.push(abi::compare_immediate(state, "0"));
+    asm.push(abi::branch_eq("fr_done"));
+    asm.push(abi::load_u64(cells, state, TV_CELLS_OFFSET));
+    asm.push(abi::compare_immediate(cells, "0"));
+    asm.push(abi::branch_eq("fr_done"));
+    asm.push(abi::load_u64(rows, state, TV_ROWS_OFFSET));
+    asm.push(abi::load_u64(cols, state, TV_COLS_OFFSET));
+    asm.push(abi::load_u64(glyph, state, TV_FILL_GLYPH_OFFSET));
+
+    // Normalise the two corner points (ctx.lo/ctx.hi as scratch temps here).
+    asm.push(abi::load_u64(ctx.lo, state, TV_FILL_X1_OFFSET));
+    asm.push(abi::load_u64(ctx.hi, state, TV_FILL_X2_OFFSET));
+    asm.push(abi::move_register(xlo, ctx.lo));
+    asm.push(abi::move_register(xhi, ctx.hi));
+    asm.push(abi::compare_registers(ctx.lo, ctx.hi));
+    asm.push(abi::branch_le("fr_x_ok"));
+    asm.push(abi::move_register(xlo, ctx.hi));
+    asm.push(abi::move_register(xhi, ctx.lo));
+    asm.push(abi::label("fr_x_ok"));
+    asm.push(abi::load_u64(ctx.lo, state, TV_FILL_Y1_OFFSET));
+    asm.push(abi::load_u64(ctx.hi, state, TV_FILL_Y2_OFFSET));
+    asm.push(abi::move_register(ylo, ctx.lo));
+    asm.push(abi::move_register(yhi, ctx.hi));
+    asm.push(abi::compare_registers(ctx.lo, ctx.hi));
+    asm.push(abi::branch_le("fr_y_ok"));
+    asm.push(abi::move_register(ylo, ctx.hi));
+    asm.push(abi::move_register(yhi, ctx.lo));
+    asm.push(abi::label("fr_y_ok"));
+    // Clamp the row range: ylo up to 0, yhi down to rows-1; empty → done.
+    asm.push(abi::compare_immediate(ylo, "0"));
+    asm.push(abi::branch_ge("fr_ylo_ok"));
+    asm.push(abi::move_immediate(ylo, "Integer", "0"));
+    asm.push(abi::label("fr_ylo_ok"));
+    asm.push(abi::subtract_immediate(ctx.tmp, rows, 1));
+    asm.push(abi::compare_registers(yhi, ctx.tmp));
+    asm.push(abi::branch_le("fr_yhi_ok"));
+    asm.push(abi::move_register(yhi, ctx.tmp));
+    asm.push(abi::label("fr_yhi_ok"));
+    asm.push(abi::compare_registers(ylo, yhi));
+    asm.push(abi::branch_gt("fr_done"));
+
+    // One horizontal run per row over ylo..=yhi.
+    asm.push(abi::move_register(row, ylo));
+    asm.push(abi::label("fr_row"));
+    asm.push(abi::compare_registers(row, yhi));
+    asm.push(abi::branch_gt("fr_done"));
+    app_stamp_run(&mut asm, &ctx, true, row, xlo, xhi, glyph, "fr_run", "fr_next");
+    asm.push(abi::label("fr_next"));
+    asm.push(abi::add_immediate(row, row, 1));
+    asm.push(abi::branch("fr_row"));
+
+    asm.push(abi::label("fr_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+
+    CodeFunction {
+        name: "macapp.term.fillRect".to_string(),
+        symbol: MFB_FILL_RECT_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
 /// `void _mfb_macapp_term_scroll(void *state /*x0*/)`: scroll the grid up one row
 /// (memmove rows 1.. to 0.., then clear the new bottom row). Main-thread only.
 pub(super) fn emit_term_scroll_helper() -> CodeFunction {

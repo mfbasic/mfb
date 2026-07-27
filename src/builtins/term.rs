@@ -21,6 +21,10 @@ pub(crate) const TERM_SIZE_TYPE: &str = "TermSize";
 /// only declare records), so the resolver learns its members from the injected
 /// package source while `is_builtin_type` accepts the bare type name here.
 pub(crate) const LINE_STYLE_TYPE: &str = "LineStyle";
+/// The `FillStyle` enum (`Filled`/`Light`/`Medium`/`Dark`/`Checker`/`CheckerAlt`)
+/// selecting the block or shade glyph `term::fillRect` stamps. Declared alongside
+/// `LineStyle` in `term_package.mfb`.
+pub(crate) const FILL_STYLE_TYPE: &str = "FillStyle";
 
 pub(crate) const ON: &str = "term.on";
 pub(crate) const OFF: &str = "term.off";
@@ -37,6 +41,7 @@ pub(crate) const MOVE_TO: &str = "term.moveTo";
 pub(crate) const DRAW_HLINE: &str = "term.drawHLine";
 pub(crate) const DRAW_VLINE: &str = "term.drawVLine";
 pub(crate) const DRAW_BOX: &str = "term.drawBox";
+pub(crate) const FILL_RECT: &str = "term.fillRect";
 pub(crate) const GET_FOREGROUND: &str = "term.getForeground";
 pub(crate) const GET_BACKGROUND: &str = "term.getBackground";
 pub(crate) const GET_BOLD: &str = "term.getBold";
@@ -65,6 +70,7 @@ pub(crate) fn is_term_call(name: &str) -> bool {
             | DRAW_HLINE
             | DRAW_VLINE
             | DRAW_BOX
+            | FILL_RECT
             | GET_FOREGROUND
             | GET_BACKGROUND
             | GET_BOLD
@@ -74,7 +80,10 @@ pub(crate) fn is_term_call(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == TERM_COLOR_TYPE || name == TERM_SIZE_TYPE || name == LINE_STYLE_TYPE
+    name == TERM_COLOR_TYPE
+        || name == TERM_SIZE_TYPE
+        || name == LINE_STYLE_TYPE
+        || name == FILL_STYLE_TYPE
 }
 
 pub(crate) fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
@@ -95,6 +104,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         DRAW_HLINE => Some(&[&["line"], &["row"], &["colA"], &["colB"]]),
         DRAW_VLINE => Some(&[&["line"], &["col"], &["rowA"], &["rowB"]]),
         DRAW_BOX => Some(&[&["line"], &["x1"], &["y1"], &["x2"], &["y2"]]),
+        FILL_RECT => Some(&[&["fill"], &["x1"], &["y1"], &["x2"], &["y2"]]),
         _ => None,
     }
 }
@@ -110,6 +120,7 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
         MOVE_TO => Some(&["Integer", "Integer"]),
         DRAW_HLINE | DRAW_VLINE => Some(&[LINE_STYLE_TYPE, "Integer", "Integer", "Integer"]),
         DRAW_BOX => Some(&[LINE_STYLE_TYPE, "Integer", "Integer", "Integer", "Integer"]),
+        FILL_RECT => Some(&[FILL_STYLE_TYPE, "Integer", "Integer", "Integer", "Integer"]),
         _ => None,
     }
 }
@@ -117,9 +128,8 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         ON | OFF | SET_FOREGROUND | SET_BACKGROUND | SET_BOLD | SET_UNDERLINE | SHOW_CURSOR
-        | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO | DRAW_HLINE | DRAW_VLINE | DRAW_BOX => {
-            Some("Nothing")
-        }
+        | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO | DRAW_HLINE | DRAW_VLINE | DRAW_BOX
+        | FILL_RECT => Some("Nothing"),
         IS_ON | GET_BOLD | GET_UNDERLINE => Some("Boolean"),
         GET_FOREGROUND | GET_BACKGROUND => Some(TERM_COLOR_TYPE),
         TERMINAL_SIZE => Some(TERM_SIZE_TYPE),
@@ -183,6 +193,7 @@ mod tests {
         DRAW_HLINE,
         DRAW_VLINE,
         DRAW_BOX,
+        FILL_RECT,
         GET_FOREGROUND,
         GET_BACKGROUND,
         GET_BOLD,
@@ -220,10 +231,12 @@ mod tests {
         assert!(is_builtin_type(TERM_COLOR_TYPE));
         assert!(is_builtin_type(TERM_SIZE_TYPE));
         assert!(is_builtin_type(LINE_STYLE_TYPE));
+        assert!(is_builtin_type(FILL_STYLE_TYPE));
         assert!(!is_builtin_type("String"));
         assert!(!is_builtin_type("File"));
-        // LineStyle is an enum, not a record, so it has no native field layout.
+        // The enums are not records, so they have no native field layout.
         assert_eq!(builtin_type_fields(LINE_STYLE_TYPE), None);
+        assert_eq!(builtin_type_fields(FILL_STYLE_TYPE), None);
         assert_eq!(
             builtin_type_fields(TERM_COLOR_TYPE),
             Some(&[("r", "Byte"), ("g", "Byte"), ("b", "Byte")][..])
@@ -318,6 +331,14 @@ mod tests {
             param_types(DRAW_BOX),
             Some(&["LineStyle", "Integer", "Integer", "Integer", "Integer"][..])
         );
+        assert_eq!(
+            call_param_names(FILL_RECT),
+            Some(&[&["fill"][..], &["x1"][..], &["y1"][..], &["x2"][..], &["y2"][..]][..])
+        );
+        assert_eq!(
+            param_types(FILL_RECT),
+            Some(&["FillStyle", "Integer", "Integer", "Integer", "Integer"][..])
+        );
     }
 
     #[test]
@@ -337,6 +358,7 @@ mod tests {
             DRAW_HLINE,
             DRAW_VLINE,
             DRAW_BOX,
+            FILL_RECT,
         ] {
             assert_eq!(call_return_type_name(name), Some("Nothing"), "{name}");
         }
@@ -391,6 +413,10 @@ mod tests {
             expected_arguments(DRAW_BOX).as_deref(),
             Some("LineStyle, Integer, Integer, Integer, Integer")
         );
+        assert_eq!(
+            expected_arguments(FILL_RECT).as_deref(),
+            Some("FillStyle, Integer, Integer, Integer, Integer")
+        );
     }
 
     #[test]
@@ -408,5 +434,6 @@ mod tests {
         assert_eq!(arity(DRAW_HLINE), Some((4, 4)));
         assert_eq!(arity(DRAW_VLINE), Some((4, 4)));
         assert_eq!(arity(DRAW_BOX), Some((5, 5)));
+        assert_eq!(arity(FILL_RECT), Some((5, 5)));
     }
 }

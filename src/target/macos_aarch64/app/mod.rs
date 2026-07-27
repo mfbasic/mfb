@@ -311,6 +311,12 @@ const MFB_DRAW_LINE_SYMBOL: &str = "_mfb_macapp_term_drawLine";
 const SEL_MFB_DRAW_BOX: (&str, &str) = ("_mfb_macapp_sel_mfbDrawBox", "mfbDrawBox:");
 /// IMP for the TermView `mfbDrawBox:` main-thread draw-box entry point.
 const MFB_DRAW_BOX_SYMBOL: &str = "_mfb_macapp_term_drawBox";
+/// `mfbFillRect:` — the main-thread grid fill-rectangle entry point for
+/// `term::fillRect`. Marshaled like `mfbDrawBox:`; reads the fill glyph + two
+/// points the worker parked in the TermView state.
+const SEL_MFB_FILL_RECT: (&str, &str) = ("_mfb_macapp_sel_mfbFillRect", "mfbFillRect:");
+/// IMP for the TermView `mfbFillRect:` main-thread fill-rectangle entry point.
+const MFB_FILL_RECT_SYMBOL: &str = "_mfb_macapp_term_fillRect";
 // plan-62-C Phase 2: the runtime `app::setMode` reconcile. The worker marshals
 // `mfbReconcile:` onto the main thread (via the app delegate) to build or tear down
 // the window surface to match the new presentation mode.
@@ -425,7 +431,15 @@ const TV_BOX_X1_OFFSET: usize = 184; // i64 point 1 column (raw)
 const TV_BOX_Y1_OFFSET: usize = 192; // i64 point 1 row (raw)
 const TV_BOX_X2_OFFSET: usize = 200; // i64 point 2 column (raw)
 const TV_BOX_Y2_OFFSET: usize = 208; // i64 point 2 row (raw)
-const TV_STATE_SIZE: usize = 216;
+// term::fillRect parameters. The worker resolves the FillStyle ordinal to the
+// block/shade glyph (unichar) and parks it plus the two raw corner points here
+// before marshaling mfbFillRect:; the IMP normalises/clamps and fills.
+const TV_FILL_GLYPH_OFFSET: usize = 216; // u32 fill glyph
+const TV_FILL_X1_OFFSET: usize = 224; // i64 point 1 column (raw)
+const TV_FILL_Y1_OFFSET: usize = 232; // i64 point 1 row (raw)
+const TV_FILL_X2_OFFSET: usize = 240; // i64 point 2 column (raw)
+const TV_FILL_Y2_OFFSET: usize = 248; // i64 point 2 row (raw)
+const TV_STATE_SIZE: usize = 256;
 /// Default foreground packed value (white), shared by term_init and the helpers.
 const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 
@@ -620,6 +634,7 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_write_string_helper(),
         emit_term_draw_line_helper(),
         emit_term_draw_box_helper(),
+        emit_term_fill_rect_helper(),
         emit_term_accepts_first_responder(),
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
@@ -777,6 +792,7 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_MFB_CLEAR,
         SEL_MFB_DRAW_LINE,
         SEL_MFB_DRAW_BOX,
+        SEL_MFB_FILL_RECT,
         SEL_ACCEPTS_FIRST_RESPONDER,
         STR_TERMVIEW_CLASS_NAME,
         STR_DRAW_RECT_TYPES,

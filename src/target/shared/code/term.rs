@@ -257,6 +257,7 @@ pub(super) fn lower_term_helper(
         "term.drawHLine" => emit_draw_line(symbol, term_state_offset, true, &mut instructions),
         "term.drawVLine" => emit_draw_line(symbol, term_state_offset, false, &mut instructions),
         "term.drawBox" => emit_draw_box(symbol, term_state_offset, &mut instructions),
+        "term.fillRect" => emit_fill_rect(symbol, term_state_offset, &mut instructions),
         "term.getForeground" => emit_get_color(
             symbol,
             term_state_offset,
@@ -729,7 +730,7 @@ fn packed_glyph(codepoint: u32) -> u32 {
 fn emit_select_glyph(
     ord: &str,
     dst: &str,
-    table: &[u32; 7],
+    table: &[u32],
     tag: &str,
     instructions: &mut Vec<CodeInstruction>,
 ) {
@@ -1162,6 +1163,147 @@ fn emit_draw_box(
         emit_stamp_cell(&ctx, row, col, glyph, &skip, instructions);
         instructions.push(abi::label(&skip));
     }
+    instructions.push(abi::label(&inactive));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// `term::fillRect(fill, x1, y1, x2, y2)` (console): fill the rectangle between two
+/// opposite points (x = column, y = row, either order) with the `FillStyle` block
+/// or shade glyph, using the current colours/attributes. Implemented as one clamped
+/// horizontal run per row (reusing the line stamper), so the region clamps to the
+/// grid the same way; a fully off-grid rectangle fills nothing. Shown on the next
+/// `term::sync`; a no-op while TUI mode is off.
+fn emit_fill_rect(
+    symbol: &str,
+    term_state_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let inactive = format!("{symbol}_inactive");
+    let ord = "%v9";
+    let ax1 = "%v10";
+    let ay1 = "%v11";
+    let ax2 = "%v12";
+    let ay2 = "%v13";
+    let gp = "%v14";
+    let rows = "%v15";
+    let cols = "%v16";
+    let back = "%v17";
+    let fg = "%v18";
+    let bg = "%v19";
+    let bold = "%v20";
+    let un = "%v21";
+    let xlo = "%v22";
+    let xhi = "%v23";
+    let ylo = "%v24";
+    let yhi = "%v25";
+    let glyph = "%v26";
+    let row = "%v27";
+    let ctx = StampCtx {
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        lo: "%v28",
+        hi: "%v29",
+        idx: "%v30",
+        cell: "%v31",
+        pos: "%v32",
+        tmp: "%v33",
+    };
+
+    emit_gate_inactive(term_state_offset, &inactive, instructions);
+    instructions.extend([
+        abi::move_register(ord, abi::ARG[0]),
+        abi::move_register(ax1, abi::ARG[1]),
+        abi::move_register(ay1, abi::ARG[2]),
+        abi::move_register(ax2, abi::ARG[3]),
+        abi::move_register(ay2, abi::ARG[4]),
+    ]);
+    emit_load_grid(
+        term_state_offset,
+        gp,
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        &inactive,
+        instructions,
+    );
+    // Normalise the corners (xlo/xhi over columns, ylo/yhi over rows), then clamp
+    // the row range to the grid (the per-row run clamps the columns).
+    let x_ok = format!("{symbol}_fr_x_ok");
+    let y_ok = format!("{symbol}_fr_y_ok");
+    let ylo_ok = format!("{symbol}_fr_ylo_ok");
+    let yhi_ok = format!("{symbol}_fr_yhi_ok");
+    instructions.extend([
+        abi::move_register(xlo, ax1),
+        abi::move_register(xhi, ax2),
+        abi::compare_registers(ax1, ax2),
+        abi::branch_le(&x_ok),
+        abi::move_register(xlo, ax2),
+        abi::move_register(xhi, ax1),
+        abi::label(&x_ok),
+        abi::move_register(ylo, ay1),
+        abi::move_register(yhi, ay2),
+        abi::compare_registers(ay1, ay2),
+        abi::branch_le(&y_ok),
+        abi::move_register(ylo, ay2),
+        abi::move_register(yhi, ay1),
+        abi::label(&y_ok),
+        abi::compare_immediate(ylo, "0"),
+        abi::branch_ge(&ylo_ok),
+        abi::move_immediate(ylo, "Integer", "0"),
+        abi::label(&ylo_ok),
+        abi::subtract_immediate(ctx.tmp, rows, 1),
+        abi::compare_registers(yhi, ctx.tmp),
+        abi::branch_le(&yhi_ok),
+        abi::move_register(yhi, ctx.tmp),
+        abi::label(&yhi_ok),
+        abi::compare_registers(ylo, yhi),
+        abi::branch_gt(&inactive),
+    ]);
+    emit_select_glyph(
+        ord,
+        glyph,
+        &TERM_FILL_CODEPOINTS,
+        &format!("{symbol}_fr_glyph"),
+        instructions,
+    );
+    // One horizontal run per row over ylo..=yhi.
+    let loop_row = format!("{symbol}_fr_row");
+    let row_next = format!("{symbol}_fr_next");
+    instructions.extend([
+        abi::move_register(row, ylo),
+        abi::label(&loop_row),
+        abi::compare_registers(row, yhi),
+        abi::branch_gt(&inactive),
+    ]);
+    emit_stamp_run(
+        &ctx,
+        true,
+        row,
+        xlo,
+        xhi,
+        glyph,
+        &format!("{symbol}_fr"),
+        &row_next,
+        instructions,
+    );
+    instructions.extend([
+        abi::label(&row_next),
+        abi::add_immediate(row, row, 1),
+        abi::branch(&loop_row),
+    ]);
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
         RESULT_TAG_REGISTER,

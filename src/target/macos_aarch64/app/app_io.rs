@@ -621,6 +621,7 @@ pub(crate) fn emit_app_term_helper(
         "term.drawHLine" => emit_app_draw_line(symbol, term_state_offset, true),
         "term.drawVLine" => emit_app_draw_line(symbol, term_state_offset, false),
         "term.drawBox" => emit_app_draw_box(symbol, term_state_offset),
+        "term.fillRect" => emit_app_fill_rect(symbol, term_state_offset),
         "term.clear" => emit_app_clear(symbol, term_state_offset),
         "term.sync" => emit_app_term_sync(symbol, term_state_offset),
         "term.showCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "1"),
@@ -1087,7 +1088,7 @@ fn emit_app_draw_line(symbol: &str, term_state_offset: usize, is_horizontal: boo
 
 /// Emit `dst = table[ord]` (a unichar code point) as a select-by-ordinal chain,
 /// defaulting to entry 0 for an out-of-range ordinal. `tag` uniquifies the labels.
-fn emit_app_select_unichar(asm: &mut Asm, ord: &str, dst: &str, table: &[u32; 7], tag: &str) {
+fn emit_app_select_unichar(asm: &mut Asm, ord: &str, dst: &str, table: &[u32], tag: &str) {
     let done = format!("{tag}_done");
     asm.push(abi::move_immediate(dst, "Integer", &table[0].to_string()));
     for (ordinal, codepoint) in table.iter().enumerate().skip(1) {
@@ -1172,6 +1173,90 @@ fn emit_app_draw_box(symbol: &str, term_state_offset: usize) -> AppHookBody {
     //     waitUntilDone:YES]
     asm.load_selector(SEL_MFB_DRAW_BOX.0);
     asm.push(abi::move_register(abi::LOCAL[3], "x1")); // mfbDrawBox: sel
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", abi::LOCAL[3]));
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // withObject: nil
+    asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&done));
+    emit_term_ok_return(
+        &mut asm,
+        frame,
+        &[(abi::LOCAL[1], 8), (abi::LOCAL[2], 16), (abi::LOCAL[3], 24)],
+    );
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::fillRect` app body: resolve the `FillStyle` ordinal to a unichar, park
+/// it plus the two raw corner points in the TermView state, then marshal
+/// `mfbFillRect:` onto the main thread (waitUntilDone:YES), which normalises,
+/// clamps, and fills. Present-driven.
+fn emit_app_fill_rect(symbol: &str, term_state_offset: usize) -> AppHookBody {
+    let mut asm = Asm::new(symbol);
+    // Frame: lr@0, x20(tv)@8, x21(state)@16, x22(sel)@24, ord@32, x1@40, y1@48,
+    // x2@56, y2@64.
+    let frame = 80;
+    let done = format!("{symbol}_done");
+    let ord = abi::SCRATCH[0];
+    let dst = abi::SCRATCH[1];
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 32)); // ordinal
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), 40)); // x1
+    asm.push(abi::store_u64("x2", abi::stack_pointer(), 48)); // y1
+    asm.push(abi::store_u64("x3", abi::stack_pointer(), 56)); // x2
+    asm.push(abi::store_u64("x4", abi::stack_pointer(), 64)); // y2
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    asm.external_data(abi::LOCAL[1], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0")); // termView or nil
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // state or nil
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_eq(&done));
+    // Resolve the fill glyph from the parked ordinal.
+    asm.push(abi::load_u64(ord, abi::stack_pointer(), 32));
+    emit_app_select_unichar(
+        &mut asm,
+        ord,
+        dst,
+        &code::TERM_FILL_CODEPOINTS,
+        &format!("{symbol}_fill"),
+    );
+    asm.push(abi::store_u64(dst, abi::LOCAL[2], TV_FILL_GLYPH_OFFSET));
+    for (slot, off) in [
+        (40usize, TV_FILL_X1_OFFSET),
+        (48, TV_FILL_Y1_OFFSET),
+        (56, TV_FILL_X2_OFFSET),
+        (64, TV_FILL_Y2_OFFSET),
+    ] {
+        asm.push(abi::load_u64(dst, abi::stack_pointer(), slot));
+        asm.push(abi::store_u64(dst, abi::LOCAL[2], off));
+    }
+    // [tv performSelectorOnMainThread:@selector(mfbFillRect:) withObject:nil
+    //     waitUntilDone:YES]
+    asm.load_selector(SEL_MFB_FILL_RECT.0);
+    asm.push(abi::move_register(abi::LOCAL[3], "x1")); // mfbFillRect: sel
     asm.load_selector(SEL_PERFORM_ON_MAIN.0);
     asm.push(abi::move_register("x2", abi::LOCAL[3]));
     asm.push(abi::move_immediate("x3", "Integer", "0")); // withObject: nil
