@@ -510,7 +510,7 @@ Commit: 48e20c1e9 / merged 7b0d6ccf7
 Acceptance: `mfb build -target windows-x86_64 -app` no longer rejects at the gate; PE header Subsystem=2. **MET** (Subsystem=2 unit-test-proven; note: a full `-app` build still errors at codegen until J-full lands — a clean error, not a wrong result).
 Commit: d9025af8c / merged e5c500020
 
-### Phase J — Win32 app-mode floor  (SPIKE DONE, box-proven; FULL FLOOR NOT BUILT)
+### Phase J — Win32 app-mode floor  (COMPLETE — J-1..J-5 box-proven on 2230)
 - [~] **Message-loop↔worker spike: DONE and BOX-PROVEN** (`spike.rs`, test-only):
   a hand-assembled GUI-subsystem PE does RegisterClassExW→CreateWindowExW→
   CreateThread(worker)→GetMessage loop; the worker cross-thread `PostMessageW`s a
@@ -562,30 +562,134 @@ Commit: d9025af8c / merged e5c500020
   `hello-from-winapp`/`second-line` (io::print reached the EDIT control); without
   it the non-headless run exits cleanly (0) with no side effect; headless still
   prints. Commit `d997031e6`.
-- **J-4 — input round-trip.** A pipe (`CreatePipe`) whose read end is dup'd onto the
-  worker's stdin path; WndProc `WM_CHAR`/`WM_KEYDOWN` does line editing + commit to
-  the pipe; `emit_app_io_input_helper` + `emit_app_raw_input_mode` wired. **Acceptance:**
-  box run reads a typed line.
-- **J-5 — term:: TUI grid + mode reconcile + full box proof.** `emit_app_term_helper`
-  (cell-grid custom draw: colors/cursor/clear, modeled on `term_view.rs`),
-  `emit_app_mode_reconcile` + reconcile data objects. **Acceptance:** the full Phase-J
-  acceptance below, box-proven.
-- [ ] Tests: box run showing a window with transcript output + keystroke input.
+- **J-4 — input round-trip. DONE + box-proven.** `_main` creates an anonymous
+  `CreatePipe`, redirects fd 0 to the read end via `SetStdHandle(STD_INPUT, hRead)`
+  (the Win32 analog of macOS's `dup2(readEnd, 0)`), and subclasses the transcript
+  EDIT (`SetWindowLongPtrW(GWLP_WNDPROC)`). The subclass `editproc` writes each
+  `WM_CHAR` byte straight to the pipe (translating Enter `\r`→`\n` so `readLine`
+  terminates) — the per-character macOS keyDown model, NOT a fragile line
+  read-back — then `CallWindowProcW`-chains EVERY message to the stock EDIT proc,
+  so J-3's `EM_REPLACESEL` transcript appends are untouched (no regression).
+  `emit_app_io_input_helper` (prompt via `io.write` → `io.readLine`) and
+  `emit_app_raw_input_mode` (no-op: the pipe is already unbuffered per-key) are
+  wired via `code.rs`. A `MFB_WINAPP_INPUT` env test hook injects `WM_CHAR`s so the
+  round-trip is box-provable over ssh without a keyboard. **Two genuine fixes
+  landed with it:** (a) shared `io_stdin.rs` `emit_stdin_byte_read` set the
+  app-mode read fd via `return_register()` — right on aarch64 (x0==ARG[0]) but
+  garbage on any x86 ABI (rax≠ARG[0]); now `ARG[0]` (byte-identical on aarch64,
+  fixes a latent linux_gtk app bug too). (b) win `emit_poll_input` used
+  `WaitForSingleObject`, which false-positives on an anonymous pipe (signals with
+  no data queued); added a `GetFileType`→`PeekNamedPipe` Sleep-countdown branch.
+  **Acceptance MET** — box (2230): `io::input("Name? ")` with injected `ZaphodB`
+  → program prints `GOT[ZaphodB]END`, EXIT=0; `io::readChar` → `CHAR[Q]`;
+  `io::pollInput(300)` with no input → `READY[FALSE]` (was TRUE), with input →
+  `READY[TRUE]LINE[Hi]`; J-3 transcript still shows both `io::print` lines.
+  Commit: `1ffe9cb78`.
+- **J-5 — term:: TUI grid. DONE + box-proven.** A GDI cell grid (80×25, an
+  off-screen memory DC + `SYSTEM_FIXED_FONT`) painted on the main window.
+  `emit_app_term_helper` handles all 12 advertised app-mode term calls: `on` builds
+  the surface (CreateCompatibleDC/Bitmap + GetStockObject), clears it (PatBlt
+  BLACKNESS), sets `term_state.active`, and hides the transcript EDIT so the grid
+  shows through; `off` restores the EDIT; `clear` blacks the grid; `moveTo(row,col)`
+  sets the grid cursor; `setForeground/Background` pack `r|g<<8|b<<16` (GDI COLORREF
+  order) into `term_state`; `setBold/Underline/showCursor/hideCursor` store their
+  flags; `sync` InvalidateRect+UpdateWindow (WndProc's new WM_PAINT branch BitBlts
+  the memory DC); `terminalSize` returns a `{cols, rows}` arena record. `WndProc`
+  gained the WM_PAINT present. `emit_app_io_write_helper` now takes
+  `term_state_offset` and, when TUI is active, renders the string cell-by-cell into
+  the memory DC (SetTextColor/SetBkColor + per-char TextOutW, `\n`/`\r` handled, col
+  wraps at 80) instead of the (hidden) EDIT. gdi32 + the extra user32 imports added.
+  `emit_app_mode_reconcile` is left as the plan-62-B default (state-only setMode) —
+  `term::on`/`off` own the surface directly, so no separate reconcile is needed; a
+  reconcile can be added if a program drives `app::setMode` into TUI without
+  `term::on`. 5 new unit tests. **A real bug fixed en route:** a `branch_lt`-based
+  col-wrap mis-advanced the cursor on the x86 backend (cdb showed col running
+  backwards: R@col3, E@col2, D@col2); a separated `branch_ge` structure (each branch
+  owns its store) is correct (R@col3, E@col4, D@col5). Root cause was the
+  shared-store-after-skip structure, NOT `branch_lt` (which is used correctly at 3
+  other `code.rs` sites on tested paths), so no compiler bug is filed. **Acceptance
+  MET** — box-proven on 2230
+  (cdb TextOutW/SetTextColor trace, the grid renders into a hidden window so cdb is
+  the ssh-visible oracle): `term::on; setForeground(255,0,0); moveTo(1,5);
+  print("RED"); setForeground(0,255,0); moveTo(3,10); print("GRN"); sync; off` →
+  SetTextColor `ff` then `ff00`, `RED` at cells (5,1)/(6,1)/(7,1) and `GRN` at
+  (10,3)/(11,3)/(12,3) — exact positions + colors; EXIT=0; J-3 transcript + J-4
+  input unregressed; cargo test 3279 passed. Commit: `644b0c726`.
+  (original J-5 spec:) `emit_app_term_helper` cell-grid custom draw modeled on
+  `term_view.rs`, `emit_app_mode_reconcile` + reconcile data objects.
 
-Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **NOT MET** — spike proves the mechanics; building J-2..J-5 (see split above).
-Commit: 9718fd97d (spike) / merged e5c500020
+  **J-5 SCOPING (2026-07-27, before build).** Key finding: term:: in Windows app mode
+  ALREADY WORKS via the shared console-ANSI fallback. `emit_app_term_helper` is the
+  trait default `None` on Windows today, and the shared dispatch (`mod.rs:1719-1746`)
+  falls through to `term::lower_term_helper` (the console backend) when it returns
+  `None`. A `-app` term:: program builds and, box-proven on 2230 (`-Wait`), emits a
+  complete 2216-byte 24-bit ANSI TUI stream to the inherited std handle:
+  `ESC[?1049h` (alt screen) · `ESC[38;2;255;0;0m` colors · `ESC[3;4H` cursor
+  (moveTo(2,3), 1-based) · `ESC[2J` clear · `ESC[?1049l` restore. So Windows app-mode
+  term:: is FUNCTIONAL — but writes to the inherited *console*, not the app window, so
+  it is (a) incoherent with `io::print` (which goes to the EDIT transcript) and (b)
+  invisible when the exe is double-clicked with no console. J-5's real work is a GDI
+  cell grid IN the window.
+  Windows advertises only 12 app-relevant term calls (no draw primitives — `drawBox`/
+  `fillRect`/`drawGlyph`/`drawText`/`drawHLine`/`drawVLine` are NOT advertised, unlike
+  macOS's 18), so the surface is smaller: `on`/`off`/`clear`/`moveTo`/`setForeground`/
+  `setBackground`/`setBold`/`setUnderline`/`showCursor`/`hideCursor`/`sync`/
+  `terminalSize` (the `get*`/`isOn` are pure `term_state` reads, no app helper).
+  term_state layout (`error_constants.rs:407`): active@0 fg@8 bg@16 bold@24
+  underline@32 cursorVisible@40 (all u64).
+  **Turnkey GDI design:** (1) data objects — a cell-grid buffer (rows×cols ×
+  {u16 char, u32 fg, u32 bg, u8 attr}), grid dims, a cached monospace HFONT, a cursor
+  row/col, a `_mfb_winapp_tui_active` flag. (2) a GDI surface — either a child window
+  or WM_PAINT on the main window that, when TUI active, iterates the grid and draws
+  each cell (CreateFontW Consolas once, SelectObject, per-cell SetTextColor/SetBkColor
+  + ExtTextOutW with opaque bg). (3) `emit_app_term_helper` for the 12 calls: `on` sets
+  the active flag + hides the EDIT + clears the grid; `off` restores the EDIT; `clear`
+  fills the grid with blanks; `moveTo` sets the cursor cell; `setForeground/Background`
+  store the current fg/bg; `setBold/Underline` store attrs; `sync` InvalidateRect →
+  WM_PAINT; `showCursor/hideCursor` toggle a caret; `terminalSize` returns the grid
+  dims. (4) route `emit_app_io_write_helper`'s term-active path (the `term_state_offset`
+  param it already receives) to write chars into the grid at the cursor instead of the
+  EDIT when TUI active (mirror macOS `app_io.rs` term_surface_path). (5)
+  `emit_app_mode_reconcile` — on `setMode`, build/teardown the grid surface for the new
+  mode (plan-62). Box proof (`-Wait`, `MFB_WINAPP_DUMP` grid readback or a WM_PAINT
+  proof file): a TUI program shows colored cells at the right positions. Model the cell
+  semantics (not the ObjC) on `macos_aarch64/app/term_view.rs`. **This is a large
+  cohesive unit (~800-1200 LOC codegen); it cannot be partially landed without a stub
+  (the term ops all write the grid that `sync` presents), so build it as one increment.**
+  Interim state: the console-ANSI fallback is production-valid for console-launched
+  runs, so nothing is broken while J-5 is unbuilt.
+- [x] Tests: box run showing a window with transcript output + keystroke input +
+  TUI grid. J-2/J-3/J-4 (transcript readback + injected-keystroke round-trip) and
+  J-5 (cdb-traced TUI cells with exact positions/colors) all box-proven on 2230.
 
-### Phase K — PE resource packaging  (NOT STARTED)
-- [ ] `.ico` encoder (`os/windows/icon.rs` reusing `os/icon/mod.rs::render_png`);
-  `.rsrc` section (icon group + DPI/common-controls manifest + VS_VERSIONINFO) added
-  to the PE section list; thread `app_icon`/`app_version` into the writer (the params
-  are already threaded there by I, so K plugs in at section-assembly). Gate `.rsrc`
-  on app-mode-with-icon so console builds stay byte-identical.
-- [ ] Tests: PE-writer unit tests for the `.rsrc` layout; artifact-gate 0 diffs; box
-  run showing the icon in Explorer.
+Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line, and drives a `term::` TUI grid. **MET — J-2 bootstrap + J-3 transcript + J-4 input + J-5 TUI grid all box-proven on 2230.**
+Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 1ffe9cb78 · J-5 644b0c726
 
-Acceptance: an app `.exe` shows the embedded icon and is DPI-aware; existing targets byte-identical. **NOT MET** — not started; depends on J-full for a real `-app` `.exe` to carry the icon.
-Commit: —
+### Phase K — PE resource packaging  (COMPLETE — box-proven)
+- [x] `.rsrc` section (`os/windows/link/rsrc.rs`): a generic three-level PE resource
+  directory tree (Type → Id → Language → data) carrying **RT_GROUP_ICON + RT_ICON**
+  (icon at 16/32/48/256 via `os/icon/mod.rs::render_png`, PNG images which Vista+
+  accepts inside an icon), **RT_MANIFEST** (a fusion manifest: PerMonitorV2 DPI +
+  Common Controls v6), and **RT_VERSION** (a `VS_VERSIONINFO` from the manifest
+  version). Added to the PE section list after `.idata` with data directory `[2]`
+  (Resource) set; `ImportDirectories` gained a `resource` field. `write_executable`
+  now uses the already-threaded `app_icon`/`app_version` (the `let _ = …` is gone).
+  **Gated on `gui` (app mode)** — console builds emit no `.rsrc` and stay
+  byte-identical to the pre-K writer (deviation from "app-mode-with-icon": the DPI
+  manifest is included for ALL app builds, not just iconned ones, which is strictly
+  better and still leaves console untouched).
+- [x] Tests: 3 `rsrc` unit tests (tree id-entry counts, VS_VERSION_INFO `wLength`
+  self-consistency, data-entry RVA is image-relative); full `cargo test` 3286 passed;
+  the artifact-gate is unaffected (K is linker-only, no codegen — same pre-existing
+  24 macos-aarch64 stale-golden diffs, 0 new). Box run on 2230: an `-app` `.exe`
+  with `icon`/`version` set has Windows read `FileVersion=2.5.0.0` and
+  `ExtractAssociatedIcon` return a 32×32 icon whose centre pixel is R200 G40 B40 —
+  exactly the source icon's colour (so RT_ICON/RT_GROUP_ICON are real, not the system
+  default); a console build of the same program has no version resource and runs
+  unchanged.
+
+Acceptance: an app `.exe` shows the embedded icon and is DPI-aware; existing targets byte-identical. **MET** — icon + version box-proven on 2230 (icon colour + FileVersion read by Windows), DPI manifest embedded in the same validated resource tree, console builds byte-identical (no `.rsrc`).
+Commit: `93b015c6c`
 
 ## Validation Plan
 
@@ -649,6 +753,42 @@ Commit: —
   a Windows debugger to diagnose, which the box (ssh, exe-only) can't provide. Reverted
   the whole J-4 change set to keep J-3 green; the design + both fixes + three resume
   options are recorded in the `plan-66-execution-state` memory. J-4 acceptance NOT MET.
+- **2026-07-27 (Phase J-4 UNBLOCKED — `cdb` verified on box 2230).** The J-4 revert's
+  stated blocker was "needs a Windows debugger, which the box (ssh, exe-only) can't
+  provide." That premise is now false: `cdb.exe` (Windows Kits 10 Debuggers,
+  `cdb version 10.0.26100.7705`) is installed and working on 2230 — verified it
+  launches and drives a live debuggee (loaded modules + hit the initial breakpoint),
+  invoked as `cdb -c "<cmds>; q" <exe> <args>`. NOTE the box's default ssh shell is
+  cmd.exe: pass ONE command per `ssh` invocation (no `;`/`&&`/single-quotes). Prereqs
+  re-run all five **MET** this date; box `BOX_OK`; debug build green (18.4s). Resuming
+  J-4 with resume-option (1): use `cdb` to trace where the GUI worker's
+  `ReadFile(GetStdHandle(STD_INPUT))` blocks, then re-apply the two genuine fixes.
+- **2026-07-27 (Phase J-4 DONE — clean rebuild, no hang).** Rebuilt the input
+  plumbing from scratch instead of restoring the reverted (twice-buggy) change set;
+  `cdb` was on standby but never needed — the hang did not reproduce. The key design
+  change vs the reverted attempt: `editproc` writes each `WM_CHAR` byte to the pipe
+  **per keystroke** (the macOS keyDown model) and `CallWindowProcW`-chains every
+  message, rather than the reverted attempt's `EM_GETLINE` line read-back + a subclass
+  that swallowed messages (which broke J-3). Whatever the reverted attempt's two bugs
+  were (a suspected handle/register issue + a non-chaining subclass), the from-scratch
+  rebuild avoided both. `SetStdHandle(STD_INPUT, hRead)` DID take effect for the GUI
+  worker — the memory's "SetStdHandle doesn't connect" hypothesis was wrong. Box-proven
+  on 2230: `io::input`/`readLine`/`readChar`/`pollInput` all correct, J-3 transcript
+  intact, EXIT=0. **Box-proof gotcha (cost hours; cdb cracked it):** the
+  `MFB_WINAPP_DUMP` transcript readback must be run with PowerShell
+  `Start-Process -Wait -RedirectStandardOutput`, NOT `-PassThru` + `WaitForExit` — a
+  GUI exe's redirect handle is finalized when the non-waiting launcher returns, so a
+  longer-running program (io.input waits for the injected keystrokes) races that close
+  and its DUMP `WriteFile` lands in a detached file (0-byte output). cdb proved the
+  program itself was always correct (EM_REPLACESEL populated the transcript, ReadFile
+  drained the pipe); only the `-PassThru` harness was wrong. Use `-Wait` for every
+  J-5 box proof too. The reverted attempt's fix (a) (fd via `ARG[0]` not
+  `return_register()`) and fix (b) (`emit_poll_input` `PeekNamedPipe` for pipes) were
+  both genuine and re-derived independently here — fix (a) ALSO corrects a latent
+  linux_gtk x86 app-mode bug (`RET[0]=rax ≠ ARG[0]=rdi`); fix (b) was confirmed
+  empirically (`pollInput` with no input returned TRUE before, FALSE after). No
+  app-mode goldens exist for x86 (only 3 macOS-aarch64), so fix (a) is byte-identical
+  for every existing golden.
 - **2026-07-26 (Phase E REGRESSION — merge dropped the advertising for 9 landed
   fs calls).** On resume, a census (`comm -23` of macOS vs Windows `"fs.` advertise
   sets) found that `win_x86_64/mod.rs` advertises only 26 fs calls where macOS has

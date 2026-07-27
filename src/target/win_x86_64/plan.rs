@@ -19,8 +19,8 @@ const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
 const ADVAPI32: &str = "advapi32.dll";
 const SHELL32: &str = "shell32.dll"; // os.args: CommandLineToArgvW (plan-66-B)
-// WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
-// endpoint objects themselves are called through their vtables (no import).
+                                     // WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
+                                     // endpoint objects themselves are called through their vtables (no import).
 const OLE32: &str = "ole32.dll";
 
 pub(crate) fn lower_module(module: &NirModule) -> Result<NativePlan, String> {
@@ -79,6 +79,7 @@ impl NativePlanPlatform for Platform {
         // GetStdHandle, WriteFile, GetEnvironmentVariableW) are deduped in the
         // merged import table. The `.rsrc`/subsystem work is plan-66-K/I.
         const USER32: &str = "user32.dll";
+        const GDI32: &str = "gdi32.dll";
         vec![
             import("GetModuleHandleW", KERNEL32, "_main"),
             import("GetEnvironmentVariableW", KERNEL32, "_main"),
@@ -93,10 +94,10 @@ impl NativePlanPlatform for Platform {
             import("MultiByteToWideChar", KERNEL32, "_main"),
             // plan-66-J-4 input: a pipe feeds the worker's readLine (fd 0 via
             // SetStdHandle); the EDIT subclass (SetWindowLongPtrW/CallWindowProcW)
-            // writes committed lines (UTF-16 → UTF-8 via WideCharToMultiByte).
+            // writes each typed WM_CHAR byte to the pipe (the per-character macOS
+            // keyDown model — no line read-back).
             import("CreatePipe", KERNEL32, "_main"),
             import("SetStdHandle", KERNEL32, "_main"),
-            import("WideCharToMultiByte", KERNEL32, "_main"),
             import("SetWindowLongPtrW", USER32, "_main"),
             import("CallWindowProcW", USER32, "_main"),
             import("RegisterClassExW", USER32, "_main"),
@@ -108,6 +109,25 @@ impl NativePlanPlatform for Platform {
             import("PostQuitMessage", USER32, "_main"),
             import("PostMessageW", USER32, "_main"),
             import("SendMessageW", USER32, "_main"),
+            // plan-66-J-5 term:: TUI grid: an off-screen GDI memory DC + fixed-pitch
+            // stock font (built by term::on), drawn per-cell (SetTextColor/SetBkColor
+            // + TextOutW) and BitBlt'd to the window on WM_PAINT; term::sync presents.
+            import("GetDC", USER32, "_main"),
+            import("ReleaseDC", USER32, "_main"),
+            import("ShowWindow", USER32, "_main"),
+            import("InvalidateRect", USER32, "_main"),
+            import("UpdateWindow", USER32, "_main"),
+            import("BeginPaint", USER32, "_main"),
+            import("EndPaint", USER32, "_main"),
+            import("CreateCompatibleDC", GDI32, "_main"),
+            import("CreateCompatibleBitmap", GDI32, "_main"),
+            import("SelectObject", GDI32, "_main"),
+            import("GetStockObject", GDI32, "_main"),
+            import("PatBlt", GDI32, "_main"),
+            import("BitBlt", GDI32, "_main"),
+            import("TextOutW", GDI32, "_main"),
+            import("SetTextColor", GDI32, "_main"),
+            import("SetBkColor", GDI32, "_main"),
         ]
     }
 
@@ -194,6 +214,12 @@ impl NativePlanPlatform for Platform {
                 import("CreateThread", KERNEL32, required_by),
                 import("CloseHandle", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
+                // plan-66-J-4: io.pollInput on the app-mode input pipe checks queued
+                // bytes with PeekNamedPipe (WaitForSingleObject false-positives on a
+                // pipe), gated on GetFileType, backing off with Sleep.
+                import("GetFileType", KERNEL32, required_by),
+                import("PeekNamedPipe", KERNEL32, required_by),
+                import("Sleep", KERNEL32, required_by),
             ],
             "fs.exists" | "fs.fileExists" | "fs.directoryExists" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
