@@ -382,6 +382,16 @@ Commit: d101f726a
 - **File count is 17, not 15** (`grep -rln 'Map OF ' src/ast src/resolver
   src/monomorph src/syntaxcheck src/ir | grep -v tests | wc -l` → 17). Same cause;
   no scope impact.
+- **A third front-end needs-arm site was missed by the census entirely
+  (found in C).** `src/syntaxcheck/checking.rs:549` types a `FOR EACH` loop
+  variable by matching the iterable's `Type` enum (`Type::List`/`Type::Map`), not
+  the `"Map OF "` string, so no grep in A0 could have found it. Without a
+  `Type::Set(element) => *element` arm the loop variable over a Set typed as
+  `Unknown`, which made `collections::add(result, x)` inside every C generic fail
+  `TYPE_CALL_ARGUMENT_MISMATCH` (the resolver needs the exact element type). Added
+  the arm; this is properly an A-scope site (front-end loop-var typing) surfaced
+  while wiring C. Lesson: the "grep undercounts" caveat applies to every `Type`-enum
+  match, not only the helper-routed string sites below.
 - **The grep undercounts front-end needs-arm sites.** Two front-end
   comparability/defaultability sites route through helper fns (`parse_map`) and so
   never match the `"Map OF "` literal: `ir/verify/values.rs:707`

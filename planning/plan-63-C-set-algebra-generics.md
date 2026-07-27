@@ -132,15 +132,16 @@ Register all eight in `FUNCTIONS` (`src/builtins/collections.rs:20`).
 
 One line: author, register, and test the set algebra as pure source generics.
 
-- [ ] Add the eight `FUNC __collections_<name>` definitions to
-      `src/builtins/collections_package.mfb` (§4).
-- [ ] Register the eight names in `FUNCTIONS` (`src/builtins/collections.rs:20`).
-- [ ] Tests: an `rt-behavior` fixture per operation (or one fixture exercising
-      all eight) asserting, for `Set OF Integer` inputs, the standard identities:
-      `union` size/membership, `intersection`/`difference` membership,
-      `symmetricDifference = union − intersection`, `isSubset`/`isSuperset`
-      reflexive + strict cases, `isDisjoint` on overlapping vs. disjoint sets,
-      `toSet([1,1,2]) → {1,2}`. Include one `Set OF String` case.
+- [x] Added the eight `FUNC __collections_<name>` definitions to
+      `src/builtins/collections_package.mfb` (§4). `isSuperset` inlines the swapped
+      `isSubset` scan (avoids a generic-calls-generic dependency); `toSet`/`union`
+      etc. build via `MUT r AS Set OF T = Set OF T { }` + `FOR EACH … add`.
+- [x] Registered the eight names in `FUNCTIONS` (`src/builtins/collections.rs`).
+- [x] Tests: `tests/rt-behavior/collections/set-algebra-rt` exercises all eight for
+      `Set OF Integer` (union/intersection/difference/symmetricDifference sizes +
+      membership, isSubset/isSuperset reflexive + strict, isDisjoint overlap vs
+      disjoint, `toSet([5,5,6,7,6]) → {5,6,7}`) plus a `Set OF String` union/inter
+      case. All correct (union=4, inter=2, diff=1, symdiff=2, …).
 
 Acceptance: the fixture(s) run and print the expected results for all eight
 operations; `cargo test` green.
@@ -167,7 +168,23 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Two front-end/codegen gaps surfaced while wiring C (fixed in the same
+  change):**
+  - `FOR EACH x IN <Set OF T>` typed the loop variable `Unknown` in
+    `src/syntaxcheck/checking.rs:549` (it matched `Type::List`/`Type::Map` on the
+    `Type` enum, no `Type::Set` arm), so `collections::add(result, x)` inside every
+    generic failed `TYPE_CALL_ARGUMENT_MISMATCH`. This is properly an A-scope site
+    the census missed (it keys on the `Type` enum, not the `"Map OF "` string) —
+    recorded in plan-63-A Corrections. Added a `Type::Set(element) => *element` arm.
+  - `collections::contains(<Set>, x)` failed when the first argument was a nested
+    call (`contains(union(a, b), x)`): the routing used `static_type_name(args[0])`,
+    which is `None` for a call, so a Set fell through to the List path and errored.
+    Refactored the Map/Set membership probe/scan into a shared `emit_key_membership`
+    and routed `contains` on the *lowered* collection type — robust for any first-
+    argument shape. Both `hasKey` (Map) and `contains` (List/Set) now share it.
+- These were pre-C latent bugs in A/B (a Set FOR-EACH and a Set `contains` over a
+  call result were never exercised until C's generics used them), caught because C
+  is the first code to fold over sets in MFBASIC.
 
 ## Summary
 

@@ -1,0 +1,36 @@
+' plan-63-C: the eight set-algebra source generics over B's native Set members.
+' Pins, via build.log output, the standard identities for Integer and String sets:
+'   union/intersection/difference/symmetricDifference sizes + membership,
+'   isSubset/isSuperset (reflexive + strict), isDisjoint (overlap vs disjoint),
+'   and toSet dedup.
+IMPORT io
+IMPORT collections
+
+SUB main
+  LET a = Set OF Integer { 1, 2, 3 }
+  LET b = Set OF Integer { 2, 3, 4 }
+  io::print("union=" & toString(len(collections::union(a, b))))
+  io::print("unionHas4=" & toString(collections::contains(collections::union(a, b), 4)))
+  io::print("inter=" & toString(len(collections::intersection(a, b))))
+  io::print("interHas2=" & toString(collections::contains(collections::intersection(a, b), 2)))
+  io::print("interHas1=" & toString(collections::contains(collections::intersection(a, b), 1)))
+  io::print("diff=" & toString(len(collections::difference(a, b))))
+  io::print("diffHas1=" & toString(collections::contains(collections::difference(a, b), 1)))
+  io::print("symdiff=" & toString(len(collections::symmetricDifference(a, b))))
+  ' symmetricDifference = union - intersection (size identity: 4 - 2 = 2).
+  io::print("subReflexive=" & toString(collections::isSubset(a, a)))
+  io::print("subStrict=" & toString(collections::isSubset(Set OF Integer { 1, 2 }, a)))
+  io::print("subFalse=" & toString(collections::isSubset(a, b)))
+  io::print("superReflexive=" & toString(collections::isSuperset(a, a)))
+  io::print("superStrict=" & toString(collections::isSuperset(a, Set OF Integer { 1, 2 })))
+  io::print("disjoint=" & toString(collections::isDisjoint(a, Set OF Integer { 8, 9 })))
+  io::print("overlap=" & toString(collections::isDisjoint(a, b)))
+  LET fromList = collections::toSet([5, 5, 6, 7, 6])
+  io::print("toSetLen=" & toString(len(fromList)))
+  io::print("toSetHas6=" & toString(collections::contains(fromList, 6)))
+  ' One String case.
+  LET s1 = Set OF String { "a", "b" }
+  LET s2 = Set OF String { "b", "c" }
+  io::print("strUnion=" & toString(len(collections::union(s1, s2))))
+  io::print("strInter=" & toString(len(collections::intersection(s1, s2))))
+END SUB

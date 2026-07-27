@@ -37,6 +37,15 @@ const FUNCTIONS: &[&str] = &[
     "distinct",
     "merge",
     "partition",
+    // Set algebra (plan-63-C): source generics over B's native Set members.
+    "toSet",
+    "union",
+    "intersection",
+    "difference",
+    "symmetricDifference",
+    "isSubset",
+    "isSuperset",
+    "isDisjoint",
 ];
 
 /// The native `collections::` members migrated out of the bare global namespace
