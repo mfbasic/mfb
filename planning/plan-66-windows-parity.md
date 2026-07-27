@@ -442,7 +442,7 @@ Commit: 7eab44bd9
   `absolute=invalid`, `dotdot=invalid`, `escape=denied` (junction escape), EXIT=0.
 
 Acceptance: atomic write + temp-file + nested-mkdir program produces correct files on the box. **MET (10/10)** — all nine landed calls re-box-proven after the merge-drop repair (`mkdir=ok temp-buffered=TRUE roundtrip=hello-世界 bytes=ok within-yes/no`), and `openFileNoFollow`/`openWithin` box-proven refusing real Windows reparse-point escapes while opening non-symlink paths.
-Commit: 71f2a3fab (7/10); 28078edae (atomic writes, 9/10); 87e25d6b0 (restore merge-dropped advertising); <no-symlink commit pending>
+Commit: 71f2a3fab (7/10); 28078edae (atomic writes, 9/10); 87e25d6b0 (restore merge-dropped advertising); e958b9332 (Windows no-symlink openFileNoFollow + openWithin, 10/10)
 
 ### Phase F — `tls::` server  (COMPLETE — box-proven)
 - [x] **Advertised + implemented** `tls.listen`/`accept`/`closeListener` over Schannel
