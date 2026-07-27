@@ -90,33 +90,39 @@ variant carries a `_` placeholder that gets rewritten. Cover each match arm —
 easiest by **direct calls** to the two `pub(super)` fns with hand-built
 `Expression` trees, or parse-driven with `x |> <rhs-with-_>`.
 
-- [ ] `Binary` — `a |> _ + 1` (both `contains_placeholder` left/right recursion
+- [x] `Binary` — `a |> _ + 1` (both `contains_placeholder` left/right recursion
       and the `substitute_placeholder` `Binary` arm). Assert the substituted tree
       no longer contains the `_` identifier.
-- [ ] `Unary` — `a |> -_` and `a |> NOT _`.
-- [ ] `Call` named + positional args — `a |> f(k := _)` and `a |> f(_)` (covers
+- [x] `Unary` — `a |> -_` and `a |> NOT _`.
+- [x] `Call` named + positional args — `a |> f(k := _)` and `a |> f(_)` (covers
       `call_arg_contains_placeholder` + `substitute_placeholder_call_arg` both
       variants).
-- [ ] `Constructor` positional + named — `a |> T[_]` and `a |> T[fld := _]`
+- [x] `Constructor` positional + named — `a |> T[_]` and `a |> T[fld := _]`
       (covers `constructor_arg_contains_placeholder` +
       `substitute_placeholder_constructor_arg` both variants).
-- [ ] `Lambda` body — placeholder inside a lambda body.
-- [ ] `ListLiteral` — `a |> [_]`; `SetLiteral` — `a |> Set OF Integer { _ }`.
-- [ ] `MapLiteral` key **and** value — `a |> Map OF Integer TO Integer { _ := 1 }`
+- [x] `Lambda` body — placeholder inside a lambda body.
+- [x] `ListLiteral` — `a |> [_]`; `SetLiteral` — `a |> Set OF Integer { _ }`.
+- [x] `MapLiteral` key **and** value — `a |> Map OF Integer TO Integer { _ := 1 }`
       and `{ 1 := _ }` (the closure walks/rewrites both).
-- [ ] `MemberAccess` — `a |> _.field`.
-- [ ] `Trapped` — `_` inside a trapped subexpression (the bug-171-C arm at
+- [x] `MemberAccess` — `a |> _.field`.
+- [x] `Trapped` — `_` inside a trapped subexpression (the bug-171-C arm at
       `pipeline.rs:161`).
-- [ ] `WithUpdate` target **and** update value — `a |> WITH _ { f := 1 }` and
+- [x] `WithUpdate` target **and** update value — `a |> WITH _ { f := 1 }` and
       `a |> WITH r { f := _ }`.
-- [ ] Leaf/`other` arms — confirm the `String|Number|Scalar|Boolean => false`
+- [x] Leaf/`other` arms — confirm the `String|Number|Scalar|Boolean => false`
       (contains) and `other => other` (substitute) arms are hit by an rhs whose
       placeholder sits beside a literal (e.g. `a |> _ + 1` already exercises the
       literal-`false` arm).
 
 Acceptance: `sh scripts/coverage.sh` (fresh) then
 `sh scripts/coverage-check.sh src/ast/pipeline.rs` shows ≥95%.
-Commit: —
+
+NOTE: fresh lcov shows only TWO arms actually uncovered (SetLiteral contains:27 +
+substitute:127-134, Trapped contains:32 + substitute:162-171); the rest of the
+enumerated arms are already covered by the existing
+`pipeline_placeholder_each_expression_kind_as_rhs` fixture in `tests.rs`. Added an
+inline `mod tests` in `pipeline.rs` with two direct-call fixtures for those arms.
+Commit: <PIPELINE_COMMIT>
 
 ### Phase G2 — `src/ast/expr.rs` (53 uncov)
 
