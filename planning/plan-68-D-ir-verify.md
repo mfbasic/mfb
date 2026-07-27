@@ -114,7 +114,7 @@ that function's body, including the `if !names.contains(...)` dedup arm.
 Acceptance: after a fresh `sh scripts/coverage.sh`,
 `sh scripts/coverage-check.sh src/arch/aarch64/backend.rs src/ir/types.rs` shows
 both ≥95%.
-Commit: —
+Commit: 15f206a71
 
 ### Phase D2 — `ir/verify/calls.rs` STATE-agreement family (68 uncov)
 
@@ -125,22 +125,22 @@ The 68 uncovered lines are concentrated in the **resource-STATE agreement**
 functions — dense multi-arm matches with no `tests.rs` reference to their
 `TYPE_STATE_MISMATCH` / `TYPE_STATE_OPAQUE_NARROWING` messages:
 
-- [ ] `check_argument_state_agreement` (`calls.rs:238-267`): fixture a call whose
+- [x] `check_argument_state_agreement` (`calls.rs:238-267`): fixture a call whose
       callee parameter is declared `RES p AS File STATE Cursor` and pass an
       argument carrying `STATE Label` → `TYPE_STATE_MISMATCH` (the "carries STATE
       T2" arm, `:252-255`); and pass a stateless argument → the "carries no STATE"
       arm (`:256-258`). A bare param (`state_type_name(param_type)` = `None`) must
       **accept** anything — add the accepting case too (guards `:245`).
-- [ ] `check_thread_state_agreement` (`calls.rs:~180-205`): fixture a
+- [x] `check_thread_state_agreement` (`calls.rs:~180-205`): fixture a
       `thread::transfer` whose plane resource and transferred resource disagree —
       cover all three detail arms: `(Some,Some)` mismatch, `(Some,None)`
       plane-declares-but-carries-none, `(None,Some)` bare-plane-but-carries-state
       → `TYPE_STATE_MISMATCH` each (`:187-204`).
-- [ ] `check_return_state_declaration` (`calls.rs:281-304`): a FUNC returning a
+- [x] `check_return_state_declaration` (`calls.rs:281-304`): a FUNC returning a
       resource **union** with a STATE → `TYPE_UNION_STATE_FORBIDDEN` (`:287`); a
       FUNC whose return STATE type is non-defaultable → `TYPE_STATE_INVALID`
       (`:296`).
-- [ ] `check_binding_state_agreement` (`calls.rs:351-400`): bind a bare `RES`
+- [x] `check_binding_state_agreement` (`calls.rs:351-400`): bind a bare `RES`
       parameter (opaque state) under a concrete `STATE T` →
       `TYPE_STATE_OPAQUE_NARROWING` (`:369`, requires seeding
       `current_opaque_params` — mirror how a bare-`RES`-param function body is set
@@ -151,7 +151,7 @@ functions — dense multi-arm matches with no `tests.rs` reference to their
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/calls.rs` shows ≥95%.
-Commit: —
+Commit: 15a424642 (calls.rs:199 (None,None) transfer arm unreachable — see Corrections)
 
 ### Phase D3 — `ir/verify/link.rs` native-LINK arms (137 uncov)
 

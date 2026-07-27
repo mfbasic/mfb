@@ -2725,6 +2725,332 @@ fn accepts_close_of_a_res_parameter() {
     accept(&project(vec![f], vec![]));
 }
 
+// --- calls.rs: STATE agreement (plan-68-D2) --------------------------------
+
+/// A resource binding whose owner is recorded (so it is not rejected as a
+/// non-`RES` resource hold), typed `type_`, initialized from `value`.
+fn res_bind_owned(f: &mut IrFunction, name: &str, type_: &str, value: Option<IrValue>) -> IrOp {
+    f.resource_owners
+        .insert(name.to_string(), crate::ir::resource_escape::ResOwner::Local);
+    bind(name, type_, value, true, false)
+}
+
+fn transfer_call(handle: &str, res: Option<&str>) -> IrOp {
+    let mut args = vec![IrValue::Local(handle.to_string())];
+    if let Some(res) = res {
+        args.push(IrValue::Local(res.to_string()));
+    }
+    IrOp::Eval {
+        value: IrValue::Call {
+            target: crate::builtins::thread::TRANSFER_RESOURCE.to_string(),
+            args,
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }
+}
+
+#[test]
+fn unary_operand_of_uninferable_value_is_skipped() {
+    // `check_unary_operand` early-returns when the operand type cannot be
+    // inferred (calls.rs:18) — an unknown local read as unary `-`.
+    let body = vec![IrOp::Eval {
+        value: unary("-", IrValue::Local("missing".to_string()), "Integer"),
+        loc: IrSourceLoc::default(),
+    }];
+    let f = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r.starts_with("TYPE_UNARY")), "{got:?}");
+}
+
+#[test]
+fn call_argument_of_uninferable_value_is_skipped() {
+    // `check_call_argument_types` continues past an argument whose type cannot be
+    // inferred (calls.rs:121) — an unknown local passed to a known function.
+    let callee = func_returns("helper", "Nothing", vec![param("a", "Integer", None)], vec![]);
+    let body = vec![IrOp::Eval {
+        value: IrValue::Call {
+            target: "helper".to_string(),
+            args: vec![IrValue::Local("missing".to_string())],
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    let caller = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![callee, caller], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_CALL_ARGUMENT_MISMATCH"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_argument_state_retype() {
+    // Callee param declares `STATE Cursor`; argument carries `STATE Label` — a
+    // parameter observes a state, it cannot re-type it (calls.rs:252-264).
+    let callee = func_returns(
+        "helper",
+        "Nothing",
+        vec![param("h", "File STATE Cursor", None)],
+        vec![],
+    );
+    let body = vec![IrOp::Eval {
+        value: IrValue::Call {
+            target: "helper".to_string(),
+            args: vec![IrValue::Local("g".to_string())],
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    let caller = func_returns(
+        "run",
+        "Nothing",
+        vec![param("g", "File STATE Label", None)],
+        body,
+    );
+    expect_rule(&project(vec![callee, caller], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn rejects_argument_state_missing() {
+    // Callee param declares `STATE Cursor`; argument carries no state — a
+    // parameter cannot attach one (calls.rs:256-264).
+    let callee = func_returns(
+        "helper",
+        "Nothing",
+        vec![param("h", "File STATE Cursor", None)],
+        vec![],
+    );
+    let body = vec![IrOp::Eval {
+        value: IrValue::Call {
+            target: "helper".to_string(),
+            args: vec![IrValue::Local("g".to_string())],
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    let caller = func_returns("run", "Nothing", vec![param("g", "File", None)], body);
+    expect_rule(&project(vec![callee, caller], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn accepts_argument_state_agreement() {
+    // Matching states — the agreeing arm (calls.rs:249-250); no STATE mismatch.
+    let callee = func_returns(
+        "helper",
+        "Nothing",
+        vec![param("h", "File STATE Cursor", None)],
+        vec![],
+    );
+    let body = vec![IrOp::Eval {
+        value: IrValue::Call {
+            target: "helper".to_string(),
+            args: vec![IrValue::Local("g".to_string())],
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    let caller = func_returns(
+        "run",
+        "Nothing",
+        vec![param("g", "File STATE Cursor", None)],
+        body,
+    );
+    let got = rules(&project(vec![callee, caller], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn rejects_thread_transfer_state_retype() {
+    // Plane declares `STATE Cursor`; transferred resource carries `STATE Label`
+    // (calls.rs:187-190).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF Nothing RES File STATE Cursor TO Nothing", None),
+            param("r", "File STATE Label", None),
+        ],
+        vec![transfer_call("t", Some("r"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn rejects_thread_transfer_state_missing() {
+    // Plane declares `STATE Cursor`; transferred resource is bare
+    // (calls.rs:191-193).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF Nothing RES File STATE Cursor TO Nothing", None),
+            param("r", "File", None),
+        ],
+        vec![transfer_call("t", Some("r"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn rejects_thread_transfer_state_on_bare_plane() {
+    // Bare plane; transferred resource carries `STATE Cursor` (calls.rs:194-197).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF Nothing RES File TO Nothing", None),
+            param("r", "File STATE Cursor", None),
+        ],
+        vec![transfer_call("t", Some("r"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn thread_transfer_with_one_arg_is_skipped() {
+    // Fewer than two args — the early return (calls.rs:170).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("t", "Thread OF Nothing RES File TO Nothing", None)],
+        vec![transfer_call("t", None)],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn thread_transfer_uninferable_args_are_skipped() {
+    // Both args unknown locals — infer fails (calls.rs:173-177).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![transfer_call("missing_handle", Some("missing_res"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn thread_transfer_non_thread_handle_is_skipped() {
+    // Handle is not a thread type — no plane resource (calls.rs:179-180).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("t", "Integer", None), param("r", "File", None)],
+        vec![transfer_call("t", Some("r"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn rejects_return_state_union() {
+    // FUNC returns a resource union with a STATE (calls.rs:286-293).
+    let f = func_returns("run", "Res STATE Integer", vec![], vec![]);
+    expect_rule(
+        &project(vec![f], vec![union("Res", &["File"])]),
+        "TYPE_UNION_STATE_FORBIDDEN",
+    );
+}
+
+#[test]
+fn rejects_return_state_not_defaultable() {
+    // FUNC return STATE type is a union (not defaultable) (calls.rs:295-303).
+    let f = func_returns("run", "File STATE Shape", vec![], vec![]);
+    expect_rule(
+        &project(vec![f], vec![union("Shape", &["A", "B"])]),
+        "TYPE_STATE_INVALID",
+    );
+}
+
+#[test]
+fn rejects_binding_opaque_state_narrowing() {
+    // Binding a bare `RES` parameter under a concrete STATE — an unprovable
+    // narrowing (calls.rs:369-375).
+    let mut f = func_returns("run", "Nothing", vec![param("p", "File", None)], vec![]);
+    let b = res_bind_owned(&mut f, "x", "File STATE Integer", Some(IrValue::Local("p".to_string())));
+    f.body = vec![b];
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_OPAQUE_NARROWING");
+}
+
+#[test]
+fn rejects_binding_state_mismatch() {
+    // Binding declares `STATE Cursor`; initializer carries `STATE Label`
+    // (calls.rs:387-392).
+    let mut f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("src", "File STATE Label", None)],
+        vec![],
+    );
+    let b = res_bind_owned(
+        &mut f,
+        "x",
+        "File STATE Cursor",
+        Some(IrValue::Local("src".to_string())),
+    );
+    f.body = vec![b];
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn rejects_bare_binding_of_stateful_initializer() {
+    // Bare binding of a stateful initializer (calls.rs:393-395).
+    let mut f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("src", "File STATE Label", None)],
+        vec![],
+    );
+    let b = res_bind_owned(&mut f, "x", "File", Some(IrValue::Local("src".to_string())));
+    f.body = vec![b];
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn accepts_binding_state_agreement() {
+    // Binding adopts the state it already carries — the agreeing arm
+    // (calls.rs:384-386); no STATE mismatch.
+    let mut f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("src", "File STATE Label", None)],
+        vec![],
+    );
+    let b = res_bind_owned(
+        &mut f,
+        "x",
+        "File STATE Label",
+        Some(IrValue::Local("src".to_string())),
+    );
+    f.body = vec![b];
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn binding_state_of_uninferable_initializer_is_skipped() {
+    // Initializer type cannot be inferred — the early return (calls.rs:379).
+    let mut f = func_returns("run", "Nothing", vec![], vec![]);
+    let b = res_bind_owned(
+        &mut f,
+        "x",
+        "File STATE Integer",
+        Some(IrValue::Local("missing".to_string())),
+    );
+    f.body = vec![b];
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
 // --- link functions --------------------------------------------------------
 
 fn link_fn() -> crate::ir::IrLinkFunction {
