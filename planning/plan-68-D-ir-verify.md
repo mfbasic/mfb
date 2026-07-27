@@ -295,7 +295,7 @@ named uncovered lines directly.**
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/compat.rs src/ir/verify/mod.rs`
 shows both ≥95%.
-Commit: —
+Commit: 28466caab
 
 ### Phase D7 — `src/arch/x86_64/encode/emitter.rs` (1471/1554, 83 uncov) — added by A
 
@@ -307,10 +307,10 @@ instruction encoder — no I/O, no integration boundary. Read A's fresh
 uncovered lines, then cover them by emitting the un-exercised instruction forms /
 error arms directly against the emitter's public/`pub(crate)` surface.
 
-- [ ] From A's fresh report, enumerate emitter.rs's uncovered lines and group them
+- [x] From A's fresh report, enumerate emitter.rs's uncovered lines and group them
       by the encode helper they sit in (ModRM/SIB forms, REX-prefix arms, immediate
       widths, displacement sizes, the rejected/`unreachable`-guard arms).
-- [ ] Add a `#[cfg(test)] mod tests` (or extend the nearest existing arch test
+- [x] Add a `#[cfg(test)] mod tests` (or extend the nearest existing arch test
       module) that drives each uncovered encode arm and asserts the exact emitted
       byte sequence; for any genuinely-unreachable defensive/`unreachable!` arm,
       flag it to A as a line-level exception with the reason (do NOT fabricate an
@@ -340,6 +340,35 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution — including any arm A's fresh report proves
-unreachable (→ A exception) rather than backfill, and any delta between the
-covered/total figures above and A1's regenerated report.>
+All eight files backfilled with `#[cfg(test)]` unit tests (no production change;
+no real verifier bug surfaced). Uncovered lines were read from the sibling P-68
+worktree's fresh `target/coverage/lcov.info`. Full `cargo test` = `0 failed`
+before each commit.
+
+**Exception candidates (unreachable-by-construction; handed to A for line-level
+exceptions rather than contorted fixtures):**
+
+- `src/ir/verify/calls.rs:199` — `check_thread_transfer_state`'s
+  `(None, None) => return` match arm. Both-`None` (plane and resource both bare)
+  is the agreeing case already returned at `:184` (`plane_state == resource_state`),
+  so this arm exists only for match exhaustiveness and can never execute.
+- `src/ir/verify/resources.rs:436` — `match_covers_all`'s
+  `if has_unguarded_else { return true }`. Its sole caller, `block_always_returns`
+  (`resources.rs:390`), short-circuits `has_else || match_covers_all(...)` on an
+  *equivalent* unguarded-`Else` test computed from the same `cases`, so
+  `match_covers_all` is never called when an unguarded ELSE is present.
+- `src/arch/x86_64/encode/emitter.rs:232` and `:241` — the `REX.B` prefix push in
+  `enc_push_reg` / `enc_pop_reg` for a register `>= 8`. The only caller
+  (`fcvtas_x_from_d`, `:907`/`:915`) commandeers `rax`(0) or `rcx`(1) as scratch,
+  never `r8`–`r15`, so the `>= 8` branch is unreachable via the public encode path
+  (the private helpers are not callable from the encode test module).
+- `src/arch/x86_64/encode/emitter.rs:1350-1353` — `alu3`'s zero-lhs `other =>`
+  unsupported-opcode error. `alu3` is only ever dispatched with opcodes
+  `0x01/0x09/0x21/0x29/0x31` (add/orr/and/sub/eor), all handled by explicit arms,
+  so `other` cannot fire.
+- `src/arch/x86_64/encode/emitter.rs:1921` — `JccKind::Jmp => unreachable!()` inside
+  the non-`Jmp` `other` arm of `jmp_label`; `Jmp` is matched by the outer arm first,
+  so this exhaustiveness stub is unreachable.
+
+No delta found between the plan's covered/total figures and the fresh report
+beyond D1's already-noted 6/9 (vs 3/9) for `aarch64/backend.rs`.
