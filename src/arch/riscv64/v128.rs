@@ -1313,21 +1313,6 @@ pub(crate) fn lower_v128_run(
 /// guard) when the function overflowed the vector-register pool (`vregs` is
 /// `None`) or the op is not vector-lowered; otherwise a one-op run (per-op prologue
 /// preserved — byte-identical to the pre-per-run lowering).
-pub(crate) fn lower_v128(
-    op: CodeOp,
-    fields: &[(&'static str, String)],
-    slots: &HashMap<String, usize>,
-    vregs: Option<&HashMap<String, u8>>,
-    seq: usize,
-) -> Vec<CodeInstruction> {
-    match vregs {
-        Some(vregs) if rvv_lowerable(op, fields) => {
-            lower_v128_run(&[(op, fields.to_vec())], slots, vregs, seq)
-        }
-        _ => scalarize_v128(op, fields, slots),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1640,7 +1625,7 @@ mod tests {
         let vregs: HashMap<String, u8> =
             [("%f0", 1u8), ("%f1", 2), ("%f2", 3)].iter().map(|(k, v)| (k.to_string(), *v)).collect();
 
-        let out = lower_v128(CodeOp::FAddV, &fields, &slots, Some(&vregs), 0);
+        let out = lower_v128_run(&[(CodeOp::FAddV, fields.clone())], &slots, &vregs, 0);
         let vop = |i: &CodeInstruction| i.get("vop").map(str::to_string);
         // Guard: load the flag and branch to the scalar label when it is clear.
         assert!(out.iter().any(|i| i.op.mnemonic() == "adrp"
@@ -1659,17 +1644,13 @@ mod tests {
         assert!(out.iter().any(|i| i.op.mnemonic() == "fadd_d"));
         assert!(out.iter().any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_done_0")));
 
-        // Overflow / no vreg map → scalar-only, exactly `scalarize_v128`.
-        let scalar_only = lower_v128(CodeOp::FAddV, &fields, &slots, None, 0);
-        assert_eq!(
-            scalar_only.iter().map(|i| i.op.mnemonic()).collect::<Vec<_>>(),
-            scalarize_v128(CodeOp::FAddV, &fields, &slots)
-                .iter()
-                .map(|i| i.op.mnemonic())
-                .collect::<Vec<_>>(),
-            "no-vreg path must be byte-identical to the scalar arm"
-        );
-        assert!(!scalar_only.iter().any(|i| i.op.mnemonic() == "adrp"));
+        // A non-lowerable op (or overflow) is never accumulated into a run —
+        // `rvv_lowerable` rejects it, so `select_riscv64` scalarizes it directly,
+        // with no guard.
+        assert!(!rvv_lowerable(CodeOp::FRintnV, &[("dst", "%f0".to_string()), ("src", "%f1".to_string())]));
+        assert!(!scalarize_v128(CodeOp::FAddV, &fields, &slots)
+            .iter()
+            .any(|i| i.op.mnemonic() == "adrp"));
     }
 
     /// plan-32-C Phase 3: the mask bridge. A float compare emits the ordered
