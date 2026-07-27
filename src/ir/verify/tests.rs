@@ -2765,6 +2765,25 @@ fn accepts_valid_link_function() {
     accept(&p);
 }
 
+/// `IrProject::link_library_names` returns the distinct library names in
+/// declaration order, deduplicating a repeat (`ir/types.rs` loop + `contains`
+/// guard).
+#[test]
+fn link_library_names_dedups_in_order() {
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    let mut a = link_fn();
+    a.library = "a".to_string();
+    let mut b = link_fn();
+    b.library = "b".to_string();
+    let mut a2 = link_fn();
+    a2.library = "a".to_string();
+    p.link_functions = vec![a, b, a2];
+    assert_eq!(
+        p.link_library_names(),
+        vec!["a".to_string(), "b".to_string()]
+    );
+}
+
 // --- CSTRUCT (plan-50-B) ---------------------------------------------------
 
 fn cstruct(name: &str, fields: &[(&str, &str)]) -> crate::ir::IrCStruct {

@@ -86,12 +86,12 @@ impl (`Aarch64Backend`, `src/arch/aarch64/backend.rs:19-37`). The 3 uncovered
 lines are its three method bodies, exercised today only through full codegen
 integration — but each is trivially callable in isolation:
 
-- [ ] Add a `#[cfg(test)] mod tests` to `backend.rs` (the file has none). Assert
+- [x] Add a `#[cfg(test)] mod tests` to `backend.rs` (the file has none). Assert
       `AARCH64_BACKEND.is_aarch64()` is `true` (covers `backend.rs:34-36`).
-- [ ] Assert `AARCH64_BACKEND.register_model()` returns a model whose behavior
+- [x] Assert `AARCH64_BACKEND.register_model()` returns a model whose behavior
       identifies as AArch64 — call one `RegisterModel` method on the returned
       `&AARCH64_MODEL` (covers `:30-31`).
-- [ ] Assert `AARCH64_BACKEND.select(&[])` returns an empty `Vec` (covers `:26-28`;
+- [x] Assert `AARCH64_BACKEND.select(&[])` returns an empty `Vec` (covers `:26-28`;
       `select_aarch64` loops over the input, so the empty slice is safe — verified
       `src/arch/aarch64/select.rs:20-22`). This closes the overview's Open
       Decision in favor of **backfill**: no codegen-integration boundary is needed;
@@ -105,7 +105,7 @@ integration — but each is trivially callable in isolation:
 `struct`/`impl` declarations (not in the denominator). The 3 uncovered lines are
 that function's body, including the `if !names.contains(...)` dedup arm.
 
-- [ ] In `src/ir/verify/tests.rs` (or a new `#[cfg(test)]` in `types.rs`),
+- [x] In `src/ir/verify/tests.rs` (or a new `#[cfg(test)]` in `types.rs`),
       construct an `IrProject` (via `project_fixture`) whose `link_functions`
       declare libraries in the order `["a", "b", "a"]`; assert
       `link_library_names()` returns `["a", "b"]` — covers the loop, the push, and
