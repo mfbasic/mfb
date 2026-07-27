@@ -248,6 +248,11 @@ Commit: 2cb008d3c
   can hand in the release binary it already built and skip any nested build), then
   the `release` sibling of `CARGO_BIN_EXE_mfb`, then a one-time nested
   `cargo build --release --bin mfb` (`BUILD_RELEASE_MFB: Once`).
+- **Merge-time drift (§5).** Merging `main` (bug-390) pulled in a new
+  `tests/rt_foreign_type_reexport.rs` that used `env!("CARGO_BIN_EXE_mfb")` (debug)
+  — the exact site class this letter neutralizes. Routed it through
+  `common::mfb_exe()` (added `mod common;`) during the merge resolution, so the
+  release-harness invariant continues to hold tree-wide (commit a511d3a62).
 
 ## Summary
 
