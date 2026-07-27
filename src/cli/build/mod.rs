@@ -2044,4 +2044,304 @@ mod tests {
         let options = parse_build_options(vec!["some/project".to_string()]).expect("options");
         assert!(options.outputs.is_empty());
     }
+
+    // Some CI environments run as root, where a `0o000` permission is ignored
+    // (root bypasses the check), so a permission-denied test would spuriously
+    // succeed at the very operation it means to fail. Probe once and skip those
+    // tests there rather than asserting a failure that cannot happen.
+    #[cfg(unix)]
+    fn running_as_root() -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let probe = dir.path().join("probe");
+        std::fs::write(&probe, b"x").unwrap();
+        let mut perm = std::fs::metadata(&probe).unwrap().permissions();
+        perm.set_mode(0o000);
+        std::fs::set_permissions(&probe, perm).unwrap();
+        // A 0o000 file is still readable by root.
+        std::fs::read(&probe).is_ok()
+    }
+
+    // ---- test_mode.rs: run_test_binary + generate_coverage_report (plan-68-B B1) ----
+
+    /// `run_test_binary` maps the child's exit status onto `mfb test`'s result:
+    /// success passes, a non-zero exit fails, and a failure to even spawn fails.
+    #[test]
+    #[cfg(unix)]
+    fn run_test_binary_maps_every_exit_status() {
+        // Exit 0 -> Ok (the success arm).
+        assert!(run_test_binary(Path::new("/usr/bin/true")).is_ok());
+        // Non-zero exit -> Err (the `Ok(_) => Err(())` arm).
+        assert!(run_test_binary(Path::new("/usr/bin/false")).is_err());
+        // Spawn failure on a nonexistent path -> Err (the `Err(err)` arm).
+        assert!(run_test_binary(Path::new("/no/such/binary-xyzzy-42")).is_err());
+    }
+
+    /// An empty project directory has no `coverage.covmap.json`, so `read_covmap`
+    /// is `None`: the report warns and returns without writing `coverage.html`.
+    #[test]
+    fn generate_coverage_report_warns_when_the_covmap_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        generate_coverage_report(dir.path());
+        assert!(!dir.path().join(crate::testing::COVERAGE_HTML).exists());
+    }
+
+    /// With a real covmap seeded (as a `--coverage` build writes), `read_covmap`
+    /// is `Some`, so `generate_html` and the write arm run and produce the HTML.
+    #[test]
+    fn generate_coverage_report_writes_html_from_a_seeded_covmap() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.mfb"), "PRINT 1\n").unwrap();
+        crate::testing::coverage::write_covmap(
+            &dir.path().join(crate::testing::COVMAP_FILE),
+            &[crate::testing::coverage::CovSlot {
+                file: "main.mfb".to_string(),
+                line: 1,
+            }],
+        )
+        .unwrap();
+        generate_coverage_report(dir.path());
+        assert!(dir.path().join(crate::testing::COVERAGE_HTML).is_file());
+    }
+
+    // ---- resources.rs: copy_resources remaining branches (plan-68-B B3) ----
+
+    /// A root-level glob (`*.png`) has an empty fixed prefix, so `copy_resources`
+    /// walks the project root itself and strips no prefix from the destination.
+    #[test]
+    fn copy_resources_handles_a_root_level_glob() {
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        std::fs::write(root.join("banner.png"), b"img").unwrap();
+        std::fs::write(root.join("notes.txt"), b"skip").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "*.png".to_string(),
+            dst: String::new(),
+        }];
+        copy_resources(root, &entries, out.path()).expect("root glob copies");
+        assert!(out.path().join("banner.png").is_file());
+        // A non-matching root file is left behind.
+        assert!(!out.path().join("notes.txt").exists());
+    }
+
+    /// An unreadable resource source directory is a hard scan error, not a silent
+    /// skip (the direct `read_dir` failure inside `collect_files_recursive`).
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_reports_an_unreadable_source_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("x.ogg"), b"a").unwrap();
+        let mut perm = std::fs::metadata(&data).unwrap().permissions();
+        perm.set_mode(0o000);
+        std::fs::set_permissions(&data, perm).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "data/*.ogg".to_string(),
+            dst: "m/".to_string(),
+        }];
+        let err = copy_resources(root, &entries, out.path())
+            .expect_err("an unreadable source directory must error");
+        // Restore so the tempdir can be cleaned up.
+        let mut perm = std::fs::metadata(&data).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&data, perm).unwrap();
+        assert!(err.contains("failed to scan resources"), "{err}");
+    }
+
+    /// An unreadable subdirectory encountered while walking a resource root is a
+    /// hard scan error (`collect_files_recursive`'s propagated `read_dir` error).
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_reports_an_unreadable_subdirectory() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let data = root.join("data");
+        let sub = data.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(data.join("top.ogg"), b"a").unwrap();
+        std::fs::write(sub.join("deep.ogg"), b"b").unwrap();
+        let mut perm = std::fs::metadata(&sub).unwrap().permissions();
+        perm.set_mode(0o000);
+        std::fs::set_permissions(&sub, perm).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "data/**/*.ogg".to_string(),
+            dst: "all/".to_string(),
+        }];
+        let err = copy_resources(root, &entries, out.path())
+            .expect_err("an unreadable subdirectory must error");
+        let mut perm = std::fs::metadata(&sub).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&sub, perm).unwrap();
+        assert!(err.contains("failed to scan resources"), "{err}");
+    }
+
+    /// A destination directory that cannot be created (unwritable resource dir)
+    /// is a hard error (the `create_dir_all` arm).
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_reports_an_uncreatable_destination() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("x.ogg"), b"a").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let mut perm = std::fs::metadata(out.path()).unwrap().permissions();
+        perm.set_mode(0o500);
+        std::fs::set_permissions(out.path(), perm).unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "data/*.ogg".to_string(),
+            dst: "sub/".to_string(),
+        }];
+        let err = copy_resources(root, &entries, out.path())
+            .expect_err("an uncreatable destination must error");
+        let mut perm = std::fs::metadata(out.path()).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(out.path(), perm).unwrap();
+        assert!(err.contains("failed to create"), "{err}");
+    }
+
+    /// A matched source file that cannot be read is a hard copy error (the
+    /// `fs::copy` arm), distinct from the create-directory arm above.
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_reports_an_unreadable_source_file() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let file = data.join("x.ogg");
+        std::fs::write(&file, b"a").unwrap();
+        let mut perm = std::fs::metadata(&file).unwrap().permissions();
+        perm.set_mode(0o000);
+        std::fs::set_permissions(&file, perm).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "data/*.ogg".to_string(),
+            dst: "m/".to_string(),
+        }];
+        let err = copy_resources(root, &entries, out.path())
+            .expect_err("an unreadable source file must error");
+        let mut perm = std::fs::metadata(&file).unwrap().permissions();
+        perm.set_mode(0o644);
+        std::fs::set_permissions(&file, perm).unwrap();
+        assert!(err.contains("failed to copy resource"), "{err}");
+    }
+
+    // ---- native_libs.rs: verify / vendor-source / copy helpers (plan-68-B B4) ----
+
+    /// `verify_vendor_libraries` fails, naming the missing file, when a resolved
+    /// vendor blob is absent from disk.
+    #[test]
+    fn verify_vendor_libraries_reports_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = resolved("sqlite3", "libfoo.so");
+        // No source written -> sha256_file errs -> NATIVE_LIBRARY_FILE_MISSING.
+        assert!(!verify_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT
+        ));
+    }
+
+    /// A vendor locator that records no hash is a malformed package: the verify
+    /// fails on the "records no hash" arm even though the file is present.
+    #[test]
+    fn verify_vendor_libraries_rejects_a_locator_without_a_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut library = resolved("sqlite3", "libfoo.so");
+        library.locator.hash = None;
+        write_vendor_source(dir.path(), &library, b"bytes");
+        assert!(!verify_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT
+        ));
+    }
+
+    /// A present file whose bytes hash to something other than the recorded
+    /// sha256 is the wrong version of the library and is rejected.
+    #[test]
+    fn verify_vendor_libraries_rejects_a_hash_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        // `resolved` records hash [1u8; 32]; real bytes hash to something else.
+        let library = resolved("sqlite3", "libfoo.so");
+        write_vendor_source(dir.path(), &library, b"totally different bytes");
+        assert!(!verify_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT
+        ));
+    }
+
+    /// A file whose bytes hash exactly to the recorded sha256 verifies.
+    #[test]
+    fn verify_vendor_libraries_accepts_a_matching_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut library = resolved("sqlite3", "libfoo.so");
+        write_vendor_source(dir.path(), &library, b"the real bytes");
+        let path = vendor_source_path(dir.path(), OWN_UNIT, &library);
+        library.locator.hash = Some(crate::manifest::libraries::sha256_file(&path).unwrap());
+        assert!(verify_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT
+        ));
+    }
+
+    /// A locator declared by the project's own unit reads from `<root>/vendor/`;
+    /// an imported unit's reads from `<root>/packages/<unit>.vendor/`.
+    #[test]
+    fn vendor_source_path_distinguishes_own_and_imported_units() {
+        let root = Path::new("/proj");
+        let own = resolved(OWN_UNIT, "libbar.so");
+        assert_eq!(
+            vendor_source_path(root, OWN_UNIT, &own),
+            crate::manifest::libraries::vendor_path(root, "libbar.so"),
+        );
+        let imported = resolved("other", "libbar.so");
+        assert_eq!(
+            vendor_source_path(root, OWN_UNIT, &imported),
+            crate::manifest::libraries::imported_vendor_path(root, "other", "libbar.so"),
+        );
+    }
+
+    /// `copy_vendor_libraries` surfaces the copy error when a resolved vendor
+    /// source file does not exist on disk (the `fs::copy` failure arm).
+    #[test]
+    fn copy_vendor_libraries_errors_when_the_source_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = resolved("sqlite3", "libfoo.so");
+        // Deliberately do NOT write the source file.
+        let out = dir.path().join("out");
+        let err = copy_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT,
+            std::slice::from_ref(&out),
+        )
+        .expect_err("a missing source must fail the copy");
+        assert!(err.contains("failed to copy vendored library"), "{err}");
+    }
 }
