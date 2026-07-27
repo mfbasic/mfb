@@ -168,7 +168,7 @@ Cheap experiment that falsifies the premise "committed goldens are release-built
 
 Acceptance: written finding — **all goldens pass identically under release today**
 (no perf code exists yet); the 24-site census re-scopes Phase 2 (recorded in
-Corrections). Commit: —
+Corrections). Commit: 2cb008d3c
 
 ### Phase 2 — Switch the acceptance path to release
 

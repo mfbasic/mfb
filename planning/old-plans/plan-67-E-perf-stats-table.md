@@ -98,7 +98,7 @@ Debug-only: `perf_done` output gains four columns. Release unchanged.
       <median> <min> <max> <sum>\n` (fields have no newline; `sum` closes the row).
 
 Acceptance: see Phase 2 (both phases landed together; the columns are one row).
-Commit: —
+Commit: 27cd94827
 
 ### Phase 2 — Median (materialize + sort)
 
@@ -117,7 +117,7 @@ sum 21000, avg 4200 (=21000/5), min 0, max 21000, **median 0** (correct middle o
 sorted `[0,0,0,0,21000]`), proving the multi-element sort + odd-count median. Even
 count + real varied data are exercised by plan-67-F's arena samples. Release
 byte-identity: see acceptance below.
-Commit: —
+Commit: 27cd94827
 
 ## Validation Plan
 

@@ -146,7 +146,7 @@ multiple region rows. Release byte-identical.
       provably correct") they are left for a follow-up refinement, with
       `emit_perf_arena_call` ready to bracket them.
 
-Acceptance: the region→name table above. Commit: —
+Acceptance: the region→name table above. Commit: 8c547c9c6
 
 ### Phase 2 — Wrapping helper + register preservation
 
@@ -166,7 +166,7 @@ Acceptance: the region→name table above. Commit: —
 
 Acceptance: `cargo build -p mfb` clean; the non-recursion test passes; release
 byte-identity verified below.
-Commit: —
+Commit: 8c547c9c6
 
 ### Phase 3 — Apply to each region + host proof
 
@@ -185,7 +185,7 @@ allocation regression (program output + exit intact); **release** build
 byte-identical — `artifact-gate: … 0 diff(s)` (all targets); `cargo test`
 310+20 passed 0 failed. Linux/Windows unaffected by construction (`perf_arena_enabled`
 false → the gated blocks emit nothing → identical instruction list).
-Commit: —
+Commit: 8c547c9c6
 
 ## Validation Plan
 

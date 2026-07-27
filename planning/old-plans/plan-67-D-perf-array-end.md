@@ -109,7 +109,7 @@ starts. Release unchanged.
 
 Acceptance: assembles/encodes on host; `artifact-gate.sh target/release/mfb`
 `diffs=0`.
-Commit: —
+Commit: 2a3c34417
 
 ### Phase 2 — Whole-program end + print counts
 
@@ -128,7 +128,7 @@ Commit: —
 Acceptance: a **debug** macOS build of `/tmp/p67proof` prints `program 1` under the
 header (one whole-program span → one recorded duration), stdout `hello from p67`,
 exit 7 preserved. Release byte-identity: see acceptance below.
-Commit: —
+Commit: 2a3c34417
 
 ## Validation Plan
 

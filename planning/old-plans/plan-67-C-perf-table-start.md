@@ -145,7 +145,7 @@ Debug-only: one more injected call and a real B row at exit. Release unchanged.
 
 Acceptance: assembles/encodes on host; `artifact-gate.sh target/release/mfb`
 `diffs=0` (release inert).
-Commit: —
+Commit: 054dbfaa5
 
 ### Phase 2 — Inline monotonic clock + whole-program span + print B
 
@@ -164,7 +164,7 @@ Commit: —
 Acceptance: a **debug** macOS build of `/tmp/p67proof` prints
 `program 5641866067846000` under the header (a plausible monotonic nanos), stdout
 `hello from p67`, exit 7 preserved. Release byte-identity: see acceptance below.
-Commit: —
+Commit: 054dbfaa5
 
 ## Validation Plan
 
