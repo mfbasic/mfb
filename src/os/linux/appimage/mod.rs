@@ -349,6 +349,58 @@ mod tests {
         assert!(err.contains("not ELF64"), "{err}");
     }
 
+    /// A blob that clears the ELF64 magic gate but whose section-header table
+    /// points past its own end drives the `short()` truncation arm: the section
+    /// loop reads `sh_type`/`sh_offset` out of bounds and reports "truncated".
+    #[test]
+    fn elf_image_end_rejects_a_truncated_section_table() {
+        // 64-byte header: valid magic + ELFCLASS64, one section header whose
+        // offset (0x1000) sits far beyond the blob.
+        let mut blob = vec![0u8; 64];
+        blob[0..4].copy_from_slice(b"\x7fELF");
+        blob[4] = 2; // ELFCLASS64
+        blob[0x28..0x30].copy_from_slice(&0x1000u64.to_le_bytes()); // e_shoff
+        blob[0x3A..0x3C].copy_from_slice(&64u16.to_le_bytes()); // e_shentsize
+        blob[0x3C..0x3E].copy_from_slice(&1u16.to_le_bytes()); // e_shnum
+        let err = elf_image_end(&blob).unwrap_err();
+        assert!(err.contains("truncated"), "{err}");
+    }
+
+    /// A blob whose section header IS present but whose `sh_offset`/`sh_size`
+    /// reads run off the end drives the truncation arm one read deeper: `sh_type`
+    /// resolves, then reading the offset/size at 0x18/0x20 fails.
+    #[test]
+    fn elf_image_end_rejects_a_truncated_section_body() {
+        // The single section header starts at 0x40 (right after the Ehdr) and is
+        // only 8 bytes long, so sh_type (at +0x04) reads but sh_offset (+0x18)
+        // runs past the blob.
+        let mut blob = vec![0u8; 0x48];
+        blob[0..4].copy_from_slice(b"\x7fELF");
+        blob[4] = 2; // ELFCLASS64
+        blob[0x28..0x30].copy_from_slice(&0x40u64.to_le_bytes()); // e_shoff
+        blob[0x3A..0x3C].copy_from_slice(&64u16.to_le_bytes()); // e_shentsize
+        blob[0x3C..0x3E].copy_from_slice(&1u16.to_le_bytes()); // e_shnum
+        // sh_type at 0x44 stays 0 (not SHT_NOBITS), so the loop proceeds to read
+        // sh_offset at 0x40+0x18 = 0x58, which is past the 0x48-byte blob.
+        let err = elf_image_end(&blob).unwrap_err();
+        assert!(err.contains("truncated"), "{err}");
+    }
+
+    /// A section marked `SHT_NOBITS` (type 8) contributes no file extent, so it is
+    /// skipped; the image end falls back to the section-header table's own end.
+    #[test]
+    fn elf_image_end_skips_nobits_sections() {
+        let mut blob = vec![0u8; 0x80];
+        blob[0..4].copy_from_slice(b"\x7fELF");
+        blob[4] = 2; // ELFCLASS64
+        blob[0x28..0x30].copy_from_slice(&0x40u64.to_le_bytes()); // e_shoff
+        blob[0x3A..0x3C].copy_from_slice(&64u16.to_le_bytes()); // e_shentsize
+        blob[0x3C..0x3E].copy_from_slice(&1u16.to_le_bytes()); // e_shnum
+        blob[0x44..0x48].copy_from_slice(&8u32.to_le_bytes()); // sh_type = SHT_NOBITS
+        // No section extents count, so the end is sht_end = 0x40 + 64*1 = 0x80.
+        assert_eq!(elf_image_end(&blob).unwrap(), 0x80);
+    }
+
     #[test]
     fn read_dir_node_rejects_a_non_file_non_dir_non_symlink() {
         // A FIFO is neither a file, a directory, nor a symlink, so the reader
