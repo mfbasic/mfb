@@ -634,6 +634,27 @@ mod lower_tests {
     }
 
     #[test]
+    fn set_type_round_trips_through_front_end() {
+        // plan-63-A: a `Set OF Integer` declared (empty default), passed to a
+        // `FUNC(Set OF Integer) AS Set OF Integer`, and returned, round-trips
+        // byte-identically through parse → resolve → monomorph → lower.
+        let ir = lower_src(
+            "FUNC identity(s AS Set OF Integer) AS Set OF Integer\n  RETURN s\nEND FUNC\n\
+             MUT s AS Set OF Integer\n\
+             LET t = identity(s)\n\
+             SUB main\nEND SUB\n",
+        );
+        let identity = function(&ir, "identity");
+        assert_eq!(identity.returns, "Set OF Integer");
+        assert_eq!(identity.params[0].type_, "Set OF Integer");
+        let s = binding(&ir, "s");
+        assert_eq!(s.type_, "Set OF Integer");
+        assert!(s.mutable);
+        // The call-result binding inherits the returned Set type.
+        assert_eq!(binding(&ir, "t").type_, "Set OF Integer");
+    }
+
+    #[test]
     fn inferred_binding_from_call_result() {
         // A binding whose type is inferred from a user function's return type.
         let ir = lower_src(

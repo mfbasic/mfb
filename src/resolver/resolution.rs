@@ -1288,6 +1288,11 @@ impl Resolver<'_> {
             self.resolve_type_name(file, element, line, imports);
             return;
         }
+        if let Some(element) = type_name.strip_prefix("Set OF ") {
+            // `Set OF T` (plan-63): a single element type, no `RES`, no `TO`.
+            self.resolve_type_name(file, element, line, imports);
+            return;
+        }
         if let Some((_, message, resource, output)) =
             crate::builtins::thread::thread_parts_full(type_name)
         {

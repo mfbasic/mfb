@@ -647,6 +647,7 @@ impl TypeEnv {
         PRIMITIVE_TYPES.contains(&base)
             || matches!(base, "Error" | "ErrorLoc")
             || base.starts_with("List OF ")
+            || base.starts_with("Set OF ")
             || base.starts_with("Map OF ")
             || base.starts_with("FUNC")
             || (self.records.contains_key(base) && self.close_op_for(base).is_none())

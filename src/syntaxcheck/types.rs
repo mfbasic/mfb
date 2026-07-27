@@ -40,6 +40,11 @@ impl<'a> SyntaxChecker<'a> {
         if let Some(element) = name.strip_prefix("List OF ") {
             return Type::List(Box::new(self.parse_collection_element_type(element)));
         }
+        if let Some(element) = name.strip_prefix("Set OF ") {
+            // A Set element is always comparable (never `RES`), so parse it as a
+            // plain element type — no resource-collection element handling needed.
+            return Type::Set(Box::new(self.parse_type(element)));
+        }
         if let Some(success) = name.strip_prefix("Result OF ") {
             return Type::Result(Box::new(self.parse_type(success)));
         }
@@ -124,6 +129,7 @@ impl<'a> SyntaxChecker<'a> {
         let (expected, actual) = (strip_res(expected), strip_res(actual));
         match (expected, actual) {
             (Type::List(expected), Type::List(actual)) => self.compatible(expected, actual),
+            (Type::Set(expected), Type::Set(actual)) => self.compatible(expected, actual),
             (Type::Map(expected_key, expected_value), Type::Map(actual_key, actual_value)) => {
                 self.compatible(expected_key, actual_key)
                     && self.compatible(expected_value, actual_value)
@@ -327,6 +333,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::String
             | Type::Unknown => true,
             Type::List(_)
+            | Type::Set(_)
             | Type::Map(_, _)
             | Type::Function { .. }
             | Type::Result(_)

@@ -651,6 +651,25 @@ impl<'a> FileParser<'a> {
                 return Some(name);
             }
 
+            if name.eq_ignore_ascii_case("Set") {
+                // `Set OF T` (plan-63, §4.7): a single comparable element type —
+                // no `TO` (unlike `Map`), and no `RES` marker (unlike `List`), since
+                // a resource handle is not comparable and can never be a Set element.
+                if self.check_keyword(Keyword::Res) {
+                    let token = self.peek().clone();
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_TOKEN",
+                        "A Set element cannot be a resource; `RES` is not allowed after `Set OF`.",
+                        &token,
+                    );
+                    return None;
+                }
+                let arg = self.parse_type_name()?;
+                name.push_str(" OF ");
+                name.push_str(&arg);
+                return Some(name);
+            }
+
             let mut args = vec![self.parse_type_name()?];
             while self.match_kind(TokenKind::Comma) {
                 args.push(self.parse_type_name()?);

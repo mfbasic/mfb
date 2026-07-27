@@ -696,8 +696,8 @@ impl TypeEnv {
                 } => {
                     self.check_value_captures(iterable, closure_slots);
                     self.check_value(iterable, locals);
-                    // Only a List or Map can be iterated. (`MapEntry OF …` does
-                    // not match the `Map OF ` prefix.)
+                    // Only a List, Set, or Map can be iterated. (`MapEntry OF …`
+                    // does not match the `Map OF ` prefix.)
                     if let Some(actual) = self.infer_type(iterable, locals) {
                         let base = resource_base_type(&actual);
                         // A local the lowering could not type carries the
@@ -705,11 +705,12 @@ impl TypeEnv {
                         if !base.is_empty()
                             && base != "Unknown"
                             && !base.starts_with("List OF ")
+                            && !base.starts_with("Set OF ")
                             && !base.starts_with("Map OF ")
                         {
                             self.emit(
                                 "TYPE_FOR_EACH_REQUIRES_COLLECTION",
-                                format!("FOR EACH source has type {actual}, expected List or Map."),
+                                format!("FOR EACH source has type {actual}, expected List, Set, or Map."),
                             );
                         }
                     }

@@ -1072,6 +1072,8 @@ impl<'a> Monomorphizer<'a> {
                 if let Some(type_name) = self.expression_type(&lowered_iterable, context) {
                     let loop_type = if let Some(element) = type_name.strip_prefix("List OF ") {
                         element.to_string()
+                    } else if let Some(element) = type_name.strip_prefix("Set OF ") {
+                        element.to_string()
                     } else if let Some(rest) = type_name.strip_prefix("Map OF ") {
                         format!("MapEntry OF {rest}")
                     } else {
@@ -1522,6 +1524,9 @@ impl<'a> Monomorphizer<'a> {
                 self.concrete_type_name(element, substitutions)
             );
         }
+        if let Some(element) = type_name.strip_prefix("Set OF ") {
+            return format!("Set OF {}", self.concrete_type_name(element, substitutions));
+        }
         if let Some(success) = type_name.strip_prefix("Result OF ") {
             return format!(
                 "Result OF {}",
@@ -1588,6 +1593,9 @@ impl<'a> Monomorphizer<'a> {
         let type_name = crate::builtins::thread::strip_type_group(type_name);
         if let Some(element) = type_name.strip_prefix("List OF ") {
             return format!("List OF {}", self.template_view_type(element));
+        }
+        if let Some(element) = type_name.strip_prefix("Set OF ") {
+            return format!("Set OF {}", self.template_view_type(element));
         }
         if let Some(success) = type_name.strip_prefix("Result OF ") {
             return format!("Result OF {}", self.template_view_type(success));

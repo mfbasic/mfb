@@ -1321,6 +1321,9 @@ fn collection_iteration_type(type_: &str) -> Option<String> {
         // Iterating `List OF RES File` yields a pointer to each element; the loop
         // variable's type is the bare resource (`File`), not `RES File` (§15.6).
         .map(|element| element.strip_prefix("RES ").unwrap_or(element).to_string())
+        // `FOR EACH x IN set` yields the element type `T` (plan-63); a Set element
+        // is always comparable, so it never carries a `RES` marker.
+        .or_else(|| type_.strip_prefix("Set OF ").map(str::to_string))
         .or_else(|| {
             parse_map_type(type_).map(|(key, value)| {
                 let value = value.strip_prefix("RES ").unwrap_or(value.as_str());
