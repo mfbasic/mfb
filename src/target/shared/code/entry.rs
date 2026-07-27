@@ -190,9 +190,9 @@ pub(crate) fn lower_program_entry(
     instructions.push(abi::store_u64(ARENA_STATE_REGISTER, abi::SCRATCH[0], 0));
     // plan-67-B: start runtime perf tracking. `perf_init` mmaps its own system
     // region (arena-free) and stores the base in `_mfb_rt_perf_state`; the matching
-    // `perf_done` prints the table at exit. macOS-only and debug-only: a release
-    // compiler (`perf_injection_enabled()` false) and the Linux/Windows entry paths
-    // emit nothing here, staying byte-identical. The call clobbers x0–x17, but
+    // `perf_done` prints the table at exit. macOS-only and `--cfg perf`-only: a
+    // perf-free compiler (`perf_injection_enabled()` false) and the Linux/Windows
+    // entry paths emit nothing here, staying byte-identical. The call clobbers x0–x17, but
     // argc/argv are already parked in the callee-saved SCRATCH[17]/SCRATCH[18] (or
     // irrelevant for a non-arg entry) and are re-materialized by the blocks below,
     // and `perf_init` preserves the callee-saved arena register. The symbol is
@@ -640,7 +640,7 @@ pub(crate) fn lower_program_entry(
     // the arena having just been freed is irrelevant; it preserves the callee-saved
     // arena register and never touches the parked exit code at `[arena+32]` (which
     // lives in the stack-resident entry frame, not the freed mmap blocks). macOS +
-    // debug only — release / Linux / Windows emit nothing and stay byte-identical.
+    // `--cfg perf` only — perf-free / Linux / Windows emit nothing and stay byte-identical.
     if perf_injection_enabled() && platform.family() == PlatformFamily::MacOS {
         // plan-67-D: close the whole-program span (records one duration), then
         // print the table. perf_end reads the "program" name pointer in the arg

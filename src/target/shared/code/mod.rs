@@ -632,15 +632,15 @@ fn pad_no_slots(body: AppHookBody) -> HelperBody {
 }
 
 /// plan-67-B: the single predicate gating all runtime perf-tracking injection.
-/// It is `true` exactly when the **compiler** is built with `debug_assertions`
-/// on (a normal `cargo build`); a `--release` compiler returns `false`, so every
-/// release plan — and the entire golden/acceptance path (plan-67-A drives it from
-/// a release build) — is byte-identical to pre-plan-67 HEAD. The macOS-only and
-/// has-entry conditions are applied at each *use* site (the force in
-/// `plan::symbols::runtime_symbols` and the entry/exit injection), so this
-/// predicate stays a pure build-mode question.
+/// It is `true` exactly when the **compiler** is built with `--cfg perf`
+/// (`RUSTFLAGS="--cfg perf" cargo build`, in debug or release); every ordinary
+/// build returns `false`, so the entire golden/acceptance path (plan-67-A drives
+/// it from a perf-free build) is byte-identical to pre-plan-67 HEAD. The
+/// macOS-only and has-entry conditions are applied at each *use* site (the force
+/// in `plan::symbols::runtime_symbols` and the entry/exit injection), so this
+/// predicate stays a pure build-flag question.
 pub(crate) fn perf_injection_enabled() -> bool {
-    cfg!(debug_assertions)
+    cfg!(perf)
 }
 
 pub(crate) fn lower_module_for_platform(
@@ -761,9 +761,9 @@ pub(crate) fn lower_module_for_platform(
     }
     // plan-67-B: perf-tracking region base (an 8-byte writable global, mirroring
     // the arena global above) and the table-header string. Emitted only for a
-    // debug-built macOS entry module — the exact gate under which the entry/exit
-    // injection and the `_mfb_rt_perf_*` bodies are emitted — so release,
-    // non-macOS, and non-entry plans stay byte-identical to pre-plan-67 HEAD.
+    // `--cfg perf`-built macOS entry module — the exact gate under which the
+    // entry/exit injection and the `_mfb_rt_perf_*` bodies are emitted — so
+    // perf-free, non-macOS, and non-entry plans stay byte-identical to pre-plan-67 HEAD.
     if perf_injection_enabled() && module.entry.is_some() && module.target == "macos-aarch64" {
         data_objects.push(CodeDataObject {
             symbol: PERF_STATE_SYMBOL.to_string(),

@@ -1,9 +1,9 @@
 //! Native code generation for the internal runtime performance-tracking helpers
 //! (plan-67). These are NOT an MFB `perf::` package — there is no language
 //! surface; the four helpers are invoked only by compiler-injected calls in a
-//! **debug-built, macOS-entry** program (`perf_injection_enabled()` gates every
-//! injection site). A `--release` compiler emits none of this, so release output
-//! is byte-identical to pre-plan-67 HEAD.
+//! **`--cfg perf`-built, macOS-entry** program (`perf_injection_enabled()` gates
+//! every injection site). A compiler built without `--cfg perf` emits none of
+//! this, so ordinary output is byte-identical to pre-plan-67 HEAD.
 //!
 //! - `perf.init` — `emit_arena_map` a private-anon region and store its base in
 //!   the writable global `_mfb_rt_perf_state`. Injected at program entry.

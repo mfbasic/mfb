@@ -1,8 +1,8 @@
 use super::*;
 
-/// plan-67-F: is arena hot-path perf instrumentation active? Debug-built compiler
-/// (`perf_injection_enabled()`) on the macOS backend only, so release and
-/// Linux/Windows arena helpers stay byte-identical to pre-plan-67 HEAD.
+/// plan-67-F: is arena hot-path perf instrumentation active? `--cfg perf`-built
+/// compiler (`perf_injection_enabled()`) on the macOS backend only, so ordinary
+/// and Linux/Windows arena helpers stay byte-identical to pre-plan-67 HEAD.
 fn perf_arena_enabled(platform: &dyn CodegenPlatform) -> bool {
     perf_injection_enabled() && platform.family() == PlatformFamily::MacOS
 }
