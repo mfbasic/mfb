@@ -151,7 +151,7 @@ functions — dense multi-arm matches with no `tests.rs` reference to their
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/calls.rs` shows ≥95%.
-Commit: 15a424642 (calls.rs:199 (None,None) transfer arm unreachable — see Corrections)
+Commit: e95d0ed31 (calls.rs:199 (None,None) transfer arm unreachable — see Corrections)
 
 ### Phase D3 — `ir/verify/link.rs` native-LINK arms (137 uncov)
 
@@ -195,7 +195,7 @@ the existing `link_fn()`/`cstruct()`/`project_with_cstructs()` helpers:
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/link.rs` shows ≥95%.
-Commit: 5555ef4d1
+Commit: ebc83a5fd
 
 ### Phase D4 — `ir/verify/values.rs` money + set/field arms (101 uncov)
 
@@ -203,28 +203,28 @@ The literal-range, collection-element, member-access, and binary-operator rules
 are largely tested. The uncovered cluster (rule-ids absent from `tests.rs`) is the
 **Money** algebra plus a few member/collection arms:
 
-- [ ] **Money literals — `check_const_literal` Money arm** (`values.rs:373-385`):
+- [x] **Money literals — `check_const_literal` Money arm** (`values.rs:373-385`):
       a `Money` const with >5 fractional digits → `TYPE_MONEY_LITERAL_PRECISION`
       (`:374`); a `Money` const outside range (converter `Err`) →
       `TYPE_MONEY_LITERAL_OVERFLOW` (`:381`).
-- [ ] **Money literals — `check_negated_const_literal` Money arm**
+- [x] **Money literals — `check_negated_const_literal` Money arm**
       (`values.rs:430-442`): a negated Money with >5 fractional digits →
       `TYPE_MONEY_LITERAL_PRECISION` (`:431`); a negated Money below range →
       `TYPE_MONEY_LITERAL_UNDERFLOW` (`:438`). Feed via a `Unary { op: "-", .. }`
       over a `Const { type_: "Money", .. }` (the `check_literal_range` dispatch at
       `:302-308`).
-- [ ] **`check_money_operands`** (`values.rs:681-715`): a Money-vs-non-Money
+- [x] **`check_money_operands`** (`values.rs:681-715`): a Money-vs-non-Money
       comparison (`=`,`<`,… with `l_money != r_money`) → `TYPE_MONEY_OPERATION_INVALID`
       (`:687`); each invalid-arithmetic reason arm — `+`/`-`/`MOD` with a
       non-Money operand, `Money * Money`, non-Money `/` Money, `Money ^ x`
       (`:700-714`). Accept-cases: same-dimension add, `M/M`, scalar scale (guard
       `:696`).
-- [ ] **`TYPE_UNKNOWN_FIELD`** in `check_member_access` (`values.rs:543`): a
+- [x] **`TYPE_UNKNOWN_FIELD`** in `check_member_access` (`values.rs:543`): a
       `MemberAccess` on a known record whose complete field set does **not**
       contain the member. (`TYPE_MEMBER_NOT_VISIBLE` `:547` may already be tested —
       confirm against A's report; if uncovered, add a private-field-cross-file
       fixture via `hidden_from_here`.)
-- [ ] **`TYPE_REQUIRES_COMPARABLE` Set-element arm + `TYPE_COLLECTION_OWNERSHIP_VIOLATION`
+- [x] **`TYPE_REQUIRES_COMPARABLE` Set-element arm + `TYPE_COLLECTION_OWNERSHIP_VIOLATION`
       Set arm** in `check_map_key_comparable` (`values.rs:734-756`): a `Set OF T`
       whose element is incomparable → `TYPE_REQUIRES_COMPARABLE` (`:749`); a
       `Set OF T` whose element contains a resource/thread →
@@ -232,7 +232,7 @@ are largely tested. The uncovered cluster (rule-ids absent from `tests.rs`) is t
       under D; the source rule is `TYPE_SET_ELEMENT_MISMATCH` at the collection
       literal path — check A's report for whether the set-literal-element arm or
       the set-type-key arm is the uncovered one, and cover whichever it is.)
-- [ ] **`is_comparable_seen` / `is_comparable_defaultable` recursion arms**
+- [x] **`is_comparable_seen` / `is_comparable_defaultable` recursion arms**
       (`values.rs:784-819`) and the `check_binary_operands` equality
       compatible-but-not-comparable vs incompatible split (`:646-673`): cover per
       A's report — an `=` over two incompatible types (operator-mismatch arm) vs
