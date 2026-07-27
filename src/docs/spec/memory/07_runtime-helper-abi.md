@@ -128,8 +128,8 @@ MFB language surface and no `helper_for_call` routing — its four helpers
 `spec_for_symbol` resolves them during emission) but injected directly by the code
 layer, so they are listed in `CODE_LAYER_ONLY_CALLS` and never take part in the
 Required-Helper Analysis or the declared-vs-used parity below. Injection is gated
-on `perf_injection_enabled()` (a debug-built compiler) **and** a macOS entry
-module: a release compiler, and every Linux/Windows build, emit nothing, so their
+on `perf_injection_enabled()` (a `--cfg perf`-built compiler) **and** a macOS entry
+module: a perf-free compiler, and every Linux/Windows build, emit nothing, so their
 output is byte-identical to a pre-perf build. The emitted symbols are forced into
 the plan's runtime-symbol set (`plan::symbols::runtime_symbols`), not derived from
 the IR. [[src/target/shared/code/perf.rs:lower_perf_helper]]

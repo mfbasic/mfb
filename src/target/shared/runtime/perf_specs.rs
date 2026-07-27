@@ -2,7 +2,7 @@ use super::*;
 
 // plan-67-B: the four internal runtime performance-tracking helpers. They are
 // NOT part of any `perf::` MFB package — there is no language surface — and are
-// invoked only by compiler-injected calls in a debug-built, macOS-entry program
+// invoked only by compiler-injected calls in a `--cfg perf`-built, macOS-entry program
 // (see `plan::symbols::runtime_symbols`, which force-adds their symbols under
 // that gate). They are catalogued only so `spec_for_call`/`spec_for_symbol`
 // resolve them during code emission and object planning, exactly like the
