@@ -87,6 +87,9 @@ impl NativePlanPlatform for Platform {
             import("GetStdHandle", KERNEL32, "_main"),
             import("WriteFile", KERNEL32, "_main"),
             import("ExitProcess", KERNEL32, "_main"),
+            // plan-66-J-3 transcript: io::print → EDIT control. MultiByteToWideChar
+            // converts the UTF-8 print text; SendMessageW appends it (EM_REPLACESEL).
+            import("MultiByteToWideChar", KERNEL32, "_main"),
             import("RegisterClassExW", USER32, "_main"),
             import("CreateWindowExW", USER32, "_main"),
             import("GetMessageW", USER32, "_main"),
@@ -94,6 +97,8 @@ impl NativePlanPlatform for Platform {
             import("DispatchMessageW", USER32, "_main"),
             import("DefWindowProcW", USER32, "_main"),
             import("PostQuitMessage", USER32, "_main"),
+            import("PostMessageW", USER32, "_main"),
+            import("SendMessageW", USER32, "_main"),
         ]
     }
 

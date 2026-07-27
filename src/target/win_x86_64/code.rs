@@ -615,6 +615,22 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
+        // App mode (plan-66-J): the worker program routes completion through the
+        // winapp finish helper (transcript readback/dump + ExitProcess) instead of
+        // a bare ExitProcess, so the window transcript is observable. Console
+        // programs (and the headless app fallback inside finish) ExitProcess here.
+        if from == code::MACAPP_PROGRAM_SYMBOL {
+            instructions.push(abi::branch_link(app::FINISH_SYMBOL));
+            relocations.push(CodeRelocation {
+                from: from.to_string(),
+                to: app::FINISH_SYMBOL.to_string(),
+                kind: RelocIntent::Call,
+                binding: "internal".to_string(),
+                library: None,
+            });
+            instructions.extend([abi::branch_self(), abi::return_()]);
+            return Ok(());
+        }
         // ExitProcess(uExitCode): the exit code arrives in the neutral `x0`,
         // which the Win64 remap realizes to `rcx` (arg 0). Never returns.
         call_external(from, "ExitProcess", KERNEL32, instructions, relocations);

@@ -26,8 +26,8 @@ use std::collections::HashMap;
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent,
-    AppEntrySpec, AppHookBody, MACAPP_PROGRAM_SYMBOL, RESULT_OK_TAG, RESULT_TAG_REGISTER,
-    RESULT_VALUE_REGISTER,
+    AppEntrySpec, AppHookBody, ARENA_ALLOC_SYMBOL, MACAPP_PROGRAM_SYMBOL, RESULT_OK_TAG,
+    RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
 };
 
 const KERNEL32: &str = "kernel32.dll";
@@ -37,9 +37,35 @@ const MAIN_SYMBOL: &str = "_main";
 const WORKER_SYMBOL: &str = "_mfb_winapp_worker";
 const WNDPROC_SYMBOL: &str = "_mfb_winapp_wndproc";
 
+pub(super) const FINISH_SYMBOL: &str = "_mfb_winapp_program_finish";
+
 const CLASS_NAME_SYM: &str = "_mfb_winapp_class";
 const TITLE_SYM: &str = "_mfb_winapp_title";
 const HEADLESS_ENV_SYM: &str = "_mfb_winapp_headless_env";
+const EDIT_CLASS_SYM: &str = "_mfb_winapp_edit_class"; // L"EDIT"
+const DUMP_ENV_SYM: &str = "_mfb_winapp_dump_env"; // L"MFB_WINAPP_DUMP" (test readback gate)
+const CRLF_SYM: &str = "_mfb_winapp_crlf"; // L"\r\n"
+/// Writable 8-byte global holding the transcript EDIT control's HWND (0 until the
+/// window is built). Written by `_main` (UI thread), read by `io_write` (worker
+/// thread). `kind:"raw"` → the writable data partition.
+const EDIT_HWND_SYM: &str = "_mfb_winapp_edit_hwnd";
+/// Writable 8-byte global holding the main window HWND (the worker's finish helper
+/// reads it to signal the UI thread to quit).
+const MAIN_HWND_SYM: &str = "_mfb_winapp_main_hwnd";
+/// A custom worker→UI quit signal (`WM_APP`). The message loop catches it and exits
+/// so the UI thread — which owns the window — performs teardown; a worker-thread
+/// `ExitProcess` while the window/message-loop is live faults in GDI teardown.
+const WM_APP_QUIT: &str = "32768"; // WM_APP (0x8000)
+
+// WS_CHILD|WS_VISIBLE|WS_VSCROLL|ES_MULTILINE|ES_AUTOVSCROLL. NOT ES_READONLY: a
+// read-only EDIT ignores EM_REPLACESEL, so programmatic transcript appends would
+// silently no-op. A console transcript is also the input surface (like macOS's
+// NSTextView), so an editable multiline control is the right model.
+const EDIT_STYLE: &str = "1344274500"; // 0x50200044
+const WM_GETTEXTLENGTH: &str = "14"; // 0x000E
+const EM_SETSEL: &str = "177"; // 0x00B1
+const EM_REPLACESEL: &str = "194"; // 0x00C2
+const CP_UTF8: &str = "65001";
 
 // WS_OVERLAPPEDWINDOW | WS_VISIBLE = 0x10CF0000; CW_USEDEFAULT = 0x80000000.
 const WS_OVERLAPPED_VISIBLE: &str = "282001408"; // 0x10CF0000
@@ -112,6 +138,22 @@ fn load_addr(
     });
 }
 
+/// `_mfb_arena_alloc(size, align=2) -> RET[1] = ptr`. Size in the return register,
+/// align in `ARG[1]` (matches `emit_marshal_path`). The 64 KiB requests never OOM
+/// (the arena maps fresh 1 MiB+ blocks), so the Result tag is not checked.
+fn arena_alloc(size: &str, from: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>) {
+    ins.push(abi::move_immediate(abi::return_register(), "Integer", size));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "2"));
+    ins.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
+    rel.push(CodeRelocation {
+        from: from.to_string(),
+        to: ARENA_ALLOC_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+}
+
 fn code_function(name: &str, symbol: &str, ins: Vec<CodeInstruction>, rel: Vec<CodeRelocation>) -> CodeFunction {
     CodeFunction {
         name: name.to_string(),
@@ -135,7 +177,7 @@ pub(super) fn emit_app_program_entry(
     _spec: &AppEntrySpec,
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
-    Ok(vec![emit_main(), emit_worker(), emit_wndproc()])
+    Ok(vec![emit_main(), emit_worker(), emit_wndproc(), emit_finish()])
 }
 
 /// `_main`: the PE entry. Frame (mirrors spike.rs): shadow [0x00..0x20], outgoing
@@ -190,26 +232,62 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::add_immediate(abi::ARG[0], abi::stack_pointer(), WNDCLASS));
     call_external(from, "RegisterClassExW", USER32, &mut ins, &mut rel);
 
-    // CreateWindowExW(0, &class, &title, style, CW, CW, 400, 300, 0, 0, hInst, 0)
-    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
-    load_addr(abi::ARG[1], CLASS_NAME_SYM, from, &mut ins, &mut rel);
-    load_addr(abi::ARG[2], TITLE_SYM, from, &mut ins, &mut rel);
-    ins.push(abi::move_immediate(abi::ARG[3], "Integer", WS_OVERLAPPED_VISIBLE));
-    // stack args (5th..11th) at [sp+0x20..0x58].
-    ins.push(abi::move_immediate(abi::ARG[4], "Integer", CW_USEDEFAULT));
-    ins.push(abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x20)); // x
-    ins.push(abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x28)); // y
-    ins.push(abi::move_immediate(abi::ARG[4], "Integer", "400"));
-    ins.push(abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x30)); // width
-    ins.push(abi::move_immediate(abi::ARG[4], "Integer", "300"));
-    ins.push(abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x38)); // height
+    // CreateWindowExW(0, &class, &title, style, CW, CW, 400, 300, 0, 0, hInst, 0).
+    // Stage the seven stack args (5th..11th) at [sp+0x20..0x58] through ARG[2] as a
+    // caller-saved scratch BEFORE it becomes lpClassName's sibling — the SCRATCH
+    // pool and ARG[4..] must NOT be used (their Win64 realizations are callee-saved,
+    // and clobbering them corrupts the pinned/arena registers — see emit_open_file).
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", CW_USEDEFAULT));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20)); // x
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28)); // y
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "400"));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x30)); // width
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "300"));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x38)); // height
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x40)); // hWndParent
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x48)); // hMenu
-    ins.push(abi::load_u64(abi::ARG[4], abi::stack_pointer(), HINSTANCE));
-    ins.push(abi::store_u64(abi::ARG[4], abi::stack_pointer(), 0x50)); // hInstance
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), HINSTANCE));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x50)); // hInstance
     ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x58)); // lpParam
+    // Register args, ARG[2] (lpWindowName = &title) set last.
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
+    load_addr(abi::ARG[1], CLASS_NAME_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", WS_OVERLAPPED_VISIBLE));
+    load_addr(abi::ARG[2], TITLE_SYM, from, &mut ins, &mut rel);
     call_external(from, "CreateWindowExW", USER32, &mut ins, &mut rel);
     ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HWND));
+    // Stash the main HWND so the worker's finish helper can signal the UI thread.
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), HWND));
+    load_addr(abi::ARG[1], MAIN_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ARG[0], abi::ARG[1], 0));
+
+    // Transcript = a multiline EDIT child filling the window (the stock
+    // control that IS the scrollback — the Win32 analog of macOS's NSTextView).
+    // CreateWindowExW(0, L"EDIT", NULL, EDIT_STYLE, 0, 0, 400, 300, mainHwnd, 0,
+    //                 hInstance, NULL). SendMessage cross-thread marshaling (the
+    // worker → this UI thread) makes io::print append synchronously.
+    // Stage the stack args through ARG[2] (set to lpWindowName=NULL last).
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20)); // x = 0
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x28)); // y = 0
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "400"));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x30)); // width
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "300"));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x38)); // height
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), HWND));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x40)); // hWndParent = main
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x48)); // hMenu = 0 (child id)
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), HINSTANCE));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x50)); // hInstance
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x58)); // lpParam
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
+    load_addr(abi::ARG[1], EDIT_CLASS_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", EDIT_STYLE));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0")); // lpWindowName = NULL (last)
+    call_external(from, "CreateWindowExW", USER32, &mut ins, &mut rel);
+    // Store the EDIT HWND into its writable global (load_addr writes ARG[1], not
+    // the return register, so the fresh handle survives the address computation).
+    load_addr(abi::ARG[1], EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::return_register(), abi::ARG[1], 0));
 
     // CreateThread(NULL, 0, &worker, hwnd, 0, NULL)
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
@@ -230,6 +308,13 @@ fn emit_main() -> CodeFunction {
     call_external(from, "GetMessageW", USER32, &mut ins, &mut rel);
     ins.push(abi::compare_immediate(abi::return_register(), "0"));
     ins.push(abi::branch_le("main_done")); // 0 = WM_QUIT, -1 = error
+    // The worker's finish posts WM_APP_QUIT (msg.message @ MSG+8); catch it and exit
+    // the loop so the UI thread does teardown (a worker ExitProcess faults in GDI).
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), MSG + 8));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "4294967295"));
+    ins.push(abi::and_registers(abi::ARG[1], abi::ARG[1], abi::ARG[2])); // low 32 = message
+    ins.push(abi::compare_immediate(abi::ARG[1], WM_APP_QUIT));
+    ins.push(abi::branch_eq("main_done"));
     ins.push(abi::add_immediate(abi::ARG[0], abi::stack_pointer(), MSG));
     call_external(from, "TranslateMessage", USER32, &mut ins, &mut rel);
     ins.push(abi::add_immediate(abi::ARG[0], abi::stack_pointer(), MSG));
@@ -252,8 +337,44 @@ fn emit_main() -> CodeFunction {
     ins.push(abi::subtract_immediate(abi::ARG[1], abi::ARG[1], 1));
     call_external(from, "WaitForSingleObject", KERNEL32, &mut ins, &mut rel);
 
-    // ExitProcess(0). (The worker's program body usually ExitProcess's first.)
+    // The loop ended (worker posted WM_APP_QUIT) or the headless worker exited.
+    // Test affordance (plan-66-J-3 box proof): when MFB_WINAPP_DUMP is set, the UI
+    // thread reads the transcript back (WM_GETTEXT) and writes the raw UTF-16 to
+    // stdout, so an ssh box run can confirm io::print reached the window without a
+    // visible display. Off by default (no side effect for real GUI runs).
     ins.push(abi::label("main_done"));
+    load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x60));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("main_exit"));
+    load_addr(abi::ARG[0], DUMP_ENV_SYM, from, &mut ins, &mut rel);
+    load_addr(abi::ARG[1], "_mfb_winapp_testbuf", from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "200"));
+    call_external(from, "GetEnvironmentVariableW", KERNEL32, &mut ins, &mut rel);
+    ins.push(abi::compare_immediate(abi::return_register(), "0"));
+    ins.push(abi::branch_eq("main_exit"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x60));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "13")); // WM_GETTEXT
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "250"));
+    load_addr(abi::ARG[3], "_mfb_winapp_testbuf", from, &mut ins, &mut rel);
+    call_external(from, "SendMessageW", USER32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "65535"));
+    ins.push(abi::and_registers(abi::return_register(), abi::return_register(), abi::ARG[1]));
+    ins.push(abi::shift_left_immediate(abi::ARG[0], abi::return_register(), 1));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x68)); // nbytes
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
+    ins.push(abi::subtract_immediate(abi::ARG[0], abi::ARG[0], FILE_FLAG_STDOUT_FD));
+    call_external(from, "GetStdHandle", KERNEL32, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x70));
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x78));
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x20));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x70));
+    load_addr(abi::ARG[1], "_mfb_winapp_testbuf", from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), 0x68));
+    ins.push(abi::add_immediate(abi::ARG[3], abi::stack_pointer(), 0x78));
+    call_external(from, "WriteFile", KERNEL32, &mut ins, &mut rel);
+    ins.push(abi::label("main_exit"));
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     call_external(from, "ExitProcess", KERNEL32, &mut ins, &mut rel);
     ins.push(abi::branch_self());
@@ -304,6 +425,34 @@ fn emit_wndproc() -> CodeFunction {
     code_function("winapp.wndproc", WNDPROC_SYMBOL, ins, rel)
 }
 
+/// App-mode program-completion path (`emit_program_exit` routes the worker here
+/// when `from == MACAPP_PROGRAM_SYMBOL`). The worker must NOT `ExitProcess` while
+/// the GUI window/message-loop is live (that faults in GDI teardown), so it asks
+/// the UI thread to quit: `PostMessageW(mainHwnd, WM_APP_QUIT)` — the message loop
+/// catches it and exits to `main_done`, where the UI thread `ExitProcess`es. Then
+/// `ExitThread(0)` retires the worker. In headless mode `mainHwnd` is 0, so
+/// `PostMessageW` no-ops and the worker just exits, waking `_main`'s
+/// `WaitForSingleObject`. (Keeping the window open after the program exits — the
+/// macOS "park" behavior — is a J-5 refinement.)
+fn emit_finish() -> CodeFunction {
+    let from = FINISH_SYMBOL;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(0x28));
+    load_addr(abi::ARG[0], MAIN_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", WM_APP_QUIT));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", "0"));
+    call_external(from, "PostMessageW", USER32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
+    call_external(from, "ExitThread", KERNEL32, &mut ins, &mut rel);
+    ins.push(abi::branch_self());
+    ins.push(abi::return_());
+    code_function("winapp.finish", FINISH_SYMBOL, ins, rel)
+}
+
 /// App-mode `io.print`/`io.write`/`io.printError`/`io.writeError` body (J-2): the
 /// string object is in `ARG[0]` (`{u64 len @0; bytes @8}`); write it to the
 /// inherited standard handle via `WriteFile(GetStdHandle(std), bytes, len,
@@ -311,18 +460,95 @@ fn emit_wndproc() -> CodeFunction {
 /// standard handles, so the box run observes the output. Returns `RESULT_OK_TAG`.
 /// (J-3 routes this to the GDI transcript when a window is attached.)
 pub(super) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool) -> AppHookBody {
-    const FRAME: usize = 0x50;
-    const OVERLAPPED: usize = 0x20; // WriteFile 5th arg
+    // FRAME ≡ 8 (mod 16): entered at sp%16==8 (post-call), so this realigns to 16
+    // before the SendMessageW/GDI calls (which use aligned SSE and fault otherwise).
+    const FRAME: usize = 0x68;
+    const OVERLAPPED: usize = 0x20; // WriteFile 5th arg / MultiByteToWideChar staging
     const NL_BYTE: usize = 0x30;
     const STR: usize = 0x38;
     const WRITTEN: usize = 0x40;
     const HANDLE: usize = 0x48;
+    const EDITH: usize = 0x50; // transcript EDIT HWND
+    const WBUF: usize = 0x58; // arena UTF-16 buffer
     let std_fd = if stderr { FILE_FLAG_STDERR_FD } else { FILE_FLAG_STDOUT_FD };
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
     ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), STR));
+    // If a transcript EDIT control is attached (non-headless), route there; the
+    // SendMessageW below marshals to the UI thread synchronously. Else fall through
+    // to the inherited standard handle (headless / no window — the J-2 path).
+    load_addr(abi::ARG[0], EDIT_HWND_SYM, symbol, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("std_path"));
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), EDITH));
+
+    // --- transcript path: append to the EDIT control ---
+    // wbuf = arena UTF-16 scratch.
+    arena_alloc("65536", symbol, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::RET[1], abi::stack_pointer(), WBUF));
+    // MultiByteToWideChar(CP_UTF8, 0, str+8, len, wbuf, 32767). Stage the two stack
+    // args (5th/6th) through ARG[2] before it becomes lpMultiByteStr (the SCRATCH
+    // pool must not be used on Win64 — see emit_marshal_path).
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), WBUF));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20)); // lpWideCharStr (5th)
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "32767"));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28)); // cchWideChar (6th)
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), STR)); // str ptr
+    ins.push(abi::load_u64(abi::ARG[3], abi::ARG[2], 0)); // cbMultiByte = len
+    ins.push(abi::add_immediate(abi::ARG[2], abi::ARG[2], 8)); // lpMultiByteStr = str+8
+    call_external(symbol, "MultiByteToWideChar", KERNEL32, &mut ins, &mut rel);
+    // NUL-terminate wbuf. The UTF-16 unit count ≤ the input byte count `str[0]`, so
+    // `wbuf + str[0]*2` is a safe upper bound (exact for ASCII); use the trusted
+    // byte length rather than MultiByteToWideChar's `int` return (whose garbage high
+    // rax bits SIGSEGV'd `wbuf + garbage` in the non-headless transcript path). A
+    // precise NUL for multi-byte text is a later refinement.
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), STR));
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0)); // len = str[0]
+    ins.push(abi::shift_left_immediate(abi::ARG[0], abi::ARG[0], 1)); // len*2
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), WBUF));
+    ins.push(abi::add_registers(abi::ARG[0], abi::ARG[1], abi::ARG[0])); // wbuf + len*2
+    ins.push(abi::store_u16(abi::ZERO, abi::ARG[0], 0));
+    // caretEnd = SendMessageW(edit, WM_GETTEXTLENGTH, 0, 0)
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), EDITH));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", WM_GETTEXTLENGTH));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", "0"));
+    call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
+    // SendMessageW(edit, EM_SETSEL, caretEnd, caretEnd) — collapse selection at end.
+    // WM_GETTEXTLENGTH returns a C `int`; mask off the garbage high word of rax so
+    // the caret position is not a wild value.
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "4294967295"));
+    ins.push(abi::and_registers(abi::return_register(), abi::return_register(), abi::ARG[2]));
+    ins.push(abi::move_register(abi::ARG[2], abi::return_register()));
+    ins.push(abi::move_register(abi::ARG[3], abi::return_register()));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), EDITH));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", EM_SETSEL));
+    call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
+    // SendMessageW(edit, EM_REPLACESEL, 0, wbuf) — insert the text at the caret.
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), EDITH));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", EM_REPLACESEL));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
+    ins.push(abi::load_u64(abi::ARG[3], abi::stack_pointer(), WBUF));
+    call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
+    if newline {
+        // EDIT controls need CRLF, not a lone LF; append it after the inserted text.
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), EDITH));
+        ins.push(abi::move_immediate(abi::ARG[1], "Integer", EM_REPLACESEL));
+        ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
+        load_addr(abi::ARG[3], CRLF_SYM, symbol, &mut ins, &mut rel);
+        call_external(symbol, "SendMessageW", USER32, &mut ins, &mut rel);
+    }
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+
+    // --- headless / no-window path: write to the inherited standard handle ---
+    ins.push(abi::label("std_path"));
     // GetStdHandle(std) — std handle = -(fd) built without a negative immediate.
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     ins.push(abi::subtract_immediate(abi::ARG[0], abi::ARG[0], std_fd));
@@ -431,7 +657,35 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         utf16z_data_object(CLASS_NAME_SYM, "MFBWinApp"),
         utf16z_data_object(TITLE_SYM, title),
         utf16z_data_object(HEADLESS_ENV_SYM, "MFB_WINAPP_HEADLESS"),
+        utf16z_data_object(EDIT_CLASS_SYM, "EDIT"),
+        utf16z_data_object(DUMP_ENV_SYM, "MFB_WINAPP_DUMP"),
+        utf16z_data_object(CRLF_SYM, "\r\n"),
+        // Writable 8-byte globals (kind:"raw" → the writable data partition): the
+        // transcript EDIT HWND and the main window HWND, both 0 until built.
+        writable_qword(EDIT_HWND_SYM),
+        writable_qword(MAIN_HWND_SYM),
+        CodeDataObject {
+            symbol: "_mfb_winapp_testbuf".to_string(),
+            kind: "raw".to_string(),
+            layout: "u8[512] (writable readback scratch)".to_string(),
+            align: 2,
+            size: 512,
+            value: "00".repeat(512),
+        },
     ]
+}
+
+/// A zero-initialized writable 8-byte global (`kind:"raw"` lands it in the
+/// writable data region per `layout_data_objects`).
+fn writable_qword(symbol: &str) -> CodeDataObject {
+    CodeDataObject {
+        symbol: symbol.to_string(),
+        kind: "raw".to_string(),
+        layout: "u64 (writable global)".to_string(),
+        align: 8,
+        size: 8,
+        value: "0000000000000000".to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -482,12 +736,15 @@ mod tests {
     #[test]
     fn data_objects_are_utf16() {
         let objs = app_mode_data_objects("MyProj");
-        assert_eq!(objs.len(), 3);
         let title = objs.iter().find(|o| o.symbol == TITLE_SYM).unwrap();
         // "MyProj" → 6 UTF-16 code units × 2 bytes + 2-byte NUL = 14.
         assert_eq!(title.size, 14);
         assert_eq!(title.align, 2);
         assert!(title.value.ends_with("0000"));
+        // The writable HWND globals are 8-byte zero-init (writable data partition).
+        let edit = objs.iter().find(|o| o.symbol == EDIT_HWND_SYM).unwrap();
+        assert_eq!(edit.size, 8);
+        assert_eq!(edit.value, "0000000000000000");
     }
 
     #[test]
@@ -497,5 +754,48 @@ mod tests {
         assert_eq!(writes, 2, "newline variant issues the text + '\\n' WriteFile");
         assert!(rel.iter().any(|r| r.to == "GetStdHandle"));
         assert!(!ins.is_empty());
+    }
+
+    #[test]
+    fn io_write_has_transcript_path() {
+        // plan-66-J-3: io_write routes to the EDIT control (transcript) when the
+        // edit-hwnd global is set — MultiByteToWideChar the print text, then append
+        // via EM_REPLACESEL SendMessageW — and falls back to the std handle otherwise.
+        let (_frame, _ins, rel) = emit_app_io_write_helper("_test_io", false, true);
+        assert!(
+            rel.iter().any(|r| r.to == EDIT_HWND_SYM),
+            "reads the transcript EDIT-hwnd global to choose the path"
+        );
+        assert!(
+            rel.iter().any(|r| r.to == "MultiByteToWideChar"),
+            "converts the UTF-8 print text to UTF-16 for the EDIT control"
+        );
+        let sends = rel.iter().filter(|r| r.to == "SendMessageW").count();
+        // WM_GETTEXTLENGTH + EM_SETSEL + EM_REPLACESEL (+ CRLF EM_REPLACESEL for the
+        // newline variant) = 4.
+        assert_eq!(sends, 4, "transcript append issues 4 SendMessageW: {sends}");
+        // Still has the std-handle fallback for headless / no-window.
+        assert!(rel.iter().any(|r| r.to == "GetStdHandle"));
+    }
+
+    #[test]
+    fn main_creates_edit_and_finish_signals_ui() {
+        let fns = emit_app_program_entry(&spec(), &HashMap::new()).unwrap();
+        let main = fns.iter().find(|f| f.symbol == MAIN_SYMBOL).unwrap();
+        let targets: Vec<&str> = main.relocations.iter().map(|r| r.to.as_str()).collect();
+        // Two CreateWindowExW (main window + EDIT child) and the two window globals.
+        assert_eq!(
+            targets.iter().filter(|t| **t == "CreateWindowExW").count(),
+            2,
+            "_main creates the main window and the transcript EDIT child"
+        );
+        assert!(targets.contains(&EDIT_CLASS_SYM), "references the L\"EDIT\" class");
+        assert!(targets.contains(&EDIT_HWND_SYM) && targets.contains(&MAIN_HWND_SYM));
+        // The finish helper must NOT ExitProcess on the worker (that faults in GDI
+        // teardown); it posts WM_APP_QUIT so the UI thread tears down.
+        let finish = fns.iter().find(|f| f.symbol == FINISH_SYMBOL).unwrap();
+        let ft: Vec<&str> = finish.relocations.iter().map(|r| r.to.as_str()).collect();
+        assert!(ft.contains(&"PostMessageW"), "finish signals the UI thread");
+        assert!(ft.contains(&"ExitThread") && !ft.contains(&"ExitProcess"));
     }
 }

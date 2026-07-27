@@ -543,10 +543,25 @@ Commit: d9025af8c / merged e5c500020
   `emit_app_io_flush_helper`, `emit_app_io_is_terminal_helper`. `user32`/`gdi32`
   import rows. **Acceptance:** a `-app hello` build produces a Subsystem-2 `.exe`
   that, run headless on the box, executes the worker and emits its output.
-- **J-3 — GDI transcript.** WndProc `WM_PAINT` custom-draws a scrollback line
-  buffer (TextOutW, fixed-pitch), worker→UI `SendMessageW(WM_APP_APPEND)` marshals
-  print text into it; `emit_app_io_write_helper` routes to the transcript when a
-  window is attached. **Acceptance:** box run shows `io::print` output in the window.
+- **J-3 — transcript. DONE + box-proven.** Uses a stock multiline Win32 **EDIT
+  control** as the transcript (matching macOS, which uses stock NSTextView for the
+  transcript and custom-draw only for the TUI grid — a documented deviation from
+  Open Decision 3's "GDI custom-draw everything", which was an oversimplification).
+  `_main` creates the EDIT child + stores its HWND in a writable global;
+  `emit_app_io_write_helper` routes there when the window is attached
+  (MultiByteToWideChar the UTF-8 print text → `EM_SETSEL`/`EM_REPLACESEL`
+  SendMessageW append — the worker→UI cross-thread marshal Windows does
+  synchronously) else the J-2 std-handle fallback. The worker's `finish` posts
+  `WM_APP_QUIT` so the **UI thread** does teardown (a worker `ExitProcess` faults in
+  GDI teardown). **Fixed a real SIGSEGV**: `MultiByteToWideChar`'s `int` return has
+  garbage high `rax` bits; using it as a pointer offset for the NUL-terminate wild-
+  pointered — now NUL-terminate at `wbuf + str[0]*2` (trusted byte length). An
+  `MFB_WINAPP_DUMP` gate makes `_main` read the transcript back (`WM_GETTEXT`) to
+  stdout for ssh verification. 8 app unit tests. **Acceptance MET** — box (2230):
+  with `MFB_WINAPP_DUMP` a `-app` hello's transcript readback shows
+  `hello-from-winapp`/`second-line` (io::print reached the EDIT control); without
+  it the non-headless run exits cleanly (0) with no side effect; headless still
+  prints. Commit `<pending>`.
 - **J-4 — input round-trip.** A pipe (`CreatePipe`) whose read end is dup'd onto the
   worker's stdin path; WndProc `WM_CHAR`/`WM_KEYDOWN` does line editing + commit to
   the pipe; `emit_app_io_input_helper` + `emit_app_raw_input_mode` wired. **Acceptance:**
