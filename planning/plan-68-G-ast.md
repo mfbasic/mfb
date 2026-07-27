@@ -360,7 +360,7 @@ inherent method); the LINK sub-serializers `CStructDecl` (328-353),
 `BindState` (433-450) via one LINK+CSTRUCT+FUNC(BIND IN + BIND STATE) fixture;
 `Expression::Scalar` (1289-1290); `Expression::SetLiteral` element loop
 (1391-1401). No production change; no bug surfaced.
-Commit: <SERIALIZE_COMMIT>
+Commit: f97061251
 
 ## Validation Plan
 
