@@ -521,6 +521,63 @@ pub fn read_package_type_exports(path: &Path) -> Result<Vec<BinaryReprTypeExport
     read_package_type_exports_resolved(path, 0)
 }
 
+/// bug-390: a foreign type this package references, carrying the owning package
+/// name, the type's original name, and the owning package's ABI hash for it.
+/// Used by the consumer build to reject an ABI-incompatible owner (two
+/// intermediaries built against different versions of the shared dependency, or
+/// an intermediary built against a different owner than the consumer resolves).
+pub struct BinaryReprForeignTypeRef {
+    pub name: String,
+    pub owner: String,
+    pub abi_hash: [u8; ABI_HASH_LEN],
+}
+
+pub fn read_package_foreign_type_refs(
+    path: &Path,
+) -> Result<Vec<BinaryReprForeignTypeRef>, String> {
+    let package = read_package_binary_repr(path)?;
+    let strings = &package.project.strings.values;
+    let mut refs = Vec::new();
+    for entry in &package.project.types.entries {
+        if entry.kind != FOREIGN_TYPE_KIND {
+            continue;
+        }
+        let hash_slice = entry
+            .payload
+            .get(2..2 + ABI_HASH_LEN)
+            .ok_or("truncated binary representation")?;
+        let mut abi_hash = [0u8; ABI_HASH_LEN];
+        abi_hash.copy_from_slice(hash_slice);
+        refs.push(BinaryReprForeignTypeRef {
+            name: string_at(strings, entry.name)?.to_string(),
+            owner: string_at(strings, entry.owner_package)?.to_string(),
+            abi_hash,
+        });
+    }
+    Ok(refs)
+}
+
+/// bug-390: the ABI hash the owning package publishes for each of its own
+/// exported types, keyed by type name — used to check a foreign reference's
+/// stored hash against the owner the consumer actually resolves.
+pub fn read_package_type_export_hashes(
+    path: &Path,
+) -> Result<HashMap<String, [u8; ABI_HASH_LEN]>, String> {
+    let package = read_package_binary_repr(path)?;
+    let strings = &package.project.strings.values;
+    let mut hashes = HashMap::new();
+    for export in &package.project.abi.exports {
+        if !matches!(
+            export.kind,
+            BinaryReprExportKind::Type | BinaryReprExportKind::Union | BinaryReprExportKind::Enum
+        ) {
+            continue;
+        }
+        hashes.insert(string_at(strings, export.name)?.to_string(), export.sig_hash);
+    }
+    Ok(hashes)
+}
+
 /// bug-390: resolve any re-exported foreign type (`foreign_owner: Some`) to the
 /// owning dependency's real definition, read from its sibling `.mfp` in the same
 /// `packages/` directory. This delivers true namespace re-export — an importer of
