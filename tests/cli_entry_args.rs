@@ -40,7 +40,7 @@ const ARGS_SOURCE: &str = "IMPORT io\n\n\
 /// Build for `target` with `-ncode` and return the parsed code plan.
 fn build_ncode(name: &str, source: &str, target: &str, app: bool) -> serde_json::Value {
     let project = temp_project(name, source);
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mfb"));
+    let mut command = Command::new(common::mfb_exe());
     command.arg("build").args(["-target", target]).arg("-ncode");
     if app {
         command.arg("-app");
@@ -197,7 +197,7 @@ fn linux_app_entry_reads_args_from_registers_not_the_stack() {
 #[test]
 fn host_arg_accepting_program_receives_its_arguments() {
     let project = temp_project("entry_args_run", ARGS_SOURCE);
-    let build = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let build = Command::new(common::mfb_exe())
         .arg("build")
         .arg(&project)
         .output()

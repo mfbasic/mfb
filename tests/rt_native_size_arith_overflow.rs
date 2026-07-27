@@ -16,6 +16,8 @@
 //! would index out of the allocation. It is now rejected as an invalid argument,
 //! which the runtime tests below execute and observe.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -43,7 +45,7 @@ fn write_project(root: &Path, name: &str, packages_json: &str, source: &str) {
 }
 
 fn build_ncode(project: &Path) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg("-ncode")
         .arg(project)
@@ -64,7 +66,7 @@ fn build_ncode(project: &Path) -> String {
 }
 
 fn build_executable(project: &Path) -> Option<PathBuf> {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg(project)
         .output()

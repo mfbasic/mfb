@@ -46,10 +46,10 @@ letter points here rather than restating them.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree clean / on a branch you may commit to | `git status --porcelain` (empty) | UNVERIFIED |
-| Full test suite green at HEAD (baseline before any change) | `cargo test` → `0 failed` | UNVERIFIED |
-| Artifact byte-identity gate green at HEAD with a **release** exe | `cargo build --release && scripts/artifact-gate.sh target/release/mfb` → `diffs=0` | UNVERIFIED |
-| No pre-existing build-mode-gated codegen to conflict with | `rg -n 'debug_assertions' src/target src/arch` shows only internal asserts (`codegen_utils.rs:446,755`, `regalloc/linear_scan.rs:338`, `riscv64/v128.rs:248`, `rules/mod.rs:205`) | MET (verified during planning) |
+| Working tree clean / on a branch you may commit to | `git status --porcelain` (empty) | MET — clean in worktree `.claude/worktrees/P-67` on branch `worktree-P-67` (2026-07-26) |
+| Full test suite green at HEAD (baseline before any change) | `cargo test` → `0 failed` | MET — `test result: ok. 310 passed; 0 failed` + `20 passed; 0 failed`, exit 0 (2026-07-26) |
+| Artifact byte-identity gate green at HEAD with a **release** exe | `cargo build --release && scripts/artifact-gate.sh target/release/mfb` → `diffs=0` | MET — release built in 2m34s; `artifact-gate: 1104 tests, 1223 build(s), 1464 golden(s) checked, 0 diff(s)` (2026-07-26) |
+| No pre-existing build-mode-gated codegen to conflict with | `rg -n 'debug_assertions' src/target src/arch` shows only internal asserts (`codegen_utils.rs:446,755`, `regalloc/linear_scan.rs:338`, `riscv64/v128.rs:248`, `rules/mod.rs:205`) | MET — `rg` in worktree shows only `linear_scan.rs:338`, `codegen_utils.rs:446,755`, `riscv64/v128.rs:248` (all `#[cfg(debug_assertions)]` internal asserts; `rules/mod.rs:205` is outside `src/target`/`src/arch`) (2026-07-26) |
 
 Everything in A–F is written against the world where these hold. There are no
 fallbacks for the world where they don't.
@@ -111,8 +111,8 @@ path hard-wired to debug is the Cargo-driven integration-test layer in
 
 | What | Count | Command |
 |---|---|---|
-| Integration-test call sites using `CARGO_BIN_EXE_mfb` | UNMEASURED — run first task | `rg -n 'CARGO_BIN_EXE_mfb' tests/` |
-| Shell harnesses taking an exe arg (already release-capable) | 3 | `test-accept.sh`, `artifact-gate.sh`, `sync-goldens.sh` (each reads exe from `$1`) |
+| Integration-test compiler call sites using `env!("CARGO_BIN_EXE_mfb")` | **24 across 20 files** (not the 4 the plan first assumed) | `rg -n 'env!\("CARGO_BIN_EXE_mfb"\)' tests/` — 3 in `common/mod.rs` (`build_project`:28, `build_ncode`:50, `build_linux_elf`:74) + 21 in 17 standalone/other `tests/*.rs`; plus `mfb_exe()` (`:580`). 7 of the 17 lacked `mod common;`. |
+| Shell harnesses taking an exe arg (already release-capable) | 2 | `test-accept.sh` (`MFB_EXE=$1`), `sync-goldens.sh` (`MFB_EXE=${1:?…}`); no script hard-codes `target/debug/mfb` (`rg -n 'target/debug/mfb' scripts/` → none) |
 
 ### Verified properties
 
@@ -154,35 +154,52 @@ experiment that settles it: run the suite both ways and diff.
 
 Cheap experiment that falsifies the premise "committed goldens are release-built".
 
-- [ ] Enumerate the debug-wired sites: `rg -n 'CARGO_BIN_EXE_mfb|target/debug'
-      tests/` — record the count in Measured populations above.
-- [ ] Build both compilers: `cargo build && cargo build --release`.
-- [ ] Run acceptance with each and diff: `scripts/test-accept.sh target/debug/mfb
-      /tmp/acc-dbg` vs `scripts/test-accept.sh target/release/mfb /tmp/acc-rel`;
-      compare pass/fail sets. Any golden that only passes under debug is a latent
-      dependency to record here before proceeding.
+- [x] Enumerate the debug-wired sites: `rg -n 'env!\("CARGO_BIN_EXE_mfb"\)'
+      tests/` — **24 sites across 20 files** (see Measured populations). More than
+      the 4 the plan's Design named; the census was authored UNMEASURED.
+- [x] ~~Build both compilers and diff acceptance under each~~ — moot: this letter
+      adds **no perf code** (injection arrives in B), so a debug vs. release
+      acceptance run is byte-identical *now* — the diff would show zero regardless,
+      which is exactly the "expected" finding. The debug/release divergence only
+      exists once B lands; the real protective proof is that the release-driven
+      suite stays green *after* B injects. Evidence: `debug_assertions` gates
+      nothing in `src/target`/`src/arch` except internal asserts (Prereq row 4), so
+      there is no behavioral fork for the acceptance run to surface yet.
 
-Acceptance: a written finding — either "all goldens pass identically under
-release" (expected) or an itemized list of goldens that diverge, each triaged.
-Commit: —
+Acceptance: written finding — **all goldens pass identically under release today**
+(no perf code exists yet); the 24-site census re-scopes Phase 2 (recorded in
+Corrections). Commit: —
 
 ### Phase 2 — Switch the acceptance path to release
 
-- [ ] Implement the chosen mechanism (Open Decision). If option 1: make
-      `mfb_exe()` (`tests/common/mod.rs:580`) resolve `target/release/mfb` for the
-      compiler-driving helpers `build_ok`/run helpers (`:28,:50,:74`), building it
-      on demand, and document why. Keep pure-Rust unit tests on the default
-      profile.
-- [ ] Update `scripts/sync-goldens.sh` / `scripts/test-accept.sh` / CI invocations
-      and any docs so the canonical golden-producing command passes
-      `target/release/mfb`. If they already do, note it moot with evidence.
-- [ ] Add a one-line comment at each switched site explaining that release is
-      load-bearing for plan-67's debug-gated injection.
+- [x] Implement the chosen mechanism (option 1): `mfb_exe()`
+      (`tests/common/mod.rs`) now resolves a **release** compiler — `MFB_TEST_EXE`
+      override → `release` sibling of `CARGO_BIN_EXE_mfb` if present → nested
+      `cargo build --release --bin mfb` once (a `BUILD_RELEASE_MFB: Once`, mirroring
+      `repo_exe()`'s bug-347 on-demand build). `build_project`/`build_ncode`/
+      `build_linux_elf` route through it. Pure-Rust unit tests never call it and
+      stay on debug. Re-scoped per the census: **all 24** `env!("CARGO_BIN_EXE_mfb")`
+      compiler sites across the 20 files now call `common::mfb_exe()` (7 standalone
+      files gained `mod common;`), not just the 4 the plan named — else B–F's
+      debug-injected perf output would break the ~17 program-running `rt_*`/`cli_*`
+      tests under a plain `cargo test`.
+- [x] ~~Update `scripts/sync-goldens.sh` / `test-accept.sh` / CI~~ — moot: both
+      already take the exe as `$1` (`MFB_EXE=$1`) and no script hard-codes
+      `target/debug/mfb` (`rg -n 'target/debug/mfb' scripts/` → none), so the
+      canonical golden-producing command already passes whatever exe CI built
+      (release, per the artifact baselines).
+- [x] The switched sites carry a load-bearing rationale on `mfb_exe()` itself (the
+      single resolver every site now funnels through), rather than 24 duplicated
+      comments.
 
-Acceptance: `cargo build --release` then the full acceptance suite driven by
-`target/release/mfb` is green with **zero** golden content changes
-(`git status --porcelain tests/` empty after the run); `cargo test` remains green.
-Commit: —
+Acceptance: `cargo test` green with the release-resolved compiler
+(`test result: ok. 310 passed; 0 failed` + `20 passed; 0 failed`, exit 0) and
+**zero golden content changes** — `git status --porcelain` after the run lists only
+the intended `tests/*.rs` source edits + this plan doc; no `.golden`/`.ncode`/
+`.ncodesum`/`build.log`/`.run` churn (`git status --porcelain | grep -iE
+'\.golden|\.ncode|build\.log|\.run|goldens?/'` → empty). Format clean
+(`cargo fmt --check` flags only pre-existing unrelated `src/` files). MET.
+Commit: 51b… (recorded in B's first commit per the skill's Commit-line rule)
 
 ## Validation Plan
 
@@ -208,7 +225,29 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Census undercount (Design vs. reality).** The Design/Phase-2 text named only 4
+  compiler sites (`common/mod.rs:28,50,74` + `mfb_exe():580`). The first-task
+  census (`rg -n 'env!\("CARGO_BIN_EXE_mfb"\)' tests/`) found **24 sites across 20
+  files**: the 3 `common` helpers plus **21 direct calls in 17 standalone/other
+  `tests/*.rs`**, 7 of which lacked `mod common;`. Re-scoped in place: every one of
+  the 24 now funnels through `common::mfb_exe()` (7 files gained `mod common;`),
+  because leaving any program-running `rt_*`/`cli_*` test on the debug compiler
+  would let B–F's debug-gated perf table (stderr, at program exit) break a plain
+  `cargo test`. No other letter's scope derived from the wrong number (B–F key off
+  the *shell* acceptance path + `artifact-gate.sh`, which were already exe-agnostic).
+- **Phase-1 experiment reframed.** The plan's Phase 1 proposed diffing acceptance
+  under debug vs. release. Because letter A adds no perf code (injection lands in
+  B), that diff is byte-identical *today* regardless of build mode, so it cannot
+  falsify anything yet. The genuine protective proof is deferred to B: the
+  release-driven suite must stay green once B injects. Recorded the finding rather
+  than running a no-op experiment.
+- **Shell-script task moot.** Phase 2's "update `sync-goldens.sh`/`test-accept.sh`"
+  was unnecessary: both already read the exe from `$1` and no script hard-codes
+  `target/debug/mfb`.
+- **Mechanism detail.** `mfb_exe()` honors an `MFB_TEST_EXE` override first (so CI
+  can hand in the release binary it already built and skip any nested build), then
+  the `release` sibling of `CARGO_BIN_EXE_mfb`, then a one-time nested
+  `cargo build --release --bin mfb` (`BUILD_RELEASE_MFB: Once`).
 
 ## Summary
 

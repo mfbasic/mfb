@@ -43,7 +43,7 @@ const INPUT_ONLY_SOURCE: &str = "IMPORT io\n\n\
 
 fn build_app(name: &str, source: &str) -> PathBuf {
     let project = temp_project(name, source);
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg("-app")
         .arg(&project)

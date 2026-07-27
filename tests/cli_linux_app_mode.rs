@@ -15,7 +15,7 @@ use std::process::Command;
 const TARGET: &str = "linux-aarch64";
 
 fn run_mfb(project: &Path, args: &[&str]) -> (bool, String, String) {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .args(args)
         .arg(project)

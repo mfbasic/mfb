@@ -249,7 +249,7 @@ fn atomic_write_rename_failure_unlinks_temp() {
     );
     fs::write(src_dir.join("main.mfb"), program).expect("write source");
 
-    let build = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let build = Command::new(common::mfb_exe())
         .arg("build")
         .arg(&root)
         .output()

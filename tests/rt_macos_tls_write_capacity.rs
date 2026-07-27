@@ -18,6 +18,8 @@
 
 #![cfg(target_os = "macos")]
 
+mod common;
+
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -110,7 +112,7 @@ fn build_project(root: &Path, cert: &Path, key: &Path) -> PathBuf {
     );
     fs::write(root.join("src/main.mfb"), source).expect("write source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg(root)
         .output()
