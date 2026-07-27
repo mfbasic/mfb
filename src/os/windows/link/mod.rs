@@ -14,6 +14,8 @@
 //! since nothing calls `write_executable` until the backend is wired.
 
 mod pe;
+// plan-66-K: the `.rsrc` resource section (icon + DPI manifest + version info).
+mod rsrc;
 // plan-66-J: the message-loop ↔ worker spike (test-only), proving the app-mode
 // premise before the full Win32 floor is built.
 #[cfg(test)]
@@ -281,7 +283,6 @@ pub(crate) fn write_executable(
     app_icon: Option<&std::path::Path>,
     app_version: Option<&str>,
 ) -> Result<Vec<u8>, String> {
-    let _ = (app_icon, app_version);
     // Entry must be a text symbol (§4.6, mirroring the ELF requirement).
     let entry_offset = image
         .symbols
@@ -295,9 +296,14 @@ pub(crate) fn write_executable(
     let has_rdata = rodata_size > 0;
     let has_data = image.data.len() > rodata_size;
     let has_idata = !image.imports.is_empty();
+    // plan-66-K: app-mode (GUI) builds carry a `.rsrc` (DPI manifest, always; icon
+    // and version when supplied). Console builds get no `.rsrc`, so they stay
+    // byte-identical to the pre-K writer.
+    let has_rsrc = gui;
 
     // Count sections to size the headers, then lay out RVAs/file offsets.
-    let section_count = 1 + has_rdata as usize + has_data as usize + has_idata as usize;
+    let section_count =
+        1 + has_rdata as usize + has_data as usize + has_idata as usize + has_rsrc as usize;
     let headers = size_of_headers(section_count);
     let text_rva = align_up(headers, SECTION_ALIGNMENT);
     let text_file = align_up(headers, FILE_ALIGNMENT);
@@ -371,6 +377,25 @@ pub(crate) fn write_executable(
     let empty: [u8; 0] = [];
     let idata_bytes: &[u8] = idata.as_ref().map(|i| i.bytes.as_slice()).unwrap_or(&empty);
 
+    // plan-66-K: the `.rsrc` section sits last (its size affects no later RVA). Its
+    // RVA/file follow `.idata` (or `.idata`'s reserved slot when there are no
+    // imports). Built before the section list so its bytes outlive the borrow;
+    // `build_rsrc` needs the RVA because a resource data entry's `OffsetToData` is
+    // an image RVA.
+    let (rsrc_rva, rsrc_file) = if has_idata {
+        (
+            align_up(idata_rva + idata_bytes.len() as u32, SECTION_ALIGNMENT),
+            align_up(idata_file + idata_bytes.len() as u32, FILE_ALIGNMENT),
+        )
+    } else {
+        (idata_rva, idata_file)
+    };
+    let rsrc_bytes: Vec<u8> = if has_rsrc {
+        rsrc::build_rsrc(rsrc_rva, app_icon, app_version)?
+    } else {
+        Vec::new()
+    };
+
     let mut sections = vec![Section {
         name: section_name(".text"),
         characteristics: SCN_TEXT,
@@ -410,13 +435,25 @@ pub(crate) fn write_executable(
         });
     }
 
-    let dirs = idata
+    let mut dirs = idata
         .as_ref()
         .map(|i| ImportDirectories {
             import: i.import_dir,
             iat: i.iat,
+            ..ImportDirectories::default()
         })
         .unwrap_or_default();
+    if has_rsrc {
+        dirs.resource = (rsrc_rva, rsrc_bytes.len() as u32);
+        sections.push(Section {
+            name: section_name(".rsrc"),
+            characteristics: SCN_RDATA, // initialized data, read-only
+            virtual_address: rsrc_rva,
+            virtual_size: rsrc_bytes.len() as u32,
+            file_offset: rsrc_file,
+            bytes: &rsrc_bytes,
+        });
+    }
 
     Ok(pe::write_image(
         &sections,

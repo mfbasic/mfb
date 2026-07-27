@@ -62,12 +62,13 @@ pub(super) struct Section<'a> {
     pub(super) bytes: &'a [u8],
 }
 
-/// The two data-directory entries the loader needs for imports (§4.3). Both
-/// `(0, 0)` when there are no imports.
+/// The data-directory entries the loader needs (§4.3). All `(0, 0)` when absent.
 #[derive(Clone, Copy, Default)]
 pub(super) struct ImportDirectories {
     /// `[1]` Import directory table: (RVA, byte size incl. zero terminator).
     pub(super) import: (u32, u32),
+    /// `[2]` Resource table (`.rsrc`): (RVA, byte size). plan-66-K.
+    pub(super) resource: (u32, u32),
     /// `[12]` IAT: (first IAT RVA, total bytes of all IATs).
     pub(super) iat: (u32, u32),
 }
@@ -236,6 +237,10 @@ pub(super) fn write_image(
             1 => {
                 w.u32(dirs.import.0);
                 w.u32(dirs.import.1);
+            }
+            2 => {
+                w.u32(dirs.resource.0);
+                w.u32(dirs.resource.1);
             }
             12 => {
                 w.u32(dirs.iat.0);
@@ -442,6 +447,7 @@ mod tests {
         let dirs = ImportDirectories {
             import: (0x3000, 40),
             iat: (0x3100, 16),
+            ..ImportDirectories::default()
         };
         let image = write_image(&sections, text_rva, dirs, false);
         let dd = 0x80 + 4 + 20 + 112;

@@ -665,17 +665,31 @@ Commit: d9025af8c / merged e5c500020
 Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line, and drives a `term::` TUI grid. **MET — J-2 bootstrap + J-3 transcript + J-4 input + J-5 TUI grid all box-proven on 2230.**
 Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 1ffe9cb78 · J-5 644b0c726
 
-### Phase K — PE resource packaging  (NOT STARTED)
-- [ ] `.ico` encoder (`os/windows/icon.rs` reusing `os/icon/mod.rs::render_png`);
-  `.rsrc` section (icon group + DPI/common-controls manifest + VS_VERSIONINFO) added
-  to the PE section list; thread `app_icon`/`app_version` into the writer (the params
-  are already threaded there by I, so K plugs in at section-assembly). Gate `.rsrc`
-  on app-mode-with-icon so console builds stay byte-identical.
-- [ ] Tests: PE-writer unit tests for the `.rsrc` layout; artifact-gate 0 diffs; box
-  run showing the icon in Explorer.
+### Phase K — PE resource packaging  (COMPLETE — box-proven)
+- [x] `.rsrc` section (`os/windows/link/rsrc.rs`): a generic three-level PE resource
+  directory tree (Type → Id → Language → data) carrying **RT_GROUP_ICON + RT_ICON**
+  (icon at 16/32/48/256 via `os/icon/mod.rs::render_png`, PNG images which Vista+
+  accepts inside an icon), **RT_MANIFEST** (a fusion manifest: PerMonitorV2 DPI +
+  Common Controls v6), and **RT_VERSION** (a `VS_VERSIONINFO` from the manifest
+  version). Added to the PE section list after `.idata` with data directory `[2]`
+  (Resource) set; `ImportDirectories` gained a `resource` field. `write_executable`
+  now uses the already-threaded `app_icon`/`app_version` (the `let _ = …` is gone).
+  **Gated on `gui` (app mode)** — console builds emit no `.rsrc` and stay
+  byte-identical to the pre-K writer (deviation from "app-mode-with-icon": the DPI
+  manifest is included for ALL app builds, not just iconned ones, which is strictly
+  better and still leaves console untouched).
+- [x] Tests: 3 `rsrc` unit tests (tree id-entry counts, VS_VERSION_INFO `wLength`
+  self-consistency, data-entry RVA is image-relative); full `cargo test` 3286 passed;
+  the artifact-gate is unaffected (K is linker-only, no codegen — same pre-existing
+  24 macos-aarch64 stale-golden diffs, 0 new). Box run on 2230: an `-app` `.exe`
+  with `icon`/`version` set has Windows read `FileVersion=2.5.0.0` and
+  `ExtractAssociatedIcon` return a 32×32 icon whose centre pixel is R200 G40 B40 —
+  exactly the source icon's colour (so RT_ICON/RT_GROUP_ICON are real, not the system
+  default); a console build of the same program has no version resource and runs
+  unchanged.
 
-Acceptance: an app `.exe` shows the embedded icon and is DPI-aware; existing targets byte-identical. **NOT MET** — not started; depends on J-full for a real `-app` `.exe` to carry the icon.
-Commit: —
+Acceptance: an app `.exe` shows the embedded icon and is DPI-aware; existing targets byte-identical. **MET** — icon + version box-proven on 2230 (icon colour + FileVersion read by Windows), DPI manifest embedded in the same validated resource tree, console builds byte-identical (no `.rsrc`).
+Commit: `<pending>`
 
 ## Validation Plan
 
