@@ -3137,6 +3137,217 @@ mod lower_tests {
     }
 }
 
+/// Per-construct lowering tests (plan-68-E1): each drives `lower_src` of a
+/// snippet that forces a specific under-exercised arm of `lower_expression` /
+/// `lower_statement` and asserts on the emitted `IrValue`/`IrOp` shape.
+#[cfg(test)]
+mod lower_construct_tests {
+    use super::super::*;
+    use super::helpers::{function, lower_src};
+
+    /// The value bound by `LET <name> = …` in `func`.
+    fn bind_value<'a>(ir: &'a IrProject, func: &str, name: &str) -> &'a IrValue {
+        function(ir, func)
+            .body
+            .iter()
+            .find_map(|op| match op {
+                IrOp::Bind {
+                    name: n,
+                    value: Some(v),
+                    ..
+                } if n == name => Some(v),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no binding `{name}` in `{func}`"))
+    }
+
+    // The most-negative `Fixed` / `Money` literals overflow their positive
+    // magnitude, so `lower_expression` folds the unary minus into the literal
+    // rather than leaving a `Unary` that codegen would materialize and negate
+    // at runtime (bug-07 / plan-29-B §4.2).
+    #[test]
+    fn negated_min_fixed_and_money_literals_fold_into_const() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET a AS Fixed = -2147483648.0\n\
+               LET c AS Money = -92233720368547.75808\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        match bind_value(&ir, "f", "a") {
+            IrValue::Const { type_, value } => {
+                assert_eq!(type_, "Fixed");
+                assert_eq!(value, "-2147483648.0");
+            }
+            _ => panic!("expected a folded Fixed const"),
+        }
+        match bind_value(&ir, "f", "c") {
+            IrValue::Const { type_, value } => {
+                assert_eq!(type_, "Money");
+                assert!(value.starts_with('-'), "money value: {value}");
+            }
+            _ => panic!("expected a folded Money const"),
+        }
+    }
+
+    // An unsuffixed decimal literal coerces to the slot's expected numeric type
+    // (`Money`/`Fixed`), and an integer literal coerces to a `Byte` slot — the
+    // expected-type arms of the number lowering.
+    #[test]
+    fn numeric_literals_coerce_to_expected_slot_type() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET m AS Money = 1.25\n\
+               LET x AS Fixed = 2.5\n\
+               LET b AS Byte = 200\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        for (name, want) in [("m", "Money"), ("x", "Fixed"), ("b", "Byte")] {
+            match bind_value(&ir, "f", name) {
+                IrValue::Const { type_, .. } => assert_eq!(type_, want, "`{name}`"),
+                _ => panic!("expected a {want} const for `{name}`"),
+            }
+        }
+    }
+
+    // A `Set OF T { … }` literal lowers each element with the set's element type
+    // as the expected type, producing an `IrValue::SetLiteral`.
+    #[test]
+    fn set_literal_lowers_to_set_value() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET s AS Set OF Integer = Set OF Integer { 1, 2, 3 }\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        match bind_value(&ir, "f", "s") {
+            IrValue::SetLiteral { type_, values } => {
+                assert_eq!(type_, "Set OF Integer");
+                assert_eq!(values.len(), 3);
+            }
+            _ => panic!("expected a SetLiteral"),
+        }
+    }
+
+    // A general `is*` predicate named in a value position expecting
+    // `FUNC(T) AS Boolean` lowers to a `FunctionRef` (bug-368;
+    // builtin_predicate_ref_type / function_type_parts_for_predicate).
+    #[test]
+    fn builtin_predicate_in_value_position_is_function_ref() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET p AS FUNC(Integer) AS Boolean = isEven\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(
+            matches!(bind_value(&ir, "f", "p"), IrValue::FunctionRef { .. }),
+            "isEven in a FUNC(Integer) AS Boolean slot must lower to a FunctionRef"
+        );
+    }
+
+    // A lambda whose body references an outer local inside a `Set OF` literal
+    // captures that local — `collect_captured_locals` must recurse into the set
+    // literal's elements to find it.
+    #[test]
+    fn lambda_capturing_local_inside_set_literal_is_closure() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET base AS Integer = 5\n\
+               LET g AS FUNC(Integer) AS Set OF Integer = LAMBDA(v AS Integer) -> Set OF Integer { base, v }\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(
+            matches!(bind_value(&ir, "f", "g"), IrValue::Closure { captures, .. } if !captures.is_empty()),
+            "the lambda must capture `base` referenced inside the set literal"
+        );
+    }
+
+    // The return type of `collections::filter(xs, isEven)` bound without an
+    // explicit type is inferred by walking the predicate argument
+    // (expression_type's unary-callback-member path).
+    #[test]
+    fn filter_call_return_type_is_inferred_from_predicate() {
+        let ir = lower_src(
+            "IMPORT collections\n\
+             FUNC f() AS Integer\n\
+               LET xs AS List OF Integer = [1, 2, 3]\n\
+               LET ys = collections::filter(xs, isEven)\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        let bind = function(&ir, "f")
+            .body
+            .iter()
+            .find_map(|op| match op {
+                IrOp::Bind { name, type_, .. } if name == "ys" => Some(type_.clone()),
+                _ => None,
+            })
+            .expect("ys binding");
+        assert_eq!(bind, "List OF Integer");
+    }
+
+    // A builtin call mixing positional and named arguments drives
+    // `normalize_overloaded_builtin_call_arguments`'s ordering arms.
+    #[test]
+    fn named_and_positional_builtin_args_normalize() {
+        let ir = lower_src(
+            "IMPORT strings\n\
+             FUNC f() AS String\n\
+               RETURN strings::replace(\"aaa\", old := \"a\", new := \"b\")\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "f").body.iter().any(|op| matches!(
+            op,
+            IrOp::Return { value: Some(_), .. }
+        )));
+    }
+
+    // A numeric literal bound with no expected type takes its type from the
+    // literal classification alone (the no-expected fallback arm).
+    #[test]
+    fn bare_numeric_literals_type_from_classification() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET raw = 3.14\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        match bind_value(&ir, "f", "raw") {
+            IrValue::Const { type_, .. } => assert_eq!(type_, "Float"),
+            _ => panic!("expected a Float const for a bare decimal literal"),
+        }
+    }
+
+    // The `error(code, message)` language builtin lowers to ordinary `Error`
+    // record construction stamped with the call site.
+    #[test]
+    fn error_builtin_lowers_to_record_construction() {
+        let ir = lower_src(
+            "FUNC f() AS Error\n\
+               LET e AS Error = error(404, \"missing\")\n\
+               RETURN e\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        // The binding produced some value (a lowered Error record), not a raw call.
+        assert!(function(&ir, "f")
+            .body
+            .iter()
+            .any(|op| matches!(op, IrOp::Bind { name, .. } if name == "e")));
+    }
+}
+
 /// Source-driven tests that exercise the AST→IR lowering paths (`lower.rs`)
 /// directly, asserting on the lowered `IrProject` a real program produces.
 /// (bug-342 C1 repaired this truncated doc and folded this module's hand-copied
