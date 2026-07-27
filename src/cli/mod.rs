@@ -456,4 +456,57 @@ pub(crate) mod tests {
         assert!(!packages.join("trap_builtin_pkg.mfp").exists());
         assert_eq!(std::fs::read_dir(&packages).expect("read dir").count(), 0);
     }
+
+    // ---- install_vendor_file (plan-48-B §4.4, plan-68-B B5) ----
+
+    /// The happy path: the bytes are staged under a `.part` name and renamed onto
+    /// `dir/filename`, creating `dir` if needed and leaving no staging residue.
+    #[test]
+    fn install_vendor_file_stages_and_installs_bytes() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        // `dir` does not exist yet, so the create_dir_all path runs.
+        let target = dir.path().join("libdir");
+        let dest = install_vendor_file(&target, "libfoo.so", b"vendor bytes").expect("install");
+        assert_eq!(dest, target.join("libfoo.so"));
+        assert_eq!(std::fs::read(&dest).expect("dest"), b"vendor bytes");
+        // Exactly one file, and no leftover `.part` staging file.
+        let names: Vec<String> = std::fs::read_dir(&target)
+            .expect("read dir")
+            .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["libfoo.so".to_string()]);
+    }
+
+    /// The whole reason for staging under a fresh `.part` name: a pre-planted
+    /// symlink at `dir/filename` must never be written through — the rename
+    /// replaces the symlink rather than following it.
+    #[test]
+    fn install_vendor_file_never_writes_through_a_symlink() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let target = dir.path().join("libdir");
+        std::fs::create_dir_all(&target).expect("target dir");
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, b"original").expect("victim");
+        std::os::unix::fs::symlink(&victim, target.join("libfoo.so")).expect("symlink");
+
+        let dest = install_vendor_file(&target, "libfoo.so", b"attacker").expect("install");
+        // The symlink target is untouched, and the installed file is a real file.
+        assert_eq!(std::fs::read(&victim).expect("victim"), b"original");
+        assert_eq!(std::fs::read(&dest).expect("dest"), b"attacker");
+        assert!(!dest.is_symlink());
+    }
+
+    /// A directory that cannot be created (a regular file blocks a path
+    /// component) is surfaced as a "failed to create" error.
+    #[test]
+    fn install_vendor_file_errors_when_the_directory_cannot_be_created() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let blocker = dir.path().join("blocker");
+        std::fs::write(&blocker, b"x").expect("blocker");
+        // `blocker` is a file, so `blocker/sub` cannot be created as a directory.
+        let target = blocker.join("sub");
+        let err = install_vendor_file(&target, "libfoo.so", b"bytes")
+            .expect_err("an uncreatable directory must error");
+        assert!(err.contains("failed to create"), "got: {err}");
+    }
 }
