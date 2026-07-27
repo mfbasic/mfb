@@ -827,6 +827,10 @@ impl<'a> SyntaxChecker<'a> {
             fields,
             variants,
             members,
+            // bug-390: fields/variants are already resolved from the owning
+            // package by `read_package_type_exports`, so a re-exported type is
+            // installed exactly like a locally-defined one.
+            foreign_owner: _,
         } = type_export;
         self.user_types.insert(name.clone());
         let kind = match kind {

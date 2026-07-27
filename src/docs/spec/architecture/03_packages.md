@@ -106,6 +106,14 @@ to the merged definitions, so package functions flow through the single
 full decode-and-merge mechanic (and the four symbols it uses) is documented in
 `./mfb spec architecture binary-representation`.
 
+A package whose own exported API names a type imported from a dependency
+re-exports that type by the owning package's identity rather than copying its
+definition; a consumer resolves such a reference to the owner's merged type
+(pulling the owner in transitively) and rejects the build if two intermediaries
+were built against ABI-incompatible versions of it. The encoding and the
+compatibility gate are documented under "Re-exporting a Dependency's Type" in
+`./mfb spec architecture binary-representation`.
+
 ## See Also
 
 * ./mfb spec architecture binary-representation — the canonical decode-and-merge path

@@ -65,6 +65,39 @@ The per-package identity that `read_package_ir_with_identity` produces is a hash
 over the MFPC container; its byte derivation is documented in
 `./mfb spec package ir-section`.
 
+## Re-exporting a Dependency's Type
+
+A package's own exported API may name a type it imported from a declared
+dependency — for example `EXPORT FUNC takesA(a AS A)` where `A` is exported by a
+dependency `pA`. The package does **not** copy `A`'s definition into its own
+`.mfp`; a copied definition would clash with `pA`'s own definition when an
+executable later merges both, and would sever the link to `pA`'s version.
+
+Instead the type table records a **foreign type reference**: an entry naming the
+owning dependency, the type's original name, and the owning package's ABI hash
+for that type (as `pA` itself computed it). The reference is serialized into the
+referring package's ABI hashes by that owning identity — never by re-walking the
+(absent) fields — so the same `pA::A` surfaced through two different intermediary
+packages contributes identical bytes and unifies to one identity at a consumer.
+A dependency type is written only when the package actually names it in an
+exported signature; a type reached only through an imported function's own
+signature is not re-exported.
+
+Because the executable decode-and-merge above collapses types by their bare name,
+a consumer that installs the owning dependency (transitively — it need not be
+declared directly) resolves every foreign reference to that one merged
+definition. Importing an intermediary therefore brings the re-exported type into
+scope under the owning package's original identity (true namespace re-export),
+idempotently when several intermediaries surface the same type.
+`read_package_type_exports` fills a re-exported type's fields back in from the
+owner's sibling `.mfp`, so an importer sees it with its structure intact.
+
+The owning ABI hash is the compatibility gate: when two intermediaries were built
+against ABI-incompatible versions of the shared dependency (or an intermediary's
+hash disagrees with the owner the consumer resolves), the consumer build is
+rejected rather than silently passing an incompatible value between them.
+[[src/binary_repr/sections.rs:type_id]] [[src/manifest/package.rs:verify_foreign_type_abi_consistency]]
+
 ## MFP Package Container
 
 Package projects emit a `.mfp` file through the package writer.

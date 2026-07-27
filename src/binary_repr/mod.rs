@@ -133,6 +133,18 @@ pub(crate) const TYPE_TERM_SIZE: u32 = 0xffff_fefc;
 // by plan-41-B; ids 11–19 are the reserved primitive band (see `TYPE_SCALAR`).
 const FIRST_TABLE_TYPE_ID: u32 = 20;
 
+// bug-390: a type-table entry kind for a reference to a type owned by an imported
+// dependency package. Unlike an inline definition (kinds 1/2/3) it carries no
+// fields of its own — its payload is `[u16 underlying-export-kind][32-byte owning
+// ABI hash]`, its `name` is the type's original name and its `owner_package` the
+// declaring dependency. This lets a package's exported API name a dependency's
+// type without degrading it to a zero-field record (the old `_` fallback, which
+// failed downstream with `truncated binary representation`). Serializing it by the
+// owning package's ABI hash (never re-walking absent fields) gives the "original
+// identity, no re-mangle" property, so the same `pA::A` surfaced through two
+// intermediaries hashes identically and unifies at the consumer.
+const FOREIGN_TYPE_KIND: u16 = 12;
+
 const FUNCTION_BINARY_REPR: u16 = 1;
 
 const FUNCTION_FLAG_ISOLATED: u16 = 1 << 2;
@@ -226,6 +238,11 @@ pub struct BinaryReprTypeExport {
     pub fields: Vec<BinaryReprTypeField>,
     pub variants: Vec<BinaryReprTypeVariant>,
     pub members: Vec<String>,
+    /// bug-390: `Some(owning_package)` when this export is a type re-exported
+    /// from a dependency (a `FOREIGN_TYPE_KIND` table entry) rather than defined
+    /// here. `read_package_type_exports` fills in the real fields/variants from
+    /// the owner's sibling `.mfp`; `None` for a type this package defines.
+    pub foreign_owner: Option<String>,
 }
 
 #[derive(Clone)]
@@ -501,9 +518,117 @@ pub fn package_info_from_mfp(bytes: &[u8]) -> Result<BinaryReprPackageInfo, Stri
 }
 
 pub fn read_package_type_exports(path: &Path) -> Result<Vec<BinaryReprTypeExport>, String> {
+    read_package_type_exports_resolved(path, 0)
+}
+
+/// bug-390: a foreign type this package references, carrying the owning package
+/// name, the type's original name, and the owning package's ABI hash for it.
+/// Used by the consumer build to reject an ABI-incompatible owner (two
+/// intermediaries built against different versions of the shared dependency, or
+/// an intermediary built against a different owner than the consumer resolves).
+pub struct BinaryReprForeignTypeRef {
+    pub name: String,
+    pub owner: String,
+    pub abi_hash: [u8; ABI_HASH_LEN],
+}
+
+pub fn read_package_foreign_type_refs(
+    path: &Path,
+) -> Result<Vec<BinaryReprForeignTypeRef>, String> {
     let package = read_package_binary_repr(path)?;
-    package_type_exports(&package)
-        .map_err(|err| format!("failed to read '{}': {err}", path.display()))
+    let strings = &package.project.strings.values;
+    let mut refs = Vec::new();
+    for entry in &package.project.types.entries {
+        if entry.kind != FOREIGN_TYPE_KIND {
+            continue;
+        }
+        let hash_slice = entry
+            .payload
+            .get(2..2 + ABI_HASH_LEN)
+            .ok_or("truncated binary representation")?;
+        let mut abi_hash = [0u8; ABI_HASH_LEN];
+        abi_hash.copy_from_slice(hash_slice);
+        refs.push(BinaryReprForeignTypeRef {
+            name: string_at(strings, entry.name)?.to_string(),
+            owner: string_at(strings, entry.owner_package)?.to_string(),
+            abi_hash,
+        });
+    }
+    Ok(refs)
+}
+
+/// bug-390: the ABI hash the owning package publishes for each of its own
+/// exported types, keyed by type name — used to check a foreign reference's
+/// stored hash against the owner the consumer actually resolves.
+pub fn read_package_type_export_hashes(
+    path: &Path,
+) -> Result<HashMap<String, [u8; ABI_HASH_LEN]>, String> {
+    let package = read_package_binary_repr(path)?;
+    let strings = &package.project.strings.values;
+    let mut hashes = HashMap::new();
+    for export in &package.project.abi.exports {
+        if !matches!(
+            export.kind,
+            BinaryReprExportKind::Type | BinaryReprExportKind::Union | BinaryReprExportKind::Enum
+        ) {
+            continue;
+        }
+        hashes.insert(string_at(strings, export.name)?.to_string(), export.sig_hash);
+    }
+    Ok(hashes)
+}
+
+/// bug-390: resolve any re-exported foreign type (`foreign_owner: Some`) to the
+/// owning dependency's real definition, read from its sibling `.mfp` in the same
+/// `packages/` directory. This delivers true namespace re-export — an importer of
+/// the intermediary package sees the dependency's type with fields/variants
+/// intact and under the owning package's identity, idempotently however many
+/// intermediaries surface it. A package with no foreign type reads no siblings,
+/// so existing outputs are untouched. The depth cap breaks a pathological
+/// re-export cycle (packages form a DAG, so a real chain is shallow).
+fn read_package_type_exports_resolved(
+    path: &Path,
+    depth: usize,
+) -> Result<Vec<BinaryReprTypeExport>, String> {
+    const MAX_REEXPORT_DEPTH: usize = 64;
+    let package = read_package_binary_repr(path)?;
+    let mut exports = package_type_exports(&package)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+    if !exports.iter().any(|export| export.foreign_owner.is_some()) {
+        return Ok(exports);
+    }
+    if depth >= MAX_REEXPORT_DEPTH {
+        return Err(format!(
+            "package re-export chain exceeds {MAX_REEXPORT_DEPTH} levels at '{}'",
+            path.display()
+        ));
+    }
+    let packages_dir = path.parent();
+    for export in &mut exports {
+        let Some(owner) = export.foreign_owner.clone() else {
+            continue;
+        };
+        let Some(dir) = packages_dir else {
+            continue;
+        };
+        let owner_path = dir.join(format!("{owner}.mfp"));
+        if !owner_path.is_file() {
+            // The owner is not installed alongside the intermediary; the type's
+            // name still resolves, but its fields cannot be filled in here.
+            continue;
+        }
+        let owner_exports = read_package_type_exports_resolved(&owner_path, depth + 1)?;
+        if let Some(def) = owner_exports
+            .into_iter()
+            .find(|candidate| candidate.name == export.name)
+        {
+            export.kind = def.kind;
+            export.fields = def.fields;
+            export.variants = def.variants;
+            export.members = def.members;
+        }
+    }
+    Ok(exports)
 }
 
 /// Decode an imported package's `RESOURCE_TABLE` so the importer can register
@@ -681,6 +806,23 @@ struct StringPool {
 struct TypeTable {
     entries: Vec<TypeEntry>,
     ids: HashMap<String, u32>,
+    /// bug-390: imported dependency types (by original name) that this build may
+    /// surface in its own exported API. Populated on the *write* path before
+    /// lowering (from each dependency's ABI type exports); empty on the read path.
+    /// `TypeTable::type_id`'s fallback consults this to emit a `FOREIGN_TYPE_KIND`
+    /// reference instead of an empty-record placeholder.
+    foreign_types: HashMap<String, ForeignTypeRef>,
+}
+
+/// bug-390: the identity of a dependency's exported type, carried so a package
+/// that names it in its own public API can re-export it by the owning package's
+/// original ABI identity. `abi_hash` is the owning package's `type_sig_hash` for
+/// this type — the load-bearing field a name alone cannot supply.
+#[derive(Clone)]
+struct ForeignTypeRef {
+    package: String,
+    export_kind: BinaryReprExportKind,
+    abi_hash: [u8; ABI_HASH_LEN],
 }
 
 struct TypeEntry {
