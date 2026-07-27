@@ -198,7 +198,7 @@ correct home and is process-wide.
 
 Acceptance: `cargo test` green; `cargo build --release && scripts/artifact-gate.sh
 target/release/mfb` → `diffs=0` (release unaffected).
-Commit: —
+Commit: 29f74bc1e
 
 ### Phase 2 — Region global + `perf_init`/`perf_done` bodies
 
@@ -225,7 +225,7 @@ Commit: —
 Acceptance: unit/inspection — the helper bodies assemble and encode on the host
 backend (no panic in `artifact-gate.sh` for a fixture that would call them once
 injection lands). Release still `diffs=0`.
-Commit: —
+Commit: 29f74bc1e
 
 ### Phase 3 — Debug-gated entry/exit injection (end-to-end skeleton)
 
@@ -248,7 +248,7 @@ program's exit code intact; a **release**-built compiler — and a Linux/Windows
 build — produces byte-identical output to pre-plan-67 HEAD
 (`scripts/artifact-gate.sh target/release/mfb` → `diffs=0`, acceptance suite green
 under release per plan-67-A).
-Commit: —
+Commit: 29f74bc1e
 
 ## Validation Plan
 

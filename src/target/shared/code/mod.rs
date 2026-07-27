@@ -765,6 +765,12 @@ pub(crate) fn lower_module_for_platform(
             PERF_HEADER_SYMBOL,
             "name count avg median min max sum\n".to_string(),
         ));
+        // plan-67-C: the whole-program span's name object (one object per unique
+        // name; plan-67-F adds one per instrumented arena region).
+        data_objects.push(string_data_object(
+            PERF_NAME_PROGRAM_SYMBOL,
+            "program".to_string(),
+        ));
     }
     // Writable `argc`/`argv` globals for `os::args()` (plan-31-B): filled by the
     // program entry from the values the OS passes in, read back when a later

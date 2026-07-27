@@ -339,6 +339,12 @@ pub(crate) const PERF_STATE_SYMBOL: &str = "_mfb_rt_perf_state";
 /// Emitted under the same debug-macOS-entry gate as `PERF_STATE_SYMBOL`.
 pub(crate) const PERF_HEADER_SYMBOL: &str = "_mfb_rt_perf_header";
 
+/// plan-67-C: the `mfb.string.v1` name object for the whole-program span. The
+/// entry loads its address as `perf_start`'s `namePtr`; because every injection of
+/// a given name references the one symbol, table B can key on pointer identity.
+/// (plan-67-F emits one such object per instrumented arena region.)
+pub(crate) const PERF_NAME_PROGRAM_SYMBOL: &str = "_mfb_rt_perf_name_program";
+
 // ===========================================================================
 // term:: TUI state slots (reserved in the program-entry frame)
 // ===========================================================================

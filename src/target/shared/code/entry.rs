@@ -205,6 +205,24 @@ pub(crate) fn lower_program_entry(
         );
         instructions.push(abi::branch_link(&perf_init));
         relocations.push(internal_branch(entry_symbol, &perf_init));
+        // plan-67-C: open the whole-program span immediately after the region is
+        // live. Load the "program" name object's address into the arg register and
+        // call perf_start; the matching perf_end("program") is injected before
+        // perf_done in plan-67-D. Both `bl`s clobber x0–x17, but argc/argv are in
+        // the callee-saved SCRATCH[17]/SCRATCH[18] and are re-materialized below.
+        let perf_start = crate::target::shared::runtime::symbol_for_call(
+            crate::target::shared::runtime::RuntimeHelper::Perf,
+            "perf.start",
+        );
+        push_symbol_address(
+            entry_symbol,
+            PERF_NAME_PROGRAM_SYMBOL,
+            abi::ARG[0],
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::branch_link(&perf_start));
+        relocations.push(internal_branch(entry_symbol, &perf_start));
     }
     // Deferred (Windows) `os::args` capture: now that the arena is mapped and
     // `ARENA_STATE_REGISTER` is pinned, build the UTF-8 argv and store it into the

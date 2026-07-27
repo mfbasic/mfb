@@ -130,11 +130,18 @@ Debug-only: one more injected call and a real B row at exit. Release unchanged.
 
 ### Phase 1 — Linear-scan table B insert/lookup
 
-- [ ] Define the region header + B-entry layout constants (`perf.rs`).
-- [ ] Implement linear-scan insert/lookup over B in `perf_start` (match on `keyLen`
-      then bytes, no hash), with key bytes bump-copied. Handle the "region base is
-      0" inert path.
-- [ ] Read the name `mfb.string.v1` block correctly (len `[ptr+0]`, bytes `ptr+8`).
+- [x] Defined region layout constants in `perf.rs`: a 64-byte header
+      (`PERF_COUNT_B_OFFSET=0`, room reserved for D's fields) then table B —
+      `{ u64 namePtr, i64 startNanos }` × `PERF_B_CAPACITY=512` at
+      `PERF_B_TABLE_OFFSET=64`.
+- [x] Implemented the linear scan + upsert in `perf_start`. **Keyed by `namePtr`
+      equality, not `keyLen`+bytes** — see Corrections: every injection of a name
+      loads the one data-object symbol for it, so identical names are the identical
+      pointer; an equality compare is exact and hash-/copy-free. Base-0 path returns
+      inert; full-table path drops the sample (D adds a visible overflow counter).
+- [x] ~~Read the name `mfb.string.v1` block in `perf_start`~~ — moot under
+      pointer-keying: `perf_start` stores the pointer without dereferencing it.
+      `perf_done` reads the block (len `[ptr+0]`, bytes `ptr+8`) to print the name.
 
 Acceptance: assembles/encodes on host; `artifact-gate.sh target/release/mfb`
 `diffs=0` (release inert).
@@ -142,15 +149,21 @@ Commit: —
 
 ### Phase 2 — Inline monotonic clock + whole-program span + print B
 
-- [ ] Inline the `CLOCK_MONOTONIC` read in `perf_start`; store into the entry.
-- [ ] Extend `perf_done` to iterate B and print `name  <startNanos>` rows via the
-      div-by-10 scratch formatter (pattern from `entry.rs:1025-1044`).
-- [ ] Inject `perf_start("program")` after `perf_init` in `lower_program_entry`
-      (gated); emit the `"program"` string data object.
+- [x] Inlined the `CLOCK_MONOTONIC` (Darwin id 6) read in `perf_start` via a
+      reusable `emit_read_monotonic_nanos` (libc `clock_gettime`, arena-free,
+      `_clock_gettime` import wired in `macos_aarch64/plan.rs` + forced in
+      `plan::symbols::platform_imports`); stored into the entry.
+- [x] Extended `perf_done` to iterate B and print `name  <startNanos>` rows via a
+      reusable `emit_write_i64_line` div-by-10 scratch formatter (the machinery
+      D/E's columns reuse).
+- [x] Injected `perf_start("program")` after `perf_init` in `lower_program_entry`
+      (gated, macOS-only); emitted the `"program"` name data object
+      (`PERF_NAME_PROGRAM_SYMBOL`). Added `perf.start` to the forced runtime-symbol
+      set.
 
-Acceptance: a **debug** build compiles+runs a trivial program and prints a
-`program  <nonzero-nanos>` row under the header; release build byte-identical
-(`diffs=0`, acceptance green under release).
+Acceptance: a **debug** macOS build of `/tmp/p67proof` prints
+`program 5641866067846000` under the header (a plausible monotonic nanos), stdout
+`hello from p67`, exit 7 preserved. Release byte-identity: see acceptance below.
 Commit: —
 
 ## Validation Plan
@@ -179,7 +192,31 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Key = pointer identity, not `keyLen`+bytes (and no bump-copy).** The plan
+  specified a linear scan comparing `keyLen` then the bump-copied key bytes. But
+  the perf names are compiler-emitted string constants: `string_symbols` interns by
+  value (one data object per unique string), and every injection of a name
+  references that one symbol, so at runtime identical names arrive as the
+  **identical pointer**. A `namePtr` equality compare is therefore an exact,
+  hash-free, allocation-free key — strictly simpler and lower-risk than a
+  hand-emitted nested byte-compare loop, and it removes the key bump-copy entirely.
+  The bump area the plan reserved for keys is unneeded in C (plan-67-D still needs a
+  bump area for chunks). B-entry shrank to `{ u64 namePtr, i64 startNanos }` (16 B).
+  Correctness rests on "one data object per unique name," which the code upholds by
+  emitting each name once. Recorded because it changes the §3 design's central
+  mechanism.
+- **Clock-import wiring (a fourth augmentation site).** Inlining `clock_gettime`
+  needs `_clock_gettime` in `platform_imports`. Because perf calls are injected
+  (invisible to the function-body scan), the import is force-collected in
+  `plan::symbols::platform_imports` under the debug-macOS-entry gate, and a
+  `"perf.start" | "perf.end"` arm was added to `macos_aarch64/plan.rs`'s
+  `runtime_imports`. (`perf_init`/`perf_done` need no libc import.)
+- **Reusable emit helpers.** `emit_read_monotonic_nanos` and `emit_write_i64_line`
+  are free functions in `perf.rs` so plan-67-D's `perf_end` and plan-67-E's stat
+  columns reuse them rather than re-deriving the div-by-10 loop / clock sequence.
+- **Region header sizing.** A 64-byte header is reserved up front (only
+  `count-B` used in C) so plan-67-D's fields (count-A, bump cursor/end, mismatch
+  counter) and table A slot in without shifting table B.
 
 ## Summary
 
