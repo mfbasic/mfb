@@ -244,10 +244,17 @@ Uncovered functions (confirm against A's report):
       name/owner/`abi_hash` and the name→hash map. Reuse the cross-package fixture
       in `tests/cross_package_tests.rs`.
 - [x] `read_package_type_exports_resolved` (`:589`) — the foreign-resolution
-      branches: owner `.mfp` present (fields filled in), owner absent (`:615-619`,
-      name resolves but fields empty), and the depth-cap `Err` (`:600-605`) via a
-      re-export cycle fixture; plus the fast `return` when no export is foreign
-      (`:597-599`).
+      branches, via two `cross_package_tests.rs` fixtures: owner `.mfp` present so
+      fields fill in (`foreign_type_reexport_chain_resolves_through_siblings`,
+      :620-628), and — added in b3a09d8d6 — a package that both owns a type and
+      re-exports a foreign one, read from a dir with no owner sibling
+      (`foreign_type_export_without_owner_sibling_skips_fill`): the own export
+      takes the non-foreign `continue` (:609) and the foreign export takes the
+      owner-absent `continue` (:615-619, name resolves but fields empty); plus the
+      fast `return` when no export is foreign (:597-599). The depth-cap `Err`
+      (:600-605) and the root-path parent-`None` `continue` (:612) are unreachable
+      (a real re-export DAG is shallow; a `.mfp` always has a parent dir) and are
+      left uncovered.
 - [x] `package_info_from_mfp` (`:513`), `read_package_identity_id` (`:650`),
       `read_package_ir_with_identity` (`:666`), `write_binary_repr_hex` (`:683`),
       `build_package_binary_repr_bytes` (`:703`) — each with a round-trip fixture;
