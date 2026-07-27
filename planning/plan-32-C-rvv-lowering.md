@@ -196,7 +196,7 @@ for `math::exp/log/sin/cos/sqrt/pow`. **MET** — same binary, v=true output ==
 v=false output == macos-aarch64 output, bit-identical at 17 decimals across 7
 inputs (Corrections C2). artifact-gate: 0 non-riscv64 diffs; the 3 v128 riscv64
 goldens (audio/math/vector) regenerated for the dual path.
-Commit: <C2>
+Commit: f8faa1862
 
 ### Phase 3 — the mask bridge (compares + bit-select) + min/max
 
