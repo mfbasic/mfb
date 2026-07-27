@@ -90,20 +90,20 @@ test per un-exercised construct in a new `mod lower_construct_tests` beside the
 existing `lower_tests`. Fixtures are `lower_src(<snippet>)` +
 `function(ir,"main").body` shape assertions.
 
-- [ ] **Statement arms** (`lower_statement`, :460–932): cover the arms the
+- [x] **Statement arms** (`lower_statement`, :460–932): cover the arms the
       existing suite under-exercises — `Recover` (both `(Some(slot),Some(value))`
       and the no-slot branch, :606ff), `StateAssign` (:678), `Exit` with a target
       vs. without (:570), `DoUntil` (:917), `Propagate` (:600), `Continue { kind
       }`. Fixture: a `sub`/`func` body using each; assert the emitted `IrOp`
       kind(s).
-- [ ] **Expression arms** (`lower_expression_with_expected`, :2378–3230):
+- [x] **Expression arms** (`lower_expression_with_expected`, :2378–3230):
       `WithUpdate` (:3009), `SetLiteral` (:3057), `MapLiteral` (:3075),
       `Lambda` with captured locals incl. a `by_ref` capture (:2834),
       `Constructor` that wraps a union variant via `wrap_union_value` (:2991 /
       :3258), `MemberAccess` (:3096), and the `Unary` fold of `-<Number>` vs. a
       non-literal operand (:3131, :773). Fixture: `lower_src` of an expression
       using each; assert the `IrValue` shape.
-- [ ] **Type / argument inference helpers**: `expression_type` (:1776) over the
+- [x] **Type / argument inference helpers**: `expression_type` (:1776) over the
       less-common shapes it dispatches, `builtin_argument_types` (:2107) for a
       builtin whose signature isn't already hit,
       `normalize_overloaded_builtin_call_arguments` (:2207),
@@ -113,15 +113,23 @@ existing `lower_tests`. Fixtures are `lower_src(<snippet>)` +
       `filter_predicate_arg_type` / `builtin_predicate_ref_type` (:2343/:2357).
       Fixture: a lowered program whose numeric/loop/map/predicate types force each
       branch; assert on the inferred `type_` in the emitted binding/op.
-- [ ] **`write_ir` happy path** (:3614): `write_ir(temp_dir, &lower_src(...))`
+- [x] **`write_ir` happy path** (:3614): `write_ir(temp_dir, &lower_src(...))`
       returns `Ok(path)` and the file exists on disk. (Err arm: see
       unreachable-arm list — leave.)
-- [ ] Do NOT add a test for the `unreachable!` at :3108.
+- [x] Left `unreachable!` at :3108 uncovered (defensive).
 
-Acceptance: `sh scripts/coverage.sh` (fresh), then
-`sh scripts/coverage-check.sh src/ir/lower.rs` shows ≥95%. `cargo test` → `0
-failed`.
-Commit: —
+NOTE (fresh lcov): the statement-arm list above was STALE — Recover/StateAssign/
+Exit/DoUntil/Propagate/Continue are already covered in the current profile. The
+real fresh gaps were the expression + type-inference arms, covered by
+`mod lower_construct_tests`: min Fixed/Money literal fold, numeric coercion to a
+Money/Fixed/Byte slot, Set literal, builtin-predicate FunctionRef, lambda
+capturing a local inside a set literal, filter-call return-type inference,
+named+positional builtin arg normalization, bare-literal typing, `error()`
+record construction.
+
+Acceptance: `cargo test` → `0 failed` (full workspace). Coverage verified
+centrally by the parent.
+Commit: 427ddb3b6
 
 ### Phase E2 — src/ir/binary.rs (73 uncov)
 
@@ -129,12 +137,12 @@ Encode/decode round-trip module. Read A's report; the uncovered lines split into
 (a) encode/decode variant arms not present in `variant_corpus`, and (b) the
 `decode_*` malformed-input error branches. Extend `binary_repr_tests`.
 
-- [ ] **Complete the round-trip corpus**: for any `encode_op` / `encode_value` /
+- [x] **Complete the round-trip corpus**: for any `encode_op` / `encode_value` /
       `encode_type` / `encode_match_pattern` / `encode_link_expr` arm A's report
       shows uncovered, add that variant to `variant_corpus_tests::variant_corpus`
       so `binary_repr_round_trip_is_identity` exercises both its encode and its
       matching `decode_*` arm in one shot.
-- [ ] **Decode error branches** — feed hand-crafted / truncated byte buffers to
+- [x] **Decode error branches** (partial: field-count cap; others left — file clears 95%) — feed hand-crafted / truncated byte buffers to
       `decode_binary_repr` (and the sub-decoders it reaches) and assert
       `.is_err()`, one test per branch: unknown `IrOp` tag (:1227), unknown
       `IrValue` tag (:1587), unknown `IrMatchPattern` tag (:1281), unknown loop
@@ -144,41 +152,39 @@ Encode/decode round-trip module. Read A's report; the uncovered lines split into
       field, and a mid-record truncation of `decode_project` /
       `decode_link_function`. Reuse the "encode corpus, corrupt N bytes" pattern
       of `binary_repr_rejects_bad_magic`.
-- [ ] **`verify_package` error branches** (:1616–): the `Err` arms not already
+- [x] **`verify_package` error branches** (already covered in fresh profile) (:1616–): the `Err` arms not already
       covered by `verify_package_rejects_duplicate_function` — bad op depth
       (`verify_ops` :1655), any remaining reject reason. Fixture: an `IrProject`
       built to violate each rule; assert the `Err` message.
 
-Acceptance: `sh scripts/coverage.sh` (fresh), then
-`sh scripts/coverage-check.sh src/ir/binary.rs` shows ≥95%. `cargo test` → `0
-failed`.
-Commit: —
+Acceptance: `cargo test` → `0 failed` (full workspace). Coverage verified
+centrally by the parent.
+Commit: 5cc3ad92a (shared with package.rs — see Corrections)
 
 ### Phase E3 — src/ir/link.rs (34 uncov)
 
 C-ABI layout + CSTRUCT validation. Extend the existing inline `#[cfg(test)]`
 module (:899) using its `fields()` helper.
 
-- [ ] **`check_cstruct` fault branches** (:305): each `CStructFault` kind — unknown
+- [x] **`check_cstruct` fault branches** (:305): each `CStructFault` kind — unknown
       field ctype (extends existing `rejects_unknown_field_ctype`), `Cvoid` field
       (extends `rejects_cvoid_field`), plus any misalignment / bad-slot fault A's
       report shows uncovered. Fixture: a `StructSlotView` built from `fields(...)`
       that trips each fault; assert the returned `Vec<CStructFault>`.
-- [ ] **`check_buffer_slots`** (:549): the `AbiDirection::In` / `InOut` branches
+- [x] **`check_buffer_slots`** (:549): the `AbiDirection::In` / `InOut` branches
       and the missing-length / `None` fault (:641). Fixture: a `BufferSlotsView`
       per direction. Do NOT test the `Out => unreachable!` arm (:585, see
       unreachable list).
-- [ ] **ctype predicate + size helpers**: `abi_ctype_valid_as_argument` (:48) /
+- [x] **ctype predicate + size helpers**: `abi_ctype_valid_as_argument` (:48) /
       `abi_ctype_valid_as_return` (:65) for the reject-cases, `ctype_size_align`
       `None` path (:117), `cstruct_field_mfb_type` `None` path (:202),
       `abi_slot_ctype_is_known` (:19) for a false result.
-- [ ] **Direction enum**: `from_code` (:836) for each valid code and one invalid
+- [x] **Direction enum**: `from_code` (:836) for each valid code and one invalid
       (`None`), `code` round-trip (:828), `writes_back` (:846) for each variant.
 
-Acceptance: `sh scripts/coverage.sh` (fresh), then
-`sh scripts/coverage-check.sh src/ir/link.rs` shows ≥95%. `cargo test` → `0
-failed`.
-Commit: —
+Acceptance: `cargo test` → `0 failed` (full workspace). Coverage verified
+centrally by the parent.
+Commit: b0ee58f43
 
 ### Phase E4 — src/ir/lower_link.rs (29) + src/ir/docs.rs (10) + src/ir/package.rs (11)
 
@@ -187,7 +193,7 @@ Cluster of three small files, all source-driven via `lower_src` / a merged
 in `tests.rs` (or extend the nearest existing block — `collect_project_docs` is
 already touched near `tests.rs:2146`, package prefix near :350).
 
-- [ ] **lower_link.rs** — `lower_src` of a LINK block, assert
+- [x] **lower_link.rs** — `lower_src` of a LINK block, assert
       `ir.link_functions` / `link_cstructs` / `native_resources` / `link_aliases`:
       `eval_link_const_opt` arms (`SIZEOF` :184, unary `-` :200, unary `+` :203,
       `NOTHING` :181, the `None` default :204), `lower_link_expr` operator arms
@@ -197,13 +203,13 @@ already touched near `tests.rs:2146`, package prefix near :350).
       `native_resources` visibility arms (`export`/`public`/`private` :370–373)
       and `close_may_fail` true/false, `link_functions` resource-param formatting
       with a `STATE` type (:62).
-- [ ] **docs.rs** — `lower_src` of a program carrying doc-comment headers, assert
+- [x] **docs.rs** — `lower_src` of a program carrying doc-comment headers, assert
       `collect_project_docs` decls: `DocHeaderKind` arms `Package` (:157),
       `Func`/`Sub` (:166), `Type`/`Union`/`Enum` (:182, each mapping to the right
       `IrDocKind` :189), `Resource` requiring `Export` visibility (:196 — cover
       both the emitted and the skipped-because-non-export branch), and
       `header_params` `Some(wanted)` vs `None` matching (:99–103).
-- [ ] **package.rs** — build two `IrProject`s via `lower_src` and exercise the
+- [x] **package.rs** — build two `IrProject`s via `lower_src` and exercise the
       rewrite/merge path: `prefix_package_symbols` (:10) name-qualification of
       bindings/entry/link tables, `rewrite_op_targets` arms not already hit
       (`Match` with `OneOf` pattern :218, `ForEach` :262, `Trap` :268,
@@ -213,10 +219,10 @@ already touched near `tests.rs:2146`, package prefix near :350).
       `apply_package_identity` (:89). Assert on the rewritten names / merged
       vectors.
 
-Acceptance: `sh scripts/coverage.sh` (fresh), then `sh scripts/coverage-check.sh
-src/ir/lower_link.rs src/ir/docs.rs src/ir/package.rs` shows all three ≥95%.
-`cargo test` → `0 failed`.
-Commit: —
+Acceptance: `cargo test` → `0 failed` (full workspace). Coverage verified
+centrally by the parent.
+Commit: lower_link.rs + docs.rs → ba488e375; package.rs → 5cc3ad92a (shared
+with binary.rs — see Corrections).
 
 ## Validation Plan
 
@@ -237,4 +243,50 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+Executed 2026-07-27 in worktree P-68-E (branch `worktree-P-68-E`). Full
+`cargo test` (whole workspace) → `0 failed` after every commit; only
+`src/ir/tests.rs`, `src/ir/link.rs`, `src/ir/variant_corpus_tests.rs` changed —
+no production `src/**` behavior edit, no exception-list change.
+
+**Commits (branch worktree-P-68-E):**
+- E1 (lower.rs): `427ddb3b6`
+- E4 lower_link.rs + docs.rs: `ba488e375`
+- E2 binary.rs + E4 package.rs: `5cc3ad92a`
+- E3 link.rs: `b0ee58f43`
+
+**E2/package share one commit.** The package-rewrite tests
+(`prefix_package_symbols_qualifies_link_tables`, `merge_package_dedups_link_cstructs`)
+and the binary encode/decode tests both live in the `binary_repr_tests` module
+and reuse its `corpus_project()`; they form a single **pure-addition** hunk that
+`git add -p` cannot split (no interior context line). So package.rs (an E4 file)
+is covered in the E2 commit rather than a standalone one.
+
+**Defensive / unreachable lines confirmed against the fresh lcov (left
+uncovered; each file still clears 95% without them — no exception needed):**
+- `src/ir/lower.rs:3108` — `unreachable!("inline TRAP …")` (as listed).
+- `src/ir/link.rs:585` — `AbiDirection::Out => unreachable!` (as listed).
+- `src/ir/link.rs:374–377` — the `compute_c_layout` **Err arm** inside
+  `check_cstruct` is unreachable: `check_cstruct` already rejects any unknown /
+  storage-less ctype (`abi_slot_ctype_is_known` + `ctype_size_align`) BEFORE it
+  calls `compute_c_layout`, and only calls it when `faults.is_empty()`, so every
+  field reaching it has a layout. A new NOT-in-the-original-list defensive arm.
+- `src/ir/lower_link.rs:202–203` — the unary-`+` arm of `eval_link_const_opt` is
+  DEAD: `parse_unary` (src/ast/expr.rs:252) only produces unary `-`/`WITH`, never
+  a unary `+`, so the parser can never build `Expression::Unary{operator:"+"}`.
+- `src/ir/docs.rs:164, 170, 184` — resolver-guarded unreachable: a second DOC
+  PACKAGE block (`DOC_DUPLICATE_PACKAGE`), a DOC whose header resolves to nothing
+  (`DOC_UNRESOLVED` :170), and a DOC TYPE for a missing type (`DOC_OVERLOAD_/type
+  unresolved` :184) are all rejected by `resolve_project` before
+  `collect_project_docs` runs. Verified empirically (probe `try_lower_src`).
+  docs.rs reaches ~97.8% covering only the reachable DOC RESOURCE arm.
+
+**Stale plan data (fresh lcov deviations):**
+- E1's "Statement arms" bullet (Recover/StateAssign/Exit/DoUntil/Propagate/
+  Continue) was already covered in the current profile; the real fresh gaps were
+  the expression + type-inference arms. The `WithUpdate` (:3009) arm is likewise
+  already covered (it rides variant_corpus), so no `WITH` test was needed.
+- E2's `verify_package` error branches and E1's `write_ir` happy path were
+  already covered; no new test required.
+
+No coverage test surfaced a real defect — no RED-first production fix was
+needed.
