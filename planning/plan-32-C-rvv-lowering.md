@@ -1,6 +1,6 @@
 # plan-32-C: dual-path v128 lowering (runtime scalar-or-RVV, one binary)
 
-Last updated: 2026-07-08
+Last updated: 2026-07-27
 Effort: medium (1h–2h)  — the correctness risk concentrator
 Depends on: plan-32-A (runtime `_mfb_rt_has_rvv` flag), plan-32-B (RVV encoder)
 
@@ -19,18 +19,23 @@ both produce f64/i64 values **bit-identical** to the AArch64/x86_64 backends.
 
 References:
 
-- `src/arch/riscv64/v128.rs` — `is_v128` (`:58`, the op vocabulary),
-  `build_slot_map` (`:99`, liveness/loop-extension analysis to reuse),
-  `scalarize_v128` (`:219`, the scalar arm, reused verbatim), `is_vector_operand`
-  (`:78`), the global slot region `_mfb_rt_v128_slots` (`:33`) that reconciles
-  the two arms.
-- `src/arch/riscv64/select.rs:314` (`build_slot_map` call), `:426` (v128 routing
-  — where dispatch is emitted).
-- `src/arch/riscv64/regmodel.rs:55` — FP model; the v-register reservation lives
-  alongside.
-- `src/target/shared/code/builder_simd_float_math.rs:312` — the kernels are
-  **inlined** into user functions (per-list loops), which is *why* dispatch must
-  be in-lowering, not IFUNC.
+- `src/arch/riscv64/v128.rs` — `is_v128` (`:64`, the op vocabulary),
+  `build_slot_map` (`:153`, liveness/loop-extension analysis to reuse),
+  `scalarize_v128` (`:273`, the scalar arm, reused verbatim), `is_vector_operand`
+  (`:122`), and the **per-thread** v128 slot region (`arena_base +
+  ARENA_V128_SLOTS_OFFSET`, addressed off the pinned arena base `s11`, slot base
+  materialized into `t2`) that reconciles the two arms. bug-122 moved this region
+  from the former `_mfb_rt_v128_slots` process-global into per-thread arena state
+  (concurrent threads were corrupting each other's lanes); `SLOT_COUNT` is 127
+  (bug-381 reclaimed the 128th slot for the flag-emulation rhs snapshot).
+- `src/arch/riscv64/select.rs:390` (`build_slot_map` call; `:394` the
+  `peak_slots <= SLOT_COUNT` assert), `:580` (v128 routing — where
+  `scalarize_v128` is called and dispatch is emitted).
+- `src/arch/riscv64/regmodel.rs:56` — FP model (RV64GC has no 128-bit vector
+  file; `FP_REGS` at `:59`); the v-register reservation lives alongside.
+- `src/target/shared/code/builder_simd_float_math.rs` — the kernels are
+  **inlined** into user functions (per-list loops; see `float_kernel_regs` /
+  kernel-emission region), which is *why* dispatch must be in-lowering, not IFUNC.
 - RVV mask model (spec §5.3/§15): compares write a 1-bit-per-element mask
   register, not the NEON all-ones/all-zeros lane mask — the central impedance
   mismatch.
@@ -41,7 +46,7 @@ References:
   runtime branch:
   `lb has, _mfb_rt_has_rvv; beqz has → scalar arm; else → RVV arm; converge`.
 - **Scalar arm:** the existing `scalarize_v128` output, unchanged — operands read
-  from / results written to the `_mfb_rt_v128_slots` region.
+  from / results written to the per-thread v128 slot region (off `s11`).
 - **RVV arm:** native RVV (B mnemonics) on physical `v1`–`v31`, reading operands
   from the same slots and writing results back to them, so both arms meet at the
   slot with no register-state merge.
@@ -71,20 +76,23 @@ References:
 
 ## 2. Current State
 
-- `scalarize_v128` (`v128.rs:219`) already routes every v128 value through the
-  global `_mfb_rt_v128_slots` region — operands loaded from slots, results
-  stored back. **This is the reconciliation point that makes dual-path cheap:**
-  an RVV arm that also reads/writes those slots meets the scalar arm at the slot
-  automatically, no merge logic.
-- `build_slot_map` (`:99`) computes per-value live ranges with loop-body
+- `scalarize_v128` (`v128.rs:273`) already routes every v128 value through the
+  per-thread v128 slot region (`arena_base + ARENA_V128_SLOTS_OFFSET`, off `s11`;
+  bug-122) — operands loaded from slots, results stored back. **This is the
+  reconciliation point that makes dual-path cheap:** an RVV arm that also
+  reads/writes those slots meets the scalar arm at the slot automatically, no
+  merge logic. (The RVV arm must address the same per-thread region off `s11`,
+  not a global data symbol.)
+- `build_slot_map` (`:153`) computes per-value live ranges with loop-body
   extension to a fixpoint (`:146`) so loop-carried values never share storage —
   exactly the analysis physical-vreg assignment needs; only the assigned
   resource (slot offset → `v`-register number) differs.
 - The kernels emit v128 ops on physical `v0`–`v31` / FP virtuals `%fN`
-  (`is_vector_operand`, `:78`), **inlined** into user functions
-  (`builder_simd_float_math.rs:312`) — so there is no per-kernel symbol to
-  multiversion; dispatch must be per-op/per-run inside selection.
-- Selection routes v128 ops at `select.rs:426`. Today it always calls
+  (`is_vector_operand`, `:122`), **inlined** into user functions
+  (`builder_simd_float_math.rs`, `float_kernel_regs` / kernel-emission region) —
+  so there is no per-kernel symbol to multiversion; dispatch must be per-op/per-run
+  inside selection.
+- Selection routes v128 ops at `select.rs:580`. Today it always calls
   `scalarize_v128`; this sub-plan wraps that call with the guard + RVV arm.
 
 ## 3. Design Overview
@@ -218,7 +226,16 @@ Commit: —
 - **`FMinV`/`FMaxV`** — direct `vfmin/vfmax` iff a NaN/±0 value-parity test
   matches NEON; else reproduce the scalar compare-select. (§3, Phase 3)
 - **Scratch v-registers** — reserve `v0` (mask) + one temp (e.g. `v31`),
-  allocatable pool `v1`–`v30`; revisit if a lowering needs two live temps. (§3)
+  allocatable pool `v1`–`v30`; revisit if a lowering needs two live temps. The
+  RVV `v0`–`v31` file is a *separate* register file from the GPR/FP files, so its
+  reservation does not touch `INT_ALLOCATABLE`/`FP_REGS` (avoiding the rv64
+  pool-shrink allocator fault). (§3)
+- **GPR scratch for the guard** — the guard (`lb has, _mfb_rt_has_rvv; beqz`) and
+  the RVV arm's slot addressing need a free GPR. `scalarize_v128` already reserves
+  `t0`/`t1`/`t2` (slot base + lanes) and `ft0`/`ft1`/`ft2`; the per-thread arena
+  base is pinned in `s11` and bug-381 reserved a flag-emulation slot in the arena.
+  Confirm the guard's scratch does not collide with a live `argc`/`argv` or the
+  scalarize scratch across the converge point. (§3)
 
 ## Summary
 
