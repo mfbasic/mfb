@@ -376,6 +376,15 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::branch_hi("arena_alloc_grow_map"),
         abi::compare_immediate(&size, &ARENA_QUICK_BIN_MAX.to_string()),
         abi::branch_hi("arena_alloc_grow_map"),
+        // plan-64 A1: skip the flush when the address-ordered list is empty. Then
+        // the only free chunks are the parked SMALL bins, whose coalescing merges
+        // exact-size chunks a pure-small workload is actively recycling (datetime's
+        // scattered records) — destroying reuse and re-triggering the flush every
+        // grow, for no fit a mapped block would not serve as cheaply. A non-empty
+        // list means there ARE larger coalesced chunks worth merging small ones into.
+        abi::load_u64(&map_size, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::compare_immediate(&map_size, "0"),
+        abi::branch_eq("arena_alloc_grow_map"),
         abi::move_immediate(&flushed, "Integer", "1"),
         // plan-64 A1: single-pass sort+coalesce (gather bins+list → merge sort by
         // address → coalesce adjacent → re-park). Replaces the old per-chunk

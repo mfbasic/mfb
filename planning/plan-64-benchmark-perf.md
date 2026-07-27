@@ -268,13 +268,20 @@ records per call — all ≤2048, so they park in quick bins then drain through 
   `json` acceptance all pass with unchanged checksums/output; `.ir`/`.ast`/`.run` goldens
   unchanged (allocator is native-only); the 42 codegen goldens (`.mir`/`.ncode`/32
   cross-target `.ncodesum`) regenerated; `artifact-gate.sh` back to 0 diffs.
-  **Residual (honest):** `datetime civil` — whose records are scattered, *same-workload*
-  small chunks that are genuinely non-adjacent, so coalescing merges little and the DV
-  stays small, re-triggering flushes — is only partly helped (963 → 569 max @ --run 50;
-  but **~5.4 ms median at the default --run 12**, vs 974 originally). Fully flattening
-  that pure-scattered-small case needs incremental (boundary-tag) O(1)-coalescing-on-free,
-  a much larger allocator rewrite left as future work. `arena.rs`, `error_constants.rs`
-  (`ARENA_FLUSH_COALESCE_SYMBOL`), `mod.rs`.
+  **`datetime civil` — fixed by a stateless flush gate (second commit).** Its records are
+  scattered, *same-workload* small chunks that are genuinely non-adjacent, so coalescing
+  merged little while re-triggering the flush every grow (963 → only 569 max from the sort
+  alone). Fix: **skip the flush-before-grow when the address-ordered free list is empty.**
+  With an empty list the only free chunks are the parked SMALL bins, whose coalescing
+  merges the exact-size chunks a pure-small workload is actively recycling — destroying
+  reuse for no fit a mapped block would not serve as cheaply. A non-empty list means real
+  larger chunks exist to merge small ones into, so the flush still runs for mixed
+  workloads. **`datetime civil` 569 → 0.92 ms max, flat @ --run 50** (checksum unchanged);
+  peak memory **unchanged** — fragmenting-suite 3.09 GB @ --run 12 (identical to the sort
+  alone) and the arena churn benchmarks stay ~1 MB and linear; every mixed row stays fixed
+  (roundtrip 0.21, capture 2.2, int_ops 4.5). This makes A1 fully flatten the arena
+  quadratic across all rows without the boundary-tag rewrite. `arena.rs`,
+  `error_constants.rs` (`ARENA_FLUSH_COALESCE_SYMBOL`), `mod.rs`.
 - **A2 — resolved as subsumed (no separate change).** A2 wanted the alloc walk and the
   insert walk to stop being global O(free-list). They already are: large frees divert to
   the hashed **large-block bins** (plan-25-A, `arena_free`), small frees to the
