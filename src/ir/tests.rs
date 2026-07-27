@@ -1681,6 +1681,144 @@ mod lower_tests {
         assert!(handle.is_some_and(|r| !r.close_may_fail));
     }
 
+    // A `CONST slot = SIZEOF <CStruct>` pin folds to the struct's C layout size
+    // (eval_link_const_opt SIZEOF arm).
+    #[test]
+    fn link_const_sizeof_folds_to_layout_size() {
+        let src = "RESOURCE H CLOSE BY lib::shut\n\
+             TYPE Rec\n  a AS Integer\n  b AS Integer\nEND TYPE\n\
+             LINK \"c\" AS lib\n\
+               CSTRUCT Pair AS Rec\n    a CInt32\n    b CInt32\n  END CSTRUCT\n\
+               FUNC make() AS RES H\n\
+                 SYMBOL \"make\"\n\
+                 ABI (sz CInt32, produced OUT CPtr) AS status CInt32\n\
+                 CONST sz = SIZEOF Pair\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+               FUNC shut(RES h AS H) AS Nothing\n\
+                 SYMBOL \"shut\"\n\
+                 ABI (h CPtr) AS status CInt32\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("SIZEOF CONST program should lower");
+        let make = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "make")
+            .expect("make link function");
+        let sz = make.consts.iter().find(|(s, _)| s == "sz").expect("sz const");
+        assert_eq!(sz.1, 8, "SIZEOF of two CInt32 fields is 8 bytes");
+    }
+
+    // `BIND IN` field values lower to a param reference, an integer literal, a
+    // boolean (0/1), or a negated literal; an unrecognized form lowers to
+    // neither (checkers reject it later).
+    #[test]
+    fn link_bind_in_field_value_forms() {
+        let src = "RESOURCE H CLOSE BY lib::shut\n\
+             TYPE Rec\n  a AS Integer\n  b AS Integer\n  c AS Integer\n  d AS Integer\n  e AS Integer\nEND TYPE\n\
+             LINK \"c\" AS lib\n\
+               CSTRUCT Cfg AS Rec\n    a CInt64\n    b CInt64\n    c CInt64\n    d CInt64\n    e CInt64\n  END CSTRUCT\n\
+               FUNC make(seed AS Integer) AS RES H\n\
+                 SYMBOL \"make\"\n\
+                 ABI (cfg IN Cfg, produced OUT CPtr) AS status CInt32\n\
+                 BIND IN cfg\n\
+                   a = seed\n\
+                   b = 5\n\
+                   c = TRUE\n\
+                   d = -3\n\
+                   e = -seed\n\
+                 END BIND\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+               FUNC shut(RES h AS H) AS Nothing\n\
+                 SYMBOL \"shut\"\n\
+                 ABI (h CPtr) AS status CInt32\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("BIND IN program should lower");
+        let make = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "make")
+            .expect("make link function");
+        let bind = make.bind_in.iter().find(|b| b.slot == "cfg").expect("cfg bind");
+        let field = |name: &str| bind.fields.iter().find(|f| f.name == name).unwrap();
+        assert_eq!(field("a").param.as_deref(), Some("seed"));
+        assert_eq!(field("b").literal, Some(5));
+        assert_eq!(field("c").literal, Some(1));
+        assert_eq!(field("d").literal, Some(-3));
+        // `-seed` negates a non-literal → neither a param nor a literal (the
+        // unrecognized form the checkers reject later).
+        let e = field("e");
+        assert_eq!(e.param, None);
+        assert_eq!(e.literal, None);
+    }
+
+    // `RETURN <expr>` (the result clause) binary lowering covers the `-`
+    // arithmetic arm and the `_ => Int(0)` fallback for an operator with no
+    // LINK-expr encoding.
+    #[test]
+    fn link_expr_binary_minus_and_unknown_fallback() {
+        let src = "LINK \"c\" AS lib\n\
+               FUNC make() AS Integer\n\
+                 SYMBOL \"make\"\n\
+                 ABI () AS status CInt32\n\
+                 RETURN status - 1\n\
+               END FUNC\n\
+               FUNC probe() AS Integer\n\
+                 SYMBOL \"probe\"\n\
+                 ABI () AS status CInt32\n\
+                 RETURN status / 2\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("RETURN-expression program should lower");
+        let make = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "make")
+            .expect("make link function");
+        assert!(
+            matches!(make.result, Some(IrLinkExpr::Sub(_, _))),
+            "status - 1 lowers to a Sub expr"
+        );
+        let probe = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "probe")
+            .expect("probe link function");
+        assert!(
+            matches!(probe.result, Some(IrLinkExpr::Int(0))),
+            "an unencodable operator lowers to Int(0)"
+        );
+    }
+
+    // An `EXPORT FUNC alias AS lib::close` re-export maps the resource's close op
+    // to the bare exported alias name (native_resources export-alias arm).
+    #[test]
+    fn native_resource_close_uses_exported_alias() {
+        let src = "EXPORT RESOURCE Db CLOSE BY lib::close\n\
+             LINK \"c\" AS lib\n\
+               FUNC close(RES db AS Db) AS Nothing\n\
+                 SYMBOL \"close\"\n\
+                 ABI (db CPtr) AS status CInt32\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+             END LINK\n\
+             EXPORT FUNC shutdown AS lib::close\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("re-export close program should lower");
+        let db = ir
+            .native_resources
+            .iter()
+            .find(|r| r.name == "Db")
+            .expect("Db resource");
+        assert_eq!(db.close_function, "shutdown");
+    }
+
     // ---- DOC blocks ------------------------------------------------------
 
     #[test]
@@ -1745,6 +1883,52 @@ mod lower_tests {
             assert!(!ir.docs.decls.iter().any(|d| d.name == "helper"));
         }
     }
+
+    #[test]
+    fn doc_resource_for_export_is_collected() {
+        // A DOC RESOURCE block over an EXPORT RESOURCE is persisted as an
+        // IrDocKind::Resource decl (the DocHeaderKind::Resource arm).
+        let src = "DOC\n  RESOURCE Db\n  DESC A database handle.\nEND DOC\n\
+             EXPORT RESOURCE Db CLOSE BY lib::close\n\
+             LINK \"c\" AS lib\n\
+               FUNC close(RES db AS Db) AS Nothing\n\
+                 SYMBOL \"close\"\n\
+                 ABI (db CPtr) AS status CInt32\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("DOC RESOURCE program should lower");
+        assert!(ir
+            .docs
+            .decls
+            .iter()
+            .any(|d| d.name == "Db" && d.kind == IrDocKind::Resource));
+    }
+
+    #[test]
+    fn doc_resource_for_nonexport_is_dropped() {
+        // A DOC RESOURCE block over a non-exported RESOURCE hits the visibility
+        // guard and is not persisted.
+        let src = "DOC\n  RESOURCE Cache\n  DESC A cache.\nEND DOC\n\
+             PRIVATE RESOURCE Cache CLOSE BY lib::freeCache\n\
+             LINK \"c\" AS lib\n\
+               FUNC freeCache(RES c AS Cache) AS Nothing\n\
+                 SYMBOL \"freeCache\"\n\
+                 ABI (c CPtr) AS status CInt32\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        if let Some(ir) = try_lower_src(src) {
+            assert!(!ir
+                .docs
+                .decls
+                .iter()
+                .any(|d| d.name == "Cache" && d.kind == IrDocKind::Resource));
+        }
+    }
+
 
     // ---- qualified builtin package call ----------------------------------
 
