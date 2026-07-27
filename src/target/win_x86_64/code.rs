@@ -2835,10 +2835,15 @@ impl code::CodegenPlatform for Platform {
         symbol: &str,
         stderr: bool,
         newline: bool,
-        _term_state_offset: Option<usize>,
+        term_state_offset: Option<usize>,
         _platform_imports: &HashMap<String, String>,
     ) -> Option<Result<AppHookBody, String>> {
-        Some(Ok(app::emit_app_io_write_helper(symbol, stderr, newline)))
+        Some(Ok(app::emit_app_io_write_helper(
+            symbol,
+            stderr,
+            newline,
+            term_state_offset,
+        )))
     }
 
     fn emit_app_io_flush_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
@@ -2860,6 +2865,15 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_app_io_is_terminal_helper(&self, symbol: &str) -> Option<Result<AppHookBody, String>> {
         Some(Ok(app::emit_app_io_is_terminal_helper(symbol)))
+    }
+
+    fn emit_app_term_helper(
+        &self,
+        call: &str,
+        symbol: &str,
+        term_state_offset: usize,
+    ) -> Option<Result<AppHookBody, String>> {
+        app::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
     }
 
     fn app_mode_data_objects(&self, project_name: &str) -> Vec<CodeDataObject> {

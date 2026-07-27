@@ -79,6 +79,7 @@ impl NativePlanPlatform for Platform {
         // GetStdHandle, WriteFile, GetEnvironmentVariableW) are deduped in the
         // merged import table. The `.rsrc`/subsystem work is plan-66-K/I.
         const USER32: &str = "user32.dll";
+        const GDI32: &str = "gdi32.dll";
         vec![
             import("GetModuleHandleW", KERNEL32, "_main"),
             import("GetEnvironmentVariableW", KERNEL32, "_main"),
@@ -108,6 +109,25 @@ impl NativePlanPlatform for Platform {
             import("PostQuitMessage", USER32, "_main"),
             import("PostMessageW", USER32, "_main"),
             import("SendMessageW", USER32, "_main"),
+            // plan-66-J-5 term:: TUI grid: an off-screen GDI memory DC + fixed-pitch
+            // stock font (built by term::on), drawn per-cell (SetTextColor/SetBkColor
+            // + TextOutW) and BitBlt'd to the window on WM_PAINT; term::sync presents.
+            import("GetDC", USER32, "_main"),
+            import("ReleaseDC", USER32, "_main"),
+            import("ShowWindow", USER32, "_main"),
+            import("InvalidateRect", USER32, "_main"),
+            import("UpdateWindow", USER32, "_main"),
+            import("BeginPaint", USER32, "_main"),
+            import("EndPaint", USER32, "_main"),
+            import("CreateCompatibleDC", GDI32, "_main"),
+            import("CreateCompatibleBitmap", GDI32, "_main"),
+            import("SelectObject", GDI32, "_main"),
+            import("GetStockObject", GDI32, "_main"),
+            import("PatBlt", GDI32, "_main"),
+            import("BitBlt", GDI32, "_main"),
+            import("TextOutW", GDI32, "_main"),
+            import("SetTextColor", GDI32, "_main"),
+            import("SetBkColor", GDI32, "_main"),
         ]
     }
 

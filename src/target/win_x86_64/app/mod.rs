@@ -27,16 +27,39 @@ use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
     CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent,
     AppEntrySpec, AppHookBody, ARENA_ALLOC_SYMBOL, MACAPP_PROGRAM_SYMBOL, RESULT_OK_TAG,
-    RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER,
+    RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, TERM_STATE_ACTIVE_OFFSET,
+    TERM_STATE_FG_OFFSET, TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
+    TERM_STATE_CURSOR_VISIBLE_OFFSET,
 };
 
 const KERNEL32: &str = "kernel32.dll";
 const USER32: &str = "user32.dll";
+const GDI32: &str = "gdi32.dll";
 
 const MAIN_SYMBOL: &str = "_main";
 const WORKER_SYMBOL: &str = "_mfb_winapp_worker";
 const WNDPROC_SYMBOL: &str = "_mfb_winapp_wndproc";
 const EDITPROC_SYMBOL: &str = "_mfb_winapp_editproc";
+
+// ---- plan-66-J-5 term:: TUI grid (GDI cell grid painted on the main window) ----
+// A fixed 80x25 monospace grid rendered into an off-screen memory DC; term:: ops
+// draw into the memDC and `term::sync` InvalidateRects the main window, whose
+// WndProc BitBlts the memDC to the client area when TUI mode is active. `term::on`
+// hides the transcript EDIT so the grid shows through; `term::off` restores it.
+const TUI_COLS: usize = 80;
+const TUI_ROWS: usize = 25;
+const TUI_CELL_W: usize = 8; // px per cell (matches the Consolas metrics we request)
+const TUI_CELL_H: usize = 16;
+/// Writable u64 globals for the TUI surface, all 0 until `term::on` builds them.
+const TUI_MEMDC_SYM: &str = "_mfb_winapp_tui_memdc"; // off-screen HDC
+const TUI_FONT_SYM: &str = "_mfb_winapp_tui_font"; // cached monospace HFONT
+const TUI_ROW_SYM: &str = "_mfb_winapp_tui_row"; // cursor row (0-based)
+const TUI_COL_SYM: &str = "_mfb_winapp_tui_col"; // cursor col (0-based)
+// GDI / window message constants.
+const WM_PAINT: &str = "15"; // 0x000F
+const SW_HIDE: &str = "0";
+const SW_SHOW: &str = "5";
+const SRCCOPY: &str = "13369376"; // 0x00CC0020 (BitBlt raster op)
 
 /// The shared runtime io helpers the app-mode `io.input` body chains to (the
 /// same symbols the console lowering emits): render the prompt, then read a line
@@ -525,23 +548,78 @@ fn emit_worker() -> CodeFunction {
 
 /// `WndProc(hwnd, msg, wParam, lParam)`: quit on `WM_DESTROY`, else default.
 fn emit_wndproc() -> CodeFunction {
+    // Frame (plan-66-J-5 added the WM_PAINT TUI present): shadow[0..0x20],
+    // outgoing stack args [0x20..0x48] (BitBlt has 4 stack args), saved
+    // hwnd@0x48/msg@0x50/wParam@0x58/lParam@0x60, hdc@0x68, PAINTSTRUCT@0x70..0xB8.
+    // FRAME ≡ 8 (mod 16): entered at sp%16==8, so 0xB8 realigns before any call.
+    const FRAME: usize = 0xB8;
+    const H0: usize = 0x48; // hwnd
+    const H1: usize = 0x50; // msg
+    const H2: usize = 0x58; // wParam
+    const H3: usize = 0x60; // lParam
+    const HDC: usize = 0x68;
+    const PS: usize = 0x70;
     let from = WNDPROC_SYMBOL;
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
-    ins.push(abi::subtract_stack(0x28));
-    // msg is ARG[1]; the ARG registers still hold the WndProc arguments.
-    ins.push(abi::compare_immediate(abi::ARG[1], WM_DESTROY));
-    ins.push(abi::branch_eq("wnd_destroy"));
-    // default: DefWindowProcW(hwnd, msg, wParam, lParam) — args untouched.
-    call_external(from, "DefWindowProcW", USER32, &mut ins, &mut rel);
-    ins.push(abi::add_stack(0x28));
+    ins.push(abi::subtract_stack(FRAME));
+    // Save the four WndProc args — the WM_PAINT path below clobbers ARG registers,
+    // and the default DefWindowProcW tail needs them intact.
+    ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), H0));
+    ins.push(abi::store_u64(abi::ARG[1], abi::stack_pointer(), H1));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), H2));
+    ins.push(abi::store_u64(abi::ARG[3], abi::stack_pointer(), H3));
+    // WM_PAINT + a live TUI surface → BitBlt the off-screen grid to the client.
+    ins.push(abi::compare_immediate(abi::ARG[1], WM_PAINT));
+    ins.push(abi::branch_ne("wnd_check_destroy"));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("wnd_default")); // no surface → normal paint
+    // BeginPaint(hwnd, &ps) → hdc
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), H0));
+    ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), PS));
+    call_external(from, "BeginPaint", USER32, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), HDC));
+    // BitBlt(hdc, 0, 0, W, H, memDC, 0, 0, SRCCOPY) — args 5..9 on the stack.
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20)); // height (5th)
+    load_addr(abi::ARG[2], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[2], abi::ARG[2], 0));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28)); // hdcSrc (6th)
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x30)); // xSrc (7th)
+    ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), 0x38)); // ySrc (8th)
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", SRCCOPY));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x40)); // rop (9th)
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), HDC)); // hdcDest
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0")); // xDest
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0")); // yDest
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", &(TUI_COLS * TUI_CELL_W).to_string())); // width
+    call_external(from, "BitBlt", GDI32, &mut ins, &mut rel);
+    // EndPaint(hwnd, &ps)
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), H0));
+    ins.push(abi::add_immediate(abi::ARG[1], abi::stack_pointer(), PS));
+    call_external(from, "EndPaint", USER32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
+    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
-    ins.push(abi::label("wnd_destroy"));
+    ins.push(abi::label("wnd_check_destroy"));
+    ins.push(abi::compare_immediate(abi::ARG[1], WM_DESTROY));
+    ins.push(abi::branch_ne("wnd_default"));
     ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
     call_external(from, "PostQuitMessage", USER32, &mut ins, &mut rel);
     ins.push(abi::move_immediate(abi::return_register(), "Integer", "0"));
-    ins.push(abi::add_stack(0x28));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    // default: DefWindowProcW(hwnd, msg, wParam, lParam) — reload the saved args.
+    ins.push(abi::label("wnd_default"));
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), H0));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), H1));
+    ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), H2));
+    ins.push(abi::load_u64(abi::ARG[3], abi::stack_pointer(), H3));
+    call_external(from, "DefWindowProcW", USER32, &mut ins, &mut rel);
+    ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
     code_function("winapp.wndproc", WNDPROC_SYMBOL, ins, rel)
 }
@@ -652,10 +730,15 @@ fn emit_finish() -> CodeFunction {
 /// &written, NULL)`. A GUI-subsystem `.exe` launched from a console inherits its
 /// standard handles, so the box run observes the output. Returns `RESULT_OK_TAG`.
 /// (J-3 routes this to the GDI transcript when a window is attached.)
-pub(super) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool) -> AppHookBody {
+pub(super) fn emit_app_io_write_helper(
+    symbol: &str,
+    stderr: bool,
+    newline: bool,
+    term_state_offset: Option<usize>,
+) -> AppHookBody {
     // FRAME ≡ 8 (mod 16): entered at sp%16==8 (post-call), so this realigns to 16
     // before the SendMessageW/GDI calls (which use aligned SSE and fault otherwise).
-    const FRAME: usize = 0x68;
+    const FRAME: usize = 0x88;
     const OVERLAPPED: usize = 0x20; // WriteFile 5th arg / MultiByteToWideChar staging
     const NL_BYTE: usize = 0x30;
     const STR: usize = 0x38;
@@ -663,12 +746,23 @@ pub(super) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
     const HANDLE: usize = 0x48;
     const EDITH: usize = 0x50; // transcript EDIT HWND
     const WBUF: usize = 0x58; // arena UTF-16 buffer
+    // plan-66-J-5 TUI grid path slots.
+    const GI: usize = 0x60; // per-char loop index
+    const GWCH: usize = 0x68; // one UTF-16 code unit for TextOutW
+    const GMEMDC: usize = 0x70; // cached memory DC
     let std_fd = if stderr { FILE_FLAG_STDERR_FD } else { FILE_FLAG_STDOUT_FD };
     let mut ins: Vec<CodeInstruction> = Vec::new();
     let mut rel: Vec<CodeRelocation> = Vec::new();
     ins.push(abi::label("entry"));
     ins.push(abi::subtract_stack(FRAME));
     ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), STR));
+    // plan-66-J-5: while TUI mode is active, render into the GDI grid instead of the
+    // transcript EDIT (the grid is what the window shows in TUI mode).
+    if let Some(tso) = term_state_offset {
+        ins.push(abi::load_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + TERM_STATE_ACTIVE_OFFSET));
+        ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+        ins.push(abi::branch_ne("term_grid_path"));
+    }
     // If a transcript EDIT control is attached (non-headless), route there; the
     // SendMessageW below marshals to the UI thread synchronously. Else fall through
     // to the inherited standard handle (headless / no window — the J-2 path).
@@ -770,6 +864,97 @@ pub(super) fn emit_app_io_write_helper(symbol: &str, stderr: bool, newline: bool
     ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
     ins.push(abi::add_stack(FRAME));
     ins.push(abi::return_());
+
+    // --- plan-66-J-5 TUI grid path: draw the string cell-by-cell into the memory DC.
+    // Reached only when TUI mode is active. `\n` advances the row (col=0); `\r`
+    // homes the col; every other byte is drawn (ASCII → the same UTF-16 unit) at the
+    // cursor with the current fg/bg, then the col advances (wrapping at TUI_COLS).
+    if let Some(tso) = term_state_offset {
+        ins.push(abi::label("term_grid_path"));
+        load_addr(abi::ARG[0], TUI_MEMDC_SYM, symbol, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GMEMDC));
+        ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+        ins.push(abi::branch_eq("std_path")); // no surface built → inherited handle
+        // SetTextColor(memDC, fg); SetBkColor(memDC, bg).
+        ins.push(abi::load_u64(abi::ARG[1], ARENA_STATE_REGISTER, tso + TERM_STATE_FG_OFFSET));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GMEMDC));
+        call_external(symbol, "SetTextColor", GDI32, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::ARG[1], ARENA_STATE_REGISTER, tso + TERM_STATE_BG_OFFSET));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GMEMDC));
+        call_external(symbol, "SetBkColor", GDI32, &mut ins, &mut rel);
+        // for i in 0..len(str[0]) { ... }
+        ins.push(abi::store_u64(abi::ZERO, abi::stack_pointer(), GI));
+        ins.push(abi::label("term_loop"));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GI));
+        ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), STR));
+        ins.push(abi::load_u64(abi::ARG[1], abi::ARG[1], 0)); // len = str[0]
+        ins.push(abi::compare_registers(abi::ARG[0], abi::ARG[1]));
+        ins.push(abi::branch_ge("term_grid_done"));
+        // byte = *(str + 8 + i)
+        ins.push(abi::load_u64(abi::ARG[2], abi::stack_pointer(), STR));
+        ins.push(abi::add_immediate(abi::ARG[2], abi::ARG[2], 8));
+        ins.push(abi::add_registers(abi::ARG[2], abi::ARG[2], abi::ARG[0]));
+        ins.push(abi::load_u8(abi::ARG[0], abi::ARG[2], 0));
+        ins.push(abi::compare_immediate(abi::ARG[0], "10"));
+        ins.push(abi::branch_eq("term_nl"));
+        ins.push(abi::compare_immediate(abi::ARG[0], "13"));
+        ins.push(abi::branch_eq("term_cr"));
+        // wch = byte; TextOutW(memDC, col<<3, row<<4, &wch, 1).
+        ins.push(abi::store_u16(abi::ARG[0], abi::stack_pointer(), GWCH));
+        ins.push(abi::move_immediate(abi::ARG[0], "Integer", "1"));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), 0x20)); // 5th arg c=1
+        ins.push(abi::add_immediate(abi::ARG[3], abi::stack_pointer(), GWCH)); // &wch
+        load_addr(abi::ARG[1], TUI_COL_SYM, symbol, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::ARG[1], abi::ARG[1], 0));
+        ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 3)); // x = col*8
+        load_addr(abi::ARG[2], TUI_ROW_SYM, symbol, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::ARG[2], abi::ARG[2], 0));
+        ins.push(abi::shift_left_immediate(abi::ARG[2], abi::ARG[2], 4)); // y = row*16
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GMEMDC));
+        call_external(symbol, "TextOutW", GDI32, &mut ins, &mut rel);
+        // col++; wrap at TUI_COLS → col=0, row++. An earlier branch_lt-based wrap
+        // (skip-block-then-shared-store) mis-advanced the cursor on the x86 backend
+        // (col ran backwards, box-observed); this separated branch_ge structure is
+        // verified correct on 2230. The branch_lt anomaly is filed for verification.
+        load_addr(abi::ARG[2], TUI_COL_SYM, symbol, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::ARG[0], abi::ARG[2], 0));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+        ins.push(abi::compare_immediate(abi::ARG[0], &TUI_COLS.to_string()));
+        ins.push(abi::branch_ge("term_wrap"));
+        ins.push(abi::store_u64(abi::ARG[0], abi::ARG[2], 0)); // col = col+1
+        ins.push(abi::branch("term_next"));
+        ins.push(abi::label("term_wrap"));
+        ins.push(abi::store_u64(abi::ZERO, abi::ARG[2], 0)); // col = 0
+        load_addr(abi::ARG[1], TUI_ROW_SYM, symbol, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::ARG[0], abi::ARG[1], 0));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::ARG[1], 0)); // row++
+        ins.push(abi::branch("term_next"));
+        // '\n' → row++, col=0.
+        ins.push(abi::label("term_nl"));
+        load_addr(abi::ARG[1], TUI_ROW_SYM, symbol, &mut ins, &mut rel);
+        ins.push(abi::load_u64(abi::ARG[0], abi::ARG[1], 0));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::ARG[1], 0));
+        load_addr(abi::ARG[1], TUI_COL_SYM, symbol, &mut ins, &mut rel);
+        ins.push(abi::store_u64(abi::ZERO, abi::ARG[1], 0));
+        ins.push(abi::branch("term_next"));
+        // '\r' → col=0.
+        ins.push(abi::label("term_cr"));
+        load_addr(abi::ARG[1], TUI_COL_SYM, symbol, &mut ins, &mut rel);
+        ins.push(abi::store_u64(abi::ZERO, abi::ARG[1], 0));
+        ins.push(abi::label("term_next"));
+        ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), GI));
+        ins.push(abi::add_immediate(abi::ARG[0], abi::ARG[0], 1));
+        ins.push(abi::store_u64(abi::ARG[0], abi::stack_pointer(), GI));
+        ins.push(abi::branch("term_loop"));
+        ins.push(abi::label("term_grid_done"));
+        invalidate_main(symbol, &mut ins, &mut rel);
+        ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+        ins.push(abi::add_stack(FRAME));
+        ins.push(abi::return_());
+    }
     (
         CodeFrame {
             stack_size: 0,
@@ -855,6 +1040,290 @@ pub(super) fn emit_app_io_is_terminal_helper(_symbol: &str) -> AppHookBody {
     )
 }
 
+/// Wrap a raw instruction/relocation stream as a standalone app-hook body (its
+/// own frame, entered at `sp%16==8`).
+fn term_body(ins: Vec<CodeInstruction>, rel: Vec<CodeRelocation>) -> AppHookBody {
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        ins,
+        rel,
+    )
+}
+
+/// plan-66-J-5: dispatch a `term::` call to its GDI-grid app-mode body. Every call
+/// Windows advertises in app mode is handled here; the shared `mod.rs` gate then
+/// prepends the presentation-mode `ErrWrongMode` guard. Returns `None` for a call
+/// with no app body (falls through to the console ANSI backend).
+pub(super) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Option<AppHookBody> {
+    let b = match call {
+        "term.on" => emit_term_on(symbol, tso),
+        "term.off" => emit_term_off(symbol, tso),
+        "term.clear" => emit_term_clear(symbol),
+        "term.moveTo" => emit_term_move_to(symbol),
+        "term.setForeground" => emit_term_set_color(tso, TERM_STATE_FG_OFFSET),
+        "term.setBackground" => emit_term_set_color(tso, TERM_STATE_BG_OFFSET),
+        "term.setBold" => emit_term_set_flag(tso, TERM_STATE_BOLD_OFFSET),
+        "term.setUnderline" => emit_term_set_flag(tso, TERM_STATE_UNDERLINE_OFFSET),
+        "term.showCursor" => emit_term_cursor_visible(tso, "1"),
+        "term.hideCursor" => emit_term_cursor_visible(tso, "0"),
+        "term.sync" => emit_term_sync(symbol),
+        "term.terminalSize" => emit_term_size(symbol),
+        _ => return None,
+    };
+    Some(b)
+}
+
+/// `term::on()`: build the off-screen grid surface on first use (memory DC +
+/// bitmap + a fixed-pitch stock font), clear it, mark TUI state active, hide the
+/// transcript EDIT so the grid shows through, and invalidate the window.
+fn emit_term_on(symbol: &str, tso: usize) -> AppHookBody {
+    // Frame: shadow[0..0x20], PatBlt stack args h@0x20/rop@0x28, hdcScreen@0x30.
+    const FRAME: usize = 0x38;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    // Build the surface once (memDC == 0 means not built yet).
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_ne("on_have_dc"));
+    // hdcScreen = GetDC(NULL)
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
+    call_external(from, "GetDC", USER32, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), 0x30));
+    // memDC = CreateCompatibleDC(hdcScreen); store the global.
+    ins.push(abi::move_register(abi::ARG[0], abi::return_register()));
+    call_external(from, "CreateCompatibleDC", GDI32, &mut ins, &mut rel);
+    load_addr(abi::ARG[1], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::return_register(), abi::ARG[1], 0));
+    // bmp = CreateCompatibleBitmap(hdcScreen, W, H)
+    ins.push(abi::load_u64(abi::ARG[0], abi::stack_pointer(), 0x30));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", &(TUI_COLS * TUI_CELL_W).to_string()));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
+    call_external(from, "CreateCompatibleBitmap", GDI32, &mut ins, &mut rel);
+    // SelectObject(memDC, bmp) — stage bmp (rax) into ARG[1] before loading memDC.
+    ins.push(abi::move_register(abi::ARG[1], abi::return_register()));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
+    // ReleaseDC(NULL, hdcScreen)
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "0"));
+    ins.push(abi::load_u64(abi::ARG[1], abi::stack_pointer(), 0x30));
+    call_external(from, "ReleaseDC", USER32, &mut ins, &mut rel);
+    // font = GetStockObject(SYSTEM_FIXED_FONT = 16); SelectObject(memDC, font).
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "16"));
+    call_external(from, "GetStockObject", GDI32, &mut ins, &mut rel);
+    ins.push(abi::move_register(abi::ARG[1], abi::return_register()));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    call_external(from, "SelectObject", GDI32, &mut ins, &mut rel);
+    ins.push(abi::label("on_have_dc"));
+    // Clear the grid to black: PatBlt(memDC, 0, 0, W, H, BLACKNESS = 0x42).
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20)); // height (5th)
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "66")); // BLACKNESS (6th)
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", &(TUI_COLS * TUI_CELL_W).to_string()));
+    call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
+    // cursor = (0, 0); term state: active = 1, fg = white, bg = black.
+    reset_cursor(from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "1"));
+    ins.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + TERM_STATE_ACTIVE_OFFSET));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", "16777215")); // 0xFFFFFF white
+    ins.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + TERM_STATE_FG_OFFSET));
+    ins.push(abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, tso + TERM_STATE_BG_OFFSET));
+    // Hide the transcript EDIT, then invalidate the window to present the grid.
+    load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", SW_HIDE));
+    call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// `term::off()`: leave TUI mode — clear the active flag and re-show the EDIT.
+fn emit_term_off(symbol: &str, tso: usize) -> AppHookBody {
+    const FRAME: usize = 0x28;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    ins.push(abi::store_u64(abi::ZERO, ARENA_STATE_REGISTER, tso + TERM_STATE_ACTIVE_OFFSET));
+    load_addr(abi::ARG[0], EDIT_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", SW_SHOW));
+    call_external(from, "ShowWindow", USER32, &mut ins, &mut rel);
+    invalidate_main(from, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// `term::clear()`: black out the grid and home the cursor.
+fn emit_term_clear(symbol: &str) -> AppHookBody {
+    const FRAME: usize = 0x38;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::compare_immediate(abi::ARG[0], "0"));
+    ins.push(abi::branch_eq("clear_done"));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", &(TUI_ROWS * TUI_CELL_H).to_string()));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x20));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "66"));
+    ins.push(abi::store_u64(abi::ARG[2], abi::stack_pointer(), 0x28));
+    load_addr(abi::ARG[0], TUI_MEMDC_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "0"));
+    ins.push(abi::move_immediate(abi::ARG[3], "Integer", &(TUI_COLS * TUI_CELL_W).to_string()));
+    call_external(from, "PatBlt", GDI32, &mut ins, &mut rel);
+    reset_cursor(from, &mut ins, &mut rel);
+    ins.push(abi::label("clear_done"));
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// `term::moveTo(row, col)`: set the grid cursor (0-based), no frame/call needed.
+fn emit_term_move_to(symbol: &str) -> AppHookBody {
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    load_addr(abi::ARG[2], TUI_ROW_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ARG[0], abi::ARG[2], 0)); // row
+    load_addr(abi::ARG[2], TUI_COL_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::store_u64(abi::ARG[1], abi::ARG[2], 0)); // col
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// `term::setForeground/setBackground(r, g, b)`: pack `r | g<<8 | b<<16` (already
+/// GDI COLORREF order) into the term-state color field.
+fn emit_term_set_color(tso: usize, field: usize) -> AppHookBody {
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::shift_left_immediate(abi::ARG[1], abi::ARG[1], 8));
+    ins.push(abi::shift_left_immediate(abi::ARG[2], abi::ARG[2], 16));
+    ins.push(abi::or_registers(abi::ARG[0], abi::ARG[0], abi::ARG[1]));
+    ins.push(abi::or_registers(abi::ARG[0], abi::ARG[0], abi::ARG[2]));
+    ins.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + field));
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::return_());
+    term_body(ins, Vec::new())
+}
+
+/// `term::setBold/setUnderline(on)`: store the boolean into its term-state field.
+fn emit_term_set_flag(tso: usize, field: usize) -> AppHookBody {
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::store_u64(abi::ARG[0], ARENA_STATE_REGISTER, tso + field));
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::return_());
+    term_body(ins, Vec::new())
+}
+
+/// `term::showCursor/hideCursor()`: set the cursor-visible term-state flag.
+fn emit_term_cursor_visible(tso: usize, value: &str) -> AppHookBody {
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", value));
+    ins.push(abi::store_u64(
+        abi::ARG[0],
+        ARENA_STATE_REGISTER,
+        tso + TERM_STATE_CURSOR_VISIBLE_OFFSET,
+    ));
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::return_());
+    term_body(ins, Vec::new())
+}
+
+/// `term::sync()`: present the coalesced grid — invalidate + update the window so
+/// WndProc BitBlts the memory DC.
+fn emit_term_sync(symbol: &str) -> AppHookBody {
+    const FRAME: usize = 0x28;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    invalidate_main(from, &mut ins, &mut rel);
+    load_addr(abi::ARG[0], MAIN_HWND_SYM, from, &mut ins, &mut rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    call_external(from, "UpdateWindow", USER32, &mut ins, &mut rel);
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// `term::terminalSize()`: return `{ columns, rows }` (the fixed grid dims) as an
+/// arena-allocated 16-byte record. Result value = record ptr, tag = OK.
+fn emit_term_size(symbol: &str) -> AppHookBody {
+    const FRAME: usize = 0x28;
+    let from = symbol;
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::subtract_stack(FRAME));
+    // record = _mfb_arena_alloc(16, align 8) → RET[1] = ptr.
+    ins.push(abi::move_immediate(abi::return_register(), "Integer", "16"));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+    ins.push(abi::branch_link(ARENA_ALLOC_SYMBOL));
+    rel.push(CodeRelocation {
+        from: from.to_string(),
+        to: ARENA_ALLOC_SYMBOL.to_string(),
+        kind: RelocIntent::Call,
+        binding: "internal".to_string(),
+        library: None,
+    });
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", &TUI_COLS.to_string()));
+    ins.push(abi::store_u64(abi::ARG[0], abi::RET[1], 0)); // columns@0
+    ins.push(abi::move_immediate(abi::ARG[0], "Integer", &TUI_ROWS.to_string()));
+    ins.push(abi::store_u64(abi::ARG[0], abi::RET[1], 8)); // rows@8
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG)); // RET[1]=ptr survives
+    ins.push(abi::add_stack(FRAME));
+    ins.push(abi::return_());
+    term_body(ins, rel)
+}
+
+/// Zero the grid cursor row/col globals (uses ARG[0]/ARG[1] as scratch).
+fn reset_cursor(from: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>) {
+    load_addr(abi::ARG[0], TUI_ROW_SYM, from, ins, rel);
+    ins.push(abi::store_u64(abi::ZERO, abi::ARG[0], 0));
+    load_addr(abi::ARG[0], TUI_COL_SYM, from, ins, rel);
+    ins.push(abi::store_u64(abi::ZERO, abi::ARG[0], 0));
+}
+
+/// `InvalidateRect(mainHwnd, NULL, TRUE)` — request a repaint of the whole client.
+fn invalidate_main(from: &str, ins: &mut Vec<CodeInstruction>, rel: &mut Vec<CodeRelocation>) {
+    load_addr(abi::ARG[0], MAIN_HWND_SYM, from, ins, rel);
+    ins.push(abi::load_u64(abi::ARG[0], abi::ARG[0], 0));
+    ins.push(abi::move_immediate(abi::ARG[1], "Integer", "0"));
+    ins.push(abi::move_immediate(abi::ARG[2], "Integer", "1"));
+    call_external(from, "InvalidateRect", USER32, ins, rel);
+}
+
 fn utf16z_hex(s: &str) -> String {
     let mut hex = String::new();
     for unit in s.encode_utf16() {
@@ -901,6 +1370,12 @@ pub(super) fn app_mode_data_objects(project_name: &str) -> Vec<CodeDataObject> {
         // window proc, both written by `_main` at window build (0 until then).
         writable_qword(STDIN_WRITE_SYM),
         writable_qword(EDIT_OLDPROC_SYM),
+        // plan-66-J-5 term:: TUI grid state: the off-screen memory DC + cached font
+        // (built lazily by term::on), and the grid cursor (row, col). 0 until on.
+        writable_qword(TUI_MEMDC_SYM),
+        writable_qword(TUI_FONT_SYM),
+        writable_qword(TUI_ROW_SYM),
+        writable_qword(TUI_COL_SYM),
         CodeDataObject {
             symbol: "_mfb_winapp_testbuf".to_string(),
             kind: "raw".to_string(),
@@ -994,7 +1469,7 @@ mod tests {
 
     #[test]
     fn io_write_newline_variant_writes_twice() {
-        let (_frame, ins, rel) = emit_app_io_write_helper("_test_io", false, true);
+        let (_frame, ins, rel) = emit_app_io_write_helper("_test_io", false, true, None);
         let writes = rel.iter().filter(|r| r.to == "WriteFile").count();
         assert_eq!(writes, 2, "newline variant issues the text + '\\n' WriteFile");
         assert!(rel.iter().any(|r| r.to == "GetStdHandle"));
@@ -1006,7 +1481,7 @@ mod tests {
         // plan-66-J-3: io_write routes to the EDIT control (transcript) when the
         // edit-hwnd global is set — MultiByteToWideChar the print text, then append
         // via EM_REPLACESEL SendMessageW — and falls back to the std handle otherwise.
-        let (_frame, _ins, rel) = emit_app_io_write_helper("_test_io", false, true);
+        let (_frame, _ins, rel) = emit_app_io_write_helper("_test_io", false, true, None);
         assert!(
             rel.iter().any(|r| r.to == EDIT_HWND_SYM),
             "reads the transcript EDIT-hwnd global to choose the path"
@@ -1100,5 +1575,62 @@ mod tests {
         assert_eq!(w.size, 8);
         assert!(objs.iter().any(|o| o.symbol == EDIT_OLDPROC_SYM));
         assert!(objs.iter().any(|o| o.symbol == INPUT_BUF_SYM));
+    }
+
+    #[test]
+    fn term_helper_dispatches_every_advertised_call() {
+        // plan-66-J-5: every term:: call Windows advertises in app mode gets a body.
+        for call in [
+            "term.on",
+            "term.off",
+            "term.clear",
+            "term.moveTo",
+            "term.setForeground",
+            "term.setBackground",
+            "term.setBold",
+            "term.setUnderline",
+            "term.showCursor",
+            "term.hideCursor",
+            "term.sync",
+            "term.terminalSize",
+        ] {
+            assert!(
+                emit_app_term_helper(call, "_t", 0).is_some(),
+                "no app-mode term body for {call}"
+            );
+        }
+        // A non-term call falls through (None → console backend).
+        assert!(emit_app_term_helper("term.bogus", "_t", 0).is_none());
+    }
+
+    #[test]
+    fn term_on_builds_and_shows_grid() {
+        let (_f, _i, rel) = emit_term_on("_t", 0);
+        let t: Vec<&str> = rel.iter().map(|r| r.to.as_str()).collect();
+        // Builds the off-screen surface, clears it, and hides the transcript EDIT.
+        for want in ["CreateCompatibleDC", "CreateCompatibleBitmap", "GetStockObject", "PatBlt", "ShowWindow"] {
+            assert!(t.contains(&want), "term::on missing {want}");
+        }
+        assert!(t.contains(&TUI_MEMDC_SYM) && t.contains(&EDIT_HWND_SYM));
+    }
+
+    #[test]
+    fn wndproc_bitblts_the_grid_on_paint() {
+        let fns = emit_app_program_entry(&spec(), &HashMap::new()).unwrap();
+        let wp = fns.iter().find(|f| f.symbol == WNDPROC_SYMBOL).unwrap();
+        let t: Vec<&str> = wp.relocations.iter().map(|r| r.to.as_str()).collect();
+        assert!(t.contains(&"BeginPaint") && t.contains(&"BitBlt") && t.contains(&"EndPaint"));
+        assert!(t.contains(&TUI_MEMDC_SYM), "WM_PAINT gates on the memory DC");
+    }
+
+    #[test]
+    fn io_write_routes_to_grid_when_term_active() {
+        // With a term-state offset, io.write gains the TUI grid branch (TextOutW +
+        // SetTextColor); without it (None), the body is the J-3 transcript path only.
+        let (_f, _i, rel_term) = emit_app_io_write_helper("_t", false, true, Some(0));
+        let t: Vec<&str> = rel_term.iter().map(|r| r.to.as_str()).collect();
+        assert!(t.contains(&"TextOutW") && t.contains(&"SetTextColor"));
+        let (_f2, _i2, rel_plain) = emit_app_io_write_helper("_t", false, true, None);
+        assert!(!rel_plain.iter().any(|r| r.to == "TextOutW"), "no grid path without term state");
     }
 }

@@ -585,10 +585,36 @@ Commit: d9025af8c / merged e5c500020
   `io::pollInput(300)` with no input → `READY[FALSE]` (was TRUE), with input →
   `READY[TRUE]LINE[Hi]`; J-3 transcript still shows both `io::print` lines.
   Commit: `1ffe9cb78`.
-- **J-5 — term:: TUI grid + mode reconcile + full box proof.** `emit_app_term_helper`
-  (cell-grid custom draw: colors/cursor/clear, modeled on `term_view.rs`),
-  `emit_app_mode_reconcile` + reconcile data objects. **Acceptance:** the full Phase-J
-  acceptance below, box-proven.
+- **J-5 — term:: TUI grid. DONE + box-proven.** A GDI cell grid (80×25, an
+  off-screen memory DC + `SYSTEM_FIXED_FONT`) painted on the main window.
+  `emit_app_term_helper` handles all 12 advertised app-mode term calls: `on` builds
+  the surface (CreateCompatibleDC/Bitmap + GetStockObject), clears it (PatBlt
+  BLACKNESS), sets `term_state.active`, and hides the transcript EDIT so the grid
+  shows through; `off` restores the EDIT; `clear` blacks the grid; `moveTo(row,col)`
+  sets the grid cursor; `setForeground/Background` pack `r|g<<8|b<<16` (GDI COLORREF
+  order) into `term_state`; `setBold/Underline/showCursor/hideCursor` store their
+  flags; `sync` InvalidateRect+UpdateWindow (WndProc's new WM_PAINT branch BitBlts
+  the memory DC); `terminalSize` returns a `{cols, rows}` arena record. `WndProc`
+  gained the WM_PAINT present. `emit_app_io_write_helper` now takes
+  `term_state_offset` and, when TUI is active, renders the string cell-by-cell into
+  the memory DC (SetTextColor/SetBkColor + per-char TextOutW, `\n`/`\r` handled, col
+  wraps at 80) instead of the (hidden) EDIT. gdi32 + the extra user32 imports added.
+  `emit_app_mode_reconcile` is left as the plan-62-B default (state-only setMode) —
+  `term::on`/`off` own the surface directly, so no separate reconcile is needed; a
+  reconcile can be added if a program drives `app::setMode` into TUI without
+  `term::on`. 5 new unit tests. **A real bug fixed en route:** a `branch_lt`-based
+  col-wrap mis-advanced the cursor on the x86 backend (cdb showed col running
+  backwards: R@col3, E@col2, D@col2); a separated `branch_ge` structure is correct
+  (R@col3, E@col4, D@col5). The `branch_lt` anomaly (also used at 3 sites in
+  `code.rs`) is filed for verification. **Acceptance MET** — box-proven on 2230
+  (cdb TextOutW/SetTextColor trace, the grid renders into a hidden window so cdb is
+  the ssh-visible oracle): `term::on; setForeground(255,0,0); moveTo(1,5);
+  print("RED"); setForeground(0,255,0); moveTo(3,10); print("GRN"); sync; off` →
+  SetTextColor `ff` then `ff00`, `RED` at cells (5,1)/(6,1)/(7,1) and `GRN` at
+  (10,3)/(11,3)/(12,3) — exact positions + colors; EXIT=0; J-3 transcript + J-4
+  input unregressed; cargo test 3279 passed. Commit: `<pending>`.
+  (original J-5 spec:) `emit_app_term_helper` cell-grid custom draw modeled on
+  `term_view.rs`, `emit_app_mode_reconcile` + reconcile data objects.
 
   **J-5 SCOPING (2026-07-27, before build).** Key finding: term:: in Windows app mode
   ALREADY WORKS via the shared console-ANSI fallback. `emit_app_term_helper` is the
@@ -630,12 +656,12 @@ Commit: d9025af8c / merged e5c500020
   (the term ops all write the grid that `sync` presents), so build it as one increment.**
   Interim state: the console-ANSI fallback is production-valid for console-launched
   runs, so nothing is broken while J-5 is unbuilt.
-- [~] Tests: box run showing a window with transcript output + keystroke input.
-  DONE for J-2/J-3/J-4 (transcript readback + injected-keystroke round-trip both
-  box-proven on 2230); the TUI-grid custom draw is J-5.
+- [x] Tests: box run showing a window with transcript output + keystroke input +
+  TUI grid. J-2/J-3/J-4 (transcript readback + injected-keystroke round-trip) and
+  J-5 (cdb-traced TUI cells with exact positions/colors) all box-proven on 2230.
 
-Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **MET for the core (J-2 bootstrap + J-3 transcript + J-4 input all box-proven on 2230); J-5 (`term::` TUI grid + mode reconcile) is the remaining refinement.**
-Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 1ffe9cb78
+Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line, and drives a `term::` TUI grid. **MET — J-2 bootstrap + J-3 transcript + J-4 input + J-5 TUI grid all box-proven on 2230.**
+Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 1ffe9cb78 · J-5 `<pending>`
 
 ### Phase K — PE resource packaging  (NOT STARTED)
 - [ ] `.ico` encoder (`os/windows/icon.rs` reusing `os/icon/mod.rs::render_png`);
