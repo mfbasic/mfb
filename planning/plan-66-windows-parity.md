@@ -561,7 +561,7 @@ Commit: d9025af8c / merged e5c500020
   with `MFB_WINAPP_DUMP` a `-app` hello's transcript readback shows
   `hello-from-winapp`/`second-line` (io::print reached the EDIT control); without
   it the non-headless run exits cleanly (0) with no side effect; headless still
-  prints. Commit `<pending>`.
+  prints. Commit `d997031e6`.
 - **J-4 — input round-trip.** A pipe (`CreatePipe`) whose read end is dup'd onto the
   worker's stdin path; WndProc `WM_CHAR`/`WM_KEYDOWN` does line editing + commit to
   the pipe; `emit_app_io_input_helper` + `emit_app_raw_input_mode` wired. **Acceptance:**
