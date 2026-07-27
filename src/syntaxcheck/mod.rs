@@ -2537,4 +2537,95 @@ mod checker_tests {
         let src = "TYPE D\n  n AS Integer\nEND TYPE\nTYPE B\n  d AS D\nEND TYPE\nTYPE C\n  d AS D\nEND TYPE\nTYPE A\n  b AS B\n  c AS C\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         assert!(accepts(src));
     }
+
+    // ---- plan-68-F3: residual mod.rs branches -------------------------------
+
+    #[test]
+    fn private_type_construction_in_same_file_is_visible() {
+        // mod.rs:1424 — visible_from's Private arm: a PRIVATE type constructed in
+        // its own file resolves (file.path == owner_file_path).
+        let src = "\
+PRIVATE TYPE Secret
+  a AS Integer
+END TYPE
+
+FUNC main AS Integer
+  LET s = Secret[1]
+  RETURN 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn set_of_resource_element_is_rejected() {
+        // mod.rs:1444-1445 — check_type_reference's Set arm rejects a resource
+        // (non-comparable, ownership-bearing) element type.
+        let src = "\
+IMPORT fs
+
+FUNC f(s AS Set OF File) AS Nothing
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(
+            rejects_with(src, "TYPE_COLLECTION_OWNERSHIP_VIOLATION"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    #[test]
+    fn union_including_another_union_expands_variants() {
+        // mod.rs:921-938 — a union that INCLUDES another union recurses through
+        // expanded_union_variants and extends with the included union's variants;
+        // a self-including union trips the visiting-set re-entry guard (902).
+        let src = "\
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Rect
+  width AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Rect
+END UNION
+
+UNION Bigger INCLUDES Shape
+  Circle
+END UNION
+
+UNION Cyclic INCLUDES Cyclic
+  Rect
+END UNION
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn call_with_named_arg_for_unknown_parameter_walks_shape_check() {
+        // mod.rs:1156-1157 — call_shape_matches_sig rejects a candidate when a
+        // named argument names no parameter of the signature.
+        let src = "\
+FUNC helper(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+FUNC main AS Integer
+  LET r AS Integer = helper(bogus := 1)
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+    }
 }

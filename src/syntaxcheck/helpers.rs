@@ -876,4 +876,43 @@ END FUNC
 ";
         assert!(accepts(src), "{:?}", check_src(src));
     }
+
+    // ----- collect_captured_locals: Set-literal arm (helpers.rs:149-152) -----
+
+    #[test]
+    fn lambda_captures_through_set_literal_shape() {
+        // A lambda body that is a Set literal referencing an outer local drives
+        // the SetLiteral (149-152) arm of collect_captured_locals.
+        let src = "\
+IMPORT collections
+
+FUNC main AS Integer
+  LET base AS Integer = 3
+  LET xs AS List OF Integer = [1, 2, 3]
+  LET a = collections::transform(xs, LAMBDA(n AS Integer) -> Set OF Integer { base, n })
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+    }
+
+    // ----- numeric_literal_type / binary_result_type: Money arms -------------
+
+    #[test]
+    fn money_list_literal_and_arithmetic_walk_money_arms() {
+        // A `List OF Money` literal drives numeric_literal_type's Money arm (233)
+        // and its negated-Money Unary "-" arm (235-239); Money + Money drives
+        // numeric_binary_result_type's Money arm (284) and type_from_numeric_name
+        // (267).
+        let src = "\
+FUNC main AS Integer
+  LET a AS List OF Money = [2m, -3m]
+  LET x AS Money = 2m
+  LET y AS Money = 3m
+  LET z AS Money = x + y
+  RETURN 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
 }
