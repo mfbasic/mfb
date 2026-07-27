@@ -317,6 +317,14 @@ const MFB_DRAW_BOX_SYMBOL: &str = "_mfb_macapp_term_drawBox";
 const SEL_MFB_FILL_RECT: (&str, &str) = ("_mfb_macapp_sel_mfbFillRect", "mfbFillRect:");
 /// IMP for the TermView `mfbFillRect:` main-thread fill-rectangle entry point.
 const MFB_FILL_RECT_SYMBOL: &str = "_mfb_macapp_term_fillRect";
+/// `mfbDrawGlyph:` / `mfbDrawText:` — main-thread single-glyph and positioned-text
+/// entry points for `term::drawGlyph` / `term::drawText`. `mfbDrawText:` takes the
+/// text as its NSString `withObject:` argument (like `mfbWriteString:`); both read
+/// the target cell from the parked TV state.
+const SEL_MFB_DRAW_GLYPH: (&str, &str) = ("_mfb_macapp_sel_mfbDrawGlyph", "mfbDrawGlyph:");
+const MFB_DRAW_GLYPH_SYMBOL: &str = "_mfb_macapp_term_drawGlyph";
+const SEL_MFB_DRAW_TEXT: (&str, &str) = ("_mfb_macapp_sel_mfbDrawText", "mfbDrawText:");
+const MFB_DRAW_TEXT_SYMBOL: &str = "_mfb_macapp_term_drawText";
 // plan-62-C Phase 2: the runtime `app::setMode` reconcile. The worker marshals
 // `mfbReconcile:` onto the main thread (via the app delegate) to build or tear down
 // the window surface to match the new presentation mode.
@@ -439,7 +447,15 @@ const TV_FILL_X1_OFFSET: usize = 224; // i64 point 1 column (raw)
 const TV_FILL_Y1_OFFSET: usize = 232; // i64 point 1 row (raw)
 const TV_FILL_X2_OFFSET: usize = 240; // i64 point 2 column (raw)
 const TV_FILL_Y2_OFFSET: usize = 248; // i64 point 2 row (raw)
-const TV_STATE_SIZE: usize = 256;
+// term::drawGlyph parameters: the code point (unichar) and its cell.
+const TV_GLYPH_G_OFFSET: usize = 256; // u32 unichar
+const TV_GLYPH_X_OFFSET: usize = 264; // i64 column
+const TV_GLYPH_Y_OFFSET: usize = 272; // i64 row
+// term::drawText parameters: the start cell (the text itself is passed as the
+// NSString `withObject:` argument, like mfbWriteString:).
+const TV_TEXT_X_OFFSET: usize = 280; // i64 start column
+const TV_TEXT_Y_OFFSET: usize = 288; // i64 row
+const TV_STATE_SIZE: usize = 296;
 /// Default foreground packed value (white), shared by term_init and the helpers.
 const TERM_DEFAULT_FG_PACKED: &str = "16777215";
 
@@ -635,6 +651,8 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_draw_line_helper(),
         emit_term_draw_box_helper(),
         emit_term_fill_rect_helper(),
+        emit_term_draw_glyph_helper(),
+        emit_term_draw_text_helper(),
         emit_term_accepts_first_responder(),
         emit_term_key_down_helper(),
         emit_term_set_frame_size_helper(),
@@ -793,6 +811,8 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         SEL_MFB_DRAW_LINE,
         SEL_MFB_DRAW_BOX,
         SEL_MFB_FILL_RECT,
+        SEL_MFB_DRAW_GLYPH,
+        SEL_MFB_DRAW_TEXT,
         SEL_ACCEPTS_FIRST_RESPONDER,
         STR_TERMVIEW_CLASS_NAME,
         STR_DRAW_RECT_TYPES,

@@ -268,6 +268,20 @@ pub(super) fn emit_main_bootstrap(initial_mode: PresentationMode) -> CodeFunctio
     asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
     asm.push(abi::move_register("x0", abi::LOCAL[6]));
     asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbDrawGlyph:), imp, "v@:@") — main-thread
+    // single-glyph draw (term::drawGlyph); reads the parked glyph + cell.
+    asm.load_selector(SEL_MFB_DRAW_GLYPH.0);
+    asm.local_address("x2", MFB_DRAW_GLYPH_SYMBOL);
+    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
+    // class_addMethod(cls, @selector(mfbDrawText:), imp, "v@:@") — main-thread
+    // positioned text (term::drawText); the NSString is the object argument.
+    asm.load_selector(SEL_MFB_DRAW_TEXT.0);
+    asm.local_address("x2", MFB_DRAW_TEXT_SYMBOL);
+    asm.local_address("x3", STR_WRITE_STRING_TYPES.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[6]));
+    asm.call_external("_class_addMethod", LIB_OBJC);
     // class_addMethod(cls, @selector(acceptsFirstResponder), imp, "c@:") — so the
     // TermView can become first responder and receive keyDown: in TUI mode.
     asm.load_selector(SEL_ACCEPTS_FIRST_RESPONDER.0);

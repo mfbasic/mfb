@@ -94,6 +94,8 @@ impl NativeBackend for Backend {
                 "term.drawVLine",
                 "term.drawBox",
                 "term.fillRect",
+                "term.drawText",
+                "term.drawGlyph",
                 "term.getForeground",
                 "term.getBackground",
                 "term.getBold",

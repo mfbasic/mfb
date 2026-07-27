@@ -67,7 +67,9 @@ for `drawHLine` and a vertical form for `drawVLine`, and `drawBox` pairs the edg
 glyphs with the matching corner glyphs (dash/dot styles reuse the Light or Heavy
 corners). `term::fillRect` fills a rectangular region with a block or shade glyph
 chosen by the `FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Checker`,
-`CheckerAlt`) — the region-filling counterpart to `clear`. [[src/target/shared/code/term.rs:emit_fill_rect]]
+`CheckerAlt`) — the region-filling counterpart to `clear`. `term::drawText` stamps
+a string at an absolute position (without moving the cursor), and
+`term::drawGlyph` stamps a single scalar by code point. [[src/target/shared/code/term.rs:emit_fill_rect]]
 
 The package defines two built-in record types and two enums. `TermColor` has three
 `Byte` fields `r`, `g`, and `b` holding the red, green, and blue channels of a

@@ -1,0 +1,9 @@
+IMPORT term
+
+FUNC main AS Integer
+  term::drawText(0, 0)
+  term::drawText("a", 0, "hi")
+  term::drawText(0, 0, 5)
+  term::drawText(0, 0, "hi", 0)
+  RETURN 0
+END FUNC

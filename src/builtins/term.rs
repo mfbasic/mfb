@@ -42,6 +42,8 @@ pub(crate) const DRAW_HLINE: &str = "term.drawHLine";
 pub(crate) const DRAW_VLINE: &str = "term.drawVLine";
 pub(crate) const DRAW_BOX: &str = "term.drawBox";
 pub(crate) const FILL_RECT: &str = "term.fillRect";
+pub(crate) const DRAW_TEXT: &str = "term.drawText";
+pub(crate) const DRAW_GLYPH: &str = "term.drawGlyph";
 pub(crate) const GET_FOREGROUND: &str = "term.getForeground";
 pub(crate) const GET_BACKGROUND: &str = "term.getBackground";
 pub(crate) const GET_BOLD: &str = "term.getBold";
@@ -71,6 +73,8 @@ pub(crate) fn is_term_call(name: &str) -> bool {
             | DRAW_VLINE
             | DRAW_BOX
             | FILL_RECT
+            | DRAW_TEXT
+            | DRAW_GLYPH
             | GET_FOREGROUND
             | GET_BACKGROUND
             | GET_BOLD
@@ -105,6 +109,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         DRAW_VLINE => Some(&[&["line"], &["col"], &["rowA"], &["rowB"]]),
         DRAW_BOX => Some(&[&["line"], &["x1"], &["y1"], &["x2"], &["y2"]]),
         FILL_RECT => Some(&[&["fill"], &["x1"], &["y1"], &["x2"], &["y2"]]),
+        DRAW_TEXT => Some(&[&["x"], &["y"], &["text"]]),
+        DRAW_GLYPH => Some(&[&["x"], &["y"], &["codepoint"]]),
         _ => None,
     }
 }
@@ -121,6 +127,8 @@ pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
         DRAW_HLINE | DRAW_VLINE => Some(&[LINE_STYLE_TYPE, "Integer", "Integer", "Integer"]),
         DRAW_BOX => Some(&[LINE_STYLE_TYPE, "Integer", "Integer", "Integer", "Integer"]),
         FILL_RECT => Some(&[FILL_STYLE_TYPE, "Integer", "Integer", "Integer", "Integer"]),
+        DRAW_TEXT => Some(&["Integer", "Integer", "String"]),
+        DRAW_GLYPH => Some(&["Integer", "Integer", "Integer"]),
         _ => None,
     }
 }
@@ -129,7 +137,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         ON | OFF | SET_FOREGROUND | SET_BACKGROUND | SET_BOLD | SET_UNDERLINE | SHOW_CURSOR
         | HIDE_CURSOR | CLEAR | SYNC | MOVE_TO | DRAW_HLINE | DRAW_VLINE | DRAW_BOX
-        | FILL_RECT => Some("Nothing"),
+        | FILL_RECT | DRAW_TEXT | DRAW_GLYPH => Some("Nothing"),
         IS_ON | GET_BOLD | GET_UNDERLINE => Some("Boolean"),
         GET_FOREGROUND | GET_BACKGROUND => Some(TERM_COLOR_TYPE),
         TERMINAL_SIZE => Some(TERM_SIZE_TYPE),
@@ -194,6 +202,8 @@ mod tests {
         DRAW_VLINE,
         DRAW_BOX,
         FILL_RECT,
+        DRAW_TEXT,
+        DRAW_GLYPH,
         GET_FOREGROUND,
         GET_BACKGROUND,
         GET_BOLD,
@@ -339,6 +349,22 @@ mod tests {
             param_types(FILL_RECT),
             Some(&["FillStyle", "Integer", "Integer", "Integer", "Integer"][..])
         );
+        assert_eq!(
+            call_param_names(DRAW_TEXT),
+            Some(&[&["x"][..], &["y"][..], &["text"][..]][..])
+        );
+        assert_eq!(
+            param_types(DRAW_TEXT),
+            Some(&["Integer", "Integer", "String"][..])
+        );
+        assert_eq!(
+            call_param_names(DRAW_GLYPH),
+            Some(&[&["x"][..], &["y"][..], &["codepoint"][..]][..])
+        );
+        assert_eq!(
+            param_types(DRAW_GLYPH),
+            Some(&["Integer", "Integer", "Integer"][..])
+        );
     }
 
     #[test]
@@ -359,6 +385,8 @@ mod tests {
             DRAW_VLINE,
             DRAW_BOX,
             FILL_RECT,
+            DRAW_TEXT,
+            DRAW_GLYPH,
         ] {
             assert_eq!(call_return_type_name(name), Some("Nothing"), "{name}");
         }
@@ -417,6 +445,14 @@ mod tests {
             expected_arguments(FILL_RECT).as_deref(),
             Some("FillStyle, Integer, Integer, Integer, Integer")
         );
+        assert_eq!(
+            expected_arguments(DRAW_TEXT).as_deref(),
+            Some("Integer, Integer, String")
+        );
+        assert_eq!(
+            expected_arguments(DRAW_GLYPH).as_deref(),
+            Some("Integer, Integer, Integer")
+        );
     }
 
     #[test]
@@ -435,5 +471,7 @@ mod tests {
         assert_eq!(arity(DRAW_VLINE), Some((4, 4)));
         assert_eq!(arity(DRAW_BOX), Some((5, 5)));
         assert_eq!(arity(FILL_RECT), Some((5, 5)));
+        assert_eq!(arity(DRAW_TEXT), Some((3, 3)));
+        assert_eq!(arity(DRAW_GLYPH), Some((3, 3)));
     }
 }

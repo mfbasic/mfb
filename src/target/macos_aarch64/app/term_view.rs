@@ -1600,6 +1600,207 @@ pub(super) fn emit_term_fill_rect_helper() -> CodeFunction {
     }
 }
 
+/// IMP for `TermView mfbDrawGlyph:` (`void mfbDrawGlyph:(id self, SEL, id)`):
+/// stamp the single unichar the worker parked (`TV_GLYPH_G`) at (`TV_GLYPH_X`,
+/// `TV_GLYPH_Y`) with the current attributes. A no-op if the cell is off the grid.
+/// Main-thread only; present-driven.
+pub(super) fn emit_term_draw_glyph_helper() -> CodeFunction {
+    let mut asm = Asm::new(MFB_DRAW_GLYPH_SYMBOL);
+    let frame = 64; // lr@0, state@8, cells@16, rows@24, cols@32, x@40, y@48
+    let state = abi::LOCAL[0];
+    let cells = abi::LOCAL[1];
+    let rows = abi::LOCAL[2];
+    let cols = abi::LOCAL[3];
+    let x = abi::LOCAL[4];
+    let y = abi::LOCAL[5];
+    let glyph = abi::SCRATCH[0];
+    let ctx = AppStampCtx {
+        state,
+        cells,
+        rows,
+        cols,
+        lo: abi::SCRATCH[1],
+        hi: abi::SCRATCH[2],
+        pos: abi::SCRATCH[3],
+        idx: abi::SCRATCH[4],
+        cell: abi::SCRATCH[5],
+        tmp: abi::SCRATCH[6],
+        attr: abi::SCRATCH[7],
+    };
+    let saved: [(&str, usize); 6] = [
+        (state, 8),
+        (cells, 16),
+        (rows, 24),
+        (cols, 32),
+        (x, 40),
+        (y, 48),
+    ];
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(state, "x0"));
+    asm.push(abi::compare_immediate(state, "0"));
+    asm.push(abi::branch_eq("dgl_done"));
+    asm.push(abi::load_u64(cells, state, TV_CELLS_OFFSET));
+    asm.push(abi::compare_immediate(cells, "0"));
+    asm.push(abi::branch_eq("dgl_done"));
+    asm.push(abi::load_u64(rows, state, TV_ROWS_OFFSET));
+    asm.push(abi::load_u64(cols, state, TV_COLS_OFFSET));
+    asm.push(abi::load_u64(glyph, state, TV_GLYPH_G_OFFSET));
+    asm.push(abi::load_u64(x, state, TV_GLYPH_X_OFFSET));
+    asm.push(abi::load_u64(y, state, TV_GLYPH_Y_OFFSET));
+    app_stamp_cell(&mut asm, &ctx, y, x, glyph, "dgl_done");
+    asm.push(abi::label("dgl_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.term.drawGlyph".to_string(),
+        symbol: MFB_DRAW_GLYPH_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
+/// IMP for `TermView mfbDrawText:` (`void mfbDrawText:(id self, SEL, NSString*)`):
+/// stamp the string on row `TV_TEXT_Y` starting at column `TV_TEXT_X`, one cell per
+/// UTF-16 unit, with the current attributes. Does not move the cursor, wrap, or
+/// scroll; clips at the right edge and skips control characters. Main-thread only
+/// (invoked via performSelectorOnMainThread); present-driven.
+pub(super) fn emit_term_draw_text_helper() -> CodeFunction {
+    let mut asm = Asm::new(MFB_DRAW_TEXT_SYMBOL);
+    // Loop state is callee-saved (the [str …] calls clobber scratch), mirroring
+    // mfbWriteString:. Frame: lr@0, self@8, str@16, state@24, cells@32, i@40,
+    // n@48, cols@56, rows@64, x@72.
+    let frame = 96;
+    let selfv = abi::LOCAL[0];
+    let strv = abi::LOCAL[1];
+    let state = abi::LOCAL[2];
+    let cells = abi::LOCAL[3];
+    let i = abi::LOCAL[4];
+    let n = abi::LOCAL[5];
+    let cols = abi::LOCAL[6];
+    let rows = abi::LOCAL[7];
+    let xstart = abi::LOCAL[8];
+    let ctx = AppStampCtx {
+        state,
+        cells,
+        rows,
+        cols,
+        lo: abi::SCRATCH[4],
+        hi: abi::SCRATCH[5],
+        pos: abi::SCRATCH[6],
+        idx: abi::SCRATCH[1],
+        cell: abi::SCRATCH[2],
+        tmp: abi::SCRATCH[3],
+        attr: abi::SCRATCH[0],
+    };
+    let ch = abi::SCRATCH[7]; // current character (survives to the stamp; no call after)
+    let col = abi::SCRATCH[8];
+    // `y` aliases ctx.lo (SCRATCH[4]) — app_stamp_cell never reads lo, so it is a
+    // free slot here (SCRATCH is x9..x17; x18/SCRATCH[9] is reserved on macOS).
+    let y = abi::SCRATCH[4];
+    let saved: [(&str, usize); 9] = [
+        (selfv, 8),
+        (strv, 16),
+        (state, 24),
+        (cells, 32),
+        (i, 40),
+        (n, 48),
+        (cols, 56),
+        (rows, 64),
+        (xstart, 72),
+    ];
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::move_register(selfv, "x0"));
+    asm.push(abi::move_register(strv, "x2"));
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.push(abi::move_register("x0", selfv));
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(state, "x0"));
+    asm.push(abi::compare_immediate(state, "0"));
+    asm.push(abi::branch_eq("dt_done"));
+    asm.push(abi::load_u64(cells, state, TV_CELLS_OFFSET));
+    asm.push(abi::compare_immediate(cells, "0"));
+    asm.push(abi::branch_eq("dt_done"));
+    asm.push(abi::load_u64(cols, state, TV_COLS_OFFSET));
+    asm.push(abi::load_u64(rows, state, TV_ROWS_OFFSET));
+    asm.push(abi::load_u64(xstart, state, TV_TEXT_X_OFFSET));
+    // Row must be on the grid.
+    asm.push(abi::load_u64(y, state, TV_TEXT_Y_OFFSET));
+    asm.push(abi::compare_immediate(y, "0"));
+    asm.push(abi::branch_lt("dt_done"));
+    asm.push(abi::compare_registers(y, rows));
+    asm.push(abi::branch_ge("dt_done"));
+    // n = [str length]; i = 0
+    asm.load_selector(SEL_LENGTH.0);
+    asm.push(abi::move_register("x0", strv));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(n, "x0"));
+    asm.push(abi::move_immediate(i, "Integer", "0"));
+    asm.push(abi::label("dt_loop"));
+    asm.push(abi::compare_registers(i, n));
+    asm.push(abi::branch_ge("dt_done"));
+    // c = [str characterAtIndex:i]
+    asm.load_selector(SEL_CHAR_AT_INDEX.0);
+    asm.push(abi::move_register("x2", i));
+    asm.push(abi::move_register("x0", strv));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(ch, "x0"));
+    // col = xstart + i ; clip at the right edge (col only grows).
+    asm.push(abi::add_registers(col, xstart, i));
+    asm.push(abi::compare_registers(col, cols));
+    asm.push(abi::branch_ge("dt_done"));
+    // Skip control characters (< 0x20) without stamping.
+    asm.push(abi::compare_immediate(ch, "32"));
+    asm.push(abi::branch_lt("dt_next"));
+    asm.push(abi::load_u64(y, state, TV_TEXT_Y_OFFSET));
+    app_stamp_cell(&mut asm, &ctx, y, col, ch, "dt_next");
+    asm.push(abi::label("dt_next"));
+    asm.push(abi::add_immediate(i, i, 1));
+    asm.push(abi::branch("dt_loop"));
+    asm.push(abi::label("dt_done"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    for (reg, off) in saved {
+        asm.push(abi::load_u64(reg, abi::stack_pointer(), off));
+    }
+    asm.push(abi::add_stack(frame));
+    asm.push(abi::return_());
+    CodeFunction {
+        name: "macapp.term.drawText".to_string(),
+        symbol: MFB_DRAW_TEXT_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions: asm.ins,
+        relocations: asm.rel,
+    }
+}
+
 /// `void _mfb_macapp_term_scroll(void *state /*x0*/)`: scroll the grid up one row
 /// (memmove rows 1.. to 0.., then clear the new bottom row). Main-thread only.
 pub(super) fn emit_term_scroll_helper() -> CodeFunction {

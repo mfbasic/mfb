@@ -1,0 +1,9 @@
+IMPORT term
+
+FUNC main AS Integer
+  term::drawGlyph(0, 0)
+  term::drawGlyph(0, 0, "a")
+  term::drawGlyph("x", 0, 65)
+  term::drawGlyph(0, 0, 65, 0)
+  RETURN 0
+END FUNC

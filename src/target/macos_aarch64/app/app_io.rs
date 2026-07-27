@@ -622,6 +622,8 @@ pub(crate) fn emit_app_term_helper(
         "term.drawVLine" => emit_app_draw_line(symbol, term_state_offset, false),
         "term.drawBox" => emit_app_draw_box(symbol, term_state_offset),
         "term.fillRect" => emit_app_fill_rect(symbol, term_state_offset),
+        "term.drawGlyph" => emit_app_draw_glyph(symbol, term_state_offset),
+        "term.drawText" => emit_app_draw_text(symbol, term_state_offset),
         "term.clear" => emit_app_clear(symbol, term_state_offset),
         "term.sync" => emit_app_term_sync(symbol, term_state_offset),
         "term.showCursor" => emit_app_set_cursor_visible(symbol, term_state_offset, "1"),
@@ -1262,6 +1264,159 @@ fn emit_app_fill_rect(symbol: &str, term_state_offset: usize) -> AppHookBody {
     asm.push(abi::move_immediate("x3", "Integer", "0")); // withObject: nil
     asm.push(abi::move_immediate("x4", "Integer", "1")); // waitUntilDone: YES
     asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&done));
+    emit_term_ok_return(
+        &mut asm,
+        frame,
+        &[(abi::LOCAL[1], 8), (abi::LOCAL[2], 16), (abi::LOCAL[3], 24)],
+    );
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::drawGlyph` app body: park the code point (as a unichar) + cell in the
+/// TermView state and marshal `mfbDrawGlyph:` onto the main thread. Control code
+/// points (< 0x20) are skipped (they would corrupt the surface). Present-driven.
+fn emit_app_draw_glyph(symbol: &str, term_state_offset: usize) -> AppHookBody {
+    let mut asm = Asm::new(symbol);
+    // Frame: lr@0, x20(tv)@8, x21(state)@16, x22(sel)@24, x@32, y@40, cp@48.
+    let frame = 64;
+    let done = format!("{symbol}_done");
+    let v = abi::SCRATCH[0];
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 32)); // x
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), 40)); // y
+    asm.push(abi::store_u64("x2", abi::stack_pointer(), 48)); // codepoint
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    // Skip control code points.
+    asm.push(abi::load_u64(v, abi::stack_pointer(), 48));
+    asm.push(abi::compare_immediate(v, "32"));
+    asm.push(abi::branch_lt(&done));
+    asm.external_data(abi::LOCAL[1], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0"));
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0"));
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_eq(&done));
+    for (slot, off) in [
+        (48usize, TV_GLYPH_G_OFFSET),
+        (32, TV_GLYPH_X_OFFSET),
+        (40, TV_GLYPH_Y_OFFSET),
+    ] {
+        asm.push(abi::load_u64(v, abi::stack_pointer(), slot));
+        asm.push(abi::store_u64(v, abi::LOCAL[2], off));
+    }
+    asm.load_selector(SEL_MFB_DRAW_GLYPH.0);
+    asm.push(abi::move_register(abi::LOCAL[3], "x1"));
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", abi::LOCAL[3]));
+    asm.push(abi::move_immediate("x3", "Integer", "0"));
+    asm.push(abi::move_immediate("x4", "Integer", "1"));
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::label(&done));
+    emit_term_ok_return(
+        &mut asm,
+        frame,
+        &[(abi::LOCAL[1], 8), (abi::LOCAL[2], 16), (abi::LOCAL[3], 24)],
+    );
+    (
+        CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        asm.ins,
+        asm.rel,
+    )
+}
+
+/// `term::drawText` app body: park the start cell in the TermView state, build an
+/// NSString from the mfb string, marshal `mfbDrawText:` onto the main thread (the
+/// NSString as the object argument, like `mfbWriteString:`), then release it.
+/// Present-driven.
+fn emit_app_draw_text(symbol: &str, term_state_offset: usize) -> AppHookBody {
+    let mut asm = Asm::new(symbol);
+    // Frame: lr@0, x20(tv)@8, x21(state/nsstr)@16, x22(sel)@24, x@32, y@40,
+    // strobj@48.
+    let frame = 64;
+    let done = format!("{symbol}_done");
+    let v = abi::SCRATCH[0];
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(frame));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(abi::LOCAL[1], abi::stack_pointer(), 8));
+    asm.push(abi::store_u64(abi::LOCAL[2], abi::stack_pointer(), 16));
+    asm.push(abi::store_u64(abi::LOCAL[3], abi::stack_pointer(), 24));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 32)); // x
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), 40)); // y
+    asm.push(abi::store_u64("x2", abi::stack_pointer(), 48)); // strobj (mfb String)
+    emit_term_active_gate(&mut asm, term_state_offset, &done);
+    asm.external_data(abi::LOCAL[1], CLASS_NS_APPLICATION, LIB_APPKIT);
+    asm.load_selector(SEL_SHARED_APPLICATION.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.local_address("x1", TERMVIEW_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[1], "x0")); // tv
+    asm.push(abi::compare_immediate(abi::LOCAL[1], "0"));
+    asm.push(abi::branch_eq(&done));
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.local_address("x1", TVSTATE_ASSOC_KEY);
+    asm.call_external("_objc_getAssociatedObject", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // state
+    asm.push(abi::compare_immediate(abi::LOCAL[2], "0"));
+    asm.push(abi::branch_eq(&done));
+    for (slot, off) in [(32usize, TV_TEXT_X_OFFSET), (40, TV_TEXT_Y_OFFSET)] {
+        asm.push(abi::load_u64(v, abi::stack_pointer(), slot));
+        asm.push(abi::store_u64(v, abi::LOCAL[2], off));
+    }
+    // nsstr = [[NSString alloc] initWithBytes:(strobj+8) length:strobj[0] encoding:UTF8]
+    asm.external_data(abi::LOCAL[2], CLASS_NS_STRING, LIB_FOUNDATION);
+    asm.load_selector(SEL_ALLOC.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0"));
+    asm.load_selector(SEL_INIT_WITH_BYTES.0);
+    asm.push(abi::load_u64(v, abi::stack_pointer(), 48)); // strobj
+    asm.push(abi::add_immediate("x2", v, 8));
+    asm.push(abi::load_u64("x3", v, 0));
+    asm.push(abi::move_immediate("x4", "Integer", NS_UTF8_ENCODING));
+    asm.push(abi::move_register("x0", abi::LOCAL[2]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    asm.push(abi::move_register(abi::LOCAL[2], "x0")); // nsstr
+    // [tv performSelectorOnMainThread:mfbDrawText: withObject:nsstr waitUntilDone:YES]
+    asm.load_selector(SEL_MFB_DRAW_TEXT.0);
+    asm.push(abi::move_register(abi::LOCAL[3], "x1"));
+    asm.load_selector(SEL_PERFORM_ON_MAIN.0);
+    asm.push(abi::move_register("x2", abi::LOCAL[3]));
+    asm.push(abi::move_register("x3", abi::LOCAL[2]));
+    asm.push(abi::move_immediate("x4", "Integer", "1"));
+    asm.push(abi::move_register("x0", abi::LOCAL[1]));
+    asm.call_external("_objc_msgSend", LIB_OBJC);
+    // [nsstr release] — owned (alloc+init); mfbDrawText: only read it (synchronous).
+    asm.load_selector(SEL_RELEASE.0);
+    asm.push(abi::move_register("x0", abi::LOCAL[2]));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::label(&done));
     emit_term_ok_return(

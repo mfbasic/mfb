@@ -258,6 +258,8 @@ pub(super) fn lower_term_helper(
         "term.drawVLine" => emit_draw_line(symbol, term_state_offset, false, &mut instructions),
         "term.drawBox" => emit_draw_box(symbol, term_state_offset, &mut instructions),
         "term.fillRect" => emit_fill_rect(symbol, term_state_offset, &mut instructions),
+        "term.drawText" => emit_draw_text(symbol, term_state_offset, &mut instructions),
+        "term.drawGlyph" => emit_draw_glyph(symbol, term_state_offset, &mut instructions),
         "term.getForeground" => emit_get_color(
             symbol,
             term_state_offset,
@@ -1303,6 +1305,324 @@ fn emit_fill_rect(
         abi::label(&row_next),
         abi::add_immediate(row, row, 1),
         abi::branch(&loop_row),
+    ]);
+    instructions.push(abi::label(&inactive));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// Runtime UTF-8 encode: `glyph = utf8_pack(cp)`, the grid glyph encoding (bytes
+/// little-endian in a u32). `cp` is a runtime scalar in a register; `b`/`sh`/`mask`
+/// are scratch. Branches on the four length ranges. Assumes `cp` is a valid scalar
+/// (the caller guards control code points); an out-of-range value still produces a
+/// well-formed 4-byte pack rather than corrupting anything.
+fn emit_encode_utf8(
+    cp: &str,
+    glyph: &str,
+    b: &str,
+    sh: &str,
+    mask: &str,
+    tag: &str,
+    instrs: &mut Vec<CodeInstruction>,
+) {
+    let e1 = format!("{tag}_1");
+    let e2 = format!("{tag}_2");
+    let e3 = format!("{tag}_3");
+    let done = format!("{tag}_done");
+    // Emit `dst = 0x80 | ((cp >> shift) & 0x3F)` shifted into byte position `at`,
+    // OR'd into `glyph`. `first` sets `glyph` directly (lead byte).
+    instrs.push(abi::move_immediate(mask, "Integer", "63"));
+    instrs.extend([
+        abi::compare_immediate(cp, "128"),
+        abi::branch_lt(&e1),
+        abi::compare_immediate(cp, "2048"),
+        abi::branch_lt(&e2),
+        abi::compare_immediate(cp, "65536"),
+        abi::branch_lt(&e3),
+        // 4-byte: F0|cp>>18, then continuation bytes at 6/12/18-bit groups.
+        abi::shift_right_immediate(sh, cp, 18),
+        abi::move_immediate(b, "Integer", "240"),
+        abi::or_registers(glyph, b, sh),
+        abi::shift_right_immediate(sh, cp, 12),
+        abi::and_registers(sh, sh, mask),
+        abi::move_immediate(b, "Integer", "128"),
+        abi::or_registers(sh, sh, b),
+        abi::shift_left_immediate(sh, sh, 8),
+        abi::or_registers(glyph, glyph, sh),
+        abi::shift_right_immediate(sh, cp, 6),
+        abi::and_registers(sh, sh, mask),
+        abi::move_immediate(b, "Integer", "128"),
+        abi::or_registers(sh, sh, b),
+        abi::shift_left_immediate(sh, sh, 16),
+        abi::or_registers(glyph, glyph, sh),
+        abi::and_registers(sh, cp, mask),
+        abi::move_immediate(b, "Integer", "128"),
+        abi::or_registers(sh, sh, b),
+        abi::shift_left_immediate(sh, sh, 24),
+        abi::or_registers(glyph, glyph, sh),
+        abi::branch(&done),
+        // 3-byte: E0|cp>>12, then 6/12-bit continuation.
+        abi::label(&e3),
+        abi::shift_right_immediate(sh, cp, 12),
+        abi::move_immediate(b, "Integer", "224"),
+        abi::or_registers(glyph, b, sh),
+        abi::shift_right_immediate(sh, cp, 6),
+        abi::and_registers(sh, sh, mask),
+        abi::move_immediate(b, "Integer", "128"),
+        abi::or_registers(sh, sh, b),
+        abi::shift_left_immediate(sh, sh, 8),
+        abi::or_registers(glyph, glyph, sh),
+        abi::and_registers(sh, cp, mask),
+        abi::move_immediate(b, "Integer", "128"),
+        abi::or_registers(sh, sh, b),
+        abi::shift_left_immediate(sh, sh, 16),
+        abi::or_registers(glyph, glyph, sh),
+        abi::branch(&done),
+        // 2-byte: C0|cp>>6, then 6-bit continuation.
+        abi::label(&e2),
+        abi::shift_right_immediate(sh, cp, 6),
+        abi::move_immediate(b, "Integer", "192"),
+        abi::or_registers(glyph, b, sh),
+        abi::and_registers(sh, cp, mask),
+        abi::move_immediate(b, "Integer", "128"),
+        abi::or_registers(sh, sh, b),
+        abi::shift_left_immediate(sh, sh, 8),
+        abi::or_registers(glyph, glyph, sh),
+        abi::branch(&done),
+        // 1-byte: ASCII, glyph = cp.
+        abi::label(&e1),
+        abi::move_register(glyph, cp),
+        abi::label(&done),
+    ]);
+}
+
+/// `term::drawGlyph(x, y, codepoint)` (console): stamp a single Unicode scalar at
+/// column `x`, row `y` with the current attributes; a no-op if the cell is off the
+/// grid or `codepoint` is a control character (< 0x20, which would corrupt the
+/// presented frame). Shown on the next `term::sync`.
+fn emit_draw_glyph(
+    symbol: &str,
+    term_state_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let inactive = format!("{symbol}_inactive");
+    let x = "%v9";
+    let y = "%v10";
+    let cp = "%v11";
+    let gp = "%v12";
+    let rows = "%v13";
+    let cols = "%v14";
+    let back = "%v15";
+    let fg = "%v16";
+    let bg = "%v17";
+    let bold = "%v18";
+    let un = "%v19";
+    let glyph = "%v20";
+    let ctx = StampCtx {
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        lo: "%v21",
+        hi: "%v22",
+        idx: "%v23",
+        cell: "%v24",
+        pos: "%v25",
+        tmp: "%v26",
+    };
+
+    emit_gate_inactive(term_state_offset, &inactive, instructions);
+    instructions.extend([
+        abi::move_register(x, abi::ARG[0]),
+        abi::move_register(y, abi::ARG[1]),
+        abi::move_register(cp, abi::ARG[2]),
+    ]);
+    emit_load_grid(
+        term_state_offset,
+        gp,
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        &inactive,
+        instructions,
+    );
+    // Skip control code points (would corrupt the presented escape stream).
+    instructions.push(abi::compare_immediate(cp, "32"));
+    instructions.push(abi::branch_lt(&inactive));
+    emit_encode_utf8(
+        cp,
+        glyph,
+        "%v27",
+        "%v28",
+        "%v29",
+        &format!("{symbol}_dg_enc"),
+        instructions,
+    );
+    emit_stamp_cell(&ctx, y, x, glyph, &inactive, instructions);
+    instructions.push(abi::label(&inactive));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
+}
+
+/// `term::drawText(x, y, text)` (console): stamp `text` on row `y` starting at
+/// column `x`, one grid cell per Unicode scalar, with the current attributes. It
+/// does not move the shadow cursor, does not wrap or scroll, and clips at the right
+/// edge (columns before 0 are skipped; the run stops at the last column). Control
+/// characters are skipped (not stamped) but still advance a column. A no-op if `y`
+/// is off the grid or TUI mode is off. Shown on the next `term::sync`.
+fn emit_draw_text(
+    symbol: &str,
+    term_state_offset: usize,
+    instructions: &mut Vec<CodeInstruction>,
+) {
+    let inactive = format!("{symbol}_inactive");
+    let x = "%v9";
+    let y = "%v10";
+    let strobj = "%v11";
+    let gp = "%v12";
+    let rows = "%v13";
+    let cols = "%v14";
+    let back = "%v15";
+    let fg = "%v16";
+    let bg = "%v17";
+    let bold = "%v18";
+    let un = "%v19";
+    let ptr = "%v20";
+    let rem = "%v21";
+    let col = "%v22";
+    let b0 = "%v23";
+    let len = "%v24";
+    let glyph = "%v25";
+    let t = "%v26";
+    let ctx = StampCtx {
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        lo: "%v27",
+        hi: "%v28",
+        idx: "%v29",
+        cell: "%v30",
+        pos: "%v31",
+        tmp: "%v32",
+    };
+    let loop_top = format!("{symbol}_dt_loop");
+    let advance = format!("{symbol}_dt_adv");
+    let skip_ctrl = format!("{symbol}_dt_ctrl");
+    let l2 = format!("{symbol}_dt_l2");
+    let l3 = format!("{symbol}_dt_l3");
+    let clamp = format!("{symbol}_dt_clamp");
+    let pack = format!("{symbol}_dt_pack");
+    let cellw = format!("{symbol}_dt_cellw");
+
+    emit_gate_inactive(term_state_offset, &inactive, instructions);
+    instructions.extend([
+        abi::move_register(x, abi::ARG[0]),
+        abi::move_register(y, abi::ARG[1]),
+        abi::move_register(strobj, abi::ARG[2]),
+    ]);
+    emit_load_grid(
+        term_state_offset,
+        gp,
+        rows,
+        cols,
+        back,
+        fg,
+        bg,
+        bold,
+        un,
+        &inactive,
+        instructions,
+    );
+    instructions.extend([
+        // Row must be on the grid.
+        abi::compare_immediate(y, "0"),
+        abi::branch_lt(&inactive),
+        abi::compare_registers(y, rows),
+        abi::branch_ge(&inactive),
+        // ptr = strobj + 8 (past the length word); rem = length; col = x.
+        abi::add_immediate(ptr, strobj, 8),
+        abi::load_u64(rem, strobj, 0),
+        abi::move_register(col, x),
+        abi::label(&loop_top),
+        abi::compare_immediate(rem, "0"),
+        abi::branch_eq(&inactive),
+        // Clip at the right edge: once col reaches cols, nothing more is visible.
+        abi::compare_registers(col, cols),
+        abi::branch_ge(&inactive),
+        abi::load_u8(b0, ptr, 0),
+        // Control characters (< 0x20): skip stamping, advance one column + byte.
+        abi::compare_immediate(b0, "32"),
+        abi::branch_lt(&skip_ctrl),
+        // UTF-8 length from the lead byte.
+        abi::move_immediate(len, "Integer", "1"),
+        abi::compare_immediate(b0, "128"),
+        abi::branch_lo(&pack),
+        abi::compare_immediate(b0, "224"),
+        abi::branch_lo(&l2),
+        abi::compare_immediate(b0, "240"),
+        abi::branch_lo(&l3),
+        abi::move_immediate(len, "Integer", "4"),
+        abi::branch(&clamp),
+        abi::label(&l2),
+        abi::move_immediate(len, "Integer", "2"),
+        abi::branch(&clamp),
+        abi::label(&l3),
+        abi::move_immediate(len, "Integer", "3"),
+        abi::label(&clamp),
+        // A truncated trailing sequence is treated as one raw byte.
+        abi::compare_registers(len, rem),
+        abi::branch_ls(&pack),
+        abi::move_immediate(len, "Integer", "1"),
+        abi::label(&pack),
+        abi::move_register(glyph, b0),
+        abi::compare_immediate(len, "2"),
+        abi::branch_lo(&cellw),
+        abi::load_u8(t, ptr, 1),
+        abi::shift_left_immediate(t, t, 8),
+        abi::or_registers(glyph, glyph, t),
+        abi::compare_immediate(len, "3"),
+        abi::branch_lo(&cellw),
+        abi::load_u8(t, ptr, 2),
+        abi::shift_left_immediate(t, t, 16),
+        abi::or_registers(glyph, glyph, t),
+        abi::compare_immediate(len, "4"),
+        abi::branch_lo(&cellw),
+        abi::load_u8(t, ptr, 3),
+        abi::shift_left_immediate(t, t, 24),
+        abi::or_registers(glyph, glyph, t),
+        abi::label(&cellw),
+    ]);
+    // Stamp at (y, col) when on the grid (col < 0 is skipped, still advancing).
+    emit_stamp_cell(&ctx, y, col, glyph, &advance, instructions);
+    instructions.extend([
+        abi::label(&advance),
+        abi::add_immediate(col, col, 1),
+        abi::add_registers(ptr, ptr, len),
+        abi::subtract_registers(rem, rem, len),
+        abi::branch(&loop_top),
+        // Control character: advance one column and one byte without stamping.
+        abi::label(&skip_ctrl),
+        abi::add_immediate(col, col, 1),
+        abi::add_immediate(ptr, ptr, 1),
+        abi::subtract_immediate(rem, rem, 1),
+        abi::branch(&loop_top),
     ]);
     instructions.push(abi::label(&inactive));
     instructions.push(abi::move_immediate(
