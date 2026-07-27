@@ -41,7 +41,7 @@ negotiate. Stated once here; sub-plans B/C/D point back to this section.
 | Collection kind tag `3` is free (0=List, 1=Map, 2=ListFixed) | `grep -n 'COLLECTION_KIND_' src/target/shared/code/error_constants.rs` → highest is `_LIST_FIXED = 2` | MET (verified 2026-07-25) |
 | An "absent value" value-type tag exists | `grep -n 'COLLECTION_TYPE_NONE' src/target/shared/code/error_constants.rs` → `= 0` | MET (verified 2026-07-25) |
 | Map probe/bucket machinery keys on key bytes only (no value dependency) | `grep -n 'fn map_key_probe_eligible\|_mfb_rt_map_probe\|_mfb_rt_map_build_buckets' src/target/shared/code/builder_collection_query.rs src/target/shared/code/mod.rs` | MET (verified 2026-07-25 — probe compares `keyLength` bytes; values never read) |
-| `cargo test` is green at HEAD | `cargo test` (full suite, never one module) | UNVERIFIED — run before starting |
+| `cargo test` is green at HEAD | `cargo test` (full suite, never one module) | MET (verified 2026-07-26 — exit 0, 33 `test result: ok`, 0 FAILED) |
 
 Everything below is written against the world where these hold. There are no
 hedges for a world where the collection block lacks a bucket index or a free
@@ -239,16 +239,64 @@ sites yields a type that works in most stages and mis-behaves in one. Task A0
 One line: turn the 25-site ceiling into the exact edit list before touching code,
 so a missed site is impossible to hide.
 
-- [ ] A0: enumerate the 25 sites from the population command and classify each in
-      a checklist table in this plan (needs-Set-arm / Map-only / List-only), with
-      `file:line` and a one-phrase reason. This is the phase's deliverable.
-- [ ] Confirm the 4 built-in-`OF` exclusion arrays (`resolution.rs:1504`,
-      `monomorph/helpers.rs:291`, and the two others the count found) each need
-      `"Set OF "` added.
+- [x] A0: enumerate the sites from the population command and classify each
+      (needs-Set-arm / Map-only / B-codegen), with `file:line` and a one-phrase
+      reason. This is the phase's deliverable. **The grep counts 26 sites (not the
+      plan's 25); see Corrections.** The grep also *undercounts*: two needs-arm
+      front-end sites route through helper fns (`parse_map`) and so do not match
+      the `"Map OF "` literal — they are added below explicitly.
+- [x] Confirm the 4 built-in-`OF` exclusion arrays each need `"Set OF "` added:
+      `resolution.rs:1504`, `monomorph/helpers.rs:291`, `syntaxcheck/types.rs:481`,
+      `syntaxcheck/inference.rs:1543` — all 4 confirmed.
 
-Acceptance: this plan file contains a 25-row classification table; the count of
-"needs-Set-arm" rows is the scope of Phase 2, stated as a number with the reason
-each excluded row is excluded.
+#### A0 classification (26 grep sites + 4 helper-routed needs-arm sites)
+
+Front-end **needs-Set-arm** (Set = single-element, List-shaped structurally):
+
+| file:line | site | Set treatment |
+|---|---|---|
+| `src/ast/expr.rs:589` | `parse_type_name_inner` (not in grep — inline) | new `Set OF T` arm, reject `RES`/`TO` |
+| `src/resolver/resolution.rs:1301` | `resolve_type_name` Map arm | Set arm: resolve element |
+| `src/resolver/resolution.rs:1504` | built-in exclusion array | add `"Set OF "` |
+| `src/monomorph/helpers.rs:67` | `unify_type` Map arm | Set arm: unify element (like List:55) |
+| `src/monomorph/helpers.rs:150` | `user_template_parts` exclusion (`starts_with`) | add `"Set OF "` |
+| `src/monomorph/helpers.rs:180` | `substitute_type_params` Map arm | Set arm (like List:171) |
+| `src/monomorph/helpers.rs:291` | built-in exclusion array | add `"Set OF "` |
+| `src/monomorph/lower.rs:1075` | FOR EACH loop-type | Set arm: `Set OF T → T` |
+| `src/monomorph/lower.rs:1531` | `concrete_type_name` Map arm | Set arm (like List:1519) |
+| `src/monomorph/lower.rs:1595` | `template_view_type` Map arm | Set arm (like List:1589) |
+| `src/syntaxcheck/types.rs:70` | `parse_type` Map arm | Set arm → `Type::Set(Box)` |
+| `src/syntaxcheck/types.rs:481` | built-in exclusion array | add `"Set OF "` |
+| `src/syntaxcheck/inference.rs:1543` | built-in exclusion array | add `"Set OF "` |
+| `src/ir/lower.rs:1318` | `collection_iteration_type` (grep hit 1351 helper) | Set arm: `Set OF T → T` |
+| `src/ir/verify/values.rs:744` | `is_comparable_seen` not-comparable list | add `"Set OF "` (Set not comparable) |
+| `src/ir/verify/values.rs:707` | `check_map_key_comparable` (helper-routed, not in grep) | Set arm: require element comparable |
+| `src/ir/verify/resources.rs:302` | `is_defaultable` (helper-routed via `parse_map`, not in grep) | Set arm: defaultable ⇔ element |
+| `src/ir/verify/ops.rs:708` | FOR EACH-requires-collection guard | allow `Set OF ` |
+| `src/ir/verify/link.rs:650` | `provably_data_type` | allow `Set OF ` (no resources) |
+| syntaxcheck `Type` enum + exhaustive matches | `mod.rs:38` | add `Set(Box<Type>)`; compiler enumerates the rest |
+
+**Map-only** (no Set arm — Set is single-element and cannot carry `RES`/`TO`):
+
+| file:line | reason |
+|---|---|
+| `src/ir/resource_escape.rs:492` | `is_res_marked_resource_collection`; a Set element can never be `RES` (non-comparable) |
+| `src/ir/lower.rs:1351`, `src/ir/verify/mod.rs:1192` | `parse_map`/`parse_map_type` helpers — `Map OF K TO V` split, no Set analogue |
+
+**B-codegen** (deferred to plan-63-B — runtime/native layer, not front-end type recognition):
+
+`src/target/shared/validate/mod.rs:126`, `src/target/shared/plan/lower.rs:197`,
+`src/target/shared/code/type_utils.rs:{96,275,286}`,
+`src/target/shared/code/builder_owned_cleanup.rs:45`,
+`src/target/shared/code/builder_control.rs:1240` (7 sites).
+
+**Scope of Phase 2: 20 needs-Set-arm front-end edits** (17 grep-visible + parser
+inline + 2 helper-routed), plus the `Type::Set` enum variant and its
+compiler-enumerated exhaustive-match arms.
+
+Acceptance: this plan file contains the classification table; the count of
+"needs-Set-arm" front-end sites is 20 (stated above with per-row reason and the
+reason each excluded row is excluded).
 Commit: —
 
 ### Phase 2 — Thread the Set arm through the front end
@@ -305,7 +353,34 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Site count is 26, not 25.** Re-running the plan's own population command at
+  HEAD (`grep -rnE 'strip_prefix\("Map OF "\)|starts_with\("Map OF "\)|"Map OF "'
+  src/ast src/resolver src/monomorph src/syntaxcheck src/ir src/target | grep -v
+  'tests\|test\.rs' | wc -l`) returns **26**. The extra row vs. the plan's snapshot
+  is immaterial to scope: 7 of the 26 are `src/target/**` codegen sites that belong
+  to plan-63-B, not A.
+- **File count is 17, not 15** (`grep -rln 'Map OF ' src/ast src/resolver
+  src/monomorph src/syntaxcheck src/ir | grep -v tests | wc -l` → 17). Same cause;
+  no scope impact.
+- **The grep undercounts front-end needs-arm sites.** Two front-end
+  comparability/defaultability sites route through helper fns (`parse_map`) and so
+  never match the `"Map OF "` literal: `ir/verify/values.rs:707`
+  (`check_map_key_comparable`) and `ir/verify/resources.rs:302` (`is_defaultable`).
+  Both are needs-Set-arm and are in the A0 table above. A pure grep census would
+  have missed them.
+- **No syntaxcheck defaultability twin exists.** Plan §4.3 says to add the Set
+  defaultability arm to `is_defaultable` "and its syntaxcheck twin." There is no
+  twin: `src/syntaxcheck/checking.rs:110` records that non-defaultable-`MUT`
+  rejection "live in `ir::verify` now (plan-20-Z)." The single defaultability site
+  is `ir/verify/resources.rs:302`.
+- **Comparability enforcement is IR-side, not syntaxcheck-side.** Plan §4.2 says to
+  "enforce in the syntaxcheck comparability path and mirror on the IR." The map-key
+  comparability *rejecter* is `ir/verify/values.rs::check_map_key_comparable`
+  (syntaxcheck's `require_comparable_type` is a relocated no-op, types.rs:357). The
+  syntaxcheck `is_comparable(&Type)` (types.rs:296) is used only for `=`-operand and
+  map-key-literal checks; the `Type::Set` arm there returns `false` (Set not
+  comparable), which is correct and sufficient — the *element* comparability
+  rejection lives in the IR check.
 
 ## Summary
 
