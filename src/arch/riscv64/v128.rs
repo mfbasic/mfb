@@ -1052,11 +1052,137 @@ fn rvv_arm(
                 &[("vop", "vse64.v"), ("src", &vname(&s)), ("base", T0)],
             ));
         }
-        // Everything else (compares, BslV/BitV, min/max, FRint*, FCvtasV, wide
-        // integer shifts, abs/cnt/addv) is left to the scalar arm for now.
+        // min/max: RVV vfmin/vfmax follow the same RISC-V minimumNumber/-0<+0
+        // semantics as the scalar fminnm_d/fmaxnm_d, so they are bit-identical.
+        FMinV | FMaxV => {
+            let mn = if op == FMinV { "vfmin.vv" } else { "vfmax.vv" };
+            let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            load(&mut out, &a);
+            load(&mut out, &b);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", &vname(&d)), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+            ));
+            store(&mut out, &d);
+        }
+        // --- the mask bridge (plan-32-C Phase 3) ------------------------------
+        // A compare writes a 1-bit-per-lane mask into v0, which is then
+        // materialized into the NEON all-ones/all-zeros lane vector the scalar arm
+        // produces (`vmv.v.i vd,0; vmerge.vim vd,vd,-1,v0`), stored to the slot.
+        // `BslV`/`BitV` are then the same bit algebra as the scalar arm, so the
+        // results match by construction.
+        FCmGtV | FCmGeV | FCmEqV => {
+            let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            load(&mut out, &a);
+            load(&mut out, &b);
+            // gt: rhs<lhs ; ge: rhs<=lhs ; eq: lhs==rhs (all ordered → NaN false).
+            let (mn, x, y) = match op {
+                FCmGtV => ("vmflt.vv", &b, &a),
+                FCmGeV => ("vmfle.vv", &b, &a),
+                _ => ("vmfeq.vv", &a, &b),
+            };
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", "v0"), ("lhs", &vname(x)), ("rhs", &vname(y))],
+            ));
+            lanes_from_mask(&mut out, &vname(&d));
+            store(&mut out, &d);
+        }
+        FCmGtZeroV | FCmGeZeroV | FCmEqZeroV | FCmLtZeroV | FCmLeZeroV => {
+            let (d, s) = (f(fields, "dst"), f(fields, "src"));
+            load(&mut out, &s);
+            // v31 = +0.0 (integer 0 bits) to compare against.
+            out.push(ci("rv.vop", &[("vop", "vmv.v.i"), ("dst", "v31"), ("imm", "0")]));
+            let z = "v31".to_string();
+            let sr = vname(&s);
+            let (mn, x, y) = match op {
+                FCmGtZeroV => ("vmflt.vv", &z, &sr), // 0 < a
+                FCmGeZeroV => ("vmfle.vv", &z, &sr), // 0 <= a
+                FCmEqZeroV => ("vmfeq.vv", &sr, &z), // a == 0
+                FCmLtZeroV => ("vmflt.vv", &sr, &z), // a < 0
+                _ => ("vmfle.vv", &sr, &z),          // a <= 0
+            };
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", "v0"), ("lhs", x), ("rhs", y)],
+            ));
+            lanes_from_mask(&mut out, &vname(&d));
+            store(&mut out, &d);
+        }
+        CmGtV | CmGeV | CmEqV => {
+            let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            load(&mut out, &a);
+            load(&mut out, &b);
+            // gt: b<a ; ge: b<=a (signed) ; eq: a==b.
+            let (mn, x, y) = match op {
+                CmGtV => ("vmslt.vv", &b, &a),
+                CmGeV => ("vmsle.vv", &b, &a),
+                _ => ("vmseq.vv", &a, &b),
+            };
+            out.push(ci(
+                "rv.vop",
+                &[("vop", mn), ("dst", "v0"), ("lhs", &vname(x)), ("rhs", &vname(y))],
+            ));
+            lanes_from_mask(&mut out, &vname(&d));
+            store(&mut out, &d);
+        }
+        // bit-select: result = rhs ^ (mask & (lhs ^ rhs)); the mask is in dst.
+        BslV => {
+            let (d, a, b) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            load(&mut out, &d); // the incoming lane mask
+            load(&mut out, &a);
+            load(&mut out, &b);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vxor.vv"), ("dst", "v31"), ("lhs", &vname(&a)), ("rhs", &vname(&b))],
+            )); // a^b
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vand.vv"), ("dst", "v31"), ("lhs", "v31"), ("rhs", &vname(&d))],
+            )); // & mask
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vxor.vv"), ("dst", &vname(&d)), ("lhs", &vname(&b)), ("rhs", "v31")],
+            )); // rhs ^ ...
+            store(&mut out, &d);
+        }
+        // bit-insert-if-true: result = dst ^ ((dst ^ lhs) & mask); mask in rhs.
+        BitV => {
+            let (d, a, m) = (f(fields, "dst"), f(fields, "lhs"), f(fields, "rhs"));
+            load(&mut out, &d);
+            load(&mut out, &a);
+            load(&mut out, &m);
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vxor.vv"), ("dst", "v31"), ("lhs", &vname(&d)), ("rhs", &vname(&a))],
+            )); // dst^lhs
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vand.vv"), ("dst", "v31"), ("lhs", "v31"), ("rhs", &vname(&m))],
+            )); // & mask
+            out.push(ci(
+                "rv.vop",
+                &[("vop", "vxor.vv"), ("dst", &vname(&d)), ("lhs", &vname(&d)), ("rhs", "v31")],
+            )); // dst ^ ...
+            store(&mut out, &d);
+        }
+        // Everything else (FRint*, FCvtasV, wide integer shifts, AbsV/Cnt8bV/
+        // Addv8bV, SshlV/UshlV) is left to the scalar arm.
         _ => return None,
     }
     Some(out)
+}
+
+/// plan-32-C Phase 3: turn the 1-bit-per-lane mask in `v0` into the NEON
+/// all-ones/all-zeros lane vector in `vd` (`vmv.v.i vd,0; vmerge.vim vd,vd,-1,v0`),
+/// so downstream `BslV`/`BitV`/`AndV` are the same bit algebra as the scalar arm.
+/// `imm` 31 is the 5-bit `-1` the merge sign-extends to an all-ones lane.
+fn lanes_from_mask(out: &mut Vec<CodeInstruction>, vd: &str) {
+    out.push(ci("rv.vop", &[("vop", "vmv.v.i"), ("dst", vd), ("imm", "0")]));
+    out.push(ci(
+        "rv.vop",
+        &[("vop", "vmerge.vim"), ("dst", vd), ("src", vd), ("imm", "31")],
+    ));
 }
 
 /// plan-32-C: lower one `v128` op to the runtime dual path — a guard on
@@ -1436,6 +1562,72 @@ mod tests {
             "no-vreg path must be byte-identical to the scalar arm"
         );
         assert!(!scalar_only.iter().any(|i| i.op.mnemonic() == "adrp"));
+    }
+
+    /// plan-32-C Phase 3: the mask bridge. A float compare emits the ordered
+    /// `vmf*` into v0 then materializes the all-ones/all-zeros lane vector
+    /// (`vmv.v.i`+`vmerge.vim`); `BslV` is the `vxor`/`vand`/`vxor` bit-select over
+    /// those lanes; min/max are direct `vfmin`/`vfmax`.
+    #[test]
+    fn mask_bridge_and_minmax_rvv_arms() {
+        let vregs: HashMap<String, u8> = [("%f0", 1u8), ("%f1", 2), ("%f2", 3)]
+            .iter()
+            .map(|(k, v)| (k.to_string(), *v))
+            .collect();
+        let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2)]);
+        let vop_seq = |out: &[CodeInstruction]| -> Vec<String> {
+            out.iter().filter_map(|i| i.get("vop").map(str::to_string)).collect()
+        };
+
+        // FCmGtV → vmflt.vv into v0, then vmv.v.i / vmerge.vim into the dst reg.
+        let cmp = rvv_arm(
+            CodeOp::FCmGtV,
+            &[("dst", "%f0".to_string()), ("lhs", "%f1".to_string()), ("rhs", "%f2".to_string())],
+            &slots,
+            &vregs,
+        )
+        .expect("FCmGtV is vector-lowered");
+        assert!(cmp.iter().any(|i| i.get("vop") == Some("vmflt.vv") && i.get("dst") == Some("v0")));
+        let seq = vop_seq(&cmp);
+        let merge = seq.iter().position(|v| v == "vmerge.vim").expect("materializes lanes");
+        assert_eq!(seq[merge - 1], "vmv.v.i", "zero the lane vector before merging -1");
+
+        // BslV → vxor;vand;vxor over the lane vectors.
+        let bsl = rvv_arm(
+            CodeOp::BslV,
+            &[("dst", "%f0".to_string()), ("lhs", "%f1".to_string()), ("rhs", "%f2".to_string())],
+            &slots,
+            &vregs,
+        )
+        .expect("BslV is vector-lowered");
+        let bsl_seq = vop_seq(&bsl);
+        assert_eq!(
+            bsl_seq.iter().filter(|v| v.as_str() == "vxor.vv").count(),
+            2,
+            "bit-select is two xors around one and"
+        );
+        assert!(bsl_seq.iter().any(|v| v == "vand.vv"));
+
+        // Min/max → direct vfmin/vfmax.
+        for (op, mn) in [(CodeOp::FMinV, "vfmin.vv"), (CodeOp::FMaxV, "vfmax.vv")] {
+            let out = rvv_arm(
+                op,
+                &[("dst", "%f0".to_string()), ("lhs", "%f1".to_string()), ("rhs", "%f2".to_string())],
+                &slots,
+                &vregs,
+            )
+            .expect("min/max is vector-lowered");
+            assert!(out.iter().any(|i| i.get("vop") == Some(mn)));
+        }
+
+        // A deferred op (FRint*) still returns None → scalar-only.
+        assert!(rvv_arm(
+            CodeOp::FRintnV,
+            &[("dst", "%f0".to_string()), ("src", "%f1".to_string())],
+            &slots,
+            &vregs,
+        )
+        .is_none());
     }
 
     #[test]

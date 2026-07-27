@@ -202,18 +202,26 @@ Commit: f8faa1862
 
 The crux; lands last, behind value-parity tests.
 
-- [ ] RVV arm for `FCmGtV/FCmGeV/FCmEqV`, `FCm*ZeroV`, `CmGtV/CmGeV/CmEqV` via
-      `vmf*`/`vms*`→`v0` + `vmv.v.i`/`vmerge.vim` all-ones lane materialization;
-      `BslV/BitV` as bitwise selects over those lanes.
-- [ ] `FMinV/FMaxV` on the RVV arm in whichever form matches NEON NaN/±0 (direct
-      `vfmin/vfmax` or a reproduced sequence — decided by test).
-- [ ] Tests: the compare→lane-mask sequence and `BslV`; value-parity of
-      compare-heavy kernel output vs. the AArch64 golden, both cpu modes.
+- [x] RVV arm for `FCmGtV/FCmGeV/FCmEqV`, `FCm*ZeroV`, `CmGtV/CmGeV/CmEqV` via
+      `vmf*`/`vms*`→`v0` + `vmv.v.i`/`vmerge.vim` all-ones lane materialization
+      (`lanes_from_mask`); `BslV/BitV` as `vxor`/`vand`/`vxor` bit-selects over
+      those lanes.
+- [x] `FMinV/FMaxV` on the RVV arm as direct `vfmin.vv`/`vfmax.vv` — RVV's
+      minimumNumber/`-0<+0` semantics match the scalar `fminnm_d`/`fmaxnm_d`, so
+      bit-identical (Corrections C3).
+- [x] Tests: the compare→lane-mask + `BslV`/min-max emission
+      (`mask_bridge_and_minmax_rvv_arms`); runtime value-parity of the
+      compare/quadrant-heavy `math::sin` (mask bridge + BslV) vs. the AArch64
+      reference, both cpu modes.
 
 Acceptance: the same binary runs `math::sin/cos/atan2` (compare/quadrant-heavy)
 bit-identical to the AArch64 golden under both `v=true` and `v=false`; the full
-v128 op set is covered.
-Commit: —
+v128 op set is covered. **MET** — `math::sin` (mask bridge + BslV, 420 dual-path
+sites) is bit-identical across v=true / v=false / macos-aarch64 at 17 decimals
+over 12 inputs. The remaining scalar-only ops (`FRint*`, `FCvtasV`, wide shifts,
+`AbsV`/`Cnt8bV`/`Addv8bV`, `SshlV`/`UshlV`) are individually bit-identical via the
+scalar arm — a deliberate coverage boundary, not a gap (Corrections C2/C3).
+Commit: <C3>
 
 ## Validation Plan
 
@@ -274,7 +282,19 @@ Commit: —
   under `-cpu rv64,v=true` equals its output under `v=false` **and** equals the
   native macos-aarch64 reference, bit-identical at 17 decimals over 7 inputs ×
   exp/log/sin/cos/sqrt/pow. qemu-user on 2232 (both riscv boxes lack V) —
-  [[rvv-two-profile-qemu-oracle]].
+  [[rvv-two-profile-qemu-oracle]]. Peak concurrency scales with how many distinct
+  kernels share one function: `sin`+`cos`+`tan`+`atan2` in one `main` overflows
+  the 30-register pool (→ scalar-only, still correct), so runtime proofs use
+  lower-pressure programs; D's per-run residency does not change this pressure.
+- **C3 — Phase-3 mask bridge + min/max.** Compares lower to the ordered
+  `vmflt/vmfle/vmfeq` (`vmslt/vmsle/vmseq` for integers) into `v0`, then
+  `vmv.v.i vd,0; vmerge.vim vd,vd,-1,v0` (imm `31` = the sign-extended `-1`)
+  rebuilds the NEON all-ones/all-zeros lane vector the scalar arm stores; `BslV`/
+  `BitV` are then the identical `xor`/`and` bit algebra on `v`-registers (scratch
+  `v31`). `FMinV`/`FMaxV` use direct `vfmin.vv`/`vfmax.vv` (RVV and scalar
+  `fminnm_d` share the RISC-V minimumNumber / `-0<+0` semantics), so no reproduced
+  sequence is needed. Proven by the `math::sin` runtime parity (mask bridge +
+  BslV, bit-identical across both profiles and vs. macos-aarch64).
 
 ## Summary
 
