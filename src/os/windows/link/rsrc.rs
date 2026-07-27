@@ -378,4 +378,23 @@ mod tests {
         let off = u32::from_le_bytes([bytes[de], bytes[de + 1], bytes[de + 2], bytes[de + 3]]);
         assert!(off >= rva && off < rva + bytes.len() as u32, "data RVA in-section");
     }
+
+    #[test]
+    fn icon_source_adds_rt_icon_and_group_icon_types() {
+        // A provided 1024×1024 icon exercises the `app_icon.is_some()` branch:
+        // render_png over each ICON_SIZES entry, the GRPICONDIRENTRY table, and the
+        // GRPICONDIR header. The level-1 directory then carries four type entries
+        // (RT_MANIFEST + RT_ICON + RT_GROUP_ICON + RT_VERSION) vs. two without.
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("app.png");
+        image::RgbaImage::from_pixel(1024, 1024, image::Rgba([9, 40, 128, 255]))
+            .save(&path)
+            .expect("write 1024 source");
+        let bytes = build_rsrc(0x6000, Some(&path), Some("2.0.1")).expect("rsrc with icon");
+        assert_eq!(
+            u16::from_le_bytes([bytes[14], bytes[15]]),
+            4,
+            "manifest + icon + group-icon + version = 4 level-1 type entries"
+        );
+    }
 }
