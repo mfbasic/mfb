@@ -328,15 +328,15 @@ pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
 /// plan-67-B: one writable 8-byte global holding the base pointer of the runtime
 /// perf-tracking region (the `emit_arena_map`-mmap'd system memory that holds the
 /// name-keyed timing tables). Mirrors `MAIN_ARENA_GLOBAL_SYMBOL`: a zeroed
-/// `kind:"raw"` object emitted only for a **debug macOS entry** module (gated by
-/// `perf_injection_enabled()`), so release and non-macOS plans never see it.
-/// `perf_init` stores the region base here; every other perf helper loads it and
-/// treats a 0 base as "perf inert" (mmap failed / release build).
+/// `kind:"raw"` object emitted only for a **`--cfg perf` macOS entry** module
+/// (gated by `perf_injection_enabled()`), so ordinary and non-macOS plans never
+/// see it. `perf_init` stores the region base here; every other perf helper loads
+/// it and treats a 0 base as "perf inert" (mmap failed / perf-free build).
 pub(crate) const PERF_STATE_SYMBOL: &str = "_mfb_rt_perf_state";
 
 /// plan-67-B: the `mfb.string.v1` object holding the perf-table header line
 /// (`name count avg median min max sum`), written to stderr by `perf_done`.
-/// Emitted under the same debug-macOS-entry gate as `PERF_STATE_SYMBOL`.
+/// Emitted under the same `--cfg perf`-macOS-entry gate as `PERF_STATE_SYMBOL`.
 pub(crate) const PERF_HEADER_SYMBOL: &str = "_mfb_rt_perf_header";
 
 /// plan-67-C: the `mfb.string.v1` name object for the whole-program span. The
