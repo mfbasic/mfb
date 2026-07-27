@@ -307,7 +307,7 @@ arrays are Map-only (Set owns no ` TO `), correcting the plan's original
 Acceptance: this plan file contains the classification table; the count of
 "needs-Set-arm" front-end sites is 16 (stated above with per-row reason and the
 reason each excluded row is excluded).
-Commit: —
+Commit: 5b692d9de
 
 ### Phase 2 — Thread the Set arm through the front end
 
@@ -346,7 +346,7 @@ Acceptance: `cargo test` green with the new tests; a fixture declaring
 `MUT s AS Set OF Integer` (empty), passing it to a `FUNC(Set OF Integer)` and
 returning it, type-checks and lowers to IR without error; `Set OF File` fails
 with the comparability diagnostic. (No runtime execution yet — that is B.)
-Commit: —
+Commit: d101f726a
 
 ## Validation Plan
 
