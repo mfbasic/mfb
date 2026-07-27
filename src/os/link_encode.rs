@@ -242,3 +242,173 @@ pub(in crate::os) fn patch_aarch64_reloc(
     }
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::arch::image::EncodedSymbol;
+
+    fn image() -> EncodedImage {
+        EncodedImage {
+            text: vec![0; 64],
+            data: vec![0; 64],
+            rodata_size: 8,
+            symbols: vec![
+                EncodedSymbol {
+                    name: "_t".to_string(),
+                    section: EncodedSection::Text,
+                    offset: 4,
+                },
+                EncodedSymbol {
+                    name: "_d0".to_string(),
+                    section: EncodedSection::Data,
+                    offset: 0,
+                },
+                EncodedSymbol {
+                    name: "_d16".to_string(),
+                    section: EncodedSection::Data,
+                    offset: 16,
+                },
+            ],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_t".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: None,
+            rpaths: Vec::new(),
+        }
+    }
+
+    fn reloc(offset: usize, target: &str, kind: &str, binding: &str) -> EncodedRelocation {
+        EncodedRelocation {
+            offset,
+            target: target.to_string(),
+            kind: kind.to_string(),
+            binding: binding.to_string(),
+            library: Some("libc".to_string()),
+        }
+    }
+
+    #[test]
+    fn branch_imm26_encodes_and_reach_checks() {
+        assert_eq!(branch_imm26(0, 4).unwrap(), 1);
+        assert_eq!(branch_imm26(8, 0).unwrap(), (-2i32 as u32) & 0x03ff_ffff);
+        // Misaligned displacement.
+        let err = branch_imm26(0, 2).unwrap_err();
+        assert!(err.contains("exceeds the ±128 MiB reach"), "{err}");
+        // Out of reach (> 128 MiB).
+        let err = branch_imm26(0, 1 << 28).unwrap_err();
+        assert!(err.contains("exceeds the ±128 MiB reach"), "{err}");
+    }
+
+    #[test]
+    fn adrp_page21_encodes_and_reach_checks() {
+        let (immlo, immhi) = adrp_page21(0, 0x2000).unwrap();
+        assert_eq!(immlo, 2 & 0b11);
+        assert_eq!(immhi, (2u32 >> 2) & 0x7ffff);
+        let err = adrp_page21(0, 1u64 << 33).unwrap_err();
+        assert!(err.contains("exceeds the ±4 GiB reach"), "{err}");
+    }
+
+    #[test]
+    fn read_write_u32_bounds_check() {
+        let mut buf = vec![0u8; 4];
+        write_u32(&mut buf, 0, 0xdead_beef).unwrap();
+        assert_eq!(read_u32(&buf, 0).unwrap(), 0xdead_beef);
+        let err = read_u32(&buf, 4).unwrap_err();
+        assert!(err.contains("exceeds text length"), "{err}");
+        let err = write_u32(&mut buf, 4, 0).unwrap_err();
+        assert!(err.contains("exceeds text length"), "{err}");
+    }
+
+    #[test]
+    fn symbol_vmaddr_covers_every_section_arm() {
+        let img = image();
+        // Text symbol.
+        assert_eq!(symbol_vmaddr(&img, "_t", 0x1000, 0x2000, None).unwrap(), 0x1004);
+        // Data symbol, rodata window, offset < size -> rodata region.
+        assert_eq!(
+            symbol_vmaddr(&img, "_d0", 0x1000, 0x2000, Some((0x8000, 8))).unwrap(),
+            0x8000
+        );
+        // Data symbol, rodata window, offset >= size -> writable data past prefix.
+        assert_eq!(
+            symbol_vmaddr(&img, "_d16", 0x1000, 0x2000, Some((0x8000, 8))).unwrap(),
+            0x2000 + (16 - 8)
+        );
+        // No rodata window (ELF) -> data region directly.
+        assert_eq!(
+            symbol_vmaddr(&img, "_d16", 0x1000, 0x2000, None).unwrap(),
+            0x2000 + 16
+        );
+        // Missing symbol.
+        let err = symbol_vmaddr(&img, "_absent", 0x1000, 0x2000, None).unwrap_err();
+        assert!(err.contains("does not resolve"), "{err}");
+    }
+
+    fn ctx<'a>(
+        img: &'a EncodedImage,
+        stubs: &'a HashMap<String, u64>,
+        got: &'a HashMap<String, u64>,
+    ) -> AArch64RelocCtx<'a> {
+        AArch64RelocCtx {
+            image: img,
+            text_vmaddr: 0x1_0000,
+            data_vmaddr: 0x2_0000,
+            rodata: Some((0x3_0000, 8)),
+            stubs,
+            got_entries: got,
+            label: "test linker",
+        }
+    }
+
+    #[test]
+    fn patch_aarch64_reloc_handles_every_arm() {
+        let img = image();
+        let mut stubs = HashMap::new();
+        stubs.insert("_ext".to_string(), 0x1_0010u64);
+        let mut got = HashMap::new();
+        got.insert("_gdata".to_string(), 0x1_2000u64);
+        let c = ctx(&img, &stubs, &got);
+
+        // internal branch26
+        let mut text = vec![0u8; 64];
+        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_t", "branch26", "internal"), &c).unwrap());
+        // data page21
+        let mut text = vec![0u8; 64];
+        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_d0", "page21", "data"), &c).unwrap());
+        // data pageoff12
+        let mut text = vec![0u8; 64];
+        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_d0", "pageoff12", "data"), &c).unwrap());
+        // external branch26
+        let mut text = vec![0u8; 64];
+        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_ext", "branch26", "external"), &c).unwrap());
+        // external page21
+        let mut text = vec![0u8; 64];
+        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_gdata", "page21", "external"), &c).unwrap());
+        // external pageoff12
+        let mut text = vec![0u8; 64];
+        assert!(patch_aarch64_reloc(&mut text, &reloc(0, "_gdata", "pageoff12", "external"), &c).unwrap());
+        // unhandled kind -> Ok(false)
+        let mut text = vec![0u8; 64];
+        assert!(!patch_aarch64_reloc(&mut text, &reloc(0, "_t", "abs64", "weird"), &c).unwrap());
+    }
+
+    #[test]
+    fn patch_aarch64_reloc_reports_unbound_externals() {
+        let img = image();
+        let stubs = HashMap::new();
+        let got = HashMap::new();
+        let c = ctx(&img, &stubs, &got);
+        let mut text = vec![0u8; 64];
+        let err =
+            patch_aarch64_reloc(&mut text, &reloc(0, "_ext", "branch26", "external"), &c).unwrap_err();
+        assert!(err.contains("cannot bind external symbol"), "{err}");
+        let err =
+            patch_aarch64_reloc(&mut text, &reloc(0, "_g", "page21", "external"), &c).unwrap_err();
+        assert!(err.contains("cannot bind external data symbol"), "{err}");
+        let err =
+            patch_aarch64_reloc(&mut text, &reloc(0, "_g", "pageoff12", "external"), &c).unwrap_err();
+        assert!(err.contains("cannot bind external data symbol"), "{err}");
+    }
+}

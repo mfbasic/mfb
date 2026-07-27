@@ -167,10 +167,19 @@ pub(super) fn collect_libraries(
 mod tests {
     use super::*;
     use crate::ast::{
-        AbiSpec, AstFile, AstProject, LinkBlock, LinkFunction, ResourceDecl, Visibility,
+        AbiSpec, AstFile, AstProject, FreeSpec, LinkBlock, LinkFunction, ResourceDecl, Visibility,
     };
     use std::path::Path;
     use tinyjson::JsonValue;
+
+    fn internal_file(path: &str, items: Vec<Item>) -> AstFile {
+        AstFile {
+            path: path.to_string(),
+            imports: Vec::new(),
+            items,
+            internal: true,
+        }
+    }
 
     fn resource_decl(
         name: &str,
@@ -356,6 +365,109 @@ mod tests {
         let out = collect_native_resources("pkg", &ast);
         assert_eq!(out[0].path, "a.mfb");
         assert_eq!(out[1].path, "z.mfb");
+    }
+
+    #[test]
+    fn internal_files_are_excluded_from_resources_and_links() {
+        // An `internal: true` file (compiler-injected package source) holds the
+        // LINK block and a RESOURCE. Its resource must be excluded (bug-279), yet
+        // the `close_may_fail` lookup still scans it so the derivation resolves.
+        let link = link_block("db", vec![("close", Some(Expression::Boolean(true)))]);
+        let internal = internal_file(
+            "builtins/db.mfb",
+            vec![
+                Item::Link(link),
+                Item::Resource(resource_decl("Hidden", "db.close", true, Visibility::Export, 2)),
+            ],
+        );
+        // A real project file with its own resource pointing at the internal LINK.
+        let own = file(
+            "main.mfb",
+            vec![Item::Resource(resource_decl(
+                "Db",
+                "db.close",
+                true,
+                Visibility::Export,
+                7,
+            ))],
+        );
+        let ast = AstProject {
+            name: "pkg".to_string(),
+            files: vec![internal, own],
+        };
+        let resources = collect_native_resources("pkg", &ast);
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0].resource_type, "Db");
+        // close_may_fail still resolves from the internal file's LINK table.
+        assert!(resources[0].close_may_fail);
+
+        // The internal file's LINK symbols are absent from the link report.
+        let links = collect_native_links("pkg", &ast);
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn native_link_free_symbol_populates_close_function() {
+        let mut link = link_block("db", vec![("prepare", None)]);
+        link.functions[0].free = Some(FreeSpec {
+            slot: "return".to_string(),
+            symbol: "sqlite3_free".to_string(),
+            param_name: "ptr".to_string(),
+            param_ctype: "CPtr".to_string(),
+            return_ctype: "CVoid".to_string(),
+            line: 1,
+        });
+        let ast = AstProject {
+            name: "pkg".to_string(),
+            files: vec![file("lib.mfb", vec![Item::Link(link)])],
+        };
+        let links = collect_native_links("pkg", &ast);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].close_function, "sqlite3_free");
+    }
+
+    #[test]
+    fn collect_libraries_reads_locators_and_resource_files() {
+        let manifest_json: JsonValue = r#"{
+            "libraries": {
+                "sqlite3": [
+                    {"os": "macos", "source": "./vendor/evil.dylib"},
+                    {"os": "linux", "arch": "x86_64", "libc": "gnu", "type": "system", "source": "sqlite3"}
+                ]
+            },
+            "resources": [
+                {"src": "z.txt", "dst": "out/z.txt"},
+                {"dst": "no-src.txt"},
+                "not-an-object",
+                {"src": "a.txt", "dst": "out/a.txt"}
+            ]
+        }"#
+        .parse()
+        .unwrap();
+        let manifest = manifest_json
+            .get::<HashMap<String, JsonValue>>()
+            .unwrap()
+            .clone();
+
+        let (libraries, resources) = collect_libraries(&manifest);
+
+        // Two locators under the single logical "sqlite3", in manifest order.
+        assert_eq!(libraries.len(), 2);
+        assert_eq!(libraries[0].logical, "sqlite3");
+        assert_eq!(libraries[0].os, "macos");
+        assert_eq!(libraries[0].source, "./vendor/evil.dylib");
+        // Absent `type` defaults to vendor.
+        assert_eq!(libraries[0].lib_type, "vendor");
+        assert_eq!(libraries[1].os, "linux");
+        assert_eq!(libraries[1].arch.as_deref(), Some("x86_64"));
+        assert_eq!(libraries[1].lib_type, "system");
+
+        // The missing-src and non-object entries are skipped; the two valid ones
+        // are sorted by src ("a.txt" before "z.txt").
+        assert_eq!(resources.len(), 2);
+        assert_eq!(resources[0].src, "a.txt");
+        assert_eq!(resources[0].dst, "out/a.txt");
+        assert_eq!(resources[1].src, "z.txt");
     }
 
     #[test]

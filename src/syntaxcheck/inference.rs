@@ -2683,4 +2683,119 @@ mod tests {
         let src = "IMPORT collections\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> x = 5)\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
+
+    // ---- plan-68-F2: residual inference branches ---------------------------
+
+    #[test]
+    fn builtin_predicate_in_value_position_resolves() {
+        // A bare general builtin predicate (`isEven`) named in a value position
+        // with a concrete FUNC(Integer) AS Boolean expectation drives
+        // builtin_predicate_value_type (inference.rs:29-48).
+        let src = "\
+FUNC main AS Integer
+  LET f AS FUNC(Integer) AS Boolean = isEven
+  RETURN 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn negated_money_literal_types_as_money() {
+        // inference.rs:250 — a negated Money literal keeps the Money literal type
+        // (integer_literal_in_range is true for a non-integer literal, so the
+        // Unary "-" Number arm is reached).
+        let src = "\
+FUNC main AS Integer
+  LET x AS Money = -2m
+  RETURN 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn money_scaled_by_bare_float_literal_warns() {
+        // inference.rs:1009-1026 + is_bare_decimal_float (1578-1598) — a Money
+        // multiplied/divided by a bare (suffixless) decimal literal warns, in
+        // both commutative `*` orders, for `/`, and through a leading unary minus.
+        let src = "\
+FUNC main AS Integer
+  LET m AS Money = 5m
+  LET a AS Money = m * 1.08
+  LET b AS Money = 1.08 * m
+  LET c AS Money = m / 1.08
+  LET d AS Money = m * (-1.08)
+  RETURN 0
+END FUNC
+";
+        assert!(
+            rejects_with(src, "MONEY_INEXACT_FLOAT_LITERAL"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    #[test]
+    fn money_scaled_by_suffixed_or_variable_float_does_not_warn() {
+        // The is_bare_decimal_float suffix/variable guards (1584-1587): an `F`/`f`
+        // suffixed literal and a Float variable are intentional and never warn.
+        let src = "\
+FUNC main AS Integer
+  LET m AS Money = 5m
+  LET rate AS Float = 1.08
+  LET a AS Money = m * 1.08F
+  LET b AS Money = m * 1.08f
+  LET c AS Money = m * rate
+  RETURN 0
+END FUNC
+";
+        assert!(
+            !rejects_with(src, "MONEY_INEXACT_FLOAT_LITERAL"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    #[test]
+    fn expect_trap_zero_args_uses_range_arity_message() {
+        // inference.rs:1055 — expectTrap has a (1,2) range arity, so a zero-arg
+        // call formats the "min–max" branch (distinct from the min==max branch).
+        assert!(rejects_with(&tcase("      expectTrap()"), "TESTING_EXPECT_ARITY"));
+    }
+
+    #[test]
+    fn expect_trap_on_package_constant_call_is_rejected() {
+        // inference.rs:1186-1194 — a package-constant "call" (`math::pi()`) is not
+        // a fallible call, so trap-guarding it is rejected.
+        let src = format!(
+            "IMPORT math\n{}",
+            tcase("      expectTrap(math::pi())")
+        );
+        assert!(
+            rejects_with(&src, "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE"),
+            "{:?}",
+            check_src(&src)
+        );
+    }
+
+    #[test]
+    fn map_entry_with_nested_map_key_walks_split_top_level_to() {
+        // inference.rs:1511-1572 — a MapEntry whose KEY is itself a Map forces
+        // split_top_level_to's nested-TO (`pending`) and type_owns_a_to_separator
+        // logic when `entry.key`/`entry.value` are read.
+        let src = "\
+FUNC main AS Integer
+  LET m AS Map OF Map OF String TO Integer TO Integer = Map OF Map OF String TO Integer TO Integer {}
+  FOR EACH entry IN m
+    LET k = entry.key
+    LET v AS Integer = entry.value
+  NEXT
+  RETURN 0
+END FUNC
+";
+        // A Map-typed key is not comparable, so the program is rejected; the point
+        // is that inferring `entry.key`/`.value` exercises the split helpers.
+        let _ = check_src(src);
+    }
 }

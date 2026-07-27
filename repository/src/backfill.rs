@@ -376,6 +376,135 @@ mod tests {
         );
     }
 
+    /// A blob that parses as a package but whose section-1 MANIFEST is present
+    /// yet too short to read `author`/`url`, so `parse_manifest_metadata` errors.
+    /// It is counted `unparseable` and skipped, never rewritten.
+    #[tokio::test]
+    async fn a_malformed_manifest_section_is_unparseable() {
+        let (_temp, store, blob_store, dir) = harness().await;
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        // Section 1 present but only 8 bytes — the author lives at offset 24.
+        let payload = container(&[(1, vec![0u8; 8]), (2, string_pool(&["", "alice", ""]))]);
+        let artifact = serialize("alice", "", payload);
+        let hash = hex::encode(crate::crypto::sha256(&artifact));
+        std::fs::write(dir.join(format!("{hash}.mfp")), &artifact).unwrap();
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                &hash,
+                &format!("data/{hash}.mfp"),
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
+            .unwrap();
+
+        let report = run(&store, &blob_store).await.unwrap();
+        assert_eq!(report.updated, 0);
+        assert_eq!(report.unparseable, 1);
+        assert!(report.skipped());
+        assert_eq!(report.skips.len(), 1, "{:?}", report.skips);
+        assert_eq!(
+            store.version_metadata_for_test("alice#toolbox", "1.0.0"),
+            (None, None),
+        );
+    }
+
+    /// A blob whose MANIFEST is fine but whose section-10 native-library table is
+    /// truncated errors in `parse_vendor_blobs`, again counted `unparseable`, with
+    /// no target rows written.
+    #[tokio::test]
+    async fn a_malformed_vendor_table_is_unparseable() {
+        let (_temp, store, blob_store, dir) = harness().await;
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        // Section 10 declares one entry but carries no data for it.
+        let payload = container(&[
+            (1, manifest_section(1, 0)),
+            (2, string_pool(&["", "alice", "", "snd", "linux", "x86_64", "libsnd.a"])),
+            (10, vec![1u8, 0, 0, 0]),
+        ]);
+        let artifact = serialize("alice", "", payload);
+        let hash = hex::encode(crate::crypto::sha256(&artifact));
+        std::fs::write(dir.join(format!("{hash}.mfp")), &artifact).unwrap();
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                &hash,
+                &format!("data/{hash}.mfp"),
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
+            .unwrap();
+
+        let report = run(&store, &blob_store).await.unwrap();
+        assert_eq!(report.updated, 0);
+        assert_eq!(report.unparseable, 1, "{:?}", report.skips);
+        assert!(store.target_rows_for_test().is_empty());
+    }
+
+    /// A blob carrying no section-1 MANIFEST yields `Ok(None)` from
+    /// `parse_manifest_metadata`, so the `None` metadata arm runs: author/url stay
+    /// NULL (the header is not trusted), yet `description` from section 18 is still
+    /// captured and the version is counted `updated`.
+    #[tokio::test]
+    async fn no_manifest_section_still_updates_description_with_null_author() {
+        let (_temp, store, blob_store, dir) = harness().await;
+        register_keys(&store, "alice");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        // Description field (section 18), a valid vendor table, but NO section 1.
+        let mut meta = Vec::new();
+        put_u32(&mut meta, 1);
+        put_u16(&mut meta, 1); // fieldId = description
+        let text = "Described but unsigned author.";
+        put_u32(&mut meta, text.len() as u32);
+        meta.extend_from_slice(text.as_bytes());
+        let payload = container(&[
+            (2, string_pool(&["", "alice", "", "snd", "linux", "x86_64", "libsnd.a"])),
+            (10, vendor_table(&[0x22; 32])),
+            (18, meta),
+        ]);
+        // Header claims an author even though there is no signed manifest.
+        let artifact = serialize("alice", "https://header.invalid", payload);
+        let hash = hex::encode(crate::crypto::sha256(&artifact));
+        std::fs::write(dir.join(format!("{hash}.mfp")), &artifact).unwrap();
+        store
+            .publish_package_version(
+                alice_id,
+                "alice#toolbox",
+                "1.0.0",
+                &hash,
+                &format!("data/{hash}.mfp"),
+                "{}",
+                &[],
+                &PublishMetadata::default(),
+            )
+            .unwrap();
+
+        let report = run(&store, &blob_store).await.unwrap();
+        assert_eq!(report.updated, 1);
+        assert!(!report.skipped(), "{:?}", report.skips);
+        // The unsigned header author/url are NOT trusted.
+        assert_eq!(
+            store.version_metadata_for_test("alice#toolbox", "1.0.0"),
+            (None, None),
+        );
+        // But the description from section 18 is captured.
+        assert_eq!(
+            store.version_description_for_test("alice#toolbox", "1.0.0"),
+            Some("Described but unsigned author.".to_string()),
+        );
+    }
+
     async fn harness() -> (tempfile::TempDir, Store, BlobStore, std::path::PathBuf) {
         let temp = tempfile::tempdir().unwrap();
         let db_path = temp.path().join("meta.db");

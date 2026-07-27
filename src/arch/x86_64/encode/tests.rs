@@ -3526,3 +3526,231 @@ fn ties_away_encodes_the_exact_fraction_sequence() {
     );
     assert_eq!(*with_rax_dst.last().unwrap(), 0x59, "and restore rcx");
 }
+
+// --- plan-68-D7: previously-uncovered encode arms --------------------------
+
+#[test]
+fn sxtw_sign_extends_low_32() {
+    // movsxd rax, ebx : REX.W 63 /r → 48 63 C3
+    assert_eq!(
+        bytes("sxtw", &[("dst", "rax"), ("src", "rbx")]),
+        [0x48, 0x63, 0xC3]
+    );
+    // movsxd r8, r15d : REX.W.R.B 63 /r → 4D 63 C7
+    assert_eq!(
+        bytes("sxtw", &[("dst", "r8"), ("src", "r15")]),
+        [0x4D, 0x63, 0xC7]
+    );
+}
+
+#[test]
+fn store_zero_immediate_by_width() {
+    // str_u64 xzr, [rax+0] : mov qword [rax], 0 → 48 C7 80 00000000 00000000
+    assert_eq!(
+        bytes("str_u64", &[("src", "xzr"), ("base", "rax"), ("offset", "0")]),
+        [0x48, 0xC7, 0x80, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    // str_u32 xzr, [r8+0] : mov dword [r8], 0 (REX.B) → 41 C7 80 00000000 00000000
+    assert_eq!(
+        bytes("str_u32", &[("src", "xzr"), ("base", "r8"), ("offset", "0")]),
+        [0x41, 0xC7, 0x80, 0, 0, 0, 0, 0, 0, 0, 0]
+    );
+    // str_u16 xzr, [r8+0] : mov word [r8], 0 (66 prefix + REX.B) → 66 41 C7 80 00000000 0000
+    assert_eq!(
+        bytes("str_u16", &[("src", "xzr"), ("base", "r8"), ("offset", "0")]),
+        [0x66, 0x41, 0xC7, 0x80, 0, 0, 0, 0, 0, 0]
+    );
+    // str_u8 xzr, [r8+0] : mov byte [r8], 0 (REX.B) → 41 C6 80 00000000 00
+    assert_eq!(
+        bytes("str_u8", &[("src", "xzr"), ("base", "r8"), ("offset", "0")]),
+        [0x41, 0xC6, 0x80, 0, 0, 0, 0, 0]
+    );
+}
+
+#[test]
+fn variable_shift_targeting_rcx_is_rejected() {
+    // rcx carries the shift count, so a `dst == rcx` shift has no correct
+    // expansion — it must be an encoding error.
+    let mut ins = CodeInstruction::new("lslv");
+    ins = ins.field("dst", "rcx").field("lhs", "rax").field("rhs", "rdx");
+    assert!(enc_err(&ins).contains("cannot target rcx"));
+}
+
+#[test]
+fn variable_shift_reloads_value_aliasing_rcx() {
+    // lslv rax, rcx, rdx : the value operand aliases rcx and is overwritten by
+    // the count staging, so it is reloaded from [rsp].
+    // push rcx (51) ; mov rcx,rdx (48 89 D1) ; mov rax,[rsp] (48 8B 04 24) ;
+    // shl rax,cl (48 D3 E0) ; pop rcx (59)
+    assert_eq!(
+        bytes("lslv", &[("dst", "rax"), ("lhs", "rcx"), ("rhs", "rdx")]),
+        [0x51, 0x48, 0x89, 0xD1, 0x48, 0x8B, 0x04, 0x24, 0x48, 0xD3, 0xE0, 0x59]
+    );
+}
+
+#[test]
+fn variable_shift_w_reloads_value_aliasing_rcx() {
+    // rorv_w rax, rcx, rdx : 32-bit shift; value aliases rcx, reloaded from [rsp].
+    // push rcx (51) ; mov ecx,edx (89 D1) ; mov eax,[rsp] (8B 04 24) ;
+    // ror eax,cl (D3 C8) ; pop rcx (59)
+    assert_eq!(
+        bytes("rorv_w", &[("dst", "rax"), ("lhs", "rcx"), ("rhs", "rdx")]),
+        [0x51, 0x89, 0xD1, 0x8B, 0x04, 0x24, 0xD3, 0xC8, 0x59]
+    );
+}
+
+#[test]
+fn add_carry_dst_aliases_rhs_no_carry_in() {
+    // dst==rhs, carry_in=xzr, carry_out=xzr: add lhs in place (add commutes).
+    // add rbx, rax (48 01 C3)
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "xzr"),
+                ("lhs", "rax"),
+                ("rhs", "rbx"),
+                ("carry_in", "xzr"),
+            ]
+        ),
+        [0x48, 0x01, 0xC3]
+    );
+}
+
+#[test]
+fn add_carry_dst_aliases_rhs_with_carry_in() {
+    // dst==rhs, carry_in=r10, carry_out=xzr: bt r10,0 ; adc rbx,rax.
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "xzr"),
+                ("lhs", "rax"),
+                ("rhs", "rbx"),
+                ("carry_in", "r10"),
+            ]
+        ),
+        [0x49, 0x0F, 0xBA, 0xE2, 0x00, 0x48, 0x11, 0xC3]
+    );
+}
+
+#[test]
+fn add_carry_register_carry_in_distinct_operands() {
+    // carry_in=r10, dst!=lhs!=rhs: bt r10,0 ; mov rbx,rax ; adc rbx,rcx.
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "xzr"),
+                ("lhs", "rax"),
+                ("rhs", "rcx"),
+                ("carry_in", "r10"),
+            ]
+        ),
+        [0x49, 0x0F, 0xBA, 0xE2, 0x00, 0x48, 0x89, 0xC3, 0x48, 0x11, 0xCB]
+    );
+}
+
+#[test]
+fn add_carry_register_carry_in_zero_rhs() {
+    // carry_in=r10, rhs=xzr, dst!=lhs: bt r10,0 ; mov rbx,rax ; adc rbx,0.
+    assert_eq!(
+        bytes(
+            "add_carry",
+            &[
+                ("dst", "rbx"),
+                ("carry_out", "xzr"),
+                ("lhs", "rax"),
+                ("rhs", "xzr"),
+                ("carry_in", "r10"),
+            ]
+        ),
+        [0x49, 0x0F, 0xBA, 0xE2, 0x00, 0x48, 0x89, 0xC3, 0x48, 0x81, 0xD3, 0, 0, 0, 0]
+    );
+}
+
+#[test]
+fn sub_borrow_zero_rhs_no_borrow_in_moves() {
+    // borrow_in=xzr, rhs=xzr, dst!=lhs: mov rbx,rax (nothing to subtract).
+    assert_eq!(
+        bytes(
+            "sub_borrow",
+            &[
+                ("dst", "rbx"),
+                ("borrow_out", "xzr"),
+                ("lhs", "rax"),
+                ("rhs", "xzr"),
+                ("borrow_in", "xzr"),
+            ]
+        ),
+        [0x48, 0x89, 0xC3]
+    );
+}
+
+#[test]
+fn sub_borrow_dst_aliases_rhs_no_borrow_in() {
+    // borrow_in=xzr, dst==rhs: neg rbx ; add rbx,rax  (dst = lhs - rhs).
+    assert_eq!(
+        bytes(
+            "sub_borrow",
+            &[
+                ("dst", "rbx"),
+                ("borrow_out", "xzr"),
+                ("lhs", "rax"),
+                ("rhs", "rbx"),
+                ("borrow_in", "xzr"),
+            ]
+        ),
+        [0x48, 0xF7, 0xDB, 0x48, 0x01, 0xC3]
+    );
+}
+
+#[test]
+fn sub_borrow_zero_rhs_register_borrow_in() {
+    // borrow_in=r10, rhs=xzr, dst!=lhs: bt r10,0 ; mov rbx,rax ; sbb rbx,0.
+    assert_eq!(
+        bytes(
+            "sub_borrow",
+            &[
+                ("dst", "rbx"),
+                ("borrow_out", "xzr"),
+                ("lhs", "rax"),
+                ("rhs", "xzr"),
+                ("borrow_in", "r10"),
+            ]
+        ),
+        [0x49, 0x0F, 0xBA, 0xE2, 0x00, 0x48, 0x89, 0xC3, 0x48, 0x81, 0xDB, 0, 0, 0, 0]
+    );
+}
+
+#[test]
+fn sub_borrow_dst_aliases_rhs_with_register_borrow_in_is_rejected() {
+    // dst==rhs with a register borrow-in has no scratch-free 2-op form.
+    let mut ins = CodeInstruction::new("sub_borrow");
+    ins = ins
+        .field("dst", "rbx")
+        .field("borrow_out", "xzr")
+        .field("lhs", "rax")
+        .field("rhs", "rbx")
+        .field("borrow_in", "r10");
+    assert!(enc_err(&ins).contains("dst aliasing rhs"));
+}
+
+#[test]
+fn umulh_stages_rhs_aliasing_rax() {
+    // umulh rbx, rsi, rax : rhs is rax, which `mov rax,lhs` would clobber, so it
+    // is staged on the stack and the multiply reads [rsp].
+    // push rax ; push rdx ; sub rsp,8 ; mov [rsp],rax ; mov rax,rsi ;
+    // mul qword [rsp] ; add rsp,8 ; mov rbx,rdx ; pop rdx ; pop rax
+    assert_eq!(
+        bytes("umulh", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rax")]),
+        [
+            0x50, 0x52, 0x48, 0x81, 0xEC, 0x08, 0x00, 0x00, 0x00, 0x48, 0x89, 0x04, 0x24, 0x48,
+            0x89, 0xF0, 0x48, 0xF7, 0x24, 0x24, 0x48, 0x81, 0xC4, 0x08, 0x00, 0x00, 0x00, 0x48,
+            0x89, 0xD3, 0x5A, 0x58
+        ]
+    );
+}

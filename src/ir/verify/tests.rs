@@ -2254,6 +2254,527 @@ fn rejects_map_key_not_comparable() {
     expect_rule(&project(vec![f], vec![]), "TYPE_REQUIRES_COMPARABLE");
 }
 
+// --- values.rs literal/money/member/comparability arms (plan-68-D4) --------
+
+fn money_const(v: &str) -> IrValue {
+    const_of("Money", v)
+}
+
+fn eval(value: IrValue) -> IrOp {
+    IrOp::Eval {
+        value,
+        loc: IrSourceLoc::default(),
+    }
+}
+
+/// A value nested past `MAX_DEPTH` fails gracefully with `VERIFY_TYPE`
+/// (values.rs:26-30).
+#[test]
+fn deeply_nested_value_hits_depth_cap() {
+    let mut v = int_const("1");
+    for _ in 0..300 {
+        v = unary("-", v, "Integer");
+    }
+    let f = func_returns("run", "Nothing", vec![], vec![eval(v)]);
+    expect_rule(
+        &project(vec![f], vec![]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+}
+
+/// A `WITH` update whose stamped type is `Unknown` infers the target's type
+/// (values.rs:139-142) — here an `Error` local, which is read-only.
+#[test]
+fn with_update_unknown_type_infers_read_only_target() {
+    let body = vec![
+        bind("e", "Error", None, false, false),
+        ret(IrValue::WithUpdate {
+            type_: "Unknown".to_string(),
+            target: Box::new(IrValue::Local("e".to_string())),
+            updates: vec![],
+        }),
+    ];
+    let f = func_returns("run", "Error", vec![param("e", "Error", None)], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_READ_ONLY_RECORD_UPDATE");
+}
+
+/// A `WITH` update of a read-only non-`Error` builtin record (a `MapEntry`)
+/// (values.rs:149-153).
+#[test]
+fn rejects_with_update_read_only_mapentry() {
+    let body = vec![ret(IrValue::WithUpdate {
+        type_: "MapEntry OF String TO Integer".to_string(),
+        target: Box::new(IrValue::Local("e".to_string())),
+        updates: vec![],
+    })];
+    let f = func_returns(
+        "run",
+        "MapEntry OF String TO Integer",
+        vec![param("e", "MapEntry OF String TO Integer", None)],
+        body,
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_READ_ONLY_RECORD_UPDATE");
+}
+
+/// A `WITH` update naming a field the record does not declare (values.rs:169) and
+/// one whose value type cannot be inferred (values.rs:172) are both skipped.
+#[test]
+fn with_update_unknown_field_and_uninferable_value_are_skipped() {
+    let body = vec![ret(IrValue::WithUpdate {
+        type_: "Point".to_string(),
+        target: Box::new(IrValue::Local("p".to_string())),
+        updates: vec![
+            crate::ir::IrRecordUpdate {
+                field: "ghost".to_string(),
+                value: int_const("1"),
+            },
+            crate::ir::IrRecordUpdate {
+                field: "x".to_string(),
+                value: IrValue::Local("missing".to_string()),
+            },
+        ],
+    })];
+    let f = func_returns("run", "Point", vec![param("p", "Point", None)], body);
+    let got = rules(&project(vec![f], vec![record("Point", &["x", "y"])]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH"),
+        "{got:?}"
+    );
+}
+
+/// A `Set OF T` literal whose element type disagrees (values.rs:212-231).
+#[test]
+fn rejects_set_literal_element_mismatch() {
+    let body = vec![ret(IrValue::SetLiteral {
+        type_: "Set OF Integer".to_string(),
+        values: vec![const_of("String", "x")],
+    })];
+    let f = func_returns("run", "Set OF Integer", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_SET_ELEMENT_MISMATCH");
+}
+
+/// A valid `Set OF T` literal — the non-emitting fallthrough of the element arm.
+#[test]
+fn accepts_valid_set_literal() {
+    let body = vec![ret(IrValue::SetLiteral {
+        type_: "Set OF Integer".to_string(),
+        values: vec![int_const("1"), int_const("2")],
+    })];
+    let f = func_returns("run", "Set OF Integer", vec![], body);
+    accept(&project(vec![f], vec![]));
+}
+
+/// Money literal with more than five fractional digits (values.rs:373-379).
+#[test]
+fn rejects_money_literal_precision() {
+    let body = vec![bind("m", "Money", Some(money_const("1.123456")), true, false)];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_LITERAL_PRECISION");
+}
+
+/// Money literal outside the representable range (values.rs:381-383).
+#[test]
+fn rejects_money_literal_overflow() {
+    let body = vec![bind(
+        "m",
+        "Money",
+        Some(money_const("100000000000000")),
+        true,
+        false,
+    )];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_LITERAL_OVERFLOW");
+}
+
+/// A valid Money literal — the `Ok(_)` accept arm (values.rs:380).
+#[test]
+fn accepts_money_literal_in_range() {
+    let body = vec![bind("m", "Money", Some(money_const("1.25")), true, false)];
+    let f = func_returns("run", "Nothing", vec![], body);
+    accept(&project(vec![f], vec![]));
+}
+
+/// Negated Money literal with excess precision (values.rs:431-435).
+#[test]
+fn rejects_negated_money_precision() {
+    let body = vec![bind(
+        "m",
+        "Money",
+        Some(unary("-", money_const("1.123456"), "Money")),
+        true,
+        false,
+    )];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_LITERAL_PRECISION");
+}
+
+/// Negated Money literal below the representable range (values.rs:438-440).
+#[test]
+fn rejects_negated_money_underflow() {
+    let body = vec![bind(
+        "m",
+        "Money",
+        Some(unary("-", money_const("100000000000000"), "Money")),
+        true,
+        false,
+    )];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_LITERAL_UNDERFLOW");
+}
+
+/// A valid negated Money literal — the `Ok(_)` accept arm (values.rs:437).
+#[test]
+fn accepts_negated_money_literal_in_range() {
+    let body = vec![bind(
+        "m",
+        "Money",
+        Some(unary("-", money_const("1.25"), "Money")),
+        true,
+        false,
+    )];
+    let f = func_returns("run", "Nothing", vec![], body);
+    accept(&project(vec![f], vec![]));
+}
+
+/// A `Scalar` literal too large to parse as `u64` (values.rs:360).
+#[test]
+fn rejects_scalar_literal_overflowing_u64() {
+    let body = vec![bind(
+        "c",
+        "Scalar",
+        Some(const_of("Scalar", "99999999999999999999999")),
+        true,
+        false,
+    )];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_SCALAR_LITERAL_INVALID");
+}
+
+/// A finite in-range `Float`/`Fixed` literal — the non-emitting fallthrough of
+/// those arms (values.rs:340,350).
+#[test]
+fn accepts_finite_float_and_fixed_literals() {
+    let body = vec![
+        bind("f", "Float", Some(const_of("Float", "1.5")), true, false),
+        bind("x", "Fixed", Some(const_of("Fixed", "1.5")), true, false),
+    ];
+    let f = func_returns("run", "Nothing", vec![], body);
+    accept(&project(vec![f], vec![]));
+}
+
+/// A `MemberAccess` on an enum type name selects a member (values.rs:472-482).
+#[test]
+fn accepts_enum_member_access() {
+    let body = vec![ret(IrValue::MemberAccess {
+        target: Box::new(IrValue::Local("Color".to_string())),
+        member: "Red".to_string(),
+        type_: "Color".to_string(),
+    })];
+    let f = func_returns("run", "Color", vec![], body);
+    let got = rules(&project(vec![f], vec![enum_type("Color", &["Red", "Green"])]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_UNKNOWN_ENUM_MEMBER"),
+        "{got:?}"
+    );
+}
+
+/// A `MemberAccess` whose target type cannot be inferred is skipped
+/// (values.rs:485-486).
+#[test]
+fn member_access_uninferable_target_is_skipped() {
+    let body = vec![eval(IrValue::MemberAccess {
+        target: Box::new(IrValue::Local("missing".to_string())),
+        member: "field".to_string(),
+        type_: "Unknown".to_string(),
+    })];
+    let f = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_FIELD_ACCESS_REQUIRES_RECORD"),
+        "{got:?}"
+    );
+}
+
+/// Reading `.state` off a resource that declares none (values.rs:505-517).
+#[test]
+fn rejects_read_state_on_stateless_resource() {
+    let body = vec![eval(IrValue::MemberAccess {
+        target: Box::new(IrValue::Local("h".to_string())),
+        member: "state".to_string(),
+        type_: "Unknown".to_string(),
+    })];
+    let f = func_returns("run", "Nothing", vec![param("h", "File", None)], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_INVALID");
+}
+
+/// A comparison between a Money and a non-Money operand (values.rs:601-602,
+/// 684-692).
+#[test]
+fn rejects_money_compared_with_non_money() {
+    let body = vec![eval(binary("<", money_const("1.00"), int_const("2"), "Boolean"))];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
+}
+
+/// `Money = Money` is accepted — the comparison return arm (values.rs:694).
+#[test]
+fn accepts_money_equality() {
+    let body = vec![eval(binary("=", money_const("1.00"), money_const("2.00"), "Boolean"))];
+    let f = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_MONEY_OPERATION_INVALID"),
+        "{got:?}"
+    );
+}
+
+/// `Money + non-Money` is invalid (values.rs:701-703).
+#[test]
+fn rejects_money_plus_non_money() {
+    let body = vec![eval(binary("+", money_const("1.00"), int_const("2"), "Money"))];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
+}
+
+/// `Money + Money` and `Money * scalar` are accepted (values.rs:696-697).
+#[test]
+fn accepts_money_add_and_scale() {
+    let add = eval(binary("+", money_const("1.00"), money_const("2.00"), "Money"));
+    let scale = eval(binary("*", money_const("1.00"), int_const("3"), "Money"));
+    let f = func_returns("run", "Nothing", vec![], vec![add, scale]);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_MONEY_OPERATION_INVALID"),
+        "{got:?}"
+    );
+}
+
+/// `Money * Money` is invalid — money² is not Money (values.rs:704).
+#[test]
+fn rejects_money_times_money() {
+    let body = vec![eval(binary("*", money_const("1.00"), money_const("2.00"), "Money"))];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
+}
+
+/// `non-Money / Money` is invalid (values.rs:705-707).
+#[test]
+fn rejects_non_money_divided_by_money() {
+    let body = vec![eval(binary("/", int_const("6"), money_const("2.00"), "Money"))];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
+}
+
+/// `Money ^ x` is invalid (values.rs:708).
+#[test]
+fn rejects_money_exponentiation() {
+    let body = vec![eval(binary("^", money_const("1.00"), int_const("2"), "Money"))];
+    let f = func_returns("run", "Nothing", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_MONEY_OPERATION_INVALID");
+}
+
+/// A `Set OF <union>` whose element is not comparable (values.rs:802).
+#[test]
+fn rejects_set_of_union_element_not_comparable() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF U", None)],
+        vec![],
+    );
+    // A data-only union (no resource variants) is not comparable.
+    expect_rule(
+        &project(vec![f], vec![union("U", &["A", "B"]), record("A", &["x"]), record("B", &["y"])]),
+        "TYPE_REQUIRES_COMPARABLE",
+    );
+}
+
+/// A `Set OF <enum>` is comparable — the enum accept arm (values.rs:805).
+#[test]
+fn accepts_set_of_enum_element() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF Color", None)],
+        vec![],
+    );
+    let got = rules(&project(vec![f], vec![enum_type("Color", &["Red", "Green"])]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_REQUIRES_COMPARABLE"),
+        "{got:?}"
+    );
+}
+
+/// A `Set OF <unknown type>` is permissively comparable (values.rs:818).
+#[test]
+fn accepts_set_of_unknown_type_element() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF Widget", None)],
+        vec![],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_REQUIRES_COMPARABLE"),
+        "{got:?}"
+    );
+}
+
+// --- compat.rs + mod.rs deep arms (plan-68-D6) -----------------------------
+
+/// A resource that floats into a collection declared *after* it cannot take
+/// ownership — `TYPE_RESOURCE_RETURN_ORDER` (mod.rs:378-385).
+#[test]
+fn rejects_resource_return_order() {
+    let mut f = func_returns("run", "Nothing", vec![], vec![]);
+    f.resource_owners.insert(
+        "h".to_string(),
+        crate::ir::resource_escape::ResOwner::FloatBlocked("coll".to_string()),
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_RETURN_ORDER");
+}
+
+/// A resource whose ownership floats into a collection is marked non-owning
+/// (mod.rs:365-367); no return-order fault fires for a plain `Float`.
+#[test]
+fn float_owner_is_non_owning() {
+    let mut f = func_returns("run", "Nothing", vec![], vec![]);
+    f.resource_owners.insert(
+        "h".to_string(),
+        crate::ir::resource_escape::ResOwner::Float("coll".to_string()),
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_RESOURCE_RETURN_ORDER"),
+        "{got:?}"
+    );
+}
+
+/// A well-typed `os` built-in call drives the `os` overload probe
+/// (compat.rs:315-317).
+#[test]
+fn os_call_with_valid_args_is_accepted() {
+    let body = vec![eval(IrValue::Call {
+        target: "os.getEnv".to_string(),
+        args: vec![const_of("String", "HOME")],
+        type_: "Result OF String".to_string(),
+        loc: IrSourceLoc::default(),
+    })];
+    let f = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_CALL_ARGUMENT_MISMATCH"),
+        "{got:?}"
+    );
+}
+
+/// `collections.find` with too many arguments — a ranged-arity built-in error
+/// (compat.rs:130-140, the `min != max` message).
+#[test]
+fn rejects_collections_find_wrong_arity() {
+    let body = vec![eval(IrValue::Call {
+        target: "collections.find".to_string(),
+        args: vec![
+            IrValue::Local("xs".to_string()),
+            int_const("1"),
+            int_const("2"),
+            int_const("3"),
+        ],
+        type_: "Integer".to_string(),
+        loc: IrSourceLoc::default(),
+    })];
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("xs", "List OF Integer", None)],
+        body,
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_CALL_ARITY_MISMATCH");
+}
+
+/// `collections.contains` on a comparable-element list — the non-emitting
+/// fallthrough of the comparability arm (compat.rs:178-189).
+#[test]
+fn accepts_collections_contains_comparable() {
+    let body = vec![eval(IrValue::Call {
+        target: "collections.contains".to_string(),
+        args: vec![IrValue::Local("xs".to_string()), int_const("1")],
+        type_: "Boolean".to_string(),
+        loc: IrSourceLoc::default(),
+    })];
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("xs", "List OF Integer", None)],
+        body,
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_REQUIRES_COMPARABLE"),
+        "{got:?}"
+    );
+}
+
+/// A `Result OF` binding whose inner element type disagrees drives the
+/// `compatible` `Result OF` recursion (compat.rs:354-358).
+#[test]
+fn rejects_result_of_inner_mismatch() {
+    let body = vec![bind(
+        "r",
+        "Result OF Integer",
+        Some(IrValue::Local("b".to_string())),
+        true,
+        false,
+    )];
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("b", "Result OF Byte", None)],
+        body,
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_BINDING_MISMATCH");
+}
+
+/// A `UnionExtract` naming a type that is not a variant of the value's union
+/// (compat.rs:664-671).
+#[test]
+fn rejects_union_extract_foreign_variant() {
+    let body = vec![eval(IrValue::UnionExtract {
+        type_: "Ghost".to_string(),
+        value: Box::new(IrValue::Local("u".to_string())),
+    })];
+    let f = func_returns("run", "Nothing", vec![param("u", "U", None)], body);
+    expect_rule(
+        &project(vec![f], vec![union("U", &["A", "B"])]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+}
+
+/// An equality comparison where one operand's type is `Unknown` is permissive —
+/// `compatible` Unknown short-circuit (compat.rs:340-341).
+#[test]
+fn equality_with_unknown_operand_is_permissive() {
+    let mystery = IrValue::Call {
+        target: "mystery".to_string(),
+        args: vec![],
+        type_: "Unknown".to_string(),
+        loc: IrSourceLoc::default(),
+    };
+    let body = vec![eval(binary(
+        "=",
+        const_of("String", "x"),
+        mystery,
+        "Boolean",
+    ))];
+    let f = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_BINARY_OPERATOR_MISMATCH"),
+        "{got:?}"
+    );
+}
+
 // --- Set element comparability (plan-63) ------------------------------------
 
 #[test]
@@ -2725,6 +3246,492 @@ fn accepts_close_of_a_res_parameter() {
     accept(&project(vec![f], vec![]));
 }
 
+// --- resources.rs alias/move + defaultability arms (plan-68-D5) ------------
+
+fn fs_close(res: &str) -> IrOp {
+    eval(IrValue::Call {
+        target: "fs.close".to_string(),
+        args: vec![IrValue::Local(res.to_string())],
+        type_: "Nothing".to_string(),
+        loc: IrSourceLoc::default(),
+    })
+}
+
+/// A call that returns a `RES File` produced from an argument resource.
+fn grab(src: &str) -> IrValue {
+    IrValue::Call {
+        target: "grab".to_string(),
+        args: vec![IrValue::Local(src.to_string())],
+        type_: "File".to_string(),
+        loc: IrSourceLoc::default(),
+    }
+}
+
+/// `RES b = grab(a)` records `a`/`b` as possible aliases (resources.rs:196-222);
+/// closing one then reading the other is a use-after-move via the alias closure
+/// (resources.rs:39,42,136-139).
+#[test]
+fn rejects_use_after_close_through_alias() {
+    let body = vec![
+        bind("b", "File", Some(grab("a")), true, false),
+        fs_close("b"),
+        fs_close("a"),
+    ];
+    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    f.resource_owners
+        .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// An alias established before an `IF` survives the branch merge
+/// (resources.rs:89-98), so a later close-through still flags the read.
+#[test]
+fn alias_survives_branch_merge() {
+    let body = vec![
+        bind("b", "File", Some(grab("a")), true, false),
+        IrOp::If {
+            condition: const_of("Boolean", "true"),
+            then_body: vec![],
+            else_body: vec![],
+            loc: IrSourceLoc::default(),
+        },
+        fs_close("b"),
+        fs_close("a"),
+    ];
+    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    f.resource_owners
+        .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// Rebinding a name that is an alias target severs the relation
+/// (resources.rs:167-173): after the rebind, `a` is a fresh resource and closing
+/// `b` does not move it.
+#[test]
+fn rebind_severs_alias() {
+    let fresh = IrValue::Call {
+        target: "fresh".to_string(),
+        args: vec![],
+        type_: "File".to_string(),
+        loc: IrSourceLoc::default(),
+    };
+    let body = vec![
+        bind("b", "File", Some(grab("a")), true, false),
+        bind("a", "File", Some(fresh), true, false),
+        fs_close("b"),
+        fs_close("a"),
+    ];
+    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    f.resource_owners
+        .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    f.resource_owners
+        .insert("a".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_USE_AFTER_MOVE"), "{got:?}");
+}
+
+/// Closing an outer resource inside a `FOR EACH` body moves it past the loop
+/// (resources.rs:255-258).
+#[test]
+fn foreach_body_move_leaks_to_outer() {
+    let body = vec![
+        IrOp::ForEach {
+            name: "x".to_string(),
+            type_: "File".to_string(),
+            iterable: IrValue::Local("items".to_string()),
+            body: vec![fs_close("a")],
+            loc: IrSourceLoc::default(),
+        },
+        fs_close("a"),
+    ];
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("a", "File", None), param("items", "List OF File", None)],
+        body,
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// A self-referential record STATE type is not defaultable — the cycle guard of
+/// `is_defaultable` (resources.rs:326-327).
+#[test]
+fn rejects_state_of_cyclic_record() {
+    let body = vec![bind("h", "File STATE R", None, true, false)];
+    let mut f = func_returns("run", "Nothing", vec![], body);
+    f.resource_owners
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    expect_rule(
+        &project(vec![f], vec![record_typed("R", &[("self", "R")])]),
+        "TYPE_STATE_INVALID",
+    );
+}
+
+/// A value-returning FUNC whose body is only a `TRAP` handler never always-returns
+/// — the `Trap` arm of `block_always_returns` (resources.rs:405).
+#[test]
+fn trap_only_body_does_not_always_return() {
+    let body = vec![IrOp::Trap {
+        name: "e".to_string(),
+        body: vec![ret(int_const("1"))],
+        loc: IrSourceLoc::default(),
+    }];
+    let f = func_returns("run", "Integer", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_FUNC_MISSING_RETURN");
+}
+
+/// A `MATCH` whose scrutinee type cannot be inferred is not exhaustive —
+/// `match_covers_all` infer-None arm (resources.rs:423-424).
+#[test]
+fn match_on_uninferable_scrutinee_not_exhaustive() {
+    let m = IrOp::Match {
+        value: IrValue::Local("missing".to_string()),
+        cases: vec![union_variant_case("X", vec![ret(int_const("1"))])],
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns("run", "Integer", vec![], vec![m]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_FUNC_MISSING_RETURN");
+}
+
+/// A `MATCH` on a non-union/non-enum scrutinee is not exhaustive —
+/// `match_covers_all` else arm (resources.rs:431-432).
+#[test]
+fn match_on_primitive_scrutinee_not_exhaustive() {
+    let m = IrOp::Match {
+        value: int_const("1"),
+        cases: vec![union_variant_case("X", vec![ret(int_const("1"))])],
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns("run", "Integer", vec![], vec![m]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_FUNC_MISSING_RETURN");
+}
+
+// --- calls.rs: STATE agreement (plan-68-D2) --------------------------------
+
+/// A resource binding whose owner is recorded (so it is not rejected as a
+/// non-`RES` resource hold), typed `type_`, initialized from `value`.
+fn res_bind_owned(f: &mut IrFunction, name: &str, type_: &str, value: Option<IrValue>) -> IrOp {
+    f.resource_owners
+        .insert(name.to_string(), crate::ir::resource_escape::ResOwner::Local);
+    bind(name, type_, value, true, false)
+}
+
+fn transfer_call(handle: &str, res: Option<&str>) -> IrOp {
+    let mut args = vec![IrValue::Local(handle.to_string())];
+    if let Some(res) = res {
+        args.push(IrValue::Local(res.to_string()));
+    }
+    IrOp::Eval {
+        value: IrValue::Call {
+            target: crate::builtins::thread::TRANSFER_RESOURCE.to_string(),
+            args,
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }
+}
+
+#[test]
+fn unary_operand_of_uninferable_value_is_skipped() {
+    // `check_unary_operand` early-returns when the operand type cannot be
+    // inferred (calls.rs:18) — an unknown local read as unary `-`.
+    let body = vec![IrOp::Eval {
+        value: unary("-", IrValue::Local("missing".to_string()), "Integer"),
+        loc: IrSourceLoc::default(),
+    }];
+    let f = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r.starts_with("TYPE_UNARY")), "{got:?}");
+}
+
+#[test]
+fn call_argument_of_uninferable_value_is_skipped() {
+    // `check_call_argument_types` continues past an argument whose type cannot be
+    // inferred (calls.rs:121) — an unknown local passed to a known function.
+    let callee = func_returns("helper", "Nothing", vec![param("a", "Integer", None)], vec![]);
+    let body = vec![IrOp::Eval {
+        value: IrValue::Call {
+            target: "helper".to_string(),
+            args: vec![IrValue::Local("missing".to_string())],
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    let caller = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![callee, caller], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_CALL_ARGUMENT_MISMATCH"),
+        "{got:?}"
+    );
+}
+
+#[test]
+fn rejects_argument_state_retype() {
+    // Callee param declares `STATE Cursor`; argument carries `STATE Label` — a
+    // parameter observes a state, it cannot re-type it (calls.rs:252-264).
+    let callee = func_returns(
+        "helper",
+        "Nothing",
+        vec![param("h", "File STATE Cursor", None)],
+        vec![],
+    );
+    let body = vec![IrOp::Eval {
+        value: IrValue::Call {
+            target: "helper".to_string(),
+            args: vec![IrValue::Local("g".to_string())],
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    let caller = func_returns(
+        "run",
+        "Nothing",
+        vec![param("g", "File STATE Label", None)],
+        body,
+    );
+    expect_rule(&project(vec![callee, caller], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn rejects_argument_state_missing() {
+    // Callee param declares `STATE Cursor`; argument carries no state — a
+    // parameter cannot attach one (calls.rs:256-264).
+    let callee = func_returns(
+        "helper",
+        "Nothing",
+        vec![param("h", "File STATE Cursor", None)],
+        vec![],
+    );
+    let body = vec![IrOp::Eval {
+        value: IrValue::Call {
+            target: "helper".to_string(),
+            args: vec![IrValue::Local("g".to_string())],
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    let caller = func_returns("run", "Nothing", vec![param("g", "File", None)], body);
+    expect_rule(&project(vec![callee, caller], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn accepts_argument_state_agreement() {
+    // Matching states — the agreeing arm (calls.rs:249-250); no STATE mismatch.
+    let callee = func_returns(
+        "helper",
+        "Nothing",
+        vec![param("h", "File STATE Cursor", None)],
+        vec![],
+    );
+    let body = vec![IrOp::Eval {
+        value: IrValue::Call {
+            target: "helper".to_string(),
+            args: vec![IrValue::Local("g".to_string())],
+            type_: "Nothing".to_string(),
+            loc: IrSourceLoc::default(),
+        },
+        loc: IrSourceLoc::default(),
+    }];
+    let caller = func_returns(
+        "run",
+        "Nothing",
+        vec![param("g", "File STATE Cursor", None)],
+        body,
+    );
+    let got = rules(&project(vec![callee, caller], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn rejects_thread_transfer_state_retype() {
+    // Plane declares `STATE Cursor`; transferred resource carries `STATE Label`
+    // (calls.rs:187-190).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF Nothing RES File STATE Cursor TO Nothing", None),
+            param("r", "File STATE Label", None),
+        ],
+        vec![transfer_call("t", Some("r"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn rejects_thread_transfer_state_missing() {
+    // Plane declares `STATE Cursor`; transferred resource is bare
+    // (calls.rs:191-193).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF Nothing RES File STATE Cursor TO Nothing", None),
+            param("r", "File", None),
+        ],
+        vec![transfer_call("t", Some("r"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn rejects_thread_transfer_state_on_bare_plane() {
+    // Bare plane; transferred resource carries `STATE Cursor` (calls.rs:194-197).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![
+            param("t", "Thread OF Nothing RES File TO Nothing", None),
+            param("r", "File STATE Cursor", None),
+        ],
+        vec![transfer_call("t", Some("r"))],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn thread_transfer_with_one_arg_is_skipped() {
+    // Fewer than two args — the early return (calls.rs:170).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("t", "Thread OF Nothing RES File TO Nothing", None)],
+        vec![transfer_call("t", None)],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn thread_transfer_uninferable_args_are_skipped() {
+    // Both args unknown locals — infer fails (calls.rs:173-177).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![transfer_call("missing_handle", Some("missing_res"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn thread_transfer_non_thread_handle_is_skipped() {
+    // Handle is not a thread type — no plane resource (calls.rs:179-180).
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("t", "Integer", None), param("r", "File", None)],
+        vec![transfer_call("t", Some("r"))],
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn rejects_return_state_union() {
+    // FUNC returns a resource union with a STATE (calls.rs:286-293).
+    let f = func_returns("run", "Res STATE Integer", vec![], vec![]);
+    expect_rule(
+        &project(vec![f], vec![union("Res", &["File"])]),
+        "TYPE_UNION_STATE_FORBIDDEN",
+    );
+}
+
+#[test]
+fn rejects_return_state_not_defaultable() {
+    // FUNC return STATE type is a union (not defaultable) (calls.rs:295-303).
+    let f = func_returns("run", "File STATE Shape", vec![], vec![]);
+    expect_rule(
+        &project(vec![f], vec![union("Shape", &["A", "B"])]),
+        "TYPE_STATE_INVALID",
+    );
+}
+
+#[test]
+fn rejects_binding_opaque_state_narrowing() {
+    // Binding a bare `RES` parameter under a concrete STATE — an unprovable
+    // narrowing (calls.rs:369-375).
+    let mut f = func_returns("run", "Nothing", vec![param("p", "File", None)], vec![]);
+    let b = res_bind_owned(&mut f, "x", "File STATE Integer", Some(IrValue::Local("p".to_string())));
+    f.body = vec![b];
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_OPAQUE_NARROWING");
+}
+
+#[test]
+fn rejects_binding_state_mismatch() {
+    // Binding declares `STATE Cursor`; initializer carries `STATE Label`
+    // (calls.rs:387-392).
+    let mut f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("src", "File STATE Label", None)],
+        vec![],
+    );
+    let b = res_bind_owned(
+        &mut f,
+        "x",
+        "File STATE Cursor",
+        Some(IrValue::Local("src".to_string())),
+    );
+    f.body = vec![b];
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn rejects_bare_binding_of_stateful_initializer() {
+    // Bare binding of a stateful initializer (calls.rs:393-395).
+    let mut f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("src", "File STATE Label", None)],
+        vec![],
+    );
+    let b = res_bind_owned(&mut f, "x", "File", Some(IrValue::Local("src".to_string())));
+    f.body = vec![b];
+    expect_rule(&project(vec![f], vec![]), "TYPE_STATE_MISMATCH");
+}
+
+#[test]
+fn accepts_binding_state_agreement() {
+    // Binding adopts the state it already carries — the agreeing arm
+    // (calls.rs:384-386); no STATE mismatch.
+    let mut f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("src", "File STATE Label", None)],
+        vec![],
+    );
+    let b = res_bind_owned(
+        &mut f,
+        "x",
+        "File STATE Label",
+        Some(IrValue::Local("src".to_string())),
+    );
+    f.body = vec![b];
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
+#[test]
+fn binding_state_of_uninferable_initializer_is_skipped() {
+    // Initializer type cannot be inferred — the early return (calls.rs:379).
+    let mut f = func_returns("run", "Nothing", vec![], vec![]);
+    let b = res_bind_owned(
+        &mut f,
+        "x",
+        "File STATE Integer",
+        Some(IrValue::Local("missing".to_string())),
+    );
+    f.body = vec![b];
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_STATE_MISMATCH"), "{got:?}");
+}
+
 // --- link functions --------------------------------------------------------
 
 fn link_fn() -> crate::ir::IrLinkFunction {
@@ -2763,6 +3770,25 @@ fn accepts_valid_link_function() {
     let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
     p.link_functions = vec![link_fn()];
     accept(&p);
+}
+
+/// `IrProject::link_library_names` returns the distinct library names in
+/// declaration order, deduplicating a repeat (`ir/types.rs` loop + `contains`
+/// guard).
+#[test]
+fn link_library_names_dedups_in_order() {
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    let mut a = link_fn();
+    a.library = "a".to_string();
+    let mut b = link_fn();
+    b.library = "b".to_string();
+    let mut a2 = link_fn();
+    a2.library = "a".to_string();
+    p.link_functions = vec![a, b, a2];
+    assert_eq!(
+        p.link_library_names(),
+        vec!["a".to_string(), "b".to_string()]
+    );
 }
 
 // --- CSTRUCT (plan-50-B) ---------------------------------------------------
@@ -2884,6 +3910,276 @@ fn rejects_cstruct_escape_into_wrapper_signature() {
     let mut p = project_with_cstructs(vec![cstruct("SfInfo", &[("a", "CInt32")])]);
     p.link_functions = vec![lf];
     expect_rule(&p, "NATIVE_CSTRUCT_ESCAPE");
+}
+
+// --- link.rs native arms (plan-68-D3) --------------------------------------
+
+fn abi_slot(name: &str, ctype: &str, dir: crate::ir::AbiDirection) -> crate::ir::IrAbiSlot {
+    crate::ir::IrAbiSlot {
+        name: name.to_string(),
+        ctype: ctype.to_string(),
+        direction: dir,
+    }
+}
+
+fn project_with_link(lf: crate::ir::IrLinkFunction, cstructs: Vec<crate::ir::IrCStruct>) -> IrProject {
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    p.link_cstructs = cstructs;
+    p
+}
+
+/// A struct slot whose CSTRUCT `maps_to` names a type that is not a record
+/// (link.rs:74-81).
+#[test]
+fn rejects_cstruct_maps_to_non_record() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
+    lf.result = None;
+    lf.return_type = "Nothing".to_string();
+    // cstruct maps_to defaults to "Rec"; no "Rec" type is declared.
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_STRUCT_FIELD_MISMATCH");
+}
+
+/// A native function whose RETURN type names a sibling CSTRUCT (link.rs:191-197).
+#[test]
+fn rejects_cstruct_escape_in_return_type() {
+    let mut lf = link_fn();
+    lf.return_type = "Cfg".to_string();
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_CSTRUCT_ESCAPE");
+}
+
+/// BIND IN naming a nonexistent ABI slot (link.rs:105-113).
+#[test]
+fn rejects_bind_in_unknown_slot() {
+    let mut lf = link_fn();
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "nope".to_string(),
+        fields: vec![],
+    }];
+    let p = project_with_link(lf, vec![]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND IN naming a slot that is not a CSTRUCT (link.rs:115-127); also exercises
+/// the "IN slot satisfied by BIND IN" continue (link.rs:326-327).
+#[test]
+fn rejects_bind_in_slot_not_cstruct() {
+    let mut lf = link_fn();
+    // Default slot `path` is a scalar CString, not a CSTRUCT.
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "path".to_string(),
+        fields: vec![],
+    }];
+    let p = project_with_link(lf, vec![]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND IN setting a field the CSTRUCT does not declare (link.rs:129-138).
+#[test]
+fn rejects_bind_in_unknown_field() {
+    let mut lf = link_fn();
+    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "cfg".to_string(),
+        fields: vec![crate::ir::IrBindInField {
+            name: "ghost".to_string(),
+            param: Some("p".to_string()),
+            literal: None,
+        }],
+    }];
+    lf.result = None;
+    lf.return_type = "Nothing".to_string();
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND IN field binding both a parameter and a literal (link.rs:140-148).
+#[test]
+fn rejects_bind_in_field_both_param_and_literal() {
+    let mut lf = link_fn();
+    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "cfg".to_string(),
+        fields: vec![crate::ir::IrBindInField {
+            name: "a".to_string(),
+            param: Some("p".to_string()),
+            literal: Some(1),
+        }],
+    }];
+    lf.result = None;
+    lf.return_type = "Nothing".to_string();
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND IN field binding an unknown parameter (link.rs:149-159).
+#[test]
+fn rejects_bind_in_field_unknown_param() {
+    let mut lf = link_fn();
+    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "cfg".to_string(),
+        fields: vec![crate::ir::IrBindInField {
+            name: "a".to_string(),
+            param: Some("unknownp".to_string()),
+            literal: None,
+        }],
+    }];
+    lf.result = None;
+    lf.return_type = "Nothing".to_string();
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND STATE naming a slot that is not an OUT CSTRUCT slot (link.rs:506-521).
+#[test]
+fn rejects_bind_state_not_out_cstruct_slot() {
+    let mut lf = link_fn();
+    lf.bind_state = Some("nope".to_string());
+    let p = project_with_link(lf, vec![]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// BIND STATE but the function does not return a stateful resource
+/// (link.rs:522-529).
+#[test]
+fn rejects_bind_state_without_stateful_return() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = false;
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// BIND STATE where the CSTRUCT `maps_to` disagrees with the return STATE type
+/// (link.rs:530-541).
+#[test]
+fn rejects_bind_state_maps_to_mismatch() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = true;
+    lf.return_state_type = Some("Other".to_string());
+    lf.return_type = "Db".to_string();
+    // cstruct maps_to defaults to "Rec" which differs from "Other".
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// BIND STATE `<res>` naming a slot other than the one the wrapper returns
+/// (link.rs:548-568).
+#[test]
+fn rejects_bind_state_resource_wrong_slot() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = true;
+    lf.return_state_type = Some("Rec".to_string());
+    lf.return_type = "Db".to_string();
+    lf.bind_state_resource = Some("wrong".to_string());
+    // cstruct maps_to defaults to "Rec", matching return_state_type.
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// BIND STATE `<res>` with a computed (non-`Var`) RETURN: `produced` is `None`,
+/// so the resource-slot arm is skipped (link.rs:554,557).
+#[test]
+fn bind_state_resource_with_computed_result_is_skipped() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = true;
+    lf.return_state_type = Some("Rec".to_string());
+    lf.return_type = "Db".to_string();
+    lf.bind_state_resource = Some("wrong".to_string());
+    lf.result = Some(crate::ir::IrLinkExpr::Int(100));
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    // maps_to matches and the produced slot is unknowable, so no BIND STATE fault.
+    assert!(
+        !rules(&p).iter().any(|r| r == "NATIVE_BIND_STATE_INVALID"),
+        "unexpected BIND STATE fault"
+    );
+}
+
+/// BIND STATE `<res>` with no RETURN: `produced` falls back to the ABI return
+/// name (link.rs:555), which the named resource slot must match.
+#[test]
+fn rejects_bind_state_resource_against_abi_return() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = true;
+    lf.return_state_type = Some("Rec".to_string());
+    lf.return_type = "Db".to_string();
+    lf.bind_state_resource = Some("wrong".to_string());
+    lf.result = None; // produced = abi_return_name ("value") != "wrong"
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// Two native declarations of the same resource base with different STATE types
+/// (link.rs:581-602); the middle one agrees (the `Some(_)` arm), the last one
+/// conflicts.
+#[test]
+fn rejects_native_resource_state_disagreement() {
+    let mut producer = link_fn();
+    producer.name = "prod".to_string();
+    producer.return_resource = true;
+    producer.return_state_type = Some("S1".to_string());
+    producer.return_type = "Db".to_string();
+
+    let mut agree = link_fn();
+    agree.name = "agree".to_string();
+    agree.params = vec![("x".to_string(), "Db STATE S1".to_string())];
+
+    let mut bad = link_fn();
+    bad.name = "bad".to_string();
+    bad.params = vec![("x".to_string(), "Db STATE S2".to_string())];
+
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![producer, agree, bad];
+    expect_rule(&p, "TYPE_STATE_MISMATCH");
+}
+
+/// `Set OF Map OF File TO Integer` drives `contains_resource_or_thread` through
+/// its Map recursion arm (link.rs:622-624).
+#[test]
+fn set_of_map_of_resource_is_ownership_violation() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF Map OF File TO Integer", None)],
+        vec![],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_COLLECTION_OWNERSHIP_VIOLATION");
+}
+
+/// A self-referential record containing a resource exercises the cycle guard of
+/// `contains_resource_or_thread` (link.rs:626-627).
+#[test]
+fn set_of_cyclic_record_with_resource_is_ownership_violation() {
+    let rec = record_typed("R", &[("self", "R"), ("h", "File")]);
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF R", None)],
+        vec![],
+    );
+    expect_rule(&project(vec![f], vec![rec]), "TYPE_COLLECTION_OWNERSHIP_VIOLATION");
 }
 
 // --- link expressions (plan-50-I) -------------------------------------------

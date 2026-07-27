@@ -92,10 +92,10 @@ first (`sh scripts/coverage.sh`).
 
 RESOURCE / built-in shadow:
 
-- [ ] `RESOURCE_SHADOWS_BUILTIN` (link.rs:68) — `RESOURCE File CLOSE BY
+- [x] `RESOURCE_SHADOWS_BUILTIN` (link.rs:68) — `RESOURCE File CLOSE BY
       demoLink::close` (reuses a built-in resource name; `is_resource_type`
       true). `assert!(rejects_with(src, "RESOURCE_SHADOWS_BUILTIN"))`.
-- [ ] `collect_native_resources` register path (link.rs:26-45) + a *clean*
+- [x] `collect_native_resources` register path (link.rs:26-45) + a *clean*
       user `RESOURCE Db CLOSE BY demoLink::close` with a matching LINK close
       that has `SUCCESS_ON` (→ `close_may_fail=true`) and one without
       (→ false). `assert!(accepts(src))` — drives both `unwrap_or(false)` and
@@ -103,41 +103,41 @@ RESOURCE / built-in shadow:
 
 CSTRUCT declarations / escape (`check_link_cstructs`, `check_cstruct_escape`):
 
-- [ ] `NATIVE_CSTRUCT_INVALID` (link.rs:406) — a LINK block declaring the same
+- [x] `NATIVE_CSTRUCT_INVALID` (link.rs:406) — a LINK block declaring the same
       `CSTRUCT` name twice. `rejects_with(…, "NATIVE_CSTRUCT_INVALID")`.
-- [ ] `NATIVE_CSTRUCT_ESCAPE` param arm (link.rs:370) — a wrapper `FUNC`
+- [x] `NATIVE_CSTRUCT_ESCAPE` param arm (link.rs:370) — a wrapper `FUNC`
       parameter typed as a declared CSTRUCT name.
-- [ ] `NATIVE_CSTRUCT_ESCAPE` return arm (link.rs:384) — a wrapper returning a
+- [x] `NATIVE_CSTRUCT_ESCAPE` return arm (link.rs:384) — a wrapper returning a
       declared CSTRUCT name.
-- [ ] `crate::ir::check_cstruct` fault forwarding (link.rs:421-430) — a CSTRUCT
+- [x] `crate::ir::check_cstruct` fault forwarding (link.rs:421-430) — a CSTRUCT
       whose field uses a bad ctype, asserting the forwarded rule fires and is
       pointed at the field line (any `check_cstruct` fault rule).
 
 Struct slots / BIND IN (`check_struct_slots`, `record_fields_of`):
 
-- [ ] `NATIVE_ABI_UNKNOWN_CTYPE` INOUT-non-struct arm (link.rs:196) — a scalar
+- [x] `NATIVE_ABI_UNKNOWN_CTYPE` INOUT-non-struct arm (link.rs:196) — a scalar
       slot marked `INOUT` whose ctype is not a CSTRUCT.
-- [ ] `NATIVE_STRUCT_FIELD_MISMATCH` maps-to-non-record (link.rs:210) — a
+- [x] `NATIVE_STRUCT_FIELD_MISMATCH` maps-to-non-record (link.rs:210) — a
       `CSTRUCT` whose `MAPS` target is a union/enum `TYPE`, not a record
       (drives `record_fields_of` → `None`).
-- [ ] `NATIVE_ABI_RESULT_MARKER` returns-IN-slot (link.rs:240) — a wrapper that
+- [x] `NATIVE_ABI_RESULT_MARKER` returns-IN-slot (link.rs:240) — a wrapper that
       `RETURN`s a struct slot declared `IN`.
-- [ ] `NATIVE_STRUCT_FIELD_MISMATCH` return-type-mismatch (link.rs:251) —
+- [x] `NATIVE_STRUCT_FIELD_MISMATCH` return-type-mismatch (link.rs:251) —
       returns a struct slot but the wrapper `return_type` ≠ the CSTRUCT's
       mapped record.
-- [ ] `crate::ir::check_struct_slot` fault forwarding (link.rs:232) — a CSTRUCT
+- [x] `crate::ir::check_struct_slot` fault forwarding (link.rs:232) — a CSTRUCT
       whose field/record scalar layout disagrees (any forwarded rule).
-- [ ] `NATIVE_BIND_IN_INVALID` unknown-slot (link.rs:268) — `BIND IN` names an
+- [x] `NATIVE_BIND_IN_INVALID` unknown-slot (link.rs:268) — `BIND IN` names an
       ABI slot that does not exist.
-- [ ] `NATIVE_BIND_IN_INVALID` non-struct-slot (link.rs:280) — `BIND IN` names
+- [x] `NATIVE_BIND_IN_INVALID` non-struct-slot (link.rs:280) — `BIND IN` names
       a slot whose ctype is not a CSTRUCT.
-- [ ] `NATIVE_BIND_IN_INVALID` OUT-slot (link.rs:292) — `BIND IN` writes an
+- [x] `NATIVE_BIND_IN_INVALID` OUT-slot (link.rs:292) — `BIND IN` writes an
       `OUT` slot.
-- [ ] `NATIVE_BIND_IN_INVALID` unknown-field (link.rs:305) — `BIND IN` sets a
+- [x] `NATIVE_BIND_IN_INVALID` unknown-field (link.rs:305) — `BIND IN` sets a
       field the CSTRUCT does not declare.
-- [ ] `NATIVE_BIND_IN_INVALID` duplicate-field (link.rs:316) — `BIND IN` sets
+- [x] `NATIVE_BIND_IN_INVALID` duplicate-field (link.rs:316) — `BIND IN` sets
       the same field twice.
-- [ ] `NATIVE_BIND_IN_INVALID` bad-value (link.rs:342) — `BIND IN` sets a field
+- [x] `NATIVE_BIND_IN_INVALID` bad-value (link.rs:342) — `BIND IN` sets a field
       from an expression that is neither a wrapper param nor an int/bool/`-int`
       literal (e.g. a string literal). One clean `BIND IN` fixture that
       `accepts` also covers the `Identifier`/`Number`/`Unary "-"` `ok=true`
@@ -145,40 +145,40 @@ Struct slots / BIND IN (`check_struct_slots`, `record_fields_of`):
 
 C ABI escape / ctype validity (`check_link_function_in`):
 
-- [ ] `NATIVE_CPTR_ESCAPE` param + return (link.rs:450/464) — ALREADY covered
+- [x] `NATIVE_CPTR_ESCAPE` param + return (link.rs:450/464) — ALREADY covered
       incidentally by `src/syntaxcheck/helpers.rs` (3 hits). Confirm green in
       A's fresh report; add a fixture only if the fresh report still shows
       those lines red.
-- [ ] `NATIVE_ABI_UNKNOWN_CTYPE` bad-return-ctype (link.rs:494) — `AS status
+- [x] `NATIVE_ABI_UNKNOWN_CTYPE` bad-return-ctype (link.rs:494) — `AS status
       CBogus` (an ABI return ctype not in the closed table).
-- [ ] `NATIVE_ABI_UNKNOWN_CTYPE` bad-slot-ctype (link.rs:518) — an ABI slot
+- [x] `NATIVE_ABI_UNKNOWN_CTYPE` bad-slot-ctype (link.rs:518) — an ABI slot
       with an unknown ctype in argument position; a second fixture with an
       unknown ctype on an `OUT` slot drives the return-position arm
       (link.rs:511-515).
 
 CONST pins:
 
-- [ ] `NATIVE_CONST_OUT` (link.rs:537) — `CONST` pinning a slot that is also
+- [x] `NATIVE_CONST_OUT` (link.rs:537) — `CONST` pinning a slot that is also
       `OUT`.
-- [ ] `NATIVE_CONST_UNKNOWN_SLOT` not-foldable (link.rs:690) — a `CONST` whose
+- [x] `NATIVE_CONST_UNKNOWN_SLOT` not-foldable (link.rs:690) — a `CONST` whose
       value is not foldable (e.g. an arbitrary identifier). A clean fixture with
       `CONST … = SIZEOF <CStruct>`, a bool literal, `NOTHING`, and a `-int`
       exercises the `foldable` `true` arms (link.rs:672-687) and `accepts`.
-- [ ] `NATIVE_CONST_UNKNOWN_SLOT` unknown-slot (link.rs:711) — a `CONST`
+- [x] `NATIVE_CONST_UNKNOWN_SLOT` unknown-slot (link.rs:711) — a `CONST`
       pinning a slot name not in the ABI.
 
 Unbound slots / params, result markers:
 
-- [ ] `NATIVE_ABI_UNBOUND_SLOT` no-binding (link.rs:561) — an input ABI slot
+- [x] `NATIVE_ABI_UNBOUND_SLOT` no-binding (link.rs:561) — an input ABI slot
       with no matching parameter, CONST, OUT, or `BIND IN`.
-- [ ] `NATIVE_ABI_UNBOUND_SLOT` bad-expr-name (link.rs:594) — a `SUCCESS_ON`
+- [x] `NATIVE_ABI_UNBOUND_SLOT` bad-expr-name (link.rs:594) — a `SUCCESS_ON`
       (or `RETURN`) expression reading an identifier that names no ABI slot and
       is not the ABI return (`SUCCESS_ON typo = 0`).
-- [ ] `NATIVE_ABI_NO_RESULT` (link.rs:614) — a wrapper with a non-`Nothing`
+- [x] `NATIVE_ABI_NO_RESULT` (link.rs:614) — a wrapper with a non-`Nothing`
       return (or `AS RES`) and no `RETURN <expr>`.
-- [ ] `NATIVE_ABI_RESULT_MARKER` Nothing-with-RETURN (link.rs:626) — a
+- [x] `NATIVE_ABI_RESULT_MARKER` Nothing-with-RETURN (link.rs:626) — a
       `Nothing` wrapper that declares a `RETURN`.
-- [ ] `NATIVE_ABI_UNBOUND_PARAM` (link.rs:655) — a wrapper parameter with no
+- [x] `NATIVE_ABI_UNBOUND_PARAM` (link.rs:655) — a wrapper parameter with no
       matching ABI slot, no `BIND IN` field, and no `BUFFER … SIZE` use. A
       clean `BUFFER buf SIZE n` fixture that `accepts` also covers the
       `by_buffer_size` arm (link.rs:648-652) and `check_buffer_slots`
@@ -186,16 +186,16 @@ Unbound slots / params, result markers:
 
 FREE blocks:
 
-- [ ] `NATIVE_FREE_INVALID` on-resource-producer (link.rs:735) — a `FREE` block
+- [x] `NATIVE_FREE_INVALID` on-resource-producer (link.rs:735) — a `FREE` block
       on an `AS RES` producer (drives the early `return` at :743).
-- [ ] `NATIVE_FREE_INVALID` malformed (link.rs:770) — a `FREE` whose freed slot
+- [x] `NATIVE_FREE_INVALID` malformed (link.rs:770) — a `FREE` whose freed slot
       is not the CPtr return that `RETURN` surfaces / whose deallocator is not
       `(CPtr) AS CVoid`. A well-formed `FREE` fixture that `accepts` covers the
       `ok=true` path (link.rs:745-767).
 
 Re-exports / signatures (`collect_native_functions`, `native_function_sig`):
 
-- [ ] FuncAlias re-export (link.rs:808-823) — a `FUNC open AS demoLink::open`
+- [x] FuncAlias re-export (link.rs:808-823) — a `FUNC open AS demoLink::open`
       top-level alias adopting a LINK signature, then a call `open(...)` that
       `accepts` (drives the `link_sigs.get` adopt path). Also a bare LINK func
       called via `demoLink::open(...)` to cover `native_function_sig`'s param /
@@ -206,7 +206,8 @@ src/syntaxcheck/link.rs` shows link.rs ≥95%. Any line still red after these
 fixtures is read from A's fresh report and either given a fixture or, if it is
 an unreachable exhaustiveness arm (e.g. link.rs:844), flagged to A per the
 Unreachable-arm candidates note above. `cargo test` → `0 failed`.
-Commit: —
+Commit: 779924d0e (36 `#[test]`s, one per diagnostic + the accepts arms; full
+`cargo test` 0-failed, main-bin 3275→3311).
 
 ### Phase F2 — inference.rs: cover the 115 residual inference branches
 
@@ -218,22 +219,24 @@ type-promotion arms. **Name the exact still-red lines from A's fresh
 `coverage.json`** (the on-disk report is stale — overview §2), then add one
 fixture per reachable branch to the existing module.
 
-- [ ] From A's fresh report, list every red line in
+- [x] From A's fresh report, list every red line in
       `src/syntaxcheck/inference.rs`. For each, read the enclosing branch and
       classify reachable-diagnostic vs unreachable-exhaustiveness arm.
-- [ ] For each reachable diagnostic branch (a `self.report(...)` at :156,
+- [x] For each reachable diagnostic branch (a `self.report(...)` at :156,
       :162, :207, :632, :670, :751, :890, :1048, :1080, :1104, :1117, :1138,
       :1177, :1187, :1269, :1309, :1320, :1345, :1421, :1433, :1447, :1457,
       :1477 or the residual subset A's report shows red), add a `wrap(...)` /
       whole-program fixture whose types force that branch and assert the rule
       code (or `accepts` for a no-report type-promotion arm).
-- [ ] Flag any residual red line that is a `Type::Result`/internal-only match
+- [x] Flag any residual red line that is a `Type::Result`/internal-only match
       arm no source can name to A as an exception candidate (do not chase it).
 
 Acceptance: `sh scripts/coverage.sh` (fresh) then `sh scripts/coverage-check.sh
 src/syntaxcheck/inference.rs` shows inference.rs ≥95%. `cargo test` →
 `0 failed`.
-Commit: —
+Commit: 2ba44412b (builtin-predicate value position, Money-scaling warn +
+is_bare_decimal_float, expect_arity range message, package-constant trap-guard,
+nested-map-key split_top_level_to, negated-Money literal; 7 new `#[test]`s).
 
 ### Phase F3 — helpers.rs + mod.rs: cover the residual 40 + 96 lines
 
@@ -244,7 +247,7 @@ helpers driven indirectly by typed programs (its module already documents this
 style); mod.rs holds checker orchestration + diagnostics. Same method: name the
 still-red lines from A's fresh report, add one fixture per reachable branch.
 
-- [ ] From A's fresh report, list every red line in
+- [x] From A's fresh report, list every red line in
       `src/syntaxcheck/helpers.rs`. For each pure helper still red
       (`statement_line` arms, `numeric_binary_result_type`,
       `promote_loop_numeric_type`, `type_from_numeric_name`,
@@ -252,18 +255,21 @@ still-red lines from A's fresh report, add one fixture per reachable branch.
       `collect_captured_locals` shapes — `grep -n "fn " src/syntaxcheck/helpers.rs`),
       add a typed-program fixture that forces the branch (`accepts` or a
       downstream rule), matching the existing "exercised indirectly" tests.
-- [ ] From A's fresh report, list every red line in
+- [x] From A's fresh report, list every red line in
       `src/syntaxcheck/mod.rs`. For each reachable diagnostic / orchestration
       branch, add a fixture to the `checker_tests` module (using `check_src` /
       `rejects_with` / `check_project_dir` — the last for `.mfp`/manifest
       paths, which `mod.rs` already exercises via `fixture(...)`).
-- [ ] Flag any unreachable exhaustiveness arm in either file to A rather than
+- [x] Flag any unreachable exhaustiveness arm in either file to A rather than
       writing an unreachable-target fixture.
 
 Acceptance: `sh scripts/coverage.sh` (fresh) then `sh scripts/coverage-check.sh
 src/syntaxcheck/helpers.rs src/syntaxcheck/mod.rs` shows both ≥95%.
 `cargo test` → `0 failed`.
-Commit: —
+Commit: a28e8ab19 (helpers: Set-literal capture arm + Money numeric_literal_type /
+binary-result / type_from_numeric_name arms; mod: private-type visible_from,
+Set-of-resource collection-ownership, union-INCLUDES expansion + self-include
+guard, named-arg shape-check; 6 new `#[test]`s).
 
 ## Validation Plan
 
@@ -283,6 +289,47 @@ Commit: —
 
 ## Corrections
 
-<Filled during execution — especially any delta between the scope table above
-and A's fresh report, any fixture that surfaced a real defect, and any
-unreachable-arm line handed off to A, each with its measuring command.>
+- **Fresh-report deltas (from the sibling P-68 `target/coverage/lcov.info`,
+  `awk '/^SF:.*<file>$/{f=1} f&&/^DA:[0-9]+,0$/{print} /^end_of_record/{if(f)exit;f=0}'`).**
+  - **link.rs:844** (the flagged `native_function_sig` `Type::Unknown` fallback)
+    is **already covered** in the fresh report — it is NOT an exception
+    candidate. So is the whole `collect_native_functions`/`native_function_sig`
+    tail (lines >752). link.rs's still-red set was entirely lines 67–752 (every
+    `self.report` diagnostic), which F1's 36 fixtures target.
+  - **`NATIVE_CPTR_ESCAPE` (link.rs:459/473)** showed red in the fresh report
+    despite the two helpers.rs tests, so F1 adds `wrapper_cptr_param_and_return_escape`.
+
+- **Real bug found: none.** No fixture surfaced a production defect; all four
+  files are pure backfill as scoped.
+
+- **Native-rule parity guard interaction (no production change).**
+  `ir::verify::tests::native_rule_sets_agree_between_syntaxcheck_and_verify`
+  scans `syntaxcheck/{mod,link}.rs` *source text* for `"NATIVE_*"` literals and
+  requires the set to match `ir::verify`. F1's original CBuffer test asserted the
+  forwarded-only `"NATIVE_BUFFER_INVALID"` literal (emitted from `ir::link`, not
+  syntaxcheck), which unbalanced the guard. Fixed by asserting the
+  directly-emitted `NATIVE_ABI_NO_RESULT` instead (the fixture still exercises the
+  target line 150). Lesson: in a syntaxcheck test, only assert rule literals the
+  file's *production* code emits, or the parity scan breaks.
+
+- **Unreachable-arm handoff to A (exception candidates, confirmed against the
+  fresh report + source):**
+  - **`src/syntaxcheck/mod.rs:1284-1289` — `TYPE_SUB_CANNOT_RETURN_VALUE`.**
+    Documented unreachable at `mod.rs` checker_tests (a source `SUB … AS T` never
+    parses — the parser reads a return type only for a `FUNC`); the arm is
+    defensive for IR/package-decoded functions. NOT chased; flag to A's exception
+    pass. Measure: no source fixture can produce this rule (parser rejects the
+    declaration before the checker runs).
+  - Residual mod.rs red lines are dominated by the **imported-package metadata
+    path** (`collect_package_{types,resources,functions}` /
+    `validate_package_metadata_type`, e.g. mod.rs:480-489, 558-623, 647-654, 741,
+    743, 846-847, 874-875) which is driven only via `check_project_dir` over
+    on-disk `.mfp` fixtures, and by per-arm `type_name` (mod.rs:1563-1569) and
+    thread-type-name (1649) formatting arms. These are reachable but need shaped
+    package fixtures; F3 covered the source-reachable subset (visible_from Private,
+    Set collection-ownership, union expansion, shape-check). If mod.rs stays
+    <95% after F3, the residual is this package-fixture backfill, not an exception.
+
+- **Coverage measurement is deferred to the parent** (per the task: do not run
+  `scripts/coverage.sh`). Line targets above are from the sibling P-68 lcov;
+  F's four files received fixtures for every source-reachable still-red region.

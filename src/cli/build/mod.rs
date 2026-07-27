@@ -2044,4 +2044,1461 @@ mod tests {
         let options = parse_build_options(vec!["some/project".to_string()]).expect("options");
         assert!(options.outputs.is_empty());
     }
+
+    // Some CI environments run as root, where a `0o000` permission is ignored
+    // (root bypasses the check), so a permission-denied test would spuriously
+    // succeed at the very operation it means to fail. Probe once and skip those
+    // tests there rather than asserting a failure that cannot happen.
+    #[cfg(unix)]
+    fn running_as_root() -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let probe = dir.path().join("probe");
+        std::fs::write(&probe, b"x").unwrap();
+        let mut perm = std::fs::metadata(&probe).unwrap().permissions();
+        perm.set_mode(0o000);
+        std::fs::set_permissions(&probe, perm).unwrap();
+        // A 0o000 file is still readable by root.
+        std::fs::read(&probe).is_ok()
+    }
+
+    // ---- test_mode.rs: run_test_binary + generate_coverage_report (plan-68-B B1) ----
+
+    /// `run_test_binary` maps the child's exit status onto `mfb test`'s result:
+    /// success passes, a non-zero exit fails, and a failure to even spawn fails.
+    #[test]
+    #[cfg(unix)]
+    fn run_test_binary_maps_every_exit_status() {
+        // Exit 0 -> Ok (the success arm).
+        assert!(run_test_binary(Path::new("/usr/bin/true")).is_ok());
+        // Non-zero exit -> Err (the `Ok(_) => Err(())` arm).
+        assert!(run_test_binary(Path::new("/usr/bin/false")).is_err());
+        // Spawn failure on a nonexistent path -> Err (the `Err(err)` arm).
+        assert!(run_test_binary(Path::new("/no/such/binary-xyzzy-42")).is_err());
+    }
+
+    /// An empty project directory has no `coverage.covmap.json`, so `read_covmap`
+    /// is `None`: the report warns and returns without writing `coverage.html`.
+    #[test]
+    fn generate_coverage_report_warns_when_the_covmap_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        generate_coverage_report(dir.path());
+        assert!(!dir.path().join(crate::testing::COVERAGE_HTML).exists());
+    }
+
+    /// With a real covmap seeded (as a `--coverage` build writes), `read_covmap`
+    /// is `Some`, so `generate_html` and the write arm run and produce the HTML.
+    #[test]
+    fn generate_coverage_report_writes_html_from_a_seeded_covmap() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("main.mfb"), "PRINT 1\n").unwrap();
+        crate::testing::coverage::write_covmap(
+            &dir.path().join(crate::testing::COVMAP_FILE),
+            &[crate::testing::coverage::CovSlot {
+                file: "main.mfb".to_string(),
+                line: 1,
+            }],
+        )
+        .unwrap();
+        generate_coverage_report(dir.path());
+        assert!(dir.path().join(crate::testing::COVERAGE_HTML).is_file());
+    }
+
+    // ---- resources.rs: copy_resources remaining branches (plan-68-B B3) ----
+
+    /// A root-level glob (`*.png`) has an empty fixed prefix, so `copy_resources`
+    /// walks the project root itself and strips no prefix from the destination.
+    #[test]
+    fn copy_resources_handles_a_root_level_glob() {
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        std::fs::write(root.join("banner.png"), b"img").unwrap();
+        std::fs::write(root.join("notes.txt"), b"skip").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "*.png".to_string(),
+            dst: String::new(),
+        }];
+        copy_resources(root, &entries, out.path()).expect("root glob copies");
+        assert!(out.path().join("banner.png").is_file());
+        // A non-matching root file is left behind.
+        assert!(!out.path().join("notes.txt").exists());
+    }
+
+    /// An unreadable resource source directory is a hard scan error, not a silent
+    /// skip (the direct `read_dir` failure inside `collect_files_recursive`).
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_reports_an_unreadable_source_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("x.ogg"), b"a").unwrap();
+        let mut perm = std::fs::metadata(&data).unwrap().permissions();
+        perm.set_mode(0o000);
+        std::fs::set_permissions(&data, perm).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "data/*.ogg".to_string(),
+            dst: "m/".to_string(),
+        }];
+        let err = copy_resources(root, &entries, out.path())
+            .expect_err("an unreadable source directory must error");
+        // Restore so the tempdir can be cleaned up.
+        let mut perm = std::fs::metadata(&data).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&data, perm).unwrap();
+        assert!(err.contains("failed to scan resources"), "{err}");
+    }
+
+    /// An unreadable subdirectory encountered while walking a resource root is a
+    /// hard scan error (`collect_files_recursive`'s propagated `read_dir` error).
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_reports_an_unreadable_subdirectory() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let data = root.join("data");
+        let sub = data.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(data.join("top.ogg"), b"a").unwrap();
+        std::fs::write(sub.join("deep.ogg"), b"b").unwrap();
+        let mut perm = std::fs::metadata(&sub).unwrap().permissions();
+        perm.set_mode(0o000);
+        std::fs::set_permissions(&sub, perm).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "data/**/*.ogg".to_string(),
+            dst: "all/".to_string(),
+        }];
+        let err = copy_resources(root, &entries, out.path())
+            .expect_err("an unreadable subdirectory must error");
+        let mut perm = std::fs::metadata(&sub).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&sub, perm).unwrap();
+        assert!(err.contains("failed to scan resources"), "{err}");
+    }
+
+    /// A destination directory that cannot be created (unwritable resource dir)
+    /// is a hard error (the `create_dir_all` arm).
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_reports_an_uncreatable_destination() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("x.ogg"), b"a").unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let mut perm = std::fs::metadata(out.path()).unwrap().permissions();
+        perm.set_mode(0o500);
+        std::fs::set_permissions(out.path(), perm).unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "data/*.ogg".to_string(),
+            dst: "sub/".to_string(),
+        }];
+        let err = copy_resources(root, &entries, out.path())
+            .expect_err("an uncreatable destination must error");
+        let mut perm = std::fs::metadata(out.path()).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(out.path(), perm).unwrap();
+        assert!(err.contains("failed to create"), "{err}");
+    }
+
+    /// A matched source file that cannot be read is a hard copy error (the
+    /// `fs::copy` arm), distinct from the create-directory arm above.
+    #[test]
+    #[cfg(unix)]
+    fn copy_resources_reports_an_unreadable_source_file() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let project = tempfile::tempdir().unwrap();
+        let root = project.path();
+        let data = root.join("data");
+        std::fs::create_dir_all(&data).unwrap();
+        let file = data.join("x.ogg");
+        std::fs::write(&file, b"a").unwrap();
+        let mut perm = std::fs::metadata(&file).unwrap().permissions();
+        perm.set_mode(0o000);
+        std::fs::set_permissions(&file, perm).unwrap();
+        let out = tempfile::tempdir().unwrap();
+        let entries = vec![crate::manifest::ResourceEntry {
+            src: "data/*.ogg".to_string(),
+            dst: "m/".to_string(),
+        }];
+        let err = copy_resources(root, &entries, out.path())
+            .expect_err("an unreadable source file must error");
+        let mut perm = std::fs::metadata(&file).unwrap().permissions();
+        perm.set_mode(0o644);
+        std::fs::set_permissions(&file, perm).unwrap();
+        assert!(err.contains("failed to copy resource"), "{err}");
+    }
+
+    // ---- native_libs.rs: verify / vendor-source / copy helpers (plan-68-B B4) ----
+
+    /// `verify_vendor_libraries` fails, naming the missing file, when a resolved
+    /// vendor blob is absent from disk.
+    #[test]
+    fn verify_vendor_libraries_reports_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = resolved("sqlite3", "libfoo.so");
+        // No source written -> sha256_file errs -> NATIVE_LIBRARY_FILE_MISSING.
+        assert!(!verify_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT
+        ));
+    }
+
+    /// A vendor locator that records no hash is a malformed package: the verify
+    /// fails on the "records no hash" arm even though the file is present.
+    #[test]
+    fn verify_vendor_libraries_rejects_a_locator_without_a_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut library = resolved("sqlite3", "libfoo.so");
+        library.locator.hash = None;
+        write_vendor_source(dir.path(), &library, b"bytes");
+        assert!(!verify_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT
+        ));
+    }
+
+    /// A present file whose bytes hash to something other than the recorded
+    /// sha256 is the wrong version of the library and is rejected.
+    #[test]
+    fn verify_vendor_libraries_rejects_a_hash_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        // `resolved` records hash [1u8; 32]; real bytes hash to something else.
+        let library = resolved("sqlite3", "libfoo.so");
+        write_vendor_source(dir.path(), &library, b"totally different bytes");
+        assert!(!verify_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT
+        ));
+    }
+
+    /// A file whose bytes hash exactly to the recorded sha256 verifies.
+    #[test]
+    fn verify_vendor_libraries_accepts_a_matching_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut library = resolved("sqlite3", "libfoo.so");
+        write_vendor_source(dir.path(), &library, b"the real bytes");
+        let path = vendor_source_path(dir.path(), OWN_UNIT, &library);
+        library.locator.hash = Some(crate::manifest::libraries::sha256_file(&path).unwrap());
+        assert!(verify_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT
+        ));
+    }
+
+    /// A locator declared by the project's own unit reads from `<root>/vendor/`;
+    /// an imported unit's reads from `<root>/packages/<unit>.vendor/`.
+    #[test]
+    fn vendor_source_path_distinguishes_own_and_imported_units() {
+        let root = Path::new("/proj");
+        let own = resolved(OWN_UNIT, "libbar.so");
+        assert_eq!(
+            vendor_source_path(root, OWN_UNIT, &own),
+            crate::manifest::libraries::vendor_path(root, "libbar.so"),
+        );
+        let imported = resolved("other", "libbar.so");
+        assert_eq!(
+            vendor_source_path(root, OWN_UNIT, &imported),
+            crate::manifest::libraries::imported_vendor_path(root, "other", "libbar.so"),
+        );
+    }
+
+    /// `copy_vendor_libraries` surfaces the copy error when a resolved vendor
+    /// source file does not exist on disk (the `fs::copy` failure arm).
+    #[test]
+    fn copy_vendor_libraries_errors_when_the_source_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let library = resolved("sqlite3", "libfoo.so");
+        // Deliberately do NOT write the source file.
+        let out = dir.path().join("out");
+        let err = copy_vendor_libraries(
+            std::slice::from_ref(&library),
+            dir.path(),
+            OWN_UNIT,
+            std::slice::from_ref(&out),
+        )
+        .expect_err("a missing source must fail the copy");
+        assert!(err.contains("failed to copy vendored library"), "{err}");
+    }
+
+    // ---- packages.rs: the §3.5 signed-package chain (plan-68-B B2) ----
+    //
+    // `classify_installed_package` performs no network I/O: after the header
+    // identKey check it verifies the attestation/proof/signature/payload chain
+    // purely over the `.mfp` bytes plus a locally *pinned* server key. So the
+    // whole chain is unit-coverable with a hermetic, self-consistent signed
+    // fixture built here (the ident key signs the proof, a throwaway "server" key
+    // signs the attestation, and the one-off signing key signs the container) and
+    // that server key pinned under an empty `MFB_HOME`.
+
+    #[derive(Clone, Copy)]
+    enum SignedTamper {
+        /// A fully valid chain (verifies to `Verified`).
+        None,
+        /// The header `identKey` is not decodable base64url.
+        MalformedHeaderIdent,
+        /// The attestation signature does not verify under the server key.
+        AttestationSig,
+        /// The proof signature does not verify under the ident key.
+        ProofSig,
+        /// The container is signed by a key other than the advertised signingKey.
+        SignatureMismatch,
+        /// A payload byte is flipped after the signed prefix (hash weld breaks).
+        Payload,
+    }
+
+    struct SignedFixture {
+        bytes: Vec<u8>,
+        /// The ident-key trust anchor (`ed25519:<base64url>`) a project would pin.
+        ident_key: String,
+        /// The throwaway server public key to pin so the attestation verifies.
+        server_public: Vec<u8>,
+    }
+
+    fn build_signed_fixture(ident: &str, version: &str, tamper: SignedTamper) -> SignedFixture {
+        use mfb_repository::crypto;
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let (server_public, server_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(&ident_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let repo_fingerprint = crypto::fingerprint(&server_public);
+        let (owner, name) = ident.split_once('#').expect("ident is <owner>#<name>");
+
+        let proof = format!(
+            "{{\"owner\":\"{owner}\",\"ident\":\"{ident}\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}"
+        );
+        let mut proof_sig =
+            crypto::sign(&ident_private, &crypto::proof_signing_input(proof.as_bytes())).unwrap();
+        let attestation = format!(
+            "{{\"repoFingerprint\":\"{repo_fingerprint}\",\"owner\":\"{owner}\",\"ident\":\"{ident}\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}"
+        );
+        let mut attestation_sig = crypto::sign(
+            &server_private,
+            &crypto::attestation_signing_input(attestation.as_bytes()),
+        )
+        .unwrap();
+
+        // The header identKey (used as the trust anchor and to derive
+        // identFingerprint); malformed only for that specific tamper.
+        let header_ident_key = if matches!(tamper, SignedTamper::MalformedHeaderIdent) {
+            "ed25519:not-valid-base64url-$$$".to_string()
+        } else {
+            format!("ed25519:{}", crypto::encode_bytes(&ident_public))
+        };
+        // The container is normally signed by `signing_private`; for the
+        // signature-mismatch tamper it is signed by an UNRELATED key while the
+        // advertised signingKey (and thus every fingerprint) stays consistent, so
+        // the proof/attestation still verify and only the container signature
+        // fails.
+        let container_private = if matches!(tamper, SignedTamper::SignatureMismatch) {
+            crypto::generate_keypair().1
+        } else {
+            signing_private
+        };
+        if matches!(tamper, SignedTamper::ProofSig) {
+            proof_sig[0] ^= 0xff;
+        }
+        if matches!(tamper, SignedTamper::AttestationSig) {
+            attestation_sig[0] ^= 0xff;
+        }
+
+        let mut metadata =
+            binary_repr::BinaryReprMetadata::new(name.to_string(), version.to_string());
+        metadata.ident = ident.to_string();
+        metadata.author = owner.to_string();
+
+        let signing = target::package_mfp::PackageSigning {
+            ident_key: header_ident_key.clone(),
+            signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+            signing_private: container_private,
+            proof,
+            proof_sig,
+            attestation,
+            attestation_sig,
+        };
+        let payload = b"MFPCsigned-fixture-payload".to_vec();
+        let mut bytes =
+            target::package_mfp::build_package_bytes(&metadata, &payload, Some(&signing)).unwrap();
+        if matches!(tamper, SignedTamper::Payload) {
+            // Flip the final payload byte: after the signed prefix, so the
+            // container signature still verifies but the payload-hash weld breaks.
+            let last = bytes.len() - 1;
+            bytes[last] ^= 0xff;
+        }
+        SignedFixture {
+            bytes,
+            ident_key: header_ident_key,
+            server_public,
+        }
+    }
+
+    /// Write a fixture's bytes to a `.mfp` under a tempdir and return the path.
+    fn write_mfp(dir: &Path, bytes: &[u8]) -> PathBuf {
+        let path = dir.join("pkg.mfp");
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    /// A signed package with no pinned trust anchor is untrusted (the
+    /// file-embedded key is attacker-controlled).
+    #[test]
+    fn classify_signed_package_without_a_trust_anchor_is_untrusted() {
+        let dir = tempfile::tempdir().unwrap();
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::None);
+        let path = write_mfp(dir.path(), &fx.bytes);
+        let classification = classify_installed_package(&path, None);
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        assert_eq!(
+            classification.refusal.expect("refusal").0,
+            "PACKAGE_IDENT_KEY_UNTRUSTED"
+        );
+    }
+
+    /// A malformed pinned trust anchor is rejected before any file key is read.
+    #[test]
+    fn classify_signed_package_with_a_malformed_anchor_is_untrusted() {
+        let dir = tempfile::tempdir().unwrap();
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::None);
+        let path = write_mfp(dir.path(), &fx.bytes);
+        let classification = classify_installed_package(&path, Some("not-base64!"));
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        assert_eq!(
+            classification.refusal.expect("refusal").0,
+            "PACKAGE_IDENT_KEY_UNTRUSTED"
+        );
+    }
+
+    /// A malformed header identKey (present but not decodable) is untrusted.
+    #[test]
+    fn classify_signed_package_with_a_malformed_header_ident_is_untrusted() {
+        let dir = tempfile::tempdir().unwrap();
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::MalformedHeaderIdent);
+        let path = write_mfp(dir.path(), &fx.bytes);
+        // A well-formed anchor so decode passes; the header key is the malformed one.
+        let anchor = format!(
+            "ed25519:{}",
+            mfb_repository::crypto::encode_bytes(&[7u8; 32])
+        );
+        let classification = classify_installed_package(&path, Some(&anchor));
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        assert_eq!(
+            classification.refusal.expect("refusal").0,
+            "PACKAGE_IDENT_KEY_UNTRUSTED"
+        );
+    }
+
+    /// A well-formed anchor that is not the package's own header key is untrusted
+    /// (the header-identKey-≠-pinned arm).
+    #[test]
+    fn classify_signed_package_with_a_mismatched_anchor_is_untrusted() {
+        let dir = tempfile::tempdir().unwrap();
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::None);
+        let path = write_mfp(dir.path(), &fx.bytes);
+        // A valid but wrong ed25519 key (32 bytes, not the fixture's ident).
+        let anchor = format!(
+            "ed25519:{}",
+            mfb_repository::crypto::encode_bytes(&[9u8; 32])
+        );
+        let classification = classify_installed_package(&path, Some(&anchor));
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        let (rule, detail) = classification.refusal.expect("refusal");
+        assert_eq!(rule, "PACKAGE_IDENT_KEY_UNTRUSTED");
+        assert!(detail.contains("does not match"), "{detail}");
+    }
+
+    /// With the correct anchor but NO pinned registry key on the machine, the
+    /// attestation cannot be checked — the reachable frontier without a registry.
+    #[test]
+    fn classify_signed_package_without_a_pinned_server_key_is_untrusted() {
+        let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _mfb =
+            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::None);
+        let path = write_mfp(dir.path(), &fx.bytes);
+        let classification = classify_installed_package(&path, Some(&fx.ident_key));
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        let (rule, detail) = classification.refusal.expect("refusal");
+        assert_eq!(rule, "PACKAGE_ATTESTATION_INVALID");
+        assert!(detail.contains("no pinned registry key"), "{detail}");
+    }
+
+    /// Pin the server key and classify each chain-link tamper on its own arm, then
+    /// the fully valid package to `Verified`.
+    fn classify_pinned(fx: &SignedFixture) -> PackageClassification {
+        let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _mfb =
+            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let _fp = crate::cli::tests::EnvVarGuard::unset("MFB_REPO_SERVER_FINGERPRINT");
+        let repo_url = mfb_repository::client::repo_url_from_env();
+        let paths = crate::cli::local_paths_for_repo(&repo_url).unwrap();
+        mfb_repository::local::pin_server_key(&paths, &fx.server_public).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_mfp(dir.path(), &fx.bytes);
+        classify_installed_package(&path, Some(&fx.ident_key))
+    }
+
+    #[test]
+    fn classify_signed_package_with_a_bad_attestation_signature() {
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::AttestationSig);
+        let classification = classify_pinned(&fx);
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        assert_eq!(
+            classification.refusal.expect("refusal").0,
+            "PACKAGE_ATTESTATION_INVALID"
+        );
+    }
+
+    #[test]
+    fn classify_signed_package_with_a_bad_proof_signature() {
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::ProofSig);
+        let classification = classify_pinned(&fx);
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        assert_eq!(
+            classification.refusal.expect("refusal").0,
+            "PACKAGE_PROOF_INVALID"
+        );
+    }
+
+    #[test]
+    fn classify_signed_package_with_a_bad_container_signature() {
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::SignatureMismatch);
+        let classification = classify_pinned(&fx);
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        assert_eq!(
+            classification.refusal.expect("refusal").0,
+            "PACKAGE_SIGNATURE_INVALID"
+        );
+    }
+
+    #[test]
+    fn classify_signed_package_with_a_broken_payload_hash() {
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::Payload);
+        let classification = classify_pinned(&fx);
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        assert_eq!(
+            classification.refusal.expect("refusal").0,
+            "PACKAGE_PAYLOAD_HASH_MISMATCH"
+        );
+    }
+
+    #[test]
+    fn classify_fully_signed_package_verifies() {
+        let fx = build_signed_fixture("ada#shape", "1.0.0", SignedTamper::None);
+        let classification = classify_pinned(&fx);
+        assert_eq!(classification.state, PackageVerification::Verified);
+        assert!(classification.refusal.is_none());
+    }
+
+    // ---- verify_and_report_packages: entry-shape + Verified/Tampered arms ----
+
+    /// A `packages` entry that is not an object, or an object without a `name`,
+    /// is silently skipped rather than crashing the report.
+    #[test]
+    fn verify_and_report_skips_malformed_package_entries() {
+        let manifest = crate::manifest::parse_project_json(
+            concat!(
+                "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",",
+                "\"sources\":[{\"root\":\"src\"}],",
+                "\"packages\":[42, {\"version\":\"1.0.0\"}]}"
+            ),
+            Path::new("project.json"),
+        )
+        .expect("manifest");
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert!(verify_and_report_packages(dir.path(), &manifest, false).is_ok());
+    }
+
+    /// An installed, fully-verified dependency reports `[Verified]` and does not
+    /// block the build.
+    #[test]
+    fn verify_and_report_accepts_a_verified_dependency() {
+        let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _mfb =
+            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let _fp = crate::cli::tests::EnvVarGuard::unset("MFB_REPO_SERVER_FINGERPRINT");
+        let fx = build_signed_fixture("sec#signed", "0.1.0", SignedTamper::None);
+        let repo_url = mfb_repository::client::repo_url_from_env();
+        let paths = crate::cli::local_paths_for_repo(&repo_url).unwrap();
+        mfb_repository::local::pin_server_key(&paths, &fx.server_public).unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::write(packages.join("signed.mfp"), &fx.bytes).unwrap();
+        let manifest = crate::manifest::parse_project_json(
+            &format!(
+                "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{{\"root\":\"src\"}}],\"packages\":[{{\"name\":\"signed\",\"ident\":\"sec#signed\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"sec#signed\",\"identKey\":\"{}\"}}]}}",
+                fx.ident_key
+            ),
+            Path::new("project.json"),
+        )
+        .expect("manifest");
+        assert!(verify_and_report_packages(dir.path(), &manifest, false).is_ok());
+    }
+
+    // ---- build_project: reachable validation/error branches (plan-68-B B6) ----
+
+    /// Every `BuildOutput` label is the documented noun (drives the `Wrote …` and
+    /// package-unsupported lines).
+    #[test]
+    fn build_output_label_names_every_variant() {
+        assert_eq!(BuildOutput::Ast.label(), "AST");
+        assert_eq!(BuildOutput::Ir.label(), "IR");
+        assert_eq!(BuildOutput::BinaryRepr.label(), "binary representation");
+        assert_eq!(BuildOutput::NativeIr.label(), "native IR");
+        assert_eq!(BuildOutput::NativePlan.label(), "native plan");
+        assert_eq!(BuildOutput::NativeObjectPlan.label(), "native object plan");
+        assert_eq!(BuildOutput::NativeCodePlan.label(), "native code plan");
+        assert_eq!(BuildOutput::Mir.label(), "MIR");
+    }
+
+    /// A verbose build runs the `phase …` reporter arms (level-gated stderr; no
+    /// effect on the emitted bytes).
+    #[test]
+    fn build_project_verbose_runs_the_phase_reporter() {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        let options =
+            parse_build_options(s(&["-v", dir.path().to_str().unwrap()])).expect("options");
+        assert_eq!(options.verbosity, Verbosity::Verbose);
+        build_project(&options).expect("verbose build succeeds");
+    }
+
+    /// App mode requires an executable project; a package with `--app` is rejected
+    /// before any lowering.
+    #[test]
+    fn build_project_rejects_app_mode_for_a_package() {
+        let dir = tempfile::tempdir().unwrap();
+        write_package_project(dir.path());
+        let options =
+            parse_build_options(s(&["-app", dir.path().to_str().unwrap()])).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// Write an app-mode executable manifest whose `icon` points at a file that
+    /// does not exist, so the icon existence check fails.
+    fn write_app_project_missing_icon(dir: &Path) {
+        std::fs::write(
+            dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"mode\": \"app\",\n",
+                "  \"icon\": \"assets/missing.png\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.join("src")).expect("src dir");
+        std::fs::write(
+            dir.join("src").join("main.mfb"),
+            "SUB main()\nEND SUB\n",
+        )
+        .expect("source");
+    }
+
+    /// A missing `icon` is a hard error in app mode, on each app-capable target's
+    /// build-mode arm (macOS host, and the cross Linux/Windows selectors).
+    #[test]
+    fn build_project_app_mode_missing_icon_is_rejected_per_target() {
+        for target in [None, Some("linux-aarch64"), Some("windows-x86_64")] {
+            let dir = tempfile::tempdir().unwrap();
+            write_app_project_missing_icon(dir.path());
+            let mut args = vec!["-app".to_string()];
+            if let Some(t) = target {
+                args.push("-target".to_string());
+                args.push(t.to_string());
+            }
+            args.push(dir.path().to_str().unwrap().to_string());
+            let options = parse_build_options(args).expect("options");
+            assert!(
+                build_project(&options).is_err(),
+                "target {target:?}: a missing icon must be rejected"
+            );
+        }
+    }
+
+    /// The `app` package is importable only in app mode; a console build that
+    /// imports it is a compile error.
+    #[test]
+    fn build_project_rejects_importing_app_without_app_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT app\n\nSUB main()\nEND SUB\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// An `expect*` assertion outside a `TCASE` body is rejected before lowering.
+    #[test]
+    fn build_project_rejects_expect_outside_a_test_case() {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "SUB main()\n  expectInteger(1, 1)\nEND SUB\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A `mfb test --coverage` host run writes the coverage map, runs the driver,
+    /// and folds the counts into a coverage report.
+    #[test]
+    fn build_project_coverage_test_writes_a_report() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            concat!(
+                "FUNC main AS Integer\n",
+                "  RETURN 0\n",
+                "END FUNC\n\n",
+                "TESTING\n",
+                "  TGROUP \"g\"\n",
+                "    TCASE \"c\"\n",
+                "      expectInteger(1, 1)\n",
+                "    END TCASE\n",
+                "  END TGROUP\n",
+                "END TESTING\n"
+            ),
+        )
+        .unwrap();
+        let options = parse_test_options(s(&["--coverage", dir.path().to_str().unwrap()]))
+            .expect("options");
+        build_project(&options).expect("coverage test passes");
+        assert!(dir
+            .path()
+            .join(crate::testing::COVMAP_FILE)
+            .is_file());
+        assert!(dir
+            .path()
+            .join(crate::testing::COVERAGE_HTML)
+            .is_file());
+    }
+
+    /// An unknown project `kind` is a warning, not an error: the build validates
+    /// and returns Ok having produced no artifact (bug-300 E8).
+    #[test]
+    fn build_project_unknown_kind_validates_and_builds_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"program\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "SUB main()\nEND SUB\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        build_project(&options).expect("unknown kind validates");
+        assert!(!dir.path().join("app.mfp").exists());
+    }
+
+    /// Every native artifact dump writer runs for an executable project.
+    #[test]
+    fn build_project_writes_every_native_dump() {
+        for flag in ["-nir", "-nplan", "-nobj", "-ncode", "-mir"] {
+            let dir = tempfile::tempdir().unwrap();
+            write_executable_project(dir.path());
+            let options =
+                parse_build_options(s(&[flag, dir.path().to_str().unwrap()])).expect("options");
+            build_project(&options).unwrap_or_else(|_| panic!("{flag} dump should succeed"));
+        }
+    }
+
+    /// A native dump is unsupported for a package project (each native flavor).
+    #[test]
+    fn build_project_rejects_native_dumps_for_a_package() {
+        for flag in ["-nir", "-mir"] {
+            let dir = tempfile::tempdir().unwrap();
+            write_package_project(dir.path());
+            let options =
+                parse_build_options(s(&[flag, dir.path().to_str().unwrap()])).expect("options");
+            assert!(
+                build_project(&options).is_err(),
+                "{flag} must be rejected for a package"
+            );
+        }
+    }
+
+    /// `--sign` combined with an artifact dump flag is rejected (signing is only
+    /// for a full package/executable build).
+    #[test]
+    fn build_project_rejects_sign_with_output_flags() {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        let options = parse_build_options(s(&["--sign", "ada", "--ast", dir.path().to_str().unwrap()]))
+            .expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A `--sign` build with no local ident key fails fast at signing-info load
+    /// (no network), exercising the version/ident extraction and the load call
+    /// site (the registry request itself is the signing.rs boundary A excepts).
+    #[test]
+    fn build_project_sign_without_a_local_ident_key_fails() {
+        let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _mfb =
+            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        let options =
+            parse_build_options(s(&["--sign", "ada", dir.path().to_str().unwrap()])).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A `LINK` naming a library with no `libraries` entry is a hard error: the
+    /// native-library table cannot be assembled, aborting the executable build
+    /// (and driving `assemble_native_library_table`'s error-finding loop).
+    #[test]
+    fn build_project_rejects_a_link_without_a_libraries_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            concat!(
+                "LINK \"foo\" AS fooLib\n",
+                "  FUNC ping() AS Nothing\n",
+                "    SYMBOL \"foo_ping\"\n",
+                "    ABI () AS status CInt32\n",
+                "    SUCCESS_ON status = 0\n",
+                "  END FUNC\n",
+                "END LINK\n\n",
+                "SUB main()\n",
+                "  fooLib::ping()\n",
+                "END SUB\n"
+            ),
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A host executable that vendors a native library resolves the vendor
+    /// locator, hash-verifies the blob, and copies it beside the binary — driving
+    /// `resolved_vendor_libraries`' resolution loop and the vendor copy on a real
+    /// build. The `.so` need not be a real library: codegen emits a `dlopen` stub
+    /// and only the recorded hash is checked at build time.
+    #[test]
+    fn build_project_builds_an_executable_that_vendors_a_library() {
+        let host = target::BuildTarget::host();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            format!(
+                concat!(
+                    "{{\n",
+                    "  \"name\": \"app\",\n",
+                    "  \"version\": \"0.1.0\",\n",
+                    "  \"mfb\": \"1.0\",\n",
+                    "  \"kind\": \"executable\",\n",
+                    "  \"entry\": \"main\",\n",
+                    "  \"targets\": [\"native\"],\n",
+                    "  \"libraries\": {{ \"foo\": [ {{ \"os\": \"{os}\", \"arch\": \"{arch}\", \"type\": \"vendor\", \"source\": \"libfoo.so\" }} ] }},\n",
+                    "  \"sources\": [{{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }}]\n",
+                    "}}\n"
+                ),
+                os = host.os,
+                arch = host.arch,
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            concat!(
+                "LINK \"foo\" AS fooLib\n",
+                "  FUNC ping() AS Nothing\n",
+                "    SYMBOL \"foo_ping\"\n",
+                "    ABI () AS status CInt32\n",
+                "    SUCCESS_ON status = 0\n",
+                "  END FUNC\n",
+                "END LINK\n\n",
+                "SUB main()\n",
+                "  fooLib::ping()\n",
+                "END SUB\n"
+            ),
+        )
+        .unwrap();
+        // The vendored blob (dummy bytes; the build records its sha256).
+        std::fs::create_dir_all(dir.path().join("vendor")).unwrap();
+        std::fs::write(dir.path().join("vendor").join("libfoo.so"), b"\x7fELF dummy vendor blob").unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        build_project(&options).expect("vendored build should succeed");
+        // The vendored blob was copied into build/vendor/ beside the executable.
+        let vendor_out = dir
+            .path()
+            .join(crate::os::BUILD_DIR)
+            .join(crate::os::VENDOR_DIR);
+        let copied: Vec<PathBuf> = std::fs::read_dir(&vendor_out)
+            .expect("build/vendor exists")
+            .map(|entry| entry.expect("entry").path())
+            .filter(|path| path.is_file())
+            .collect();
+        assert_eq!(copied.len(), 1, "exactly one vendored library was copied");
+    }
+
+    /// A resources entry whose source resolves outside the project (an in-tree
+    /// symlink escaping the root) fails the build at the resource-copy step, after
+    /// codegen — exercising the `copy_resources` error arm in `build_project`.
+    #[test]
+    #[cfg(unix)]
+    fn build_project_reports_a_resource_copy_failure() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.conf"), b"secret").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"resources\": [{ \"src\": \"assets/*.conf\", \"dst\": \"cfg/\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .unwrap();
+        // An in-tree name that textually looks contained but resolves outside.
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("assets")).unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// The same missing-`libraries` error aborts a package build (the package-path
+    /// `assemble_native_libraries` gate).
+    #[test]
+    fn build_project_rejects_a_package_link_without_a_libraries_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"lib\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"package\",\n",
+                "  \"description\": \"Test fixture package with an unmatched LINK.\",\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"package\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("lib.mfb"),
+            concat!(
+                "LINK \"foo\" AS fooLib\n",
+                "  FUNC ping() AS Nothing\n",
+                "    SYMBOL \"foo_ping\"\n",
+                "    ABI () AS status CInt32\n",
+                "    SUCCESS_ON status = 0\n",
+                "  END FUNC\n",
+                "END LINK\n\n",
+                "EXPORT FUNC go() AS Nothing\n",
+                "  fooLib::ping()\n",
+                "END FUNC\n"
+            ),
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// An installed but tampered signed dependency reports `[Tampered]` and is a
+    /// hard build gate (the refusal arm).
+    #[test]
+    fn verify_and_report_refuses_a_tampered_dependency() {
+        let _lock = crate::cli::tests::ENV_LOCK.lock().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let _mfb =
+            crate::cli::tests::EnvVarGuard::set("MFB_HOME", home.path().to_str().unwrap());
+        // No pinned server key -> the signed package fails attestation -> Tampered.
+        let fx = build_signed_fixture("sec#signed", "0.1.0", SignedTamper::None);
+        let dir = tempfile::tempdir().unwrap();
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::write(packages.join("signed.mfp"), &fx.bytes).unwrap();
+        let manifest = crate::manifest::parse_project_json(
+            &format!(
+                "{{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{{\"root\":\"src\"}}],\"packages\":[{{\"name\":\"signed\",\"ident\":\"sec#signed\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"sec#signed\",\"identKey\":\"{}\"}}]}}",
+                fx.ident_key
+            ),
+            Path::new("project.json"),
+        )
+        .expect("manifest");
+        assert!(verify_and_report_packages(dir.path(), &manifest, false).is_err());
+    }
+
+    /// Write an app-mode executable manifest whose `icon` points at an existing
+    /// file (dummy bytes). The icon existence check resolves (the `Some(resolved)`
+    /// arm), then the macOS backend rejects the non-1024×1024 image.
+    fn write_app_project_present_icon(dir: &Path) {
+        std::fs::write(
+            dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"mode\": \"app\",\n",
+                "  \"icon\": \"assets/app.png\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.join("src")).expect("src dir");
+        std::fs::write(dir.join("src").join("main.mfb"), "SUB main()\nEND SUB\n").expect("source");
+        std::fs::create_dir_all(dir.join("assets")).expect("assets dir");
+        // A file that exists (so the existence check passes) but is not a valid
+        // 1024×1024 image (so the backend's deep icon validation fails).
+        std::fs::write(dir.join("assets").join("app.png"), b"not really a png").expect("icon");
+    }
+
+    /// A present `icon` resolves (the `Some(resolved)` icon arm), then the macOS
+    /// app backend rejects the dummy image inside `write_executable` — driving the
+    /// icon-resolves arm and the `write_executable` error arm on the host.
+    #[test]
+    fn build_project_app_mode_present_icon_resolves_then_backend_rejects() {
+        // Only meaningful when the host is app-capable (macOS): the `write_executable`
+        // MacApp arm is what rejects the dummy icon. On a non-app host this build
+        // routes through a cross target instead, so guard on the host target.
+        if !target::target_supports_app_mode(&target::BuildTarget::host()) {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        write_app_project_present_icon(dir.path());
+        let options =
+            parse_build_options(s(&["-app", dir.path().to_str().unwrap()])).expect("options");
+        assert!(
+            build_project(&options).is_err(),
+            "a present-but-invalid icon must be rejected by the backend"
+        );
+    }
+
+    /// App mode with no `icon` field takes the `None => None` icon arm. Routed to a
+    /// Windows cross target (mfb's internal PE linker builds it without a host
+    /// toolchain), exercising the no-icon arm and the WindowsApp build mode.
+    #[test]
+    fn build_project_app_mode_without_an_icon_field_takes_the_none_arm() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"mode\": \"app\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(dir.path().join("src").join("main.mfb"), "SUB main()\nEND SUB\n").unwrap();
+        let options = parse_build_options(s(&[
+            "-app",
+            "-target",
+            "windows-x86_64",
+            dir.path().to_str().unwrap(),
+        ]))
+        .expect("options");
+        build_project(&options).expect("windows app build with no icon succeeds");
+    }
+
+    /// `--sign` with a manifest `ident` owned by a different signer fails at
+    /// `signing_ident` — before any registry/key access — exercising the signing
+    /// error arm.
+    #[test]
+    fn build_project_sign_rejects_a_foreign_manifest_ident() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"ident\": \"ada#app\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .unwrap();
+        // `zed` does not own `ada#app`, so signing_ident rejects it.
+        let options =
+            parse_build_options(s(&["--sign", "zed", dir.path().to_str().unwrap()])).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A top-level `EXPORT` in an executable resolves cleanly but is rejected by
+    /// the export-in-executable diagnostic, driving the `had_error` return after
+    /// the verify phase (as distinct from a resolver name error).
+    #[test]
+    fn build_project_export_in_an_executable_is_a_verify_error() {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "EXPORT FUNC leak() AS Integer\n  RETURN 1\nEND FUNC\n\nSUB main()\nEND SUB\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A `build/` path that already exists as a regular file (not a directory)
+    /// makes the start-of-build clear fail with a non-`NotFound` error, aborting
+    /// the executable build.
+    #[test]
+    fn build_project_errors_when_build_path_is_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write_executable_project(dir.path());
+        // A regular file where the build directory should be: remove_dir_all fails
+        // with NotADirectory (not NotFound), which is the fatal arm.
+        std::fs::write(dir.path().join(crate::os::BUILD_DIR), b"not a directory").unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// An executable declaring a local package dependency whose `.mfp` is not
+    /// installed passes package verification (a missing local dep is skipped there)
+    /// then fails at the strict install check inside the executable build.
+    #[test]
+    fn build_project_executable_missing_dependency_is_a_hard_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"packages\": [{ \"name\": \"ghost\", \"ident\": \"ada#ghost\", \"version\": \"0.1.0\", \"pin\": true, \"source\": \"file:packages/ghost.mfp\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// The same missing-dependency install check gates a package build (the
+    /// package arm's install-check error).
+    #[test]
+    fn build_project_package_missing_dependency_is_a_hard_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"lib\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"package\",\n",
+                "  \"description\": \"Fixture package with a missing dependency.\",\n",
+                "  \"packages\": [{ \"name\": \"ghost\", \"ident\": \"ada#ghost\", \"version\": \"0.1.0\", \"pin\": true, \"source\": \"file:packages/ghost.mfp\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"package\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("lib.mfb"),
+            "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n",
+        )
+        .unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    /// A build that reads an installed dependency's exported function signatures
+    /// drives the `returns_imported_resource` filter closure over every external
+    /// signature (bug-377), even for the common non-resource return.
+    #[test]
+    fn build_project_reads_installed_dependency_exports() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"packages\": [{ \"name\": \"trap_builtin_pkg\", \"ident\": \"tests#trap\", \"version\": \"0.1.0\", \"pin\": false, \"source\": \"file:packages/trap_builtin_pkg.mfp\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .unwrap();
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::copy(
+            "tests/syntax/packages/package-trap-builtin/golden/trap_builtin_pkg.mfp",
+            packages.join("trap_builtin_pkg.mfp"),
+        )
+        .expect("copy fixture");
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        // The build succeeds; the point is that the external-signature filter ran.
+        build_project(&options).expect("build with an installed dependency succeeds");
+    }
+
+    /// A cross-target `mfb test` build cannot run the produced binary on the host,
+    /// so it writes the test executable and reports the artifact instead of
+    /// executing it — driving the cross-target test-report arm.
+    #[test]
+    fn build_project_cross_target_test_reports_the_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            concat!(
+                "FUNC main AS Integer\n",
+                "  RETURN 0\n",
+                "END FUNC\n\n",
+                "TESTING\n",
+                "  TGROUP \"g\"\n",
+                "    TCASE \"c\"\n",
+                "      expectInteger(1, 1)\n",
+                "    END TCASE\n",
+                "  END TGROUP\n",
+                "END TESTING\n"
+            ),
+        )
+        .unwrap();
+        let options = parse_test_options(s(&[
+            "--target",
+            "windows-x86_64",
+            dir.path().to_str().unwrap(),
+        ]))
+        .expect("options");
+        // A cross target cannot be run on the host; the driver is written and
+        // reported (no execution, no host `build/` clobber).
+        build_project(&options).expect("cross-target test build writes an artifact");
+    }
+
+    /// A package build whose output location is read-only fails when
+    /// `write_package` cannot create the `.mfp`, exercising that error arm.
+    #[test]
+    #[cfg(unix)]
+    fn build_project_package_write_to_a_readonly_location_fails() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        write_package_project(dir.path());
+        // Read + execute, but not write: sources still read, the .mfp cannot be
+        // written.
+        let mut perm = std::fs::metadata(dir.path()).unwrap().permissions();
+        perm.set_mode(0o555);
+        std::fs::set_permissions(dir.path(), perm).unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        let result = build_project(&options);
+        // Restore write so the temp dir can be cleaned up.
+        let mut restore = std::fs::metadata(dir.path()).unwrap().permissions();
+        restore.set_mode(0o755);
+        std::fs::set_permissions(dir.path(), restore).unwrap();
+        assert!(result.is_err(), "write_package into a read-only dir must fail");
+    }
+
+    /// Every artifact-dump writer surfaces its write error when the output location
+    /// is read-only, driving each dump's error arm (AST/IR/BR and the shared native
+    /// dump writer).
+    #[test]
+    #[cfg(unix)]
+    fn build_project_dump_writers_report_a_readonly_location() {
+        use std::os::unix::fs::PermissionsExt;
+        if running_as_root() {
+            return;
+        }
+        for flag in ["-ast", "-ir", "-br", "-nir", "-nplan", "-nobj", "-ncode", "-mir"] {
+            let dir = tempfile::tempdir().unwrap();
+            write_executable_project(dir.path());
+            let mut perm = std::fs::metadata(dir.path()).unwrap().permissions();
+            perm.set_mode(0o555);
+            std::fs::set_permissions(dir.path(), perm).unwrap();
+            let options =
+                parse_build_options(s(&[flag, dir.path().to_str().unwrap()])).expect("options");
+            let result = build_project(&options);
+            let mut restore = std::fs::metadata(dir.path()).unwrap().permissions();
+            restore.set_mode(0o755);
+            std::fs::set_permissions(dir.path(), restore).unwrap();
+            assert!(result.is_err(), "{flag}: a read-only location must fail the dump");
+        }
+    }
 }

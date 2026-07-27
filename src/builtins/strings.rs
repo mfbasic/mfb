@@ -764,4 +764,112 @@ mod tests {
         assert!(!exact(&types(&["Integer"]), &["String"]));
         assert!(exact(&types(&[]), &[]));
     }
+
+    #[test]
+    fn resolve_scalar_seam_family() {
+        // Scalar predicates + Scalar<->String conversions.
+        for name in [IS_LETTER, IS_DIGIT, IS_WHITESPACE, IS_UPPER, IS_LOWER] {
+            assert_eq!(ret(name, &["Scalar"]), Some("Boolean".to_string()));
+            assert_eq!(ret(name, &["String"]), None);
+        }
+        assert_eq!(
+            ret(TO_SCALARS, &["String"]),
+            Some("List OF Scalar".to_string())
+        );
+        assert_eq!(
+            ret(FROM_SCALARS, &["List OF Scalar"]),
+            Some("String".to_string())
+        );
+        // arity + metadata for the seam members (the `Some((1,1))` scalar arm).
+        for name in [
+            TO_SCALARS,
+            FROM_SCALARS,
+            IS_LETTER,
+            IS_DIGIT,
+            IS_WHITESPACE,
+            IS_UPPER,
+            IS_LOWER,
+        ] {
+            assert_eq!(arity(name), Some((1, 1)), "arity {name}");
+            assert!(implementation_name(name).is_some(), "impl {name}");
+        }
+        assert_eq!(implementation_name("strings.trim"), None);
+    }
+
+    fn parse_file(src: &str) -> crate::ast::AstFile {
+        crate::ast::parse_source(std::path::Path::new("t.mfb"), "t.mfb", src).unwrap()
+    }
+
+    fn project(files: Vec<crate::ast::AstFile>) -> crate::ast::AstProject {
+        crate::ast::AstProject {
+            name: "test".to_string(),
+            files,
+        }
+    }
+
+    // A body exercising the loop / lambda recursion arms of the seam walk without
+    // referencing a seam function (so each arm executes and returns false), then a
+    // TESTING block (nested TGROUP + TCASE) that DOES reference a seam member.
+    const SEAM_SOURCE: &str = "\
+IMPORT strings
+
+FUNC noSeam() AS Nothing
+  MUT total AS Integer = 0
+  FOR i = 1 TO 3 STEP 1
+    total = i
+  NEXT
+  DO
+    total = total + 1
+  LOOP UNTIL total >= 5
+  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + 1
+END FUNC
+
+TESTING
+  TGROUP \"outer\"
+    TGROUP \"nested\"
+      TCASE \"refs seam\"
+        LET v AS List OF Scalar = strings::toScalars(\"hi\")
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING
+";
+
+    #[test]
+    fn uses_package_true_through_nested_shapes() {
+        let ast = project(vec![parse_file(SEAM_SOURCE)]);
+        assert!(uses_package(&ast));
+    }
+
+    #[test]
+    fn uses_package_false_without_seam_reference() {
+        // Imports strings but never calls a seam member.
+        let ast = project(vec![parse_file(
+            "IMPORT strings\n\nFUNC plain() AS Nothing\n  LET x AS Integer = 1\nEND FUNC\n",
+        )]);
+        assert!(!uses_package(&ast));
+        // Does not import strings at all.
+        let ast2 = project(vec![parse_file(
+            "FUNC plain() AS List OF Scalar\n  RETURN strings::toScalars(\"hi\")\nEND FUNC\n",
+        )]);
+        assert!(!uses_package(&ast2));
+    }
+
+    #[test]
+    fn augmented_project_appends_companion_source() {
+        let ast = project(vec![parse_file(SEAM_SOURCE)]);
+        let before = ast.files.len();
+        let augmented = augmented_project(&ast).unwrap();
+        assert_eq!(augmented.files.len(), before + 1);
+        // The companion parses (source_file succeeded) and carries the renamed
+        // general-category function.
+        let companion = augmented.files.last().unwrap();
+        assert!(companion.path.contains("strings"));
+
+        // A project that does not use the package is returned unchanged.
+        let plain = project(vec![parse_file(
+            "FUNC plain() AS Nothing\n  LET x AS Integer = 1\nEND FUNC\n",
+        )]);
+        assert_eq!(augmented_project(&plain).unwrap().files.len(), 1);
+    }
 }

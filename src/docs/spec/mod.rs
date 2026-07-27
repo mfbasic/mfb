@@ -128,6 +128,64 @@ mod tests {
         assert!(topic(package, "does-not-exist").is_none());
     }
 
+    /// Every embedded page as a `(package, page, body)` triple, for the drift
+    /// guards below to walk.
+    fn spec_pages() -> impl Iterator<Item = (&'static str, &'static str, &'static str)> {
+        packages().iter().flat_map(|pkg| {
+            std::iter::once((pkg.name, "spec", pkg.overview))
+                .chain(pkg.topics.iter().map(move |t| (pkg.name, t.name, t.page)))
+        })
+    }
+
+    /// Pure resolver for the cross-link drift guard: returns a message for every
+    /// `./mfb spec <package> [<topic>]` cross-link in `pages` that does not
+    /// resolve to a known package/topic. Split out from the test so a synthetic
+    /// corpus can exercise the "broken" arms (the real corpus is expected clean).
+    fn unresolved_cross_links<'a>(
+        pages: impl Iterator<Item = (&'a str, &'a str, &'a str)>,
+    ) -> Vec<String> {
+        let mut broken = Vec::new();
+        for (owner, page, body) in pages {
+            for target in cross_links(body) {
+                let mut parts = target.split_whitespace();
+                let (Some(pkg_name), topic_name) = (parts.next(), parts.next()) else {
+                    continue;
+                };
+                let Some(found) = package(pkg_name) else {
+                    broken.push(format!("{owner}/{page} -> unknown package `{pkg_name}`"));
+                    continue;
+                };
+                if let Some(topic_name) = topic_name {
+                    if topic(found, topic_name).is_none() {
+                        broken.push(format!(
+                            "{owner}/{page} -> `{pkg_name} {topic_name}` (no such topic)"
+                        ));
+                    }
+                }
+            }
+        }
+        broken
+    }
+
+    /// Pure resolver for the citation drift guard: returns a message for every
+    /// `[[path:Symbol]]` citation in `pages` whose **file** component is absent
+    /// under `root`. Split out so a synthetic corpus can exercise the push arm.
+    fn unresolved_citations<'a>(
+        root: &std::path::Path,
+        pages: impl Iterator<Item = (&'a str, &'a str, &'a str)>,
+    ) -> Vec<String> {
+        let mut broken = Vec::new();
+        for (owner, page, body) in pages {
+            for cite in citations(body) {
+                let file = cite.split(':').next().unwrap_or(&cite);
+                if file.is_empty() || !root.join(file).exists() {
+                    broken.push(format!("{owner}/{page} -> [[{cite}]]"));
+                }
+            }
+        }
+        broken
+    }
+
     /// Drift guard (bug-338): every `./mfb spec <package> <topic>` cross-link in
     /// an embedded page must resolve to a package/topic that exists.
     ///
@@ -137,39 +195,27 @@ mod tests {
     /// the half a machine can keep checking.
     #[test]
     fn spec_links_resolve() {
-        let mut broken = Vec::new();
-        for pkg in packages() {
-            let pages = std::iter::once(("spec", pkg.overview))
-                .chain(pkg.topics.iter().map(|t| (t.name, t.page)));
-            for (page, body) in pages {
-                for target in cross_links(body) {
-                    let mut parts = target.split_whitespace();
-                    let (Some(pkg_name), topic_name) = (parts.next(), parts.next()) else {
-                        continue;
-                    };
-                    let Some(found) = package(pkg_name) else {
-                        broken.push(format!(
-                            "{}/{page} -> unknown package `{pkg_name}`",
-                            pkg.name
-                        ));
-                        continue;
-                    };
-                    if let Some(topic_name) = topic_name {
-                        if topic(found, topic_name).is_none() {
-                            broken.push(format!(
-                                "{}/{page} -> `{pkg_name} {topic_name}` (no such topic)",
-                                pkg.name
-                            ));
-                        }
-                    }
-                }
-            }
-        }
+        let broken = unresolved_cross_links(spec_pages());
         assert!(
             broken.is_empty(),
             "unresolvable spec cross-links:\n{}",
             broken.join("\n")
         );
+    }
+
+    /// The resolver's "broken" arms fire on a synthetic corrupt corpus: an
+    /// unknown package and a known package with an unknown topic.
+    #[test]
+    fn unresolved_cross_links_reports_drift() {
+        let pages = [(
+            "synthetic",
+            "page",
+            "See `./mfb spec nosuchpkg` and `./mfb spec architecture nosuchtopic`.",
+        )];
+        let broken = unresolved_cross_links(pages.into_iter());
+        assert_eq!(broken.len(), 2, "both drifts reported: {broken:?}");
+        assert!(broken[0].contains("unknown package `nosuchpkg`"));
+        assert!(broken[1].contains("(no such topic)"));
     }
 
     /// Drift guard (bug-338): the **file** component of every `[[path:Symbol]]`
@@ -182,24 +228,27 @@ mod tests {
     #[test]
     fn spec_citations_resolve() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let mut broken = Vec::new();
-        for pkg in packages() {
-            let pages = std::iter::once(("spec", pkg.overview))
-                .chain(pkg.topics.iter().map(|t| (t.name, t.page)));
-            for (page, body) in pages {
-                for cite in citations(body) {
-                    let file = cite.split(':').next().unwrap_or(&cite);
-                    if file.is_empty() || !root.join(file).exists() {
-                        broken.push(format!("{}/{page} -> [[{cite}]]", pkg.name));
-                    }
-                }
-            }
-        }
+        let broken = unresolved_citations(root, spec_pages());
         assert!(
             broken.is_empty(),
             "unresolvable spec citations:\n{}",
             broken.join("\n")
         );
+    }
+
+    /// The citation resolver's push arm fires on a synthetic citation whose file
+    /// does not exist under the root.
+    #[test]
+    fn unresolved_citations_reports_missing_file() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let pages = [(
+            "synthetic",
+            "page",
+            "Provenance [[nosuch/file.rs:Sym]] cited here.",
+        )];
+        let broken = unresolved_citations(root, pages.into_iter());
+        assert_eq!(broken.len(), 1, "missing-file citation reported: {broken:?}");
+        assert!(broken[0].contains("[[nosuch/file.rs:Sym]]"));
     }
 
     /// `./mfb spec <package> [<topic>]` targets named in a page's prose.

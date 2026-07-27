@@ -2855,4 +2855,39 @@ END FUNC
             .collect();
         assert_eq!(generated.len(), 2, "{generated:?}");
     }
+
+    #[test]
+    fn return_type_only_template_param_is_a_reported_error() {
+        // `T` appears only in the return type, so a bare `make()` cannot pin it
+        // down: the instantiation is refused with a diagnostic rather than left as
+        // the raw template name (bug-226).
+        let src = "\
+FUNC make OF T() AS T
+  RETURN NOTHING
+END FUNC
+SUB main()
+  LET x AS Integer = make()
+END SUB
+";
+        // Errors during lowering surface as the error flag.
+        assert!(monomorphize(src).is_err());
+    }
+
+    #[test]
+    fn generic_set_literal_lowers_its_element_type() {
+        // A generic function returning `Set OF T` whose body is a set literal
+        // exercises the SetLiteral lowering arm and the `Set OF` shape of
+        // `concrete_type_name`: the element type is rewritten T -> Integer.
+        let src = "\
+FUNC wrap OF T(value AS T) AS Set OF T
+  RETURN Set OF T { value }
+END FUNC
+SUB main()
+  LET s AS Set OF Integer = wrap(42)
+END SUB
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let names = function_names(&project);
+        assert!(names.iter().any(|n| n == "wrap$Integer"), "{names:?}");
+    }
 }

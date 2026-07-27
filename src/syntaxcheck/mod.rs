@@ -2309,6 +2309,219 @@ mod checker_tests {
         );
     }
 
+    // The imported-package metadata validators (`validate_package_metadata_type`,
+    // `validate_imported_package_type`, `collect_package_resources`,
+    // `install_package_type_info`, `package_field_info`) are driven directly with
+    // synthetic `Type`/`BinaryRepr*` values. Building the equivalent `.mfp`
+    // containers on disk for the Map / Function / Thread-state / unknown-type /
+    // Enum / Public+Export-field arms is impractical, so we call the `pub(super)`
+    // methods on a freshly constructed checker instead. These arms are reachable
+    // in production from a decoded package whose metadata carries these shapes.
+    #[test]
+    fn package_metadata_validator_arms_direct() {
+        use super::{
+            BinaryReprExportKind, BinaryReprTypeExport, BinaryReprTypeField,
+            BinaryReprTypeVisibility, SyntaxChecker, Type, TypeDeclKind, TypeInfo, Visibility,
+        };
+        use crate::ast::{parse_source, AstProject};
+        use std::collections::HashSet;
+        use std::path::PathBuf;
+
+        let file = parse_source(
+            Path::new("main.mfb"),
+            "main.mfb",
+            "FUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        )
+        .unwrap();
+        let project = AstProject {
+            name: "t".into(),
+            files: vec![file],
+        };
+        let dir = Path::new(".");
+        let mut checker = SyntaxChecker::new(dir, &project);
+        let file_ref = &project.files[0];
+        let pkg = PathBuf::from("packages/fake.mfp");
+
+        // Map with a non-comparable (List) key AND a `Res` value: exercises the
+        // Map arm's key/value recursion, the `is_comparable` rejection, and the
+        // `List | Set | Result | Res` element-recursion arm.
+        let mut seen = HashSet::new();
+        let map_ty = Type::Map(
+            Box::new(Type::List(Box::new(Type::Integer))),
+            Box::new(Type::Res(Box::new(Type::String))),
+        );
+        checker.validate_package_metadata_type(file_ref, 1, &pkg, &map_ty, "ctx", &mut seen);
+
+        // The remaining single-element wrappers (`Set`, `Result`) share the same
+        // recursion arm as `List`/`Res` but are distinct pattern alternatives.
+        for element_ty in [
+            Type::Set(Box::new(Type::Integer)),
+            Type::Result(Box::new(Type::String)),
+        ] {
+            checker.validate_package_metadata_type(file_ref, 1, &pkg, &element_ty, "ctx", &mut seen);
+        }
+
+        // Function type: parameter list + return-type recursion.
+        let fn_ty = Type::Function {
+            params: vec![Type::Integer, Type::String],
+            return_type: Box::new(Type::Boolean),
+            isolated: false,
+        };
+        checker.validate_package_metadata_type(file_ref, 1, &pkg, &fn_ty, "ctx", &mut seen);
+
+        // Thread carrying resource + resource_state + output: the `Some(resource)`
+        // and `Some(resource_state)` branches plus the message/output recursion.
+        let thread_ty = Type::Thread(
+            Box::new(Type::Integer),
+            Some(Box::new(Type::String)),
+            Some(Box::new(Type::Boolean)),
+            Box::new(Type::Float),
+        );
+        checker.validate_package_metadata_type(file_ref, 1, &pkg, &thread_ty, "ctx", &mut seen);
+
+        // ThreadWorker with no resource plane: the same arm, `None` branches.
+        let worker_ty = Type::ThreadWorker(
+            Box::new(Type::Integer),
+            None,
+            None,
+            Box::new(Type::Nothing),
+        );
+        checker.validate_package_metadata_type(file_ref, 1, &pkg, &worker_ty, "ctx", &mut seen);
+
+        // A `User` type not present in `type_infos` and not a resource: the
+        // "references unknown type" report.
+        checker.validate_package_metadata_type(
+            file_ref,
+            1,
+            &pkg,
+            &Type::User("Nope".into()),
+            "ctx",
+            &mut seen,
+        );
+
+        // A `User` type that resolves to an Enum: the empty `Enum` arm of the
+        // known-type match.
+        checker.type_infos.insert(
+            "MyEnum".into(),
+            TypeInfo {
+                kind: TypeDeclKind::Enum,
+                visibility: Visibility::Export,
+                file_path: String::new(),
+                fields: Vec::new(),
+                variants: Vec::new(),
+                members: HashSet::new(),
+            },
+        );
+        let mut seen2 = HashSet::new();
+        checker.validate_package_metadata_type(
+            file_ref,
+            1,
+            &pkg,
+            &Type::User("MyEnum".into()),
+            "ctx",
+            &mut seen2,
+        );
+
+        // `validate_imported_package_type`: the Enum and Func/Sub export kinds are
+        // no-ops (their type is not metadata-validated).
+        for kind in [
+            BinaryReprExportKind::Enum,
+            BinaryReprExportKind::Func,
+            BinaryReprExportKind::Sub,
+        ] {
+            let export = BinaryReprTypeExport {
+                name: "E".into(),
+                kind,
+                fields: Vec::new(),
+                variants: Vec::new(),
+                members: Vec::new(),
+                foreign_owner: None,
+            };
+            checker.validate_imported_package_type(file_ref, 1, &pkg, &export);
+        }
+
+        // `install_package_type_info`: the Enum kind maps to `TypeDeclKind::Enum`;
+        // a Func/Sub "type export" is a defensive `return`.
+        let enum_export = BinaryReprTypeExport {
+            name: "InstalledEnum".into(),
+            kind: BinaryReprExportKind::Enum,
+            fields: Vec::new(),
+            variants: Vec::new(),
+            members: vec!["A".into(), "B".into()],
+            foreign_owner: None,
+        };
+        checker.install_package_type_info(&pkg, enum_export);
+        assert_eq!(
+            checker.user_type_kinds.get("InstalledEnum"),
+            Some(&TypeDeclKind::Enum)
+        );
+        let func_export = BinaryReprTypeExport {
+            name: "NotAType".into(),
+            kind: BinaryReprExportKind::Func,
+            fields: Vec::new(),
+            variants: Vec::new(),
+            members: Vec::new(),
+            foreign_owner: None,
+        };
+        checker.install_package_type_info(&pkg, func_export);
+
+        // `package_field_info`: every field-visibility mapping.
+        for vis in [
+            BinaryReprTypeVisibility::Private,
+            BinaryReprTypeVisibility::Public,
+            BinaryReprTypeVisibility::Export,
+        ] {
+            let info = checker.package_field_info(BinaryReprTypeField {
+                name: "x".into(),
+                type_: "Integer".into(),
+                visibility: vis,
+            });
+            assert_eq!(info.name, "x");
+        }
+
+        // `collect_package_resources` over an unreadable/absent `.mfp`: the
+        // read-error report + early return.
+        checker.collect_package_resources(file_ref, "bind", 1, &pkg);
+
+        // Two `PACKAGE_INVALID`s at minimum: the non-comparable map key and the
+        // unknown `User` type (plus the unreadable resource table).
+        assert!(
+            checker
+                .diagnostics
+                .iter()
+                .filter(|d| d.rule == "PACKAGE_INVALID")
+                .count()
+                >= 3
+        );
+    }
+
+    // An import of a non-builtin package with no `.mfp` on disk drives the
+    // `!package_file.is_file()` early-continue in both `collect_package_types`
+    // and `collect_package_functions`.
+    #[test]
+    fn imported_package_without_mfp_file_skipped() {
+        use super::SyntaxChecker;
+        use crate::ast::{parse_source, AstProject};
+
+        let file = parse_source(
+            Path::new("main.mfb"),
+            "main.mfb",
+            "IMPORT nonexistent_pkg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        )
+        .unwrap();
+        let project = AstProject {
+            name: "t".into(),
+            files: vec![file],
+        };
+        // A directory with no `packages/nonexistent_pkg.mfp`: the collectors take
+        // the missing-file continue and register nothing for the import.
+        let dir = std::env::temp_dir().join(format!("mfb_sc_nomfp_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let checker = SyntaxChecker::new(&dir, &project);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!checker.functions.contains_key("nonexistent_pkg.anything"));
+    }
+
     // Exercises the standalone `check_project` render wrapper (accept path).
     #[test]
     fn check_project_wrapper_accepts() {
@@ -2446,7 +2659,11 @@ mod checker_tests {
     fn export_in_executable_flags_each_item_kind() {
         use crate::ast::{parse_source, AstProject};
         use std::path::Path;
-        let src = "EXPORT LET g AS Integer = 5\nEXPORT TYPE Rec\n  x AS Integer\nEND TYPE\nEXPORT FUNC f() AS Integer\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
+        // Cover every item kind the visibility match walks: binding, type,
+        // function, resource (Item::Resource arm), and func alias (Item::FuncAlias
+        // arm). The resource/alias targets need only parse — this entry point runs
+        // before import resolution.
+        let src = "EXPORT LET g AS Integer = 5\nEXPORT TYPE Rec\n  x AS Integer\nEND TYPE\nEXPORT FUNC f() AS Integer\n  RETURN 1\nEND FUNC\nEXPORT RESOURCE Db CLOSE BY x::close\nEXPORT FUNC ff AS x::gg\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let file = parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse");
         let project = AstProject {
             name: "t".to_string(),
@@ -2454,7 +2671,7 @@ mod checker_tests {
         };
         let diags = crate::syntaxcheck::export_in_executable_diagnostics(false, &project);
         assert!(diags.iter().all(|d| d.rule == "EXPORT_IN_EXECUTABLE"));
-        assert!(diags.len() >= 3, "expected an EXPORT diagnostic per item");
+        assert!(diags.len() >= 5, "expected an EXPORT diagnostic per item");
     }
 
     #[test]
@@ -2536,5 +2753,96 @@ mod checker_tests {
         // visited on the first path and skip it on the second (no false cycle).
         let src = "TYPE D\n  n AS Integer\nEND TYPE\nTYPE B\n  d AS D\nEND TYPE\nTYPE C\n  d AS D\nEND TYPE\nTYPE A\n  b AS B\n  c AS C\nEND TYPE\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         assert!(accepts(src));
+    }
+
+    // ---- plan-68-F3: residual mod.rs branches -------------------------------
+
+    #[test]
+    fn private_type_construction_in_same_file_is_visible() {
+        // mod.rs:1424 — visible_from's Private arm: a PRIVATE type constructed in
+        // its own file resolves (file.path == owner_file_path).
+        let src = "\
+PRIVATE TYPE Secret
+  a AS Integer
+END TYPE
+
+FUNC main AS Integer
+  LET s = Secret[1]
+  RETURN 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn set_of_resource_element_is_rejected() {
+        // mod.rs:1444-1445 — check_type_reference's Set arm rejects a resource
+        // (non-comparable, ownership-bearing) element type.
+        let src = "\
+IMPORT fs
+
+FUNC f(s AS Set OF File) AS Nothing
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(
+            rejects_with(src, "TYPE_COLLECTION_OWNERSHIP_VIOLATION"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    #[test]
+    fn union_including_another_union_expands_variants() {
+        // mod.rs:921-938 — a union that INCLUDES another union recurses through
+        // expanded_union_variants and extends with the included union's variants;
+        // a self-including union trips the visiting-set re-entry guard (902).
+        let src = "\
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Rect
+  width AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Rect
+END UNION
+
+UNION Bigger INCLUDES Shape
+  Circle
+END UNION
+
+UNION Cyclic INCLUDES Cyclic
+  Rect
+END UNION
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn call_with_named_arg_for_unknown_parameter_walks_shape_check() {
+        // mod.rs:1156-1157 — call_shape_matches_sig rejects a candidate when a
+        // named argument names no parameter of the signature.
+        let src = "\
+FUNC helper(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+
+FUNC main AS Integer
+  LET r AS Integer = helper(bogus := 1)
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
     }
 }

@@ -388,6 +388,129 @@ mod binary_repr_tests {
         }
     }
 
+    // `prefix_package_symbols` must fold every LINK-table routing name into the
+    // identity prefix in lockstep with the regular functions: the wrapper-body
+    // routing name (`alias.func`), the `link_functions`/`link_cstructs` alias,
+    // and each re-export alias target.
+    #[test]
+    fn prefix_package_symbols_qualifies_link_tables() {
+        let mut pkg = corpus_project();
+        let name = pkg.name.clone();
+        assert!(!pkg.link_functions.is_empty());
+        assert!(!pkg.link_cstructs.is_empty());
+        assert!(!pkg.link_aliases.is_empty());
+
+        let id = "id123";
+        prefix_package_symbols(&mut pkg, id);
+
+        let want = format!("{id}.{name}.");
+        assert!(
+            pkg.link_functions[0].alias.starts_with(&want),
+            "link function alias not prefixed: {}",
+            pkg.link_functions[0].alias
+        );
+        assert!(
+            pkg.link_cstructs[0].alias.starts_with(&want),
+            "cstruct alias not prefixed: {}",
+            pkg.link_cstructs[0].alias
+        );
+        assert!(
+            pkg.link_aliases[0].1.starts_with(&want),
+            "re-export alias target not prefixed: {}",
+            pkg.link_aliases[0].1
+        );
+    }
+
+    // `merge_package` de-duplicates the CSTRUCT table by `(alias, name)`: merging
+    // a package into a copy of itself leaves the table length unchanged (the
+    // `push_unique` predicate for `link_cstructs`).
+    #[test]
+    fn merge_package_dedups_link_cstructs() {
+        let mut base = corpus_project();
+        let incoming = corpus_project();
+        let before = base.link_cstructs.len();
+        assert!(before > 0);
+        merge_package(&mut base, incoming);
+        assert_eq!(base.link_cstructs.len(), before, "cstructs not deduped");
+    }
+
+    // A stateful link function (`return_state_type`/`bind_state`) rides the
+    // optional STATE trailer, and its `BIND IN` block rides the positional
+    // record — both must survive the encode/decode round trip (plan-53 / plan-50-E).
+    #[test]
+    fn link_state_trailer_and_bind_in_round_trip() {
+        let mut project = corpus_project();
+        {
+            let lf = &mut project.link_functions[0];
+            lf.return_state_type = Some("OpenState".to_string());
+            lf.bind_state = Some("cfg".to_string());
+            lf.bind_state_resource = None;
+            lf.bind_in = vec![crate::ir::IrBindIn {
+                slot: "cfg".to_string(),
+                fields: vec![
+                    crate::ir::IrBindInField {
+                        name: "a".to_string(),
+                        param: Some("path".to_string()),
+                        literal: None,
+                    },
+                    crate::ir::IrBindInField {
+                        name: "b".to_string(),
+                        param: None,
+                        literal: Some(-7),
+                    },
+                ],
+            }];
+        }
+        let bytes = encode_binary_repr(&project);
+        let decoded = decode_binary_repr(&bytes).expect("decode");
+        assert_eq!(project.to_json(), decoded.to_json());
+        let dlf = &decoded.link_functions[0];
+        assert_eq!(dlf.return_state_type.as_deref(), Some("OpenState"));
+        assert_eq!(dlf.bind_state.as_deref(), Some("cfg"));
+        assert_eq!(dlf.bind_in.len(), 1);
+        assert_eq!(dlf.bind_in[0].fields[1].literal, Some(-7));
+    }
+
+    // bug-291: a `FloatBlocked` resource owner is unreachable on the wire
+    // (`ir::verify` rejects a blocked float pre-encode), but the encoder still
+    // serializes it as a plain `Local` (tag 0) so the format needs no new tag.
+    #[test]
+    fn float_blocked_resource_owner_encodes_as_local() {
+        let mut project = corpus_project();
+        project.functions[0].resource_owners.insert(
+            "blocked".to_string(),
+            crate::ir::resource_escape::ResOwner::FloatBlocked("xs".to_string()),
+        );
+        let bytes = encode_binary_repr(&project);
+        let decoded = decode_binary_repr(&bytes).expect("decode");
+        assert!(matches!(
+            decoded.functions[0].resource_owners.get("blocked"),
+            Some(crate::ir::resource_escape::ResOwner::Local)
+        ));
+    }
+
+    // A per-CSTRUCT field count is an attacker-controlled u32, so it must be
+    // bounded independently of the struct count (decode_cstructs field cap).
+    #[test]
+    fn rejects_an_absurd_cstruct_field_count() {
+        let project = crate::ir::test_support::project_fixture("plain", vec![], vec![]);
+        let mut bytes = encode_binary_repr(&project);
+        // Append a trailer: 0 link functions, 0 aliases, then 1 CSTRUCT whose
+        // (alias, name, maps_to) are empty strings and whose field count is huge.
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // link functions
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // aliases
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // one CSTRUCT
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // alias: ""
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // name: ""
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // maps_to: ""
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // field count
+        let err = match decode_binary_repr(&bytes) {
+            Err(err) => err,
+            Ok(_) => panic!("an absurd CSTRUCT field count must be rejected"),
+        };
+        assert!(err.contains("limit"), "{err}");
+    }
+
     // Decoded package IR is verified against the package-format invariants
     // before it is merged; these exercise the PACKAGE_BINARY_REPRESENTATION_VERIFY_* diagnostics.
     #[test]
@@ -1681,6 +1804,144 @@ mod lower_tests {
         assert!(handle.is_some_and(|r| !r.close_may_fail));
     }
 
+    // A `CONST slot = SIZEOF <CStruct>` pin folds to the struct's C layout size
+    // (eval_link_const_opt SIZEOF arm).
+    #[test]
+    fn link_const_sizeof_folds_to_layout_size() {
+        let src = "RESOURCE H CLOSE BY lib::shut\n\
+             TYPE Rec\n  a AS Integer\n  b AS Integer\nEND TYPE\n\
+             LINK \"c\" AS lib\n\
+               CSTRUCT Pair AS Rec\n    a CInt32\n    b CInt32\n  END CSTRUCT\n\
+               FUNC make() AS RES H\n\
+                 SYMBOL \"make\"\n\
+                 ABI (sz CInt32, produced OUT CPtr) AS status CInt32\n\
+                 CONST sz = SIZEOF Pair\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+               FUNC shut(RES h AS H) AS Nothing\n\
+                 SYMBOL \"shut\"\n\
+                 ABI (h CPtr) AS status CInt32\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("SIZEOF CONST program should lower");
+        let make = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "make")
+            .expect("make link function");
+        let sz = make.consts.iter().find(|(s, _)| s == "sz").expect("sz const");
+        assert_eq!(sz.1, 8, "SIZEOF of two CInt32 fields is 8 bytes");
+    }
+
+    // `BIND IN` field values lower to a param reference, an integer literal, a
+    // boolean (0/1), or a negated literal; an unrecognized form lowers to
+    // neither (checkers reject it later).
+    #[test]
+    fn link_bind_in_field_value_forms() {
+        let src = "RESOURCE H CLOSE BY lib::shut\n\
+             TYPE Rec\n  a AS Integer\n  b AS Integer\n  c AS Integer\n  d AS Integer\n  e AS Integer\nEND TYPE\n\
+             LINK \"c\" AS lib\n\
+               CSTRUCT Cfg AS Rec\n    a CInt64\n    b CInt64\n    c CInt64\n    d CInt64\n    e CInt64\n  END CSTRUCT\n\
+               FUNC make(seed AS Integer) AS RES H\n\
+                 SYMBOL \"make\"\n\
+                 ABI (cfg IN Cfg, produced OUT CPtr) AS status CInt32\n\
+                 BIND IN cfg\n\
+                   a = seed\n\
+                   b = 5\n\
+                   c = TRUE\n\
+                   d = -3\n\
+                   e = -seed\n\
+                 END BIND\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+               FUNC shut(RES h AS H) AS Nothing\n\
+                 SYMBOL \"shut\"\n\
+                 ABI (h CPtr) AS status CInt32\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("BIND IN program should lower");
+        let make = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "make")
+            .expect("make link function");
+        let bind = make.bind_in.iter().find(|b| b.slot == "cfg").expect("cfg bind");
+        let field = |name: &str| bind.fields.iter().find(|f| f.name == name).unwrap();
+        assert_eq!(field("a").param.as_deref(), Some("seed"));
+        assert_eq!(field("b").literal, Some(5));
+        assert_eq!(field("c").literal, Some(1));
+        assert_eq!(field("d").literal, Some(-3));
+        // `-seed` negates a non-literal → neither a param nor a literal (the
+        // unrecognized form the checkers reject later).
+        let e = field("e");
+        assert_eq!(e.param, None);
+        assert_eq!(e.literal, None);
+    }
+
+    // `RETURN <expr>` (the result clause) binary lowering covers the `-`
+    // arithmetic arm and the `_ => Int(0)` fallback for an operator with no
+    // LINK-expr encoding.
+    #[test]
+    fn link_expr_binary_minus_and_unknown_fallback() {
+        let src = "LINK \"c\" AS lib\n\
+               FUNC make() AS Integer\n\
+                 SYMBOL \"make\"\n\
+                 ABI () AS status CInt32\n\
+                 RETURN status - 1\n\
+               END FUNC\n\
+               FUNC probe() AS Integer\n\
+                 SYMBOL \"probe\"\n\
+                 ABI () AS status CInt32\n\
+                 RETURN status / 2\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("RETURN-expression program should lower");
+        let make = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "make")
+            .expect("make link function");
+        assert!(
+            matches!(make.result, Some(IrLinkExpr::Sub(_, _))),
+            "status - 1 lowers to a Sub expr"
+        );
+        let probe = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "probe")
+            .expect("probe link function");
+        assert!(
+            matches!(probe.result, Some(IrLinkExpr::Int(0))),
+            "an unencodable operator lowers to Int(0)"
+        );
+    }
+
+    // An `EXPORT FUNC alias AS lib::close` re-export maps the resource's close op
+    // to the bare exported alias name (native_resources export-alias arm).
+    #[test]
+    fn native_resource_close_uses_exported_alias() {
+        let src = "EXPORT RESOURCE Db CLOSE BY lib::close\n\
+             LINK \"c\" AS lib\n\
+               FUNC close(RES db AS Db) AS Nothing\n\
+                 SYMBOL \"close\"\n\
+                 ABI (db CPtr) AS status CInt32\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+             END LINK\n\
+             EXPORT FUNC shutdown AS lib::close\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("re-export close program should lower");
+        let db = ir
+            .native_resources
+            .iter()
+            .find(|r| r.name == "Db")
+            .expect("Db resource");
+        assert_eq!(db.close_function, "shutdown");
+    }
+
     // ---- DOC blocks ------------------------------------------------------
 
     #[test]
@@ -1745,6 +2006,52 @@ mod lower_tests {
             assert!(!ir.docs.decls.iter().any(|d| d.name == "helper"));
         }
     }
+
+    #[test]
+    fn doc_resource_for_export_is_collected() {
+        // A DOC RESOURCE block over an EXPORT RESOURCE is persisted as an
+        // IrDocKind::Resource decl (the DocHeaderKind::Resource arm).
+        let src = "DOC\n  RESOURCE Db\n  DESC A database handle.\nEND DOC\n\
+             EXPORT RESOURCE Db CLOSE BY lib::close\n\
+             LINK \"c\" AS lib\n\
+               FUNC close(RES db AS Db) AS Nothing\n\
+                 SYMBOL \"close\"\n\
+                 ABI (db CPtr) AS status CInt32\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        let ir = try_lower_src(src).expect("DOC RESOURCE program should lower");
+        assert!(ir
+            .docs
+            .decls
+            .iter()
+            .any(|d| d.name == "Db" && d.kind == IrDocKind::Resource));
+    }
+
+    #[test]
+    fn doc_resource_for_nonexport_is_dropped() {
+        // A DOC RESOURCE block over a non-exported RESOURCE hits the visibility
+        // guard and is not persisted.
+        let src = "DOC\n  RESOURCE Cache\n  DESC A cache.\nEND DOC\n\
+             PRIVATE RESOURCE Cache CLOSE BY lib::freeCache\n\
+             LINK \"c\" AS lib\n\
+               FUNC freeCache(RES c AS Cache) AS Nothing\n\
+                 SYMBOL \"freeCache\"\n\
+                 ABI (c CPtr) AS status CInt32\n\
+                 SUCCESS_ON status = 0\n\
+               END FUNC\n\
+             END LINK\n\
+             SUB main\nEND SUB\n";
+        if let Some(ir) = try_lower_src(src) {
+            assert!(!ir
+                .docs
+                .decls
+                .iter()
+                .any(|d| d.name == "Cache" && d.kind == IrDocKind::Resource));
+        }
+    }
+
 
     // ---- qualified builtin package call ----------------------------------
 
@@ -3134,6 +3441,511 @@ mod lower_tests {
         );
         assert_eq!(function(&ir, "scaled").params.len(), 2);
         assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    // ---- plan-68 coverage: ops_read_local handler arms (no `e` read) -----
+    //
+    // Each handler below deliberately *never* references the trap binding `e`,
+    // so `ops_read_local(handler_ops, "e")` walks every op returning `false`.
+    // That reaches the match arms an `e`-reading handler short-circuits before
+    // (its condition/scrutinee `value_reads(_, "e")` returns `true` first).
+
+    #[test]
+    fn trap_handler_global_assign_arm_without_error_read() {
+        // AssignGlobal arm of `ops_read_local`: the handler assigns a top-level
+        // binding and never reads `e`.
+        let ir = lower_src(
+            "MUT flag AS Integer = 0\n\
+             FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 flag = 7\n\
+                 RECOVER 0\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_exit_program_arm() {
+        // ExitProgram arm of `ops_read_local`: a diverging handler.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 EXIT PROGRAM 3\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_continue_loop_arm() {
+        // ContinueLoop arm of `ops_read_local`: the trap sits in a FOR loop and
+        // its handler continues the loop, diverging without reading `e`.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               MUT total AS Integer = 0\n\
+               FOR i = 1 TO 3\n\
+                 LET n AS Integer = toInt(s) TRAP(e)\n\
+                   CONTINUE FOR\n\
+                 END TRAP\n\
+                 total = total + n\n\
+               NEXT\n\
+               RETURN total\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::For { .. }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_if_arm_recurses_both_branches() {
+        // If arm of `ops_read_local`: the condition does not read `e`, so the
+        // walk recurses into both the then- and else-bodies.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 IF len(s) > 0 THEN\n\
+                   RECOVER 0\n\
+                 ELSE\n\
+                   RECOVER 1\n\
+                 END IF\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_match_arm_with_guard_recurses() {
+        // Match arm of `ops_read_local`: the scrutinee and the CASE guard do not
+        // read `e`, so the walk evaluates the guard closure and recurses into the
+        // case body.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 MATCH len(s)\n\
+                   CASE 1 WHEN len(s) > 0\n\
+                     RECOVER 0\n\
+                   CASE ELSE\n\
+                     RECOVER 1\n\
+                 END MATCH\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn trap_handler_empty_loop_body_treeifies_to_nothing() {
+        // treeify_handler's empty-slice arm: a FOR loop with an empty body inside
+        // a handler makes `treeify_handler(&[])` return an empty Vec.
+        let ir = lower_src(
+            "FUNC parse(s AS String) AS Integer\n\
+               LET n AS Integer = toInt(s) TRAP(e)\n\
+                 FOR i = 1 TO 0\n\
+                 NEXT\n\
+                 RECOVER 0\n\
+               END TRAP\n\
+               RETURN n\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "parse").body.iter().any(|op| matches!(
+            op,
+            IrOp::If {
+                condition: IrValue::ResultIsOk { .. },
+                ..
+            }
+        )));
+    }
+
+    // ---- plan-68 coverage: type inference over literals / constructors ---
+
+    #[test]
+    fn untyped_global_binding_infers_type() {
+        // A top-level binding with no `AS` annotation but a value drives
+        // `precompute_binding_types` to record its inferred type.
+        let ir = lower_src(
+            "LET answer = 42\n\
+             FUNC main() AS Integer\n\
+               RETURN answer\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn untyped_money_and_scalar_literal_types() {
+        // `expression_type` Money (suffixed literal) and Scalar (backtick
+        // literal) arms, via untyped bindings.
+        let ir = lower_src(
+            "LET price = 2.50m\n\
+             LET letter = `A`\n\
+             FUNC main() AS Integer\n\
+               RETURN 0\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn expected_typed_numeric_literals_coerce() {
+        // `lower_expression_with_expected` Number arm: unsuffixed literals coerce
+        // to the annotated Fixed / Byte / Money slot; a `m`-suffixed literal is
+        // intrinsically Money.
+        let ir = lower_src(
+            "FUNC main() AS Integer\n\
+               LET a AS Fixed = 5\n\
+               LET b AS Byte = 7\n\
+               LET c AS Money = 1.25\n\
+               LET d = 2.50m\n\
+               RETURN b\n\
+             END FUNC\n",
+        );
+        let f = function(&ir, "main");
+        assert!(f.body.iter().any(|op| matches!(
+            op,
+            IrOp::Bind { type_, .. } if type_ == "Fixed"
+        )));
+        assert!(f.body.iter().any(|op| matches!(
+            op,
+            IrOp::Bind { type_, .. } if type_ == "Money"
+        )));
+    }
+
+    #[test]
+    fn untyped_list_literal_element_types() {
+        // `literal_expression_type`: an untyped list literal in a position with no
+        // expected element type (a `len(...)` argument) derives its element type
+        // from the first element across each literal kind.
+        let ir = lower_src(
+            "FUNC main() AS Integer\n\
+               LET a = len([1, 2, 3])\n\
+               LET b = len([\"x\", \"y\"])\n\
+               LET c = len([`a`, `b`])\n\
+               LET d = len([TRUE, FALSE])\n\
+               RETURN a + b + c + d\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn collections_filter_bare_builtin_predicate_type() {
+        // The native higher-order member (`collections::filter`) with a *bare*
+        // general built-in predicate (`isEven`): `expression_type` binds the
+        // predicate's parameter type from the list element type and resolves the
+        // call's return type through `collections::resolve_call`.
+        let ir = lower_src(
+            "IMPORT collections\n\
+             FUNC run() AS List OF Integer\n\
+               LET xs AS List OF Integer = [1, 2, 3]\n\
+               RETURN collections::filter(xs, isEven)\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(!function(&ir, "run").body.is_empty());
+    }
+
+    #[test]
+    fn untyped_record_and_variant_constructor_and_field_types() {
+        // `constructor_result` for a record and a union variant, and
+        // `record_field_type` for a user record field, all via untyped bindings.
+        let ir = lower_src(
+            "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n\
+             TYPE Dog\n  legs AS Integer\nEND TYPE\n\
+             TYPE Cat\n  lives AS Integer\nEND TYPE\n\
+             UNION Animal\n  Dog\n  Cat\nEND UNION\n\
+             FUNC main() AS Integer\n\
+               LET p = Point(1, 2)\n\
+               LET a = Dog(4)\n\
+               LET v = p.x\n\
+               RETURN v\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn member_access_builtin_type_field_infers() {
+        // `record_field_type` builtin path: a field of a built-in package type
+        // (`term::TermSize.columns`) resolves through `term::builtin_type_fields`.
+        let ir = lower_src(
+            "IMPORT term\n\
+             FUNC main() AS Integer\n\
+               LET sz = term::terminalSize()\n\
+               LET c = sz.columns\n\
+               RETURN c\n\
+             END FUNC\n",
+        );
+        assert!(!function(&ir, "main").body.is_empty());
+    }
+
+    #[test]
+    fn testing_block_item_is_skipped() {
+        // A top-level TESTING block is an `Item::Testing` the item loop skips
+        // (line 152); the program still lowers its ordinary functions.
+        let ir = lower_src(
+            "FUNC main() AS Integer\n\
+               RETURN 0\n\
+             END FUNC\n\
+             TESTING\n\
+               TGROUP \"g\"\n\
+                 TCASE \"c\"\n\
+                   expectInteger(1, 1)\n\
+                 END TCASE\n\
+               END TGROUP\n\
+             END TESTING\n",
+        );
+        assert_eq!(function(&ir, "main").returns, "Integer");
+    }
+}
+
+/// Per-construct lowering tests (plan-68-E1): each drives `lower_src` of a
+/// snippet that forces a specific under-exercised arm of `lower_expression` /
+/// `lower_statement` and asserts on the emitted `IrValue`/`IrOp` shape.
+#[cfg(test)]
+mod lower_construct_tests {
+    use super::super::*;
+    use super::helpers::{function, lower_src};
+
+    /// The value bound by `LET <name> = …` in `func`.
+    fn bind_value<'a>(ir: &'a IrProject, func: &str, name: &str) -> &'a IrValue {
+        function(ir, func)
+            .body
+            .iter()
+            .find_map(|op| match op {
+                IrOp::Bind {
+                    name: n,
+                    value: Some(v),
+                    ..
+                } if n == name => Some(v),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no binding `{name}` in `{func}`"))
+    }
+
+    // The most-negative `Fixed` / `Money` literals overflow their positive
+    // magnitude, so `lower_expression` folds the unary minus into the literal
+    // rather than leaving a `Unary` that codegen would materialize and negate
+    // at runtime (bug-07 / plan-29-B §4.2).
+    #[test]
+    fn negated_min_fixed_and_money_literals_fold_into_const() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET a AS Fixed = -2147483648.0\n\
+               LET c AS Money = -92233720368547.75808\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        match bind_value(&ir, "f", "a") {
+            IrValue::Const { type_, value } => {
+                assert_eq!(type_, "Fixed");
+                assert_eq!(value, "-2147483648.0");
+            }
+            _ => panic!("expected a folded Fixed const"),
+        }
+        match bind_value(&ir, "f", "c") {
+            IrValue::Const { type_, value } => {
+                assert_eq!(type_, "Money");
+                assert!(value.starts_with('-'), "money value: {value}");
+            }
+            _ => panic!("expected a folded Money const"),
+        }
+    }
+
+    // An unsuffixed decimal literal coerces to the slot's expected numeric type
+    // (`Money`/`Fixed`), and an integer literal coerces to a `Byte` slot — the
+    // expected-type arms of the number lowering.
+    #[test]
+    fn numeric_literals_coerce_to_expected_slot_type() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET m AS Money = 1.25\n\
+               LET x AS Fixed = 2.5\n\
+               LET b AS Byte = 200\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        for (name, want) in [("m", "Money"), ("x", "Fixed"), ("b", "Byte")] {
+            match bind_value(&ir, "f", name) {
+                IrValue::Const { type_, .. } => assert_eq!(type_, want, "`{name}`"),
+                _ => panic!("expected a {want} const for `{name}`"),
+            }
+        }
+    }
+
+    // A `Set OF T { … }` literal lowers each element with the set's element type
+    // as the expected type, producing an `IrValue::SetLiteral`.
+    #[test]
+    fn set_literal_lowers_to_set_value() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET s AS Set OF Integer = Set OF Integer { 1, 2, 3 }\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        match bind_value(&ir, "f", "s") {
+            IrValue::SetLiteral { type_, values } => {
+                assert_eq!(type_, "Set OF Integer");
+                assert_eq!(values.len(), 3);
+            }
+            _ => panic!("expected a SetLiteral"),
+        }
+    }
+
+    // A general `is*` predicate named in a value position expecting
+    // `FUNC(T) AS Boolean` lowers to a `FunctionRef` (bug-368;
+    // builtin_predicate_ref_type / function_type_parts_for_predicate).
+    #[test]
+    fn builtin_predicate_in_value_position_is_function_ref() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET p AS FUNC(Integer) AS Boolean = isEven\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(
+            matches!(bind_value(&ir, "f", "p"), IrValue::FunctionRef { .. }),
+            "isEven in a FUNC(Integer) AS Boolean slot must lower to a FunctionRef"
+        );
+    }
+
+    // A lambda whose body references an outer local inside a `Set OF` literal
+    // captures that local — `collect_captured_locals` must recurse into the set
+    // literal's elements to find it.
+    #[test]
+    fn lambda_capturing_local_inside_set_literal_is_closure() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET base AS Integer = 5\n\
+               LET g AS FUNC(Integer) AS Set OF Integer = LAMBDA(v AS Integer) -> Set OF Integer { base, v }\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(
+            matches!(bind_value(&ir, "f", "g"), IrValue::Closure { captures, .. } if !captures.is_empty()),
+            "the lambda must capture `base` referenced inside the set literal"
+        );
+    }
+
+    // The return type of `collections::filter(xs, isEven)` bound without an
+    // explicit type is inferred by walking the predicate argument
+    // (expression_type's unary-callback-member path).
+    #[test]
+    fn filter_call_return_type_is_inferred_from_predicate() {
+        let ir = lower_src(
+            "IMPORT collections\n\
+             FUNC f() AS Integer\n\
+               LET xs AS List OF Integer = [1, 2, 3]\n\
+               LET ys = collections::filter(xs, isEven)\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        let bind = function(&ir, "f")
+            .body
+            .iter()
+            .find_map(|op| match op {
+                IrOp::Bind { name, type_, .. } if name == "ys" => Some(type_.clone()),
+                _ => None,
+            })
+            .expect("ys binding");
+        assert_eq!(bind, "List OF Integer");
+    }
+
+    // A builtin call mixing positional and named arguments drives
+    // `normalize_overloaded_builtin_call_arguments`'s ordering arms.
+    #[test]
+    fn named_and_positional_builtin_args_normalize() {
+        let ir = lower_src(
+            "IMPORT strings\n\
+             FUNC f() AS String\n\
+               RETURN strings::replace(\"aaa\", old := \"a\", new := \"b\")\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        assert!(function(&ir, "f").body.iter().any(|op| matches!(
+            op,
+            IrOp::Return { value: Some(_), .. }
+        )));
+    }
+
+    // A numeric literal bound with no expected type takes its type from the
+    // literal classification alone (the no-expected fallback arm).
+    #[test]
+    fn bare_numeric_literals_type_from_classification() {
+        let ir = lower_src(
+            "FUNC f() AS Integer\n\
+               LET raw = 3.14\n\
+               RETURN 0\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        match bind_value(&ir, "f", "raw") {
+            IrValue::Const { type_, .. } => assert_eq!(type_, "Float"),
+            _ => panic!("expected a Float const for a bare decimal literal"),
+        }
+    }
+
+    // The `error(code, message)` language builtin lowers to ordinary `Error`
+    // record construction stamped with the call site.
+    #[test]
+    fn error_builtin_lowers_to_record_construction() {
+        let ir = lower_src(
+            "FUNC f() AS Error\n\
+               LET e AS Error = error(404, \"missing\")\n\
+               RETURN e\n\
+             END FUNC\n\
+             SUB main\nEND SUB\n",
+        );
+        // The binding produced some value (a lowered Error record), not a raw call.
+        assert!(function(&ir, "f")
+            .body
+            .iter()
+            .any(|op| matches!(op, IrOp::Bind { name, .. } if name == "e")));
     }
 }
 

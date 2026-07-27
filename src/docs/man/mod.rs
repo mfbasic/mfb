@@ -413,4 +413,43 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn markdown_synopsis_none_when_section_runs_to_eof_without_content() {
+        // The `## Synopsis` heading is found, but every following line is blank or
+        // a code fence, so the scan falls off the end and returns None.
+        assert_eq!(markdown_synopsis("# x\n\n## Synopsis\n\n```\n```\n"), None);
+    }
+
+    #[test]
+    fn build_package_plain_text_summary_from_name_line() {
+        // Drive `build_package` through its classic plain-text `NAME` branch (no
+        // shipped package uses it today). A made-up package name has no generated
+        // function pages, so `functions` is empty.
+        let page = "NAME\n  demo - numeric constants\n\nSYNOPSIS\n  demo::x()\n";
+        let doc = build_package("demo", "mfb man demo", page);
+        assert_eq!(doc.summary, "numeric constants");
+        assert!(doc.functions.is_empty());
+    }
+
+    #[test]
+    fn plain_text_function_page_parsed_via_name_and_synopsis() {
+        let page = "NAME\n  x - the x helper\n\nSYNOPSIS\n  demo::x(a AS Int) AS Int\n";
+        assert!(!is_markdown_page(page));
+        let function = parse_rendered_function_page("x", page);
+        assert_eq!(function.name, "x");
+        assert_eq!(function.summary, "the x helper");
+        assert_eq!(function.signature, "demo::x(a AS Int) AS Int");
+        assert_eq!(function.example, "");
+    }
+
+    #[test]
+    fn first_synopsis_line_reads_first_content_line() {
+        assert_eq!(
+            first_synopsis_line("NAME\n  demo - x\n\nSYNOPSIS\n  demo::x(a AS Int) AS Int\n"),
+            Some("demo::x(a AS Int) AS Int"),
+        );
+        // No SYNOPSIS section -> None.
+        assert_eq!(first_synopsis_line("NAME\n  demo - x\n"), None);
+    }
 }

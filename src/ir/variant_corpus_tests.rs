@@ -135,6 +135,10 @@ fn every_value() -> Vec<IrValue> {
             type_: "Map OF String TO Integer".to_string(),
             entries: vec![(c("String", "k"), IrValue::Global("g".to_string()))],
         },
+        IrValue::SetLiteral {
+            type_: "Set OF Integer".to_string(),
+            values: vec![c("Integer", "1"), IrValue::Global("g".to_string())],
+        },
         IrValue::MemberAccess {
             target: Box::new(IrValue::Local("p".to_string())),
             member: "x".to_string(),

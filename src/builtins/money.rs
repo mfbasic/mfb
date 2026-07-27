@@ -152,6 +152,32 @@ mod tests {
     }
 
     #[test]
+    fn return_type_names_for_each_callable() {
+        assert_eq!(call_return_type_name(SET_ROUNDING), Some("Nothing"));
+        assert_eq!(call_return_type_name(GET_ROUNDING), Some("Rounding"));
+        assert_eq!(call_return_type_name(ROUND), Some("Money"));
+        assert_eq!(call_return_type_name("not_a_money_fn"), None);
+    }
+
+    #[test]
+    fn expected_arguments_and_param_names() {
+        assert_eq!(expected_arguments(SET_ROUNDING), Some("Rounding"));
+        assert_eq!(expected_arguments(GET_ROUNDING), Some("()"));
+        assert_eq!(expected_arguments(ROUND), Some("Money, Integer"));
+        assert_eq!(expected_arguments("not_a_money_fn"), None);
+
+        assert!(call_param_names(SET_ROUNDING).is_some());
+        assert!(call_param_names(GET_ROUNDING).is_some());
+        assert!(call_param_names(ROUND).is_some());
+        assert!(call_param_names("not_a_money_fn").is_none());
+    }
+
+    #[test]
+    fn arity_none_for_unknown() {
+        assert_eq!(arity("not_a_money_fn"), None);
+    }
+
+    #[test]
     fn argument_types_machine_table() {
         // bug-340 A1: the machine-readable positional signature IR lowering reads.
         assert_eq!(argument_types(ROUND), Some(&["Money", "Integer"][..]));

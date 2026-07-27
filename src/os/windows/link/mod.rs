@@ -14,6 +14,8 @@
 //! since nothing calls `write_executable` until the backend is wired.
 
 mod pe;
+// plan-66-K: the `.rsrc` resource section (icon + DPI manifest + version info).
+mod rsrc;
 // plan-66-J: the message-loop ↔ worker spike (test-only), proving the app-mode
 // premise before the full Win32 floor is built.
 #[cfg(test)]
@@ -281,7 +283,6 @@ pub(crate) fn write_executable(
     app_icon: Option<&std::path::Path>,
     app_version: Option<&str>,
 ) -> Result<Vec<u8>, String> {
-    let _ = (app_icon, app_version);
     // Entry must be a text symbol (§4.6, mirroring the ELF requirement).
     let entry_offset = image
         .symbols
@@ -295,9 +296,14 @@ pub(crate) fn write_executable(
     let has_rdata = rodata_size > 0;
     let has_data = image.data.len() > rodata_size;
     let has_idata = !image.imports.is_empty();
+    // plan-66-K: app-mode (GUI) builds carry a `.rsrc` (DPI manifest, always; icon
+    // and version when supplied). Console builds get no `.rsrc`, so they stay
+    // byte-identical to the pre-K writer.
+    let has_rsrc = gui;
 
     // Count sections to size the headers, then lay out RVAs/file offsets.
-    let section_count = 1 + has_rdata as usize + has_data as usize + has_idata as usize;
+    let section_count =
+        1 + has_rdata as usize + has_data as usize + has_idata as usize + has_rsrc as usize;
     let headers = size_of_headers(section_count);
     let text_rva = align_up(headers, SECTION_ALIGNMENT);
     let text_file = align_up(headers, FILE_ALIGNMENT);
@@ -371,6 +377,25 @@ pub(crate) fn write_executable(
     let empty: [u8; 0] = [];
     let idata_bytes: &[u8] = idata.as_ref().map(|i| i.bytes.as_slice()).unwrap_or(&empty);
 
+    // plan-66-K: the `.rsrc` section sits last (its size affects no later RVA). Its
+    // RVA/file follow `.idata` (or `.idata`'s reserved slot when there are no
+    // imports). Built before the section list so its bytes outlive the borrow;
+    // `build_rsrc` needs the RVA because a resource data entry's `OffsetToData` is
+    // an image RVA.
+    let (rsrc_rva, rsrc_file) = if has_idata {
+        (
+            align_up(idata_rva + idata_bytes.len() as u32, SECTION_ALIGNMENT),
+            align_up(idata_file + idata_bytes.len() as u32, FILE_ALIGNMENT),
+        )
+    } else {
+        (idata_rva, idata_file)
+    };
+    let rsrc_bytes: Vec<u8> = if has_rsrc {
+        rsrc::build_rsrc(rsrc_rva, app_icon, app_version)?
+    } else {
+        Vec::new()
+    };
+
     let mut sections = vec![Section {
         name: section_name(".text"),
         characteristics: SCN_TEXT,
@@ -410,13 +435,25 @@ pub(crate) fn write_executable(
         });
     }
 
-    let dirs = idata
+    let mut dirs = idata
         .as_ref()
         .map(|i| ImportDirectories {
             import: i.import_dir,
             iat: i.iat,
+            ..ImportDirectories::default()
         })
         .unwrap_or_default();
+    if has_rsrc {
+        dirs.resource = (rsrc_rva, rsrc_bytes.len() as u32);
+        sections.push(Section {
+            name: section_name(".rsrc"),
+            characteristics: SCN_RDATA, // initialized data, read-only
+            virtual_address: rsrc_rva,
+            virtual_size: rsrc_bytes.len() as u32,
+            file_offset: rsrc_file,
+            bytes: &rsrc_bytes,
+        });
+    }
 
     Ok(pe::write_image(
         &sections,
@@ -727,5 +764,139 @@ mod tests {
         assert_eq!(groups[0].0, "bcrypt.dll");
         assert_eq!(groups[1].0, "kernel32.dll");
         assert_eq!(groups[1].1, vec!["ExitProcess", "WriteFile"]);
+    }
+
+    /// A read-only prefix (`.rdata`) plus writable data (`.data`) both emit their
+    /// own section, laid out contiguously so a data symbol's RVA is the same in
+    /// either partition (§4.4).
+    #[test]
+    fn rdata_and_data_sections_are_both_emitted() {
+        let mut img = image(vec![0xc3]);
+        // rodata_size must be SECTION_ALIGNMENT-aligned so the .rdata/.data split
+        // keeps data symbol RVAs contiguous (the debug_assert at §4.4).
+        img.data = vec![0xAB; SECTION_ALIGNMENT as usize + 16];
+        img.rodata_size = SECTION_ALIGNMENT as usize;
+        let bytes = write_executable(&img, false, None, None).expect("link");
+        let e_lfanew = le_u32(&bytes, 0x3C) as usize;
+        // .text + .rdata + .data == 3 sections.
+        assert_eq!(le_u16(&bytes, e_lfanew + 6), 3);
+        // The .data section's first byte round-trips.
+        let sect_table = e_lfanew + 4 + 20 + 240;
+        let data_vaddr = le_u32(&bytes, sect_table + 2 * 40 + 12);
+        assert_eq!(read_at_rva(&bytes, data_vaddr, 1), vec![0xAB]);
+    }
+
+    /// A `Data`-kind import carries no `FF 25` thunk — `append_thunks` skips it —
+    /// yet still occupies an IAT slot through `build_idata`.
+    #[test]
+    fn data_import_is_skipped_by_thunks() {
+        let mut img = exit_process_42_image();
+        img.imports.push(EncodedImport {
+            library: "kernel32.dll".to_string(),
+            symbol: "SomeDataGlobal".to_string(),
+            kind: ImportKind::Data,
+            version: None,
+        });
+        let bytes = write_executable(&img, false, None, None).expect("link");
+        assert_eq!(&bytes[0..2], b"MZ");
+    }
+
+    #[test]
+    fn external_call_with_no_iat_slot_is_rejected() {
+        let mut img = image(vec![0xe8, 0, 0, 0, 0, 0xcc, 0xcc, 0xcc]);
+        img.relocations.push(EncodedRelocation {
+            offset: 1,
+            target: "Missing".to_string(),
+            kind: "call_pc32".to_string(),
+            binding: "external".to_string(),
+            library: Some("kernel32.dll".to_string()),
+        });
+        let err = write_executable(&img, false, None, None).expect_err("no thunk");
+        assert!(err.contains("cannot bind external call"), "{err}");
+    }
+
+    fn image_with_import_and_data_reloc(target: &str) -> EncodedImage {
+        // mov eax, [rip+disp32] ; ret   (disp32 field at text offset 2)
+        let mut img = image(vec![0x8b, 0x05, 0, 0, 0, 0, 0xc3]);
+        img.imports.push(EncodedImport {
+            library: "kernel32.dll".to_string(),
+            symbol: "ExitProcess".to_string(),
+            kind: ImportKind::Function,
+            version: None,
+        });
+        img.relocations.push(EncodedRelocation {
+            offset: 2,
+            target: target.to_string(),
+            kind: "data_pc32".to_string(),
+            binding: "external".to_string(),
+            library: Some("kernel32.dll".to_string()),
+        });
+        img
+    }
+
+    #[test]
+    fn external_data_reloc_binds_to_the_iat_slot() {
+        // The function import populates its IAT slot via `append_thunks`; an
+        // external data reloc to it binds to that slot RVA.
+        let bytes = write_executable(&image_with_import_and_data_reloc("ExitProcess"), false, None, None)
+            .expect("link");
+        assert_eq!(&bytes[0..2], b"MZ");
+    }
+
+    #[test]
+    fn external_data_reloc_with_no_slot_is_rejected() {
+        let err =
+            write_executable(&image_with_import_and_data_reloc("MissingData"), false, None, None)
+                .expect_err("unbound data");
+        assert!(err.contains("cannot bind external data"), "{err}");
+    }
+
+    #[test]
+    fn unsupported_relocation_kind_is_rejected() {
+        let mut img = image(vec![0xc3]);
+        img.relocations.push(EncodedRelocation {
+            offset: 0,
+            target: "_start".to_string(),
+            kind: "abs64".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        let err = write_executable(&img, false, None, None).expect_err("unsupported");
+        assert!(err.contains("does not support relocation"), "{err}");
+    }
+
+    #[test]
+    fn relocation_offset_past_text_end_is_rejected() {
+        let mut img = image(vec![0xc3, 0xc3]);
+        img.relocations.push(EncodedRelocation {
+            offset: 1, // 1 + 4 = 5 > text.len() 2
+            target: "_start".to_string(),
+            kind: "call_pc32".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        let err = write_executable(&img, false, None, None).expect_err("out of range");
+        assert!(err.contains("out of range"), "{err}");
+    }
+
+    #[test]
+    fn runnable_exit42_image_links_to_a_pe() {
+        let bytes = write_executable(&runnable_exit42_image(), false, None, None)
+            .expect("link runnable exit42");
+        assert_eq!(&bytes[0..2], b"MZ");
+    }
+
+    /// plan-66-I: `gui = true` links the GUI subsystem (WINDOWS_GUI = 2), `false`
+    /// the console subsystem (WINDOWS_CUI = 3). Subsystem is at optional-header
+    /// offset 68.
+    #[test]
+    fn gui_flag_selects_the_pe_subsystem() {
+        let gui = write_executable(&image(vec![0xc3]), true, None, None).expect("gui");
+        let opt = le_u32(&gui, 0x3C) as usize + 4 + 20;
+        assert_eq!(le_u16(&gui, opt + 68), 2, "WINDOWS_GUI");
+
+        let cui = write_executable(&image(vec![0xc3]), false, None, None).expect("cui");
+        let opt = le_u32(&cui, 0x3C) as usize + 4 + 20;
+        assert_eq!(le_u16(&cui, opt + 68), 3, "WINDOWS_CUI");
     }
 }
