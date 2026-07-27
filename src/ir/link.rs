@@ -1072,4 +1072,130 @@ mod tests {
             assert_eq!(compute_c_layout(&f, target).unwrap(), a, "{target} differs");
         }
     }
+
+    // ---- cstruct_field_mfb_type: the non-Integer mapping arms ----------------
+
+    #[test]
+    fn cstruct_field_mfb_type_maps_each_scalar_class() {
+        assert_eq!(cstruct_field_mfb_type("CInt64"), Some("Integer"));
+        assert_eq!(cstruct_field_mfb_type("CBool"), Some("Boolean"));
+        assert_eq!(cstruct_field_mfb_type("CFloat"), Some("Float"));
+        assert_eq!(cstruct_field_mfb_type("CDouble"), Some("Float"));
+        assert_eq!(cstruct_field_mfb_type("CString"), Some("String"));
+        // CPtr/CVoid and any unknown ctype never map into a record field.
+        assert_eq!(cstruct_field_mfb_type("CPtr"), None);
+        assert_eq!(cstruct_field_mfb_type("CVoid"), None);
+        assert_eq!(cstruct_field_mfb_type("CSize"), None);
+    }
+
+    // ---- check_struct_slot fault arms ---------------------------------------
+
+    fn record(spec: &[(&str, &str)]) -> Vec<(String, String)> {
+        fields(spec)
+    }
+
+    #[test]
+    fn struct_slot_rejects_cptr_field() {
+        // A CPtr field would surface a raw pointer inside a record — rejected
+        // before any record-matching is attempted.
+        let cfields = fields(&[("handle", "CPtr")]);
+        let rec = record(&[]);
+        let view = StructSlotView {
+            cfields: &cfields,
+            record: &rec,
+            cstruct_name: "Node",
+            maps_to: "NodeRec",
+        };
+        let faults = check_struct_slot(&view);
+        assert!(
+            faults.iter().any(|f| f.rule == "NATIVE_CSTRUCT_INVALID"
+                && f.message.contains("CPtr")),
+            "expected a CPtr fault"
+        );
+    }
+
+    #[test]
+    fn struct_slot_skips_unlayoutable_field_and_flags_missing_record_field() {
+        // `CVoid` has no record mapping (skipped via the `continue`), while the
+        // scalar `count` field has no matching record field → a mismatch fault.
+        let cfields = fields(&[("pad", "CVoid"), ("count", "CInt32")]);
+        let rec = record(&[]);
+        let view = StructSlotView {
+            cfields: &cfields,
+            record: &rec,
+            cstruct_name: "Hdr",
+            maps_to: "HdrRec",
+        };
+        let faults = check_struct_slot(&view);
+        assert!(
+            faults
+                .iter()
+                .any(|f| f.rule == "NATIVE_STRUCT_FIELD_MISMATCH"
+                    && f.message.contains("count")),
+            "expected a coverage-must-be-total fault for `count`"
+        );
+    }
+
+    // ---- check_buffer_slots: CONST-on-non-OUT-CBuffer and unbound SIZE read ---
+
+    #[test]
+    fn buffer_const_pinned_non_out_cbuffer_is_rejected() {
+        // An IN CBuffer that is ALSO CONST-pinned trips both rule 1 (OUT-only) and
+        // rule 4 (a CONST slot cannot be a CBuffer).
+        let view = BufferSlotsView {
+            function: "grab",
+            slots: vec![("buf", "CBuffer", AbiDirection::In)],
+            buffers: vec![("buf", vec![])],
+            const_slots: vec!["buf"],
+            param_names: vec![],
+            return_type: "Nothing",
+            abi_return_name: "status",
+            abi_return_ctype: "CInt32",
+            result_slot: None,
+            length_reads: None,
+        };
+        let faults = check_buffer_slots(&view);
+        assert!(
+            faults.iter().any(|f| f.rule == "NATIVE_CONST_OUT"),
+            "expected a NATIVE_CONST_OUT fault for the const-pinned CBuffer"
+        );
+    }
+
+    #[test]
+    fn buffer_size_reading_a_bare_abi_slot_is_unbound() {
+        // A `BUFFER buf SIZE n` where `n` is an IN ABI slot (not a parameter or a
+        // CONST pin) is a causality error: `n` has no value before the call.
+        let view = BufferSlotsView {
+            function: "read",
+            slots: vec![("buf", "CBuffer", AbiDirection::Out), ("n", "CInt32", AbiDirection::In)],
+            buffers: vec![("buf", vec!["n"])],
+            const_slots: vec![],
+            param_names: vec![],
+            return_type: BYTE_LIST_TYPE,
+            abi_return_name: "status",
+            abi_return_ctype: "CInt32",
+            result_slot: Some("buf"),
+            length_reads: Some(vec!["status"]),
+        };
+        let faults = check_buffer_slots(&view);
+        assert!(
+            faults.iter().any(|f| f.rule == "NATIVE_ABI_UNBOUND_SLOT"
+                && f.message.contains("no value of its own")),
+            "expected the 'ABI slot with no value before the call' fault"
+        );
+    }
+
+    // ---- AbiDirection wire encoding -----------------------------------------
+
+    #[test]
+    fn abi_direction_code_round_trips_including_inout() {
+        for dir in [AbiDirection::In, AbiDirection::Out, AbiDirection::InOut] {
+            assert_eq!(AbiDirection::from_code(dir.code()), Some(dir));
+        }
+        assert_eq!(AbiDirection::InOut.code(), 2);
+        assert_eq!(AbiDirection::from_code(2), Some(AbiDirection::InOut));
+        assert_eq!(AbiDirection::from_code(3), None);
+        assert!(AbiDirection::InOut.writes_back());
+        assert!(!AbiDirection::In.writes_back());
+    }
 }
