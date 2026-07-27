@@ -3042,6 +3042,44 @@ mod tests {
         assert_eq!(copied.len(), 1, "exactly one vendored library was copied");
     }
 
+    /// A resources entry whose source resolves outside the project (an in-tree
+    /// symlink escaping the root) fails the build at the resource-copy step, after
+    /// codegen — exercising the `copy_resources` error arm in `build_project`.
+    #[test]
+    #[cfg(unix)]
+    fn build_project_reports_a_resource_copy_failure() {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret.conf"), b"secret").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"resources\": [{ \"src\": \"assets/*.conf\", \"dst\": \"cfg/\" }],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .unwrap();
+        // An in-tree name that textually looks contained but resolves outside.
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("assets")).unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
     /// The same missing-`libraries` error aborts a package build (the package-path
     /// `assemble_native_libraries` gate).
     #[test]
