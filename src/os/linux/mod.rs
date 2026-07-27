@@ -253,4 +253,66 @@ mod tests {
         );
         assert!(!appdir.join("usr/lib").exists());
     }
+
+    fn ret_image() -> EncodedImage {
+        EncodedImage {
+            text: vec![0xc0, 0x03, 0x5f, 0xd6],
+            data: Vec::new(),
+            rodata_size: 0,
+            symbols: vec![EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            }],
+            relocations: Vec::new(),
+            imports: Vec::new(),
+            entry: "_main".to_string(),
+            initializers: Vec::new(),
+            signing_metadata: None,
+            rpaths: Vec::new(),
+        }
+    }
+
+    /// plan-51-C §4.4: the `seal_appimage`/`remove_appdir` wrappers forward to
+    /// `appimage::`. Build an AppDir, seal it into a single-file `.AppImage`
+    /// (embedded ELF runtime prefix), then remove the intermediate AppDir.
+    #[test]
+    fn seals_and_removes_appdir() {
+        let image = ret_image();
+        let dir = tempfile::tempdir().unwrap();
+        let appdir = write_linked_appdir(
+            dir.path(),
+            "sealed",
+            "aarch64",
+            LinuxFlavor::Glibc,
+            &image,
+            None,
+            "0.1.0",
+        )
+        .expect("appdir");
+        assert!(appdir.is_dir());
+
+        let appimage = seal_appimage(dir.path(), "sealed", LinuxFlavor::Glibc, "aarch64")
+            .expect("seal appimage");
+        assert_eq!(
+            appimage,
+            dir.path().join("build").join("sealed-glibc.AppImage")
+        );
+        let bytes = std::fs::read(&appimage).unwrap();
+        assert_eq!(&bytes[0..4], b"\x7fELF", "AppImage begins with the ELF runtime");
+
+        remove_appdir(dir.path(), "sealed", LinuxFlavor::Glibc).expect("remove appdir");
+        assert!(!appdir.exists(), "intermediate AppDir removed");
+    }
+
+    /// The `Musl` flavor threads its suffix through the executable wrapper.
+    #[test]
+    fn writes_linked_executable_musl_suffix() {
+        let image = ret_image();
+        let dir = tempfile::tempdir().unwrap();
+        let path =
+            write_linked_executable(dir.path(), "prog", "aarch64", LinuxFlavor::Musl, &image)
+                .expect("write executable");
+        assert_eq!(path, dir.path().join("build").join("prog-musl.out"));
+    }
 }
