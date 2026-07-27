@@ -716,3 +716,131 @@ impl<'a> FileParser<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    fn parse(src: &str) -> Result<crate::ast::AstFile, ()> {
+        crate::ast::parse_source(Path::new("main.mfb"), "main.mfb", src)
+    }
+
+    /// Wrap `body` (native-FUNC clause lines) in a `LINK … FUNC … END LINK`.
+    fn link_fn(body: &str) -> String {
+        format!("LINK \"x\" AS l\n  FUNC f() AS Integer\n{body}  END FUNC\nEND LINK\n")
+    }
+
+    // ---- parse_cstruct error arms (each also drives the LINK-block CSTRUCT
+    // else-synchronize branch when parse_cstruct returns None) ----
+
+    #[test]
+    fn cstruct_end_must_name_cstruct() {
+        // END not naming CSTRUCT (109-116).
+        assert!(
+            parse("LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n  END BADNAME\nEND LINK\n").is_err()
+        );
+    }
+
+    #[test]
+    fn cstruct_field_missing_name() {
+        // A field line starting with a non-identifier (128-130).
+        assert!(
+            parse("LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n    123 CInt32\n  END CSTRUCT\nEND LINK\n")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cstruct_field_missing_ctype() {
+        // A field name with no valid C type after it (133-135).
+        assert!(
+            parse("LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n    field 123\n  END CSTRUCT\nEND LINK\n")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cstruct_unterminated() {
+        // EOF before END CSTRUCT (145-151).
+        assert!(parse("LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n").is_err());
+    }
+
+    // ---- native-FUNC clause error arms ----
+
+    #[test]
+    fn duplicate_bind_state_is_rejected() {
+        // Two BIND STATE clauses trip the "at most one" arm (287-291).
+        assert!(parse(&link_fn("    BIND STATE r = s\n    BIND STATE r = t\n")).is_err());
+    }
+
+    #[test]
+    fn buffer_missing_slot_name() {
+        // BUFFER with no slot name (375-376).
+        assert!(parse(&link_fn("    BUFFER\n")).is_err());
+    }
+
+    #[test]
+    fn buffer_missing_size() {
+        // BUFFER slot with no SIZE (379-386).
+        assert!(parse(&link_fn("    BUFFER out\n")).is_err());
+    }
+
+    #[test]
+    fn bind_state_missing_equals() {
+        // BIND STATE resource-slot with no `=` (402-403).
+        assert!(parse(&link_fn("    BIND STATE r x\n")).is_err());
+    }
+
+    #[test]
+    fn bind_missing_direction() {
+        // BIND without STATE or IN takes parse_bind_in, which rejects a missing
+        // `IN` keyword (424-431).
+        assert!(parse(&link_fn("    BIND OUT slot\n")).is_err());
+    }
+
+    #[test]
+    fn bind_in_end_must_name_bind() {
+        // A BIND IN block closed with `END WRONG` (442-449).
+        assert!(parse(&link_fn("    BIND IN slot\n    END WRONG\n")).is_err());
+    }
+
+    #[test]
+    fn bind_in_field_missing_name() {
+        // A BIND IN field line starting with a non-identifier (456-458).
+        assert!(parse(&link_fn("    BIND IN slot\n      123 = 1\n    END BIND\n")).is_err());
+    }
+
+    #[test]
+    fn bind_in_field_missing_equals() {
+        // A BIND IN field with no `=` (461-463).
+        assert!(parse(&link_fn("    BIND IN slot\n      fld 1\n    END BIND\n")).is_err());
+    }
+
+    #[test]
+    fn bind_in_field_missing_value() {
+        // A BIND IN field whose value fails to parse (466-468).
+        assert!(parse(&link_fn("    BIND IN slot\n      fld =\n    END BIND\n")).is_err());
+    }
+
+    #[test]
+    fn bind_in_unterminated() {
+        // A BIND IN block that reaches EOF before END BIND (478-484): the block
+        // must be the last thing in the file so no outer END is mistaken for it.
+        assert!(parse("LINK \"x\" AS l\n  FUNC f() AS Integer\n    BIND IN slot\n").is_err());
+    }
+
+    // ---- parse_const_pin SIZEOF (a successful parse) ----
+
+    #[test]
+    fn const_pin_sizeof() {
+        // `CONST slot = SIZEOF <CStruct>` builds a SIZEOF unary pin (677-688).
+        let src = "LINK \"x\" AS l\n  CSTRUCT Foo AS Rec\n    a CInt32\n  END CSTRUCT\n  FUNC f() AS Integer\n    SYMBOL \"s\"\n    CONST datasize = SIZEOF Foo\n    ABI (datasize CInt32) AS r CInt32\n  END FUNC\nEND LINK\n";
+        let file = crate::testutil::parse_file(src);
+        let json = crate::ast::AstProject {
+            name: "t".to_string(),
+            files: vec![file],
+        }
+        .to_json();
+        assert!(json.contains("SIZEOF"), "expected a SIZEOF pin in: {json}");
+    }
+}
