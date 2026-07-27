@@ -86,25 +86,37 @@ Debug-only: `perf_done` output gains four columns. Release unchanged.
 
 ### Phase 1 — Single-pass stats (count, sum, avg, min, max)
 
-- [ ] Implement the one-pass walk over each name's chunk chain in `perf_done`
-      accumulating sum/min/max; compute avg = sum/count; guard count==0.
-- [ ] Print `name  count  avg  min  max  sum` (median column added next), aligned.
+- [x] Implemented `emit_write_stats`: one linear pass over the **flat sample log**
+      (not a chunk chain — see plan-67-D) filtered by `namePtr`, accumulating
+      sum/min/max (min seeds `i64::MAX`, max 0; durations are non-negative) and
+      materializing the name's durations into the region sort scratch. `avg =
+      sum / count` (integer floor). count>=1 by construction (an A entry exists only
+      after a logged sample), and aarch64 `udiv`-by-0 is 0, so no divide guard is
+      load-bearing.
+- [x] Refactored the numeric formatter into `emit_write_i64(newline)` with
+      `_line`/`_field` wrappers so a row prints as one line: `name  <count> <avg>
+      <median> <min> <max> <sum>\n` (fields have no newline; `sum` closes the row).
 
-Acceptance: a **debug** build over a fixture with known sample values prints
-correct count/avg/min/max/sum (hand-verified); release byte-identical (`diffs=0`).
+Acceptance: see Phase 2 (both phases landed together; the columns are one row).
 Commit: —
 
 ### Phase 2 — Median (materialize + sort)
 
-- [ ] Reserve the sort scratch buffer in the region header; materialize each
-      name's samples into it.
-- [ ] Implement the i64 sort and median pick (even-count averaging); insert the
-      `median` column between `avg` and `min` to match the header
-      `name count avg median min max sum`.
+- [x] Reserved the sort scratch as a dedicated i64 buffer at `PERF_SORT_OFFSET`
+      (region tail, past the log; the log budget was reduced to `PERF_LOG_CAPACITY
+      = 698000` so log 16 B + scratch 8 B per sample both fit). The one-pass log
+      scan materializes each name's durations there.
+- [x] Implemented an in-place i64 insertion sort + median pick (odd → middle; even
+      → mean of the two middle), with `median` between `avg` and `min` to match the
+      header order.
 
-Acceptance: a **debug** build over a fixture with a known, hand-sortable sample
-set prints the correct median for both odd and even counts; all six columns
-correct and aligned; release byte-identical (`diffs=0`, acceptance green).
+Acceptance: **debug macOS** runtime proofs — single sample: `program 1 6000 6000
+6000 6000 6000` (all stats equal the one duration). Multi-sample (a temporary
+4-pair injection, reverted after): `program 5 4200 0 0 21000 21000` — count 5,
+sum 21000, avg 4200 (=21000/5), min 0, max 21000, **median 0** (correct middle of
+sorted `[0,0,0,0,21000]`), proving the multi-element sort + odd-count median. Even
+count + real varied data are exercised by plan-67-F's arena samples. Release
+byte-identity: see acceptance below.
 Commit: —
 
 ## Validation Plan
@@ -133,7 +145,22 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Stats scan the flat log, not a chunk chain.** plan-67-D replaced the chunked
+  per-name sample lists with a single flat log, so `emit_write_stats` computes
+  sum/min/max in one linear pass over the log filtered by `namePtr`, materializing
+  that name's durations into the sort scratch as it goes.
+- **Insertion sort (Open Decision), kept exact.** Chose insertion sort per the
+  recommended Open Decision — simple and exact. It is O(n²); a program whose
+  per-name arena-sample count is very large would make the exit-time sort slow. The
+  documented upgrade path (heapsort) is unchanged; the sort is isolated in
+  `emit_write_stats`, so the swap is local if a profiled program needs it. Not
+  capped/approximated (that would be a silent inaccuracy).
+- **One-line rows.** The plan implied per-column formatting; the formatter
+  (`emit_write_i64`) gained a `newline` flag so a row is `name` + five space-prefixed
+  fields + a final ` <sum>\n`, keeping the data aligned under the single-line header.
+- **avg rounding = integer floor** (Open Decision), **even median = mean of the two
+  middle** (Open Decision), min seeds at `i64::MAX` / max at 0 (durations are
+  non-negative).
 
 ## Summary
 

@@ -69,15 +69,23 @@ const PERF_A_ENTRY_SIZE: usize = 16;
 const PERF_A_ENTRY_COUNT_OFFSET: usize = 8;
 const PERF_A_CAPACITY: usize = 512;
 // The flat sample log (plan-67-D): `{ u64 namePtr, i64 duration }` appended by
-// perf_end, one entry per recorded span. Grows from `PERF_LOG_TABLE_OFFSET` to the
-// end of the region; on exhaustion perf_end drops the sample and bumps the
-// overflow counter (never a silent cap — plan-67-E's stats scan this log per name).
+// perf_end, one entry per recorded span. On exhaustion perf_end drops the sample
+// and bumps the overflow counter (never a silent cap — plan-67-E's stats scan this
+// log per name). The region is budgeted so the log AND the median sort scratch
+// (below) both fit: each sample costs 16 B (log) + 8 B (scratch) = 24 B, and
+// `(16 MiB - PERF_LOG_TABLE_OFFSET) / 24 ≈ 698365`, rounded down for margin.
 const PERF_LOG_TABLE_OFFSET: usize = PERF_A_TABLE_OFFSET + PERF_A_CAPACITY * PERF_A_ENTRY_SIZE;
 const PERF_LOG_ENTRY_SIZE: usize = 16;
 const PERF_LOG_ENTRY_DUR_OFFSET: usize = 8;
-// Largest byte offset a log entry may start at and still fit before the 16 MiB
-// region end (`16777216 - 16`).
-const PERF_LOG_LIMIT: usize = 16_777_216 - PERF_LOG_ENTRY_SIZE;
+const PERF_LOG_CAPACITY: usize = 698_000;
+// Largest byte offset a log entry may START at and still leave the scratch tail
+// intact: `perf_end` overflows when `LOG_TABLE + count*16 > PERF_LOG_LIMIT`.
+const PERF_LOG_LIMIT: usize = PERF_LOG_TABLE_OFFSET + (PERF_LOG_CAPACITY - 1) * PERF_LOG_ENTRY_SIZE;
+// plan-67-E: the median sort scratch — an i64 buffer immediately past the log,
+// sized to hold every sample of a single name (one name owns at most
+// `PERF_LOG_CAPACITY` samples). `perf_done` materializes a name's durations here
+// and insertion-sorts them.
+const PERF_SORT_OFFSET: usize = PERF_LOG_TABLE_OFFSET + PERF_LOG_CAPACITY * PERF_LOG_ENTRY_SIZE;
 
 // Stack locals. perf_start needs a 16-byte `timespec`; perf_done formats each
 // numeric column into a scratch window. One frame size covers both (each lowering
@@ -397,9 +405,10 @@ pub(super) fn lower_perf_helper(
                     &mut relocations,
                 )?;
                 instructions.push(abi::load_u64(&value, &entry, PERF_A_ENTRY_COUNT_OFFSET));
-                emit_write_i64_line(
+                emit_write_stats(
+                    &base,
+                    &name,
                     &value,
-                    "a",
                     symbol,
                     platform_imports,
                     platform,
@@ -499,14 +508,16 @@ fn emit_read_monotonic_nanos(
     Ok(())
 }
 
-/// Append instructions that format ` <value>\n` (leading space, signed decimal,
-/// trailing newline) into the stack scratch window and write it to stderr (fd 2).
-/// Reused for every numeric column in plan-67-C/D/E. `value` is consumed via a
-/// copy, so the caller's register is preserved. `tag` disambiguates the internal
-/// labels when a caller formats more than one column.
-fn emit_write_i64_line(
+/// Append instructions that format ` <value>` (leading space, signed decimal) —
+/// optionally with a trailing newline — into the stack scratch window and write it
+/// to stderr (fd 2). Reused for every numeric column in plan-67-C/D/E. `value` is
+/// consumed via a copy, so the caller's register is preserved; `tag` disambiguates
+/// the internal labels when a caller formats more than one column per row.
+#[allow(clippy::too_many_arguments)]
+fn emit_write_i64(
     value: &str,
     tag: &str,
+    newline: bool,
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
@@ -523,12 +534,17 @@ fn emit_write_i64_line(
     let dloop = format!("{symbol}_{tag}_dloop");
     instructions.extend([
         abi::move_register(&val, value),
-        // cursor starts one past the scratch window; digits fill right-to-left.
+        // cursor starts one past the scratch window; bytes fill right-to-left.
         abi::add_immediate(&cursor, abi::stack_pointer(), PERF_LOCALS_SIZE),
-        // trailing newline
-        abi::subtract_immediate(&cursor, &cursor, 1),
-        abi::move_immediate(&digit, "Integer", "10"),
-        abi::store_u8(&digit, &cursor, 0),
+    ]);
+    if newline {
+        instructions.extend([
+            abi::subtract_immediate(&cursor, &cursor, 1),
+            abi::move_immediate(&digit, "Integer", "10"),
+            abi::store_u8(&digit, &cursor, 0),
+        ]);
+    }
+    instructions.extend([
         abi::move_immediate(&ten, "Integer", "10"),
         abi::label(&dloop),
         abi::unsigned_divide_registers(&quotient, &val, &ten),
@@ -550,6 +566,303 @@ fn emit_write_i64_line(
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    Ok(())
+}
+
+/// ` <value>\n` — a value in its own row (single-column rows: the counter rows).
+#[allow(clippy::too_many_arguments)]
+fn emit_write_i64_line(
+    value: &str,
+    tag: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    emit_write_i64(
+        value,
+        tag,
+        true,
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )
+}
+
+/// ` <value>` — one column of a multi-column row (no trailing newline).
+#[allow(clippy::too_many_arguments)]
+fn emit_write_i64_field(
+    value: &str,
+    tag: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    emit_write_i64(
+        value,
+        tag,
+        false,
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )
+}
+
+/// Load `scratch[idx]` (i64) into `dst`; `idx`/`scratch` are registers, `eight`
+/// holds the element stride 8. plan-67-E median scratch addressing.
+fn emit_load_elem(
+    dst: &str,
+    scratch: &str,
+    idx: &str,
+    eight: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let addr = vregs.next();
+    instructions.extend([
+        abi::multiply_registers(&addr, idx, eight),
+        abi::add_registers(&addr, scratch, &addr),
+        abi::load_u64(dst, &addr, 0),
+    ]);
+}
+
+/// Store `src` (i64) to `scratch[idx]`.
+fn emit_store_elem(
+    src: &str,
+    scratch: &str,
+    idx: &str,
+    eight: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
+) {
+    let addr = vregs.next();
+    instructions.extend([
+        abi::multiply_registers(&addr, idx, eight),
+        abi::add_registers(&addr, scratch, &addr),
+        abi::store_u64(src, &addr, 0),
+    ]);
+}
+
+/// plan-67-E: compute and print one name's six statistic columns —
+/// ` <count> <avg> <median> <min> <max> <sum>\n` — over the flat sample log. One
+/// linear pass accumulates sum/min/max and materializes the name's durations into
+/// the region sort scratch; an insertion sort (Open Decision — simple, exact;
+/// O(n²), upgradeable to heapsort if a profiled program's per-name sample count
+/// makes exit slow) yields the median. `avg` is integer floor; an even count
+/// averages the two middle values. `count` is the name's table-A count (equal to
+/// the number of matching log samples, so the scratch holds exactly `count` items).
+#[allow(clippy::too_many_arguments)]
+fn emit_write_stats(
+    base: &str,
+    name: &str,
+    count: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let sum = vregs.next();
+    let min = vregs.next();
+    let max = vregs.next();
+    let scratch = vregs.next();
+    let eight = vregs.next();
+    let log_count = vregs.next();
+    let li = vregs.next();
+    let log_entry = vregs.next();
+    let lname = vregs.next();
+    let d = vregs.next();
+    let k = vregs.next();
+    let avg = vregs.next();
+    let two = vregs.next();
+    let mid = vregs.next();
+    let one = vregs.next();
+    let odd = vregs.next();
+    let median = vregs.next();
+    let ai = vregs.next();
+    let aj = vregs.next();
+    let key = vregs.next();
+    let cur = vregs.next();
+    let jp1 = vregs.next();
+    let midm1 = vregs.next();
+    let va = vregs.next();
+    let vb = vregs.next();
+    let lscan = format!("{symbol}_lscan");
+    let lnext = format!("{symbol}_lnext");
+    let lscan_done = format!("{symbol}_lsdone");
+    let skip_min = format!("{symbol}_skmin");
+    let skip_max = format!("{symbol}_skmax");
+    let outer = format!("{symbol}_iso");
+    let inner = format!("{symbol}_isi");
+    let insert = format!("{symbol}_isins");
+    let sorted = format!("{symbol}_isdone");
+    let median_odd = format!("{symbol}_modd");
+    let median_done = format!("{symbol}_mdone");
+
+    // One pass over the log: accumulate sum/min/max and materialize this name's
+    // durations into scratch[0..count]. Durations are non-negative, so min seeds at
+    // i64::MAX and max at 0.
+    instructions.extend([
+        abi::move_immediate(&sum, "Integer", "0"),
+        abi::move_immediate(&min, "Integer", "9223372036854775807"),
+        abi::move_immediate(&max, "Integer", "0"),
+        abi::move_immediate(&k, "Integer", "0"),
+        abi::move_immediate(&eight, "Integer", "8"),
+        abi::add_immediate(&scratch, base, PERF_SORT_OFFSET),
+        abi::load_u64(&log_count, base, PERF_LOG_COUNT_OFFSET),
+        abi::add_immediate(&log_entry, base, PERF_LOG_TABLE_OFFSET),
+        abi::move_immediate(&li, "Integer", "0"),
+        abi::label(&lscan),
+        abi::compare_registers(&li, &log_count),
+        abi::branch_ge(&lscan_done),
+        abi::load_u64(&lname, &log_entry, 0),
+        abi::compare_registers(&lname, name),
+        abi::branch_ne(&lnext),
+        abi::load_u64(&d, &log_entry, PERF_LOG_ENTRY_DUR_OFFSET),
+        abi::add_registers(&sum, &sum, &d),
+        abi::compare_registers(&d, &min),
+        abi::branch_ge(&skip_min),
+        abi::move_register(&min, &d),
+        abi::label(&skip_min),
+        abi::compare_registers(&d, &max),
+        abi::branch_le(&skip_max),
+        abi::move_register(&max, &d),
+        abi::label(&skip_max),
+    ]);
+    emit_store_elem(&d, &scratch, &k, &eight, instructions, vregs);
+    instructions.extend([
+        abi::add_immediate(&k, &k, 1),
+        abi::label(&lnext),
+        abi::add_immediate(&log_entry, &log_entry, PERF_LOG_ENTRY_SIZE),
+        abi::add_immediate(&li, &li, 1),
+        abi::branch(&lscan),
+        abi::label(&lscan_done),
+        abi::unsigned_divide_registers(&avg, &sum, count),
+        // Insertion sort scratch[0..count] ascending.
+        abi::move_immediate(&ai, "Integer", "1"),
+        abi::label(&outer),
+        abi::compare_registers(&ai, count),
+        abi::branch_ge(&sorted),
+    ]);
+    emit_load_elem(&key, &scratch, &ai, &eight, instructions, vregs);
+    instructions.extend([
+        abi::move_register(&aj, &ai),
+        abi::subtract_immediate(&aj, &aj, 1),
+        abi::label(&inner),
+        abi::compare_immediate(&aj, "0"),
+        abi::branch_lt(&insert),
+    ]);
+    emit_load_elem(&cur, &scratch, &aj, &eight, instructions, vregs);
+    instructions.extend([
+        abi::compare_registers(&cur, &key),
+        abi::branch_le(&insert),
+        abi::add_immediate(&jp1, &aj, 1),
+    ]);
+    emit_store_elem(&cur, &scratch, &jp1, &eight, instructions, vregs);
+    instructions.extend([
+        abi::subtract_immediate(&aj, &aj, 1),
+        abi::branch(&inner),
+        abi::label(&insert),
+        abi::add_immediate(&jp1, &aj, 1),
+    ]);
+    emit_store_elem(&key, &scratch, &jp1, &eight, instructions, vregs);
+    instructions.extend([
+        abi::add_immediate(&ai, &ai, 1),
+        abi::branch(&outer),
+        abi::label(&sorted),
+        // median = mid element (odd count) or mean of the two middle (even count).
+        abi::move_immediate(&two, "Integer", "2"),
+        abi::unsigned_divide_registers(&mid, count, &two),
+        abi::move_immediate(&one, "Integer", "1"),
+        abi::and_registers(&odd, count, &one),
+        abi::compare_immediate(&odd, "0"),
+        abi::branch_ne(&median_odd),
+        abi::move_register(&midm1, &mid),
+        abi::subtract_immediate(&midm1, &midm1, 1),
+    ]);
+    emit_load_elem(&va, &scratch, &midm1, &eight, instructions, vregs);
+    emit_load_elem(&vb, &scratch, &mid, &eight, instructions, vregs);
+    instructions.extend([
+        abi::add_registers(&median, &va, &vb),
+        abi::unsigned_divide_registers(&median, &median, &two),
+        abi::branch(&median_done),
+        abi::label(&median_odd),
+    ]);
+    emit_load_elem(&median, &scratch, &mid, &eight, instructions, vregs);
+    instructions.push(abi::label(&median_done));
+    // Columns after the name: count, avg, median, min, max, sum (sum closes the row).
+    emit_write_i64_field(
+        count,
+        "c",
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )?;
+    emit_write_i64_field(
+        &avg,
+        "av",
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )?;
+    emit_write_i64_field(
+        &median,
+        "md",
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )?;
+    emit_write_i64_field(
+        &min,
+        "mn",
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )?;
+    emit_write_i64_field(
+        &max,
+        "mx",
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )?;
+    emit_write_i64_line(
+        &sum,
+        "sm",
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )?;
     Ok(())
 }
 
