@@ -240,21 +240,21 @@ are largely tested. The uncovered cluster (rule-ids absent from `tests.rs`) is t
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/values.rs` shows ≥95%.
-Commit: —
+Commit: 34218c19d
 
 ### Phase D5 — `ir/verify/resources.rs` (32 uncov)
 
 Small, three rule-ids. Concentrated in the RES-ownership axis and the
 use-after-move dataflow:
 
-- [ ] **`collection_axis_element`** (`resources.rs:455-477`): a collection whose
+- [x] **`collection_axis_element`** (`resources.rs:455-477`): a collection whose
       element is a bare resource type (`List OF File`, not `RES File`) →
       `TYPE_RESOURCE_REQUIRES_RES` (`:461`); a collection element marked `RES` over
       a provably-data type (`List OF RES Integer`) → `TYPE_RES_REQUIRES_RESOURCE`
       (`:468`); and the nested-collection recursion (`List OF List OF RES File`,
       `:476`) plus the `Map OF … TO …` value arm (`check_collection_res_axis`,
       `:450`).
-- [ ] **`TYPE_USE_AFTER_MOVE`** in `check_resource_moves` (`resources.rs:110-116`):
+- [x] **`TYPE_USE_AFTER_MOVE`** in `check_resource_moves` (`resources.rs:110-116`):
       a function body that closes/returns a resource binding and then reads it
       again (double-close / read-after-move). Also cover the alias-tracking arm
       (`:90-98`) if A's report shows it uncovered.

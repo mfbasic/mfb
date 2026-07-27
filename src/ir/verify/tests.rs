@@ -3092,6 +3092,166 @@ fn accepts_close_of_a_res_parameter() {
     accept(&project(vec![f], vec![]));
 }
 
+// --- resources.rs alias/move + defaultability arms (plan-68-D5) ------------
+
+fn fs_close(res: &str) -> IrOp {
+    eval(IrValue::Call {
+        target: "fs.close".to_string(),
+        args: vec![IrValue::Local(res.to_string())],
+        type_: "Nothing".to_string(),
+        loc: IrSourceLoc::default(),
+    })
+}
+
+/// A call that returns a `RES File` produced from an argument resource.
+fn grab(src: &str) -> IrValue {
+    IrValue::Call {
+        target: "grab".to_string(),
+        args: vec![IrValue::Local(src.to_string())],
+        type_: "File".to_string(),
+        loc: IrSourceLoc::default(),
+    }
+}
+
+/// `RES b = grab(a)` records `a`/`b` as possible aliases (resources.rs:196-222);
+/// closing one then reading the other is a use-after-move via the alias closure
+/// (resources.rs:39,42,136-139).
+#[test]
+fn rejects_use_after_close_through_alias() {
+    let body = vec![
+        bind("b", "File", Some(grab("a")), true, false),
+        fs_close("b"),
+        fs_close("a"),
+    ];
+    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    f.resource_owners
+        .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// An alias established before an `IF` survives the branch merge
+/// (resources.rs:89-98), so a later close-through still flags the read.
+#[test]
+fn alias_survives_branch_merge() {
+    let body = vec![
+        bind("b", "File", Some(grab("a")), true, false),
+        IrOp::If {
+            condition: const_of("Boolean", "true"),
+            then_body: vec![],
+            else_body: vec![],
+            loc: IrSourceLoc::default(),
+        },
+        fs_close("b"),
+        fs_close("a"),
+    ];
+    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    f.resource_owners
+        .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// Rebinding a name that is an alias target severs the relation
+/// (resources.rs:167-173): after the rebind, `a` is a fresh resource and closing
+/// `b` does not move it.
+#[test]
+fn rebind_severs_alias() {
+    let fresh = IrValue::Call {
+        target: "fresh".to_string(),
+        args: vec![],
+        type_: "File".to_string(),
+        loc: IrSourceLoc::default(),
+    };
+    let body = vec![
+        bind("b", "File", Some(grab("a")), true, false),
+        bind("a", "File", Some(fresh), true, false),
+        fs_close("b"),
+        fs_close("a"),
+    ];
+    let mut f = func_returns("run", "Nothing", vec![param("a", "File", None)], body);
+    f.resource_owners
+        .insert("b".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    f.resource_owners
+        .insert("a".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(!got.iter().any(|r| r == "TYPE_USE_AFTER_MOVE"), "{got:?}");
+}
+
+/// Closing an outer resource inside a `FOR EACH` body moves it past the loop
+/// (resources.rs:255-258).
+#[test]
+fn foreach_body_move_leaks_to_outer() {
+    let body = vec![
+        IrOp::ForEach {
+            name: "x".to_string(),
+            type_: "File".to_string(),
+            iterable: IrValue::Local("items".to_string()),
+            body: vec![fs_close("a")],
+            loc: IrSourceLoc::default(),
+        },
+        fs_close("a"),
+    ];
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("a", "File", None), param("items", "List OF File", None)],
+        body,
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_USE_AFTER_MOVE");
+}
+
+/// A self-referential record STATE type is not defaultable — the cycle guard of
+/// `is_defaultable` (resources.rs:326-327).
+#[test]
+fn rejects_state_of_cyclic_record() {
+    let body = vec![bind("h", "File STATE R", None, true, false)];
+    let mut f = func_returns("run", "Nothing", vec![], body);
+    f.resource_owners
+        .insert("h".to_string(), crate::ir::resource_escape::ResOwner::Local);
+    expect_rule(
+        &project(vec![f], vec![record_typed("R", &[("self", "R")])]),
+        "TYPE_STATE_INVALID",
+    );
+}
+
+/// A value-returning FUNC whose body is only a `TRAP` handler never always-returns
+/// — the `Trap` arm of `block_always_returns` (resources.rs:405).
+#[test]
+fn trap_only_body_does_not_always_return() {
+    let body = vec![IrOp::Trap {
+        name: "e".to_string(),
+        body: vec![ret(int_const("1"))],
+        loc: IrSourceLoc::default(),
+    }];
+    let f = func_returns("run", "Integer", vec![], body);
+    expect_rule(&project(vec![f], vec![]), "TYPE_FUNC_MISSING_RETURN");
+}
+
+/// A `MATCH` whose scrutinee type cannot be inferred is not exhaustive —
+/// `match_covers_all` infer-None arm (resources.rs:423-424).
+#[test]
+fn match_on_uninferable_scrutinee_not_exhaustive() {
+    let m = IrOp::Match {
+        value: IrValue::Local("missing".to_string()),
+        cases: vec![union_variant_case("X", vec![ret(int_const("1"))])],
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns("run", "Integer", vec![], vec![m]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_FUNC_MISSING_RETURN");
+}
+
+/// A `MATCH` on a non-union/non-enum scrutinee is not exhaustive —
+/// `match_covers_all` else arm (resources.rs:431-432).
+#[test]
+fn match_on_primitive_scrutinee_not_exhaustive() {
+    let m = IrOp::Match {
+        value: int_const("1"),
+        cases: vec![union_variant_case("X", vec![ret(int_const("1"))])],
+        loc: IrSourceLoc::default(),
+    };
+    let f = func_returns("run", "Integer", vec![], vec![m]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_FUNC_MISSING_RETURN");
+}
+
 // --- calls.rs: STATE agreement (plan-68-D2) --------------------------------
 
 /// A resource binding whose owner is recorded (so it is not rejected as a
