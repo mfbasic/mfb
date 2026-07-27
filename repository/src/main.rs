@@ -108,17 +108,14 @@ async fn main() {
                 // `--expires-days` is operator input with no range check: a huge
                 // value overflowed (debug panic, release wrap) and a negative one
                 // produced an already-expired registry root (bug-276 R10).
-                let Some(expires_at) = expires_days
-                    .checked_mul(24 * 3600)
-                    .and_then(|seconds| mfb_repository::store::now_unix().checked_add(seconds))
-                    .filter(|_| expires_days > 0)
-                else {
-                    eprintln!(
-                        "error: --expires-days must be a positive number of days that does \
-                         not overflow (got {expires_days})"
-                    );
-                    process::exit(1);
-                };
+                let expires_at =
+                    match init_root_expires_at(expires_days, mfb_repository::store::now_unix()) {
+                        Ok(at) => at,
+                        Err(err) => {
+                            eprintln!("error: {err}");
+                            process::exit(1);
+                        }
+                    };
                 match opened.store.init_registry_root(&registry_id, expires_at) {
                     Ok(root_private) => {
                         let config = opened
@@ -283,6 +280,25 @@ async fn main() {
     }
 }
 // coverage:on
+
+/// Absolute expiry timestamp for a new registry root of trust.
+///
+/// `--expires-days` is operator input with no range check: a huge value
+/// overflowed (debug panic, release wrap) and a non-positive one produced an
+/// already-expired root (bug-276 R10). Rejects both. Pure so it is unit-tested
+/// apart from the integration-only `main`; `main` supplies `now = now_unix()`.
+fn init_root_expires_at(expires_days: i64, now: i64) -> Result<i64, String> {
+    expires_days
+        .checked_mul(24 * 3600)
+        .and_then(|seconds| now.checked_add(seconds))
+        .filter(|_| expires_days > 0)
+        .ok_or_else(|| {
+            format!(
+                "--expires-days must be a positive number of days that does \
+                 not overflow (got {expires_days})"
+            )
+        })
+}
 
 fn parse_reanchor_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, String), String> {
     let mut dbpath = None;
@@ -550,6 +566,20 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn init_root_expires_at_guards_range_and_overflow() {
+        // A positive day count adds to `now`.
+        assert_eq!(init_root_expires_at(365, 1000), Ok(1000 + 365 * 24 * 3600));
+        // Zero and negative are rejected (bug-276 R10: no already-expired root).
+        let err = init_root_expires_at(0, 1000).unwrap_err();
+        assert!(err.contains("must be a positive"), "{err}");
+        assert!(init_root_expires_at(-5, 1000).is_err());
+        // A day count that overflows the seconds multiply is rejected.
+        assert!(init_root_expires_at(i64::MAX, 1000).is_err());
+        // Overflow of the `now + seconds` add is rejected too.
+        assert!(init_root_expires_at(1, i64::MAX).is_err());
     }
 
     #[test]
