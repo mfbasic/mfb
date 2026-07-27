@@ -523,9 +523,34 @@ Commit: d9025af8c / merged e5c500020
   modeled on macOS `app/*.rs` (5369 LOC) + `linux_gtk` (3603). Needs `user32`/`gdi32`
   imports and a plan-66-J-1..n split. A full `-app` build errors cleanly at codegen
   until this lands (no stub shipped — Hard Completion Gate).
+
+**Sub-plan split (executed on resume 2026-07-26; J-1 already done):**
+- **J-1 — message-loop↔worker spike.** DONE + box-proven (above), `spike.rs`.
+- **J-2 — bootstrap floor.** New `win_x86_64/app/` module. `emit_app_program_entry`
+  emits `_main` (GetModuleHandleW → RegisterClassExW(WndProc) → CreateWindowExW →
+  CreateThread(worker,hwnd) → GetMessageW loop) modeled on `spike.rs`, plus the
+  worker shim (calls `MACAPP_PROGRAM_SYMBOL`) and a `WndProc`. An
+  `MFB_WINAPP_HEADLESS` env gate skips the window/loop (like macOS's
+  `MFB_MACAPP_HEADLESS`) so CI/box can exercise the worker without a GUI. Plus the
+  minimum io methods so a printing program builds: `emit_app_io_write_helper`,
+  `emit_app_io_flush_helper`, `emit_app_io_is_terminal_helper`. `user32`/`gdi32`
+  import rows. **Acceptance:** a `-app hello` build produces a Subsystem-2 `.exe`
+  that, run headless on the box, executes the worker and emits its output.
+- **J-3 — GDI transcript.** WndProc `WM_PAINT` custom-draws a scrollback line
+  buffer (TextOutW, fixed-pitch), worker→UI `SendMessageW(WM_APP_APPEND)` marshals
+  print text into it; `emit_app_io_write_helper` routes to the transcript when a
+  window is attached. **Acceptance:** box run shows `io::print` output in the window.
+- **J-4 — input round-trip.** A pipe (`CreatePipe`) whose read end is dup'd onto the
+  worker's stdin path; WndProc `WM_CHAR`/`WM_KEYDOWN` does line editing + commit to
+  the pipe; `emit_app_io_input_helper` + `emit_app_raw_input_mode` wired. **Acceptance:**
+  box run reads a typed line.
+- **J-5 — term:: TUI grid + mode reconcile + full box proof.** `emit_app_term_helper`
+  (cell-grid custom draw: colors/cursor/clear, modeled on `term_view.rs`),
+  `emit_app_mode_reconcile` + reconcile data objects. **Acceptance:** the full Phase-J
+  acceptance below, box-proven.
 - [ ] Tests: box run showing a window with transcript output + keystroke input.
 
-Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **NOT MET** — spike proves the mechanics; the transcript floor is the remaining bulk (deferred; premise de-risked).
+Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line. **NOT MET** — spike proves the mechanics; building J-2..J-5 (see split above).
 Commit: 9718fd97d (spike) / merged e5c500020
 
 ### Phase K — PE resource packaging  (NOT STARTED)
