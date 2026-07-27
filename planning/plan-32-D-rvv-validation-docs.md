@@ -155,7 +155,7 @@ Commit: 26fc6e767
 Acceptance: both cpu profiles pass on one binary (via the reproducible script);
 docs accurately state the runtime-selection guarantee; spec/citation gate green.
 **MET**.
-Commit: <D3>
+Commit: 0eb83d3be
 
 ## Validation Plan
 
