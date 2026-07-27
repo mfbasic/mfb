@@ -261,7 +261,7 @@ use-after-move dataflow:
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/resources.rs` shows ≥95%.
-Commit: —
+Commit: d524f9ac6 (resources.rs:436 match_covers_all has_unguarded_else arm unreachable — see Corrections)
 
 ### Phase D6 — `ir/verify/compat.rs` (33 uncov) + `ir/verify/mod.rs` (39 uncov)
 
@@ -272,7 +272,7 @@ helpers, and scattered driver edges in `mod.rs`. These are the two files where
 guessing from rule-ids is insufficient: **open A's fresh report and cover the
 named uncovered lines directly.**
 
-- [ ] **compat.rs**: from A's report, enumerate the uncovered arms of the
+- [x] **compat.rs**: from A's report, enumerate the uncovered arms of the
       compatibility matrix (`compat.rs` emits `TYPE_ASSIGNMENT_MISMATCH`,
       `TYPE_RETURN_MISMATCH`, `TYPE_BINDING_MISMATCH`, `TYPE_CONSTRUCTOR_*`,
       `TYPE_CONDITION_REQUIRES_BOOLEAN`, `TYPE_RESULT_IS_IMPLICIT`,
@@ -283,7 +283,7 @@ named uncovered lines directly.**
       required-for-exhaustiveness match arm the front-end can never emit), do NOT
       contort a fixture — flag it to A as a candidate line-level exception with the
       reason, per the overview's except-vs-backfill rule.
-- [ ] **mod.rs**: cover the driver edges A's report flags. Known candidate:
+- [x] **mod.rs**: cover the driver edges A's report flags. Known candidate:
       **`TYPE_RESOURCE_RETURN_ORDER`** (`mod.rs:378`), reached only when a
       function's `resource_owners` map carries a `ResOwner::FloatBlocked(collection)`
       — a resource returned inside a collection declared after it. Also confirm the

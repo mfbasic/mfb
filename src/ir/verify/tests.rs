@@ -2621,6 +2621,160 @@ fn accepts_set_of_unknown_type_element() {
     );
 }
 
+// --- compat.rs + mod.rs deep arms (plan-68-D6) -----------------------------
+
+/// A resource that floats into a collection declared *after* it cannot take
+/// ownership — `TYPE_RESOURCE_RETURN_ORDER` (mod.rs:378-385).
+#[test]
+fn rejects_resource_return_order() {
+    let mut f = func_returns("run", "Nothing", vec![], vec![]);
+    f.resource_owners.insert(
+        "h".to_string(),
+        crate::ir::resource_escape::ResOwner::FloatBlocked("coll".to_string()),
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_RESOURCE_RETURN_ORDER");
+}
+
+/// A resource whose ownership floats into a collection is marked non-owning
+/// (mod.rs:365-367); no return-order fault fires for a plain `Float`.
+#[test]
+fn float_owner_is_non_owning() {
+    let mut f = func_returns("run", "Nothing", vec![], vec![]);
+    f.resource_owners.insert(
+        "h".to_string(),
+        crate::ir::resource_escape::ResOwner::Float("coll".to_string()),
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_RESOURCE_RETURN_ORDER"),
+        "{got:?}"
+    );
+}
+
+/// A well-typed `os` built-in call drives the `os` overload probe
+/// (compat.rs:315-317).
+#[test]
+fn os_call_with_valid_args_is_accepted() {
+    let body = vec![eval(IrValue::Call {
+        target: "os.getEnv".to_string(),
+        args: vec![const_of("String", "HOME")],
+        type_: "Result OF String".to_string(),
+        loc: IrSourceLoc::default(),
+    })];
+    let f = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_CALL_ARGUMENT_MISMATCH"),
+        "{got:?}"
+    );
+}
+
+/// `collections.find` with too many arguments — a ranged-arity built-in error
+/// (compat.rs:130-140, the `min != max` message).
+#[test]
+fn rejects_collections_find_wrong_arity() {
+    let body = vec![eval(IrValue::Call {
+        target: "collections.find".to_string(),
+        args: vec![
+            IrValue::Local("xs".to_string()),
+            int_const("1"),
+            int_const("2"),
+            int_const("3"),
+        ],
+        type_: "Integer".to_string(),
+        loc: IrSourceLoc::default(),
+    })];
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("xs", "List OF Integer", None)],
+        body,
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_CALL_ARITY_MISMATCH");
+}
+
+/// `collections.contains` on a comparable-element list — the non-emitting
+/// fallthrough of the comparability arm (compat.rs:178-189).
+#[test]
+fn accepts_collections_contains_comparable() {
+    let body = vec![eval(IrValue::Call {
+        target: "collections.contains".to_string(),
+        args: vec![IrValue::Local("xs".to_string()), int_const("1")],
+        type_: "Boolean".to_string(),
+        loc: IrSourceLoc::default(),
+    })];
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("xs", "List OF Integer", None)],
+        body,
+    );
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_REQUIRES_COMPARABLE"),
+        "{got:?}"
+    );
+}
+
+/// A `Result OF` binding whose inner element type disagrees drives the
+/// `compatible` `Result OF` recursion (compat.rs:354-358).
+#[test]
+fn rejects_result_of_inner_mismatch() {
+    let body = vec![bind(
+        "r",
+        "Result OF Integer",
+        Some(IrValue::Local("b".to_string())),
+        true,
+        false,
+    )];
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("b", "Result OF Byte", None)],
+        body,
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_BINDING_MISMATCH");
+}
+
+/// A `UnionExtract` naming a type that is not a variant of the value's union
+/// (compat.rs:664-671).
+#[test]
+fn rejects_union_extract_foreign_variant() {
+    let body = vec![eval(IrValue::UnionExtract {
+        type_: "Ghost".to_string(),
+        value: Box::new(IrValue::Local("u".to_string())),
+    })];
+    let f = func_returns("run", "Nothing", vec![param("u", "U", None)], body);
+    expect_rule(
+        &project(vec![f], vec![union("U", &["A", "B"])]),
+        "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE",
+    );
+}
+
+/// An equality comparison where one operand's type is `Unknown` is permissive —
+/// `compatible` Unknown short-circuit (compat.rs:340-341).
+#[test]
+fn equality_with_unknown_operand_is_permissive() {
+    let mystery = IrValue::Call {
+        target: "mystery".to_string(),
+        args: vec![],
+        type_: "Unknown".to_string(),
+        loc: IrSourceLoc::default(),
+    };
+    let body = vec![eval(binary(
+        "=",
+        const_of("String", "x"),
+        mystery,
+        "Boolean",
+    ))];
+    let f = func_returns("run", "Nothing", vec![], body);
+    let got = rules(&project(vec![f], vec![]));
+    assert!(
+        !got.iter().any(|r| r == "TYPE_BINARY_OPERATOR_MISMATCH"),
+        "{got:?}"
+    );
+}
+
 // --- Set element comparability (plan-63) ------------------------------------
 
 #[test]
