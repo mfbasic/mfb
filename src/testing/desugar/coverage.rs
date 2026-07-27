@@ -290,3 +290,173 @@ fn dump_list_to_file(list: &str, numeric: bool, path: &Path) -> Vec<Statement> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::build::*;
+    use crate::ast::{AstFile, ExitTarget, LoopKind, MatchCase, MatchPattern, Trap};
+
+    fn expr_stmt(line: usize) -> Statement {
+        Statement::Expression {
+            expression: call("io.print", vec![ident("x")]),
+            line,
+        }
+    }
+
+    fn trapped(handler_line: usize) -> Expression {
+        Expression::Trapped {
+            expression: Box::new(call("fs.readText", vec![ident("p")])),
+            binding: "err".to_string(),
+            handler: vec![expr_stmt(handler_line)],
+            line: 0,
+        }
+    }
+
+    fn lines(slots: &[CovSlot]) -> Vec<usize> {
+        slots.iter().map(|s| s.line).collect()
+    }
+
+    #[test]
+    fn instrument_block_covers_every_statement_kind() {
+        // One block carrying every statement variant, so `instrument_nested` walks
+        // each compound arm, `instrument_trapped_handler` runs for the value-bearing
+        // arms, and `statement_line` maps every variant.
+        let mut block = vec![
+            Statement::If {
+                condition: ident("c"),
+                then_body: vec![expr_stmt(11)],
+                else_body: vec![expr_stmt(12)],
+                line: 10,
+            },
+            Statement::For {
+                name: "i".to_string(),
+                start: num(1),
+                end: num(3),
+                step: Some(num(1)),
+                body: vec![expr_stmt(21)],
+                line: 20,
+            },
+            Statement::ForEach {
+                name: "e".to_string(),
+                iterable: ident("xs"),
+                body: vec![expr_stmt(31)],
+                line: 30,
+            },
+            Statement::While {
+                kind: LoopKind::While,
+                condition: ident("c"),
+                body: vec![expr_stmt(41)],
+                line: 40,
+            },
+            Statement::DoUntil {
+                body: vec![expr_stmt(51)],
+                condition: ident("c"),
+                line: 50,
+            },
+            Statement::Match {
+                expression: ident("m"),
+                cases: vec![MatchCase {
+                    pattern: MatchPattern::Else,
+                    guard: None,
+                    body: vec![expr_stmt(61)],
+                    line: 60,
+                }],
+                line: 60,
+            },
+            Statement::Let {
+                mutable: false,
+                resource: false,
+                state_type: None,
+                name: "a".to_string(),
+                type_name: None,
+                value: Some(trapped(71)),
+                line: 70,
+            },
+            Statement::Return {
+                value: Some(trapped(81)),
+                line: 80,
+            },
+            Statement::Assign {
+                name: "a".to_string(),
+                value: trapped(91),
+                line: 90,
+            },
+            Statement::StateAssign {
+                resource: "r".to_string(),
+                value: trapped(101),
+                line: 100,
+            },
+            Statement::Expression {
+                expression: trapped(111),
+                line: 110,
+            },
+            // Leaf statements: exercise `statement_line` arms and the `_ => {}`
+            // no-nested-block branch of `instrument_nested`.
+            Statement::Exit {
+                target: ExitTarget::Sub,
+                code: None,
+                line: 120,
+            },
+            Statement::Continue {
+                kind: LoopKind::For,
+                line: 130,
+            },
+            Statement::Fail {
+                error: ident("e"),
+                line: 140,
+            },
+            Statement::Propagate { line: 150 },
+            Statement::Recover {
+                value: None,
+                line: 160,
+            },
+        ];
+        let mut slots: Vec<CovSlot> = Vec::new();
+        instrument_block(&mut block, "app.mfb", &mut slots);
+        let got = lines(&slots);
+        // Nested-block bodies were instrumented.
+        for line in [11, 12, 21, 31, 41, 51, 61] {
+            assert!(got.contains(&line), "missing nested slot {line}: {got:?}");
+        }
+        // Trapped-handler blocks of the value-bearing arms were instrumented.
+        for line in [71, 81, 91, 101, 111] {
+            assert!(got.contains(&line), "missing trap-handler slot {line}: {got:?}");
+        }
+        // Every top-level statement got its own slot.
+        for line in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160] {
+            assert!(got.contains(&line), "missing statement slot {line}: {got:?}");
+        }
+    }
+
+    #[test]
+    fn instrument_coverage_instruments_the_function_trap_body() {
+        let mut f = func("main", Vec::new(), Some("Integer"), vec![expr_stmt(5)]);
+        f.trap = Some(Trap {
+            name: "err".to_string(),
+            body: vec![expr_stmt(9)],
+            line: 8,
+        });
+        let file = AstFile {
+            path: "main.mfb".to_string(),
+            imports: Vec::new(),
+            items: vec![Item::Function(f)],
+            internal: false,
+        };
+        let mut ast = AstProject {
+            name: "p".to_string(),
+            files: vec![file],
+        };
+        let slots = instrument_coverage(&mut ast, Path::new("/tmp/cov"));
+        let got = lines(&slots);
+        assert!(got.contains(&5), "body line missing: {got:?}");
+        assert!(got.contains(&9), "trap-body line missing: {got:?}");
+    }
+
+    #[test]
+    fn is_generated_skips_driver_and_cov_helpers() {
+        assert!(is_generated(COV_HIT));
+        assert!(is_generated(crate::testing::DRIVER_NAME));
+        assert!(!is_generated("user_func"));
+    }
+}
