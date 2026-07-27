@@ -352,6 +352,12 @@ pub(crate) const PERF_NAME_PROGRAM_SYMBOL: &str = "_mfb_rt_perf_name_program";
 pub(crate) const PERF_NAME_MISMATCH_SYMBOL: &str = "_mfb_rt_perf_name_mismatch";
 pub(crate) const PERF_NAME_OVERFLOW_SYMBOL: &str = "_mfb_rt_perf_name_overflow";
 
+/// plan-67-F: name objects for the instrumented arena hot-path regions. Each
+/// arena helper's body is bracketed with `perf_start`/`perf_end` on the debug
+/// macOS backend, so the exit table shows a timing row per region.
+pub(crate) const PERF_NAME_MFB_ALLOC_SYMBOL: &str = "_mfb_rt_perf_name_mfb_alloc";
+pub(crate) const PERF_NAME_MFB_FREE_SYMBOL: &str = "_mfb_rt_perf_name_mfb_free";
+
 // ===========================================================================
 // term:: TUI state slots (reserved in the program-entry frame)
 // ===========================================================================

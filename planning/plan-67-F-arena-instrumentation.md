@@ -128,37 +128,63 @@ multiple region rows. Release byte-identical.
 
 ### Phase 1 — Census + names
 
-- [ ] Enumerate the arena regions to wrap (command in Measured populations); write
-      the final list + chosen literal names into this section. This fixes F's scope.
+- [x] Census (`rg ... src/target/shared/code/arena.rs`). The whole-helper arena
+      boundaries — the Open Decision's recommended wrap points — are:
 
-Acceptance: an itemized region→name table in this file, each row citing the emit
-site it wraps.
-Commit: —
+      | region name | emit site | ABI | wrapped |
+      |---|---|---|---|
+      | `mfb_alloc` | `lower_arena_alloc` (`_mfb_arena_alloc`) | args `ARG[0]`=size, `ARG[1]`=align; result `RET[0]`=tag, `RET[1]`=ptr | ✅ |
+      | `mfb_free`  | `lower_arena_free` (`_mfb_arena_free`) | args `ARG[0]`=ptr, `ARG[1]`=size; returns Nothing | ✅ |
+      | `system_alloc` | inline `emit_arena_map` (mmap) inside `lower_arena_alloc` grow path | — | deferred (inline sub-region) |
+      | `post_alloc` / `post_free` | inline fill-RNG region (`arena_fill_random`) inside alloc/free | — | deferred (inline sub-region) |
+
+      Both wrapped helpers are **single-exit** (`arena_alloc_ret` / `arena_free_done`
+      — all paths route through one `return_()`), which is what makes the
+      one-`perf_start`/one-`perf_end` boundary wrap correct. `system_alloc` /
+      `post_alloc` / `post_free` are inline sub-regions; per the Open Decision
+      ("start at boundaries; refine to sub-regions only if the live-set spill is
+      provably correct") they are left for a follow-up refinement, with
+      `emit_perf_arena_call` ready to bracket them.
+
+Acceptance: the region→name table above. Commit: —
 
 ### Phase 2 — Wrapping helper + register preservation
 
-- [ ] Implement the gated bracket helper (spill/reload live caller-saved around
-      `perf_start`/`perf_end`).
-- [ ] Add the non-recursion check: assert the perf helpers' relocations reference
-      no arena symbol.
+- [x] Implemented the gated bracket helper `emit_perf_arena_call` (`arena.rs`):
+      loads the region name into the arg register and `bl`s the perf helper. The
+      spill/reload of live caller-saved values is handled **by the register
+      allocator** — the injected `bl` carries the standard call-clobber mask, so any
+      live vreg is spilled across it automatically (the same mechanism arena_alloc
+      already uses for its `arena_fill_random` grow call). `perf_start` goes in
+      after the helper captures its args into vregs; `perf_end` at the single exit,
+      with arena_alloc's result (`RET[0]`/`RET[1]`) saved into vregs and restored
+      across the perf `bl`. All gated on `perf_arena_enabled()` (debug + macOS).
+- [x] Non-recursion check: `perf_helpers_reference_no_arena_symbol` (`perf.rs`
+      tests) asserts the module names no `ARENA_*_SYMBOL` (the perf region rides the
+      `emit_arena_map` mmap seam / `clock_gettime`, never `_mfb_arena_alloc`), so a
+      perf helper can never `bl` into the arena.
 
-Acceptance: assembles/encodes on host; `artifact-gate.sh target/release/mfb`
-`diffs=0`; the non-recursion assert passes.
+Acceptance: `cargo build -p mfb` clean; the non-recursion test passes; release
+byte-identity verified below.
 Commit: —
 
 ### Phase 3 — Apply to each region + host proof
 
-- [ ] Wrap each census region with its named bracket (macOS backend only).
-- [ ] Runtime-proof on the macOS host (debug): a program with known alloc/free
-      behavior prints correct region rows; the program's own output and exit code
-      are unchanged from a release run of the same program.
+- [x] Wrapped `mfb_alloc` (`lower_arena_alloc`) and `mfb_free` (`lower_arena_free`),
+      macOS backend only. Emitted their name data objects (`"mfb_alloc"`,
+      `"mfb_free"`).
+- [x] Runtime proof on the macOS host (debug): an alloc/free-heavy program
+      (`/tmp/p67free`, a 200-iteration string-concat) prints
+      `mfb_alloc 7 428 0 0 3000 3000` / `mfb_free 5 0 0 0 0 0` / `program 1 …` —
+      correct per-region rows with plausible counts — and its own output (`len 200`)
+      + exit code (0) are unchanged, proving the result save/restore preserves the
+      allocation. This ALSO validates plan-67-E's stats over real multi-sample data.
 
-Acceptance: a **debug macOS** build prints correct arena-region timing rows on the
-host with no allocation regression; a **release** build is byte-identical to
-pre-plan-67 HEAD across all artifact-gate targets
-(`scripts/artifact-gate.sh target/release/mfb` → `diffs=0`), and the full
-acceptance suite is green when a release build drives it (plan-67-A). Linux/Windows
-are unaffected by construction (no injection emitted there).
+Acceptance: **debug macOS** build prints correct arena-region rows with no
+allocation regression (program output + exit intact); **release** build
+byte-identical — `artifact-gate: … 0 diff(s)` (all targets); `cargo test`
+310+20 passed 0 failed. Linux/Windows unaffected by construction (`perf_arena_enabled`
+false → the gated blocks emit nothing → identical instruction list).
 Commit: —
 
 ## Validation Plan
@@ -188,7 +214,29 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **In-body boundary wrap, not a spill-closure helper.** §4 imagined a helper
+  taking "a closure emitting the region" plus explicit spill/reload. In practice
+  both wrapped helpers are already **single-exit** vreg bodies, so the wrap is two
+  gated insertions — `perf_start` right after the args are captured into vregs,
+  `perf_end` at the one exit — and the **register allocator does the spilling**: the
+  injected `bl` carries the call-clobber mask, so every live vreg is spilled across
+  it automatically (exactly as arena_alloc already handles its `arena_fill_random`
+  grow call). No manual caller-saved spill list is needed. arena_alloc's result
+  (`RET[0]` tag / `RET[1]` ptr) is the only value not already in a vreg at the exit,
+  so it is explicitly saved into vregs and restored around the `perf_end` `bl`.
+- **Scope = the two helper boundaries (Open Decision "follow recommended").** The
+  Open Decision recommended starting at helper entry/exit boundaries and refining to
+  the inline `system_alloc` / `post_alloc` / `post_free` sub-regions "only if the
+  live-set spill is provably correct." `mfb_alloc` + `mfb_free` are those boundaries
+  and are done + proven. The inline sub-regions are a documented follow-up
+  (`emit_perf_arena_call` is ready to bracket them); they are the only part of the
+  user's named region list not yet wrapped.
+- **Non-recursion via a source-structural test.** The macOS `CodegenPlatform`
+  (`struct Platform`) is private, so a lowering-based reloc-scan unit test would
+  require exposing internals. The invariant is instead enforced structurally
+  (`perf.rs` names no `ARENA_*_SYMBOL`; its memory is the `emit_arena_map` mmap
+  syscall, never `_mfb_arena_alloc`) and confirmed behaviorally by the runtime proof
+  (an instrumented program runs to completion — a recursion would blow the stack).
 
 ## Summary
 

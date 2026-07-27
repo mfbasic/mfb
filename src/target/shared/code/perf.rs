@@ -930,3 +930,34 @@ fn emit_counter_row(
     instructions.push(abi::label(&skip));
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    /// plan-67-F non-recursion invariant: the perf helpers must never call an
+    /// arena helper, or F's bracketing of the arena hot path would recurse
+    /// perf → arena → perf (an unbounded stack blow-up, not a clean error). The
+    /// perf region is system memory via the `emit_arena_map` mmap SEAM (a
+    /// syscall), never `_mfb_arena_alloc`, and the clock read rides libc
+    /// `clock_gettime` — so this module names no arena helper symbol. Enforced
+    /// structurally here (a mis-edit that `bl`s an arena helper would reference
+    /// one of the `ARENA_*_SYMBOL` constants); the runtime proof confirms it
+    /// behaviorally (an instrumented program runs to completion).
+    #[test]
+    fn perf_helpers_reference_no_arena_symbol() {
+        let src = include_str!("perf.rs");
+        // Scan the module's code only, not this test (whose prose names the
+        // very `ARENA_*` constants it forbids).
+        let code = src.split("#[cfg(test)]").next().unwrap_or(src);
+        for (line_no, line) in code.lines().enumerate() {
+            // Compare code only, not prose (the module docs discuss the arena).
+            let code = line.split("//").next().unwrap_or("");
+            assert!(
+                !code.contains("ARENA_"),
+                "perf.rs:{} references an arena symbol — the non-recursion \
+                 invariant (plan-67-F) forbids the perf helpers from reaching the \
+                 arena: {line}",
+                line_no + 1,
+            );
+        }
+    }
+}

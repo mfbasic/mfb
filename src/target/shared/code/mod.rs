@@ -780,6 +780,15 @@ pub(crate) fn lower_module_for_platform(
             PERF_NAME_OVERFLOW_SYMBOL,
             "overflow".to_string(),
         ));
+        // plan-67-F: name objects for the instrumented arena regions.
+        data_objects.push(string_data_object(
+            PERF_NAME_MFB_ALLOC_SYMBOL,
+            "mfb_alloc".to_string(),
+        ));
+        data_objects.push(string_data_object(
+            PERF_NAME_MFB_FREE_SYMBOL,
+            "mfb_free".to_string(),
+        ));
     }
     // Writable `argc`/`argv` globals for `os::args()` (plan-31-B): filled by the
     // program entry from the values the OS passes in, read back when a later
@@ -1245,7 +1254,7 @@ pub(crate) fn lower_module_for_platform(
     code_functions.push(lower_make_error_result());
     code_functions.push(lower_simd_alloc_list());
     code_functions.push(lower_arena_insert_free());
-    code_functions.push(lower_arena_free());
+    code_functions.push(lower_arena_free(platform));
     // Entropy fill is always on (plan-01 §6.5): scrub freed chunks and poison
     // fresh blocks. The fill RNG/seed helpers ship with every arena.
     code_functions.push(lower_arena_fill_random());

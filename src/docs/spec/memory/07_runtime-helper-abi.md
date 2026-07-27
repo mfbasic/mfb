@@ -134,6 +134,13 @@ output is byte-identical to a pre-perf build. The emitted symbols are forced int
 the plan's runtime-symbol set (`plan::symbols::runtime_symbols`), not derived from
 the IR. [[src/target/shared/code/perf.rs:lower_perf_helper]]
 
+Under the same gate, the program-entry stub opens a whole-program `program` span,
+and the arena hot-path helpers `_mfb_arena_alloc` / `_mfb_arena_free` are bracketed
+with `perf_start`/`perf_end` (regions `mfb_alloc` / `mfb_free`), so `perf_done`
+prints a timing row per region at exit. The perf helpers themselves never touch the
+arena (their region is the `emit_arena_map` mmap seam), so bracketing arena code
+cannot recurse. [[src/target/shared/code/arena.rs:lower_arena_alloc]]
+
 ## Required-Helper Analysis
 
 `required_helpers(ir)` walks the IR and returns the de-duplicated set of helper
