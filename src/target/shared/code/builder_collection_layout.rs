@@ -283,9 +283,10 @@ impl CodeBuilder<'_> {
                 // wrote its bucket markers past the block into the adjacent
                 // heap chunk (bug-02: regex `prog.names` corrupted the arena
                 // free list).
-                let is_map = CollectionTypeLayout::from_type(other)
-                    .is_some_and(|layout| layout.kind == COLLECTION_KIND_MAP);
-                if is_map {
+                // A `Map` *or* a `Set` carries the bucket region (plan-63); a
+                // `List` does not. `collection_has_buckets` is the single predicate
+                // so a Set is never sized without the region it was allocated with.
+                if collection_has_buckets(other) {
                     self.emit(abi::load_u64(scratch, ptr_reg, COLLECTION_OFFSET_CAPACITY));
                     self.emit(abi::shift_left_immediate(scratch, scratch, 4));
                     self.emit(abi::add_registers(out_reg, out_reg, scratch));
@@ -407,11 +408,12 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &scratch10,
         ));
-        // A map's tight copy reserves its (count-sized) hash bucket region; x9
-        // still holds count. The copy is marked not-ready so the buckets are
-        // recomputed on first probe (no stale offsets across copy/transfer).
+        // A map's *or* set's tight copy reserves its (count-sized) hash bucket
+        // region; x9 still holds count. The copy is marked not-ready so the
+        // buckets are recomputed on first probe (no stale offsets across
+        // copy/transfer). `collection_has_buckets` keeps Set and Map in lockstep.
         self.emit_reserve_map_buckets(
-            layout.kind == COLLECTION_KIND_MAP,
+            collection_has_buckets(type_),
             &scratch9,
             abi::return_register(),
             &scratch10,

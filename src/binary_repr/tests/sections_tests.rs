@@ -52,6 +52,11 @@ fn type_id_maps_primitives_and_composites() {
     assert_ne!(map, result);
     let entry = types.type_id(&mut strings, "MapEntry OF String TO Integer");
     assert_ne!(entry, map);
+    // `Set OF T` gets its own id, distinct from a `List OF T` of the same element.
+    let set = types.type_id(&mut strings, "Set OF Integer");
+    assert!(set >= FIRST_TABLE_TYPE_ID);
+    assert_ne!(set, list);
+    assert_eq!(types.type_id(&mut strings, "Set OF Integer"), set);
     let func = types.type_id(&mut strings, "FUNC(Integer) AS Boolean");
     assert_ne!(func, entry);
     let iso = types.type_id(&mut strings, "ISOLATED FUNC() AS Nothing");
@@ -68,6 +73,8 @@ fn type_id_composites_decode_back_to_source_names() {
     let mut types = TypeTable::new();
     for name in [
         "List OF Integer",
+        "Set OF Integer",
+        "Set OF List OF String",
         "Map OF String TO Integer",
         "Result OF Integer",
         "MapEntry OF String TO Integer",
@@ -79,6 +86,8 @@ fn type_id_composites_decode_back_to_source_names() {
     let names = type_entry_names(&types, &strings.values).expect("decode names");
     let decoded: std::collections::HashSet<&str> = names.values().map(String::as_str).collect();
     assert!(decoded.contains("List OF Integer"));
+    assert!(decoded.contains("Set OF Integer"));
+    assert!(decoded.contains("Set OF List OF String"));
     assert!(decoded.contains("Map OF String TO Integer"));
     assert!(decoded.contains("Result OF Integer"));
     assert!(decoded.contains("MapEntry OF String TO Integer"));

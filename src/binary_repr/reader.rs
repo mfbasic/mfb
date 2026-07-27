@@ -836,6 +836,11 @@ fn decode_type_name_body(
             let state = read_payload_type(payload, 4, raw, strings, decoded, in_progress)?;
             format!("{base} STATE {state}")
         }
+        // `Set OF T` (plan-63): a single element payload id, kind 13.
+        13 => {
+            let element = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
+            format!("Set OF {element}")
+        }
         _ => string_at(strings, *name)?.to_string(),
     };
     Ok(decoded_name)
