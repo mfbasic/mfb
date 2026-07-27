@@ -50,9 +50,9 @@ Stated once here; every lettered sub-plan points back to this section.
 
 | Must be true | Command | Status |
 |---|---|---|
-| `cargo-llvm-cov` is installed (the gate's engine) | `cargo llvm-cov --version` | UNVERIFIED — check before starting A |
-| The test suite is green at HEAD (a red suite zeroes a binary's whole profile and produces phantom coverage gaps — see `scripts/coverage.sh` comment) | `cargo test` → `0 failed` | UNVERIFIED — check before starting A |
-| A full instrumented coverage report can be produced locally on this host (macOS aarch64) | `sh scripts/coverage.sh` exits 0 and writes `target/coverage/coverage.json` | UNVERIFIED — this run IS sub-plan A's first task |
+| `cargo-llvm-cov` is installed (the gate's engine) | `cargo llvm-cov --version` | **MET** (2026-07-27): cargo-llvm-cov 0.8.7 |
+| The test suite is green at HEAD (a red suite zeroes a binary's whole profile and produces phantom coverage gaps — see `scripts/coverage.sh` comment) | `cargo test` → `0 failed` | **MET** (2026-07-27): `sh scripts/coverage.sh` runs the full instrumented suite `--no-fail-fast` and exited 0 (final run over all merged letters), so 0 failed |
+| A full instrumented coverage report can be produced locally on this host (macOS aarch64) | `sh scripts/coverage.sh` exits 0 and writes `target/coverage/coverage.json` | **MET** (2026-07-27): exits 0, wrote coverage.json/lcov/html/cobertura; ran 3× over the plan (initial A1, mid-merge, final) |
 
 Everything below is written against the world where these hold. There is no
 fallback path for a missing coverage toolchain or a red suite — fix those first.
@@ -295,16 +295,24 @@ The feature's phases ARE the lettered sub-plans; each has its own phase list.
       Done: coverage.json regenerated (suite 0-failed), dispatch.rs + signing.rs
       re-excepted, json.rs dead-arm resolved, worklist frozen (54 backfill files;
       +emitter.rs→D7, windows/mod.rs→C11). Commit: 0c3451a2c.
-- [ ] **B** — CLI + build modules (`plan-68-B-cli-build.md`).
-- [ ] **C** — OS backends + binary_repr object writers (`plan-68-C-os-binrepr.md`).
-- [ ] **D** — IR verify + small IR + arch backend (`plan-68-D-ir-verify.md`).
-- [ ] **E** — IR lower / binary / link (`plan-68-E-ir-lower.md`).
-- [ ] **F** — syntaxcheck front-end (`plan-68-F-syntaxcheck.md`).
-- [ ] **G** — AST front-end (`plan-68-G-ast.md`).
+- [x] **B** — CLI + build modules (`plan-68-B-cli-build.md`). Landed (5144f..72460 +
+      residual e081c97cd). test_mode.rs, resources.rs excepted (unreachable temp-dir /
+      canonicalize arms); mod.rs, packages, native_libs, cli/mod (excepted) resolved.
+- [x] **C** — OS backends + binary_repr object writers (`plan-68-C-os-binrepr.md`).
+      Landed (6986c..82b1b + C11 windows/mod). squashfs, binary_repr, appimage excepted
+      (unreachable §4.9 invariants / depth-cap / seal guard + inline-test panic arms).
+- [x] **D** — IR verify + small IR + arch backend (`plan-68-D-ir-verify.md`).
+      Landed (15f206a71..39946da65); all 8 files (incl. D7 emitter) ≥95%.
+- [x] **E** — IR lower / binary / link (`plan-68-E-ir-lower.md`). Landed
+      (427ddb3b6..4803f2aad + residual e081c97cd for lower.rs); all six ≥95%.
+- [x] **F** — syntaxcheck front-end (`plan-68-F-syntaxcheck.md`). Landed
+      (779924d0e..9c8775b51 + b3a09d8d6 mod.rs residual); all four ≥95%.
+- [x] **G** — AST front-end (`plan-68-G-ast.md`). Landed (10bd87248..f97061251);
+      all five ≥95% (scope_privates collision arm left; not gating).
 - [x] **H** — Leaf/misc modules + repository crate (`plan-68-H-leaf-repository.md`).
-      Done: H1-H8 landed (commits 4c54aefff..7868f0ad0); 11 backfill files tested
-      to ≥95%; spec/mod.rs handed to A as a whole-file drift-guard exception;
-      strings.rs:260, backfill.rs:71-77, and main.rs:48-284 flagged unreachable.
+      Landed (4c54aefff..7868f0ad0). repository/src/main.rs excepted (server entrypoint);
+      spec/mod.rs covered honestly (drift-guard test refactor, b3a09d8d6 — NOT excepted);
+      strings.rs:260 / backfill.rs:71-77 flagged unreachable but non-gating.
 
 ## Validation Plan
 
@@ -351,6 +359,40 @@ The feature's phases ARE the lettered sub-plans; each has its own phase list.
   an exception. `src/json.rs` Open Decision resolved in `src/json.rs` itself
   (dead `.unwrap_or_else` → `.expect`), so it is neither excepted nor an H task.
 - Full detail + measuring commands in `plan-68-A-triage-exceptions.md` Corrections.
+
+**Residual A-triage after the B–H backfill merged (the final gate pass).** The
+central `sh scripts/coverage.sh` + `coverage-check.sh` over all merged letters left
+11 files under 95%. Read each file's fresh-lcov uncovered lines to classify
+except-vs-backfill:
+
+- **Backfilled to ≥95% (coverable):** src/ir/lower.rs, src/syntaxcheck/mod.rs,
+  src/cli/build/mod.rs, src/binary_repr/mod.rs (owner-absent/mixed-foreign
+  resolution), src/docs/spec/mod.rs (drift-guard test refactor over a synthetic
+  broken corpus — the earlier "except spec/mod.rs" recommendation was WITHDRAWN;
+  it is covered honestly), src/os/linux/appimage/mod.rs (partial). Commits
+  e081c97cd, b3a09d8d6, ed375e8f9.
+- **Excepted (7 new, each verified capped <95% by genuinely-unreachable arms;
+  boundaries in `scripts/coverage-exceptions.txt`):** repository/src/main.rs
+  (async server entrypoint), src/cli/build/test_mode.rs (make_temp_output_dir
+  exclusive-create collision arms), src/cli/build/resources.rs (canonicalize on an
+  already-is_dir-validated path), src/cli/mod.rs (dispatch_command_error
+  process::exit + confirm TTY), src/os/linux/appimage/squashfs/mod.rs (§4.9
+  compile-time-constant + byte-accounting invariant guards), src/binary_repr/mod.rs
+  (64-level depth-cap + root-path parent()==None), src/os/linux/appimage/mod.rs
+  (seal supply-chain guard + inline-test let-else{panic!} assertion arms).
+  Commits 6af081eed, ce95b5d3e, + the binary_repr/appimage exception commit.
+- **Final result:** `sh scripts/coverage-check.sh` → "All non-excepted files >= 95%
+  line coverage." (overall 96.30%, 15 excepted); the global
+  `cargo llvm-cov report … --fail-under-lines 95` exits 0 (TOTAL lines 96.30%).
+- **Process note:** the residual-backfill subagent spawned nested subagents in the
+  shared worktree, causing brief commit/coverage-profile coordination churn (some
+  work landed uncommitted, some bundled under a mismatched commit message); the
+  parent reconciled it by explicit-path commits and one authoritative central
+  coverage pass. No work was lost and `main` was never touched.
+- **Follow-up (recorded, non-blocking):** moving the inline `#[cfg(test)]` module
+  of `src/os/linux/appimage/mod.rs` to a sibling `appimage/tests.rs` (the squashfs
+  pattern) would drop the test-assertion arms from that file's denominator and let
+  its whole-file exception be lifted.
 
 ## Summary
 
