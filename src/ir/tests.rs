@@ -388,6 +388,129 @@ mod binary_repr_tests {
         }
     }
 
+    // `prefix_package_symbols` must fold every LINK-table routing name into the
+    // identity prefix in lockstep with the regular functions: the wrapper-body
+    // routing name (`alias.func`), the `link_functions`/`link_cstructs` alias,
+    // and each re-export alias target.
+    #[test]
+    fn prefix_package_symbols_qualifies_link_tables() {
+        let mut pkg = corpus_project();
+        let name = pkg.name.clone();
+        assert!(!pkg.link_functions.is_empty());
+        assert!(!pkg.link_cstructs.is_empty());
+        assert!(!pkg.link_aliases.is_empty());
+
+        let id = "id123";
+        prefix_package_symbols(&mut pkg, id);
+
+        let want = format!("{id}.{name}.");
+        assert!(
+            pkg.link_functions[0].alias.starts_with(&want),
+            "link function alias not prefixed: {}",
+            pkg.link_functions[0].alias
+        );
+        assert!(
+            pkg.link_cstructs[0].alias.starts_with(&want),
+            "cstruct alias not prefixed: {}",
+            pkg.link_cstructs[0].alias
+        );
+        assert!(
+            pkg.link_aliases[0].1.starts_with(&want),
+            "re-export alias target not prefixed: {}",
+            pkg.link_aliases[0].1
+        );
+    }
+
+    // `merge_package` de-duplicates the CSTRUCT table by `(alias, name)`: merging
+    // a package into a copy of itself leaves the table length unchanged (the
+    // `push_unique` predicate for `link_cstructs`).
+    #[test]
+    fn merge_package_dedups_link_cstructs() {
+        let mut base = corpus_project();
+        let incoming = corpus_project();
+        let before = base.link_cstructs.len();
+        assert!(before > 0);
+        merge_package(&mut base, incoming);
+        assert_eq!(base.link_cstructs.len(), before, "cstructs not deduped");
+    }
+
+    // A stateful link function (`return_state_type`/`bind_state`) rides the
+    // optional STATE trailer, and its `BIND IN` block rides the positional
+    // record — both must survive the encode/decode round trip (plan-53 / plan-50-E).
+    #[test]
+    fn link_state_trailer_and_bind_in_round_trip() {
+        let mut project = corpus_project();
+        {
+            let lf = &mut project.link_functions[0];
+            lf.return_state_type = Some("OpenState".to_string());
+            lf.bind_state = Some("cfg".to_string());
+            lf.bind_state_resource = None;
+            lf.bind_in = vec![crate::ir::IrBindIn {
+                slot: "cfg".to_string(),
+                fields: vec![
+                    crate::ir::IrBindInField {
+                        name: "a".to_string(),
+                        param: Some("path".to_string()),
+                        literal: None,
+                    },
+                    crate::ir::IrBindInField {
+                        name: "b".to_string(),
+                        param: None,
+                        literal: Some(-7),
+                    },
+                ],
+            }];
+        }
+        let bytes = encode_binary_repr(&project);
+        let decoded = decode_binary_repr(&bytes).expect("decode");
+        assert_eq!(project.to_json(), decoded.to_json());
+        let dlf = &decoded.link_functions[0];
+        assert_eq!(dlf.return_state_type.as_deref(), Some("OpenState"));
+        assert_eq!(dlf.bind_state.as_deref(), Some("cfg"));
+        assert_eq!(dlf.bind_in.len(), 1);
+        assert_eq!(dlf.bind_in[0].fields[1].literal, Some(-7));
+    }
+
+    // bug-291: a `FloatBlocked` resource owner is unreachable on the wire
+    // (`ir::verify` rejects a blocked float pre-encode), but the encoder still
+    // serializes it as a plain `Local` (tag 0) so the format needs no new tag.
+    #[test]
+    fn float_blocked_resource_owner_encodes_as_local() {
+        let mut project = corpus_project();
+        project.functions[0].resource_owners.insert(
+            "blocked".to_string(),
+            crate::ir::resource_escape::ResOwner::FloatBlocked("xs".to_string()),
+        );
+        let bytes = encode_binary_repr(&project);
+        let decoded = decode_binary_repr(&bytes).expect("decode");
+        assert!(matches!(
+            decoded.functions[0].resource_owners.get("blocked"),
+            Some(crate::ir::resource_escape::ResOwner::Local)
+        ));
+    }
+
+    // A per-CSTRUCT field count is an attacker-controlled u32, so it must be
+    // bounded independently of the struct count (decode_cstructs field cap).
+    #[test]
+    fn rejects_an_absurd_cstruct_field_count() {
+        let project = crate::ir::test_support::project_fixture("plain", vec![], vec![]);
+        let mut bytes = encode_binary_repr(&project);
+        // Append a trailer: 0 link functions, 0 aliases, then 1 CSTRUCT whose
+        // (alias, name, maps_to) are empty strings and whose field count is huge.
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // link functions
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // aliases
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // one CSTRUCT
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // alias: ""
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // name: ""
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // maps_to: ""
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes()); // field count
+        let err = match decode_binary_repr(&bytes) {
+            Err(err) => err,
+            Ok(_) => panic!("an absurd CSTRUCT field count must be rejected"),
+        };
+        assert!(err.contains("limit"), "{err}");
+    }
+
     // Decoded package IR is verified against the package-format invariants
     // before it is merged; these exercise the PACKAGE_BINARY_REPRESENTATION_VERIFY_* diagnostics.
     #[test]
