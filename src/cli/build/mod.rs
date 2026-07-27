@@ -2977,6 +2977,71 @@ mod tests {
         assert!(build_project(&options).is_err());
     }
 
+    /// A host executable that vendors a native library resolves the vendor
+    /// locator, hash-verifies the blob, and copies it beside the binary — driving
+    /// `resolved_vendor_libraries`' resolution loop and the vendor copy on a real
+    /// build. The `.so` need not be a real library: codegen emits a `dlopen` stub
+    /// and only the recorded hash is checked at build time.
+    #[test]
+    fn build_project_builds_an_executable_that_vendors_a_library() {
+        let host = target::BuildTarget::host();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            format!(
+                concat!(
+                    "{{\n",
+                    "  \"name\": \"app\",\n",
+                    "  \"version\": \"0.1.0\",\n",
+                    "  \"mfb\": \"1.0\",\n",
+                    "  \"kind\": \"executable\",\n",
+                    "  \"entry\": \"main\",\n",
+                    "  \"targets\": [\"native\"],\n",
+                    "  \"libraries\": {{ \"foo\": [ {{ \"os\": \"{os}\", \"arch\": \"{arch}\", \"type\": \"vendor\", \"source\": \"libfoo.so\" }} ] }},\n",
+                    "  \"sources\": [{{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }}]\n",
+                    "}}\n"
+                ),
+                os = host.os,
+                arch = host.arch,
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            concat!(
+                "LINK \"foo\" AS fooLib\n",
+                "  FUNC ping() AS Nothing\n",
+                "    SYMBOL \"foo_ping\"\n",
+                "    ABI () AS status CInt32\n",
+                "    SUCCESS_ON status = 0\n",
+                "  END FUNC\n",
+                "END LINK\n\n",
+                "SUB main()\n",
+                "  fooLib::ping()\n",
+                "END SUB\n"
+            ),
+        )
+        .unwrap();
+        // The vendored blob (dummy bytes; the build records its sha256).
+        std::fs::create_dir_all(dir.path().join("vendor")).unwrap();
+        std::fs::write(dir.path().join("vendor").join("libfoo.so"), b"\x7fELF dummy vendor blob").unwrap();
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        build_project(&options).expect("vendored build should succeed");
+        // The vendored blob was copied into build/vendor/ beside the executable.
+        let vendor_out = dir
+            .path()
+            .join(crate::os::BUILD_DIR)
+            .join(crate::os::VENDOR_DIR);
+        let copied: Vec<PathBuf> = std::fs::read_dir(&vendor_out)
+            .expect("build/vendor exists")
+            .map(|entry| entry.expect("entry").path())
+            .filter(|path| path.is_file())
+            .collect();
+        assert_eq!(copied.len(), 1, "exactly one vendored library was copied");
+    }
+
     /// The same missing-`libraries` error aborts a package build (the package-path
     /// `assemble_native_libraries` gate).
     #[test]
