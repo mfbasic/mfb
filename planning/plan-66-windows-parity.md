@@ -510,7 +510,7 @@ Commit: 48e20c1e9 / merged 7b0d6ccf7
 Acceptance: `mfb build -target windows-x86_64 -app` no longer rejects at the gate; PE header Subsystem=2. **MET** (Subsystem=2 unit-test-proven; note: a full `-app` build still errors at codegen until J-full lands — a clean error, not a wrong result).
 Commit: d9025af8c / merged e5c500020
 
-### Phase J — Win32 app-mode floor  (SPIKE DONE, box-proven; FULL FLOOR NOT BUILT)
+### Phase J — Win32 app-mode floor  (COMPLETE — J-1..J-5 box-proven on 2230)
 - [~] **Message-loop↔worker spike: DONE and BOX-PROVEN** (`spike.rs`, test-only):
   a hand-assembled GUI-subsystem PE does RegisterClassExW→CreateWindowExW→
   CreateThread(worker)→GetMessage loop; the worker cross-thread `PostMessageW`s a
@@ -612,7 +612,7 @@ Commit: d9025af8c / merged e5c500020
   print("RED"); setForeground(0,255,0); moveTo(3,10); print("GRN"); sync; off` →
   SetTextColor `ff` then `ff00`, `RED` at cells (5,1)/(6,1)/(7,1) and `GRN` at
   (10,3)/(11,3)/(12,3) — exact positions + colors; EXIT=0; J-3 transcript + J-4
-  input unregressed; cargo test 3279 passed. Commit: `<pending>`.
+  input unregressed; cargo test 3279 passed. Commit: `644b0c726`.
   (original J-5 spec:) `emit_app_term_helper` cell-grid custom draw modeled on
   `term_view.rs`, `emit_app_mode_reconcile` + reconcile data objects.
 
@@ -661,7 +661,7 @@ Commit: d9025af8c / merged e5c500020
   J-5 (cdb-traced TUI cells with exact positions/colors) all box-proven on 2230.
 
 Acceptance: an `-app` program opens a window, shows `io::print` output, reads a typed line, and drives a `term::` TUI grid. **MET — J-2 bootstrap + J-3 transcript + J-4 input + J-5 TUI grid all box-proven on 2230.**
-Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 1ffe9cb78 · J-5 `<pending>`
+Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 · J-4 1ffe9cb78 · J-5 644b0c726
 
 ### Phase K — PE resource packaging  (NOT STARTED)
 - [ ] `.ico` encoder (`os/windows/icon.rs` reusing `os/icon/mod.rs::render_png`);
