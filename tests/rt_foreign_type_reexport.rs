@@ -22,6 +22,8 @@
 //! `A` but not the private `B`; and a dependency set whose intermediaries were
 //! built against ABI-incompatible versions of `pA` is rejected at build.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -38,7 +40,7 @@ fn unique_root(name: &str) -> PathBuf {
 }
 
 fn mfb() -> Command {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_mfb"));
+    let mut command = Command::new(common::mfb_exe());
     // An empty per-run key store: package builds with `file:`/local dependencies
     // are permitted unsigned, and this keeps the result independent of whatever
     // registry the developer machine has authed against (see test-accept.sh).
