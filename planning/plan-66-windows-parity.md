@@ -532,7 +532,7 @@ Commit: d9025af8c / merged e5c500020
   the inherited std handle), flush/is_terminal, `app_mode_data_objects` (UTF-16), +
   `plan.rs` `app_mode_imports` (user32/kernel32). Subsystem=2 verified; 4 unit tests.
   Box (2230, headless, stdout→file): a `-app` hello ran the worker/program and emitted
-  `hello-from-winapp`/`second-line`. Commit `<pending>`.
+  `hello-from-winapp`/`second-line`. Commit `b6642fe62`.
   (original J-2 description:) New `win_x86_64/app/` module. `emit_app_program_entry`
   emits `_main` (GetModuleHandleW → RegisterClassExW(WndProc) → CreateWindowExW →
   CreateThread(worker,hwnd) → GetMessageW loop) modeled on `spike.rs`, plus the
