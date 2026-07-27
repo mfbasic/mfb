@@ -40,3 +40,14 @@ it in a container on the Mac.
 impossible: the GTK entry was never ported (bug-117.1) and upstream publishes no
 riscv64 AppImage runtime to seal with.
 
+RISC-V Vector (`V`) status (plan-32): **both** riscv64 boxes lack `V` in hardware
+— `/proc/cpuinfo` `isa` is `rv64imafdch_...zba_zbb_zbc_zbs_...` with no `v` (2229
+Alpine musl, 2232 Debian glibc). A native run therefore only ever exercises the
+scalar (`v=false`) path of the one-binary RVV dual-path. To get the `v=true`
+(native-RVV) path, run under **qemu-user**, which emulates `V` and sets
+`AT_HWCAP` bit 21: it is fetched without root on 2232 via `apt-get download
+qemu-user` → `dpkg -x qemu-user_*.deb ~/qemuroot` (→ `~/qemuroot/usr/bin/qemu-riscv64`,
+Linux-host only, so it cannot run on the Mac). `scripts/rvv-qemu-runner.sh` ships a
+build to 2232 and runs it under `qemu-riscv64 -cpu rv64,v=true,vlen=128` / `v=false`;
+`scripts/rvv-ulp-two-profile.sh` drives the ULP harness across both profiles.
+

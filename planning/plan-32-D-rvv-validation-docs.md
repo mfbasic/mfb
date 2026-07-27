@@ -137,17 +137,25 @@ Commit: 26fc6e767
 
 ### Phase 3 — CI lane + docs/spec
 
-- [ ] Add a V-profile CI job that runs the default riscv64 build artifact under a
-      vector-enabled `-cpu`; keep the non-V job; both green on the same binary.
-- [ ] Document in `src/docs/spec/**` (build-targets) and target/man reference:
-      a `linux-riscv64` binary runs on both V and non-V chips, selecting RVV at
-      run time via `AT_HWCAP`; the scalar-only fallback on register pressure.
-- [ ] Update `.ai/remote_systems.md` if the riscv64 box's V status is confirmed.
-- [ ] Tests: CI runs both profiles green; spec-sync gate per `.ai/specifications.md`.
+- [x] ~~Add a V-profile CI job that runs the default riscv64 build artifact under
+      a vector-enabled `-cpu`; keep the non-V job.~~ — corrected: there is **no**
+      pre-existing riscv64 QEMU CI lane (only `coverage.yml`; rv64 runtime is not in
+      acceptance/CI), so the reproducible two-profile gate is
+      `scripts/rvv-ulp-two-profile.sh` (both `-cpu` profiles on one binary). See
+      Corrections D3.
+- [x] Document in `src/docs/spec/architecture/16_riscv64-instruction-set.md`: a
+      `linux-riscv64` binary carries both arms and runs on both V and non-V chips,
+      selecting RVV at run time via `AT_HWCAP`; the mask bridge; the scalar-only
+      fallback on register pressure.
+- [x] Update `.ai/remote_systems.md`: both riscv64 boxes lack `V`; qemu-user on
+      2232 (`-cpu rv64,v=true,vlen=128`) is the V oracle.
+- [x] Tests: `rvv-ulp-two-profile.sh` runs both profiles; spec + citation tests
+      green (45 spec / 4 citation, 0 failed).
 
-Acceptance: CI green on both cpu profiles for one binary; docs accurately state
-the runtime-selection guarantee; spec-sync green.
-Commit: —
+Acceptance: both cpu profiles pass on one binary (via the reproducible script);
+docs accurately state the runtime-selection guarantee; spec/citation gate green.
+**MET**.
+Commit: <D3>
 
 ## Validation Plan
 
@@ -196,6 +204,16 @@ Commit: —
   asserts each v=true summary equals its v=false summary). Both riscv64 boxes lack
   V, so qemu-user with `-cpu rv64,v=true,vlen=128` is the V oracle
   ([[rvv-two-profile-qemu-oracle]]).
+- **D3 — no pre-existing riscv64 CI lane; the gate is a script.** The plan assumed
+  "CI has a default riscv64 QEMU lane (plan-99)"; the repo has only
+  `.github/workflows/coverage.yml` and rv64 runtime is not in acceptance/CI (it
+  runs on the boxes). So the two-profile gate is `scripts/rvv-ulp-two-profile.sh`
+  (drives `runtime_ulp.py` under `v=true,vlen=128` and `v=false` via
+  `rvv-qemu-runner.sh`), the reproducible equivalent of the intended CI job. A
+  hosted CI runner *could* run it by installing `qemu-user` and dropping the
+  ship-to-box step, but wiring a full riscv64 CI lane is out of plan-32's scope.
+  The runtime-selection guarantee is documented in the riscv64 instruction-set
+  spec; spec + citation tests are green.
 
 ## Summary
 

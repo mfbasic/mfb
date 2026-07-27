@@ -3,8 +3,10 @@
 The `linux-riscv64` backend is the third ISA after AArch64 and x86-64, and the
 one that most exercises the neutrality of the target-neutral MIR: RISC-V has **no
 condition flags** (so a flagless compare-and-branch is the only way one lowers at
-all) and **no 128-bit vector file** on the base target (so `v128` ops scalarize
-to `2× f64`). It consumes the **same neutral MIR** the shared builders and helpers
+all) and **no 128-bit vector file** on the base target — so `v128` ops scalarize
+to `2× f64`, and, where the optional Vector (`V`) extension is present, a runtime
+dual path selects native RVV instead (see *Runtime-selected RVV* below). It
+consumes the **same neutral MIR** the shared builders and helpers
 produce, plugging in through the backend trait with no edits to the other two
 paths. [[src/arch/riscv64/mod.rs:1]] [[src/arch/riscv64/backend.rs:Riscv64Backend]]
 This topic specifies the RISC-V op repertoire, its encodings, and how selection
@@ -18,9 +20,11 @@ The base ISA is **RV64GC** (RVA20 — RV64IMAFDC) under the Linux **lp64d** ABI:
 single/double floating point (`F`/`D`). The encoder emits only **fixed 32-bit
 little-endian words**; it never emits the compressed 16-bit (`C`) forms, even
 though the target permits them. Two extensions the codegen would benefit from are
-**not** used: there is no bit-manipulation (`Zbb`) — `clz`, bit/byte reversal, and
-rotate are synthesized from base-ISA sequences — and there is no vector (`V`)
-extension, so the neutral `v128` vocabulary is realized on memory, not registers.
+**not** assumed at build time: there is no bit-manipulation (`Zbb`) — `clz`,
+bit/byte reversal, and rotate are synthesized from base-ISA sequences — and the
+vector (`V`) extension is not *required*, but a single binary uses it when the CPU
+has it: the neutral `v128` vocabulary lowers to a runtime dual path that runs
+native RVV on V hardware and the memory-slot scalarization elsewhere (below).
 Hardware fused multiply-add lives in the base `D` extension, so the ≤1-ULP math
 kernels (`./mfb spec architecture math-kernels`) hold natively.
 [[src/arch/riscv64/encode/mod.rs:1]] [[src/arch/riscv64/encode/emitter.rs:emit_instruction]]
@@ -281,11 +285,11 @@ like AArch64, unlike x86-64. The full ABI role and clobber tables are canonical 
 `./mfb spec memory native-calling-convention`.
 [[src/arch/riscv64/backend.rs:frame_call_padding]]
 
-### No native SIMD — `v128` scalarization
+### `v128` scalarization (the scalar arm)
 
 RV64GC has no 128-bit register file, so the neutral `v128` vocabulary (used by the
 transcendental math kernels and the `vector::` package) cannot live in a register.
-Instead each `v128` op is **scalarized** onto a memory-slot region in the
+The base realization **scalarizes** each `v128` op onto a memory-slot region in the
 per-thread arena state: every distinct vector value in a function is assigned a
 16-byte slot (via linear-scan reuse, so the region size is the peak concurrent
 count, not the value count), and each op materializes the slot base into `t2`,
@@ -298,6 +302,32 @@ thread, which holds because the kernels are inlined straight-line leaf code.
 Correctness is preserved and the native `D`-extension FMA keeps the ≤1-ULP kernel
 contract. [[src/arch/riscv64/v128.rs:scalarize_v128]]
 [[src/arch/riscv64/v128.rs:build_slot_map]] [[src/arch/riscv64/v128.rs:SLOT_COUNT]]
+
+### Runtime-selected RVV — one binary for both V and non-V chips
+
+A `linux-riscv64` binary is **not** built for a fixed vector capability: it carries
+**both** the scalar arm above and a native **RVV** (Vector-extension) arm of its
+`v128` code, and picks between them **at run time**. At program start a syscall-free
+scan of the ELF aux vector reads `AT_HWCAP` bit 21 (the `V` ISA bit) and stores the
+result in a one-byte process-global `_mfb_rt_has_rvv`. Each `v128` op (or, after the
+per-run optimization, each maximal run of consecutive vector ops) then lowers to a
+guard — `lb`/`beqz _mfb_rt_has_rvv` — choosing the RVV arm on V-capable hardware or
+the scalar arm otherwise. So the same executable runs correctly on a V chip (using
+native `vsetivli` + `vf*`/`v*` on `v1`–`v30`, `SEW=64, LMUL=1, vl=2`) and on a
+non-V chip (the proven scalar path), with no build-time target split.
+
+The two arms **reconcile through the same per-thread slot region**: the RVV arm
+reads its operands from and writes its results to those slots, so whichever arm
+runs leaves identical values there, and results are **bit-identical** across the
+two arms and across the AArch64/x86-64 backends. Compares cross the NEON/RVV mask
+impedance via a *mask bridge* — the `vmf*`/`vms*` result in the `v0` mask register
+is materialized into the all-ones/all-zeros lane vector the scalar arm produces
+(`vmv.v.i`; `vmerge.vim`) — so `bsl`/`bit` become ordinary vector `xor`/`and`.
+A function whose peak concurrent `v128` pressure exceeds the 30-register pool
+(`v0` is the mask, `v31` scratch) simply emits the **scalar arm only** — still one
+correct binary, just without the vector speedup for that function.
+[[src/arch/riscv64/v128.rs:lower_v128_run]] [[src/arch/riscv64/v128.rs:build_vreg_map]]
+[[src/target/shared/code/error_constants.rs:HAS_RVV_GLOBAL_SYMBOL]]
 
 ## Calls, labels, and relocations
 
