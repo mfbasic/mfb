@@ -18,6 +18,7 @@ const BCRYPT: &str = "bcrypt.dll";
 const SECUR32: &str = "secur32.dll";
 const CRYPT32: &str = "crypt32.dll";
 const ADVAPI32: &str = "advapi32.dll";
+const SHELL32: &str = "shell32.dll"; // os.args: CommandLineToArgvW (plan-66-B)
 // WASAPI audio (plan-66 G+H): the COM runtime (object activation) rides ole32; the
 // endpoint objects themselves are called through their vtables (no import).
 const OLE32: &str = "ole32.dll";
@@ -90,6 +91,14 @@ impl NativePlanPlatform for Platform {
             // plan-66-J-3 transcript: io::print → EDIT control. MultiByteToWideChar
             // converts the UTF-8 print text; SendMessageW appends it (EM_REPLACESEL).
             import("MultiByteToWideChar", KERNEL32, "_main"),
+            // plan-66-J-4 input: a pipe feeds the worker's readLine (fd 0 via
+            // SetStdHandle); the EDIT subclass (SetWindowLongPtrW/CallWindowProcW)
+            // writes committed lines (UTF-16 → UTF-8 via WideCharToMultiByte).
+            import("CreatePipe", KERNEL32, "_main"),
+            import("SetStdHandle", KERNEL32, "_main"),
+            import("WideCharToMultiByte", KERNEL32, "_main"),
+            import("SetWindowLongPtrW", USER32, "_main"),
+            import("CallWindowProcW", USER32, "_main"),
             import("RegisterClassExW", USER32, "_main"),
             import("CreateWindowExW", USER32, "_main"),
             import("GetMessageW", USER32, "_main"),
@@ -108,6 +117,84 @@ impl NativePlanPlatform for Platform {
         // Every path-taking fs helper marshals UTF-8 → UTF-16 (MultiByteToWideChar)
         // before its `*W` Win32 call (plan-47-F §3.4).
         match spec.call {
+            // ===== plan-66 A/B/C/D import arms, dropped by the stale main→P-66
+            // merge (same as the mod.rs advertising); restored. =====
+            // Phase A — datetime (no libc clocks on Windows).
+            "datetime.monotonicNanos" => vec![
+                import("QueryPerformanceCounter", KERNEL32, required_by),
+                import("QueryPerformanceFrequency", KERNEL32, required_by),
+            ],
+            "datetime.nowNanos" => vec![import(
+                "GetSystemTimePreciseAsFileTime",
+                KERNEL32,
+                required_by,
+            )],
+            "datetime.localOffset" => vec![
+                import("FileTimeToSystemTime", KERNEL32, required_by),
+                import("SystemTimeToTzSpecificLocalTime", KERNEL32, required_by),
+                import("SystemTimeToFileTime", KERNEL32, required_by),
+            ],
+            // Phase B — os. name/arch are const strings (no import → fall through).
+            "os.pid" => vec![import("GetCurrentProcessId", KERNEL32, required_by)],
+            "os.cpuCount" => vec![import("GetSystemInfo", KERNEL32, required_by)],
+            "os.getEnv" | "os.getEnvOr" | "os.hasEnv" | "os.setEnv" | "os.unsetEnv" => vec![
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+                import("GetEnvironmentVariableW", KERNEL32, required_by),
+                import("SetEnvironmentVariableW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            "os.hostName" => vec![
+                import("GetComputerNameExW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            "os.userName" => vec![
+                import("GetUserNameW", ADVAPI32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            "os.executablePath" => vec![
+                import("GetModuleFileNameW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            "os.environ" => vec![
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                import("GetEnvironmentStringsW", KERNEL32, required_by),
+                import("FreeEnvironmentStringsW", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            "os.args" => vec![
+                import("GetCommandLineW", KERNEL32, required_by),
+                import("CommandLineToArgvW", SHELL32, required_by),
+                import("LocalFree", KERNEL32, required_by),
+                import("WideCharToMultiByte", KERNEL32, required_by),
+            ],
+            // Phase C — io console input. isBuffered/setBuffered make no OS call
+            // (fall through). The stdin-broadcast log rides heap + SRWLOCK/condvar.
+            "io.input" | "io.readLine" | "io.readChar" | "io.readByte" | "io.pollInput"
+            | "io.flush" => vec![
+                import("GetStdHandle", KERNEL32, required_by),
+                import("ReadFile", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("WaitForSingleObject", KERNEL32, required_by),
+                import("GetConsoleMode", KERNEL32, required_by),
+                import("SetConsoleMode", KERNEL32, required_by),
+                import("GetProcessHeap", KERNEL32, required_by),
+                import("HeapAlloc", KERNEL32, required_by),
+                import("HeapFree", KERNEL32, required_by),
+                import("InitializeSRWLock", KERNEL32, required_by),
+                import("AcquireSRWLockExclusive", KERNEL32, required_by),
+                import("ReleaseSRWLockExclusive", KERNEL32, required_by),
+                import("InitializeConditionVariable", KERNEL32, required_by),
+                import("WakeConditionVariable", KERNEL32, required_by),
+                import("WakeAllConditionVariable", KERNEL32, required_by),
+                import("SleepConditionVariableSRW", KERNEL32, required_by),
+                import("CreateThread", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
             "fs.exists" | "fs.fileExists" | "fs.directoryExists" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetFileAttributesW", KERNEL32, required_by),
@@ -265,8 +352,14 @@ impl NativePlanPlatform for Platform {
             // Terminal size AND the raw-mode line-discipline seam (the term module
             // links the raw-mode helper, whose isatty/tcgetattr/tcsetattr now route
             // to GetConsoleMode/SetConsoleMode via emit_terminal_control_call).
-            "term.terminalSize" | "term.on" | "term.off" | "term.isOn" => vec![
+            // plan-66-D: on/off/sync emit ANSI via WriteFile (on also enables
+            // ENABLE_VIRTUAL_TERMINAL_PROCESSING); terminalSize reads the buffer
+            // info. The styling setters/getters + moveTo/clear touch only grid state
+            // (no OS call → fall through). `term.sync`/WriteFile were dropped by the
+            // stale merge; restored.
+            "term.terminalSize" | "term.on" | "term.off" | "term.isOn" | "term.sync" => vec![
                 import("GetStdHandle", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
                 import("GetConsoleMode", KERNEL32, required_by),
                 import("SetConsoleMode", KERNEL32, required_by),
                 import("GetConsoleScreenBufferInfo", KERNEL32, required_by),
