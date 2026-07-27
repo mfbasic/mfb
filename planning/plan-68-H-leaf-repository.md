@@ -209,10 +209,18 @@ spec/mod.rs:
       `[[…` and a no-terminator input to cover the `break` / `unwrap_or(rest.len())`
       arms that the clean corpus never triggers. `summary_line` (:99) heading-skip
       and empty-fallback are already covered.
-- [x] If, after the above, spec/mod.rs still sits below 95% because the remaining
-      uncovered lines are only the dead sort fallback (:80) and the broken-corpus
-      `broken.push` drift-guard arms, hand those to A as unreachable — do not
-      fabricate a broken corpus to hit them.
+- [x] The `broken.push` drift-guard arms (148/151/155/159-162/193) are now
+      COVERED without a fabricated corpus: each drift guard's resolve-and-collect
+      loop is extracted into a pure `#[cfg(test)]` helper (`unresolved_cross_links`
+      / `unresolved_citations`) that the real-corpus guards still call over
+      `packages()` (asserting empty — unchanged behavior), plus two focused tests
+      (`unresolved_cross_links_reports_drift`, `unresolved_citations_reports_missing_file`)
+      feed a synthetic in-memory page: an unknown package, a known package with an
+      unknown topic, and a missing-file citation. No broken embedded corpus is
+      created; the real drift guards are untouched. The `broken.join` message args
+      (:171/:201) stay uncovered (evaluated only on assert failure) → 137/139 =
+      98.6% ≥ 95%; the `:80` sort fallback keeps its A line-level exception. No
+      whole-file exception needed. Commit: b3a09d8d6.
 
 Acceptance: `sh scripts/coverage-check.sh src/docs/man/mod.rs
 src/docs/spec/mod.rs` ≥95% (fresh `sh scripts/coverage.sh` first). If spec
@@ -451,14 +459,17 @@ H5 4de16d8c1 · H6 5e5a2d0f8 · H7 b7b8639dd · H8 7868f0ad0.
   a `markdown_synopsis` fall-off-EOF `None`. Man's residual uncovered are the
   `man_citations_resolve` broken-corpus drift-guard arms (294/298/305/308-311/
   323) — test code that only fires on a corrupt corpus; file still clears 95%.
-  **spec/mod.rs: no coverable lines remain.** All 10 fresh-uncovered lines
-  (148/151/155/159-162/171/193/201) are the `broken.push`/`join` arms inside the
-  `spec_links_resolve`/`spec_citations_resolve` drift-guard tests; `cross_links`,
-  `citations`, and `summary_line` are already fully covered, and the :80
-  `sort_by_key` fallback is ALSO already covered in the fresh profile. → **flag
-  to A as an exception** (boundary: "drift-guard test arms fire only on a corrupt
-  embedded spec corpus; the shipped corpus resolves 100%"); do not fabricate a
-  broken corpus.
+  **spec/mod.rs: broken.push arms later COVERED (commit b3a09d8d6), no whole-file
+  exception needed.** The 10 fresh-uncovered lines were the `broken.push`/`join`
+  arms inside the `spec_links_resolve`/`spec_citations_resolve` drift-guard tests.
+  Follow-up refactor extracted each guard's resolve-and-collect loop into a pure
+  `#[cfg(test)]` helper (`unresolved_cross_links` / `unresolved_citations`) still
+  driven over `packages()` by the unchanged real-corpus guards, plus two focused
+  tests feeding a synthetic in-memory page (unknown package / known package +
+  unknown topic / missing-file citation) that hit 148/151/155/159-162/193 without
+  fabricating a broken embedded corpus. Only `broken.join` (:171/:201, evaluated
+  only on assert failure) remains → 137/139 = 98.6% ≥ 95%. The :80 `sort_by_key`
+  fallback keeps its A line-level exception (already covered in the fresh profile).
 - **H5 (unicode/runtime_tables.rs):** one test drives every `*_hex` serializer;
   `u16_hex`/`u32_hex` LE checks; direct calls to `boundclass_value` (E_ZWG arm),
   `decomp_type_value`, `indic_conjunct_break_value`, `parse_bool`; and
@@ -490,11 +501,13 @@ H5 4de16d8c1 · H6 5e5a2d0f8 · H7 b7b8639dd · H8 7868f0ad0.
 
 ### Exception candidates handed to A
 
-1. **src/docs/spec/mod.rs — WHOLE FILE (10 lines: 148, 151, 155, 159-162, 171,
-   193, 201).** All are `broken.push`/`broken.join` arms in the
-   `spec_links_resolve`/`spec_citations_resolve` drift-guard tests; unreachable
-   without a corrupt embedded corpus. The file cannot reach 95% by any honest
-   unit test. Boundary: "drift-guard arms fire only on a corrupt spec corpus."
+1. ~~**src/docs/spec/mod.rs — WHOLE FILE**~~ **WITHDRAWN (commit b3a09d8d6).**
+   The `broken.push` arms (148/151/155/159-162/193) were reached honestly by
+   extracting the guards' resolve-and-collect loops into pure `#[cfg(test)]`
+   helpers and feeding a synthetic in-memory page (no corrupt corpus). Only
+   `broken.join` (:171/:201, evaluated only on assert failure) remains → 98.6% ≥
+   95%. No whole-file exception is needed; the sole remaining line-level exception
+   for this file is the :80 `sort_by_key` fallback already listed in plan-68-A.
 2. **src/builtins/strings.rs:260 `source_file()` `Err(())`** — the embedded
    constant always parses; defensively unreachable. (File clears 95% without it.)
 3. **repository/src/backfill.rs:71-77 `BlobFetch::Redirect`** — S3-presigned-only;
