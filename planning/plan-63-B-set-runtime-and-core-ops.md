@@ -228,7 +228,7 @@ proven target list.
 Acceptance: this plan lists the bucket-decision sites; a package round-trip test
 encodes and decodes a `FUNC(Set OF Integer) AS Set OF Integer` signature
 byte-identically; `cargo test` green.
-Commit: —
+Commit: 25e6c822f
 
 ### Phase 2 — Literal + native members (observable, low blast radius)
 
@@ -259,7 +259,7 @@ One line: make sets constructible, mutable, queryable, and iterable.
 Acceptance: the fixture runs and prints the expected membership/len/order results
 (numslen=4, afterDupAdd=1, afterRemove=0, nameslen=3, pointlen=2, baselen=3,
 grownlen=4, bagtags=3, FOR EACH order a/b/c); `cargo test` green.
-Commit: —
+Commit: d7bba8996 (literal), ec75e5519 (members)
 
 ### Phase 3 — Sizing, copy, and scope-drop (largest blast radius last)
 
@@ -285,7 +285,7 @@ behind the runtime test.
 
 Acceptance: the copy/drop fixture runs clean (no arena abort; source unchanged);
 `cargo test` green; acceptance goldens re-seeded for the new fixture.
-Commit: —
+Commit: 906e3fabe
 
 ## Validation Plan
 
