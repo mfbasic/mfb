@@ -649,6 +649,16 @@ Commit: —
   a Windows debugger to diagnose, which the box (ssh, exe-only) can't provide. Reverted
   the whole J-4 change set to keep J-3 green; the design + both fixes + three resume
   options are recorded in the `plan-66-execution-state` memory. J-4 acceptance NOT MET.
+- **2026-07-27 (Phase J-4 UNBLOCKED — `cdb` verified on box 2230).** The J-4 revert's
+  stated blocker was "needs a Windows debugger, which the box (ssh, exe-only) can't
+  provide." That premise is now false: `cdb.exe` (Windows Kits 10 Debuggers,
+  `cdb version 10.0.26100.7705`) is installed and working on 2230 — verified it
+  launches and drives a live debuggee (loaded modules + hit the initial breakpoint),
+  invoked as `cdb -c "<cmds>; q" <exe> <args>`. NOTE the box's default ssh shell is
+  cmd.exe: pass ONE command per `ssh` invocation (no `;`/`&&`/single-quotes). Prereqs
+  re-run all five **MET** this date; box `BOX_OK`; debug build green (18.4s). Resuming
+  J-4 with resume-option (1): use `cdb` to trace where the GUI worker's
+  `ReadFile(GetStdHandle(STD_INPUT))` blocks, then re-apply the two genuine fixes.
 - **2026-07-26 (Phase E REGRESSION — merge dropped the advertising for 9 landed
   fs calls).** On resume, a census (`comm -23` of macOS vs Windows `"fs.` advertise
   sets) found that `win_x86_64/mod.rs` advertises only 26 fs calls where macOS has
