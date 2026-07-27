@@ -133,7 +133,7 @@ Commit: e555423af
 
 Acceptance: bit-identical across **both** profiles (v=true == v=false == AArch64)
 and ≤1 ULP wherever the kernel achieves it, on the same binary. **MET**.
-Commit: <D2>
+Commit: 26fc6e767
 
 ### Phase 3 — CI lane + docs/spec
 
