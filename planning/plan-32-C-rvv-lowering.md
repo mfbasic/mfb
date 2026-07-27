@@ -171,7 +171,7 @@ Acceptance: `build_vreg_map` reproduces slot-map liveness as register numbers;
 overflow falls back. Output still scalar; riscv64 suite green. **MET** — 30 v128
 tests pass; artifact-gate 0 linux-riscv64 diffs (the refactor is byte-identical,
 `build_vreg_map` is inert).
-Commit: <C1>
+Commit: c51d158a3
 
 ### Phase 2 — dual-path dispatch + per-op RVV lowering (non-mask ops)
 
