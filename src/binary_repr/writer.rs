@@ -288,6 +288,10 @@ pub(super) fn lower_project_with_external_functions(
         &used_imported_functions,
         external_function_abi_hashes,
     );
+    // bug-390: surface (re-export) any imported type this package names in its own
+    // exported API before the ABI index is built, so the index lists it under the
+    // owning package's original identity.
+    types.mark_reexported_foreign_types(&functions)?;
     let abi = AbiIndex::from_project(&strings, &types, &constants, &imports, &functions)?;
 
     let (entry_function, entry_flags) = if let Some(entry) = &ir.entry {
