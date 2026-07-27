@@ -141,7 +141,11 @@ impl NativePlanPlatform for Platform {
                 import("WideCharToMultiByte", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
-            "fs.canonicalPath" => vec![
+            // canonicalPath and isWithin both canonicalize via GetFullPathNameW
+            // (isWithin canonicalizes base+path then does a prefix containment check
+            // in the shared helper). plan-66-E adds isWithin here. (This arm's
+            // isWithin merge was dropped by the stale-merge into P-66; restored.)
+            "fs.canonicalPath" | "fs.isWithin" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("GetFullPathNameW", KERNEL32, required_by),
                 import("WideCharToMultiByte", KERNEL32, required_by),
@@ -150,9 +154,36 @@ impl NativePlanPlatform for Platform {
             // The File-resource surface: openFile yields a resource holding the
             // CreateFileW handle; the per-resource ops reuse ReadFile / WriteFile /
             // SetFilePointerEx / FlushFileBuffers / CloseHandle.
-            "fs.openFile" | "fs.open" | "fs.openFileNoFollow" => vec![
+            "fs.openFile" | "fs.open" => vec![
                 import("MultiByteToWideChar", KERNEL32, required_by),
                 import("CreateFileW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+            ],
+            // createTempFile opens an O_EXCL file at a randomized name
+            // (emit_open_file + emit_random_bytes over BCryptGenRandom). plan-66-E.
+            // (This arm was dropped by the stale-merge into P-66; restored.)
+            "fs.createTempFile" => vec![
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("GetLastError", KERNEL32, required_by),
+                import("BCryptGenRandom", BCRYPT, required_by),
+            ],
+            // Atomic writes (plan-66-E): mkstemps (emit_mkstemps: BCryptGenRandom +
+            // CreateFileW CREATE_NEW over a marshaled template) → WriteFile →
+            // FlushFileBuffers → CloseHandle → MoveFileExW rename; a failed rename
+            // unlinks the temp (DeleteFileW). emit_write references GetStdHandle even
+            // on the file-handle path (the console branch's reloc is always emitted).
+            // (This arm was dropped by the stale-merge into P-66; restored.)
+            "fs.writeTextAtomic" | "fs.writeBytesAtomic" => vec![
+                import("BCryptGenRandom", BCRYPT, required_by),
+                import("MultiByteToWideChar", KERNEL32, required_by),
+                import("CreateFileW", KERNEL32, required_by),
+                import("GetStdHandle", KERNEL32, required_by),
+                import("WriteFile", KERNEL32, required_by),
+                import("FlushFileBuffers", KERNEL32, required_by),
+                import("CloseHandle", KERNEL32, required_by),
+                import("MoveFileExW", KERNEL32, required_by),
+                import("DeleteFileW", KERNEL32, required_by),
                 import("GetLastError", KERNEL32, required_by),
             ],
             "fs.close" => vec![import("CloseHandle", KERNEL32, required_by)],

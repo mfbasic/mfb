@@ -569,6 +569,30 @@ Commit: —
 
 ## Corrections
 
+- **2026-07-26 (Phase E REGRESSION — merge dropped the advertising for 9 landed
+  fs calls).** On resume, a census (`comm -23` of macOS vs Windows `"fs.` advertise
+  sets) found that `win_x86_64/mod.rs` advertises only 26 fs calls where macOS has
+  36. Bisection (`git show 71f2a3fab -- …/mod.rs` added them; `git show
+  a3de67f94:…/mod.rs` lacks them; no commit after `a3de67f94` touched the file)
+  proved a **stale main→P-66 merge silently dropped** the Phase-E advertise block
+  (`fs.open`, `fs.createDirectories`, `fs.createTempFile`, `fs.writeTextAtomic`,
+  `fs.writeBytesAtomic`, `fs.setBuffered`, `fs.isBuffered`, `fs.isWithin`, plus
+  `fs.openFileNoFollow`) AND the plan.rs import arms for `createTempFile`/atomic/
+  `isWithin` — while the code.rs + shared impls survived. So those box-proven calls
+  were being **rejected at `validate_capabilities`** on this branch. Restored the 8
+  genuinely-working calls' advertising + plan.rs arms; re-box-proved on 2230
+  (`mkdir=ok temp-buffered=TRUE roundtrip=hello-世界 bytes=ok within-yes=TRUE
+  within-no=FALSE`, EXIT=0). `openFileNoFollow`/`openWithin` restored separately —
+  see next. This is the [[subagent-edits-can-silently-vanish]] / merge-drift class.
+- **2026-07-26 (Phase E — `openFileNoFollow` claim was overstated; shares
+  openWithin's missing primitive).** The Phase-E text claims `openFileNoFollow`
+  landed "via `lower_fs_open_helper`/`emit_open_file`". It did NOT work: lowering it
+  (`no_follow=true`) evaluates `fs/io.rs:478`'s `PlatformFamily::Windows =>
+  unreachable!("47-F owns the Windows openFileNoFollow path")` and panics the
+  compiler. It was advertised-but-unused at 71f2a3fab, so the panic never fired in
+  that letter's box run. Both `openFileNoFollow` and `openWithin` need the same
+  missing Windows whole-path no-symlink primitive — implemented together via a
+  `GetFinalPathNameByHandleW` open-then-verify (see the openWithin entry below).
 - **2026-07-26 (Prerequisites gate re-run — resume for J-full/K/E-openWithin).**
   Gate re-run in a fresh integration worktree `.claude/worktrees/P-66`
   (`worktree-P-66` off main `b2227871a`, which already carries A–I+F/G/H merged as

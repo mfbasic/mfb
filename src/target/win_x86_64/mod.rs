@@ -61,6 +61,19 @@ const RUNTIME_CALLS: &[&str] = &[
     "fs.writeAll",
     "fs.writeAllBytes",
     "fs.flush",
+    // plan-66-E fs extras. NOTE: this block was dropped by a stale-merge conflict
+    // resolution into the P-66 integration branch (the advertising vanished while
+    // the plan.rs/code.rs/shared impls survived); restored here. `openFileNoFollow`
+    // and `openWithin` are advertised in the no-symlink block below (they need the
+    // GetFinalPathNameByHandleW verify).
+    "fs.open",
+    "fs.createDirectories",
+    "fs.createTempFile",
+    "fs.writeTextAtomic",
+    "fs.writeBytesAtomic",
+    "fs.setBuffered",
+    "fs.isBuffered",
+    "fs.isWithin",
     // Terminal queries (47-G).
     "io.isInputTerminal",
     "io.isOutputTerminal",
