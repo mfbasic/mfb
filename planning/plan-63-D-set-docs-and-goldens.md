@@ -184,7 +184,7 @@ edits, all against the shipped behavior.
 Acceptance: `mfb man types set` and `mfb man collections <each new member>`
 render fully; `mfb spec` renders the updated Set sections; both citation gates
 (from D0) pass.
-Commit: —
+Commit: 133132f22
 
 ### Phase 2 — Registration + examples
 
@@ -202,7 +202,7 @@ One line: wire the new pages into the man tree and add a runnable example.
 
 Acceptance: the man-tree sync assertion passes; the example runs and prints its
 expected output; `cargo test` green.
-Commit: —
+Commit: 133132f22
 
 ### Phase 3 — Golden + acceptance close-out (largest churn last)
 
@@ -218,11 +218,11 @@ suite green with no unrelated churn.
       (2) ~51 pre-existing plan-67 perf-table mismatches — NOT plan-63 (see
       Corrections). `cargo test` full suite green; `artifact-gate.sh` (codegen
       byte-identity) run as the deterministic codegen gate.
-- [ ] Archive: move plan-63-A/B/C/D to `planning/old-plans/` once green.
+- [x] Archive: plan-63-A/B/C/D moved to `planning/old-plans/` (this close-out commit).
 
 Acceptance: the full acceptance/CI suite passes; the golden diff contains only
 Set-related fixtures/examples; `cargo test` green; plan-63 files archived.
-Commit: —
+Commit: 8f7e84925 (re-seed) + the archive commit
 
 ## Validation Plan
 
@@ -275,6 +275,17 @@ Commit: —
   `test-accept.sh <release>` (their release goldens are deterministic — no perf
   table). The Set fixtures were seeded with release precisely so they stay
   deterministic, unlike the pre-existing perf-bearing goldens.
+- **6 pre-existing byte-identity DIFFs inherited from `main` (not plan-63).**
+  After merging `main` (advanced from `b2227871a` to `c3eb10afe`), `artifact-gate.sh`
+  reports 6 DIFFs: `{audio,http,json,net,regex,strings}_codegen_cover_rt.macos-aarch64.ncode`
+  (sha256). Verified pre-existing: a detached worktree at pure `main` `c3eb10afe`
+  (no plan-63) builds `strings_codegen_cover_rt` to the SAME sha
+  `a51a6419…838…559f`, which ALSO differs from the committed golden `72bda985…739d`.
+  So main's `codegen_cover` `.ncodesum` goldens are stale on this macOS host
+  (regen'd elsewhere / different profile), independent of plan-63. Plan-63's own
+  gate was 0 diffs against the fork-base goldens pre-merge, and the merged codegen
+  for these non-Set fixtures is byte-identical to pure-main. Not a plan-63
+  regression; flagged for the main baseline.
 - **No goldens needed re-seeding for A (front-end only).** Phase 3 says "seed
   goldens for the A/B/C fixtures"; A shipped no fixtures (unit tests only), and
   B/C's goldens were seeded in their own sub-plans. Phase 3 here is the full-suite
