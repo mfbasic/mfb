@@ -146,7 +146,7 @@ Acceptance: the probe program, run under `qemu-riscv64 -cpu rv64,v=true`, exits
 for all non-riscv64 targets. **MET** — probe exits 1/0 on 2232 (Corrections A3);
 gate shows 0 non-riscv64 diffs from this change (24 macos-aarch64 diffs are
 pre-existing stale goldens; 24 linux-riscv64 goldens regenerated for the scan).
-Commit: <A1>
+Commit: f31d5c6f2
 
 ### Phase 2 — non-regression of the existing riscv64 suite
 
@@ -162,7 +162,7 @@ Prove the added entry step breaks nothing on the scalar path.
 
 Acceptance: riscv64 binaries run green with the scan present; argv programs
 unaffected. **MET** (Corrections A3).
-Commit: <A1>
+Commit: f31d5c6f2
 
 ## Validation Plan
 
