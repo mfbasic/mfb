@@ -550,6 +550,8 @@ impl<'a> SyntaxChecker<'a> {
                     // Iterating `List OF RES File` yields a *pointer* to each
                     // element (`File`), not the `RES`-marked slot type (§15.6).
                     Type::List(element) => strip_res(&element).clone(),
+                    // `FOR EACH x IN set` yields the element `T` (plan-63).
+                    Type::Set(element) => *element,
                     Type::Map(key, value) => Type::User(format!(
                         "MapEntry OF {} TO {}",
                         self.type_name(&key),

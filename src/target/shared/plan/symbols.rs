@@ -64,10 +64,10 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     // plan-67-B: the perf-tracking helpers are injected by the code layer at
     // program entry/exit (and, from plan-67-F, around arena regions), so they
     // never appear as NIR calls the scan above would catch. Force their emitted
-    // symbols in for a debug-built macOS entry module — the same gate as the
-    // entry/exit injection and the perf data objects — so their bodies exist for
-    // the injected `bl`s to resolve. Release / non-macOS / non-entry plans are
-    // untouched, staying byte-identical to pre-plan-67 HEAD. `perf.start` /
+    // symbols in for a `--cfg perf`-built macOS entry module — the same gate as
+    // the entry/exit injection and the perf data objects — so their bodies exist
+    // for the injected `bl`s to resolve. Perf-free / non-macOS / non-entry plans
+    // are untouched, staying byte-identical to pre-plan-67 HEAD. `perf.start` /
     // `perf.end` are added by plan-67-C / plan-67-D when their injection lands.
     if crate::target::shared::code::perf_injection_enabled()
         && module.entry.is_some()
@@ -181,7 +181,7 @@ pub(super) fn platform_imports(
     // plan-67-C: the injected `perf_start` reads the monotonic clock inline via
     // `_clock_gettime` (`perf.end`, plan-67-D, reuses the same import). These perf
     // calls are code-injected, so they are invisible to the function-body scan
-    // above; force the import under the same debug-macOS-entry gate as the perf
+    // above; force the import under the same perf-macOS-entry gate as the perf
     // symbols and injection. `perf_init`/`perf_done` need no libc import (their
     // mmap / write ride syscalls).
     if crate::target::shared::code::perf_injection_enabled()
@@ -462,7 +462,7 @@ pub(super) fn collect_platform_imports_from_value(
                 collect_platform_imports_from_value(platform, required_by, &update.value, imports);
             }
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             for value in values {
                 collect_platform_imports_from_value(platform, required_by, value, imports);
             }
@@ -697,7 +697,7 @@ pub(super) fn collect_runtime_symbols_from_value(
                 collect_runtime_symbols_from_value(&update.value, symbols, constants);
             }
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             for value in values {
                 collect_runtime_symbols_from_value(value, symbols, constants);
             }

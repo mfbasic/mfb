@@ -37,6 +37,15 @@ const FUNCTIONS: &[&str] = &[
     "distinct",
     "merge",
     "partition",
+    // Set algebra (plan-63-C): source generics over B's native Set members.
+    "toSet",
+    "union",
+    "intersection",
+    "difference",
+    "symmetricDifference",
+    "isSubset",
+    "isSuperset",
+    "isDisjoint",
 ];
 
 /// The native `collections::` members migrated out of the bare global namespace
@@ -66,6 +75,11 @@ const NATIVE_MEMBERS: &[&str] = &[
     "find",
     "mid",
     "replace",
+    // Set members (plan-63-B): `add`/`remove`/`toList` are Set-only; `contains`
+    // gains a Set overload alongside its List overload.
+    "add",
+    "remove",
+    "toList",
 ];
 
 /// The internal generic-function name implementing a public `collections::`
@@ -161,8 +175,47 @@ pub(crate) fn resolve_call<'a>(
         "find" => resolve_find_list(arg_types),
         "mid" => resolve_mid_list(arg_types),
         "replace" => resolve_replace_list(arg_types),
+        "add" => resolve_set_add(arg_types),
+        "remove" => resolve_set_remove(arg_types),
+        "toList" => resolve_set_to_list(arg_types),
         _ => None,
     }
+}
+
+/// `collections::add(Set OF T, T) AS Set OF T` (plan-63-B): insert an element,
+/// idempotent (a duplicate is dropped). Set-only — a List uses `append`.
+fn resolve_set_add<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::set_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+/// `collections::remove(Set OF T, T) AS Set OF T` (plan-63-B): remove an element;
+/// removing an absent element is a no-op. Set-only.
+fn resolve_set_remove<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 2 {
+        return None;
+    }
+    let element = super::general::set_element(&arg_types[0])?;
+    (arg_types[1] == element).then_some(super::general::ResolvedCall {
+        return_type: Cow::Borrowed(&arg_types[0]),
+    })
+}
+
+/// `collections::toList(Set OF T) AS List OF T` (plan-63-B): the elements in
+/// stable insertion order. Set-only.
+fn resolve_set_to_list<'a>(arg_types: &'a [String]) -> Option<super::general::ResolvedCall<'a>> {
+    if arg_types.len() != 1 {
+        return None;
+    }
+    let element = super::general::set_element(&arg_types[0])?;
+    Some(super::general::ResolvedCall {
+        return_type: Cow::Owned(format!("List OF {element}")),
+    })
 }
 
 /// List-overload resolvers for `find`/`mid`/`replace`, migrated to `collections::`
@@ -336,7 +389,10 @@ fn resolve_contains<'a>(arg_types: &'a [String]) -> Option<super::general::Resol
     if arg_types.len() != 2 {
         return None;
     }
-    let element = super::general::list_element(&arg_types[0])?;
+    // `contains` has a List overload (linear scan) and a Set overload (hash
+    // probe, plan-63-B); both take `(collection, element) AS Boolean`.
+    let element = super::general::list_element(&arg_types[0])
+        .or_else(|| super::general::set_element(&arg_types[0]))?;
     (arg_types[1] == element).then_some(super::general::ResolvedCall {
         return_type: Cow::Borrowed("Boolean"),
     })
@@ -448,6 +504,10 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
             &["old", "needle"],
             &["new", "replacement"],
         ]),
+        // Set members (plan-63-B).
+        "add" => Some(&[&["value", "set"], &["item", "element"]]),
+        "remove" => Some(&[&["value", "set"], &["item", "element"]]),
+        "toList" => Some(&[&["value", "set"]]),
         _ => None,
     }
 }
@@ -478,6 +538,12 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         "find" => Some("List OF T, T[, Integer]"),
         "mid" => Some("List OF T, Integer, Integer"),
         "replace" => Some("List OF T, T, T"),
+        // Set members (plan-63-B). `contains` also accepts `Set OF T, T` (its
+        // overload); the message above stays List-first to match its historical
+        // shape.
+        "add" => Some("Set OF T, T"),
+        "remove" => Some("Set OF T, T"),
+        "toList" => Some("Set OF T"),
         _ => None,
     }
 }
@@ -485,9 +551,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match native_member_bare(name)? {
         "removeAt" | "removeKey" | "hasKey" | "contains" | "append" | "prepend" | "get"
-        | "forEach" | "transform" | "filter" => Some((2, 2)),
+        | "forEach" | "transform" | "filter" | "add" | "remove" => Some((2, 2)),
         "getOr" | "set" | "insert" | "reduce" | "mid" | "replace" => Some((3, 3)),
-        "keys" | "values" | "sum" => Some((1, 1)),
+        "keys" | "values" | "sum" | "toList" => Some((1, 1)),
         "find" => Some((2, 3)),
         _ => None,
     }

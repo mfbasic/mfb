@@ -24,21 +24,17 @@
   { "name": "__LINKEDIT", "vmAddress": 4295000064, "vmSize": 4096, "fileOffset": 32768, "fileSize": 4096, "maxProtection": "read", "initialProtection": "read" }
   ],
   "sections": [
-  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 148, "align": 4 },
-  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983840, "fileOffset": 16544, "size": 0, "align": 1 },
+  { "segment": "__TEXT", "section": "__text", "kind": "code", "vmAddress": 4294983680, "fileOffset": 16384, "size": 20, "align": 4 },
+  { "segment": "__TEXT", "section": "__cstring", "kind": "cstring", "vmAddress": 4294983712, "fileOffset": 16416, "size": 0, "align": 1 },
   { "segment": "__LINKEDIT", "section": null, "kind": "linkedit", "vmAddress": 4295000064, "fileOffset": 32768, "size": 4096, "align": 1 }
   ],
   "codeUnits": [
   { "symbol": "_main", "section": "__TEXT,__text", "offset": 0, "plannedSize": 16, "operations": ["call entry function", "return 0"], "calls": ["_mfb_fn_foobar"], "dataRefs": [] },
-  { "symbol": "_mfb_fn_foobar", "section": "__TEXT,__text", "offset": 16, "plannedSize": 4, "operations": ["return Integer(0)"], "calls": [], "dataRefs": [] },
-  { "symbol": "_mfb_rt_perf_perf_init", "section": "__TEXT,__text", "offset": 20, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": [] },
-  { "symbol": "_mfb_rt_perf_perf_start", "section": "__TEXT,__text", "offset": 52, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": ["_clock_gettime"], "dataRefs": [] },
-  { "symbol": "_mfb_rt_perf_perf_end", "section": "__TEXT,__text", "offset": 84, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": [] },
-  { "symbol": "_mfb_rt_perf_perf_done", "section": "__TEXT,__text", "offset": 116, "plannedSize": 32, "operations": ["execute runtime helper"], "calls": [], "dataRefs": [] }
+  { "symbol": "_mfb_fn_foobar", "section": "__TEXT,__text", "offset": 16, "plannedSize": 4, "operations": ["return Integer(0)"], "calls": [], "dataRefs": [] }
   ],
   "dataUnits": [
   ],
-  "definedSymbols": ["_main", "_mfb_fn_foobar", "_mfb_rt_perf_perf_init", "_mfb_rt_perf_perf_start", "_mfb_rt_perf_perf_end", "_mfb_rt_perf_perf_done"],
+  "definedSymbols": ["_main", "_mfb_fn_foobar"],
   "importedSymbols": [
   { "library": "libSystem", "symbol": "_exit" },
   { "library": "libSystem", "symbol": "_getentropy" },
@@ -50,30 +46,22 @@
   "symbolTable": [
   { "name": "_main", "kind": "defined", "section": "__TEXT,__text", "value": 0, "stringTableOffset": 1 },
   { "name": "_mfb_fn_foobar", "kind": "defined", "section": "__TEXT,__text", "value": 16, "stringTableOffset": 7 },
-  { "name": "_mfb_rt_perf_perf_init", "kind": "defined", "section": "__TEXT,__text", "value": 20, "stringTableOffset": 22 },
-  { "name": "_mfb_rt_perf_perf_start", "kind": "defined", "section": "__TEXT,__text", "value": 52, "stringTableOffset": 45 },
-  { "name": "_mfb_rt_perf_perf_end", "kind": "defined", "section": "__TEXT,__text", "value": 84, "stringTableOffset": 69 },
-  { "name": "_mfb_rt_perf_perf_done", "kind": "defined", "section": "__TEXT,__text", "value": 116, "stringTableOffset": 91 },
-  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 114 },
-  { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 120 },
-  { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 132 },
-  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 147 },
-  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 155 }
+  { "name": "_exit", "kind": "imported", "section": null, "value": null, "stringTableOffset": 22 },
+  { "name": "_getentropy", "kind": "imported", "section": null, "value": null, "stringTableOffset": 28 },
+  { "name": "_clock_gettime", "kind": "imported", "section": null, "value": null, "stringTableOffset": 40 },
+  { "name": "_signal", "kind": "imported", "section": null, "value": null, "stringTableOffset": 55 },
+  { "name": "_write", "kind": "imported", "section": null, "value": null, "stringTableOffset": 63 }
   ],
   "stringTable": {
-    "size": 162,
+    "size": 70,
     "entries": [
     { "value": "_main", "offset": 1 },
     { "value": "_mfb_fn_foobar", "offset": 7 },
-    { "value": "_mfb_rt_perf_perf_init", "offset": 22 },
-    { "value": "_mfb_rt_perf_perf_start", "offset": 45 },
-    { "value": "_mfb_rt_perf_perf_end", "offset": 69 },
-    { "value": "_mfb_rt_perf_perf_done", "offset": 91 },
-    { "value": "_exit", "offset": 114 },
-    { "value": "_getentropy", "offset": 120 },
-    { "value": "_clock_gettime", "offset": 132 },
-    { "value": "_signal", "offset": 147 },
-    { "value": "_write", "offset": 155 }
+    { "value": "_exit", "offset": 22 },
+    { "value": "_getentropy", "offset": 28 },
+    { "value": "_clock_gettime", "offset": 40 },
+    { "value": "_signal", "offset": 55 },
+    { "value": "_write", "offset": 63 }
     ]
   },
   "relocations": [
@@ -82,7 +70,6 @@
   { "from": "_main", "to": "_getentropy", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" },
   { "from": "_main", "to": "_signal", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" },
-  { "from": "_mfb_rt_perf_perf_start", "to": "_clock_gettime", "kind": "externalCall", "section": "__TEXT,__text" }
+  { "from": "_main", "to": "_write", "kind": "externalCall", "section": "__TEXT,__text" }
   ]
 }

@@ -41,7 +41,7 @@ negotiate. Stated once here; sub-plans B/C/D point back to this section.
 | Collection kind tag `3` is free (0=List, 1=Map, 2=ListFixed) | `grep -n 'COLLECTION_KIND_' src/target/shared/code/error_constants.rs` → highest is `_LIST_FIXED = 2` | MET (verified 2026-07-25) |
 | An "absent value" value-type tag exists | `grep -n 'COLLECTION_TYPE_NONE' src/target/shared/code/error_constants.rs` → `= 0` | MET (verified 2026-07-25) |
 | Map probe/bucket machinery keys on key bytes only (no value dependency) | `grep -n 'fn map_key_probe_eligible\|_mfb_rt_map_probe\|_mfb_rt_map_build_buckets' src/target/shared/code/builder_collection_query.rs src/target/shared/code/mod.rs` | MET (verified 2026-07-25 — probe compares `keyLength` bytes; values never read) |
-| `cargo test` is green at HEAD | `cargo test` (full suite, never one module) | UNVERIFIED — run before starting |
+| `cargo test` is green at HEAD | `cargo test` (full suite, never one module) | MET (verified 2026-07-26 — exit 0, 33 `test result: ok`, 0 FAILED) |
 
 Everything below is written against the world where these hold. There are no
 hedges for a world where the collection block lacks a bucket index or a free
@@ -239,46 +239,114 @@ sites yields a type that works in most stages and mis-behaves in one. Task A0
 One line: turn the 25-site ceiling into the exact edit list before touching code,
 so a missed site is impossible to hide.
 
-- [ ] A0: enumerate the 25 sites from the population command and classify each in
-      a checklist table in this plan (needs-Set-arm / Map-only / List-only), with
-      `file:line` and a one-phrase reason. This is the phase's deliverable.
-- [ ] Confirm the 4 built-in-`OF` exclusion arrays (`resolution.rs:1504`,
-      `monomorph/helpers.rs:291`, and the two others the count found) each need
-      `"Set OF "` added.
+- [x] A0: enumerate the sites from the population command and classify each
+      (needs-Set-arm / Map-only / B-codegen), with `file:line` and a one-phrase
+      reason. This is the phase's deliverable. **The grep counts 26 sites (not the
+      plan's 25); see Corrections.** The grep also *undercounts*: two needs-arm
+      front-end sites route through helper fns (`parse_map`) and so do not match
+      the `"Map OF "` literal — they are added below explicitly.
+- [x] Confirm the 4 built-in-`OF` exclusion arrays — **DISPROVEN, see
+      Corrections.** All 4 (`resolution.rs:1504`, `monomorph/helpers.rs:291`,
+      `syntaxcheck/types.rs:481`, `syntaxcheck/inference.rs:1543`) are the
+      `type_owns_a_to_separator` helper — a detector for `OF`-constructs owning a
+      top-level ` TO `. `List OF`/`Result OF` are deliberately absent because they
+      own no ` TO ` (types.rs:478 documents this). Set owns no ` TO ` either, so
+      **Set must NOT be added to any of the 4.** The real built-in-template guard
+      that lists `List OF`/`Result OF` and DOES need `Set OF ` is
+      `user_template_parts` (`monomorph/helpers.rs:149`, a `starts_with` chain, not
+      an array) — captured in the needs-arm table below.
 
-Acceptance: this plan file contains a 25-row classification table; the count of
-"needs-Set-arm" rows is the scope of Phase 2, stated as a number with the reason
-each excluded row is excluded.
-Commit: —
+#### A0 classification (26 grep sites + 4 helper-routed needs-arm sites)
+
+Front-end **needs-Set-arm** (Set = single-element, List-shaped structurally):
+
+| file:line | site | Set treatment |
+|---|---|---|
+| `src/ast/expr.rs:589` | `parse_type_name_inner` (not in grep — inline) | new `Set OF T` arm, reject `RES`/`TO` |
+| `src/resolver/resolution.rs:1301` | `resolve_type_name` Map arm | Set arm: resolve element |
+| `src/monomorph/helpers.rs:67` | `unify_type` Map arm | Set arm: unify element (like List:55) |
+| `src/monomorph/helpers.rs:150` | `user_template_parts` exclusion (`starts_with`) | add `"Set OF "` |
+| `src/monomorph/helpers.rs:180` | `substitute_type_params` Map arm | Set arm (like List:171) |
+| `src/monomorph/helpers.rs:291` | built-in exclusion array | add `"Set OF "` |
+| `src/monomorph/lower.rs:1075` | FOR EACH loop-type | Set arm: `Set OF T → T` |
+| `src/monomorph/lower.rs:1531` | `concrete_type_name` Map arm | Set arm (like List:1519) |
+| `src/monomorph/lower.rs:1595` | `template_view_type` Map arm | Set arm (like List:1589) |
+| `src/syntaxcheck/types.rs:70` | `parse_type` Map arm | Set arm → `Type::Set(Box)` |
+| `src/syntaxcheck/types.rs:481` | built-in exclusion array | add `"Set OF "` |
+| `src/syntaxcheck/inference.rs:1543` | built-in exclusion array | add `"Set OF "` |
+| `src/ir/lower.rs:1318` | `collection_iteration_type` (grep hit 1351 helper) | Set arm: `Set OF T → T` |
+| `src/ir/verify/values.rs:744` | `is_comparable_seen` not-comparable list | add `"Set OF "` (Set not comparable) |
+| `src/ir/verify/values.rs:707` | `check_map_key_comparable` (helper-routed, not in grep) | Set arm: require element comparable |
+| `src/ir/verify/resources.rs:302` | `is_defaultable` (helper-routed via `parse_map`, not in grep) | Set arm: defaultable ⇔ element |
+| `src/ir/verify/ops.rs:708` | FOR EACH-requires-collection guard | allow `Set OF ` |
+| `src/ir/verify/link.rs:650` | `provably_data_type` | allow `Set OF ` (no resources) |
+| syntaxcheck `Type` enum + exhaustive matches | `mod.rs:38` | add `Set(Box<Type>)`; compiler enumerates the rest |
+
+**Map-only** (no Set arm — Set is single-element and cannot carry `RES`/`TO`):
+
+| file:line | reason |
+|---|---|
+| `resolution.rs:1504`, `monomorph/helpers.rs:291`, `syntaxcheck/types.rs:481`, `syntaxcheck/inference.rs:1543` | the 4 `type_owns_a_to_separator` arrays — Set owns no ` TO ` (like the already-excluded List/Result) |
+| `src/ir/resource_escape.rs:492` | `is_res_marked_resource_collection`; a Set element can never be `RES` (non-comparable) |
+| `src/ir/lower.rs:1351`, `src/ir/verify/mod.rs:1192` | `parse_map`/`parse_map_type` helpers — `Map OF K TO V` split, no Set analogue |
+| `src/ir/lower.rs:2554` | crypto/http builtin default-arg padding; no builtin defaults an empty Set |
+
+**B-codegen** (deferred to plan-63-B — runtime/native layer, not front-end type recognition):
+
+`src/target/shared/validate/mod.rs:126`, `src/target/shared/plan/lower.rs:197`,
+`src/target/shared/code/type_utils.rs:{96,275,286}`,
+`src/target/shared/code/builder_owned_cleanup.rs:45`,
+`src/target/shared/code/builder_control.rs:1240` (7 sites).
+
+**Scope of Phase 2: 16 needs-Set-arm front-end edits** (the needs-arm table
+above), plus the `Type::Set(Box<Type>)` enum variant and its compiler-enumerated
+exhaustive-match arms (across `syntaxcheck/**`). The 4 `type_owns_a_to_separator`
+arrays are Map-only (Set owns no ` TO `), correcting the plan's original
+"add to 4 exclusion arrays" instruction.
+
+Acceptance: this plan file contains the classification table; the count of
+"needs-Set-arm" front-end sites is 16 (stated above with per-row reason and the
+reason each excluded row is excluded).
+Commit: 5b692d9de
 
 ### Phase 2 — Thread the Set arm through the front end
 
 One line: add the `Set OF ` arm at every needs-arm site; no literal, no ops.
 
-- [ ] Parser: `Set OF T` in `parse_type_name_inner` (`src/ast/expr.rs:588`),
-      rejecting `RES` after `Set OF `. Add a parser round-trip unit test in
-      `src/ast/tests.rs` (mirror the `Map OF` test at `tests.rs:590`).
-- [ ] Resolver: `strip_prefix("Set OF ")` arm in `resolution.rs` beside the
-      `Map OF ` arm at `:1301`; add `"Set OF "` to the exclusion list at `:1504`.
-- [ ] Monomorph: `Set OF ` substitution arm in `src/monomorph/lower.rs`; add
-      `"Set OF "` to `helpers.rs:291`.
-- [ ] Syntaxcheck: `Set(Box<Type>)` in `mod.rs:38`; resolve all resulting
-      non-exhaustive `match` errors; comparability + defaultability arms.
-- [ ] IR verify: element-comparability check (parallel to
-      `check_map_key_comparable`, `values.rs`); defaultability arm
-      (`resources.rs`); `Set OF T → T` iteration-type arm (`lower.rs:1312`);
-      any remaining `starts_with("Map OF ")` needs-arm sites from A0.
-- [ ] Tests: parser round-trip; a resolver/monomorph test that `Set OF Integer`
-      round-trips byte-identically; a verifier test that `Set OF File`,
-      `Set OF FUNC() AS Integer`, and `Set OF List OF Integer` are each rejected;
-      a defaultability test that `MUT s AS Set OF Integer` compiles and
-      `MUT s AS Set OF File` does not.
+- [x] Parser: `Set OF T` in `parse_type_name_inner` (`src/ast/expr.rs:605`),
+      rejecting `RES` after `Set OF `. Parser round-trip + `RES`-reject unit tests
+      added in `src/ast/tests.rs` (`parses_set_type_variants`,
+      `set_type_rejects_res_element`).
+- [x] Resolver: `strip_prefix("Set OF ")` arm in `resolution.rs` beside the
+      `Map OF ` arm at `:1301`. **The `:1504` exclusion array is Map-only (Set owns
+      no ` TO `) — see Corrections; not edited.**
+- [x] Monomorph: `Set OF ` arms in `substitute_type_params`/`unify_type`
+      (`helpers.rs`), `concrete_type_name`/`template_view_type`/FOR-EACH-loop-type
+      (`lower.rs`), and `"Set OF "` added to the `user_template_parts` guard
+      (`helpers.rs:150`). (The `:291` array is Map-only — not edited.)
+- [x] Syntaxcheck: `Set(Box<Type>)` in `mod.rs`; all 5 non-exhaustive `match`
+      errors resolved (`resources.rs` copyable+sendable, `mod.rs`
+      package-metadata + `check_type_reference` + `type_name`, `types.rs`
+      `is_comparable_with_seen`+`compatible`+`parse_type`).
+- [x] IR verify: element-comparability check in `check_map_key_comparable`
+      (`values.rs`), Set-not-comparable arm in `is_comparable_seen`,
+      defaultability arm in `resources.rs::is_defaultable`, `Set OF T → T`
+      iteration-type arm (`lower.rs::collection_iteration_type`), FOR-EACH
+      collection guard (`ops.rs`), `provably_data_type` (`link.rs`).
+- [x] Tests: parser round-trip (`ast/tests.rs`); monomorph round-trip
+      (`unify_recurses_into_all_container_shapes`,
+      `substitute_type_params_rewrites_every_shape`,
+      `user_template_parts_excludes_builtin_shapes`); end-to-end front-end
+      round-trip (`ir/tests.rs::set_type_round_trips_through_front_end`); verifier
+      rejections of `Set OF File`/`Set OF FUNC() AS Integer`/`Set OF List OF Integer`
+      + accept of `Set OF Integer` (`ir/verify/tests.rs`); defaultability
+      accept/reject (`mut_set_is_defaultable`, `rejects_mut_set_of_resource_not_defaultable`).
 
 Acceptance: `cargo test` green with the new tests; a fixture declaring
 `MUT s AS Set OF Integer` (empty), passing it to a `FUNC(Set OF Integer)` and
 returning it, type-checks and lowers to IR without error; `Set OF File` fails
 with the comparability diagnostic. (No runtime execution yet — that is B.)
-Commit: —
+Commit: d101f726a
 
 ## Validation Plan
 
@@ -305,7 +373,54 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Site count is 26, not 25.** Re-running the plan's own population command at
+  HEAD (`grep -rnE 'strip_prefix\("Map OF "\)|starts_with\("Map OF "\)|"Map OF "'
+  src/ast src/resolver src/monomorph src/syntaxcheck src/ir src/target | grep -v
+  'tests\|test\.rs' | wc -l`) returns **26**. The extra row vs. the plan's snapshot
+  is immaterial to scope: 7 of the 26 are `src/target/**` codegen sites that belong
+  to plan-63-B, not A.
+- **File count is 17, not 15** (`grep -rln 'Map OF ' src/ast src/resolver
+  src/monomorph src/syntaxcheck src/ir | grep -v tests | wc -l` → 17). Same cause;
+  no scope impact.
+- **A third front-end needs-arm site was missed by the census entirely
+  (found in C).** `src/syntaxcheck/checking.rs:549` types a `FOR EACH` loop
+  variable by matching the iterable's `Type` enum (`Type::List`/`Type::Map`), not
+  the `"Map OF "` string, so no grep in A0 could have found it. Without a
+  `Type::Set(element) => *element` arm the loop variable over a Set typed as
+  `Unknown`, which made `collections::add(result, x)` inside every C generic fail
+  `TYPE_CALL_ARGUMENT_MISMATCH` (the resolver needs the exact element type). Added
+  the arm; this is properly an A-scope site (front-end loop-var typing) surfaced
+  while wiring C. Lesson: the "grep undercounts" caveat applies to every `Type`-enum
+  match, not only the helper-routed string sites below.
+- **The grep undercounts front-end needs-arm sites.** Two front-end
+  comparability/defaultability sites route through helper fns (`parse_map`) and so
+  never match the `"Map OF "` literal: `ir/verify/values.rs:707`
+  (`check_map_key_comparable`) and `ir/verify/resources.rs:302` (`is_defaultable`).
+  Both are needs-Set-arm and are in the A0 table above. A pure grep census would
+  have missed them.
+- **The "4 exclusion arrays" do NOT need `Set OF `.** Plan Phase 1 said to add
+  `"Set OF "` to the 4 built-in-`OF` exclusion arrays. All 4 are copies of
+  `type_owns_a_to_separator` (`resolution.rs:1509`, `monomorph/helpers.rs:291`,
+  `syntaxcheck/types.rs:481`, `syntaxcheck/inference.rs:1543`) — a detector for
+  `OF`-constructs owning a top-level ` TO `. `List OF`/`Result OF` are already
+  excluded there because they own no ` TO `; `syntaxcheck/types.rs:478` documents
+  exactly this. Set owns no ` TO `, so adding it would misclassify `Set OF A TO B`-
+  style parsing — Set must stay out of all 4. The real built-in-template guard that
+  lists `List OF`/`Result OF` (and needs `Set OF `) is `user_template_parts`
+  (`monomorph/helpers.rs:149`), a `starts_with` chain, not one of the 4 arrays.
+- **No syntaxcheck defaultability twin exists.** Plan §4.3 says to add the Set
+  defaultability arm to `is_defaultable` "and its syntaxcheck twin." There is no
+  twin: `src/syntaxcheck/checking.rs:110` records that non-defaultable-`MUT`
+  rejection "live in `ir::verify` now (plan-20-Z)." The single defaultability site
+  is `ir/verify/resources.rs:302`.
+- **Comparability enforcement is IR-side, not syntaxcheck-side.** Plan §4.2 says to
+  "enforce in the syntaxcheck comparability path and mirror on the IR." The map-key
+  comparability *rejecter* is `ir/verify/values.rs::check_map_key_comparable`
+  (syntaxcheck's `require_comparable_type` is a relocated no-op, types.rs:357). The
+  syntaxcheck `is_comparable(&Type)` (types.rs:296) is used only for `=`-operand and
+  map-key-literal checks; the `Type::Set` arm there returns `false` (Set not
+  comparable), which is correct and sufficient — the *element* comparability
+  rejection lives in the IR check.
 
 ## Summary
 

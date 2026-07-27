@@ -957,6 +957,79 @@ enum InlineTrapTarget {
     Discard,
 }
 
+/// Whether any op in `ops` (recursively, including nested control-flow bodies)
+/// reads the local `name`. plan-64-I: an inline-`TRAP` handler that never reads
+/// its bound error `binding` needs no `Bind err = ResultError`, so eliding it
+/// drops a dead `Error` deep-copy (`ResultError` is an aliasing source, so the
+/// bind lowers to `copy_flat_block`) on every err-ignoring `TRAP`. Conservative:
+/// a shadowing rebind of the same name that is read only keeps the (correct)
+/// full error assembly.
+fn ops_read_local(ops: &[IrOp], name: &str) -> bool {
+    fn value_reads(value: &IrValue, name: &str) -> bool {
+        let mut found = false;
+        crate::ir::value::visit_value(value, &mut |v| {
+            if let IrValue::Local(local) = v {
+                if local == name {
+                    found = true;
+                }
+            }
+        });
+        found
+    }
+    ops.iter().any(|op| match op {
+        IrOp::Bind {
+            value: Some(value), ..
+        }
+        | IrOp::Assign { value, .. }
+        | IrOp::AssignGlobal { value, .. }
+        | IrOp::StateAssign { value, .. }
+        | IrOp::ExitProgram { code: value, .. }
+        | IrOp::Fail { error: value, .. }
+        | IrOp::Eval { value, .. } => value_reads(value, name),
+        IrOp::Bind { value: None, .. } | IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => false,
+        IrOp::Return { value, .. } => value.as_ref().is_some_and(|v| value_reads(v, name)),
+        IrOp::If {
+            condition,
+            then_body,
+            else_body,
+            ..
+        } => {
+            value_reads(condition, name)
+                || ops_read_local(then_body, name)
+                || ops_read_local(else_body, name)
+        }
+        IrOp::Match { value, cases, .. } => {
+            value_reads(value, name)
+                || cases.iter().any(|case| {
+                    case.guard.as_ref().is_some_and(|g| value_reads(g, name))
+                        || ops_read_local(&case.body, name)
+                })
+        }
+        IrOp::While {
+            condition, body, ..
+        } => value_reads(condition, name) || ops_read_local(body, name),
+        IrOp::For {
+            start,
+            end,
+            step,
+            body,
+            ..
+        } => {
+            value_reads(start, name)
+                || value_reads(end, name)
+                || value_reads(step, name)
+                || ops_read_local(body, name)
+        }
+        IrOp::DoUntil {
+            body, condition, ..
+        } => ops_read_local(body, name) || value_reads(condition, name),
+        IrOp::ForEach { iterable, body, .. } => {
+            value_reads(iterable, name) || ops_read_local(body, name)
+        }
+        IrOp::Trap { body, .. } => ops_read_local(body, name),
+    })
+}
+
 /// Lowers an inline `TRAP` to existing IR primitives (no backend support is
 /// required). The trapped call is evaluated as a raw `Result`; on `Ok` its value
 /// flows to the target; on `Err` the handler runs with `e` bound. `RECOVER`
@@ -1037,28 +1110,34 @@ fn lower_inline_trap(
 
     let mut handler_locals = locals.clone();
     handler_locals.insert(binding.to_string(), "Error".to_string());
-    let mut else_body = vec![IrOp::Bind {
-        mutable: false,
-        name: binding.to_string(),
-        type_: "Error".to_string(),
-        value: Some(IrValue::ResultError {
-            value: Box::new(IrValue::Local(res_name.clone())),
-        }),
-        loc: stmt_loc,
-        explicit_type: false,
-    }];
     context.recover_targets.push(RecoverTarget {
         slot: slot.clone(),
         type_: success_type.clone(),
     });
     let normalized = treeify_handler(handler);
-    else_body.extend(lower_statement_block(
-        &normalized,
-        &handler_locals,
-        context,
-        Some(binding),
-    ));
+    let handler_ops = lower_statement_block(&normalized, &handler_locals, context, Some(binding));
     context.recover_targets.pop();
+    // plan-64-I: only bind the error `err` when the handler actually reads it.
+    // `ResultError` is an aliasing source, so `Bind err = ResultError(res)`
+    // lowers to a deep `copy_flat_block` of the `Error`; when `RECOVER` ignores
+    // `err`, that copy (and, for a conversion `CallResult` receiver, the whole
+    // ErrorLoc/Error assembly it forces — see `emit_error_register_return`'s
+    // discard path) is dead work. Eliding it is what lets the conversion error
+    // path materialize only a bare tag.
+    let mut else_body = Vec::new();
+    if ops_read_local(&handler_ops, binding) {
+        else_body.push(IrOp::Bind {
+            mutable: false,
+            name: binding.to_string(),
+            type_: "Error".to_string(),
+            value: Some(IrValue::ResultError {
+                value: Box::new(IrValue::Local(res_name.clone())),
+            }),
+            loc: stmt_loc,
+            explicit_type: false,
+        });
+    }
+    else_body.extend(handler_ops);
 
     ops.push(IrOp::If {
         condition: IrValue::ResultIsOk {
@@ -1321,6 +1400,9 @@ fn collection_iteration_type(type_: &str) -> Option<String> {
         // Iterating `List OF RES File` yields a pointer to each element; the loop
         // variable's type is the bare resource (`File`), not `RES File` (§15.6).
         .map(|element| element.strip_prefix("RES ").unwrap_or(element).to_string())
+        // `FOR EACH x IN set` yields the element type `T` (plan-63); a Set element
+        // is always comparable, so it never carries a `RES` marker.
+        .or_else(|| type_.strip_prefix("Set OF ").map(str::to_string))
         .or_else(|| {
             parse_map_type(type_).map(|(key, value)| {
                 let value = value.strip_prefix("RES ").unwrap_or(value.as_str());
@@ -1737,6 +1819,7 @@ fn expression_type(
             };
             expression_type(first, locals, context).map(|element| format!("List OF {element}"))
         }
+        Expression::SetLiteral { element_type, .. } => Some(format!("Set OF {element_type}")),
         Expression::MapLiteral {
             key_type,
             value_type,
@@ -2970,6 +3053,24 @@ fn lower_expression_with_expected(
                 values: lowered,
             }
         }
+        Expression::SetLiteral {
+            element_type,
+            elements,
+        } => {
+            let expected_element = expected
+                .and_then(|type_| type_.strip_prefix("Set OF "))
+                .or(Some(element_type.as_str()));
+            let lowered = elements
+                .iter()
+                .map(|value| {
+                    lower_expression_with_expected(value, expected_element, locals, context)
+                })
+                .collect::<Vec<_>>();
+            IrValue::SetLiteral {
+                type_: format!("Set OF {element_type}"),
+                values: lowered,
+            }
+        }
         Expression::MapLiteral {
             key_type,
             value_type,
@@ -3312,6 +3413,11 @@ fn collect_captured_locals(
         }
         Expression::ListLiteral(values) => {
             for value in values {
+                collect_captured_locals(value, outer_locals, local_names, seen, captures);
+            }
+        }
+        Expression::SetLiteral { elements, .. } => {
+            for value in elements {
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }

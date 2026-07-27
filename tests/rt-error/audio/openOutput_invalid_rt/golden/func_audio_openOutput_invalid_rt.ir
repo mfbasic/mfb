@@ -258,7 +258,6 @@
       { "op": "assign", "line": 162, "name": "$trap_val4", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res3" } } }
       ],
       "else": [
-      { "op": "bind", "line": 162, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res3" } } },
       { "op": "return", "line": 163, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },

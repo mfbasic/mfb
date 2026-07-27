@@ -1105,6 +1105,10 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_mapchurn_churn(run, tests)
   tests = test_mapchurn_iterate(run, tests)
 
+  ' set group (setops.mfb) — build/membership + the full Set surface (plan-63)
+  tests = test_set_build(run, tests)
+  tests = test_set_ops(run, tests)
+
   ' string group (string.mfb)
   tests = test_string_concat(run, tests)
   tests = test_string_case(run, tests)

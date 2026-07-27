@@ -427,6 +427,7 @@ fn expr_references_seam(expr: &crate::ast::Expression) -> bool {
             expr_references_seam(target) || updates.iter().any(|u| expr_references_seam(&u.value))
         }
         Expression::ListLiteral(values) => values.iter().any(expr_references_seam),
+        Expression::SetLiteral { elements, .. } => elements.iter().any(expr_references_seam),
         Expression::MapLiteral { entries, .. } => entries
             .iter()
             .any(|(k, v)| expr_references_seam(k) || expr_references_seam(v)),

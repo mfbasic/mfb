@@ -789,6 +789,13 @@ pub enum Expression {
         updates: Vec<RecordUpdate>,
     },
     ListLiteral(Vec<Expression>),
+    /// `Set OF T { e1, e2, … }` (plan-63): an unordered, deduplicated collection
+    /// literal. Single element type, like a list; duplicate elements collapse at
+    /// build time. Empty (`Set OF T { }`) is the default value of a `Set OF T`.
+    SetLiteral {
+        element_type: String,
+        elements: Vec<Expression>,
+    },
     MapLiteral {
         key_type: String,
         value_type: String,

@@ -29,7 +29,6 @@
       "then": [
       ],
       "else": [
-      { "op": "bind", "line": 11, "mutable": false, "name": "#err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
       { "op": "eval", "line": 12, "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
@@ -55,7 +54,6 @@
       { "op": "assign", "line": 19, "name": "$trap_val2", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res1" } } }
       ],
       "else": [
-      { "op": "bind", "line": 19, "mutable": false, "name": "#err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } },
       { "op": "assign", "line": 20, "name": "$trap_val2", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
@@ -71,7 +69,6 @@
       { "op": "assign", "line": 25, "name": "$trap_val4", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res3" } } }
       ],
       "else": [
-      { "op": "bind", "line": 25, "mutable": false, "name": "#err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res3" } } },
       { "op": "assign", "line": 26, "name": "$trap_val4", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "2" } } }
       ]
     },
@@ -87,7 +84,6 @@
       { "op": "assign", "line": 31, "name": "$trap_val6", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res5" } } }
       ],
       "else": [
-      { "op": "bind", "line": 31, "mutable": false, "name": "#err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res5" } } },
       { "op": "assign", "line": 32, "name": "$trap_val6", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "3" } } }
       ]
     },
@@ -103,7 +99,6 @@
       { "op": "assign", "line": 37, "name": "$trap_val8", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res7" } } }
       ],
       "else": [
-      { "op": "bind", "line": 37, "mutable": false, "name": "#err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res7" } } },
       { "op": "assign", "line": 38, "name": "$trap_val8", "value": { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "9" } } }
       ]
     },

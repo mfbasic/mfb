@@ -34,6 +34,12 @@ icns = "0.3"
 [lints.clippy]
 items_after_test_module = "deny"
 
+[lints.rust]
+# `--cfg perf` opts a build into runtime perf-tracking injection
+# (`perf_injection_enabled()`), independent of debug/release. Register it so the
+# 1.80+ unexpected-cfg lint recognizes the name instead of warning on it.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(perf)'] }
+
 [dev-dependencies]
 tempfile = "3"
 serde_json = "1"

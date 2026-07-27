@@ -5,15 +5,14 @@
   "buildMode": "console",
   "project": "project_entry_sub_args_default",
   "entrySymbol": "_mfb_fn_main",
-  "runtimeSymbols": ["_mfb_rt_perf_perf_init", "_mfb_rt_perf_perf_start", "_mfb_rt_perf_perf_end", "_mfb_rt_perf_perf_done"],
+  "runtimeSymbols": [],
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_getentropy", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_clock_gettime", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_signal", "requiredBy": "_main" },
-  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" },
-  { "library": "libSystem", "symbol": "_clock_gettime", "requiredBy": "_mfb_rt_perf_perf_start" }
+  { "library": "libSystem", "symbol": "_write", "requiredBy": "_main" }
   ],
   "functions": [
   {

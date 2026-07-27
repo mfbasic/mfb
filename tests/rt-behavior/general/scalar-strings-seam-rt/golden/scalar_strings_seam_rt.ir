@@ -108,7 +108,6 @@
         { "op": "assign", "line": 22, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "Scalar", "value": { "kind": "local", "name": "$trap_res0" } } }
         ],
         "else": [
-        { "op": "bind", "line": 22, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
         { "op": "return", "line": 23, "value": { "kind": "local", "name": "out" } }
         ]
       },
@@ -150,7 +149,6 @@
       { "op": "assign", "line": 37, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "String", "value": { "kind": "local", "name": "$trap_res2" } } }
       ],
       "else": [
-      { "op": "bind", "line": 37, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
       { "op": "return", "line": 38, "value": { "kind": "const", "type": "String", "value": "" } }
       ]
     },

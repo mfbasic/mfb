@@ -206,6 +206,7 @@ impl<'a> SyntaxChecker<'a> {
             // (the `Type::User` arm below); §15.6.
             Type::Res(_) => true,
             Type::List(element) => self.is_copyable_type_with_seen(element, seen),
+            Type::Set(element) => self.is_copyable_type_with_seen(element, seen),
             Type::Map(key, value) => {
                 self.is_copyable_type_with_seen(key, seen)
                     && self.is_copyable_type_with_seen(value, seen)
@@ -265,6 +266,7 @@ impl<'a> SyntaxChecker<'a> {
             | Type::String
             | Type::Unknown => true,
             Type::List(element) => self.is_thread_sendable_type_with_seen(element, seen),
+            Type::Set(element) => self.is_thread_sendable_type_with_seen(element, seen),
             Type::Map(key, value) => {
                 self.is_thread_sendable_type_with_seen(key, seen)
                     && self.is_thread_sendable_type_with_seen(value, seen)

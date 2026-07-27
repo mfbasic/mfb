@@ -17,6 +17,10 @@ LET a  = collections::get(m, "a")               ' read (fallible)
 LET m2 = collections::set(m, "c", 3)            ' new map
 LET n  = len(list)
 
+LET s  = Set OF Integer { 1, 2, 3 }             ' literal (duplicates collapse)
+LET s2 = collections::add(s, 4)                 ' new set (idempotent insert)
+LET has = collections::contains(s, 2)           ' membership test
+
 MUT pts AS List OF Vec3 = []
 pts = collections::append(pts, v)               ' in-place append on the mutable buffer
 ```
@@ -44,7 +48,10 @@ IR target is dequalified back to the bare native name:
 `collections::reduce`, `collections::sum`, `collections::find`,
 `collections::mid`, `collections::replace`. The `find`/`mid`/`replace` members
 here are the **List** overloads only; their `String` overloads live in
-`strings::`. [[src/builtins/collections.rs:NATIVE_MEMBERS]]
+`strings::`. The **Set** members `collections::add` (idempotent insert),
+`collections::remove` (no-op when absent), and `collections::toList` (elements in
+insertion order) are native too, and `collections::contains` gains a `Set OF T`
+overload alongside its `List OF T` one. [[src/builtins/collections.rs:NATIVE_MEMBERS]]
 
 **Source generics** — generic MFBASIC functions defined in a bundled MFBASIC
 source companion and injected when the package is imported. [[src/builtins/collections_package.mfb]]
@@ -55,7 +62,13 @@ monomorphization and instantiated like any generic function:
 `collections::all`, `collections::findIndex`, `collections::findLastIndex`,
 `collections::groupBy`, `collections::mapValues`, `collections::flatten`,
 `collections::zip`, `collections::chunks`, `collections::window`,
-`collections::distinct`, `collections::merge`, `collections::partition`.
+`collections::distinct`, `collections::merge`, `collections::partition`. The
+set-algebra generics `collections::toSet`, `collections::union`,
+`collections::intersection`, `collections::difference`,
+`collections::symmetricDifference`, `collections::isSubset`,
+`collections::isSuperset`, and `collections::isDisjoint` are source generics too:
+each is pure (returns a new value, mutates nothing) and instantiated only for a
+comparable element type.
 
 Comparability/orderability constraints (enforced on the IR by the semantic verifier):
 
@@ -66,8 +79,10 @@ Comparability/orderability constraints (enforced on the IR by the semantic verif
   handle may never be a `Map` key. [[src/ir/verify/values.rs:check_map_key_comparable]]
 - A type is comparable when it is `Boolean`, `Byte`, `Error`, `ErrorLoc`,
   `Fixed`, `Float`, `Integer`, `Nothing`, `String`, an `ENUM`, or a `TYPE`
-  record whose fields are all comparable. `List`, `Map`, function values,
-  `Result`, resources, threads, and `UNION` types are not comparable. [[src/ir/verify/values.rs:is_comparable_seen]]
+  record whose fields are all comparable. `List`, `Set`, `Map`, function values,
+  `Result`, resources, threads, and `UNION` types are not comparable. A
+  `Set OF T` therefore requires a comparable element type `T`, exactly as a
+  `Map` key does. [[src/ir/verify/values.rs:is_comparable_seen]]
 - `collections::sort`/`collections::sortBy` order their elements/keys with the
   `<` operator, so the element (or key) type must be orderable; `distinct`
   relies on `contains` and therefore requires a comparable element type.
@@ -85,7 +100,7 @@ The native collection memory layout — one uniform contiguous header + lookup
 table + packed data region for both `List` and `Map` — is specified by the
 memory spec, "Collections" (`./mfb spec memory collections`).
 
-`FOR EACH` over `List OF T` visits items left to right. `FOR EACH` over `Map OF K TO V` visits `MapEntry OF K TO V` values in the map's implementation-defined stable iteration order.
+`FOR EACH` over `List OF T` visits items left to right. `FOR EACH` over `Set OF T` yields each element `T` once, in insertion order. `FOR EACH` over `Map OF K TO V` visits `MapEntry OF K TO V` values in the map's implementation-defined stable iteration order.
 
 ## See Also
 

@@ -355,3 +355,94 @@ FUNC __collections_partition OF T(value AS List OF T, predicate AS FUNC(T) AS Bo
   LET result AS Partition OF T = Partition[matched, unmatched]
   RETURN result
 END FUNC
+
+' ─── Set algebra (plan-63-C) ───────────────────────────────────────────────
+' Eight source generics over B's native Set primitives (`add`/`contains`/
+' `toList`/`FOR EACH`). Pure: each returns a new value and mutates no argument.
+' Instantiated only for comparable `T`, since `Set OF T` already requires it.
+
+' Build a set from a list's distinct elements (first-occurrence order).
+FUNC __collections_toSet OF T(value AS List OF T) AS Set OF T
+  MUT result AS Set OF T = Set OF T { }
+  FOR EACH x IN value
+    result = collections::add(result, x)
+  NEXT
+  RETURN result
+END FUNC
+
+' Every element of `a` and `b` (add is idempotent, so duplicates collapse).
+FUNC __collections_union OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
+  MUT result AS Set OF T = a
+  FOR EACH x IN b
+    result = collections::add(result, x)
+  NEXT
+  RETURN result
+END FUNC
+
+' Every element present in both `a` and `b`.
+FUNC __collections_intersection OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
+  MUT result AS Set OF T = Set OF T { }
+  FOR EACH x IN a
+    IF collections::contains(b, x) THEN
+      result = collections::add(result, x)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
+
+' Every element of `a` not present in `b`.
+FUNC __collections_difference OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
+  MUT result AS Set OF T = Set OF T { }
+  FOR EACH x IN a
+    IF NOT collections::contains(b, x) THEN
+      result = collections::add(result, x)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
+
+' Every element in exactly one of `a` or `b` (an inline two-pass fold).
+FUNC __collections_symmetricDifference OF T(a AS Set OF T, b AS Set OF T) AS Set OF T
+  MUT result AS Set OF T = Set OF T { }
+  FOR EACH x IN a
+    IF NOT collections::contains(b, x) THEN
+      result = collections::add(result, x)
+    END IF
+  NEXT
+  FOR EACH y IN b
+    IF NOT collections::contains(a, y) THEN
+      result = collections::add(result, y)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
+
+' TRUE iff every element of `a` is in `b`.
+FUNC __collections_isSubset OF T(a AS Set OF T, b AS Set OF T) AS Boolean
+  FOR EACH x IN a
+    IF NOT collections::contains(b, x) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' TRUE iff every element of `b` is in `a` (isSubset with arguments swapped).
+FUNC __collections_isSuperset OF T(a AS Set OF T, b AS Set OF T) AS Boolean
+  FOR EACH x IN b
+    IF NOT collections::contains(a, x) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC
+
+' TRUE iff `a` and `b` share no element.
+FUNC __collections_isDisjoint OF T(a AS Set OF T, b AS Set OF T) AS Boolean
+  FOR EACH x IN a
+    IF collections::contains(b, x) THEN
+      RETURN FALSE
+    END IF
+  NEXT
+  RETURN TRUE
+END FUNC

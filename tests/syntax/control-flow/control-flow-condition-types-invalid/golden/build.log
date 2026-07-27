@@ -34,5 +34,5 @@ tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:33 e
   37 |   FOR EACH item IN 42
      | ^
 tests/syntax/control-flow/control-flow-condition-types-invalid/src/main.mfb:37 error[2-203-0050 TYPE_FOR_EACH_REQUIRES_COLLECTION]: FOR EACH source must be a List or Map
-               FOR EACH source has type Integer, expected List or Map.
+               FOR EACH source has type Integer, expected List, Set, or Map.
 [exit 1]

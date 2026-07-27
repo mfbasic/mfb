@@ -65,17 +65,22 @@ weight is chosen with the `LineStyle` enum (`Light`, `Heavy`, `LightDash`,
 `HeavyDash`, `LightDot`, `HeavyDot`, `Double`); each variant has a horizontal form
 for `drawHLine` and a vertical form for `drawVLine`, and `drawBox` pairs the edge
 glyphs with the matching corner glyphs (dash/dot styles reuse the Light or Heavy
-corners). [[src/target/shared/code/term.rs:emit_draw_box]]
+corners). `term::fillRect` fills a rectangular region with a block or shade glyph
+chosen by the `FillStyle` enum (`Filled`, `Light`, `Medium`, `Dark`, `Checker`,
+`CheckerAlt`) — the region-filling counterpart to `clear`. `term::drawText` stamps
+a string at an absolute position (without moving the cursor), and
+`term::drawGlyph` stamps a single scalar by code point. [[src/target/shared/code/term.rs:emit_fill_rect]]
 
-The package defines two built-in record types and one enum. `TermColor` has three
+The package defines two built-in record types and two enums. `TermColor` has three
 `Byte` fields `r`, `g`, and `b` holding the red, green, and blue channels of a
 color, and is returned by `term::getForeground` and `term::getBackground`.
 `TermSize` has two `Integer` fields `columns` (the width of the surface in
 character cells) and `rows` (its height), and is returned by `term::terminalSize`;
 the surface size can change between calls (for example when the terminal window is
 resized), so a program that depends on it should query it again rather than caching
-the result. `LineStyle` selects the box-drawing weight for `term::drawHLine` and
-`term::drawVLine`. [[src/builtins/term.rs:builtin_type_fields]]
+the result. `LineStyle` selects the box-drawing weight for `term::drawHLine`,
+`term::drawVLine`, and `term::drawBox`; `FillStyle` selects the block or shade
+glyph for `term::fillRect`. [[src/builtins/term.rs:builtin_type_fields]]
 
 ## Errors
 

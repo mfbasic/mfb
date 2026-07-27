@@ -10,7 +10,7 @@
   "types": [
   {
     "kind": "enum",
-    "line": 30,
+    "line": 32,
     "visibility": "export",
     "name": "LineStyle",
     "members": [
@@ -21,6 +21,20 @@
     { "name": "LightDot" },
     { "name": "HeavyDot" },
     { "name": "Double" }
+    ]
+  },
+  {
+    "kind": "enum",
+    "line": 53,
+    "visibility": "export",
+    "name": "FillStyle",
+    "members": [
+    { "name": "Filled" },
+    { "name": "Light" },
+    { "name": "Medium" },
+    { "name": "Dark" },
+    { "name": "Checker" },
+    { "name": "CheckerAlt" }
     ]
   }
   ],

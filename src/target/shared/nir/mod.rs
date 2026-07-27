@@ -331,6 +331,11 @@ pub(crate) enum NirValue {
         type_: String,
         values: Vec<NirValue>,
     },
+    /// `Set OF T { … }` (plan-63): elements build a deduplicated set at runtime.
+    SetLiteral {
+        type_: String,
+        values: Vec<NirValue>,
+    },
     MapLiteral {
         type_: String,
         entries: Vec<(NirValue, NirValue)>,

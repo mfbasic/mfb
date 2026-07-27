@@ -23,6 +23,7 @@ pub(super) fn static_nir_value_type(
         | NirValue::UnionExtract { type_, .. }
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
+        | NirValue::SetLiteral { type_, .. }
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::Local(name) => locals.get(name).cloned(),
         NirValue::Binary {
@@ -272,7 +273,29 @@ pub(super) fn join_texts(values: &[ValueResult]) -> String {
 }
 
 pub(super) fn is_collection_type(type_: &str) -> bool {
-    type_.starts_with("List OF ") || type_.starts_with("Map OF ")
+    type_.starts_with("List OF ") || type_.starts_with("Map OF ") || is_set_type(type_)
+}
+
+/// Whether `type_` is a `Set OF T` (plan-63).
+pub(super) fn is_set_type(type_: &str) -> bool {
+    type_.starts_with("Set OF ")
+}
+
+/// Whether a collection block of `type_` carries the FNV-1a hash bucket region
+/// past its data region — true for `Map` and `Set` (both probe by key/element),
+/// false for every `List` representation. This is the single predicate every
+/// sizing / copy / free / reserve site consults instead of an inline
+/// `kind == MAP` test, so a Set is never sized one way and freed another
+/// (plan-63-B §3).
+pub(super) fn collection_has_buckets(type_: &str) -> bool {
+    type_.starts_with("Map OF ") || is_set_type(type_)
+}
+
+/// The element type of a `Set OF T` (`Set OF Integer` -> `Integer`). A Set
+/// element is always comparable and never `RES`-marked, so no marker strip is
+/// needed (unlike [`list_element_type`]).
+pub(super) fn set_element_type(type_: &str) -> Option<String> {
+    type_.strip_prefix("Set OF ").map(str::to_string)
 }
 
 pub(super) fn list_element_type(type_: &str) -> Option<String> {

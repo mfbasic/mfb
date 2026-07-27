@@ -328,15 +328,15 @@ pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
 /// plan-67-B: one writable 8-byte global holding the base pointer of the runtime
 /// perf-tracking region (the `emit_arena_map`-mmap'd system memory that holds the
 /// name-keyed timing tables). Mirrors `MAIN_ARENA_GLOBAL_SYMBOL`: a zeroed
-/// `kind:"raw"` object emitted only for a **debug macOS entry** module (gated by
-/// `perf_injection_enabled()`), so release and non-macOS plans never see it.
-/// `perf_init` stores the region base here; every other perf helper loads it and
-/// treats a 0 base as "perf inert" (mmap failed / release build).
+/// `kind:"raw"` object emitted only for a **`--cfg perf` macOS entry** module
+/// (gated by `perf_injection_enabled()`), so ordinary and non-macOS plans never
+/// see it. `perf_init` stores the region base here; every other perf helper loads
+/// it and treats a 0 base as "perf inert" (mmap failed / perf-free build).
 pub(crate) const PERF_STATE_SYMBOL: &str = "_mfb_rt_perf_state";
 
 /// plan-67-B: the `mfb.string.v1` object holding the perf-table header line
 /// (`name count avg median min max sum`), written to stderr by `perf_done`.
-/// Emitted under the same debug-macOS-entry gate as `PERF_STATE_SYMBOL`.
+/// Emitted under the same `--cfg perf`-macOS-entry gate as `PERF_STATE_SYMBOL`.
 pub(crate) const PERF_HEADER_SYMBOL: &str = "_mfb_rt_perf_header";
 
 /// plan-67-C: the `mfb.string.v1` name object for the whole-program span. The
@@ -398,6 +398,11 @@ pub(crate) const TERM_CORNER_BL_CODEPOINTS: [u32; 7] =
     [0x2514, 0x2517, 0x2514, 0x2517, 0x2514, 0x2517, 0x255A];
 pub(crate) const TERM_CORNER_BR_CODEPOINTS: [u32; 7] =
     [0x2518, 0x251B, 0x2518, 0x251B, 0x2518, 0x251B, 0x255D];
+
+/// `term::fillRect` block/shade code points, indexed by `FillStyle` ordinal:
+/// `Filled` █, `Light` ░, `Medium` ▒, `Dark` ▓, `Checker` ▚, `CheckerAlt` ▞.
+pub(crate) const TERM_FILL_CODEPOINTS: [u32; 6] =
+    [0x2588, 0x2591, 0x2592, 0x2593, 0x259A, 0x259E];
 
 pub(crate) const TERM_STATE_ACTIVE_OFFSET: usize = 0;
 pub(crate) const TERM_STATE_FG_OFFSET: usize = 8;
@@ -887,6 +892,13 @@ pub(crate) const COLLECTION_KIND_MAP: usize = 1;
 /// established by plan-57-C and machine-checked by
 /// `tests/rt-behavior/collections/list-order-invariant-rt`.
 pub(crate) const COLLECTION_KIND_LIST_FIXED: usize = 2;
+/// A `Set OF T` (plan-63): a Map-shaped block (LookupEntry array + data region +
+/// FNV-1a bucket index) whose entries are key-only — each element is stored as a
+/// key with `valueType = COLLECTION_TYPE_NONE` and `valueLength = 0`. Like every
+/// other `kind` byte this is written for self-description only; dispatch is
+/// static, so tagging a Set `3` branches no generated code (it does select the
+/// bucket region via `collection_has_buckets`).
+pub(crate) const COLLECTION_KIND_SET: usize = 3;
 pub(crate) const COLLECTION_HEADER_SIZE: usize = 40;
 pub(crate) const COLLECTION_OFFSET_KIND: usize = 0;
 pub(crate) const COLLECTION_OFFSET_KEY_TYPE: usize = 1;

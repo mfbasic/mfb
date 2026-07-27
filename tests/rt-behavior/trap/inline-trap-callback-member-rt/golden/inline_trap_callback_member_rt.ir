@@ -187,7 +187,6 @@
       { "op": "assign", "line": 59, "name": "$trap_val8", "value": { "kind": "resultValue", "type": "List OF Integer", "value": { "kind": "local", "name": "$trap_res7" } } }
       ],
       "else": [
-      { "op": "bind", "line": 59, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res7" } } },
       { "op": "assign", "line": 60, "name": "$trap_val8", "value": { "kind": "list", "type": "List OF Integer", "values": [] } }
       ]
     },

@@ -36,6 +36,10 @@ enum Type {
     /// dimensioned numeric with a restricted algebra — see `numeric::money_result_type`.
     Money,
     List(Box<Type>),
+    /// `Set OF T` (plan-63): an unordered collection of comparable, deduplicated
+    /// elements. Single type parameter, like `List`; element must be comparable,
+    /// like a `Map` key.
+    Set(Box<Type>),
     Map(Box<Type>, Box<Type>),
     /// A `RES`-marked collection element (`List OF RES File`, `Map ... TO RES
     /// File`). The `RES` is the mandatory resource ownership-axis marker for a
@@ -566,7 +570,10 @@ impl<'a> SyntaxChecker<'a> {
         seen: &mut HashSet<String>,
     ) {
         match type_ {
-            Type::List(element) | Type::Result(element) | Type::Res(element) => {
+            Type::List(element)
+            | Type::Set(element)
+            | Type::Result(element)
+            | Type::Res(element) => {
                 self.validate_package_metadata_type(
                     file,
                     line,
@@ -1429,6 +1436,15 @@ impl<'a> SyntaxChecker<'a> {
                     self.report_invalid_collection_element(file, line, "element", inner);
                 }
             }
+            Type::Set(element) => {
+                self.check_type_reference(file, element, line);
+                // A `Set` element must be comparable, so it can be neither a
+                // resource nor a thread handle (plan-63); the element-comparability
+                // rejection itself lives in ir::verify.
+                if self.contains_resource_or_thread(element) {
+                    self.report_invalid_collection_element(file, line, "element", element);
+                }
+            }
             Type::Map(key, value) => {
                 let value_inner = strip_res(value);
                 self.check_type_reference(file, key, line);
@@ -1552,6 +1568,7 @@ impl<'a> SyntaxChecker<'a> {
             Type::Money => "Money".to_string(),
             Type::Scalar => "Scalar".to_string(),
             Type::List(element) => format!("List OF {}", self.type_name(element)),
+            Type::Set(element) => format!("Set OF {}", self.type_name(element)),
             Type::Map(key, value) => {
                 format!(
                     "Map OF {} TO {}",

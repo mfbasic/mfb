@@ -24,6 +24,7 @@ pub(super) fn contains_placeholder(expression: &Expression) -> bool {
         }
         Expression::Lambda { body, .. } => contains_placeholder(body),
         Expression::ListLiteral(values) => values.iter().any(contains_placeholder),
+        Expression::SetLiteral { elements, .. } => elements.iter().any(contains_placeholder),
         Expression::MapLiteral { entries, .. } => entries
             .iter()
             .any(|(key, value)| contains_placeholder(key) || contains_placeholder(value)),
@@ -122,6 +123,16 @@ pub(super) fn substitute_placeholder(expression: Expression, input: &Expression)
                 .map(|value| substitute_placeholder(value, input))
                 .collect(),
         ),
+        Expression::SetLiteral {
+            element_type,
+            elements,
+        } => Expression::SetLiteral {
+            element_type,
+            elements: elements
+                .into_iter()
+                .map(|value| substitute_placeholder(value, input))
+                .collect(),
+        },
         Expression::MapLiteral {
             key_type,
             value_type,

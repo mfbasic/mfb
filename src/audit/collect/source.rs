@@ -420,6 +420,11 @@ fn walk_expression(
                 walk_expression(item, line, in_trap, visit);
             }
         }
+        Expression::SetLiteral { elements, .. } => {
+            for item in elements {
+                walk_expression(item, line, in_trap, visit);
+            }
+        }
         Expression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
                 walk_expression(key, line, in_trap, visit);

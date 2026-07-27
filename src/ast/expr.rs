@@ -501,6 +501,21 @@ impl<'a> FileParser<'a> {
                     };
                     return self.parse_map_literal(key_type, value_type);
                 }
+                if value.eq_ignore_ascii_case("Set") && self.check_identifier_ci("OF") {
+                    self.advance();
+                    // A Set element can never be a resource (`RES` forbidden).
+                    if self.check_keyword(Keyword::Res) {
+                        let token = self.peek().clone();
+                        self.report(
+                            "MFB_PARSE_UNEXPECTED_TOKEN",
+                            "A Set element cannot be a resource; `RES` is not allowed after `Set OF`.",
+                            &token,
+                        );
+                        return None;
+                    }
+                    let element_type = self.parse_type_name()?;
+                    return self.parse_set_literal(element_type);
+                }
                 let name = self.finish_qualified_name(value)?;
                 Some(Expression::Identifier(name))
             }
@@ -647,6 +662,25 @@ impl<'a> FileParser<'a> {
                 if element_res {
                     name.push_str("RES ");
                 }
+                name.push_str(&arg);
+                return Some(name);
+            }
+
+            if name.eq_ignore_ascii_case("Set") {
+                // `Set OF T` (plan-63, §4.7): a single comparable element type —
+                // no `TO` (unlike `Map`), and no `RES` marker (unlike `List`), since
+                // a resource handle is not comparable and can never be a Set element.
+                if self.check_keyword(Keyword::Res) {
+                    let token = self.peek().clone();
+                    self.report(
+                        "MFB_PARSE_UNEXPECTED_TOKEN",
+                        "A Set element cannot be a resource; `RES` is not allowed after `Set OF`.",
+                        &token,
+                    );
+                    return None;
+                }
+                let arg = self.parse_type_name()?;
+                name.push_str(" OF ");
                 name.push_str(&arg);
                 return Some(name);
             }
@@ -869,6 +903,28 @@ impl<'a> FileParser<'a> {
             key_type,
             value_type,
             entries,
+        })
+    }
+
+    /// Parse a `Set OF T { e1, e2, … }` literal body (the `element_type` has been
+    /// consumed). Empty `Set OF T { }` is permitted (the empty-set default).
+    pub(super) fn parse_set_literal(&mut self, element_type: String) -> Option<Expression> {
+        if !self.consume_kind(TokenKind::LBrace, "Expected `{` after set literal type.") {
+            return None;
+        }
+        let mut elements = Vec::new();
+        if !self.check_kind(&TokenKind::RBrace) {
+            loop {
+                elements.push(self.parse_expression()?);
+                if !self.match_kind(TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume_kind(TokenKind::RBrace, "Expected `}` after set literal.");
+        Some(Expression::SetLiteral {
+            element_type,
+            elements,
         })
     }
 }

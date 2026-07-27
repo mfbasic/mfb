@@ -136,7 +136,6 @@
         { "op": "assign", "line": 33, "name": "$trap_val5", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res4" } } }
         ],
         "else": [
-        { "op": "bind", "line": 33, "mutable": false, "name": "e2", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res4" } } },
         { "op": "assign", "line": 34, "name": "$trap_val5", "value": { "kind": "const", "type": "Integer", "value": "0" } }
         ]
       },

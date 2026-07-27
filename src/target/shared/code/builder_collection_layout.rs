@@ -283,9 +283,10 @@ impl CodeBuilder<'_> {
                 // wrote its bucket markers past the block into the adjacent
                 // heap chunk (bug-02: regex `prog.names` corrupted the arena
                 // free list).
-                let is_map = CollectionTypeLayout::from_type(other)
-                    .is_some_and(|layout| layout.kind == COLLECTION_KIND_MAP);
-                if is_map {
+                // A `Map` *or* a `Set` carries the bucket region (plan-63); a
+                // `List` does not. `collection_has_buckets` is the single predicate
+                // so a Set is never sized without the region it was allocated with.
+                if collection_has_buckets(other) {
                     self.emit(abi::load_u64(scratch, ptr_reg, COLLECTION_OFFSET_CAPACITY));
                     self.emit(abi::shift_left_immediate(scratch, scratch, 4));
                     self.emit(abi::add_registers(out_reg, out_reg, scratch));
@@ -407,11 +408,12 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             &scratch10,
         ));
-        // A map's tight copy reserves its (count-sized) hash bucket region; x9
-        // still holds count. The copy is marked not-ready so the buckets are
-        // recomputed on first probe (no stale offsets across copy/transfer).
+        // A map's *or* set's tight copy reserves its (count-sized) hash bucket
+        // region; x9 still holds count. The copy is marked not-ready so the
+        // buckets are recomputed on first probe (no stale offsets across
+        // copy/transfer). `collection_has_buckets` keeps Set and Map in lockstep.
         self.emit_reserve_map_buckets(
-            layout.kind == COLLECTION_KIND_MAP,
+            collection_has_buckets(type_),
             &scratch9,
             abi::return_register(),
             &scratch10,
@@ -1180,6 +1182,63 @@ impl CodeBuilder<'_> {
         self.lower_collection_values(type_, slots, "list")
     }
 
+    /// Lower a `Set OF T { … }` literal (plan-63). A `Set` block is Map-shaped
+    /// with a 1-byte `Boolean` value (always TRUE); the literal is built by
+    /// inserting each element into a growing, uniquely-owned buffer so duplicates
+    /// collapse. Mirrors [`lower_set_add`](Self::lower_set_add)'s idioms, but the
+    /// buffer starts empty and is mutated IN PLACE (no per-element copy — the
+    /// literal owns its buffer exclusively).
+    pub(super) fn lower_set_literal(
+        &mut self,
+        type_: &str,
+        values: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        let element_type = super::type_utils::set_element_type(type_)
+            .ok_or_else(|| format!("lower_set_literal: not a set type '{type_}'"))?;
+        // Start from an empty set and spill its pointer to a stack slot so it can
+        // be reloaded and rewritten after each (possibly reallocating) insert.
+        let result = self.lower_empty_collection(type_)?;
+        let set_slot = self.allocate_stack_object("set_lit", 8);
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), set_slot));
+        // A reusable 1-byte `Boolean` TRUE — every element maps to it.
+        let true_slot = self.allocate_stack_object("set_lit_true", 8);
+        let true_reg = self.allocate_register()?;
+        self.emit(abi::move_immediate(&true_reg, "Boolean", "true"));
+        self.emit(abi::store_u64(&true_reg, abi::stack_pointer(), true_slot));
+        for value_node in values {
+            let item = self.lower_value(value_node)?;
+            // Observation boundary: a `Float` element must be finite (plan-17).
+            self.observe_float(value_node, &item)?;
+            // A `d`-native float element is materialized into a GPR before the
+            // integer-slot store (plan-01 float-dnative).
+            let item = self.materialize_value(item)?;
+            let item_slot = self.allocate_stack_object("set_lit_item", 8);
+            self.store_value_at(&item, abi::stack_pointer(), item_slot);
+            // In-place insert on the uniquely-owned literal buffer, then store the
+            // (possibly reallocated) pointer back.
+            let inserted = self.lower_map_set_in_place(
+                set_slot,
+                item_slot,
+                true_slot,
+                type_,
+                &element_type,
+                "Boolean",
+            )?;
+            self.emit(abi::store_u64(
+                &inserted.location,
+                abi::stack_pointer(),
+                set_slot,
+            ));
+        }
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), set_slot));
+        Ok(ValueResult {
+            type_: type_.to_string(),
+            location: register,
+            text: format!("set literal {type_}"),
+        })
+    }
+
     pub(super) fn lower_map_literal(
         &mut self,
         type_: &str,
@@ -1293,9 +1352,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             data_len_slot,
         ));
-        // A map reserves a `2*capacity` u64 bucket array past the data region;
-        // capacity == count for a literal, so fold it into the constant.
-        let bucket_bytes = if layout.kind == COLLECTION_KIND_MAP {
+        // A map *or* set reserves a `2*capacity` u64 bucket array past the data
+        // region; capacity == count for a literal, so fold it into the constant.
+        // `collection_has_buckets` keeps a Set's reservation in lockstep with the
+        // sizing/copy/free paths (plan-63-B) — omitting it would size a Set literal
+        // short and corrupt the arena on the lazy bucket build.
+        let bucket_bytes = if collection_has_buckets(type_) {
             count * MAP_BUCKET_SIZE * 2
         } else {
             0

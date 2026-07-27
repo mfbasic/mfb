@@ -165,49 +165,64 @@ runnable examples (`examples/` per the recent `hello_world` expansion commit).
 One line: author the type topic, the eleven function pages, and the five spec
 edits, all against the shipped behavior.
 
-- [ ] D0: identify and record the exact man-citation and spec-citation test
-      names (the two distinct gates).
-- [ ] `src/docs/man/types/set.md` per `.ai/man_type_template.md` (§4.1).
-- [ ] Eleven `src/docs/man/builtins/collections/*.md` pages (§4.2), including the
-      `contains` Set overload.
-- [ ] Five spec source edits (§2/§4.3), consistent with A/B/C behavior.
+- [x] D0: the two gates are `man_citations_resolve` (`src/docs/man/mod.rs`,
+      symbol-level, strict) and `spec_citations_resolve` (`src/docs/spec/mod.rs`,
+      file-level, lenient). Both pass.
+- [x] `src/docs/man/types/set.md` — mirrors `types/map.md` (the bespoke type-topic
+      shape, NOT the record `man_type_template.md`): Synopsis/Description/Literals/
+      Elements/storage/Copying/Mutation/Iteration/See-also.
+- [x] Twelve `src/docs/man/builtins/collections/*.md` pages: add, remove, toList,
+      **toSet** (added for parity — see Corrections), union, intersection,
+      difference, symmetricDifference, isSubset, isSuperset, isDisjoint, plus the
+      `contains` Set overload. All citations grep-verified; the symbol-level gate
+      passes.
+- [x] Five spec edits: `language/04_types` (§4.7/4.10/4.11),
+      `language/12_collections`, `memory/05_collections` (kind 3),
+      `architecture/21_type-name-encoding` (round-trip prefix list),
+      `language/19_grammar` (`templateType` + `setLit`).
 
 Acceptance: `mfb man types set` and `mfb man collections <each new member>`
 render fully; `mfb spec` renders the updated Set sections; both citation gates
 (from D0) pass.
-Commit: —
+Commit: 133132f22
 
 ### Phase 2 — Registration + examples
 
 One line: wire the new pages into the man tree and add a runnable example.
 
-- [ ] Confirm `types` and `collections` `PACKAGE_ORDER` rows already cover the new
-      pages (no new package row expected — verify the `mod.rs:64-68` sync
-      assertion passes after the tree grows).
-- [ ] Add the worked Set example (§4.4) and any example index/registration it
-      needs.
-- [ ] Tests: the example compiles and runs to its expected output under the
-      project's example harness.
+- [x] `types` and `collections` `PACKAGE_ORDER` rows already cover the new pages —
+      no new package added, so the `man/mod.rs` sync assertion holds; the docs
+      render/sync tests (27) pass.
+- [x] Set demonstrated in the **benchmark code** (D decision, not `examples/`):
+      `benchmark/mfb/src/setops.mfb` — `test_set_build` (add + contains hash path)
+      and `test_set_ops` (union/intersection/difference/symmetricDifference/
+      isSubset/isSuperset/isDisjoint/remove/toSet/toList), wired into `main.mfb`.
+- [x] The benchmark builds and both rows run correctly (`set_build=20000`,
+      `set_ops=6006`).
 
 Acceptance: the man-tree sync assertion passes; the example runs and prints its
 expected output; `cargo test` green.
-Commit: —
+Commit: 133132f22
 
 ### Phase 3 — Golden + acceptance close-out (largest churn last)
 
 One line: seed the goldens for every Set fixture/example and prove the full
 suite green with no unrelated churn.
 
-- [ ] Seed acceptance goldens for the A/B/C fixtures and the D example
-      (`sync-goldens.sh` scoped to the set fixtures first, then the full pass),
-      per the acceptance golden harness.
-- [ ] Diff the golden set: every churned golden must be a Set fixture/example.
-      Any unrelated churn is investigated, not re-baselined (AGENTS.md).
-- [ ] Archive: move plan-63-A/B/C/D to `planning/old-plans/` once green.
+- [x] Goldens seeded: the two Set rt-behavior fixtures (`set-behavior-rt`,
+      `set-algebra-rt`) with release; they PASS `test-accept.sh <release>`. Five
+      compile-only syntax fixtures that pin the two diagnostic messages I widened
+      (FOR EACH; len/isEmpty/isNotEmpty) re-seeded.
+- [x] Golden diff investigated. Two churn classes, both explained:
+      (1) my 5 message fixtures + 2 Set fixtures — expected, re-seeded/pass;
+      (2) ~51 pre-existing plan-67 perf-table mismatches — NOT plan-63 (see
+      Corrections). `cargo test` full suite green; `artifact-gate.sh` (codegen
+      byte-identity) run as the deterministic codegen gate.
+- [x] Archive: plan-63-A/B/C/D moved to `planning/old-plans/` (this close-out commit).
 
 Acceptance: the full acceptance/CI suite passes; the golden diff contains only
 Set-related fixtures/examples; `cargo test` green; plan-63 files archived.
-Commit: —
+Commit: 8f7e84925 (re-seed) + the archive commit
 
 ## Validation Plan
 
@@ -231,7 +246,50 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **`toSet` was missing from the 11-page list.** §2's "11 New Set members" table
+  and Phase 1 both omitted `toSet`, yet it is a shipped C source generic
+  (`__collections_toSet`) and `mfb man collections toSet` would 404. Every sibling
+  generic (`sort`, `distinct`, …) has a page, so a 12th page (`toSet.md`) was
+  authored for parity. The real count is **12** collections pages (+ the `contains`
+  overload edit), not 11.
+- **The type topic follows `types/map.md`, not `.ai/man_type_template.md`.** Phase 1
+  cited the record `man_type_template.md`, but `list.md`/`map.md` are a distinct
+  bespoke type-topic shape (Synopsis/Literals/storage/Copying/Mutation/…), which is
+  what a `Set` topic needs. `set.md` mirrors `map.md`.
+- **The "full acceptance = 0 test-accept mismatches" gate is not literally
+  attainable at baseline — plan-67 perf goldens are non-deterministic.** Running
+  `scripts/test-accept.sh <release>` reports ~51 mismatches in fixtures UNRELATED
+  to plan-63 (map/list codegen `.ncode`, control-flow, project-entry, app-mode,
+  parser-hello-world, …). Root cause: plan-67 injects a debug-gated
+  `_mfb_rt_perf_*` table; those fixtures' goldens were seeded with a *debug* mfb,
+  so their `.ncode` dumps carry perf symbols and their `build.log`s carry a perf
+  table with **run-varying nanosecond timings** (e.g. `program 1 37000` in the
+  golden vs `29000` on rerun). A release mfb strips the perf table entirely; a
+  debug mfb reproduces it with different timings — so neither profile makes those
+  goldens diff clean. This reproduces verbatim at the fork base `b2227871a` and is
+  present identically on `main` (`git show` both), so it is a pre-existing plan-67
+  golden-hygiene issue, **not** a plan-63 regression, and re-seeding 51 unrelated
+  goldens is out of scope. The plan-63 acceptance evidence is instead: (a) full
+  `cargo test` green (behavior + IR + citation gates), (b) `artifact-gate.sh`
+  codegen byte-identity green, (c) both Set rt-behavior fixtures pass
+  `test-accept.sh <release>` (their release goldens are deterministic — no perf
+  table). The Set fixtures were seeded with release precisely so they stay
+  deterministic, unlike the pre-existing perf-bearing goldens.
+- **6 pre-existing byte-identity DIFFs inherited from `main` (not plan-63).**
+  After merging `main` (advanced from `b2227871a` to `c3eb10afe`), `artifact-gate.sh`
+  reports 6 DIFFs: `{audio,http,json,net,regex,strings}_codegen_cover_rt.macos-aarch64.ncode`
+  (sha256). Verified pre-existing: a detached worktree at pure `main` `c3eb10afe`
+  (no plan-63) builds `strings_codegen_cover_rt` to the SAME sha
+  `a51a6419…838…559f`, which ALSO differs from the committed golden `72bda985…739d`.
+  So main's `codegen_cover` `.ncodesum` goldens are stale on this macOS host
+  (regen'd elsewhere / different profile), independent of plan-63. Plan-63's own
+  gate was 0 diffs against the fork-base goldens pre-merge, and the merged codegen
+  for these non-Set fixtures is byte-identical to pure-main. Not a plan-63
+  regression; flagged for the main baseline.
+- **No goldens needed re-seeding for A (front-end only).** Phase 3 says "seed
+  goldens for the A/B/C fixtures"; A shipped no fixtures (unit tests only), and
+  B/C's goldens were seeded in their own sub-plans. Phase 3 here is the full-suite
+  green + Set-only-churn check + archive.
 
 ## Summary
 

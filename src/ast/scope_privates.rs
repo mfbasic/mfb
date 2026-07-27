@@ -501,6 +501,15 @@ fn rewrite_expr(
                 rewrite_expr(item, rename, types, locals);
             }
         }
+        Expression::SetLiteral {
+            element_type,
+            elements,
+        } => {
+            *element_type = rewrite_type_str(element_type, types);
+            for item in elements.iter_mut() {
+                rewrite_expr(item, rename, types, locals);
+            }
+        }
         Expression::MapLiteral {
             key_type,
             value_type,

@@ -1136,6 +1136,16 @@ impl Resolver<'_> {
                     self.resolve_expression(file, value, line, imports, locals);
                 }
             }
+            Expression::SetLiteral {
+                element_type,
+                elements,
+            } => {
+                let element_type = element_type.strip_prefix("RES ").unwrap_or(element_type);
+                self.resolve_type_name(file, element_type, line, imports);
+                for value in elements {
+                    self.resolve_expression(file, value, line, imports, locals);
+                }
+            }
             Expression::MapLiteral {
                 key_type,
                 value_type,
@@ -1285,6 +1295,11 @@ impl Resolver<'_> {
             // A `List OF RES File` element carries the resource ownership-axis
             // marker; resolve the underlying type (§15.6).
             let element = element.strip_prefix("RES ").unwrap_or(element);
+            self.resolve_type_name(file, element, line, imports);
+            return;
+        }
+        if let Some(element) = type_name.strip_prefix("Set OF ") {
+            // `Set OF T` (plan-63): a single element type, no `RES`, no `TO`.
             self.resolve_type_name(file, element, line, imports);
             return;
         }

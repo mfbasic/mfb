@@ -216,6 +216,10 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
         "find" => Some("find"),
         "mid" => Some("mid"),
         "replace" => Some("replace"),
+        // Set members (plan-63-B).
+        "add" => Some("add"),
+        "remove" => Some("remove"),
+        "toList" => Some("toList"),
         _ => None,
     }
 }
@@ -336,6 +340,11 @@ pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
                 | "prepend"
                 | "removeKey"
                 | "replace"
+                // Set members (plan-63-B): pure, total — `add`/`remove` return a
+                // new set, `toList` a list; none can fail.
+                | "add"
+                | "remove"
+                | "toList"
         )
     )
 }
