@@ -100,17 +100,23 @@ if it implements V.
 
 ### Phase 1 — per-run register residency
 
-- [ ] Group contiguous v128 ops into runs (from `build_vreg_map` liveness);
-      emit one guard per run; RVV arm keeps values in `v`-registers, `vse64`ing
-      only live-out values to slots at the run boundary; one `vsetivli` per run.
-- [ ] Tests: a selection unit test that a multi-op run emits a single guard and
-      no per-op slot round-trip on the RVV arm; live-out values are spilled at
-      the boundary.
+- [x] Group consecutive RVV-lowerable v128 ops into runs (in `select_riscv64`);
+      emit one guard + one `vsetivli` per run; the RVV arm keeps values in
+      `v`-registers across the run via `drop_redundant_reloads` (a value produced
+      mid-run is read from its register, not reloaded from its slot). Stores are
+      kept per-op — a conservative choice that cannot miss a live-out spill
+      (Corrections D1).
+- [x] Tests: a selection unit test (`per_run_single_guard_and_resident_chain`)
+      that a multi-op run emits one guard + one `vsetivli` and elides the mid-run
+      value's reload (read from register).
 
 Acceptance: same binary, both cpu profiles, still bit-identical to AArch64 for
-the math/vector programs; RVV arm shows one guard + register-resident chain per
-run (not per-op memory traffic).
-Commit: —
+the math programs; RVV arm shows one guard + register-resident chain per run (not
+per-op memory traffic). **MET** — `math::sin` and `exp/log/sqrt/pow` bit-identical
+across v=true / v=false / macos-aarch64; the sin kernel dropped from 420 per-op
+guards to 16 per-run guards, `vsetivli` 140→8, reloads elided. 3284 unit tests
+pass; artifact-gate 0 non-riscv64 diffs; 3 v128 riscv64 goldens regenerated.
+Commit: <D1>
 
 ### Phase 2 — two-profile value parity + ULP
 
@@ -160,6 +166,20 @@ Commit: —
 - **QEMU vlen** — recommend a `vlen=128` run (the minimum guaranteed V width,
   exercising the 2×f64 assumption) plus optionally a larger-vlen run to confirm
   `vl=2` masking is VLEN-independent. (§3)
+
+## Corrections
+
+- **D1 — per-run residency via a reload-eliding peephole, stores kept.** The plan
+  said "`vse64` only the run's live-out values at the boundary". Instead the RVV
+  arm keeps *reads* register-resident (`drop_redundant_reloads` drops a
+  `vle64 vX,(slot)` when `vX` provably already holds that slot — each value owns
+  its slot+register exclusively across a run, so this is safe) and keeps every
+  store. That eliminates the dominant traffic (2–3 operand reloads per op) and the
+  per-op guard/`vsetivli`, while sidestepping the plan's one real hazard — a
+  missed live-out spill — entirely: since every value's final store is kept, the
+  slots match the scalar arm at every boundary by construction, not by liveness
+  analysis. Live-out-only spilling remains a further optimization if profiling
+  ever calls for it. Proven bit-identical across both profiles (Phase 1 MET).
 
 ## Summary
 

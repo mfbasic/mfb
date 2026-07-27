@@ -394,6 +394,9 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     // site a unique pair of arm labels.
     let v128_vregs = super::v128::build_vreg_map(instructions);
     let mut v128_seq = 0usize;
+    // plan-32-D: the currently-accumulating maximal run of consecutive
+    // RVV-lowerable v128 ops (flushed as one dual-path dispatch).
+    let mut v128_run: Vec<(CodeOp, Vec<(&'static str, String)>)> = Vec::new();
     // Slots are recycled across non-overlapping live ranges, so the region size
     // is the peak concurrent slot count (highest index + 1), not the number of
     // distinct values.
@@ -411,6 +414,42 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
     // next compare, a call, or a label).
     let mut pending: Option<FlagRhs> = None; // lhs is always GP; a register rhs is in the snapshot word
     for instruction in instructions {
+        // plan-32-D: accumulate a maximal run of consecutive RVV-lowerable v128
+        // ops into one dual-path dispatch. Any other instruction — or a v128 op
+        // that isn't vector-lowered / a function that overflowed the vreg pool —
+        // first flushes the pending run so the two arms reconcile at the slots.
+        let v128_here = instruction
+            .op
+            .to_code()
+            .filter(|c| super::v128::is_v128(*c));
+        if let Some(code_op) = v128_here {
+            if v128_vregs.is_some() && super::v128::rvv_lowerable(code_op, &instruction.fields) {
+                v128_run.push((code_op, instruction.fields.clone()));
+                continue;
+            }
+        }
+        if !v128_run.is_empty() {
+            if let Some(vregs) = v128_vregs.as_ref() {
+                out.extend(super::v128::lower_v128_run(
+                    &v128_run,
+                    &v128_slots,
+                    vregs,
+                    v128_seq,
+                ));
+                v128_seq += 1;
+            }
+            v128_run.clear();
+        }
+        // A v128 op the run rejected (deferred op, or vreg-pool overflow):
+        // scalarize it on its own (correctness-preserving; still bit-identical).
+        if let Some(code_op) = v128_here {
+            out.extend(super::v128::scalarize_v128(
+                code_op,
+                &instruction.fields,
+                &v128_slots,
+            ));
+            continue;
+        }
         // Bare (non-fused) integer compare: save the left operand into the flag
         // register `gp`. RISC-V has no flags, so the comparison itself emits
         // nothing yet — the following standalone branch reconstructs it.
@@ -579,21 +618,6 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
             out.extend(expand_fused(instruction.op, setter_op, &instruction.fields));
             continue;
         }
-        // v128 SIMD ops scalarize to scalar `f64`/`i64` memory-slot ops (plan-99
-        // §6): RV64GC has no 128-bit vector file.
-        if let Some(code_op) = instruction.op.to_code() {
-            if super::v128::is_v128(code_op) {
-                out.extend(super::v128::lower_v128(
-                    code_op,
-                    &instruction.fields,
-                    &v128_slots,
-                    v128_vregs.as_ref(),
-                    v128_seq,
-                ));
-                v128_seq += 1;
-                continue;
-            }
-        }
         // Non-fused MIR ops map 1:1 to a CodeOp via `to_code` (applying the
         // neutral→concrete renames, e.g. `call`→`bl`, `mulhi_u`→`umulh`); the
         // rv64 encoder realizes each CodeOp as RISC-V bytes.
@@ -604,6 +628,17 @@ pub(crate) fn select_riscv64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 .expect("non-fused MIR op maps to a single CodeOp"),
             fields: instruction.fields.clone(),
         });
+    }
+    // plan-32-D: flush a v128 run that ends the function (no trailing non-v128 op).
+    if !v128_run.is_empty() {
+        if let Some(vregs) = v128_vregs.as_ref() {
+            out.extend(super::v128::lower_v128_run(
+                &v128_run,
+                &v128_slots,
+                vregs,
+                v128_seq,
+            ));
+        }
     }
     // Realize the neutral arena base as the pinned `s11`.
     for instruction in &mut out {

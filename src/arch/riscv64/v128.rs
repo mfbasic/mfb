@@ -836,23 +836,9 @@ fn rvv_arm(
     vregs: &HashMap<String, u8>,
 ) -> Option<Vec<CodeInstruction>> {
     use CodeOp::*;
+    // The caller emits the shared prologue (slot base into `t2`, then `vsetivli`)
+    // once per run; this returns just this op's loads + compute + stores.
     let mut out = Vec::new();
-    // The slot base (same region as the scalar arm), then vl=2, e64, m1, ta, ma.
-    out.push(ci(
-        "add_imm",
-        &[
-            ("dst", T2),
-            ("src", crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER),
-            (
-                "imm",
-                &crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string(),
-            ),
-        ],
-    ));
-    out.push(ci(
-        "rv.vop",
-        &[("vop", "vsetivli"), ("dst", "zero"), ("avl", "2")],
-    ));
 
     let vname = |value: &str| -> String {
         format!(
@@ -1185,25 +1171,126 @@ fn lanes_from_mask(out: &mut Vec<CodeInstruction>, vd: &str) {
     ));
 }
 
-/// plan-32-C: lower one `v128` op to the runtime dual path — a guard on
-/// `_mfb_rt_has_rvv` choosing the native-RVV arm ([`rvv_arm`]) or the scalar arm
-/// ([`scalarize_v128`]), which reconcile at the shared slot region. Falls back to
-/// scalar-only (no guard) when the function overflowed the vector-register pool
-/// (`vregs` is `None`) or this op is not yet vector-lowered. `seq` makes the two
-/// arm labels unique within the function.
-pub(crate) fn lower_v128(
-    op: CodeOp,
-    fields: &[(&'static str, String)],
+/// The shared RVV-arm prologue: the per-thread slot base into `t2`, then
+/// `vsetivli x0, 2, e64, m1, ta, ma`. Emitted once per run (plan-32-D).
+fn rvv_prologue(out: &mut Vec<CodeInstruction>) {
+    out.push(ci(
+        "add_imm",
+        &[
+            ("dst", T2),
+            ("src", crate::arch::riscv64::regmodel::ARENA_BASE_REGISTER),
+            (
+                "imm",
+                &crate::target::shared::code::ARENA_V128_SLOTS_OFFSET.to_string(),
+            ),
+        ],
+    ));
+    out.push(ci(
+        "rv.vop",
+        &[("vop", "vsetivli"), ("dst", "zero"), ("avl", "2")],
+    ));
+}
+
+/// Whether `op` (with these `fields`) is realized on the native-RVV arm. A quick
+/// predicate mirroring [`rvv_arm`]'s coverage, so the run builder can decide
+/// membership without emitting; ops it rejects always scalarize.
+pub(crate) fn rvv_lowerable(op: CodeOp, fields: &[(&'static str, String)]) -> bool {
+    use CodeOp::*;
+    match op {
+        FAddV | FSubV | FMulV | FDivV | FMlaV | FMlsV | FAbsV | FNegV | FSqrtV | FCvtzsV
+        | ScvtfV | AddV | SubV | AndV | OrrV | EorV | NegV | DupVFromX | UmovXFromV | LdrQ
+        | StrQ | FMinV | FMaxV | FCmGtV | FCmGeV | FCmEqV | FCmGtZeroV | FCmGeZeroV
+        | FCmEqZeroV | FCmLtZeroV | FCmLeZeroV | CmGtV | CmGeV | CmEqV | BslV | BitV => true,
+        // Immediate lane shifts only when the `.vi` uimm5 can encode the amount.
+        ShlV | SshrV | UshrV => matches!(f(fields, "shift").parse::<u8>(), Ok(n) if n < 32),
+        _ => false,
+    }
+}
+
+/// plan-32-D: within one RVV-arm body, drop a reload of a slot into a register
+/// that already holds that slot's value. Each `v128` value owns its slot and its
+/// register exclusively across a run (disjoint live ranges never share either),
+/// so once a register has been loaded from — or stored to — its slot, a later
+/// `add_imm t0,t2,off; vle64 vX,(t0)` for the *same* register+offset is redundant
+/// until `vX` is overwritten by a compute. This is the register-residency that
+/// turns a per-op memory round-trip into a resident chain; stores are kept (a
+/// conservative choice that cannot miss a live-out spill).
+fn drop_redundant_reloads(body: Vec<CodeInstruction>) -> Vec<CodeInstruction> {
+    // reg → the slot offset it currently, provably, holds.
+    let mut holds: HashMap<String, String> = HashMap::new();
+    let mut keep = vec![true; body.len()];
+    let mut i = 0;
+    while i < body.len() {
+        let inst = &body[i];
+        // A slot access is `add_imm t0,t2,off` immediately followed by a
+        // vle64/vse64 through t0.
+        let is_slot_addr = inst.op.mnemonic() == "add_imm"
+            && inst.get("dst") == Some(T0)
+            && inst.get("src") == Some(T2);
+        if is_slot_addr && i + 1 < body.len() {
+            let off = inst.get("imm").unwrap_or_default().to_string();
+            let next = &body[i + 1];
+            if next.op.mnemonic() == "rv.vop" && next.get("base") == Some(T0) {
+                match next.get("vop") {
+                    Some("vle64.v") => {
+                        let reg = next.get("dst").unwrap_or_default().to_string();
+                        if holds.get(&reg) == Some(&off) {
+                            // Register already holds this slot → drop the reload.
+                            keep[i] = false;
+                            keep[i + 1] = false;
+                        } else {
+                            holds.insert(reg, off);
+                        }
+                        i += 2;
+                        continue;
+                    }
+                    Some("vse64.v") => {
+                        let reg = next.get("src").unwrap_or_default().to_string();
+                        holds.insert(reg, off);
+                        i += 2;
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Any rv.vop that writes a vector register invalidates that register's
+        // known slot value (it now holds a computed result). `vmv.x.s` writes a
+        // GPR, not a vector reg, so it does not invalidate.
+        if inst.op.mnemonic() == "rv.vop" && inst.get("vop") != Some("vmv.x.s") {
+            if let Some(dst) = inst.get("dst") {
+                if dst.starts_with('v') {
+                    holds.remove(dst);
+                }
+            }
+        }
+        i += 1;
+    }
+    body.into_iter()
+        .zip(keep)
+        .filter_map(|(inst, k)| k.then_some(inst))
+        .collect()
+}
+
+/// plan-32-C/-D: lower a maximal run of consecutive native-RVV-lowerable `v128`
+/// ops to one runtime dual path — a single guard on `_mfb_rt_has_rvv`, then either
+/// the RVV arm (one `vsetivli`, register-resident chain) or the scalar arm (the
+/// unchanged per-op `scalarize_v128`), reconciled at the shared slot region.
+/// `seq` makes the two arm labels unique within the function.
+pub(crate) fn lower_v128_run(
+    run: &[(CodeOp, Vec<(&'static str, String)>)],
     slots: &HashMap<String, usize>,
-    vregs: Option<&HashMap<String, u8>>,
+    vregs: &HashMap<String, u8>,
     seq: usize,
 ) -> Vec<CodeInstruction> {
-    let Some(vregs) = vregs else {
-        return scalarize_v128(op, fields, slots);
-    };
-    let Some(rvv) = rvv_arm(op, fields, slots, vregs) else {
-        return scalarize_v128(op, fields, slots);
-    };
+    // Build the RVV arm: shared prologue + each op's body, then residency-optimize.
+    let mut rvv_body = Vec::new();
+    rvv_prologue(&mut rvv_body);
+    for (op, fields) in run {
+        rvv_body.extend(rvv_arm(*op, fields, slots, vregs).expect("run holds only lowerable ops"));
+    }
+    let rvv_body = drop_redundant_reloads(rvv_body);
+
     let scalar_label = format!("v128_scalar_{seq}");
     let done_label = format!("v128_done_{seq}");
     let mut out = load_has_rvv_flag(T0);
@@ -1212,12 +1299,33 @@ pub(crate) fn lower_v128(
         "rv.br",
         &[("lhs", T0), ("rhs", ZERO), ("cond", "eq"), ("target", &scalar_label)],
     ));
-    out.extend(rvv);
+    out.extend(rvv_body);
     out.push(ci("b", &[("target", &done_label)]));
     out.push(ci("label", &[("name", &scalar_label)]));
-    out.extend(scalarize_v128(op, fields, slots));
+    for (op, fields) in run {
+        out.extend(scalarize_v128(*op, fields, slots));
+    }
     out.push(ci("label", &[("name", &done_label)]));
     out
+}
+
+/// plan-32-C: lower a single `v128` op to the runtime dual path. Scalar-only (no
+/// guard) when the function overflowed the vector-register pool (`vregs` is
+/// `None`) or the op is not vector-lowered; otherwise a one-op run (per-op prologue
+/// preserved — byte-identical to the pre-per-run lowering).
+pub(crate) fn lower_v128(
+    op: CodeOp,
+    fields: &[(&'static str, String)],
+    slots: &HashMap<String, usize>,
+    vregs: Option<&HashMap<String, u8>>,
+    seq: usize,
+) -> Vec<CodeInstruction> {
+    match vregs {
+        Some(vregs) if rvv_lowerable(op, fields) => {
+            lower_v128_run(&[(op, fields.to_vec())], slots, vregs, seq)
+        }
+        _ => scalarize_v128(op, fields, slots),
+    }
 }
 
 #[cfg(test)]
@@ -1628,6 +1736,51 @@ mod tests {
             &vregs,
         )
         .is_none());
+    }
+
+    /// plan-32-D: a multi-op run emits ONE guard + ONE vsetivli, and keeps a
+    /// value produced mid-run resident — the second op reads the first op's
+    /// result straight from its register, with no slot reload.
+    #[test]
+    fn per_run_single_guard_and_resident_chain() {
+        // %f3 = %f0 + %f1 ; %f5 = %f3 * %f2  — %f3 is produced then consumed.
+        let run = vec![
+            (
+                CodeOp::FAddV,
+                vec![("dst", "%f3".to_string()), ("lhs", "%f0".to_string()), ("rhs", "%f1".to_string())],
+            ),
+            (
+                CodeOp::FMulV,
+                vec![("dst", "%f5".to_string()), ("lhs", "%f3".to_string()), ("rhs", "%f2".to_string())],
+            ),
+        ];
+        let slots = map(&[("%f0", 0), ("%f1", 1), ("%f2", 2), ("%f3", 3), ("%f5", 4)]);
+        let vregs: HashMap<String, u8> = [("%f0", 1u8), ("%f1", 2), ("%f2", 3), ("%f3", 4), ("%f5", 5)]
+            .iter()
+            .map(|(k, v)| (k.to_string(), *v))
+            .collect();
+
+        let out = lower_v128_run(&run, &slots, &vregs, 0);
+        // One guard, one config for the whole run.
+        assert_eq!(
+            out.iter().filter(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_0")).count(),
+            1,
+            "one guard per run"
+        );
+        assert_eq!(
+            out.iter().filter(|i| i.get("vop") == Some("vsetivli")).count(),
+            1,
+            "one vsetivli per run"
+        );
+        // Residency: %f3 lives in v4; op2 must NOT reload it (no vle64 into v4).
+        assert!(
+            !out.iter().any(|i| i.get("vop") == Some("vle64.v") && i.get("dst") == Some("v4")),
+            "the mid-run value stays resident — its reload is elided"
+        );
+        // The multiply still reads it from its register.
+        assert!(out.iter().any(|i| i.get("vop") == Some("vfmul.vv")
+            && i.get("lhs") == Some("v4")
+            && i.get("rhs") == Some("v3")));
     }
 
     #[test]
