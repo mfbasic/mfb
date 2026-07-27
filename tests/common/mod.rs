@@ -25,7 +25,7 @@ pub fn temp_project(name: &str, source: &str) -> PathBuf {
 }
 
 pub fn build_project(project: &Path) -> PathBuf {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(mfb_exe())
         .arg("build")
         .arg(project)
         .output()
@@ -47,7 +47,7 @@ pub fn build_project(project: &Path) -> PathBuf {
 /// Build `project` with `-ncode -target <target>` and return the parsed
 /// `<name>.ncode` dump as JSON.
 pub fn build_ncode(project: &Path, target: &str, name: &str) -> serde_json::Value {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(mfb_exe())
         .arg("build")
         .arg("-ncode")
         .arg("-target")
@@ -71,7 +71,7 @@ pub fn build_ncode(project: &Path, target: &str, name: &str) -> serde_json::Valu
 /// world; either is fine for a header check (they share the ELF layout).
 /// plan-46-D §4.1: the build emits into the project's `build/` directory.
 pub fn build_linux_elf(project: &Path, target: &str, name: &str) -> Vec<u8> {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(mfb_exe())
         .arg("build")
         .arg("-q")
         .arg("-target")
@@ -563,6 +563,7 @@ use std::process::Child;
 use std::sync::Once;
 
 static BUILD_REPO: Once = Once::new();
+static BUILD_RELEASE_MFB: Once = Once::new();
 
 pub struct RepoProcess {
     pub child: Child,
@@ -576,8 +577,53 @@ impl Drop for RepoProcess {
     }
 }
 
+/// The compiler binary the golden/acceptance path drives. plan-67-A: this MUST
+/// resolve a **release** build. plan-67 (B–F) injects debug-gated runtime perf
+/// tracking into every compiled program whenever the *compiler* is built with
+/// `debug_assertions` on; a debug compiler would then make every acceptance /
+/// `rt_*` program print a perf table at exit (and every `.ncode` dump gain the
+/// injected calls), turning the goldens to noise. Release has `debug_assertions`
+/// off, so the injection is inert. Pure-Rust unit tests (`src/**` `#[cfg(test)]`)
+/// never call this and stay on the default (debug) profile, so the compiler's
+/// internal `debug_assertions` invariant checks still run under `cargo test`.
+///
+/// Resolution order: an explicit `MFB_TEST_EXE` override (so CI / a golden-regen
+/// command can hand in the release binary it already built) → the `release`
+/// sibling of `CARGO_BIN_EXE_mfb` if it already exists → a nested
+/// `cargo build --release --bin mfb` performed once (mirrors `repo_exe()`'s
+/// on-demand build, bug-347). The target directory is derived from
+/// `CARGO_BIN_EXE_mfb` so a custom `CARGO_TARGET_DIR` is honored.
 pub fn mfb_exe() -> String {
-    std::env::var("CARGO_BIN_EXE_mfb").unwrap_or_else(|_| "target/debug/mfb".to_string())
+    if let Ok(exe) = std::env::var("MFB_TEST_EXE") {
+        return exe;
+    }
+    let debug =
+        std::env::var("CARGO_BIN_EXE_mfb").unwrap_or_else(|_| "target/debug/mfb".to_string());
+    let debug_path = PathBuf::from(&debug);
+    // `.../target/<profile>/mfb` → `.../target/release/mfb`.
+    let profile_dir = debug_path
+        .parent()
+        .expect("mfb binary has a parent directory");
+    let target_dir = profile_dir.parent().expect("profile dir sits under target");
+    let release = target_dir.join("release").join("mfb");
+
+    BUILD_RELEASE_MFB.call_once(|| {
+        if release.exists() {
+            return;
+        }
+        let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+        cmd.args(["build", "--release", "--bin", "mfb"])
+            .arg("--target-dir")
+            .arg(target_dir);
+        let status = cmd.status().expect("build release mfb");
+        assert!(status.success(), "release mfb build failed");
+    });
+    assert!(
+        release.exists(),
+        "release mfb missing at {}",
+        release.display()
+    );
+    release.to_string_lossy().into_owned()
 }
 
 // bug-347: `repository` is a workspace member, so `cargo test` builds `mfb-repo`

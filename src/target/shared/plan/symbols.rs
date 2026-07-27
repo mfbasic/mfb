@@ -61,6 +61,27 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             }
         }
     }
+    // plan-67-B: the perf-tracking helpers are injected by the code layer at
+    // program entry/exit (and, from plan-67-F, around arena regions), so they
+    // never appear as NIR calls the scan above would catch. Force their emitted
+    // symbols in for a debug-built macOS entry module — the same gate as the
+    // entry/exit injection and the perf data objects — so their bodies exist for
+    // the injected `bl`s to resolve. Release / non-macOS / non-entry plans are
+    // untouched, staying byte-identical to pre-plan-67 HEAD. `perf.start` /
+    // `perf.end` are added by plan-67-C / plan-67-D when their injection lands.
+    if crate::target::shared::code::perf_injection_enabled()
+        && module.entry.is_some()
+        && module.target == "macos-aarch64"
+    {
+        for call in ["perf.init", "perf.start", "perf.end", "perf.done"] {
+            if let Some(spec) = runtime::spec_for_call(call) {
+                push_unique(
+                    &mut symbols,
+                    runtime::symbol_for_call(spec.helper, spec.call),
+                );
+            }
+        }
+    }
     symbols
 }
 
@@ -155,6 +176,20 @@ pub(super) fn platform_imports(
             for import in platform_imports_for_runtime_call(platform, call) {
                 push_platform_import(&mut imports, import);
             }
+        }
+    }
+    // plan-67-C: the injected `perf_start` reads the monotonic clock inline via
+    // `_clock_gettime` (`perf.end`, plan-67-D, reuses the same import). These perf
+    // calls are code-injected, so they are invisible to the function-body scan
+    // above; force the import under the same debug-macOS-entry gate as the perf
+    // symbols and injection. `perf_init`/`perf_done` need no libc import (their
+    // mmap / write ride syscalls).
+    if crate::target::shared::code::perf_injection_enabled()
+        && module.entry.is_some()
+        && module.target == "macos-aarch64"
+    {
+        for import in platform_imports_for_runtime_call(platform, "perf.start") {
+            push_platform_import(&mut imports, import);
         }
     }
     // The `os::` env/pwd helpers serialize their libc-global access behind a

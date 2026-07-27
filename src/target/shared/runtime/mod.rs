@@ -12,6 +12,14 @@ pub enum RuntimeHelper {
     Math,
     Net,
     Os,
+    // plan-67-B: internal runtime performance tracking. Unlike every other family
+    // it is NOT reachable from MFB source (there is no `perf::` package); its four
+    // helpers are invoked only by compiler-injected calls in a debug-built,
+    // macOS-entry program, so its calls are catalogued as code-layer-only (see
+    // `catalog::tests::CODE_LAYER_ONLY_CALLS`) and forced into the emitted symbol
+    // set in `plan::symbols::runtime_symbols` rather than routed by
+    // `helper_for_call`/`required_helpers`.
+    Perf,
     Term,
     Thread,
     Tls,
@@ -30,6 +38,7 @@ impl RuntimeHelper {
             RuntimeHelper::Math => "math",
             RuntimeHelper::Net => "net",
             RuntimeHelper::Os => "os",
+            RuntimeHelper::Perf => "perf",
             RuntimeHelper::Term => "term",
             RuntimeHelper::Thread => "thread",
             RuntimeHelper::Tls => "tls",
@@ -90,6 +99,7 @@ mod fs_specs;
 mod io_specs;
 mod net_specs;
 mod os_specs;
+mod perf_specs;
 mod term_specs;
 mod thread_specs;
 mod tls_specs;
@@ -106,6 +116,7 @@ use fs_specs::*;
 use io_specs::*;
 use net_specs::*;
 use os_specs::*;
+use perf_specs::*;
 use term_specs::*;
 use thread_specs::*;
 use tls_specs::*;

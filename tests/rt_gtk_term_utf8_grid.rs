@@ -16,6 +16,8 @@
 //! actually painting one column is NOT covered by an automated test; it needs a
 //! manual `-app` run on a GTK desktop.
 
+mod common;
+
 use std::fs;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -45,7 +47,7 @@ fn build_ncode(name: &str) -> serde_json::Value {
     .expect("write project.json");
     fs::write(root.join("src/main.mfb"), TERM_SOURCE).expect("write source");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg("-app")
         .args(["-target", "linux-x86_64"])

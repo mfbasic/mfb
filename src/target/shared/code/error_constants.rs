@@ -325,6 +325,39 @@ pub(crate) const SIGNAL_HANDLER_SYMBOL: &str = "_mfb_rt_signal_handler";
 /// they are never freed by us anyway (the entry only ever frees the main arena).
 pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
 
+/// plan-67-B: one writable 8-byte global holding the base pointer of the runtime
+/// perf-tracking region (the `emit_arena_map`-mmap'd system memory that holds the
+/// name-keyed timing tables). Mirrors `MAIN_ARENA_GLOBAL_SYMBOL`: a zeroed
+/// `kind:"raw"` object emitted only for a **debug macOS entry** module (gated by
+/// `perf_injection_enabled()`), so release and non-macOS plans never see it.
+/// `perf_init` stores the region base here; every other perf helper loads it and
+/// treats a 0 base as "perf inert" (mmap failed / release build).
+pub(crate) const PERF_STATE_SYMBOL: &str = "_mfb_rt_perf_state";
+
+/// plan-67-B: the `mfb.string.v1` object holding the perf-table header line
+/// (`name count avg median min max sum`), written to stderr by `perf_done`.
+/// Emitted under the same debug-macOS-entry gate as `PERF_STATE_SYMBOL`.
+pub(crate) const PERF_HEADER_SYMBOL: &str = "_mfb_rt_perf_header";
+
+/// plan-67-C: the `mfb.string.v1` name object for the whole-program span. The
+/// entry loads its address as `perf_start`'s `namePtr`; because every injection of
+/// a given name references the one symbol, table B can key on pointer identity.
+/// (plan-67-F emits one such object per instrumented arena region.)
+pub(crate) const PERF_NAME_PROGRAM_SYMBOL: &str = "_mfb_rt_perf_name_program";
+
+/// plan-67-D: pseudo-name objects for the two diagnostic counters `perf_done`
+/// prints (only when non-zero, so normal output stays clean): `mismatch` counts a
+/// `perf_end` with no open `perf_start`, `overflow` counts samples dropped because
+/// the 16 MiB region filled.
+pub(crate) const PERF_NAME_MISMATCH_SYMBOL: &str = "_mfb_rt_perf_name_mismatch";
+pub(crate) const PERF_NAME_OVERFLOW_SYMBOL: &str = "_mfb_rt_perf_name_overflow";
+
+/// plan-67-F: name objects for the instrumented arena hot-path regions. Each
+/// arena helper's body is bracketed with `perf_start`/`perf_end` on the debug
+/// macOS backend, so the exit table shows a timing row per region.
+pub(crate) const PERF_NAME_MFB_ALLOC_SYMBOL: &str = "_mfb_rt_perf_name_mfb_alloc";
+pub(crate) const PERF_NAME_MFB_FREE_SYMBOL: &str = "_mfb_rt_perf_name_mfb_free";
+
 // ===========================================================================
 // term:: TUI state slots (reserved in the program-entry frame)
 // ===========================================================================

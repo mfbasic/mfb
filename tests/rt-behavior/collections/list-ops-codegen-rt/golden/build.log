@@ -13,4 +13,8 @@ $ tests/rt-behavior/collections/list-ops-codegen-rt/build/list_ops_codegen_rt.ou
 TRUE
 8,3,1,2,7,
 6
+name count avg median min max sum
+mfb_alloc 19 210 0 0 3000 4000
+mfb_free 10 0 0 0 0 0
+program 1 79000 79000 79000 79000 79000
 [exit 0]

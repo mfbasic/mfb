@@ -197,6 +197,13 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_clock_gettime".to_string(),
                 required_by: required_by.clone(),
             }],
+            // plan-67-C: perf_start/perf_end read the monotonic clock inline
+            // (arena-free) via the same libc entry the datetime helper uses.
+            "perf.start" | "perf.end" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_clock_gettime".to_string(),
+                required_by: required_by.clone(),
+            }],
             "datetime.localOffset" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_localtime_r".to_string(),

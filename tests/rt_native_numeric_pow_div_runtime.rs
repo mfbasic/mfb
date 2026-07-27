@@ -24,7 +24,7 @@ use std::process::{Command, ExitStatus};
 use std::time::Duration;
 
 fn build_project(project: &Path) -> PathBuf {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg(project)
         .output()

@@ -28,7 +28,7 @@ END FUNC
 "#;
 
 fn build_with(project: &std::path::Path, flags: &[&str]) -> Output {
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_mfb"));
+    let mut cmd = Command::new(common::mfb_exe());
     cmd.arg("build");
     for flag in flags {
         cmd.arg(flag);
@@ -149,7 +149,7 @@ fn verbose_build_prints_phase_lines() {
 fn quiet_and_verbose_conflict_is_rejected() {
     let project = temp_project("verbosity_conflict", SOURCE);
     for args in [&["-q", "-v"][..], &["-v", "-q"][..]] {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_mfb"));
+        let mut cmd = Command::new(common::mfb_exe());
         cmd.arg("build");
         for a in args {
             cmd.arg(a);

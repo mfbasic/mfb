@@ -14,4 +14,8 @@ ii hit=200 miss=-1
 istr hit=ten miss=absent
 mi hit=250 miss=-1
 ms hit=low miss=absent
+name count avg median min max sum
+mfb_alloc 76 184 0 0 7000 14000
+mfb_free 46 65 0 0 1000 3000
+program 1 381000 381000 381000 381000 381000
 [exit 0]

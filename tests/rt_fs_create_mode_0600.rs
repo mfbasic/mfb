@@ -11,6 +11,8 @@
 
 #![cfg(unix)]
 
+mod common;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -66,7 +68,7 @@ fn file_creating_builtins_create_owner_only_0600() {
     fs::create_dir_all(&out_dir).expect("create output dir");
     let project = temp_project("bug184_mode", &out_dir);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg("-q")
         .arg(&project)

@@ -5,7 +5,7 @@
   "buildMode": "macos-app",
   "project": "macos_app_mode_io",
   "entrySymbol": "_mfb_fn_main",
-  "runtimeSymbols": ["_mfb_rt_io_io_print", "_mfb_rt_io_io_write", "_mfb_rt_io_io_printError", "_mfb_rt_io_io_writeError", "_mfb_rt_io_io_flush", "_mfb_rt_io_io_input", "_mfb_rt_io_io_readLine", "_mfb_rt_io_io_readChar", "_mfb_rt_io_io_readByte", "_mfb_rt_io_io_pollInput", "_mfb_rt_io_io_isInputTerminal", "_mfb_rt_io_io_isOutputTerminal", "_mfb_rt_io_io_isErrorTerminal"],
+  "runtimeSymbols": ["_mfb_rt_io_io_print", "_mfb_rt_io_io_write", "_mfb_rt_io_io_printError", "_mfb_rt_io_io_writeError", "_mfb_rt_io_io_flush", "_mfb_rt_io_io_input", "_mfb_rt_io_io_readLine", "_mfb_rt_io_io_readChar", "_mfb_rt_io_io_readByte", "_mfb_rt_io_io_pollInput", "_mfb_rt_io_io_isInputTerminal", "_mfb_rt_io_io_isOutputTerminal", "_mfb_rt_io_io_isErrorTerminal", "_mfb_rt_perf_perf_init", "_mfb_rt_perf_perf_start", "_mfb_rt_perf_perf_end", "_mfb_rt_perf_perf_done"],
   "externalSymbols": [],
   "platformImports": [
   { "library": "libSystem", "symbol": "_exit", "requiredBy": "_main" },
@@ -82,6 +82,7 @@
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isInputTerminal" },
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isOutputTerminal" },
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isErrorTerminal" },
+  { "library": "libSystem", "symbol": "_clock_gettime", "requiredBy": "_mfb_rt_perf_perf_start" },
   { "library": "libobjc", "symbol": "_objc_msgSend", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_msgSendSuper", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },

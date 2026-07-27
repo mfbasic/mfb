@@ -30,7 +30,7 @@ const TARGET: &str = "linux-x86_64";
 
 fn assert_builds(name: &str, source: &str) {
     let project = temp_project(name, source);
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .args(["-target", TARGET])
         .arg(&project)

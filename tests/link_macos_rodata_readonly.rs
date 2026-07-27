@@ -34,7 +34,7 @@ fn temp_project(name: &str) -> PathBuf {
 }
 
 fn build_macho(project: &Path, name: &str) -> Vec<u8> {
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .arg("-q")
         .arg("-target")

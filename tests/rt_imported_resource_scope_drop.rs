@@ -29,6 +29,8 @@
 //! ships, so these are hermetic and need no package build, install, or
 //! signature. No `libsqlite3` is loaded — nothing is executed.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -95,7 +97,7 @@ impl Drop for Build {
 /// asserting success — one of these tests wants the build to FAIL.
 fn build(name: &str, source: &str) -> Build {
     let project = temp_project(name, source);
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .args(["-target", TARGET])
         .arg("--ncode")

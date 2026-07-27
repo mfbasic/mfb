@@ -347,6 +347,51 @@ pub(crate) fn external_package_function_types(
     external_package_function_types_from_files_lossy(&packages)
 }
 
+/// bug-390: reject a dependency set whose intermediary packages disagree on the
+/// ABI of a shared foreign type. Each package records, per re-exported foreign
+/// type, the owning package's ABI hash it was built against. If two importers
+/// carry different hashes for the same `owner::type` — or an importer's hash
+/// disagrees with the owner the consumer actually resolves — passing a value of
+/// that type between them would be a silent type confusion, so the build fails.
+pub(crate) fn verify_foreign_type_abi_consistency(packages: &[PathBuf]) -> Result<(), String> {
+    let mut seen: HashMap<(String, String), [u8; 32]> = HashMap::new();
+    for package in packages {
+        let owner_dir = package.parent();
+        for fref in binary_repr::read_package_foreign_type_refs(package)? {
+            let key = (fref.owner.clone(), fref.name.clone());
+            match seen.get(&key) {
+                Some(prev) if *prev != fref.abi_hash => {
+                    return Err(format!(
+                        "imported packages disagree on the ABI of type `{}` from `{}`: they were built against incompatible versions of `{}`",
+                        fref.name, fref.owner, fref.owner
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    seen.insert(key, fref.abi_hash);
+                }
+            }
+            // When the owner is installed alongside, its current ABI must match
+            // what the importer was built against.
+            if let Some(dir) = owner_dir {
+                let owner_path = dir.join(format!("{}.mfp", fref.owner));
+                if owner_path.is_file() {
+                    let owner_hashes = binary_repr::read_package_type_export_hashes(&owner_path)?;
+                    if let Some(owner_hash) = owner_hashes.get(&fref.name) {
+                        if *owner_hash != fref.abi_hash {
+                            return Err(format!(
+                                "type `{}` re-exported by an imported package was built against an ABI-incompatible version of `{}`",
+                                fref.name, fref.owner
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn external_package_function_types_from_files(
     packages: &[PathBuf],
 ) -> Result<
@@ -356,6 +401,7 @@ pub(crate) fn external_package_function_types_from_files(
     ),
     String,
 > {
+    verify_foreign_type_abi_consistency(packages)?;
     let mut functions = HashMap::new();
     let mut params = HashMap::new();
     for package in packages {

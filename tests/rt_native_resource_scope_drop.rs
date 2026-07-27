@@ -19,6 +19,8 @@
 //! codegen), so these run on any host via a cross-target build. No `libsqlite3`
 //! is loaded — nothing is executed.
 
+mod common;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -76,7 +78,7 @@ fn temp_project(name: &str, source: &str) -> PathBuf {
 /// Build `source` with `--ncode` and return the emitted code plan as text.
 fn ncode(name: &str, source: &str) -> String {
     let project = temp_project(name, source);
-    let output = Command::new(env!("CARGO_BIN_EXE_mfb"))
+    let output = Command::new(common::mfb_exe())
         .arg("build")
         .args(["-target", TARGET])
         .arg("--ncode")

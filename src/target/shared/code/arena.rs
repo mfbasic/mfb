@@ -1,5 +1,33 @@
 use super::*;
 
+/// plan-67-F: is arena hot-path perf instrumentation active? Debug-built compiler
+/// (`perf_injection_enabled()`) on the macOS backend only, so release and
+/// Linux/Windows arena helpers stay byte-identical to pre-plan-67 HEAD.
+fn perf_arena_enabled(platform: &dyn CodegenPlatform) -> bool {
+    perf_injection_enabled() && platform.family() == PlatformFamily::MacOS
+}
+
+/// Emit `perf_start(name)` / `perf_end(name)` at an arena-region boundary: load the
+/// region's name object into the arg register and `bl` the perf helper. The
+/// register allocator spills any live vreg across the `bl` (perf clobbers x0–x17),
+/// and perf is arena-free by construction, so bracketing arena code cannot recurse
+/// (perf → arena → perf). `from` is the emitting helper's symbol.
+fn emit_perf_arena_call(
+    call: &str,
+    from: &str,
+    name_symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) {
+    let sym = crate::target::shared::runtime::symbol_for_call(
+        crate::target::shared::runtime::RuntimeHelper::Perf,
+        call,
+    );
+    push_symbol_address(from, name_symbol, abi::ARG[0], instructions, relocations);
+    instructions.push(abi::branch_link(&sym));
+    relocations.push(internal_branch(from, &sym));
+}
+
 pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2): the body names virtual registers and the
     // shared allocator places them per-ISA; `finalize_vreg_helper` runs the
@@ -49,6 +77,15 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     let lg_cur = vregs.next();
     let lg_next = vregs.next();
     let lg_msize = vregs.next();
+    let mut relocations = vec![internal_branch(
+        ARENA_ALLOC_SYMBOL,
+        ARENA_FILL_RANDOM_SYMBOL,
+    )];
+    // plan-64 A1: the flush-before-grow path calls arena_flush_coalesce.
+    relocations.push(internal_branch(
+        ARENA_ALLOC_SYMBOL,
+        ARENA_FLUSH_COALESCE_SYMBOL,
+    ));
     let mut instructions = vec![
         abi::label("entry"),
         abi::compare_immediate(abi::ARG[1], "0"),
@@ -67,6 +104,19 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::label("arena_alloc_align_ready"),
         // normalized size = round_up(max(size, 1), 16)
         abi::move_register(&size, abi::ARG[0]),
+    ];
+    // plan-67-F: open the `mfb_alloc` span now that size/eff_align are captured in
+    // vregs (spilled across the perf `bl`); the body below re-derives ARG[0]/ARG[1].
+    if perf_arena_enabled(platform) {
+        emit_perf_arena_call(
+            "perf.start",
+            ARENA_ALLOC_SYMBOL,
+            PERF_NAME_MFB_ALLOC_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
+    instructions.extend([
         // Reject a raw request within ARENA_MIN_CHUNK of u64::MAX before the
         // +15 granule round-up (allocator-02, audit-1 MEM-07): without this
         // bound the round-up wraps and the allocation succeeds *small*, turning
@@ -241,7 +291,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::compare_immediate(&cur, "0"),
         abi::branch_eq("arena_alloc_grow"),
         abi::load_u64(&cur_size, &cur, 8), // cur_size
-    ];
+    ]);
     let align_mask = vregs.next();
     let align_notmask = vregs.next();
     instructions.extend([
@@ -499,12 +549,26 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_immediate(abi::return_register(), "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate(abi::RET[1], "Integer", "0"),
         abi::label("arena_alloc_ret"),
-        abi::return_(),
     ]);
-    let relocations = vec![
-        internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FILL_RANDOM_SYMBOL),
-        internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FLUSH_COALESCE_SYMBOL),
-    ];
+    // plan-67-F: close the `mfb_alloc` span at the single exit. The result (tag in
+    // the return register, pointer in RET[1]) is live and the perf `bl` clobbers
+    // both, so save them into vregs across the call and restore before returning.
+    if perf_arena_enabled(platform) {
+        let saved_tag = vregs.next();
+        let saved_ptr = vregs.next();
+        instructions.push(abi::move_register(&saved_tag, abi::return_register()));
+        instructions.push(abi::move_register(&saved_ptr, abi::RET[1]));
+        emit_perf_arena_call(
+            "perf.end",
+            ARENA_ALLOC_SYMBOL,
+            PERF_NAME_MFB_ALLOC_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::move_register(abi::return_register(), &saved_tag));
+        instructions.push(abi::move_register(abi::RET[1], &saved_ptr));
+    }
+    instructions.push(abi::return_());
     Ok(finalize_vreg_helper(
         "runtime.arena_alloc",
         ARENA_ALLOC_SYMBOL,
@@ -967,7 +1031,7 @@ pub(super) fn lower_arena_flush_coalesce() -> CodeFunction {
 /// an idempotent no-op inside the insert — must never scrub a live node's
 /// `{next, size}` words). Never unmaps. Vreg-allocated — treat all caller-saved
 /// integer registers as clobbered.
-pub(super) fn lower_arena_free() -> CodeFunction {
+pub(super) fn lower_arena_free(platform: &dyn CodegenPlatform) -> CodeFunction {
     let mut vregs = Vregs::new();
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
     // ptr/size are live across both helper calls; each tramples every integer
@@ -979,7 +1043,8 @@ pub(super) fn lower_arena_free() -> CodeFunction {
     let bin_class = vregs.next();
     let bin_slot = vregs.next();
     let bin_head = vregs.next();
-    let instructions = vec![
+    let mut relocations = vec![internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL)];
+    let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&ptr, abi::ARG[0]),
         // normalize size = round_up(max(size, 1), 16) — x1 is the size arg.
@@ -990,6 +1055,19 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         abi::add_immediate(abi::ARG[1], abi::ARG[1], (ARENA_MIN_CHUNK - 1) as usize),
         abi::move_immediate(&mask, "Integer", &not_15),
         abi::and_registers(&size, abi::ARG[1], &mask),
+    ];
+    // plan-67-F: open the `mfb_free` span now that ptr/size are captured in vregs
+    // (spilled across the perf `bl`); the body below re-derives ARG[0]/ARG[1].
+    if perf_arena_enabled(platform) {
+        emit_perf_arena_call(
+            "perf.start",
+            ARENA_FREE_SYMBOL,
+            PERF_NAME_MFB_FREE_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
+    instructions.extend([
         // Quick-bin park (allocator-01): a chunk ≤ ARENA_QUICK_BIN_MAX pushes
         // onto its exact-size bin head in O(1) — no list walk. The bin slot for
         // class `size/16 - 1` sits at `state + BASE + (size/16 - 1)*8`, i.e.
@@ -1044,14 +1122,25 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         abi::subtract_immediate(abi::ARG[1], &size, ARENA_MIN_CHUNK as usize),
         abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
         abi::label("arena_free_done"),
-        abi::return_(),
-    ];
+    ]);
+    // plan-67-F: close the `mfb_free` span at the single exit. The helper returns
+    // Nothing, so there is no result register to preserve across the perf `bl`.
+    if perf_arena_enabled(platform) {
+        emit_perf_arena_call(
+            "perf.end",
+            ARENA_FREE_SYMBOL,
+            PERF_NAME_MFB_FREE_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
+    }
+    instructions.push(abi::return_());
     finalize_vreg_helper(
         "runtime.arena_free",
         ARENA_FREE_SYMBOL,
         "Nothing",
         instructions,
-        vec![internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL)],
+        relocations,
     )
 }
 
