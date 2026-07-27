@@ -832,7 +832,7 @@ So ~3 allocs+3 memcpys per failure, 1 alloc per success — ~100k+ allocs/rep be
   the arena quadratic (**A**), not I's floor; I2 already removes ~2 allocs/error-iteration, and
   the residual climb is A's to flatten.
 - Gate: dispatch trap checksum + inline-TRAP tests (`tests/`) + `scripts/artifact-gate.sh`.
-  Commit: `<pending>`.
+  Commit: `599162d6a`.
 
 ### Sub-plan J — vector Integer/Fixed op-inlining
 
