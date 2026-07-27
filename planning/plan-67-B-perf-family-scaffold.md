@@ -181,16 +181,20 @@ correct home and is process-wide.
 
 ### Phase 1 — Family wiring (compiles, release byte-identical)
 
-- [ ] Add `RuntimeHelper::Perf` (`runtime/mod.rs:3`, `name()` `:21`), the
-      `helper_for_call` `perf::` arm (`:113`), and `perf_specs.rs` with four specs
-      (mirror `datetime_specs.rs:9-25`): `init`/`done` zero-arg, `start`/`end` one
-      String arg. Register the module and list all four in `SUPPORTED_HELPER_SPECS`
-      (`catalog.rs:9`); add `perf` to the `families` list (`catalog.rs:269`).
-- [ ] Add `perf_injection_enabled()` and force-require the Perf family in
-      `required_helpers` (`usage.rs:109`) under it; keep the declared==used parity
-      (`usage.rs:154`) balanced.
-- [ ] Tests: `catalog_is_consistent` (`catalog.rs:203`) passes with the new
-      family.
+- [x] Added `RuntimeHelper::Perf` (`runtime/mod.rs`) + `name()`→"perf", and
+      `perf_specs.rs` with four specs (`perf.init`/`perf.done`/`perf.start`/
+      `perf.end`, all `returns:"Nothing"`). Listed all four in
+      `SUPPORTED_HELPER_SPECS` and added `Perf` to the `families` loop + bumped the
+      count 11→12 (`catalog.rs`). **No `helper_for_call` `perf::` arm** — see
+      Corrections; instead the four calls are in `CODE_LAYER_ONLY_CALLS` (accurate:
+      injected, never NIR-level), so `catalog_is_consistent` expects `None`.
+- [x] Added `perf_injection_enabled() -> bool { cfg!(debug_assertions) }`
+      (`code/mod.rs`). **Did NOT touch `required_helpers`/`validate`** — see
+      Corrections: emission is driven by `plan::symbols::runtime_symbols` (the
+      single source the code layer clones), not the declared-helper set, so the
+      declared-vs-used parity never involves Perf and stays balanced untouched.
+- [x] `catalog_is_consistent` passes (`cargo test -p mfb --bins
+      catalog_is_consistent` → `1 passed`).
 
 Acceptance: `cargo test` green; `cargo build --release && scripts/artifact-gate.sh
 target/release/mfb` → `diffs=0` (release unaffected).
@@ -198,15 +202,25 @@ Commit: —
 
 ### Phase 2 — Region global + `perf_init`/`perf_done` bodies
 
-- [ ] Add `PERF_STATE_SYMBOL` (`error_constants.rs`) and emit the zeroed `kind:"raw"`
-      global under `perf_injection_enabled()` (`mod.rs:727-735` neighborhood).
-- [ ] Add `src/target/shared/code/perf.rs` with `lower_perf_helper`; implement
-      `perf_init` (region mmap + zero + store base; failure → base 0) and
-      `perf_done` (load base; if 0 return; else write header + munmap) **for the
-      macOS backend**, and return-only no-op bodies for the Linux/Windows arms. Wire
-      into the dispatch `match spec.call` (`mod.rs:1700` neighborhood). No arena
-      calls.
-- [ ] Add the header string data object.
+- [x] Added `PERF_STATE_SYMBOL` (`_mfb_rt_perf_state`) + `PERF_HEADER_SYMBOL`
+      (`_mfb_rt_perf_header`) to `error_constants.rs`; emit the zeroed 8-byte
+      `kind:"raw"` global next to the arena global, gated on
+      `perf_injection_enabled() && module.entry.is_some() && module.target ==
+      "macos-aarch64"`.
+- [x] Added `src/target/shared/code/perf.rs` (`lower_perf_helper`): `perf.init`
+      (`emit_arena_map` 16 MiB → store base on success, leave global 0 on failure —
+      `MAP_ANON` is pre-zeroed so no explicit clear), `perf.done` (load base; 0 →
+      inert; else write the header string object to stderr; region **left mapped**
+      per the Open Decision), `perf.start`/`perf.end` return-only (bodies C/D), and
+      a return-only tail for the non-macOS arms (dispatch totality). Wired into the
+      `match spec.call` dispatch. No arena calls (invariant held by construction —
+      region via the `emit_arena_map` seam, not `_mfb_arena_alloc`).
+- [x] Header string data object (`"name count avg median min max sum\n"`) emitted
+      under the same gate.
+- [x] Force the emitted perf symbols into `plan::symbols::runtime_symbols`
+      (init/done now; start/end deferred to C/D) under the same gate — the actual
+      emission driver (the code layer clones this set), replacing the plan's
+      `required_helpers` route.
 
 Acceptance: unit/inspection — the helper bodies assemble and encode on the host
 backend (no panic in `artifact-gate.sh` for a fixture that would call them once
@@ -215,12 +229,18 @@ Commit: —
 
 ### Phase 3 — Debug-gated entry/exit injection (end-to-end skeleton)
 
-- [ ] Inject `bl _mfb_rt_perf_init` after arena init in `lower_program_entry`
-      (`entry.rs`), gated, **only from the macOS entry path**.
-- [ ] Inject `bl _mfb_rt_perf_done` between `entry.rs:600` and `:601`, gated,
-      preserving the parked exit code at `[arena+32]`, **macOS path only**.
-- [ ] Add a debug-only fixture (or a manual runtime-proof program) that compiles
-      and runs; confirm the header prints at exit and the exit code is unchanged.
+- [x] Inject `bl _mfb_rt_perf_perf_init` after the arena-global publish in
+      `lower_program_entry`, gated on `perf_injection_enabled() &&
+      platform.family() == MacOS`. Symbol **derived** via `symbol_for_call`, never
+      hard-coded (the family doubles into the name — see Corrections).
+- [x] Inject `bl _mfb_rt_perf_perf_done` after the `bl _mfb_shutdown` and before
+      the exit-code reload, same gate; `perf_done` preserves the callee-saved arena
+      register and never touches `[arena+32]`.
+- [x] Runtime proof on the macOS host (`/tmp/p67proof`, `RETURN 7`): a **debug**
+      build prints `hello from p67` on stdout (exit 7) and `name count avg median
+      min max sum` on **stderr** as the last output; a **release** build of the same
+      program prints nothing on stderr (stdout + exit 7 unchanged). Header is last,
+      exit code intact. ✓
 
 Acceptance (the falsifying spike): a **debug**-built macOS compiler compiles+runs a
 trivial program and the perf **header** is the last output before exit, with the
@@ -260,7 +280,41 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Emission path (design §3.2 was imprecise).** The plan routed perf emission
+  through `required_helpers` + the declared-vs-used `validate` parity. But body
+  emission is actually driven by `plan::symbols::runtime_symbols` (a call-site scan
+  that the code layer clones at `code/mod.rs` `let mut runtime_symbols =
+  native_plan.runtime_symbols.clone()`), **not** by `module.runtime_helpers`
+  (which only feeds validation). Perf calls never appear in any NIR function, so
+  the correct hook is to force the perf symbols into `runtime_symbols` (like the
+  existing `term.off`/`thread.drop` special-cases), leaving `required_helpers` and
+  `validate` untouched. The declared-vs-used parity therefore never involves Perf
+  and cannot be tripped — the very complication §3.2 anticipated is avoided rather
+  than managed.
+- **Gate is debug + macOS + entry, not "iff `cfg!(debug_assertions)`".** §3.2 said
+  `required_helpers` includes Perf "iff `cfg!(debug_assertions)`". Declaring/emitting
+  Perf on a debug *Linux/Windows* build would add dead stub symbols and break the
+  Produces-clause "Linux/Windows debug builds byte-identical to HEAD". The force,
+  the data-object emission, and both injection sites all gate on
+  `perf_injection_enabled() && entry && target=="macos-aarch64"` (injection uses
+  `platform.family()==MacOS`). The non-macOS `lower_perf_helper` arms remain (a
+  return-only body) purely for dispatch totality; they are never emitted.
+- **No `helper_for_call` `perf::` arm.** Phase 1 called for one, but nothing routes
+  `perf.*` at the NIR level (`lower_runtime_helper` resolves via `spec_for_symbol`,
+  not `helper_for_call`), so an arm would be dead code (AGENTS.md forbids it). The
+  four calls are in `CODE_LAYER_ONLY_CALLS` instead — the accurate model (they are
+  "synthesized inside the code layer … never exist at the NIR level", exactly like
+  `thread.drop`).
+- **Symbol names double the family.** `symbol_for_call` emits
+  `_mfb_rt_{family}_{sanitized_call}`, so the helper symbols are
+  `_mfb_rt_perf_perf_init` / `…_perf_done` / `…_perf_start` / `…_perf_end` (cf. the
+  real `_mfb_rt_io_io_print`), **not** the `_mfb_rt_perf_init` the plan text used in
+  a few places. The injection derives the symbol via `symbol_for_call` rather than
+  hard-coding it, so it cannot drift from the emitted body. (The two writable data
+  globals — `_mfb_rt_perf_state`, `_mfb_rt_perf_header` — are hand-named and not
+  subject to this.)
+- **`perf_done` region freeing.** Open Decision chose "leave mapped"; `perf_done`
+  does no `emit_arena_unmap` (the process is exiting).
 
 ## Summary
 

@@ -188,6 +188,24 @@ pub(crate) fn lower_program_entry(
         &mut relocations,
     );
     instructions.push(abi::store_u64(ARENA_STATE_REGISTER, abi::SCRATCH[0], 0));
+    // plan-67-B: start runtime perf tracking. `perf_init` mmaps its own system
+    // region (arena-free) and stores the base in `_mfb_rt_perf_state`; the matching
+    // `perf_done` prints the table at exit. macOS-only and debug-only: a release
+    // compiler (`perf_injection_enabled()` false) and the Linux/Windows entry paths
+    // emit nothing here, staying byte-identical. The call clobbers x0–x17, but
+    // argc/argv are already parked in the callee-saved SCRATCH[17]/SCRATCH[18] (or
+    // irrelevant for a non-arg entry) and are re-materialized by the blocks below,
+    // and `perf_init` preserves the callee-saved arena register. The symbol is
+    // derived, never hard-coded — `symbol_for_call` doubles the family into the name
+    // (`_mfb_rt_perf_perf_init`), matching the emitted body.
+    if perf_injection_enabled() && platform.family() == PlatformFamily::MacOS {
+        let perf_init = crate::target::shared::runtime::symbol_for_call(
+            crate::target::shared::runtime::RuntimeHelper::Perf,
+            "perf.init",
+        );
+        instructions.push(abi::branch_link(&perf_init));
+        relocations.push(internal_branch(entry_symbol, &perf_init));
+    }
     // Deferred (Windows) `os::args` capture: now that the arena is mapped and
     // `ARENA_STATE_REGISTER` is pinned, build the UTF-8 argv and store it into the
     // os::args globals (plan-66-B). `emit_build_argv_utf8` leaves argc in `ARG[0]`
@@ -598,6 +616,21 @@ pub(crate) fn lower_program_entry(
     }
     instructions.push(abi::branch_link(SHUTDOWN_SYMBOL));
     relocations.push(internal_branch(entry_symbol, SHUTDOWN_SYMBOL));
+    // plan-67-B: print the perf table as the very last thing before exit — after
+    // `_mfb_shutdown` (terminal reset + arena free), before the exit code is
+    // reloaded. `perf_done` is arena-free (it reads only `_mfb_rt_perf_state`), so
+    // the arena having just been freed is irrelevant; it preserves the callee-saved
+    // arena register and never touches the parked exit code at `[arena+32]` (which
+    // lives in the stack-resident entry frame, not the freed mmap blocks). macOS +
+    // debug only — release / Linux / Windows emit nothing and stay byte-identical.
+    if perf_injection_enabled() && platform.family() == PlatformFamily::MacOS {
+        let perf_done = crate::target::shared::runtime::symbol_for_call(
+            crate::target::shared::runtime::RuntimeHelper::Perf,
+            "perf.done",
+        );
+        instructions.push(abi::branch_link(&perf_done));
+        relocations.push(internal_branch(entry_symbol, &perf_done));
+    }
     instructions.push(abi::load_u64(
         abi::return_register(),
         ARENA_STATE_REGISTER,

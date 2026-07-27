@@ -199,7 +199,7 @@ the intended `tests/*.rs` source edits + this plan doc; no `.golden`/`.ncode`/
 `.ncodesum`/`build.log`/`.run` churn (`git status --porcelain | grep -iE
 '\.golden|\.ncode|build\.log|\.run|goldens?/'` → empty). Format clean
 (`cargo fmt --check` flags only pre-existing unrelated `src/` files). MET.
-Commit: 51b… (recorded in B's first commit per the skill's Commit-line rule)
+Commit: 2cb008d3c
 
 ## Validation Plan
 

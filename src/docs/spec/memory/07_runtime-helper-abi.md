@@ -117,9 +117,22 @@ Audio  Crypto  Datetime  Fs  General  Io  Math  Net  Os  Term  Thread  Tls
 Of these, `General` and `Math` are **inline-codegen'd** and contribute no gated
 runtime calls (zero specs; the former `Strings` variant was removed outright
 when its targets went native-direct). The gated, helper-dispatched families are
-`Audio`, `Crypto`, `Datetime`, `Fs`, `Io`, `Net`, `Os`, `Term`, `Tls`, and
-`Thread` — the catalog parity test asserts exactly this set is catalogued. [[src/target/shared/runtime/catalog.rs:supported_helper_specs]]
+`App`, `Audio`, `Crypto`, `Datetime`, `Fs`, `Io`, `Net`, `Os`, `Term`, `Tls`, and
+`Thread` — the catalog parity test asserts exactly this set is catalogued, plus
+the `Perf` family below. [[src/target/shared/runtime/catalog.rs:supported_helper_specs]]
 `helper_for_call` maps a lowering target to its family. [[src/target/shared/runtime/mod.rs:helper_for_call]]
+
+The `Perf` family (plan-67) is the one **code-layer-only** exception. It has no
+MFB language surface and no `helper_for_call` routing — its four helpers
+(`perf.init`/`perf.start`/`perf.end`/`perf.done`) are catalogued (so
+`spec_for_symbol` resolves them during emission) but injected directly by the code
+layer, so they are listed in `CODE_LAYER_ONLY_CALLS` and never take part in the
+Required-Helper Analysis or the declared-vs-used parity below. Injection is gated
+on `perf_injection_enabled()` (a debug-built compiler) **and** a macOS entry
+module: a release compiler, and every Linux/Windows build, emit nothing, so their
+output is byte-identical to a pre-perf build. The emitted symbols are forced into
+the plan's runtime-symbol set (`plan::symbols::runtime_symbols`), not derived from
+the IR. [[src/target/shared/code/perf.rs:lower_perf_helper]]
 
 ## Required-Helper Analysis
 

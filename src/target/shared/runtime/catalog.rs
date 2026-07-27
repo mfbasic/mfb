@@ -122,6 +122,14 @@ static SUPPORTED_HELPER_SPECS: &[RuntimeHelperSpec] = &[
     OS_HOST_NAME_SPEC,
     OS_USER_NAME_SPEC,
     OS_CPU_COUNT_SPEC,
+    // plan-67-B: internal perf-tracking helpers. Catalogued (so `spec_for_symbol`
+    // resolves the injected `_mfb_rt_perf_*` calls during emission/object
+    // planning) but never routed by `helper_for_call` — they are code-layer-only
+    // (see `CODE_LAYER_ONLY_CALLS`).
+    PERF_INIT_SPEC,
+    PERF_START_SPEC,
+    PERF_END_SPEC,
+    PERF_DONE_SPEC,
     // No `strings::` row: those ops are all native-direct (lowered inline; no
     // `_mfb_rt_strings_*` helper is ever emitted, bug-120.1). The dead spec
     // table that used to sit beside this comment is gone (bug-326-A1).
@@ -217,6 +225,13 @@ mod tests {
             "thread.read",
             "thread.emit",
             "net.connectTcpAddr",
+            // plan-67-B: perf helpers are injected by the code layer (program
+            // entry/exit + arena-region wrapping), never present at the NIR level,
+            // so `helper_for_call` must NOT classify them.
+            "perf.init",
+            "perf.start",
+            "perf.end",
+            "perf.done",
         ];
         // Family round-trip: the front end routes each call to its helper
         // (except the code-layer-synthesized calls, which must stay invisible
@@ -275,6 +290,8 @@ mod tests {
             RuntimeHelper::Io,
             RuntimeHelper::Net,
             RuntimeHelper::Os,
+            // plan-67-B: catalogued (four `perf.*` specs) though code-layer-only.
+            RuntimeHelper::Perf,
             RuntimeHelper::Term,
             RuntimeHelper::Thread,
             RuntimeHelper::Tls,
@@ -285,6 +302,6 @@ mod tests {
                 helper.name()
             );
         }
-        assert_eq!(families.len(), 11, "unexpected extra catalogued family");
+        assert_eq!(families.len(), 12, "unexpected extra catalogued family");
     }
 }

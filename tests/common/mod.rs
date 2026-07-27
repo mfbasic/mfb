@@ -597,10 +597,13 @@ pub fn mfb_exe() -> String {
     if let Ok(exe) = std::env::var("MFB_TEST_EXE") {
         return exe;
     }
-    let debug = std::env::var("CARGO_BIN_EXE_mfb").unwrap_or_else(|_| "target/debug/mfb".to_string());
+    let debug =
+        std::env::var("CARGO_BIN_EXE_mfb").unwrap_or_else(|_| "target/debug/mfb".to_string());
     let debug_path = PathBuf::from(&debug);
     // `.../target/<profile>/mfb` → `.../target/release/mfb`.
-    let profile_dir = debug_path.parent().expect("mfb binary has a parent directory");
+    let profile_dir = debug_path
+        .parent()
+        .expect("mfb binary has a parent directory");
     let target_dir = profile_dir.parent().expect("profile dir sits under target");
     let release = target_dir.join("release").join("mfb");
 
@@ -615,7 +618,11 @@ pub fn mfb_exe() -> String {
         let status = cmd.status().expect("build release mfb");
         assert!(status.success(), "release mfb build failed");
     });
-    assert!(release.exists(), "release mfb missing at {}", release.display());
+    assert!(
+        release.exists(),
+        "release mfb missing at {}",
+        release.display()
+    );
     release.to_string_lossy().into_owned()
 }
 

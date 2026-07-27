@@ -115,6 +115,7 @@ pub(crate) mod link_locator;
 mod link_thunk;
 mod list_mutate;
 mod map_mutate;
+mod perf;
 mod net;
 mod os;
 mod private;
@@ -618,6 +619,18 @@ fn pad_no_slots(body: AppHookBody) -> HelperBody {
     (body.0, body.1, body.2, Vec::new())
 }
 
+/// plan-67-B: the single predicate gating all runtime perf-tracking injection.
+/// It is `true` exactly when the **compiler** is built with `debug_assertions`
+/// on (a normal `cargo build`); a `--release` compiler returns `false`, so every
+/// release plan — and the entire golden/acceptance path (plan-67-A drives it from
+/// a release build) — is byte-identical to pre-plan-67 HEAD. The macOS-only and
+/// has-entry conditions are applied at each *use* site (the force in
+/// `plan::symbols::runtime_symbols` and the entry/exit injection), so this
+/// predicate stays a pure build-mode question.
+pub(crate) fn perf_injection_enabled() -> bool {
+    cfg!(debug_assertions)
+}
+
 pub(crate) fn lower_module_for_platform(
     module: &NirModule,
     native_plan: &NativePlan,
@@ -733,6 +746,25 @@ pub(crate) fn lower_module_for_platform(
             size: 8,
             value: "0000000000000000".to_string(),
         });
+    }
+    // plan-67-B: perf-tracking region base (an 8-byte writable global, mirroring
+    // the arena global above) and the table-header string. Emitted only for a
+    // debug-built macOS entry module — the exact gate under which the entry/exit
+    // injection and the `_mfb_rt_perf_*` bodies are emitted — so release,
+    // non-macOS, and non-entry plans stay byte-identical to pre-plan-67 HEAD.
+    if perf_injection_enabled() && module.entry.is_some() && module.target == "macos-aarch64" {
+        data_objects.push(CodeDataObject {
+            symbol: PERF_STATE_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.runtime.perf_state.v1 { u64 regionBase }".to_string(),
+            align: 8,
+            size: 8,
+            value: "0000000000000000".to_string(),
+        });
+        data_objects.push(string_data_object(
+            PERF_HEADER_SYMBOL,
+            "name count avg median min max sum\n".to_string(),
+        ));
     }
     // Writable `argc`/`argv` globals for `os::args()` (plan-31-B): filled by the
     // program entry from the values the OS passes in, read back when a later
@@ -1699,6 +1731,10 @@ fn lower_runtime_helper(
             }
             "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
                 datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?
+            }
+            // plan-67-B: internal perf-tracking helpers (injected, never NIR-level).
+            "perf.init" | "perf.start" | "perf.end" | "perf.done" => {
+                perf::lower_perf_helper(spec.call, symbol, platform_imports, platform)?
             }
             call if builtins::os::is_os_call(call) => os::lower_os_helper(
                 spec.call,

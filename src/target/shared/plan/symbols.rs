@@ -61,6 +61,27 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
             }
         }
     }
+    // plan-67-B: the perf-tracking helpers are injected by the code layer at
+    // program entry/exit (and, from plan-67-F, around arena regions), so they
+    // never appear as NIR calls the scan above would catch. Force their emitted
+    // symbols in for a debug-built macOS entry module — the same gate as the
+    // entry/exit injection and the perf data objects — so their bodies exist for
+    // the injected `bl`s to resolve. Release / non-macOS / non-entry plans are
+    // untouched, staying byte-identical to pre-plan-67 HEAD. `perf.start` /
+    // `perf.end` are added by plan-67-C / plan-67-D when their injection lands.
+    if crate::target::shared::code::perf_injection_enabled()
+        && module.entry.is_some()
+        && module.target == "macos-aarch64"
+    {
+        for call in ["perf.init", "perf.done"] {
+            if let Some(spec) = runtime::spec_for_call(call) {
+                push_unique(
+                    &mut symbols,
+                    runtime::symbol_for_call(spec.helper, spec.call),
+                );
+            }
+        }
+    }
     symbols
 }
 

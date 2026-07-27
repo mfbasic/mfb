@@ -325,6 +325,20 @@ pub(crate) const SIGNAL_HANDLER_SYMBOL: &str = "_mfb_rt_signal_handler";
 /// they are never freed by us anyway (the entry only ever frees the main arena).
 pub(crate) const MAIN_ARENA_GLOBAL_SYMBOL: &str = "_mfb_rt_main_arena";
 
+/// plan-67-B: one writable 8-byte global holding the base pointer of the runtime
+/// perf-tracking region (the `emit_arena_map`-mmap'd system memory that holds the
+/// name-keyed timing tables). Mirrors `MAIN_ARENA_GLOBAL_SYMBOL`: a zeroed
+/// `kind:"raw"` object emitted only for a **debug macOS entry** module (gated by
+/// `perf_injection_enabled()`), so release and non-macOS plans never see it.
+/// `perf_init` stores the region base here; every other perf helper loads it and
+/// treats a 0 base as "perf inert" (mmap failed / release build).
+pub(crate) const PERF_STATE_SYMBOL: &str = "_mfb_rt_perf_state";
+
+/// plan-67-B: the `mfb.string.v1` object holding the perf-table header line
+/// (`name count avg median min max sum`), written to stderr by `perf_done`.
+/// Emitted under the same debug-macOS-entry gate as `PERF_STATE_SYMBOL`.
+pub(crate) const PERF_HEADER_SYMBOL: &str = "_mfb_rt_perf_header";
+
 // ===========================================================================
 // term:: TUI state slots (reserved in the program-entry frame)
 // ===========================================================================
