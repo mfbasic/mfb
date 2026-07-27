@@ -345,6 +345,13 @@ pub(crate) const PERF_HEADER_SYMBOL: &str = "_mfb_rt_perf_header";
 /// (plan-67-F emits one such object per instrumented arena region.)
 pub(crate) const PERF_NAME_PROGRAM_SYMBOL: &str = "_mfb_rt_perf_name_program";
 
+/// plan-67-D: pseudo-name objects for the two diagnostic counters `perf_done`
+/// prints (only when non-zero, so normal output stays clean): `mismatch` counts a
+/// `perf_end` with no open `perf_start`, `overflow` counts samples dropped because
+/// the 16 MiB region filled.
+pub(crate) const PERF_NAME_MISMATCH_SYMBOL: &str = "_mfb_rt_perf_name_mismatch";
+pub(crate) const PERF_NAME_OVERFLOW_SYMBOL: &str = "_mfb_rt_perf_name_overflow";
+
 // ===========================================================================
 // term:: TUI state slots (reserved in the program-entry frame)
 // ===========================================================================

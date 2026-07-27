@@ -73,7 +73,7 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
         && module.entry.is_some()
         && module.target == "macos-aarch64"
     {
-        for call in ["perf.init", "perf.start", "perf.done"] {
+        for call in ["perf.init", "perf.start", "perf.end", "perf.done"] {
             if let Some(spec) = runtime::spec_for_call(call) {
                 push_unique(
                     &mut symbols,

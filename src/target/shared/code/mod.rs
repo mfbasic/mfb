@@ -771,6 +771,15 @@ pub(crate) fn lower_module_for_platform(
             PERF_NAME_PROGRAM_SYMBOL,
             "program".to_string(),
         ));
+        // plan-67-D: pseudo-name objects for the diagnostic counter rows.
+        data_objects.push(string_data_object(
+            PERF_NAME_MISMATCH_SYMBOL,
+            "mismatch".to_string(),
+        ));
+        data_objects.push(string_data_object(
+            PERF_NAME_OVERFLOW_SYMBOL,
+            "overflow".to_string(),
+        ));
     }
     // Writable `argc`/`argv` globals for `os::args()` (plan-31-B): filled by the
     // program entry from the values the OS passes in, read back when a later

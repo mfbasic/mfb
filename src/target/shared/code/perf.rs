@@ -13,7 +13,9 @@
 //! - `perf.done` — print the table (header + one `name  <startNanos>` row per B
 //!   entry in plan-67-C; plan-67-D switches to table A counts, E to full stats) to
 //!   stderr. Injected in the exit tail.
-//! - `perf.end(namePtr)` — record a duration (plan-67-D). Return-only here.
+//! - `perf.end(namePtr)` — look up the name's open start in table B, record
+//!   `now - start` into the flat sample log, and bump the name's count in table A
+//!   (plan-67-D).
 //!
 //! **Name key = pointer identity.** Every injection of a given name loads the one
 //! data-object symbol emitted for that name (`plan-67` emits one object per unique
@@ -34,18 +36,23 @@ use std::collections::HashMap;
 use super::*;
 use crate::target::shared::abi;
 
-// A generous fixed 16 MiB private-anon reservation for the perf tables. plan-67-D
-// chains an additional region on exhaustion (never a silent cap). `MAP_ANON` pages
-// arrive zeroed, so the header/table words start at 0 with no explicit clear.
+// A generous fixed 16 MiB private-anon reservation for the perf tables. On
+// exhaustion plan-67-D's perf_end drops the sample and bumps a visible `overflow`
+// counter (never a silent cap). `MAP_ANON` pages arrive zeroed, so the
+// header/table words start at 0 with no explicit clear.
 const PERF_REGION_SIZE: &str = "16777216";
 
 // `CLOCK_MONOTONIC` on Darwin (Linux uses 1). Matches `datetime.rs`.
 const CLOCK_MONOTONIC_DARWIN: &str = "6";
 
-// Region layout (byte offsets from the region base). The header reserves room for
-// plan-67-D's fields (count-A, bump cursor/end, mismatch counter) so the tables
-// below never shift when D lands.
-const PERF_COUNT_B_OFFSET: usize = 0; // u64: number of occupied B entries
+// Region layout (byte offsets from the region base). A 64-byte header, then table
+// B (name → open start-nanos), table A (name → sample count), then the flat sample
+// log. Every table is keyed by `namePtr` identity.
+const PERF_COUNT_B_OFFSET: usize = 0; // u64: occupied B entries
+const PERF_COUNT_A_OFFSET: usize = 8; // u64: occupied A entries (plan-67-D)
+const PERF_LOG_COUNT_OFFSET: usize = 16; // u64: recorded samples in the log (D)
+const PERF_MISMATCH_OFFSET: usize = 24; // u64: perf_end with no open start (D)
+const PERF_OVERFLOW_OFFSET: usize = 32; // u64: samples dropped, region full (D)
 const PERF_HEADER_SIZE: usize = 64;
 // Table B: a flat array of `{ u64 namePtr, i64 startNanos }`, packed [0..count-B),
 // looked up by a linear `namePtr`-equality scan.
@@ -53,6 +60,24 @@ const PERF_B_TABLE_OFFSET: usize = PERF_HEADER_SIZE;
 const PERF_B_ENTRY_SIZE: usize = 16;
 const PERF_B_ENTRY_START_OFFSET: usize = 8;
 const PERF_B_CAPACITY: usize = 512;
+// Table A (plan-67-D): `{ u64 namePtr, u64 count }` per distinct name that has
+// recorded at least one duration. `count` tracks the number of log samples for the
+// name (so a full-log drop skips both the log append and the count bump, keeping
+// them consistent for plan-67-E's stats).
+const PERF_A_TABLE_OFFSET: usize = PERF_B_TABLE_OFFSET + PERF_B_CAPACITY * PERF_B_ENTRY_SIZE;
+const PERF_A_ENTRY_SIZE: usize = 16;
+const PERF_A_ENTRY_COUNT_OFFSET: usize = 8;
+const PERF_A_CAPACITY: usize = 512;
+// The flat sample log (plan-67-D): `{ u64 namePtr, i64 duration }` appended by
+// perf_end, one entry per recorded span. Grows from `PERF_LOG_TABLE_OFFSET` to the
+// end of the region; on exhaustion perf_end drops the sample and bumps the
+// overflow counter (never a silent cap — plan-67-E's stats scan this log per name).
+const PERF_LOG_TABLE_OFFSET: usize = PERF_A_TABLE_OFFSET + PERF_A_CAPACITY * PERF_A_ENTRY_SIZE;
+const PERF_LOG_ENTRY_SIZE: usize = 16;
+const PERF_LOG_ENTRY_DUR_OFFSET: usize = 8;
+// Largest byte offset a log entry may start at and still fit before the 16 MiB
+// region end (`16777216 - 16`).
+const PERF_LOG_LIMIT: usize = 16_777_216 - PERF_LOG_ENTRY_SIZE;
 
 // Stack locals. perf_start needs a 16-byte `timespec`; perf_done formats each
 // numeric column into a scratch window. One frame size covers both (each lowering
@@ -175,12 +200,141 @@ pub(super) fn lower_perf_helper(
                     abi::label(&done),
                 ]);
             }
+            "perf.end" => {
+                // Look up the name's open start in B; a miss is an end-without-start
+                // (bump the visible `mismatch` counter). Otherwise append
+                // `now - start` to the flat sample log (bump `overflow` if the region
+                // is full — never a silent cap) and bump the name's count in table A.
+                let name = vregs.next();
+                let state = vregs.next();
+                let base = vregs.next();
+                let count_b = vregs.next();
+                let bindex = vregs.next();
+                let bentry = vregs.next();
+                let stored = vregs.next();
+                let start = vregs.next();
+                let now = vregs.next();
+                let delta = vregs.next();
+                let log_count = vregs.next();
+                let off = vregs.next();
+                let sixteen = vregs.next();
+                let limit = vregs.next();
+                let log_entry = vregs.next();
+                let count_a = vregs.next();
+                let aentry = vregs.next();
+                let aindex = vregs.next();
+                let astored = vregs.next();
+                let acap = vregs.next();
+                let scratch = vregs.next();
+                let bscan = format!("{symbol}_bscan");
+                let mismatch = format!("{symbol}_mm");
+                let bfound = format!("{symbol}_bf");
+                let ascan = format!("{symbol}_ascan");
+                let anew = format!("{symbol}_anew");
+                let ainc = format!("{symbol}_ainc");
+                let overflow = format!("{symbol}_ov");
+                let done = format!("{symbol}_done");
+                let acap_str = PERF_A_CAPACITY.to_string();
+                let limit_str = PERF_LOG_LIMIT.to_string();
+                instructions.push(abi::move_register(&name, abi::ARG[0]));
+                push_symbol_address(
+                    symbol,
+                    PERF_STATE_SYMBOL,
+                    &state,
+                    &mut instructions,
+                    &mut relocations,
+                );
+                instructions.extend([
+                    abi::load_u64(&base, &state, 0),
+                    abi::compare_immediate(&base, "0"),
+                    abi::branch_eq(&done),
+                    // B scan for the open start.
+                    abi::load_u64(&count_b, &base, PERF_COUNT_B_OFFSET),
+                    abi::add_immediate(&bentry, &base, PERF_B_TABLE_OFFSET),
+                    abi::move_immediate(&bindex, "Integer", "0"),
+                    abi::label(&bscan),
+                    abi::compare_registers(&bindex, &count_b),
+                    abi::branch_ge(&mismatch),
+                    abi::load_u64(&stored, &bentry, 0),
+                    abi::compare_registers(&stored, &name),
+                    abi::branch_eq(&bfound),
+                    abi::add_immediate(&bentry, &bentry, PERF_B_ENTRY_SIZE),
+                    abi::add_immediate(&bindex, &bindex, 1),
+                    abi::branch(&bscan),
+                    abi::label(&mismatch),
+                    abi::load_u64(&scratch, &base, PERF_MISMATCH_OFFSET),
+                    abi::add_immediate(&scratch, &scratch, 1),
+                    abi::store_u64(&scratch, &base, PERF_MISMATCH_OFFSET),
+                    abi::branch(&done),
+                    abi::label(&bfound),
+                    abi::load_u64(&start, &bentry, PERF_B_ENTRY_START_OFFSET),
+                ]);
+                emit_read_monotonic_nanos(
+                    &now,
+                    symbol,
+                    platform_imports,
+                    platform,
+                    &mut instructions,
+                    &mut relocations,
+                    &mut vregs,
+                )?;
+                instructions.extend([
+                    abi::subtract_registers(&delta, &now, &start),
+                    // Append to the flat log unless the region is full.
+                    abi::load_u64(&log_count, &base, PERF_LOG_COUNT_OFFSET),
+                    abi::move_immediate(&sixteen, "Integer", "16"),
+                    abi::multiply_registers(&off, &log_count, &sixteen),
+                    abi::add_immediate(&off, &off, PERF_LOG_TABLE_OFFSET),
+                    abi::move_immediate(&limit, "Integer", &limit_str),
+                    abi::compare_registers(&off, &limit),
+                    abi::branch_hi(&overflow),
+                    abi::add_registers(&log_entry, &base, &off),
+                    abi::store_u64(&name, &log_entry, 0),
+                    abi::store_u64(&delta, &log_entry, PERF_LOG_ENTRY_DUR_OFFSET),
+                    abi::add_immediate(&log_count, &log_count, 1),
+                    abi::store_u64(&log_count, &base, PERF_LOG_COUNT_OFFSET),
+                    // Upsert table A: bump the name's count, or append a new entry.
+                    abi::load_u64(&count_a, &base, PERF_COUNT_A_OFFSET),
+                    abi::add_immediate(&aentry, &base, PERF_A_TABLE_OFFSET),
+                    abi::move_immediate(&aindex, "Integer", "0"),
+                    abi::label(&ascan),
+                    abi::compare_registers(&aindex, &count_a),
+                    abi::branch_ge(&anew),
+                    abi::load_u64(&astored, &aentry, 0),
+                    abi::compare_registers(&astored, &name),
+                    abi::branch_eq(&ainc),
+                    abi::add_immediate(&aentry, &aentry, PERF_A_ENTRY_SIZE),
+                    abi::add_immediate(&aindex, &aindex, 1),
+                    abi::branch(&ascan),
+                    abi::label(&anew),
+                    abi::move_immediate(&acap, "Integer", &acap_str),
+                    abi::compare_registers(&count_a, &acap),
+                    abi::branch_ge(&done),
+                    abi::store_u64(&name, &aentry, 0),
+                    abi::move_immediate(&scratch, "Integer", "1"),
+                    abi::store_u64(&scratch, &aentry, PERF_A_ENTRY_COUNT_OFFSET),
+                    abi::add_immediate(&count_a, &count_a, 1),
+                    abi::store_u64(&count_a, &base, PERF_COUNT_A_OFFSET),
+                    abi::branch(&done),
+                    abi::label(&ainc),
+                    abi::load_u64(&scratch, &aentry, PERF_A_ENTRY_COUNT_OFFSET),
+                    abi::add_immediate(&scratch, &scratch, 1),
+                    abi::store_u64(&scratch, &aentry, PERF_A_ENTRY_COUNT_OFFSET),
+                    abi::branch(&done),
+                    abi::label(&overflow),
+                    abi::load_u64(&scratch, &base, PERF_OVERFLOW_OFFSET),
+                    abi::add_immediate(&scratch, &scratch, 1),
+                    abi::store_u64(&scratch, &base, PERF_OVERFLOW_OFFSET),
+                    abi::label(&done),
+                ]);
+            }
             "perf.done" => {
                 // Load the region base; a 0 base (never mapped / release) is inert.
-                // Otherwise write the header, then one `name  <startNanos>` row per
-                // B entry. plan-67-D switches this to table A + counts. The region
-                // is left mapped at exit (plan-67-B decision — the process is
-                // ending).
+                // Otherwise write the header, then one `name  <count>` row per table
+                // A entry, then the `mismatch`/`overflow` diagnostic rows (only when
+                // non-zero). plan-67-E enriches each row with avg/median/min/max/sum
+                // over the flat sample log. The region is left mapped at exit
+                // (plan-67-B decision — the process is ending).
                 let state = vregs.next();
                 let base = vregs.next();
                 let header = vregs.next();
@@ -188,8 +342,9 @@ pub(super) fn lower_perf_helper(
                 let index = vregs.next();
                 let entry = vregs.next();
                 let name = vregs.next();
-                let start = vregs.next();
-                let rowloop = format!("{symbol}_row");
+                let value = vregs.next();
+                let arow = format!("{symbol}_arow");
+                let extras = format!("{symbol}_extras");
                 let done = format!("{symbol}_done");
                 push_symbol_address(
                     symbol,
@@ -223,30 +378,28 @@ pub(super) fn lower_perf_helper(
                     &mut instructions,
                     &mut relocations,
                 )?;
-                // Rows.
+                // Table A rows: `name  <count>`.
                 instructions.extend([
-                    abi::load_u64(&count, &base, PERF_COUNT_B_OFFSET),
-                    abi::add_immediate(&entry, &base, PERF_B_TABLE_OFFSET),
+                    abi::load_u64(&count, &base, PERF_COUNT_A_OFFSET),
+                    abi::add_immediate(&entry, &base, PERF_A_TABLE_OFFSET),
                     abi::move_immediate(&index, "Integer", "0"),
-                    abi::label(&rowloop),
+                    abi::label(&arow),
                     abi::compare_registers(&index, &count),
-                    abi::branch_ge(&done),
-                    // Write the name straight from its data object.
+                    abi::branch_ge(&extras),
                     abi::load_u64(&name, &entry, 0),
-                    abi::load_u64(abi::string_length_register(), &name, 0),
-                    abi::add_immediate(abi::string_data_register(), &name, 8),
-                    abi::move_immediate(abi::return_register(), "Integer", "2"),
                 ]);
-                platform.emit_write(
+                emit_write_name(
+                    &name,
                     symbol,
                     platform_imports,
+                    platform,
                     &mut instructions,
                     &mut relocations,
                 )?;
-                instructions.push(abi::load_u64(&start, &entry, PERF_B_ENTRY_START_OFFSET));
+                instructions.push(abi::load_u64(&value, &entry, PERF_A_ENTRY_COUNT_OFFSET));
                 emit_write_i64_line(
-                    &start,
-                    "b",
+                    &value,
+                    "a",
                     symbol,
                     platform_imports,
                     platform,
@@ -255,15 +408,37 @@ pub(super) fn lower_perf_helper(
                     &mut vregs,
                 )?;
                 instructions.extend([
-                    abi::add_immediate(&entry, &entry, PERF_B_ENTRY_SIZE),
+                    abi::add_immediate(&entry, &entry, PERF_A_ENTRY_SIZE),
                     abi::add_immediate(&index, &index, 1),
-                    abi::branch(&rowloop),
-                    abi::label(&done),
+                    abi::branch(&arow),
+                    abi::label(&extras),
                 ]);
-            }
-            "perf.end" => {
-                // Body lands in plan-67-D. Not injected until then, so a return-only
-                // body is inert while keeping the dispatch total.
+                // Diagnostic counter rows (printed only when non-zero).
+                emit_counter_row(
+                    PERF_NAME_MISMATCH_SYMBOL,
+                    PERF_MISMATCH_OFFSET,
+                    "mm",
+                    &base,
+                    symbol,
+                    platform_imports,
+                    platform,
+                    &mut instructions,
+                    &mut relocations,
+                    &mut vregs,
+                )?;
+                emit_counter_row(
+                    PERF_NAME_OVERFLOW_SYMBOL,
+                    PERF_OVERFLOW_OFFSET,
+                    "ov",
+                    &base,
+                    symbol,
+                    platform_imports,
+                    platform,
+                    &mut instructions,
+                    &mut relocations,
+                    &mut vregs,
+                )?;
+                instructions.push(abi::label(&done));
             }
             other => {
                 return Err(format!(
@@ -375,5 +550,70 @@ fn emit_write_i64_line(
         abi::move_immediate(abi::return_register(), "Integer", "2"),
     ]);
     platform.emit_write(symbol, platform_imports, instructions, relocations)?;
+    Ok(())
+}
+
+/// Write the `mfb.string.v1` name object pointed to by `name` (len at `[name+0]`,
+/// bytes at `name+8`) to stderr (fd 2).
+fn emit_write_name(
+    name: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    instructions.extend([
+        abi::load_u64(abi::string_length_register(), name, 0),
+        abi::add_immediate(abi::string_data_register(), name, 8),
+        abi::move_immediate(abi::return_register(), "Integer", "2"),
+    ]);
+    platform.emit_write(symbol, platform_imports, instructions, relocations)
+}
+
+/// Emit a diagnostic `name  <counter>` row for the header counter at
+/// `counter_offset`, but only when it is non-zero (so a clean run prints no
+/// diagnostic rows). `base` holds the region base; `tag` disambiguates labels.
+#[allow(clippy::too_many_arguments)]
+fn emit_counter_row(
+    name_symbol: &str,
+    counter_offset: usize,
+    tag: &str,
+    base: &str,
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    vregs: &mut Vregs,
+) -> Result<(), String> {
+    let value = vregs.next();
+    let nameptr = vregs.next();
+    let skip = format!("{symbol}_{tag}_skip");
+    instructions.extend([
+        abi::load_u64(&value, base, counter_offset),
+        abi::compare_immediate(&value, "0"),
+        abi::branch_eq(&skip),
+    ]);
+    push_symbol_address(symbol, name_symbol, &nameptr, instructions, relocations);
+    emit_write_name(
+        &nameptr,
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )?;
+    emit_write_i64_line(
+        &value,
+        tag,
+        symbol,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+        vregs,
+    )?;
+    instructions.push(abi::label(&skip));
     Ok(())
 }

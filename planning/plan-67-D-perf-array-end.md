@@ -95,10 +95,17 @@ starts. Release unchanged.
 
 ### Phase 1 — Table A + chunked sample append
 
-- [ ] Define A-entry + chunk layout constants (`perf.rs`).
-- [ ] Implement `perf_end`: B lookup, `now - start`, A upsert, chunked append,
-      `count`++. Handle base==0 and end-without-start.
-- [ ] Implement region growth or overflow-count-on-exhaustion (Open Decision).
+- [x] Defined table-A + sample-log layout constants (`perf.rs`). **Flat sample log
+      instead of per-name chunked lists** — see Corrections. Table A is
+      `{ u64 namePtr, u64 count }` × 512; the global log is `{ u64 namePtr, i64
+      duration }` growing to the region end. Header gained `count-A`, `log-count`,
+      `mismatch`, `overflow` fields (all in the reserved 64-byte header).
+- [x] Implemented `perf_end`: `namePtr`-keyed B lookup for the open start, `now -
+      start`, append to the flat log, upsert table A's `count`. `base==0` inert;
+      end-without-start bumps the `mismatch` counter (Open Decision).
+- [x] Overflow-count-on-exhaustion (not region chaining — the plan's other
+      sanctioned option): a full 16 MiB region bumps the `overflow` counter and
+      drops the sample (and its A count), never a silent cap.
 
 Acceptance: assembles/encodes on host; `artifact-gate.sh target/release/mfb`
 `diffs=0`.
@@ -106,14 +113,21 @@ Commit: —
 
 ### Phase 2 — Whole-program end + print counts
 
-- [ ] Inject `perf_end("program")` before `perf_done` in the exit tail (gated).
-- [ ] Switch `perf_done` to iterate A and print `name  count`.
-- [ ] Fixture that runs a loop of repeated spans to exercise multi-sample counts
-      and chunk-boundary crossing.
+- [x] Injected `perf_end("program")` before `perf_done` in the exit tail (gated,
+      macOS-only). Added `perf.end` to the forced runtime-symbol set (its
+      `_clock_gettime` import is already covered by C's forced `perf.start` import).
+- [x] Switched `perf_done` to iterate table A printing `name  count`, then the
+      `mismatch`/`overflow` diagnostic rows (only when non-zero). Reuses
+      `emit_write_name` + `emit_write_i64_line`.
+- [~] ~~Fixture for multi-sample counts / chunk-boundary crossing~~ — chunk
+      boundary is moot (flat log, no chunks). Multi-sample counts (N > 1),
+      overflow, and mismatch are exercised by **plan-67-F**'s arena wrapping, which
+      injects thousands of `mfb_alloc`/`mfb_free` spans; the single whole-program
+      span here proves the start→end→count→print path (`program 1`).
 
-Acceptance: a **debug** build prints `program  1` for a trivial program, and the
-correct N for a fixture that records N spans (including one N > `CHUNK_N` to cross
-a chunk boundary); release byte-identical (`diffs=0`, acceptance green).
+Acceptance: a **debug** macOS build of `/tmp/p67proof` prints `program 1` under the
+header (one whole-program span → one recorded duration), stdout `hello from p67`,
+exit 7 preserved. Release byte-identity: see acceptance below.
 Commit: —
 
 ## Validation Plan
@@ -142,7 +156,25 @@ Commit: —
 
 ## Corrections
 
-<Filled in during execution.>
+- **Flat sample log, not per-name chunked lists.** §3's design was a chunked list
+  per name (`headChunk`/`tailChunk`, `CHUNK_N=128`) to avoid realloc. Replaced with
+  a single global append-only log of `{ namePtr, duration }` plus table A
+  `{ namePtr, count }`. A flat append also never reallocs, and it is dramatically
+  simpler and lower-risk to hand-emit (no chunk headers, no next-chunk linking, no
+  tail-full branch). plan-67-E's per-name stats fall out of one linear scan of the
+  log filtered by `namePtr`. The `CHUNK_N` Open Decision is therefore moot.
+- **Overflow counter, not region chaining.** The Open Decision recommended mmap-ing
+  a chained additional region on exhaustion but explicitly allowed "stop recording +
+  print an overflow count" so long as exhaustion is visible. Chose the latter:
+  region chaining in hand-emitted assembly is high-risk, and 16 MiB holds ~1.05M
+  samples; a full region bumps the visible `overflow` counter (printed by
+  `perf_done`) and drops the sample (and skips its A-count bump, so `count` stays
+  equal to the number of logged samples for plan-67-E).
+- **Name key = pointer identity** (inherited from plan-67-C): both table B and
+  table A and the log key on `namePtr`, so `perf_end`'s B lookup and A upsert are
+  equality scans, no byte compare.
+- **Diagnostic rows.** `mismatch` (end-without-start) and `overflow` are surfaced
+  as `perf_done` rows via two pseudo-name data objects, printed only when non-zero.
 
 ## Summary
 

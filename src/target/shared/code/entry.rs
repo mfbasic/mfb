@@ -642,6 +642,23 @@ pub(crate) fn lower_program_entry(
     // lives in the stack-resident entry frame, not the freed mmap blocks). macOS +
     // debug only — release / Linux / Windows emit nothing and stay byte-identical.
     if perf_injection_enabled() && platform.family() == PlatformFamily::MacOS {
+        // plan-67-D: close the whole-program span (records one duration), then
+        // print the table. perf_end reads the "program" name pointer in the arg
+        // register; both `bl`s clobber x0–x17 but preserve the callee-saved arena
+        // register and never touch the parked exit code at `[arena+32]`.
+        let perf_end = crate::target::shared::runtime::symbol_for_call(
+            crate::target::shared::runtime::RuntimeHelper::Perf,
+            "perf.end",
+        );
+        push_symbol_address(
+            entry_symbol,
+            PERF_NAME_PROGRAM_SYMBOL,
+            abi::ARG[0],
+            &mut instructions,
+            &mut relocations,
+        );
+        instructions.push(abi::branch_link(&perf_end));
+        relocations.push(internal_branch(entry_symbol, &perf_end));
         let perf_done = crate::target::shared::runtime::symbol_for_call(
             crate::target::shared::runtime::RuntimeHelper::Perf,
             "perf.done",
