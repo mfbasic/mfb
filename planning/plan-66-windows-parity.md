@@ -689,7 +689,7 @@ Commit: 9718fd97d (spike) / merged e5c500020 · J-2 b6642fe62 · J-3 d997031e6 �
   unchanged.
 
 Acceptance: an app `.exe` shows the embedded icon and is DPI-aware; existing targets byte-identical. **MET** — icon + version box-proven on 2230 (icon colour + FileVersion read by Windows), DPI manifest embedded in the same validated resource tree, console builds byte-identical (no `.rsrc`).
-Commit: `<pending>`
+Commit: `93b015c6c`
 
 ## Validation Plan
 
