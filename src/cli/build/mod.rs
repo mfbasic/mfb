@@ -2986,6 +2986,35 @@ mod tests {
     fn build_project_builds_an_executable_that_vendors_a_library() {
         let host = target::BuildTarget::host();
         let dir = tempfile::tempdir().unwrap();
+        // A Linux native build emits BOTH libc flavors from one invocation
+        // (plan-56-B), and a Linux `vendor` locator must name its exact `arch` and
+        // `libc` (§3.2) — a glibc `.so` cannot double as musl, so `libc` may not be
+        // omitted. A logical library therefore needs one vendored blob per flavor,
+        // each with its own filename (they share the one flat `build/vendor/`), and
+        // both are copied. macOS has no libc axis and yields a single target, hence
+        // one blob and one copy.
+        let (locators, blobs): (String, Vec<&str>) = if host.os == "linux" {
+            (
+                format!(
+                    "[ {{ \"os\": \"linux\", \"arch\": \"{arch}\", \"libc\": \"glibc\", \
+                       \"type\": \"vendor\", \"source\": \"libfoo-glibc.so\" }}, \
+                       {{ \"os\": \"linux\", \"arch\": \"{arch}\", \"libc\": \"musl\", \
+                       \"type\": \"vendor\", \"source\": \"libfoo-musl.so\" }} ]",
+                    arch = host.arch,
+                ),
+                vec!["libfoo-glibc.so", "libfoo-musl.so"],
+            )
+        } else {
+            (
+                format!(
+                    "[ {{ \"os\": \"{os}\", \"arch\": \"{arch}\", \"type\": \"vendor\", \
+                       \"source\": \"libfoo.so\" }} ]",
+                    os = host.os,
+                    arch = host.arch,
+                ),
+                vec!["libfoo.so"],
+            )
+        };
         std::fs::write(
             dir.path().join("project.json"),
             format!(
@@ -2997,12 +3026,11 @@ mod tests {
                     "  \"kind\": \"executable\",\n",
                     "  \"entry\": \"main\",\n",
                     "  \"targets\": [\"native\"],\n",
-                    "  \"libraries\": {{ \"foo\": [ {{ \"os\": \"{os}\", \"arch\": \"{arch}\", \"type\": \"vendor\", \"source\": \"libfoo.so\" }} ] }},\n",
+                    "  \"libraries\": {{ \"foo\": {locators} }},\n",
                     "  \"sources\": [{{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }}]\n",
                     "}}\n"
                 ),
-                os = host.os,
-                arch = host.arch,
+                locators = locators,
             ),
         )
         .unwrap();
@@ -3023,13 +3051,18 @@ mod tests {
             ),
         )
         .unwrap();
-        // The vendored blob (dummy bytes; the build records its sha256).
+        // The vendored blobs (dummy bytes; the build records each one's sha256).
+        // The `.so` need not be a real library, so both flavors may share bytes.
         std::fs::create_dir_all(dir.path().join("vendor")).unwrap();
-        std::fs::write(dir.path().join("vendor").join("libfoo.so"), b"\x7fELF dummy vendor blob").unwrap();
+        for blob in &blobs {
+            std::fs::write(dir.path().join("vendor").join(blob), b"\x7fELF dummy vendor blob").unwrap();
+        }
         let options =
             parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
         build_project(&options).expect("vendored build should succeed");
-        // The vendored blob was copied into build/vendor/ beside the executable.
+        // Every vendored blob the host's emitted flavors resolve was copied into
+        // build/vendor/ beside the executable (one per libc flavor on Linux, one
+        // on macOS).
         let vendor_out = dir
             .path()
             .join(crate::os::BUILD_DIR)
@@ -3039,7 +3072,11 @@ mod tests {
             .map(|entry| entry.expect("entry").path())
             .filter(|path| path.is_file())
             .collect();
-        assert_eq!(copied.len(), 1, "exactly one vendored library was copied");
+        assert_eq!(
+            copied.len(),
+            blobs.len(),
+            "every vendored library the host resolves was copied"
+        );
     }
 
     /// A resources entry whose source resolves outside the project (an in-tree
