@@ -103,3 +103,13 @@ fn package_resource_exports_decodes_native_link_resource() {
     assert!(resources[0].sendable);
     assert_eq!(resources[0].close_function.as_deref(), Some("lib.close"));
 }
+
+#[test]
+fn package_exports_reports_a_missing_function() {
+    let mut package = decoded_package();
+    assert!(!package.exports.is_empty());
+    // Point the first export at a function id past the end of the table.
+    package.exports[0].function_id = 9999;
+    let err = package_exports(&package).map(|_| ()).unwrap_err();
+    assert!(err.contains("references missing function"), "{err}");
+}
