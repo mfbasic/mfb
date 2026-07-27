@@ -302,6 +302,10 @@ impl TypeEnv {
         if let Some(element) = type_.strip_prefix("List OF ") {
             return self.is_defaultable(element, seen);
         }
+        if let Some(element) = type_.strip_prefix("Set OF ") {
+            // `Set OF T` defaults to the empty set iff `T` is defaultable (plan-63).
+            return self.is_defaultable(element, seen);
+        }
         if let Some((k, v)) = parse_map(type_) {
             return self.is_defaultable(k, seen) && self.is_defaultable(v, seen);
         }

@@ -38,7 +38,6 @@
         { "op": "assign", "line": 27, "name": "$trap_val1", "value": { "kind": "resultValue", "type": "List OF RES File", "value": { "kind": "local", "name": "$trap_res0" } } }
         ],
         "else": [
-        { "op": "bind", "line": 27, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
         { "op": "assign", "line": 28, "name": "$trap_val1", "value": { "kind": "local", "name": "handles" } }
         ]
       },
@@ -93,7 +92,6 @@
         { "op": "assign", "line": 49, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "List OF RES File", "value": { "kind": "local", "name": "$trap_res2" } } }
         ],
         "else": [
-        { "op": "bind", "line": 49, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
         { "op": "assign", "line": 50, "name": "$trap_val3", "value": { "kind": "call", "type": "List OF RES File", "target": "collections.insert", "args": [{ "kind": "local", "name": "handles" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "g" }] } }
         ]
       },

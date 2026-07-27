@@ -209,6 +209,27 @@ impl TypeEnv {
                     }
                 }
             }
+            IrValue::SetLiteral { type_, values } => {
+                for v in values {
+                    self.check_value_depth(v, locals, depth + 1);
+                }
+                // A `Set OF T` element is laid out and read uniformly by the
+                // declared element type, so a crafted mismatch is a type
+                // confusion (mirrors the `List OF T` element check above).
+                if let Some(element) = type_.strip_prefix("Set OF ") {
+                    for v in values {
+                        self.check_literal_range(element, v);
+                        if let Some(actual) = self.infer_type(v, locals) {
+                            if !self.expression_compatible(element, &actual, v) {
+                                self.emit(
+                                    "TYPE_SET_ELEMENT_MISMATCH",
+                                    format!("Set element has type {actual}, expected {element}."),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
             IrValue::MapLiteral { type_, entries } => {
                 for (k, v) in entries {
                     self.check_value_depth(k, locals, depth + 1);
@@ -710,6 +731,30 @@ impl TypeEnv {
             self.check_map_key_comparable(inner);
             return;
         }
+        if let Some(inner) = t.strip_prefix("Set OF ") {
+            // A `Set OF T` element must be comparable — it is the Set's hash/equality
+            // key exactly as a Map key is (plan-63, §4.2). Same diagnostic *code* as
+            // the map-key check (`TYPE_REQUIRES_COMPARABLE`), distinct message.
+            if !inner.is_empty()
+                && inner != "Unknown"
+                && self.contains_resource_or_thread(inner, &mut HashSet::new())
+            {
+                self.emit(
+                    "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+                    format!(
+                        "Ordinary collections cannot store element values of type `{inner}` because they contain a resource or thread handle."
+                    ),
+                );
+            }
+            if !inner.is_empty() && inner != "Unknown" && !self.is_comparable(inner) {
+                self.emit(
+                    "TYPE_REQUIRES_COMPARABLE",
+                    format!("Set element type requires a comparable type, got `{inner}`."),
+                );
+            }
+            self.check_map_key_comparable(inner);
+            return;
+        }
         if let Some((key, value)) = parse_map(t) {
             // A resource/thread may never be a Map key (handles are not
             // comparable and ordinary collections cannot own them) —
@@ -741,6 +786,7 @@ impl TypeEnv {
             return true;
         }
         if type_.starts_with("List OF ")
+            || type_.starts_with("Set OF ")
             || type_.starts_with("Map OF ")
             || type_.starts_with("Result OF ")
             || type_.starts_with("FUNC(")

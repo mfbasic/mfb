@@ -1,0 +1,28 @@
+$ mfb build -ast -ir tests/rt-behavior/collections/set-algebra-rt
+Wrote AST to tests/rt-behavior/collections/set-algebra-rt/set_algebra_rt.ast
+Wrote IR to tests/rt-behavior/collections/set-algebra-rt/set_algebra_rt.ir
+[exit 0]
+$ mfb build tests/rt-behavior/collections/set-algebra-rt
+Wrote executable to tests/rt-behavior/collections/set-algebra-rt/build/set_algebra_rt.out
+[exit 0]
+$ tests/rt-behavior/collections/set-algebra-rt/build/set_algebra_rt.out
+union=4
+unionHas4=TRUE
+inter=2
+interHas2=TRUE
+interHas1=FALSE
+diff=1
+diffHas1=TRUE
+symdiff=2
+subReflexive=TRUE
+subStrict=TRUE
+subFalse=FALSE
+superReflexive=TRUE
+superStrict=TRUE
+disjoint=TRUE
+overlap=FALSE
+toSetLen=3
+toSetHas6=TRUE
+strUnion=3
+strInter=1
+[exit 0]

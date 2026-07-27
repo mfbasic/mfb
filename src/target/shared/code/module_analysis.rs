@@ -431,7 +431,7 @@ fn value_may_emit_float_arithmetic_error(
                     value_may_emit_float_arithmetic_error(&update.value, locals, fields)
                 })
         }
-        NirValue::ListLiteral { values, .. } => values
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => values
             .iter()
             .any(|value| value_may_emit_float_arithmetic_error(value, locals, fields)),
         NirValue::MapLiteral { entries, .. } => entries.iter().any(|(key, value)| {
@@ -537,7 +537,7 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
                     .iter()
                     .any(|update| value_uses_call(&update.value, target))
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             values.iter().any(|value| value_uses_call(value, target))
         }
         NirValue::MapLiteral { entries, .. } => entries
@@ -670,7 +670,9 @@ fn value_uses_type_name(value: &NirValue) -> bool {
                         .iter()
                         .any(|update| value_uses_type_name(&update.value))
             }
-            NirValue::ListLiteral { values, .. } => values.iter().any(value_uses_type_name),
+            NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
+                values.iter().any(value_uses_type_name)
+            }
             NirValue::MapLiteral { entries, .. } => entries
                 .iter()
                 .any(|(key, value)| value_uses_type_name(key) || value_uses_type_name(value)),
@@ -954,7 +956,7 @@ fn value_uses_unicode_runtime_tables(
                     value_uses_unicode_runtime_tables(&update.value, constants, types, fields)
                 })
         }
-        NirValue::ListLiteral { values, .. } => values
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => values
             .iter()
             .any(|value| value_uses_unicode_runtime_tables(value, constants, types, fields)),
         NirValue::MapLiteral { entries, .. } => entries.iter().any(|(key, value)| {
@@ -1034,7 +1036,7 @@ pub(super) fn value_may_return_invalid_format(
                     value_may_return_invalid_format(&update.value, constants, types, fields)
                 })
         }
-        NirValue::ListLiteral { values, .. } => values
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => values
             .iter()
             .any(|value| value_may_return_invalid_format(value, constants, types, fields)),
         NirValue::MapLiteral { entries, .. } => entries.iter().any(|(key, value)| {

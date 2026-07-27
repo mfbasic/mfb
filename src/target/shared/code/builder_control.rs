@@ -186,6 +186,16 @@ impl CodeBuilder<'_> {
                                 self.reset_string_capacity_shadow(name);
                                 return Ok(());
                             }
+                            // plan-64-I: if this binds an inline-conversion
+                            // `CallResult` whose trapped error is provably unused,
+                            // flag its lowering so the error path emits only a tag
+                            // (no ErrorLoc / flat `Error` block). Reset immediately
+                            // after — the flag is scoped to this one initializer.
+                            let discard_error = matches!(value, NirValue::CallResult { .. })
+                                && self.trap_discard_error_results.contains(name);
+                            if discard_error {
+                                self.raw_result_discard_error = true;
+                            }
                             // Deep-copy aliasing sources so this binding owns an
                             // independent flat block (plan-02 Phase 8); an aliased
                             // variant binding or by-ref capture slot aliases its
@@ -195,6 +205,7 @@ impl CodeBuilder<'_> {
                             } else {
                                 self.lower_value_owned(value)?
                             };
+                            self.raw_result_discard_error = false;
                             // Observation boundary: a `Float` becoming a named
                             // binding must be finite (plan-17).
                             self.observe_float(value, &result)?;
@@ -1248,6 +1259,10 @@ impl CodeBuilder<'_> {
             None
         };
         let list_element_type = super::list_element_type(&iterable_value.type_);
+        // A `Set OF T` iterates its Map-shaped entries yielding the element `T`
+        // (the entry key), not a `MapEntry` (plan-63-B). Computed here so the loop
+        // body below can read the key payload directly into the loop local.
+        let set_element_type = super::set_element_type(&iterable_value.type_);
         let item_value_type = list_element_type.as_deref();
         let collection_slot = self.allocate_stack_object("for_each_collection", 8);
         let cursor_slot = self.allocate_stack_object("for_each_cursor", 8);
@@ -1370,6 +1385,36 @@ impl CodeBuilder<'_> {
             ));
             self.emit(abi::store_u64(
                 &payload_off,
+                abi::stack_pointer(),
+                local_slot,
+            ));
+        } else if let Some(set_element_type) = set_element_type.as_deref() {
+            // `Set OF T`: read the entry's KEY payload (the element) into the loop
+            // local as `T`. Entries stride by `COLLECTION_ENTRY_SIZE` (the common
+            // advance below, since `list_payload` is `None` for a Set).
+            self.emit(abi::load_u64(
+                &payload_off,
+                &cursor,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &payload_len,
+                &cursor,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit(abi::load_u64(
+                &collection,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
+            let item_value = self.emit_load_map_payload(
+                set_element_type,
+                &collection,
+                &payload_off,
+                &payload_len,
+            )?;
+            self.emit(abi::store_u64(
+                &item_value,
                 abi::stack_pointer(),
                 local_slot,
             ));
@@ -1539,7 +1584,7 @@ pub(super) fn nir_value_reads_local(value: &NirValue, name: &str) -> bool {
                     .iter()
                     .any(|u| nir_value_reads_local(&u.value, name))
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             values.iter().any(|v| nir_value_reads_local(v, name))
         }
         NirValue::MapLiteral { entries, .. } => entries
@@ -1587,7 +1632,9 @@ fn nir_value_context(value: &NirValue) -> String {
         NirValue::FunctionRef { name, .. } => format!("function {name}"),
         NirValue::Closure { name, .. } => format!("closure {name}"),
         NirValue::Const { type_, .. } => format!("const {type_}"),
-        NirValue::ListLiteral { type_, .. } | NirValue::MapLiteral { type_, .. } => {
+        NirValue::ListLiteral { type_, .. }
+        | NirValue::SetLiteral { type_, .. }
+        | NirValue::MapLiteral { type_, .. } => {
             format!("literal {type_}")
         }
         NirValue::Unary { op, .. } | NirValue::Binary { op, .. } => format!("operator {op}"),

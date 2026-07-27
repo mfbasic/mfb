@@ -180,6 +180,11 @@ fn walk_expression(expression: &Expression, line: usize, path: &str, found: &mut
                 walk_expression(value, line, path, found);
             }
         }
+        Expression::SetLiteral { elements, .. } => {
+            for value in elements {
+                walk_expression(value, line, path, found);
+            }
+        }
         Expression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
                 walk_expression(key, line, path, found);

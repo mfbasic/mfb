@@ -558,6 +558,19 @@ impl CollectionTypeLayout {
                 value_type_code: collection_type_code(value_type)?,
             });
         }
+        if let Some(element_type) = super::type_utils::set_element_type(type_) {
+            // `Set OF T` (plan-63): a Map-shaped block whose element is the key and
+            // whose value is a 1-byte `Boolean` (always TRUE — see plan-63-B
+            // Corrections). Keeping a real (if trivial) value lets every Map
+            // emitter — set/remove/probe/projection/copy/free — be reused verbatim,
+            // with the element as the key. The LookupEntry + bucket layout is
+            // identical to a Map's.
+            return Some(Self {
+                kind: COLLECTION_KIND_SET,
+                key_type_code: collection_type_code(&element_type)?,
+                value_type_code: COLLECTION_TYPE_BOOLEAN,
+            });
+        }
         let (key_type, value_type) = map_type_parts(type_)?;
         Some(Self {
             kind: COLLECTION_KIND_MAP,

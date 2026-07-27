@@ -116,7 +116,6 @@
         { "op": "assign", "line": 75, "name": "$trap_val4", "value": { "kind": "resultValue", "type": "File", "value": { "kind": "local", "name": "$trap_res3" } } }
         ],
         "else": [
-        { "op": "bind", "line": 75, "mutable": false, "name": "#err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res3" } } },
         { "op": "eval", "line": 76, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "trap-bound open failed" }] } },
         { "op": "return", "line": 77, "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]

@@ -6,6 +6,7 @@ Test whether a list holds an item equal to a given value.
 
 ```
 collections::contains OF T(value AS List OF T, item AS T) AS Boolean
+collections::contains OF T(value AS Set OF T, item AS T) AS Boolean
 ```
 
 ## Package
@@ -33,9 +34,15 @@ examined without a match. The list is neither copied nor mutated, and no element
 payload is materialized — the scan compares stored bytes in place.
 [[src/target/shared/code/builder_collection_queries.rs:lower_collection_contains]]
 
-This is a list-only member. It does not accept a `Map`, and it is not the
-substring test: the `String` form of `contains` lives in the `strings::`
-package, not here. [[src/builtins/collections.rs:expected_arguments]]
+`contains` also has a **`Set OF T`** overload. Both forms take
+`(collection, element) AS Boolean` and answer the same membership question; the
+compiler picks the overload from the static type of the first argument. On a
+`List` the scan is linear (below); on a `Set` membership is an O(1)-average hash
+probe for a probe-eligible element type and a linear scan otherwise. It does not
+accept a `Map`, and it is not the substring test: the `String` form of
+`contains` lives in the `strings::` package, not here.
+[[src/builtins/collections.rs:resolve_contains]]
+[[src/builtins/collections.rs:expected_arguments]]
 
 Equality is payload comparison, resolved by the element type:
 
@@ -61,18 +68,37 @@ check. `collections::contains` raises no trappable domain error, so an inline
 `contains` answers only whether a match exists. Use `collections::find` when the
 position of the match is needed.
 
+## Overloads
+
+**`collections::contains OF T(value AS List OF T, item AS T) AS Boolean`**
+
+The list form scans `value` from index `0` upward, comparing each stored element
+payload against `item`, and returns `TRUE` on the first match or `FALSE` after
+examining every element. It is O(n) in the list length.
+[[src/builtins/collections.rs:resolve_contains]]
+[[src/target/shared/code/builder_collection_queries.rs:lower_collection_contains]]
+
+**`collections::contains OF T(value AS Set OF T, item AS T) AS Boolean`**
+
+The set form tests membership through the set's hash index: an O(1)-average
+FNV-1a probe for the probe-eligible element types (`Integer`, `Float`, `Fixed`,
+`Byte`, `Boolean`, `String`), falling back to a linear scan over the live entries
+for any other element type. The answer is identical to the list form's; only the
+lookup strategy differs. [[src/builtins/collections.rs:resolve_contains]]
+[[src/target/shared/code/builder_collection_queries.rs:emit_key_membership]]
+
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `value` | `List OF T` | The list to scan, examined left to right. Also accepted under the name `collection`. Not copied and not mutated. [[src/builtins/collections.rs:call_param_names]] |
-| `item` | `T` | The value to search for. Must be exactly the list's element type. [[src/builtins/collections.rs:call_param_names]] |
+| `value` | `List OF T` or `Set OF T` | The collection to test. A list is examined left to right; a set is probed through its hash index. Also accepted under the name `collection`. Not copied and not mutated. [[src/builtins/collections.rs:call_param_names]] |
+| `item` | `T` | The value to search for. Must be exactly the collection's element type. [[src/builtins/collections.rs:call_param_names]] |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Boolean` | `TRUE` when some element of `value` matches `item`; `FALSE` when none does, including for an empty list. [[src/builtins/collections.rs:resolve_contains]] |
+| `Boolean` | `TRUE` when some element of `value` matches `item`; `FALSE` when none does, including for an empty list or set. [[src/builtins/collections.rs:resolve_contains]] |
 
 ## Errors
 
@@ -83,11 +109,11 @@ No errors.
 `collections::contains` takes exactly two arguments.
 [[src/builtins/collections.rs:arity]]
 
-The first must be a `List OF T`; a `Map`, a `String`, or any other value is a
-compile-time type error. The second must be exactly the element type `T` — a
-`List OF Integer` cannot be searched with a `String`, and there is no implicit
-conversion between numeric element types. The result is always `Boolean`.
-[[src/builtins/collections.rs:resolve_contains]]
+The first must be a `List OF T` or a `Set OF T`; a `Map`, a `String`, or any
+other value is a compile-time type error. The second must be exactly the element
+type `T` — a `List OF Integer` cannot be searched with a `String`, and there is
+no implicit conversion between numeric element types. The result is always
+`Boolean`. [[src/builtins/collections.rs:resolve_contains]]
 
 ## Examples
 
@@ -133,10 +159,25 @@ FUNC main AS Integer
 END FUNC
 ```
 
+Test set membership; the same call works on a `Set`:
+
+```
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  LET s AS Set OF Integer = Set OF Integer { 1, 2, 3 }
+  io::print(toString(collections::contains(s, 2)))
+  io::print(toString(collections::contains(s, 9)))
+  RETURN 0
+END FUNC
+```
+
 ## See also
 
 - `mfb man collections find`
 - `mfb man collections hasKey`
 - `mfb man collections filter`
 - `mfb man collections distinct`
+- `mfb man types set`
 - `mfb man collections`

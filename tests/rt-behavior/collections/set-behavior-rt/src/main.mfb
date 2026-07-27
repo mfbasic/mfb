@@ -1,0 +1,67 @@
+' plan-63-B: end-to-end Set OF T behavior. Pins, via build.log output:
+'   - literal dedup + insertion order (probe-eligible Integer/String)
+'   - idempotent add, remove, remove-of-absent no-op, contains, len, toList
+'   - FOR EACH yields the element T in insertion order
+'   - a non-probe-eligible comparable element (a record) takes the linear-scan
+'     membership path (enums are NOT collection payloads today — a pre-existing
+'     limitation shared with Map; see plan-63-B Corrections)
+'   - value semantics: a copied set mutates independently of its source, and a
+'     set embeds in a record field without an arena fault.
+IMPORT io
+IMPORT collections
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+TYPE Bag
+  tags AS Set OF String
+END TYPE
+
+FUNC roundtrip(s AS Set OF Integer) AS Set OF Integer
+  RETURN s
+END FUNC
+
+SUB main
+  ' Probe-eligible Integer: literal dedup (the second 1 collapses).
+  LET nums = Set OF Integer { 3, 1, 4, 1, 5 }
+  io::print("numslen=" & toString(len(nums)))
+
+  ' Idempotent add + remove + remove-of-absent.
+  MUT s AS Set OF Integer = Set OF Integer { }
+  s = collections::add(s, 7)
+  s = collections::add(s, 7)
+  io::print("afterDupAdd=" & toString(len(s)))
+  io::print("has7=" & toString(collections::contains(s, 7)))
+  s = collections::remove(s, 7)
+  s = collections::remove(s, 7)
+  io::print("afterRemove=" & toString(len(s)))
+  io::print("has7b=" & toString(collections::contains(s, 7)))
+
+  ' toList + FOR EACH insertion order over a probe-eligible String set.
+  LET names = Set OF String { "a", "b", "a", "c" }
+  io::print("nameslen=" & toString(len(names)))
+  LET nameList = collections::toList(names)
+  io::print("listlen=" & toString(len(nameList)))
+  FOR EACH n IN names
+    io::print("name=" & n)
+  NEXT
+
+  ' Non-probe-eligible comparable element (record): linear-scan membership.
+  LET ps = Set OF Point { Point[1, 2], Point[3, 4], Point[1, 2] }
+  io::print("pointlen=" & toString(len(ps)))
+  io::print("hasP12=" & toString(collections::contains(ps, Point[1, 2])))
+  io::print("hasP99=" & toString(collections::contains(ps, Point[9, 9])))
+
+  ' Value semantics: grown is a copy of base; mutating it leaves base intact.
+  LET base = Set OF Integer { 1, 2, 3 }
+  MUT grown AS Set OF Integer = roundtrip(base)
+  grown = collections::add(grown, 99)
+  io::print("baselen=" & toString(len(base)))
+  io::print("grownlen=" & toString(len(grown)))
+
+  ' A set embeds in a record field and frees cleanly at scope exit.
+  LET bag = Bag[names]
+  io::print("bagtags=" & toString(len(bag.tags)))
+END SUB

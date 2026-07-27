@@ -1072,6 +1072,8 @@ impl<'a> Monomorphizer<'a> {
                 if let Some(type_name) = self.expression_type(&lowered_iterable, context) {
                     let loop_type = if let Some(element) = type_name.strip_prefix("List OF ") {
                         element.to_string()
+                    } else if let Some(element) = type_name.strip_prefix("Set OF ") {
+                        element.to_string()
                     } else if let Some(rest) = type_name.strip_prefix("Map OF ") {
                         format!("MapEntry OF {rest}")
                     } else {
@@ -1358,6 +1360,20 @@ impl<'a> Monomorphizer<'a> {
                     })
                     .collect(),
             ),
+            Expression::SetLiteral {
+                element_type,
+                elements,
+            } => Expression::SetLiteral {
+                element_type: self.concrete_type_name(element_type, substitutions),
+                elements: elements
+                    .iter()
+                    .map(|value| {
+                        let expected_element =
+                            expected_type.and_then(|type_| type_.strip_prefix("Set OF "));
+                        self.lower_expression(value, substitutions, context, expected_element, line)
+                    })
+                    .collect(),
+            },
             Expression::MapLiteral {
                 key_type,
                 value_type,
@@ -1522,6 +1538,9 @@ impl<'a> Monomorphizer<'a> {
                 self.concrete_type_name(element, substitutions)
             );
         }
+        if let Some(element) = type_name.strip_prefix("Set OF ") {
+            return format!("Set OF {}", self.concrete_type_name(element, substitutions));
+        }
         if let Some(success) = type_name.strip_prefix("Result OF ") {
             return format!(
                 "Result OF {}",
@@ -1588,6 +1607,9 @@ impl<'a> Monomorphizer<'a> {
         let type_name = crate::builtins::thread::strip_type_group(type_name);
         if let Some(element) = type_name.strip_prefix("List OF ") {
             return format!("List OF {}", self.template_view_type(element));
+        }
+        if let Some(element) = type_name.strip_prefix("Set OF ") {
+            return format!("Set OF {}", self.template_view_type(element));
         }
         if let Some(success) = type_name.strip_prefix("Result OF ") {
             return format!("Result OF {}", self.template_view_type(success));
@@ -1783,6 +1805,9 @@ impl<'a> Monomorphizer<'a> {
                 .and_then(|value| self.expression_type(value, context))
                 .map(|element| format!("List OF {element}"))
                 .or_else(|| Some("List OF Unknown".to_string())),
+            Expression::SetLiteral { element_type, .. } => {
+                Some(format!("Set OF {element_type}"))
+            }
             Expression::MapLiteral {
                 key_type,
                 value_type,

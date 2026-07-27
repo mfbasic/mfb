@@ -607,6 +607,25 @@ fn map_type_requires_to_keyword() {
 }
 
 #[test]
+fn parses_set_type_variants() {
+    // `Set OF T` is single-element (like `List`), round-tripping byte-identically.
+    assert_eq!(type_of("Set OF Integer"), "Set OF Integer");
+    assert_eq!(type_of("Set OF String"), "Set OF String");
+    // A nested collection element parses structurally here (the comparability
+    // rejection is ir::verify's job, not the parser's).
+    assert_eq!(
+        type_of("Set OF List OF Integer"),
+        "Set OF List OF Integer"
+    );
+}
+
+#[test]
+fn set_type_rejects_res_element() {
+    // A Set element can never be a resource (`RES` is a parse error after `Set OF`).
+    type_err("Set OF RES File");
+}
+
+#[test]
 fn parses_template_type_with_multiple_args() {
     assert_eq!(
         type_of("Pair OF Integer, String"),

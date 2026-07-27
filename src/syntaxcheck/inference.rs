@@ -353,6 +353,10 @@ impl<'a> SyntaxChecker<'a> {
             Expression::ListLiteral(values) => {
                 self.infer_list_literal(file, values, locals, line, expected)
             }
+            Expression::SetLiteral {
+                element_type,
+                elements,
+            } => self.infer_set_literal(file, element_type, elements, locals, line),
             Expression::MapLiteral {
                 key_type,
                 value_type,
@@ -558,6 +562,28 @@ impl<'a> SyntaxChecker<'a> {
             self.infer_expression(file, value, locals, line, mode);
         }
         Type::List(Box::new(element_type))
+    }
+
+    pub(super) fn infer_set_literal(
+        &mut self,
+        file: &AstFile,
+        element_type: &str,
+        elements: &[Expression],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        // A `Set OF T` element behaves like a Map key: it must be comparable and
+        // may not carry a resource/thread (§15.6).
+        let element_type = self.parse_type(element_type);
+        self.check_type_reference(file, &element_type, line);
+        if self.contains_resource_or_thread(&element_type) {
+            self.report_invalid_collection_element(file, line, "element", &element_type);
+        }
+        self.require_comparable_type(file, line, "Set element type", &element_type);
+        for value in elements {
+            self.infer_expression(file, value, locals, line, ExprMode::Transfer);
+        }
+        Type::Set(Box::new(element_type))
     }
 
     pub(super) fn infer_map_literal(

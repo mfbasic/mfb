@@ -1,0 +1,93 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "set_behavior_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Nothing",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "line": 13,
+    "visibility": "public",
+    "name": "Point",
+    "fields": [
+    { "visibility": null, "line": 14, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 15, "name": "y", "type": "Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "line": 18,
+    "visibility": "public",
+    "name": "Bag",
+    "fields": [
+    { "visibility": null, "line": 19, "name": "tags", "type": "Set OF String" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "roundtrip",
+    "line": 22,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 22, "type": "Set OF Integer", "default": null }
+    ],
+    "returns": "Set OF Integer",
+    "body": [
+    { "op": "return", "line": 23, "value": { "kind": "local", "name": "s" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 26,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 28, "mutable": false, "name": "nums", "type": "Set OF Integer", "value": { "kind": "set", "type": "Set OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "numslen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "nums" }] }] } }] } },
+    { "op": "bind", "line": 32, "mutable": true, "name": "s", "type": "Set OF Integer", "value": { "kind": "set", "type": "Set OF Integer", "values": [] } },
+    { "op": "assign", "line": 33, "name": "s", "value": { "kind": "call", "type": "Set OF Integer", "target": "collections.add", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "assign", "line": 34, "name": "s", "value": { "kind": "call", "type": "Set OF Integer", "target": "collections.add", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "afterDupAdd=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] }] } }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "has7=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "7" }] }] } }] } },
+    { "op": "assign", "line": 37, "name": "s", "value": { "kind": "call", "type": "Set OF Integer", "target": "collections.remove", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "assign", "line": 38, "name": "s", "value": { "kind": "call", "type": "Set OF Integer", "target": "collections.remove", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "afterRemove=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "s" }] }] } }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "has7b=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "s" }, { "kind": "const", "type": "Integer", "value": "7" }] }] } }] } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "names", "type": "Set OF String", "value": { "kind": "set", "type": "Set OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "c" }] } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "nameslen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "names" }] }] } }] } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "nameList", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "collections.toList", "args": [{ "kind": "local", "name": "names" }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "listlen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "nameList" }] }] } }] } },
+    {
+      "op": "forEach",
+      "line": 47,
+      "name": "n",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "names" },
+      "body": [
+      { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "name=" }, "right": { "kind": "local", "name": "n" } }] } }
+      ]
+    },
+    { "op": "bind", "line": 52, "mutable": false, "name": "ps", "type": "Set OF Point", "value": { "kind": "set", "type": "Set OF Point", "values": [{ "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "eval", "line": 53, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pointlen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "ps" }] }] } }] } },
+    { "op": "eval", "line": 54, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "hasP12=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "ps" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } }] } },
+    { "op": "eval", "line": 55, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "hasP99=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "collections.contains", "args": [{ "kind": "local", "name": "ps" }, { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "9" }, { "kind": "const", "type": "Integer", "value": "9" }] }] }] } }] } },
+    { "op": "bind", "line": 58, "mutable": false, "name": "base", "type": "Set OF Integer", "value": { "kind": "set", "type": "Set OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "line": 59, "mutable": true, "name": "grown", "type": "Set OF Integer", "value": { "kind": "call", "type": "Set OF Integer", "target": "roundtrip", "args": [{ "kind": "local", "name": "base" }] } },
+    { "op": "assign", "line": 60, "name": "grown", "value": { "kind": "call", "type": "Set OF Integer", "target": "collections.add", "args": [{ "kind": "local", "name": "grown" }, { "kind": "const", "type": "Integer", "value": "99" }] } },
+    { "op": "eval", "line": 61, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "baselen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "base" }] }] } }] } },
+    { "op": "eval", "line": 62, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "grownlen=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "grown" }] }] } }] } },
+    { "op": "bind", "line": 65, "mutable": false, "name": "bag", "type": "Bag", "value": { "kind": "constructor", "type": "Bag", "args": [{ "kind": "local", "name": "names" }] } },
+    { "op": "eval", "line": 66, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "bagtags=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "Set OF String", "target": { "kind": "local", "name": "bag" }, "member": "tags" }] }] } }] } }
+    ]
+  }
+  ]
+}

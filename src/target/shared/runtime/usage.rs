@@ -291,7 +291,7 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
                 push_value_helpers(&update.value, helpers);
             }
         }
-        IrValue::ListLiteral { values, .. } => {
+        IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
                 push_value_helpers(value, helpers);
             }

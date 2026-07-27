@@ -797,15 +797,42 @@ So ~3 allocs+3 memcpys per failure, 1 alloc per success — ~100k+ allocs/rep be
 1104 ms floor. The 1104→12668 climb is A (mixed-size fragmentation).
 
 **Fixes (semantics-preserving).**
-- **I1 (biggest):** skip the `Result`-block materialization when the inline-TRAP consumer
-  is adjacent — fuse `lower_inline_conversion_raw` with the enclosing TRAP so the raw
-  tag/value **registers** feed the Ok/Err branch directly (eliminates `emit_build_result_inline`
-  + its scope-drop free on all 100k iterations).
-- **I2:** elide `ErrorLoc` + flat-Error assembly when the handler provably ignores `err`
-  (here `RECOVER 0 - 1` never reads it) — the error path then needs only the tag.
-- **I3:** allocate these short-lived Result/Error/ErrorLoc blocks in a per-iteration
-  scoped sub-arena that resets each `FOR EACH` iteration (flattens the climb even before A).
+- **[x] I2 — LANDED (the real lever; plan's "I1 biggest" was wrong — see Corrections).**
+  When the inline-TRAP handler provably ignores `err` (here `RECOVER 0 - 1` never reads it),
+  the error path builds **only a tag** — no `ErrorLoc`, no flat `Error` block, no
+  adopt/copy/free. Two coordinated pieces: (a) the IR desugar (`ir::lower::lower_inline_trap`)
+  omits the dead `Bind err = ResultError(res)` when `ops_read_local(handler, err)` is false —
+  itself a win, since `ResultError` is an aliasing source so that bind was a dead
+  `copy_flat_block` of the Error; (b) a per-function codegen pre-pass
+  (`trap_discard_error_results`, `function_lowering.rs`) marks conversion (`toInt`/`toFloat`/…)
+  `CallResult` Result-locals with no live `err`, and a transient `raw_result_discard_error`
+  flag makes `emit_error_register_return` set `RESULT_ERR_TAG` + jump to the capture (skipping
+  `_mfb_make_error_result` + the parked Error block) and `materialize_current_result` build a
+  bare 24-byte tag-only `Result` (freed by its stored `size@8`, never a walk of the absent
+  Error). `CallResult` is produced *only* by the TRAP desugar, so "no live `ResultError`" is a
+  sound license to drop the Error. **Result: `dispatch trap` (isolated, fresh-arena `--run 50`)
+  9.37 → 3.52 ms median (2.66×)** — now at the all-valid success floor (3.33 ms), i.e. the
+  25%-error path is as cheap as a success. checksum `37475000` **proven unchanged**; full
+  `cargo test` green; existing trap acceptance fixtures + new
+  `rt-behavior/trap/inline-trap-discard-error-rt` (discard + err-used + non-conversion
+  receiver) pass. Golden churn is confined to **err-ignoring** TRAPs: their `.ir` drops the
+  dead `Bind err`, and their `.ncode`/`.mir` change (that removal + the conversion discard
+  path). **err-USED** TRAPs are byte-identical — the full error build is extracted verbatim to
+  `emit_materialize_error_payload` reusing the caller's scratch vreg, so no vreg renumbering.
+  Regenerated via `sync-goldens.sh` / `artifact-gate.sh`.
+- **[~] I1 — measured, DEFERRED (residual ~7%, high blast radius).** Eliding the *Result block
+  itself* on both paths (the plan's "fuse the raw tag/value registers into the Ok/Err branch")
+  needs a virtual-slot representation so `ResultIsOk`/`ResultValue` read stack slots instead of
+  a block — touching the hottest Result ops for **every** TRAP. A throwaway stack-alloc probe
+  bounded the success-path Result-alloc win at only **~0.67 ms (~7%)** of the isolated 9.37 ms;
+  the error-path Result wrapper is a similar sliver on top of I2. Not worth the risk on the
+  compiler's highest-blast-radius surface for <10% after I2 banked 2.66×. Revisit only if the
+  Result-block alloc shows up as a bottleneck elsewhere.
+- **[x] ~~I3~~ — moot.** The per-iteration sub-arena targeted the 1104→12668 *climb*, which is
+  the arena quadratic (**A**), not I's floor; I2 already removes ~2 allocs/error-iteration, and
+  the residual climb is A's to flatten.
 - Gate: dispatch trap checksum + inline-TRAP tests (`tests/`) + `scripts/artifact-gate.sh`.
+  Commit: `599162d6a`.
 
 ### Sub-plan J — vector Integer/Fixed op-inlining
 
@@ -1030,11 +1057,12 @@ the plan predicted). `parse csv` median (447↔602) and `thread sum` (44↔68) s
 **Not yet done — every remaining item was investigated at `file:line` this session and each
 is a substantial dedicated effort with a specific, documented complication (not a rushed
 pass; correctness bar per `.ai/compiler.md` governs):**
-- **I** (inline-TRAP Result/Error elision) — **dispatch trap 1885 ms, the #1 offender.**
-  `lower_inline_trap` (`ir/lower.rs:963`) materializes a `Result OF T` block then destructures
-  it one op later; eliding it needs a new IR op or a codegen peephole on the
-  `Bind Result; If ResultIsOk{ResultValue} else{ResultError}` shape — **tree-wide blast
-  radius** (every `TRAP`).
+- ~~**I** (inline-TRAP Result/Error elision)~~ — **I2 LANDED** (isolated `dispatch trap`
+  9.37 → 3.52 ms, 2.66×; the full-suite 1885 ms figure is arena-amplified — see Corrections).
+  Done as a codegen peephole (no new IR op): the IR drops the dead `Bind err`, and a
+  per-function pre-pass + `raw_result_discard_error` flag make the conversion error path
+  build a bare tag when `err` is unused. **I1** (elide the Result *block* via virtual slots)
+  measured at ~7% residual and DEFERRED (hottest Result ops, every TRAP, not worth it).
 - ~~**D1** (native groupBy)~~ — **LANDED** `34024b800` (listchurn nested 70.8 → 13.3). ~~**D4**
   (native partition)~~ — **LANDED** `af75ab381` (list partition 6.09 → ~3.6, COMPLETE).
 - **C1** (map in-place removeKey, `mapchurn churn` 166 ms) — variable-length String-key
@@ -1121,6 +1149,30 @@ and what execution found, with evidence.
   concat-bound. Reverted (no benefit, only string-concat golden churn). This makes the fourth
   wrong per-row attribution the execution found (after K, G3, and D1's "not done" staleness) —
   the plan's `file:line` root-causes must each be **measured** before landing, not trusted.
+
+- **Sub-plan I: "I1 biggest" was wrong; I2 is the lever (measured).** The plan sized I off the
+  full-suite `dispatch trap` number (1104/1885 ms) and called **I1** (skip the Result-block
+  alloc) "biggest." Measured in isolation (a trimmed fresh-arena `--run 50` copy), the row is
+  only **9.37 ms** — the 1885 ms is almost entirely the process-global **arena quadratic (A)**
+  left by the ~120 preceding benchmarks, not I's floor. Decomposing the isolated 9.37 ms
+  (all-valid variant = 3.33 ms for 100k successes): the **error path is ~73% of runtime** (6.87
+  ms over 25k errors ≈ 275 ns/error vs 33 ns/success), because each error built an ErrorLoc +
+  flat Error + Result (3 allocs + a helper + copies). A throwaway stack-alloc probe bounded
+  **I1** (the success Result alloc) at only **~7%**. So the real lever is **I2** (elide the
+  Error assembly when `err` is unused), which the plan had listed second. Landed I2 (9.37 →
+  3.52 ms, now at the success floor); deferred I1's ~7% (virtual-slot rewrite of the hottest
+  Result ops = disproportionate blast radius). Fourth wrong per-row attribution the execution
+  found (after K, G3, L1) — the plan's `file:line` cost model must be measured, not trusted.
+- **Sub-plan I found no crash-free bare-Result shortcut without the IR change.** The first cut
+  (bare tag-only Result, IR unchanged) SIGSEGV'd: `Bind err = ResultError(res)` is an aliasing
+  source, so it deep-`copy_flat_block`s the Error, walking a garbage message offset past the
+  24-byte bare block. Eliding the dead `Bind err` in the IR (when the handler never reads `err`)
+  both removes that copy and is the license codegen needs — a cleaner fix than a new IR op, and
+  a standalone win (dead Error copy dropped on every err-ignoring TRAP).
+- **`cargo fmt` is NOT enforced here — never run it tree-wide.** A `cargo fmt` to tidy one edit
+  reformatted 34 files (2203 insertions); `cargo fmt --check` shows **149** pre-existing
+  fmt-dirty files at HEAD. The memory note claiming the tree is fmt-clean is stale. All edits
+  are hand-formatted; the tree-wide reformat was reverted.
 
 ## Open Decisions
 

@@ -146,6 +146,11 @@ pub(super) fn collect_captured_locals(
                 collect_captured_locals(value, outer_locals, local_names, seen, captures);
             }
         }
+        Expression::SetLiteral { elements, .. } => {
+            for value in elements {
+                collect_captured_locals(value, outer_locals, local_names, seen, captures);
+            }
+        }
         Expression::MapLiteral { entries, .. } => {
             for (key, value) in entries {
                 collect_captured_locals(key, outer_locals, local_names, seen, captures);

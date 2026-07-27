@@ -1,6 +1,6 @@
 # Collections
 
-One uniform contiguous layout represents both `List` and `Map`: a header, a
+One uniform contiguous layout represents `List`, `Map`, and `Set`: a header, a
 lookup table, and a packed data region.
 
 ## Collection String Payloads
@@ -23,7 +23,7 @@ Collections use one uniform layout for `List` and `Map`.
 
 ```text
 CollectionHeader
-  U8 kind            ; 0 = List, 1 = Map, 2 = fixed-width List (no LookupEntry)
+  U8 kind            ; 0 = List, 1 = Map, 2 = fixed-width List (no LookupEntry), 3 = Set
   U8 keyType         ; 0 for List
   U8 valueType
   U8 flagsVersion
@@ -103,10 +103,35 @@ observe which representation a list uses: the element type alone determines it,
 either way. The `Payload Order` invariant below is what makes the two
 interchangeable.
 
+### Sets (kind 3)
+
+A `Set OF T` (`kind = 3`, `COLLECTION_KIND_SET`) is a `Map`-shaped block: a
+header, an insertion-ordered lookup table, a packed data region, and a hash index
+in the `Buckets` region after the data. It reuses the map machinery verbatim, but
+it is a hash-indexed set of **elements, not key/value pairs**: each element is
+stored as an entry **key** (in `keyOffset`/`keyLength`), and the entry's value is
+a single implementation-detail tag byte carrying no information a program can
+read. [[src/target/shared/code/error_constants.rs:COLLECTION_KIND_SET]]
+
+Because a set is map-shaped it carries buckets exactly as a map does — the
+bucket region is shared through `collection_has_buckets`, which is true for both
+kind 1 and kind 3 — so membership (`collections::contains` on a `Set`) is an
+O(1)-average FNV-1a probe of the element key for a probe-eligible element type
+(`Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, `String`) and a linear scan over
+the live lookup entries otherwise, with the index built lazily on first use and
+`bucketsReady` set exactly as for a map.
+[[src/target/shared/code/type_utils.rs:collection_has_buckets]]
+The lookup table stays insertion-ordered, so `FOR EACH` over a set and
+`collections::toList` visit the elements in insertion order, and a set literal
+`Set OF T { … }` builds a tight block (`capacity == count`) with each distinct
+element inserted once. Copy and thread transfer are shrink-to-fit and leave
+`bucketsReady = 0` for a lazy rebuild, exactly as for a map.
+
 ### Header Fields
 
-- `kind` identifies whether the allocation is a `List` (`0`), a `Map` (`1`), or a
-  fixed-width `List` carrying no lookup entries (`2`; see *Fixed-Width Lists*).
+- `kind` identifies whether the allocation is a `List` (`0`), a `Map` (`1`), a
+  fixed-width `List` carrying no lookup entries (`2`; see *Fixed-Width Lists*), or
+  a `Set` (`3`; see *Sets*). [[src/target/shared/code/error_constants.rs:COLLECTION_KIND_SET]]
 - `keyType` identifies the map key payload type. It is `0` for `List`.
 - `valueType` identifies the list item type or map value type.
 - `flagsVersion` identifies the layout version and collection-level flags.

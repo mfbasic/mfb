@@ -14,7 +14,7 @@ tests/syntax/filters/isNotEmpty/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VAL
    3 |   LET wrongType AS Boolean = isNotEmpty(1)
      | ^
 tests/syntax/filters/isNotEmpty/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `isNotEmpty` has argument type(s) (Integer), expected String, List OF T, or Map OF K TO V.
+               Call to `isNotEmpty` has argument type(s) (Integer), expected String, List OF T, Set OF T, or Map OF K TO V.
    1 | FUNC main AS Integer
    2 |   LET missing AS Boolean = isNotEmpty()
    3 |   LET wrongType AS Boolean = isNotEmpty(1)

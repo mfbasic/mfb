@@ -2254,6 +2254,55 @@ fn rejects_map_key_not_comparable() {
     expect_rule(&project(vec![f], vec![]), "TYPE_REQUIRES_COMPARABLE");
 }
 
+// --- Set element comparability (plan-63) ------------------------------------
+
+#[test]
+fn accepts_set_of_comparable_element() {
+    // `Set OF Integer` passes and returns cleanly — a comparable element.
+    let f = func_returns(
+        "run",
+        "Set OF Integer",
+        vec![param("s", "Set OF Integer", None)],
+        vec![IrOp::Return {
+            value: Some(IrValue::Local("s".to_string())),
+            loc: IrSourceLoc::default(),
+        }],
+    );
+    accept(&project(vec![f], vec![]));
+}
+
+#[test]
+fn rejects_set_of_resource_element() {
+    // `Set OF File`: a resource handle is not comparable and can't be owned by an
+    // ordinary collection.
+    let f = func_returns("run", "Nothing", vec![param("s", "Set OF File", None)], vec![]);
+    expect_rule(&project(vec![f], vec![]), "TYPE_REQUIRES_COMPARABLE");
+}
+
+#[test]
+fn rejects_set_of_function_element() {
+    // `Set OF FUNC() AS Integer`: a function value is not comparable.
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF FUNC() AS Integer", None)],
+        vec![],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_REQUIRES_COMPARABLE");
+}
+
+#[test]
+fn rejects_set_of_collection_element() {
+    // `Set OF List OF Integer`: a nested collection is not comparable.
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF List OF Integer", None)],
+        vec![],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_REQUIRES_COMPARABLE");
+}
+
 // --- member access chains --------------------------------------------------
 
 #[test]
@@ -4628,6 +4677,34 @@ fn mut_map_is_defaultable() {
         vec![bind("m", "Map OF String TO Integer", None, true, true)],
     );
     accept(&project(vec![f], vec![]));
+}
+
+#[test]
+fn mut_set_is_defaultable() {
+    // `MUT s AS Set OF Integer` with no initializer defaults to the empty set.
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("s", "Set OF Integer", None, true, true)],
+    );
+    accept(&project(vec![f], vec![]));
+}
+
+#[test]
+fn rejects_mut_set_of_resource_not_defaultable() {
+    // `MUT s AS Set OF File`: File is neither comparable nor defaultable, so the
+    // no-initializer MUT is rejected.
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![],
+        vec![bind("s", "Set OF File", None, true, true)],
+    );
+    expect_rule(
+        &project(vec![f], vec![]),
+        "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+    );
 }
 
 #[test]

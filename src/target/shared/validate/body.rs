@@ -779,7 +779,7 @@ pub(super) fn validate_value(
             }
             Ok(())
         }
-        NirValue::ListLiteral { type_, values } => {
+        NirValue::ListLiteral { type_, values } | NirValue::SetLiteral { type_, values } => {
             validate_type_name(type_)?;
             for value in values {
                 validate_value(

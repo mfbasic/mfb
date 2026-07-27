@@ -101,6 +101,13 @@ pub(crate) enum IrValue {
         type_: String,
         values: Vec<IrValue>,
     },
+    /// `Set OF T { … }` (plan-63): the elements build a deduplicated set. `type_`
+    /// is the full `Set OF T` string; `values` are the element expressions in
+    /// source order (duplicates collapse at build time).
+    SetLiteral {
+        type_: String,
+        values: Vec<IrValue>,
+    },
     MapLiteral {
         type_: String,
         entries: Vec<(IrValue, IrValue)>,
@@ -149,6 +156,7 @@ impl IrValue {
             | IrValue::ResultValue { type_, .. }
             | IrValue::WithUpdate { type_, .. }
             | IrValue::ListLiteral { type_, .. }
+            | IrValue::SetLiteral { type_, .. }
             | IrValue::MapLiteral { type_, .. }
             | IrValue::MemberAccess { type_, .. }
             | IrValue::Binary { type_, .. }
@@ -220,7 +228,7 @@ fn visit_value_depth<F: FnMut(&IrValue)>(value: &IrValue, depth: usize, f: &mut 
                 visit_value_depth(&update.value, next, f);
             }
         }
-        IrValue::ListLiteral { values, .. } => {
+        IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
                 visit_value_depth(value, next, f);
             }
@@ -285,7 +293,7 @@ fn visit_value_mut_inner<F: FnMut(&mut IrValue)>(value: &mut IrValue, f: &mut F)
                 visit_value_mut_inner(&mut update.value, f);
             }
         }
-        IrValue::ListLiteral { values, .. } => {
+        IrValue::ListLiteral { values, .. } | IrValue::SetLiteral { values, .. } => {
             for value in values {
                 visit_value_mut_inner(value, f);
             }

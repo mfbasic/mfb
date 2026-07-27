@@ -365,6 +365,7 @@ Scheme*).
 | `2-203-0051` | `TYPE_LIST_ELEMENT_MISMATCH` | error | list element type does not match the expected element type |
 | `2-203-0052` | `TYPE_MAP_KEY_MISMATCH` | error | map key type does not match the declared key type |
 | `2-203-0053` | `TYPE_MAP_VALUE_MISMATCH` | error | map value type does not match the declared value type |
+| `2-203-0054` | `TYPE_SET_ELEMENT_MISMATCH` | error | set element type does not match the expected element type |
 | `2-203-0055` | `TYPE_USE_AFTER_MOVE` | error | binding is used after move |
 | `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | ordinary collections cannot store resource or thread ownership |
 | `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | **reserved — retired by resource-scoped ownership; never emitted, never recycled** |

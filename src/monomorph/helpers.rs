@@ -58,6 +58,12 @@ pub(super) fn unify_type(
         };
         return unify_type(pattern_element, actual_element, params, substitutions);
     }
+    if let Some(pattern_element) = pattern.strip_prefix("Set OF ") {
+        let Some(actual_element) = actual.strip_prefix("Set OF ") else {
+            return false;
+        };
+        return unify_type(pattern_element, actual_element, params, substitutions);
+    }
     if let Some(pattern_success) = pattern.strip_prefix("Result OF ") {
         let Some(actual_success) = actual.strip_prefix("Result OF ") else {
             return false;
@@ -147,6 +153,7 @@ pub(super) fn func_type_parts(type_name: &str) -> Option<(Vec<&str>, &str)> {
 
 pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String>)> {
     if type_name.starts_with("List OF ")
+        || type_name.starts_with("Set OF ")
         || type_name.starts_with("Map OF ")
         || type_name.starts_with("MapEntry OF ")
         || type_name.starts_with("Result OF ")
@@ -170,6 +177,9 @@ pub(super) fn substitute_type_params(
     }
     if let Some(element) = type_name.strip_prefix("List OF ") {
         return format!("List OF {}", substitute_type_params(element, substitutions));
+    }
+    if let Some(element) = type_name.strip_prefix("Set OF ") {
+        return format!("Set OF {}", substitute_type_params(element, substitutions));
     }
     if let Some(success) = type_name.strip_prefix("Result OF ") {
         return format!(
@@ -543,6 +553,7 @@ mod tests {
         let params = vec!["T".to_string(), "U".to_string()];
         let cases = [
             ("List OF T", "List OF Integer"),
+            ("Set OF T", "Set OF Integer"),
             ("Result OF T", "Result OF String"),
             ("Map OF T TO U", "Map OF String TO Integer"),
             ("MapEntry OF T TO U", "MapEntry OF String TO Integer"),
@@ -701,6 +712,7 @@ mod tests {
         );
         for builtin in [
             "List OF Integer",
+            "Set OF Integer",
             "Map OF Integer TO String",
             "MapEntry OF Integer TO String",
             "Result OF Integer",
@@ -719,6 +731,7 @@ mod tests {
         let s = subs(&[("T", "Integer"), ("U", "String")]);
         assert_eq!(substitute_type_params("T", &s), "Integer");
         assert_eq!(substitute_type_params("List OF T", &s), "List OF Integer");
+        assert_eq!(substitute_type_params("Set OF T", &s), "Set OF Integer");
         assert_eq!(
             substitute_type_params("Result OF T", &s),
             "Result OF Integer"

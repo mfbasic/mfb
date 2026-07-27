@@ -1,0 +1,94 @@
+{
+  "project": "set_behavior_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 },
+    { "module": "collections", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Point",
+      "line": 13,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 14 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 15 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "public",
+      "name": "Bag",
+      "line": 18,
+      "fields": [
+      { "visibility": null, "name": "tags", "type": "Set OF String", "line": 19 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "roundtrip",
+      "line": 22,
+      "params": [
+      { "name": "s", "type": "Set OF Integer", "default": null, "line": 22 }
+      ],
+      "returnType": "Set OF Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "identifier", "value": "s" }, "line": 23 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 26,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "nums", "type": null, "value": { "kind": "set", "elementType": "Integer", "values": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "5" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "numslen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "nums" }] }] } }] }, "line": 29 },
+      { "kind": "binding", "mutable": true, "name": "s", "type": "Set OF Integer", "value": { "kind": "set", "elementType": "Integer", "values": [] }, "line": 32 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "7" }] }, "line": 33 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "7" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "afterDupAdd=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }] } }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "has7=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "7" }] }] } }] }, "line": 36 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "collections.remove", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "7" }] }, "line": 37 },
+      { "kind": "assignment", "name": "s", "value": { "kind": "call", "callee": "collections.remove", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "7" }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "afterRemove=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "s" }] }] } }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "has7b=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "number", "value": "7" }] }] } }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "names", "type": null, "value": { "kind": "set", "elementType": "String", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "b" }, { "kind": "string", "value": "a" }, { "kind": "string", "value": "c" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "nameslen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "names" }] }] } }] }, "line": 44 },
+      { "kind": "binding", "mutable": false, "name": "nameList", "type": null, "value": { "kind": "call", "callee": "collections.toList", "arguments": [{ "kind": "identifier", "value": "names" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "listlen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "nameList" }] }] } }] }, "line": 46 },
+      {
+        "kind": "forEach",
+        "name": "n",
+        "iterable": { "kind": "identifier", "value": "names" },
+        "line": 47,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "name=" }, "right": { "kind": "identifier", "value": "n" } }] }, "line": 48 }
+        ]
+      },
+      { "kind": "binding", "mutable": false, "name": "ps", "type": null, "value": { "kind": "set", "elementType": "Point", "values": [{ "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pointlen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "ps" }] }] } }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hasP12=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "ps" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }] }] } }] }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "hasP99=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "ps" }, { "kind": "constructor", "type": "Point", "arguments": [{ "kind": "number", "value": "9" }, { "kind": "number", "value": "9" }] }] }] } }] }, "line": 55 },
+      { "kind": "binding", "mutable": false, "name": "base", "type": null, "value": { "kind": "set", "elementType": "Integer", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 58 },
+      { "kind": "binding", "mutable": true, "name": "grown", "type": "Set OF Integer", "value": { "kind": "call", "callee": "roundtrip", "arguments": [{ "kind": "identifier", "value": "base" }] }, "line": 59 },
+      { "kind": "assignment", "name": "grown", "value": { "kind": "call", "callee": "collections.add", "arguments": [{ "kind": "identifier", "value": "grown" }, { "kind": "number", "value": "99" }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "baselen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "base" }] }] } }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "grownlen=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "grown" }] }] } }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "name": "bag", "type": null, "value": { "kind": "constructor", "type": "Bag", "arguments": [{ "kind": "identifier", "value": "names" }] }, "line": 65 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "bagtags=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "bag" }, "member": "tags" }] }] } }] }, "line": 66 }
+      ]
+    }
+    ]
+  }
+  ]
+}

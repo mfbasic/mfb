@@ -257,7 +257,7 @@ pub(super) fn collect_runtime_calls_from_value(
                 collect_runtime_calls_from_value(&update.value, calls, constants);
             }
         }
-        NirValue::ListLiteral { values, .. } => {
+        NirValue::ListLiteral { values, .. } | NirValue::SetLiteral { values, .. } => {
             for value in values {
                 collect_runtime_calls_from_value(value, calls, constants);
             }

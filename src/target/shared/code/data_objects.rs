@@ -472,6 +472,7 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
                 | NirValue::FunctionRef { type_, .. }
                 | NirValue::Constructor { type_, .. }
                 | NirValue::ListLiteral { type_, .. }
+                | NirValue::SetLiteral { type_, .. }
                 | NirValue::MapLiteral { type_, .. }
                 | NirValue::UnionExtract { type_, .. }
                 | NirValue::WithUpdate { type_, .. } => {
@@ -946,7 +947,8 @@ fn collect_string_values_from_value(
                 collect_string_values_from_value(&update.value, values, constants, types, fields);
             }
         }
-        NirValue::ListLiteral { values: items, .. } => {
+        NirValue::ListLiteral { values: items, .. }
+        | NirValue::SetLiteral { values: items, .. } => {
             for item in items {
                 collect_string_values_from_value(item, values, constants, types, fields);
             }
@@ -1044,6 +1046,7 @@ pub(super) fn static_type_name_with_types(
         | NirValue::Constructor { type_, .. }
         | NirValue::WithUpdate { type_, .. }
         | NirValue::ListLiteral { type_, .. }
+        | NirValue::SetLiteral { type_, .. }
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::UnionWrap { union_type, .. } => Some(union_type.clone()),
         NirValue::UnionExtract { type_, .. } => Some(type_.clone()),

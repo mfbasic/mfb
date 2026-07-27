@@ -415,6 +415,7 @@ pub(super) fn value_uses_resource_type(value: &IrValue) -> bool {
         | IrValue::Capture { type_, .. }
         | IrValue::Constructor { type_, .. }
         | IrValue::ListLiteral { type_, .. }
+        | IrValue::SetLiteral { type_, .. }
         | IrValue::MapLiteral { type_, .. } => is_resource_type_name(type_),
         IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
             builtins::call_return_type_name(target).is_some_and(is_resource_type_name)
@@ -558,6 +559,7 @@ pub(super) fn collect_resource_names_in_value(
         | IrValue::Capture { type_, .. }
         | IrValue::Constructor { type_, .. }
         | IrValue::ListLiteral { type_, .. }
+        | IrValue::SetLiteral { type_, .. }
         | IrValue::MapLiteral { type_, .. } => record(type_, names),
         IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
             if let Some(returns) = builtins::call_return_type_name(target) {
@@ -792,6 +794,11 @@ pub(super) fn collect_imported_calls_value(
             }
         }
         IrValue::ListLiteral { values, .. } => {
+            for v in values {
+                collect_imported_calls_value(v, imported, used);
+            }
+        }
+        IrValue::SetLiteral { values, .. } => {
             for v in values {
                 collect_imported_calls_value(v, imported, used);
             }

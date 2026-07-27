@@ -93,6 +93,20 @@ impl CodeBuilder<'_> {
         // `str x` the element compare reads back (plan-01 float-dnative).
         self.store_value_at(&item, abi::stack_pointer(), item_slot);
 
+        // A `Set OF T` membership test is the Map-shaped hash probe / linear scan
+        // over the element (= entry key), shared with `hasKey` (plan-63-B). Decided
+        // on the *lowered* type so a nested-call first argument (`contains(union(a,
+        // b), x)`, whose static type is unknown pre-lowering) still routes here.
+        if let Some(element_type) = set_element_type(&collection.type_) {
+            return self.emit_key_membership(
+                collection_slot,
+                item_slot,
+                &element_type,
+                "contains",
+                &collection.type_,
+            );
+        }
+
         let Some(element_type) = list_element_type(&collection.type_) else {
             return Err(format!(
                 "native collection contains does not accept {}",
@@ -286,13 +300,6 @@ impl CodeBuilder<'_> {
         &mut self,
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
-        let scratch8 = self.temporary_vreg();
-        let scratch9 = self.temporary_vreg();
-        let scratch10 = self.temporary_vreg();
-        let scratch11 = self.temporary_vreg();
-        let scratch12 = self.temporary_vreg();
-        let scratch13 = self.temporary_vreg();
-        let scratch14 = self.temporary_vreg();
         let collection = self.lower_value(&args[0])?;
         let collection_slot = self.allocate_stack_object("has_key_collection", 8);
         self.emit(abi::store_u64(
@@ -305,24 +312,60 @@ impl CodeBuilder<'_> {
         // `d`-native float key stores via `str d` (plan-01 float-dnative).
         self.store_value_at(&key, abi::stack_pointer(), key_slot);
 
-        let Some((key_type, _)) = map_type_parts(&collection.type_) else {
+        // A Map keys on its key type; a Set (reached via `contains`, plan-63-B)
+        // keys on its element type — both are the bytes the probe compares.
+        let Some(key_type) = map_type_parts(&collection.type_)
+            .map(|(key, _)| key.to_string())
+            .or_else(|| set_element_type(&collection.type_))
+        else {
             return Err(format!(
-                "native collection hasKey does not accept {}",
+                "native collection hasKey/contains does not accept {}",
                 collection.type_
             ));
         };
+        let key_type = key_type.as_str();
         if key.type_ != key_type {
             return Err(format!(
                 "native collection hasKey key must be {}, got {}",
                 key_type, key.type_
             ));
         }
+        return self.emit_key_membership(
+            collection_slot,
+            key_slot,
+            key_type,
+            "has_key",
+            &collection.type_,
+        );
+    }
 
-        if Self::map_key_probe_eligible(&key_type) {
+    /// The shared Map/Set membership test: probe the FNV-1a bucket index for a
+    /// probe-eligible key type, else linear-scan the entry keys, yielding a
+    /// `Boolean`. Both `collections::hasKey` (Map) and the Set overload of
+    /// `collections::contains` (plan-63-B) lower through here — a Set's element is
+    /// its entry key, so the byte-compare is identical. `collection_slot` holds the
+    /// collection pointer and `key_slot` the needle, both already spilled.
+    pub(super) fn emit_key_membership(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        key_type: &str,
+        label_prefix: &str,
+        collection_type: &str,
+    ) -> Result<ValueResult, String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
+        let scratch14 = self.temporary_vreg();
+
+        if Self::map_key_probe_eligible(key_type) {
             self.reset_temporary_registers();
-            let not_found = self.label("has_key_not_found");
-            let done = self.label("has_key_done");
-            let _ = self.emit_map_probe(collection_slot, key_slot, &key_type, &not_found)?;
+            let not_found = self.label(&format!("{label_prefix}_not_found"));
+            let done = self.label(&format!("{label_prefix}_done"));
+            let _ = self.emit_map_probe(collection_slot, key_slot, key_type, &not_found)?;
             let result = self.allocate_register()?;
             self.emit(abi::move_immediate(&result, "Boolean", "true"));
             self.emit(abi::branch(&done));
@@ -332,17 +375,17 @@ impl CodeBuilder<'_> {
             return Ok(ValueResult {
                 type_: "Boolean".to_string(),
                 location: result,
-                text: format!("hasKey({}) [hash]", collection.type_),
+                text: format!("{label_prefix}({collection_type}) [hash]"),
             });
         }
 
         self.reset_temporary_registers();
         let result = self.allocate_register()?;
-        let loop_label = self.label("has_key_loop");
-        let found = self.label("has_key_found");
-        let next = self.label("has_key_next");
-        let not_found = self.label("has_key_not_found");
-        let done = self.label("has_key_done");
+        let loop_label = self.label(&format!("{label_prefix}_loop"));
+        let found = self.label(&format!("{label_prefix}_found"));
+        let next = self.label(&format!("{label_prefix}_next"));
+        let not_found = self.label(&format!("{label_prefix}_not_found"));
+        let done = self.label(&format!("{label_prefix}_done"));
 
         self.emit(abi::load_u64(
             &scratch8,
@@ -363,7 +406,7 @@ impl CodeBuilder<'_> {
             &not_found,
         );
         self.emit_collection_payload_matches_value_branch(
-            &key_type, "", &scratch8, &scratch13, &scratch14, &scratch9, &found, &next,
+            key_type, "", &scratch8, &scratch13, &scratch14, &scratch9, &found, &next,
         )?;
         self.emit(abi::label(&found));
         self.emit(abi::move_immediate(&result, "Boolean", "true"));
@@ -376,7 +419,7 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             type_: "Boolean".to_string(),
             location: result,
-            text: format!("hasKey({}, {})", collection.type_, key_type),
+            text: format!("{label_prefix}({collection_type}, {key_type})"),
         })
     }
 

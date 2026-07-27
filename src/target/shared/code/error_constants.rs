@@ -892,6 +892,13 @@ pub(crate) const COLLECTION_KIND_MAP: usize = 1;
 /// established by plan-57-C and machine-checked by
 /// `tests/rt-behavior/collections/list-order-invariant-rt`.
 pub(crate) const COLLECTION_KIND_LIST_FIXED: usize = 2;
+/// A `Set OF T` (plan-63): a Map-shaped block (LookupEntry array + data region +
+/// FNV-1a bucket index) whose entries are key-only — each element is stored as a
+/// key with `valueType = COLLECTION_TYPE_NONE` and `valueLength = 0`. Like every
+/// other `kind` byte this is written for self-description only; dispatch is
+/// static, so tagging a Set `3` branches no generated code (it does select the
+/// bucket region via `collection_has_buckets`).
+pub(crate) const COLLECTION_KIND_SET: usize = 3;
 pub(crate) const COLLECTION_HEADER_SIZE: usize = 40;
 pub(crate) const COLLECTION_OFFSET_KIND: usize = 0;
 pub(crate) const COLLECTION_OFFSET_KEY_TYPE: usize = 1;

@@ -28,6 +28,7 @@ Args        := ListArg | MapArg | ThreadArg | TemplateArgs
 |------|------------------|
 | List | `List OF X` |
 | Resource-transfer list | `List OF RES X` |
+| Set | `Set OF X` |
 | Map | `Map OF K TO V` |
 | Resource-transfer map value | `Map OF K TO RES V` |
 | Map entry | `MapEntry OF K TO V` |
@@ -145,7 +146,7 @@ naive `split_once`, and each segment is unwrapped of redundant grouping by
 ## User templates
 
 `user_template_parts` decodes the `Name OF A, B` form. It first **excludes**
-every built-in `OF`-bearing shape (`List OF`, `Map OF`, `MapEntry OF`,
+every built-in `OF`-bearing shape (`List OF`, `Set OF`, `Map OF`, `MapEntry OF`,
 `Result OF`, `Thread OF`, `ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(`
 prefixes); only a base that is none of these is treated as a user template. The
 remainder after `" OF "` is split on top-level `", "` into the argument list.
@@ -167,6 +168,7 @@ recursing on the sub-strings and re-joining with the same separators:
 
 ```
 strip_prefix("List OF ")        -> "List OF " + recurse(element)
+strip_prefix("Set OF ")         -> "Set OF " + recurse(element)
 strip_prefix("Result OF ")      -> "Result OF " + recurse(success)
 strip_prefix("Map OF ") + split_once(" TO ")   -> "Map OF " K " TO " V
 func_type_parts + ") AS "       -> prefix + params.join(", ") + ") AS " + R

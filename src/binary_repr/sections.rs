@@ -114,6 +114,13 @@ impl TypeTable {
                 let element = self.type_id(strings, name.strip_prefix("List OF ").unwrap_or(name));
                 self.list_type(strings, element)
             }
+            name if name.starts_with("Set OF ") => {
+                // `Set OF T` (plan-63): a single element type id, kind 13. Distinct
+                // from `List` (kind 4) so a decoded signature keeps the `Set`
+                // spelling every front-end stage pattern-matches on.
+                let element = self.type_id(strings, name.strip_prefix("Set OF ").unwrap_or(name));
+                self.set_type(strings, element)
+            }
             name if name.starts_with("Result OF ") => {
                 let success =
                     self.type_id(strings, name.strip_prefix("Result OF ").unwrap_or(name));
@@ -240,6 +247,20 @@ impl TypeTable {
         let mut payload = Vec::new();
         put_u32(&mut payload, element_type);
         self.add_entry(strings, "", &name, 4, payload)
+    }
+
+    /// `Set OF T` (plan-63): a single element type id, kind 13. Mirrors
+    /// [`list_type`] structurally (one payload id) but keeps a distinct kind so
+    /// the decoder can reconstruct the `Set` spelling.
+    pub(super) fn set_type(&mut self, strings: &mut StringPool, element_type: u32) -> u32 {
+        let name = format!("Set#{element_type}");
+        if let Some(id) = self.ids.get(&name) {
+            return *id;
+        }
+
+        let mut payload = Vec::new();
+        put_u32(&mut payload, element_type);
+        self.add_entry(strings, "", &name, 13, payload)
     }
 
     pub(super) fn map_type(
