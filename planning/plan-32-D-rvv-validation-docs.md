@@ -116,7 +116,7 @@ per-op memory traffic). **MET** — `math::sin` and `exp/log/sqrt/pow` bit-ident
 across v=true / v=false / macos-aarch64; the sin kernel dropped from 420 per-op
 guards to 16 per-run guards, `vsetivli` 140→8, reloads elided. 3284 unit tests
 pass; artifact-gate 0 non-riscv64 diffs; 3 v128 riscv64 goldens regenerated.
-Commit: <D1>
+Commit: e555423af
 
 ### Phase 2 — two-profile value parity + ULP
 
