@@ -318,7 +318,7 @@ error arms directly against the emitter's public/`pub(crate)` surface.
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/arch/x86_64/encode/emitter.rs` shows ≥95%.
-Commit: —
+Commit: 45ea7c62a
 
 ## Validation Plan
 
