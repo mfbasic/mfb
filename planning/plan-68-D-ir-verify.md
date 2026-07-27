@@ -162,32 +162,32 @@ native-ABI marshaling rule on the decoded-package path. The `NATIVE_ABI_*`,
 uncovered lines are the arms with **no** `tests.rs` reference — build each with
 the existing `link_fn()`/`cstruct()`/`project_with_cstructs()` helpers:
 
-- [ ] **`NATIVE_BIND_IN_INVALID`** — all four arms in `check_link_cstructs`
+- [x] **`NATIVE_BIND_IN_INVALID`** — all four arms in `check_link_cstructs`
       (`link.rs:104-160`): a `BIND IN` naming a nonexistent ABI slot (`:106`); a
       slot that is not a CSTRUCT (`:120`); a field the CSTRUCT does not declare
       (`:131`); a field binding neither/both of param+literal (`:140`); a field
       binding an unknown parameter (`:151`). Set `lf.bind_in` with an
       `IrBindIn`/field shape for each.
-- [ ] **`NATIVE_STRUCT_FIELD_MISMATCH` maps-to-not-a-record arm** (`link.rs:74`):
+- [x] **`NATIVE_STRUCT_FIELD_MISMATCH` maps-to-not-a-record arm** (`link.rs:74`):
       a CSTRUCT whose `maps_to` names a type absent from `project.types` (or a
       non-`type`/`record` kind), referenced by an `abi_slot`'s `ctype`.
-- [ ] **`NATIVE_CSTRUCT_INVALID` duplicate-name arm** (`link.rs:38`): two CSTRUCTs
+- [x] **`NATIVE_CSTRUCT_INVALID` duplicate-name arm** (`link.rs:38`): two CSTRUCTs
       with the same `alias` + `name`.
-- [ ] **`NATIVE_CSTRUCT_ESCAPE` via `check_link_cstructs`** (`link.rs:181,190`): a
+- [x] **`NATIVE_CSTRUCT_ESCAPE` via `check_link_cstructs`** (`link.rs:181,190`): a
       link function whose param/return type names a sibling CSTRUCT (distinct from
       the `check_link_functions` C-ABI-escape path if A's report shows this one
       uncovered).
-- [ ] **`NATIVE_BIND_STATE_INVALID`** — all four arms (`link.rs:505-568`): a
+- [x] **`NATIVE_BIND_STATE_INVALID`** — all four arms (`link.rs:505-568`): a
       `bind_state` naming a slot that is not an OUT CSTRUCT slot (`:515`); a
       `bind_state` present but the function does not return a stateful resource
       (`:523`); the CSTRUCT's `maps_to` disagreeing with `return_state_type`
       (`:533`); `bind_state_resource` naming a slot other than the returned one
       (`:559`).
-- [ ] **`TYPE_STATE_MISMATCH` native cross-declaration arm** (`link.rs:582`): two
+- [x] **`TYPE_STATE_MISMATCH` native cross-declaration arm** (`link.rs:582`): two
       link functions declaring the same native resource base type with **different**
       STATE types (one as a producer `return_state_type`, one as a param's
       `state_type_name`).
-- [ ] **Helper branches** — if A's report shows them uncovered: the collection
+- [x] **Helper branches** — if A's report shows them uncovered: the collection
       recursion in `contains_resource_or_thread` (`link.rs:619-635`, `List OF`/
       `Map OF`/record-field/cycle arms), the union/collection arms of
       `provably_data_type` (`:642-659`), and the `consumed_resource`
@@ -195,7 +195,7 @@ the existing `link_fn()`/`cstruct()`/`project_with_cstructs()` helpers:
 
 Acceptance: fresh `sh scripts/coverage.sh`, then
 `sh scripts/coverage-check.sh src/ir/verify/link.rs` shows ≥95%.
-Commit: —
+Commit: 5555ef4d1
 
 ### Phase D4 — `ir/verify/values.rs` money + set/field arms (101 uncov)
 

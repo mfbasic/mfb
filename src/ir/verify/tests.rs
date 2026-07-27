@@ -3231,6 +3231,276 @@ fn rejects_cstruct_escape_into_wrapper_signature() {
     expect_rule(&p, "NATIVE_CSTRUCT_ESCAPE");
 }
 
+// --- link.rs native arms (plan-68-D3) --------------------------------------
+
+fn abi_slot(name: &str, ctype: &str, dir: crate::ir::AbiDirection) -> crate::ir::IrAbiSlot {
+    crate::ir::IrAbiSlot {
+        name: name.to_string(),
+        ctype: ctype.to_string(),
+        direction: dir,
+    }
+}
+
+fn project_with_link(lf: crate::ir::IrLinkFunction, cstructs: Vec<crate::ir::IrCStruct>) -> IrProject {
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![lf];
+    p.link_cstructs = cstructs;
+    p
+}
+
+/// A struct slot whose CSTRUCT `maps_to` names a type that is not a record
+/// (link.rs:74-81).
+#[test]
+fn rejects_cstruct_maps_to_non_record() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
+    lf.result = None;
+    lf.return_type = "Nothing".to_string();
+    // cstruct maps_to defaults to "Rec"; no "Rec" type is declared.
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_STRUCT_FIELD_MISMATCH");
+}
+
+/// A native function whose RETURN type names a sibling CSTRUCT (link.rs:191-197).
+#[test]
+fn rejects_cstruct_escape_in_return_type() {
+    let mut lf = link_fn();
+    lf.return_type = "Cfg".to_string();
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_CSTRUCT_ESCAPE");
+}
+
+/// BIND IN naming a nonexistent ABI slot (link.rs:105-113).
+#[test]
+fn rejects_bind_in_unknown_slot() {
+    let mut lf = link_fn();
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "nope".to_string(),
+        fields: vec![],
+    }];
+    let p = project_with_link(lf, vec![]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND IN naming a slot that is not a CSTRUCT (link.rs:115-127); also exercises
+/// the "IN slot satisfied by BIND IN" continue (link.rs:326-327).
+#[test]
+fn rejects_bind_in_slot_not_cstruct() {
+    let mut lf = link_fn();
+    // Default slot `path` is a scalar CString, not a CSTRUCT.
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "path".to_string(),
+        fields: vec![],
+    }];
+    let p = project_with_link(lf, vec![]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND IN setting a field the CSTRUCT does not declare (link.rs:129-138).
+#[test]
+fn rejects_bind_in_unknown_field() {
+    let mut lf = link_fn();
+    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "cfg".to_string(),
+        fields: vec![crate::ir::IrBindInField {
+            name: "ghost".to_string(),
+            param: Some("p".to_string()),
+            literal: None,
+        }],
+    }];
+    lf.result = None;
+    lf.return_type = "Nothing".to_string();
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND IN field binding both a parameter and a literal (link.rs:140-148).
+#[test]
+fn rejects_bind_in_field_both_param_and_literal() {
+    let mut lf = link_fn();
+    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "cfg".to_string(),
+        fields: vec![crate::ir::IrBindInField {
+            name: "a".to_string(),
+            param: Some("p".to_string()),
+            literal: Some(1),
+        }],
+    }];
+    lf.result = None;
+    lf.return_type = "Nothing".to_string();
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND IN field binding an unknown parameter (link.rs:149-159).
+#[test]
+fn rejects_bind_in_field_unknown_param() {
+    let mut lf = link_fn();
+    lf.params = vec![("p".to_string(), "Integer".to_string())];
+    lf.abi_slots = vec![abi_slot("cfg", "Cfg", crate::ir::AbiDirection::In)];
+    lf.bind_in = vec![crate::ir::IrBindIn {
+        slot: "cfg".to_string(),
+        fields: vec![crate::ir::IrBindInField {
+            name: "a".to_string(),
+            param: Some("unknownp".to_string()),
+            literal: None,
+        }],
+    }];
+    lf.result = None;
+    lf.return_type = "Nothing".to_string();
+    let p = project_with_link(lf, vec![cstruct("Cfg", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_IN_INVALID");
+}
+
+/// BIND STATE naming a slot that is not an OUT CSTRUCT slot (link.rs:506-521).
+#[test]
+fn rejects_bind_state_not_out_cstruct_slot() {
+    let mut lf = link_fn();
+    lf.bind_state = Some("nope".to_string());
+    let p = project_with_link(lf, vec![]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// BIND STATE but the function does not return a stateful resource
+/// (link.rs:522-529).
+#[test]
+fn rejects_bind_state_without_stateful_return() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = false;
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// BIND STATE where the CSTRUCT `maps_to` disagrees with the return STATE type
+/// (link.rs:530-541).
+#[test]
+fn rejects_bind_state_maps_to_mismatch() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = true;
+    lf.return_state_type = Some("Other".to_string());
+    lf.return_type = "Db".to_string();
+    // cstruct maps_to defaults to "Rec" which differs from "Other".
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// BIND STATE `<res>` naming a slot other than the one the wrapper returns
+/// (link.rs:548-568).
+#[test]
+fn rejects_bind_state_resource_wrong_slot() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = true;
+    lf.return_state_type = Some("Rec".to_string());
+    lf.return_type = "Db".to_string();
+    lf.bind_state_resource = Some("wrong".to_string());
+    // cstruct maps_to defaults to "Rec", matching return_state_type.
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// BIND STATE `<res>` with a computed (non-`Var`) RETURN: `produced` is `None`,
+/// so the resource-slot arm is skipped (link.rs:554,557).
+#[test]
+fn bind_state_resource_with_computed_result_is_skipped() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = true;
+    lf.return_state_type = Some("Rec".to_string());
+    lf.return_type = "Db".to_string();
+    lf.bind_state_resource = Some("wrong".to_string());
+    lf.result = Some(crate::ir::IrLinkExpr::Int(100));
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    // maps_to matches and the produced slot is unknowable, so no BIND STATE fault.
+    assert!(
+        !rules(&p).iter().any(|r| r == "NATIVE_BIND_STATE_INVALID"),
+        "unexpected BIND STATE fault"
+    );
+}
+
+/// BIND STATE `<res>` with no RETURN: `produced` falls back to the ABI return
+/// name (link.rs:555), which the named resource slot must match.
+#[test]
+fn rejects_bind_state_resource_against_abi_return() {
+    let mut lf = link_fn();
+    lf.params = vec![];
+    lf.abi_slots = vec![abi_slot("st", "State", crate::ir::AbiDirection::Out)];
+    lf.bind_state = Some("st".to_string());
+    lf.return_resource = true;
+    lf.return_state_type = Some("Rec".to_string());
+    lf.return_type = "Db".to_string();
+    lf.bind_state_resource = Some("wrong".to_string());
+    lf.result = None; // produced = abi_return_name ("value") != "wrong"
+    let p = project_with_link(lf, vec![cstruct("State", &[("a", "CInt32")])]);
+    expect_rule(&p, "NATIVE_BIND_STATE_INVALID");
+}
+
+/// Two native declarations of the same resource base with different STATE types
+/// (link.rs:581-602); the middle one agrees (the `Some(_)` arm), the last one
+/// conflicts.
+#[test]
+fn rejects_native_resource_state_disagreement() {
+    let mut producer = link_fn();
+    producer.name = "prod".to_string();
+    producer.return_resource = true;
+    producer.return_state_type = Some("S1".to_string());
+    producer.return_type = "Db".to_string();
+
+    let mut agree = link_fn();
+    agree.name = "agree".to_string();
+    agree.params = vec![("x".to_string(), "Db STATE S1".to_string())];
+
+    let mut bad = link_fn();
+    bad.name = "bad".to_string();
+    bad.params = vec![("x".to_string(), "Db STATE S2".to_string())];
+
+    let mut p = project(vec![func_returns("run", "Nothing", vec![], vec![])], vec![]);
+    p.link_functions = vec![producer, agree, bad];
+    expect_rule(&p, "TYPE_STATE_MISMATCH");
+}
+
+/// `Set OF Map OF File TO Integer` drives `contains_resource_or_thread` through
+/// its Map recursion arm (link.rs:622-624).
+#[test]
+fn set_of_map_of_resource_is_ownership_violation() {
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF Map OF File TO Integer", None)],
+        vec![],
+    );
+    expect_rule(&project(vec![f], vec![]), "TYPE_COLLECTION_OWNERSHIP_VIOLATION");
+}
+
+/// A self-referential record containing a resource exercises the cycle guard of
+/// `contains_resource_or_thread` (link.rs:626-627).
+#[test]
+fn set_of_cyclic_record_with_resource_is_ownership_violation() {
+    let rec = record_typed("R", &[("self", "R"), ("h", "File")]);
+    let f = func_returns(
+        "run",
+        "Nothing",
+        vec![param("s", "Set OF R", None)],
+        vec![],
+    );
+    expect_rule(&project(vec![f], vec![rec]), "TYPE_COLLECTION_OWNERSHIP_VIOLATION");
+}
+
 // --- link expressions (plan-50-I) -------------------------------------------
 
 /// The bug plan-50-I fixes: `lower_link_expr` mapped every identifier onto one
