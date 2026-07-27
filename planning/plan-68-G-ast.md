@@ -195,7 +195,7 @@ direct `pub(super)` call whose leading token is the requested closing delimiter
 (not a fabricated grammar path). Added an inline `mod tests` (13 tests). The
 `coverage:off` `unreachable!()` arms (78/148/187/215) and empty-args guard
 (695-701) were left alone per the note above.
-Commit: <EXPR_COMMIT>
+Commit: 401dbfd91
 
 ### Phase G3 — `src/ast/link_items.rs` (81 uncov)
 
@@ -205,39 +205,54 @@ happy paths are exercised by the link fixtures; uncovered lines are the error /
 by a crafted `LINK … END LINK` source. Confirm against the `DA:LINE,0` list, then
 cover:
 
-- [ ] **`parse_link_block`** (11–20, 22–24, 26–28, 66–74, 75–79): non-string
+- [x] **`parse_link_block`** (11–20, 22–24, 26–28, 66–74, 75–79): non-string
       library name; missing `AS`; missing alias; an unexpected statement inside
       the block; EOF before `END LINK` (unterminated).
-- [ ] **`parse_cstruct`** (108–117, 127–131, 132–136, 145–151): `END` not naming
+- [x] **`parse_cstruct`** (108–117, 127–131, 132–136, 145–151): `END` not naming
       `CSTRUCT`; missing field name; missing/invalid C type; unterminated.
-- [ ] **`parse_link_function`** (158–162, 166–172, 247–262, 273–275, 286–291,
+- [x] **`parse_link_function`** (158–162, 166–172, 247–262, 273–275, 286–291,
       319–326, 329–336, 337–344): bad name; unclosed param list; `ERROR_ON`
       (the De-Morgan `NOT` wrap); `RETURN <e> LENGTH <e>`; duplicate `BIND STATE`
       (the "at most one" diagnostic); an unexpected clause; missing `SYMBOL`;
       missing `ABI`. Also the `RES` return with a `STATE T` clause (177–190).
-- [ ] **`parse_buffer_spec`** (378–386): `BUFFER slot` without `SIZE`.
-- [ ] **`parse_bind_state`** (398–404): `BIND STATE r struct` (missing `=`).
-- [ ] **`parse_bind_in`** (423–432, 441–450, 460–463, 478–484): missing `IN`;
+- [x] **`parse_buffer_spec`** (378–386): `BUFFER slot` without `SIZE`.
+- [x] **`parse_bind_state`** (398–404): `BIND STATE r struct` (missing `=`).
+- [x] **`parse_bind_in`** (423–432, 441–450, 460–463, 478–484): missing `IN`;
       `END` not naming `BIND`; field missing `=`; unterminated `BIND` block. Plus
       one well-formed `BIND IN … END BIND` with a named field if the list shows
       the happy body uncovered.
-- [ ] **`parse_free_block`** (502–511, 522–528, 531–534, 535–541, 548–555,
+- [x] **`parse_free_block`** (502–511, 522–528, 531–534, 535–541, 548–555,
       564–572): `END` not naming `FREE`; `ABI` missing `(`; missing `)`; missing
       `AS`; an unexpected statement; a `FREE` block reaching `END FREE` without a
       complete `SYMBOL`+`ABI` (`NATIVE_FREE_INVALID`). Plus one complete `FREE`
       block if its happy path is uncovered.
-- [ ] **`parse_abi_spec`** (588–593, 604–612, 625–628, 629–635): missing `(`; the
+- [x] **`parse_abi_spec`** (588–593, 604–612, 625–628, 629–635): missing `(`; the
       `INOUT` / `OUT` / bare-`IN` direction arms; missing `)`; missing `AS`.
-- [ ] **`parse_const_pin`** (663–666, 667–670, 676–689): bad slot; missing `=`;
+- [x] **`parse_const_pin`** (663–666, 667–670, 676–689): bad slot; missing `=`;
       the `SIZEOF <CStruct>` pin.
-- [ ] **`parse_string_literal`** (700–705): a `SYMBOL` clause whose argument is
+- [x] **`parse_string_literal`** (700–705): a `SYMBOL` clause whose argument is
       not a string.
-- [ ] **`parse_optional_state`** (710–716): the present branch (`RES … STATE T`)
+- [x] **`parse_optional_state`** (710–716): the present branch (`RES … STATE T`)
       and the absent branch (bare `RES`).
 
 Acceptance: `sh scripts/coverage.sh` (fresh) then
 `sh scripts/coverage-check.sh src/ast/link_items.rs` shows ≥95%.
-Commit: —
+
+NOTE (fresh lcov): the actual red set was narrower than the enumeration.
+`parse_free_block` (502-572), `parse_abi_spec` (588-635), `parse_string_literal`
+(700-705), `parse_optional_state` (710-716), and most of `parse_link_block` /
+`parse_link_function` (bad name, unclosed params, ERROR_ON, RETURN…LENGTH,
+missing SYMBOL/ABI, RES+STATE return) are ALREADY covered — absent from the
+`DA:LINE,0` list. The genuinely-red arms, all now covered by an inline `mod tests`
+(15 tests): LINK-block CSTRUCT else-synchronize (61-62); `parse_cstruct` END-not-
+CSTRUCT (109-116), missing field name (128-130), missing ctype (133-135),
+unterminated (145-151); native-FUNC duplicate BIND STATE (287-291);
+`parse_buffer_spec` missing slot (375-376) + missing SIZE (379-386);
+`parse_bind_state` missing `=` (402-403); `parse_bind_in` missing IN (424-431),
+END-not-BIND (442-449), field missing name (456-458)/`=`(461-463)/value(466-468),
+unterminated (478-484); `parse_const_pin` SIZEOF pin (677-688). No production
+change; no bug surfaced.
+Commit: <LINK_COMMIT>
 
 ### Phase G4 — `src/ast/scope_privates.rs` (46 uncov)
 
