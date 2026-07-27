@@ -870,3 +870,26 @@ fn matches_mksquashfs_modulo_the_documented_normalizations() {
     assert_eq!(read_u64(&theirs, 48) + 8, read_u64(&theirs, 40));
     assert_eq!(read_u64(&ours, 48) + 8, read_u64(&ours, 40));
 }
+
+/// The `SquashNode::dir(mode)` constructor builds an empty directory with the
+/// given permission bits; a tree assembled through it serializes like any other.
+#[test]
+fn dir_constructor_builds_a_moded_empty_directory() {
+    let node = SquashNode::dir(0o750);
+    assert_eq!(
+        node,
+        SquashNode::Dir {
+            entries: BTreeMap::new(),
+            mode: 0o750,
+        }
+    );
+    // A nested empty directory built via `dir()` writes a valid image.
+    let mut root = BTreeMap::new();
+    root.insert("sub".to_string(), SquashNode::dir(0o700));
+    let image = write(&tree(SquashNode::Dir {
+        entries: root,
+        mode: 0o755,
+    }))
+    .expect("write");
+    assert_eq!(&image[0..4], &MAGIC.to_le_bytes());
+}
