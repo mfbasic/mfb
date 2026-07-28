@@ -34,7 +34,7 @@
         "guard": null,
         "body": [
         { "op": "bind", "line": 10, "mutable": false, "name": "value", "type": "ReturnOk", "value": { "kind": "unionExtract", "type": "ReturnOk", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Unknown", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "value" }, "member": "message" }] } }
+        { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "value" }, "member": "message" }] } }
         ]
       },
       {

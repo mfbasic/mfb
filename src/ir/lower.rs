@@ -41,11 +41,50 @@ struct LowerContext<'a> {
     current_loc: IrSourceLoc,
 }
 
+/// A type an imported (non-builtin) package exports, decoded from its `.mfp` so
+/// IR lowering can *type* accesses to its fields. Without this, a consumer names
+/// an imported type but has no field/variant layout for it, so every
+/// `record.field` on an imported record or union variant lowers to `Unknown` —
+/// tolerated by `getOr`/`len` but not by `collections::keys`/`values`, which need
+/// the element type. Built-in packages need no entry here: their source is folded
+/// into the AST by `augmented_project`, so their types are already in `TypeIndex`.
+#[derive(Clone)]
+pub struct ImportedTypeDef {
+    pub name: String,
+    pub kind: ImportedTypeKind,
+    /// Record fields (for `ImportedTypeKind::Record`).
+    pub fields: Vec<ImportedTypeField>,
+    /// Union variants with their fields (for `ImportedTypeKind::Union`).
+    pub variants: Vec<ImportedTypeVariant>,
+    /// Enum member names (for `ImportedTypeKind::Enum`).
+    pub members: Vec<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ImportedTypeKind {
+    Record,
+    Union,
+    Enum,
+}
+
+#[derive(Clone)]
+pub struct ImportedTypeField {
+    pub name: String,
+    pub type_: String,
+}
+
+#[derive(Clone)]
+pub struct ImportedTypeVariant {
+    pub name: String,
+    pub fields: Vec<ImportedTypeField>,
+}
+
 pub fn lower_project_with_external_functions(
     ast: &AstProject,
     entry: Option<EntryPoint>,
     external_function_types: &HashMap<String, String>,
     external_function_params: &HashMap<String, Vec<ExternalFunctionParam>>,
+    imported_types: &[ImportedTypeDef],
 ) -> IrProject {
     let augmented =
         builtins::json::augmented_project(ast).expect("built-in json package source must parse");
@@ -107,7 +146,7 @@ pub fn lower_project_with_external_functions(
             function_returns.insert(name.clone(), return_type);
         }
     }
-    let type_index = TypeIndex::new(ast);
+    let type_index = TypeIndex::new(ast, imported_types);
     let mut context = LowerContext {
         function_returns: &function_returns,
         function_types: &function_types,
@@ -3478,7 +3517,7 @@ struct TypeIndex {
 }
 
 impl TypeIndex {
-    fn new(ast: &AstProject) -> Self {
+    fn new(ast: &AstProject, imported_types: &[ImportedTypeDef]) -> Self {
         let mut records = HashMap::new();
         let mut enums = HashMap::new();
         let mut variants = HashMap::new();
@@ -3537,6 +3576,45 @@ impl TypeIndex {
                                 .map(|member| member.name.clone())
                                 .collect(),
                         );
+                    }
+                }
+            }
+        }
+        // Fold in the types of imported (non-builtin) packages, decoded from
+        // their `.mfp`. A locally-declared type always wins (`or_insert_with`),
+        // so this only *adds* layouts the consumer would otherwise lack — the
+        // reason an imported `record.field` used to type as `Unknown`. Built-in
+        // packages are already covered above: their source is in the AST.
+        let imported_field = |field: &ImportedTypeField| IrField {
+            visibility: None,
+            name: field.name.clone(),
+            type_: field.type_.clone(),
+            loc: IrSourceLoc::default(),
+        };
+        for imported in imported_types {
+            match imported.kind {
+                ImportedTypeKind::Record => {
+                    records
+                        .entry(imported.name.clone())
+                        .or_insert_with(|| imported.fields.iter().map(imported_field).collect());
+                }
+                ImportedTypeKind::Enum => {
+                    enums
+                        .entry(imported.name.clone())
+                        .or_insert_with(|| imported.members.clone());
+                }
+                ImportedTypeKind::Union => {
+                    for variant in &imported.variants {
+                        variants
+                            .entry(variant.name.clone())
+                            .or_insert_with(|| imported.name.clone());
+                        variant_unions
+                            .entry(variant.name.clone())
+                            .or_default()
+                            .insert(imported.name.clone());
+                        variant_fields
+                            .entry(variant.name.clone())
+                            .or_insert_with(|| variant.fields.iter().map(imported_field).collect());
                     }
                 }
             }

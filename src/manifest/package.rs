@@ -425,6 +425,73 @@ pub(crate) fn external_package_function_types_from_files(
     Ok((functions, params))
 }
 
+/// The record/union/enum layouts every imported (non-builtin) package exports,
+/// so IR lowering can type accesses to their fields. Reads the installed `.mfp`s
+/// named by the manifest; a package whose metadata cannot be read is skipped
+/// (a lossy read, like `external_package_function_types`) — the build's own
+/// syntaxcheck pass reports an unreadable dependency. Built-in packages contribute
+/// nothing here: their types reach `TypeIndex` through the AST.
+pub(crate) fn imported_type_defs(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> Vec<ir::ImportedTypeDef> {
+    let Ok(packages) = installed_package_files(project_dir, manifest) else {
+        return Vec::new();
+    };
+    imported_type_defs_from_files(&packages)
+}
+
+pub(crate) fn imported_type_defs_from_files(packages: &[PathBuf]) -> Vec<ir::ImportedTypeDef> {
+    let mut defs = Vec::new();
+    for package in packages {
+        let Ok(exports) = binary_repr::read_package_type_exports(package) else {
+            continue;
+        };
+        for export in exports {
+            if let Some(def) = imported_type_def(export) {
+                defs.push(def);
+            }
+        }
+    }
+    defs
+}
+
+fn imported_type_field(field: binary_repr::BinaryReprTypeField) -> ir::ImportedTypeField {
+    ir::ImportedTypeField {
+        name: field.name,
+        type_: field.type_,
+    }
+}
+
+fn imported_type_def(export: binary_repr::BinaryReprTypeExport) -> Option<ir::ImportedTypeDef> {
+    let kind = match export.kind {
+        binary_repr::BinaryReprExportKind::Type => ir::ImportedTypeKind::Record,
+        binary_repr::BinaryReprExportKind::Union => ir::ImportedTypeKind::Union,
+        binary_repr::BinaryReprExportKind::Enum => ir::ImportedTypeKind::Enum,
+        binary_repr::BinaryReprExportKind::Func | binary_repr::BinaryReprExportKind::Sub => {
+            return None;
+        }
+    };
+    Some(ir::ImportedTypeDef {
+        name: export.name,
+        kind,
+        fields: export.fields.into_iter().map(imported_type_field).collect(),
+        variants: export
+            .variants
+            .into_iter()
+            .map(|variant| ir::ImportedTypeVariant {
+                name: variant.name,
+                fields: variant
+                    .fields
+                    .into_iter()
+                    .map(imported_type_field)
+                    .collect(),
+            })
+            .collect(),
+        members: export.members,
+    })
+}
+
 fn external_package_function_types_from_files_lossy(
     packages: &[PathBuf],
 ) -> (

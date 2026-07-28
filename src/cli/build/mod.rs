@@ -13,7 +13,8 @@ use crate::manifest::entry::validate_entry_point;
 use crate::manifest::libraries::Libc;
 use crate::manifest::package::{
     external_package_function_types, external_package_function_types_from_files,
-    imported_resource_closers, installed_package_files, package_metadata,
+    imported_resource_closers, imported_type_defs, imported_type_defs_from_files,
+    installed_package_files, package_metadata,
 };
 use crate::manifest::project_kind;
 use crate::manifest::validate_project_manifest;
@@ -400,6 +401,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         entry.clone(),
         &source_external_types,
         &source_external_params,
+        &imported_type_defs(&options.location, &manifest),
     );
     let verify_diagnostics =
         ir::verify_source_diagnostics(&source_ir, &options.location, &imported_resources);
@@ -473,6 +475,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 entry.clone(),
                 &external_functions,
                 &external_params,
+                &imported_type_defs_from_files(&packages),
             );
             // plan-46-B §4.3: an executable that declares its *own* `LINK` block
             // needs its own locators too — an imported binding's come from that
@@ -680,6 +683,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 entry.clone(),
                 &external_functions,
                 &external_params,
+                &imported_type_defs_from_files(&packages),
             );
             // Collect documentation from the pre-monomorphization AST: it keeps
             // the original declaration names (and every overload), which the
@@ -752,6 +756,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     entry.clone(),
                     &external_functions,
                     &external_params,
+                    &imported_type_defs(&options.location, &manifest),
                 );
                 let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
                     eprintln!("error: {err}");
@@ -794,6 +799,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 entry.clone(),
                 &external_functions,
                 &external_params,
+                &imported_type_defs_from_files(packages),
             );
             // The debug emitters below run the same NIR/plan/code pipeline as a
             // real executable build, so they need the same `LINK` locator table

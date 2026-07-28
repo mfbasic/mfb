@@ -79,7 +79,10 @@ pub(crate) use link::{
     CLayout, IrAbiSlot, IrBindIn, IrBindInField, IrBuffer, IrCStruct, IrCStructField, IrFree,
     IrLinkExpr, IrLinkFunction, IrNativeResource, StructSlotView, BYTE_LIST_TYPE,
 };
-pub use lower::{lower_project_with_external_functions, write_ir};
+pub use lower::{
+    lower_project_with_external_functions, write_ir, ImportedTypeDef, ImportedTypeField,
+    ImportedTypeKind, ImportedTypeVariant,
+};
 pub(crate) use op::IrOp;
 pub use package::{
     apply_package_identity, merge_package, package_qualified_reference_names,

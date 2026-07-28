@@ -32,7 +32,7 @@
         "guard": null,
         "body": [
         { "op": "bind", "line": 11, "mutable": false, "name": "i", "type": "SqlInt", "value": { "kind": "unionExtract", "type": "SqlInt", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "return", "line": 12, "value": { "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "i" }, "member": "value" }] } }
+        { "op": "return", "line": 12, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "i" }, "member": "value" }] } }
         ]
       },
       {
@@ -41,7 +41,7 @@
         "guard": null,
         "body": [
         { "op": "bind", "line": 13, "mutable": false, "name": "t", "type": "SqlText", "value": { "kind": "unionExtract", "type": "SqlText", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "return", "line": 14, "value": { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "t" }, "member": "value" } }
+        { "op": "return", "line": 14, "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "t" }, "member": "value" } }
         ]
       },
       {
