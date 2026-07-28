@@ -1393,6 +1393,40 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
+    fn emit_console_utf8(
+        &self,
+        from: &str,
+        _platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        // bug-392: a fresh Windows console decodes the bytes WriteFile hands it
+        // through the machine's OEM code page (437/850), so the runtime's verbatim
+        // UTF-8 output mojibakes (`—` E2 80 94 → `ΓÇö`; box-drawing → `ΓöÇ`, which
+        // also desyncs the term:: grid diff-renderer's one-column cursor advance).
+        // Set the console *output* code page to UTF-8 (65001) once at entry so each
+        // multi-byte sequence decodes as its intended glyph; set the *input* code
+        // page too so typed non-ASCII reaches the console-mode ReadFile path as
+        // UTF-8 (symmetric — the io:: input path reads bytes, not wide chars). Both
+        // are best-effort: when stdout/stdin is redirected the target is a file or
+        // pipe, not a console, and SetConsole*CP is a harmless no-op there, so
+        // file/pipe output stays byte-identical raw UTF-8. Return values are
+        // ignored — a legacy console that rejects 65001 merely keeps mojibaking, no
+        // worse than before. Unlike emit_enable_vt_output (VT escape interpretation,
+        // orthogonal), this governs how the raw text bytes themselves are decoded.
+        // A self-contained, balanced shadow-space frame like the neighbouring entry
+        // calls; touches only caller-saved ARG registers.
+        instructions.extend([
+            abi::subtract_stack(0x20),
+            abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8),
+        ]);
+        call_external(from, "SetConsoleOutputCP", KERNEL32, instructions, relocations);
+        instructions.push(abi::move_immediate(abi::ARG[0], "Integer", CP_UTF8));
+        call_external(from, "SetConsoleCP", KERNEL32, instructions, relocations);
+        instructions.push(abi::add_stack(0x20));
+        Ok(())
+    }
+
     fn emit_env_get(
         &self,
         from: &str,

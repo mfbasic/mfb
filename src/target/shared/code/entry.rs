@@ -372,6 +372,20 @@ pub(crate) fn lower_program_entry(
         &mut instructions,
         &mut relocations,
     )?;
+    // Set the console text code page to UTF-8 so verbatim UTF-8 output decodes as
+    // glyphs, not OEM-code-page mojibake (bug-392). No-op on every POSIX platform
+    // (the default trait impl emits nothing), so their entry stays byte-identical;
+    // Windows emits SetConsoleOutputCP/SetConsoleCP(65001) with a self-contained,
+    // balanced frame. Placed after the arena is mapped: the call clobbers only the
+    // caller-saved ARG registers, and any incoming argc/argv are already consumed
+    // (POSIX captures pre-arena) or irrelevant (Windows receives none and rebuilds
+    // argv later from GetCommandLineW), so overwriting ARG here is safe.
+    platform.emit_console_utf8(
+        entry_symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Initialize the platform network stack before any initializer or the language
     // entry can issue a socket call (plan-47-I §3.2). No-op on POSIX; Windows emits
     // WSAStartup. Gated on `net.*` usage, so a socket-free program is byte-identical.

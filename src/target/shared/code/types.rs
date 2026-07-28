@@ -346,6 +346,25 @@ pub(crate) trait CodegenPlatform {
     ) -> Result<(), String> {
         Ok(())
     }
+    /// Set the console text code page to UTF-8 once at program entry, on a
+    /// platform whose console decodes raw output bytes through a legacy code page
+    /// (bug-392). Emitted from `_start`, before the program body. The default
+    /// emits nothing — a POSIX terminal decodes UTF-8 unconditionally, so
+    /// macOS/Linux/riscv stay byte-identical. The Windows backend overrides it to
+    /// call `SetConsoleOutputCP(65001)` (and `SetConsoleCP(65001)` for symmetric
+    /// input) so the verbatim UTF-8 bytes `emit_write` hands the console are
+    /// decoded as glyphs instead of OEM-code-page mojibake. Best-effort: the calls
+    /// are harmless when stdout/stdin is redirected (the code page only governs
+    /// console decoding), so file/pipe output stays byte-identical raw UTF-8.
+    fn emit_console_utf8(
+        &self,
+        _from: &str,
+        _platform_imports: &HashMap<String, String>,
+        _instructions: &mut Vec<CodeInstruction>,
+        _relocations: &mut Vec<CodeRelocation>,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Windows-only whole-path no-symlink verify for `fs::openFileNoFollow`
     /// (plan-66-E). `CreateFileW` transparently follows reparse points (symlinks /
     /// junctions), so — unlike Linux `openat2(RESOLVE_NO_SYMLINKS)` / macOS

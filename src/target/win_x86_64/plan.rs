@@ -51,6 +51,11 @@ impl NativePlanPlatform for Platform {
             import("VirtualFree", KERNEL32, "_start"),
             import("GetSystemTimePreciseAsFileTime", KERNEL32, "_start"),
             import("BCryptGenRandom", "bcrypt.dll", "_start"),
+            // The entry sets the console text code page to UTF-8 so verbatim UTF-8
+            // output decodes as glyphs, not OEM-code-page mojibake (bug-392;
+            // emit_console_utf8). Output + input, for symmetry.
+            import("SetConsoleOutputCP", KERNEL32, "_start"),
+            import("SetConsoleCP", KERNEL32, "_start"),
             // The entry's implicit program exit (emit_program_exit) — the NIR of a
             // plain `RETURN` has no ExitProgram op, so this import rides the entry,
             // not `program_exit_imports`.
