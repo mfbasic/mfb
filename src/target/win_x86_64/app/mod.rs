@@ -29,7 +29,8 @@ use crate::target::shared::code::{
     AppEntrySpec, AppHookBody, ARENA_ALLOC_SYMBOL, MACAPP_PROGRAM_SYMBOL, RESULT_OK_TAG,
     RESULT_TAG_REGISTER, RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, TERM_STATE_ACTIVE_OFFSET,
     TERM_STATE_FG_OFFSET, TERM_STATE_BG_OFFSET, TERM_STATE_BOLD_OFFSET, TERM_STATE_UNDERLINE_OFFSET,
-    TERM_STATE_CURSOR_VISIBLE_OFFSET,
+    TERM_STATE_CURSOR_VISIBLE_OFFSET, RESULT_ERR_TAG, RESULT_ERROR_MESSAGE_REGISTER,
+    ERR_UNSUPPORTED_CODE, ERR_UNSUPPORTED_SYMBOL,
 };
 
 const KERNEL32: &str = "kernel32.dll";
@@ -1074,9 +1075,33 @@ pub(super) fn emit_app_term_helper(call: &str, symbol: &str, tso: usize) -> Opti
         "term.hideCursor" => emit_term_cursor_visible(tso, "0"),
         "term.sync" => emit_term_sync(symbol),
         "term.terminalSize" => emit_term_size(symbol),
+        // The draw helpers stamp into the shared console cell grid, which the
+        // GDI app surface (immediate-mode `TextOutW`, no cell buffer) does not
+        // maintain. Rather than fall through to the console lowering — which would
+        // dereference a grid app mode never allocates — raise a clean, trappable
+        // `ErrUnsupported` here. Console builds still get the real draw via the
+        // shared lowering (this arm is app-mode-only). GDI drawing is a follow-up
+        // (plan-69 open decision / plan-66 GDI TUI backend).
+        "term.drawHLine" | "term.drawVLine" | "term.drawBox" | "term.fillRect"
+        | "term.drawText" | "term.drawGlyph" => emit_term_draw_unsupported(symbol),
         _ => return None,
     };
     Some(b)
+}
+
+/// App-mode guard for the `term::` draw helpers: raise the trappable
+/// `ErrUnsupported` (the GDI surface has no cell grid to stamp into). Mirrors the
+/// shared console `emit_unsupported` error shape — tag/code/message with no frame,
+/// so the `ErrWrongMode` gate the caller prepends stays valid.
+fn emit_term_draw_unsupported(symbol: &str) -> AppHookBody {
+    let mut ins: Vec<CodeInstruction> = Vec::new();
+    let mut rel: Vec<CodeRelocation> = Vec::new();
+    ins.push(abi::label("entry"));
+    ins.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_UNSUPPORTED_CODE));
+    ins.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG));
+    load_addr(RESULT_ERROR_MESSAGE_REGISTER, ERR_UNSUPPORTED_SYMBOL, symbol, &mut ins, &mut rel);
+    ins.push(abi::return_());
+    term_body(ins, rel)
 }
 
 /// `term::on()`: build the off-screen grid surface on first use (memory DC +
@@ -1596,6 +1621,14 @@ mod tests {
             "term.hideCursor",
             "term.sync",
             "term.terminalSize",
+            // Draw helpers: app mode raises a clean ErrUnsupported (guarded, not a
+            // fall-through to the console lowering that would crash).
+            "term.drawHLine",
+            "term.drawVLine",
+            "term.drawBox",
+            "term.fillRect",
+            "term.drawText",
+            "term.drawGlyph",
         ] {
             assert!(
                 emit_app_term_helper(call, "_t", 0).is_some(),

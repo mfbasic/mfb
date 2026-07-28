@@ -248,7 +248,23 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
-    if module_uses_call(module, "term.terminalSize") {
+    // `term.terminalSize` raises ErrUnsupported when the console size cannot be
+    // read; the `term::` draw helpers raise it in the Windows app/GDI backend,
+    // which has no cell grid to stamp into (`win_x86_64::app::emit_app_term_helper`).
+    // Either use needs the `_mfb_str_error_unsupported` data object present so the
+    // error-return relocation resolves.
+    if module_uses_any_call(
+        module,
+        &[
+            "term.terminalSize",
+            "term.drawHLine",
+            "term.drawVLine",
+            "term.drawBox",
+            "term.fillRect",
+            "term.drawText",
+            "term.drawGlyph",
+        ],
+    ) {
         push_string_value(&mut values, ERR_UNSUPPORTED_MESSAGE.to_string());
     }
     if module_uses_any_call(

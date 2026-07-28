@@ -78,6 +78,16 @@ const RUNTIME_CALLS: &[&str] = &[
     "term.clear",
     "term.moveTo",
     "term.sync",
+    // The draw helpers lower through the shared console cell-grid path (they only
+    // mutate the back buffer; `term.sync` presents it), so console builds get them
+    // for free. In app/GUI mode the GDI grid has no cell buffer, so the app backend
+    // raises `ErrUnsupported` instead (see `app::emit_app_term_helper`).
+    "term.drawHLine",
+    "term.drawVLine",
+    "term.drawBox",
+    "term.fillRect",
+    "term.drawText",
+    "term.drawGlyph",
     "fs.exists",
     "fs.fileExists",
     "fs.directoryExists",
