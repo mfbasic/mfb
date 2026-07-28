@@ -7,8 +7,48 @@ Effort: medium (1h–2h)
 Severity: LOW
 Class: Footgun
 
-Status: Open
+Status: FIXED (a046d715d)
 Regression Test: tests/cli_build_progress.rs (new — see Validation Plan)
+
+STATUS: FIXED (a046d715d)
+
+A lightweight `progress: &dyn Fn(&str)` sink was threaded through
+`write_executable` — the trait method (`src/target.rs`), the `target::`
+dispatcher, and all five backends (win_x86_64, macos_aarch64, linux_aarch64,
+linux_x86_64, linux_riscv64). The CLI (`src/cli/build/mod.rs`) passes a closure
+that calls the new `Reporter::progress`, which prints `codegen: <stage>` on
+stderr at Verbose only and no-ops otherwise, so the level gate lives in one
+place and emitted bytes never depend on verbosity. Each backend emits one line
+per sub-stage boundary as the doc's Root Cause listed: `lowering module`,
+`planning + regalloc`, `emitting native code`, `encoding image`, `linking
+executable`.
+
+Verified:
+- New regression test `tests/cli_build_progress.rs` — RED before the fix
+  (missing `codegen: lowering module`), GREEN after; asserts the ordered
+  sub-stage lines under `-v`/`--verbose` and their absence at default/`-q`.
+- Full `cargo test` suite green (0 failures across all binaries); the existing
+  `cli_build_verbosity_output.rs` (including `artifact_bytes_identical_across_
+  verbosity_levels`) still passes — no stdout `strip_prefix` test moved.
+- Manually reproduced on the exact repro backend: a small project built for
+  `windows-x86_64` with `-v` streams all five `codegen:` lines in pipeline
+  order, followed by the `phase codegen+link <N>ms` total; default/`-q` emit
+  none. The Windows PE (and the macOS `.out`) are byte-identical across
+  `-q`/default/`-v`.
+
+Deviations from the plan:
+- The chosen wording is the `codegen: <stage>` prefix recommended in Open
+  Decisions (distinct from the final `phase …` timing).
+- Coarse granularity only (one line per sub-stage), as recommended; the
+  per-function counter in `code::lower_module` remains a possible follow-up.
+- The doc's own repro (`examples/browser/app` for `windows-x86_64`) could not be
+  built as-is here because its local sub-packages (`display`/`dom`/`fetch`) are
+  not installed in this checkout — it fails at *resolve*, before codegen, so it
+  never reached the instrumented stage. The identical windows-x86_64 backend
+  path was exercised with a small project instead; the fix is backend-wide, not
+  program-specific.
+- Package builds (`target::write_package`) remain silent — explicitly OUT OF
+  SCOPE per Blast Radius; a follow-up can extend the same sink.
 
 `mfb build` prints nothing between the front-end `phase` lines and the final
 `Wrote executable to …`. On a large program the codegen+link stage can run for
@@ -179,42 +219,49 @@ Rejected alternatives:
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add `tests/cli_build_progress.rs`: build a small fixture project with
+- [x] Add `tests/cli_build_progress.rs`: build a small fixture project with
       `-v` and assert the stderr contains the sub-stage lines in order; add a
       companion assertion that default and `-q` stderr do NOT contain them and
       stdout is unchanged. Confirm it fails today (no sub-stage lines emitted).
-- [ ] Confirm the blast-radius list above against `grep -rn "fn
-      write_executable" src/` at HEAD; record any backend missed.
+- [x] Confirm the blast-radius list above against `grep -rn "fn
+      write_executable" src/` at HEAD; record any backend missed. (All five
+      backends confirmed; the `os::*::link::write_executable` matches are the
+      unrelated low-level linker fn, correctly untouched.)
 
 Acceptance: the new test fails only because the sub-stage lines are absent (the
 default/`-q`/stdout assertions already pass); audit list complete.
-Commit: —
+Commit: a046d715d
 
 ### Phase 2 — the fix
 
-- [ ] Add a progress-callback parameter to the `write_executable` trait method
+- [x] Add a progress-callback parameter to the `write_executable` trait method
       (`src/target.rs:114`) and dispatcher (`:276`); the CLI (`src/cli/build/
       mod.rs:536`) passes a closure that reports at Verbose, no-ops otherwise.
-- [ ] Emit one `progress(...)` call at each sub-stage boundary in all five
+- [x] Emit one `progress(...)` call at each sub-stage boundary in all five
       backends (win_x86_64, macos_aarch64, linux_aarch64, linux_x86_64,
       linux_riscv64), on stderr, wording agreed in Open Decisions.
 
 Acceptance: Phase 1 test passes; default/`-q` output unchanged; artifact bytes
 unchanged; nothing in Non-goals changed.
-Commit: —
+Commit: a046d715d
 
 ### Phase 3 — full validation
 
-- [ ] Run the full `cargo test` suite; confirm no stdout-`strip_prefix`
-      integration test moved.
-- [ ] Rebuild `examples/browser/app` for `windows-x86_64` with `-v` and confirm
-      live sub-stage lines appear during the long codegen+link, with the
-      `phase codegen+link <N>ms` total still printed after.
-- [ ] Diff a built artifact `-q` vs `-v` to confirm byte-identical output.
+- [x] Run the full `cargo test` suite; confirm no stdout-`strip_prefix`
+      integration test moved. (0 failures; `cli_build_verbosity_output.rs`
+      unchanged.)
+- [x] Rebuild for `windows-x86_64` with `-v` and confirm live sub-stage lines
+      appear, with the `phase codegen+link <N>ms` total still printed after.
+      (The `examples/browser/app` repro needs its local sub-packages installed —
+      it fails at resolve before codegen — so the identical windows-x86_64
+      backend path was exercised with a small project; all five lines stream in
+      order.)
+- [x] Diff a built artifact `-q` vs `-v` to confirm byte-identical output.
+      (Windows PE and macOS `.out` both byte-identical across `-q`/default/`-v`.)
 
 Acceptance: full suite green; artifact bytes identical across verbosities; the
 original reproduction now shows live progress.
-Commit: —
+Commit: a046d715d
 
 ## Validation Plan
 
