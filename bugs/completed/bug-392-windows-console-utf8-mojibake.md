@@ -5,8 +5,8 @@ Effort: small (<1h)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: <tests/ filename — added in Phase 1>
+Status: FIXED (78d68514f)
+Regression Test: tests/cli_windows_console_utf8.rs
 
 On Windows, a compiled MFB program that prints non-ASCII UTF-8 text to the
 console displays mojibake instead of the intended glyphs. The em-dash `—`
@@ -194,42 +194,73 @@ can be layered later without conflict (Option A is harmless when B is present).
 
 ### Phase 1 — failing test + audit (no behavior change)
 
-- [ ] Add a regression test that compiles a program printing a multi-byte
+- [x] Add a regression test that compiles a program printing a multi-byte
       UTF-8 string for `win_x86_64` and asserts the emitted/redirected byte
       stream is exact UTF-8 (per the project's Windows codegen test
       conventions). Document that console-decode itself is not CI-observable.
-- [ ] Confirm the blast-radius list above against the current tree
+- [x] Confirm the blast-radius list above against the current tree
       (`grep` for `WriteFile`/`WriteConsole`/`SetConsoleOutputCP`).
 
 Acceptance: the audit list is complete with a verdict per site; the test
 harness compiles and the invariant is expressed.
-Commit: —
+Commit: 78d68514f
+
+Notes: `SetConsoleOutputCP`/`SetConsoleCP` were absent from the whole `src/`
+tree; the Windows entry (`plan.rs` `entry_imports`) declared no console
+code-page import — confirming the mechanism (RED: `-nplan` for
+`windows-x86_64` lacked the import). There is no Windows `.ncodesum` golden
+(the artifact-gate covers macos/linux/riscv only), so the CI-observable gate
+is the cross-compiled `-nplan` import surface plus the raw-UTF-8 byte survival
+in the PE. Console glyph rendering itself is not CI-observable (documented).
 
 ### Phase 2 — the fix (Option A)
 
-- [ ] Add a `SetConsoleOutputCP` (and `SetConsoleCP`, optional) import to
+- [x] Add a `SetConsoleOutputCP` (and `SetConsoleCP`, optional) import to
       `src/target/win_x86_64/plan.rs`, required by `_start`.
-- [ ] Emit `SetConsoleOutputCP(65001)` in the entry stub before the program
+- [x] Emit `SetConsoleOutputCP(65001)` in the entry stub before the program
       body, with a self-contained shadow-space frame like the neighbouring
       entry calls.
 
 Acceptance: a program printing `—` / box-drawing on an interactive Windows
 console renders the intended glyphs; redirected output is byte-identical;
 nothing in Non-goals changed.
-Commit: —
+Commit: 78d68514f
+
+Notes: landed via a new `emit_console_utf8` platform hook
+(`src/target/shared/code/types.rs`, default no-op) called once in the shared
+`_start` sequence (`src/target/shared/code/entry.rs`) right after the arena
+start-time seed. The Windows override (`src/target/win_x86_64/code.rs`) emits a
+balanced `sub $0x20 / mov rcx,65001 / call SetConsoleOutputCP / mov rcx,65001 /
+call SetConsoleCP / add $0x20` frame (touches only caller-saved rcx/rax). Both
+CPs are set (resolving the Open Decision below): console input flows through
+byte-based `ReadFile` (`emit_read_file`, not wide `ReadConsoleW`), so
+`SetConsoleCP(65001)` is needed for symmetric UTF-8 keyboard input. Placing the
+call after the arena map is safe: incoming argc/argv are already consumed on
+POSIX and are garbage on Windows (rebuilt later from `GetCommandLineW`).
 
 ### Phase 3 — regenerate expected outputs + full validation
 
-- [ ] Regenerate any Windows codegen goldens the added entry call shifts
+- [x] Regenerate any Windows codegen goldens the added entry call shifts
       (`.ncodesum` / artifact-gate); confirm the delta is ONLY the new
       `SetConsoleOutputCP` sequence in `_start`.
-- [ ] Run the full `cargo test` suite + artifact-gate.
-- [ ] Re-run the reproduction on a real Windows console (box 2230) and confirm
+- [x] Run the full `cargo test` suite + artifact-gate.
+- [x] Re-run the reproduction on a real Windows console (box 2230) and confirm
       `—` and the box-drawing borders render correctly without `chcp`.
 
 Acceptance: full suite green; goldens shift only by the intended entry
 sequence; the reproduction renders correctly on Windows.
-Commit: —
+Commit: 78d68514f
+
+Notes: no Windows `.ncodesum` golden exists (the artifact-gate covers the four
+non-Windows targets only), so nothing to regenerate for Windows; the fix is a
+defaulted no-op for those targets → **artifact-gate: 1476 goldens checked, 0
+diffs** (byte-identical, as designed). Full suite: **4132 passed, 0 failed**.
+Runtime proof on box 2230: a fresh console defaults to CP **437** (the OEM page
+that mojibakes); running the exe (forced from 437) flips the console to CP
+**65001**, exit **0** (shadow-space frame sound), output bytes correct. The
+final pixel-level glyph rendering in an interactive GUI console is the one
+un-CI-able piece the doc calls out, but the exact lever that governs it — the
+console code page — is confirmed set to 65001 by the running program.
 
 ## Validation Plan
 
@@ -242,11 +273,39 @@ Commit: —
 
 ## Open Decisions
 
-- Also set `SetConsoleCP(65001)` for console *input*? — recommended yes for
-  symmetry (UTF-8 keyboard input), but input already flows through the
-  wide/`ReadConsole` path in places; confirm before adding. (§Fix Design)
-- Land Option A only, or A+B together? — recommended A now, B as a tracked
-  follow-up. (§Fix Design)
+- Also set `SetConsoleCP(65001)` for console *input*? — **RESOLVED: yes.**
+  Confirmed the console *input* path is byte-based `ReadFile`
+  (`win_x86_64/code.rs` `emit_read_file`), NOT wide `ReadConsoleW` — so typed
+  non-ASCII would decode through the console *input* code page and mojibake
+  symmetrically. Set both `SetConsoleOutputCP` and `SetConsoleCP` to 65001 in
+  the one entry frame; the input call is likewise a harmless no-op when stdin is
+  redirected.
+- Land Option A only, or A+B together? — **RESOLVED: Option A only** (set the
+  code page at entry). Option B (`WriteConsoleW` on real consoles) remains a
+  strict-superset follow-up if a legacy conhost ever rejects 65001; it composes
+  with A without conflict. Box 2230 (Win 10.0.26100) accepted 65001, so A holds
+  there.
+
+## STATUS: FIXED (78d68514f)
+
+Landed via `/fix-bug 392` on `main`. One root cause, one fix location (the
+Windows `_start` entry), so no fan-out — serial on the integration worktree.
+
+- **Fix:** new `emit_console_utf8` platform hook (default no-op → all POSIX
+  backends byte-identical) emitting `SetConsoleOutputCP(65001)` +
+  `SetConsoleCP(65001)` once in `_start`; two `kernel32` imports added to
+  `entry_imports`.
+- **Second manifestation (term:: grid scramble):** confirmed a downstream
+  cascade of the same code-page defect, NOT a separate bug — no grid-code
+  change was made or needed. The latent double-width-glyph grid limitation
+  (§Root Cause) stays out of scope and unfiled unless it bites.
+- **Gates:** full `cargo test` **4132 passed / 0 failed**; artifact-gate **1476
+  goldens, 0 diffs**; RED→GREEN regression test
+  `tests/cli_windows_console_utf8.rs`.
+- **Runtime proof (box 2230):** fresh console CP 437 → after the exe runs, CP
+  **65001**; exit 0; output bytes verbatim raw UTF-8.
+- **Deviation from plan:** set both output+input CP (Open Decision resolved
+  yes); no Windows golden existed to regenerate.
 
 ## Summary
 
