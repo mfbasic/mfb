@@ -15,7 +15,10 @@ Phase-1 premise that the shared lowering is "token-clean"** — the `remap_x86_a
 fixpoint is load-bearing for *every* program, not just `linux_gtk`. The fixpoint
 deletion is therefore the full plan-34-B Phase-4 / bug-85 shared-lowering rework,
 not the "tokenize `linux_gtk` + delete the fixpoint" that Phase 1 scoped. See
-**"2026-07-28 finding"** below. Remains paused pending its own plan.
+**"2026-07-28 finding"** below. That own plan is now written:
+`planning/plan-71-A-fixpoint-crosscheck-census.md` (gate + census first; B onward
+scoped by the census). This bug stays open as the problem statement; plan-71 is the
+execution vehicle.
 
 ## 2026-07-28 finding — the fixpoint is load-bearing for the shared lowering (Phase-1 premise disproven)
 
