@@ -23,6 +23,16 @@ text to an interactive Windows console displays the intended Unicode glyphs
 (`—`, `─`, box-drawing borders, etc.), while output redirected to a
 file/pipe remains byte-identical raw UTF-8 (unchanged).
 
+**Second manifestation (same root cause) — full-screen `term::` grid
+scrambling.** The console `term::` grid (`browser` example TUI) does not just
+mojibake; its layout scrambles: text lands in the wrong columns, page content
+overlaps stale content (`ImagesG to type…`, `Táample` for `Example`), and
+single letters scatter across a row (`h  w  a  l  o  e  g`). This is NOT an
+independent grid bug — it is a downstream cascade of the same code-page defect,
+verified against the present loop (see Root Cause). Fixing the code page fixes
+both symptoms. Confirming there is no separate grid bug to file is part of this
+document's scope.
+
 References:
 
 - Root cause found while investigating a screenshot of the `browser` example
@@ -85,6 +95,33 @@ bytes are decoded. So even programs that call `term::on` still mojibake.
 Why the contrast cases are immune: redirected output never touches the console
 code page (`WriteFile` to a file/pipe stores bytes as-is), and the macOS/Linux
 backends write UTF-8 to terminals that decode UTF-8 by default.
+
+**Why the `term::` grid scrambles (same root cause, verified).** The console
+grid present, `emit_grid_present` (`src/target/shared/code/term_grid.rs:856`),
+is a diff renderer that emits an absolute cursor-position escape (CUP) for a
+changed cell **only when the terminal cursor is not already there**
+(`term_grid.rs:991`–`999`). For a contiguous run of changed cells it omits the
+CUP and relies on the terminal auto-advancing the cursor by exactly **one
+column** per printed glyph — recorded as `last_col = col + 1`
+(`term_grid.rs:1064`). The grid model is correct: a cell packs one codepoint
+(up to 4 UTF-8 bytes) and `emit_grid_write` advances the column by 1 per
+codepoint (`term_grid.rs:519`), so 1 codepoint = 1 cell = 1 column throughout.
+The break is purely at the physical console: when a 3-byte glyph (`─` = `E2 94
+80`) is decoded by the OEM code page as three separate glyphs (`ΓöÇ`), the
+console cursor advances 3 columns while the present's model believes it advanced
+1. The present then skips the CUP for the next contiguous cell and prints it 2
+columns too far right; the error accumulates across the run, yielding the
+scattering / overlap / stale-cell corruption observed. Set the code page to
+65001 → each codepoint decodes as one glyph → the +1 auto-advance holds → the
+grid aligns. No grid-code change is needed for this bug.
+
+**Latent, genuinely-separate limitation (OUT OF SCOPE here).** The same +1
+auto-advance assumption also breaks for a real double-width glyph (CJK, wide
+emoji), which occupies one grid cell but two terminal columns, on *every*
+platform including a correct UTF-8 console. That is a pre-existing grid design
+constraint, not this bug (the reproduction here is Latin text plus box-drawing,
+all single-width), and must not be conflated with or "fixed" as part of bug-392.
+File it separately if it ever bites.
 
 ## Goal
 
