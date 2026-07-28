@@ -11,8 +11,8 @@ the loading spinner keeps spinning while a page loads *and* parses:
 
 | Project     | Kind       | What it is                                                                    |
 | ----------- | ---------- | ----------------------------------------------------------------------------- |
-| `dom/`      | package    | The DOM: `Node`/`ElementNode`/`TextNode`/`HeaderNode` types + an HTML parser. |
-| `fetch/`    | package    | The network worker: blocking `http::` fetch, redirect following, `dom::parse`. |
+| `dom/`      | package    | The DOM: `Node` (`ElementNode`/`TextNode`/`HeaderNode`/`StyleNode`) + an HTML **and** CSS parser. |
+| `fetch/`    | package    | The network worker: blocking `http::` fetch, redirects, `dom::parse`, **and loading external stylesheets**. |
 | `display/`  | package    | Renders a `dom::Node`: `render(node, width)` → text, `tree(node, width)` → an indented DOM tree. |
 | `app/`      | executable | The TUI: layout, input, scrolling, the three modes.                          |
 
@@ -99,3 +99,19 @@ code across a package boundary, so `dom`/`display` walk trees with a work-stack.
 `dom::parse` also caps its node count: extracting nodes churns short-lived arena
 allocations, whose free list is quadratic (a known open arena issue), so a
 multi-megabyte page is rendered as a truncated preview rather than hanging.
+
+## CSS
+
+The `fetch` worker also loads stylesheets: it reads each `<link rel="stylesheet">`
+over http (resolving relative hrefs against the page URL) and captures each inline
+`<style>`. Every stylesheet body is kept on the header (`HeaderNode.css`) and
+parsed by `dom::parseCss` into **`StyleNode`s** — one per rule, each with the
+selector and a `props: Map OF String TO String` (a comma selector list becomes one
+rule per selector). The rules hang off `HeaderNode.rules` and show in Raw Mode; the
+footer's `Files: n/m` counts the HTML document plus each stylesheet fetched.
+
+`StyleNode` is a `Node` **variant** (not a standalone record) on purpose: a
+consumer package (`display`) can read a union variant's fields, but the fields of a
+record reached only *transitively* through an imported type are opaque to its
+codegen — so all `StyleNode` iteration lives in `dom`, which returns plain strings
+(`dom::styleLines`).

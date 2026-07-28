@@ -74,16 +74,40 @@ FUNC resolveLocation(base AS net::Url, loc AS String) AS String
   RETURN authority & dir & target
 END FUNC
 
-' Turn a final response into a LoadResult: parse HTML into a DOM, but wrap a
-' non-HTML body (JSON, plain text, CSS) as a one-text-node document.
-FUNC pageResult(resp AS http::Response, secure AS Boolean) AS LoadResult
+' Fetch one external stylesheet and return its text.
+FUNC fetchCss(base AS net::Url, href AS String) AS String
+  LET url AS net::Url = net::toUrl(resolveLocation(base, href))
+  LET resp AS http::Response = http::read(url)
+  RETURN toString(resp.body)
+END FUNC
+
+' Turn a final response into a LoadResult: parse HTML into a DOM, fetch its
+' external stylesheets, and attach every CSS body (parsed into rules) to the
+' document header. A non-HTML body (JSON, plain text, CSS) is wrapped as a
+' one-text-node document. filesLoaded/filesTotal count the HTML plus each
+' stylesheet fetched.
+FUNC pageResult(resp AS http::Response, u AS net::Url, secure AS Boolean) AS LoadResult
   LET body AS String = toString(resp.body)
   LET ctype AS String = collections::getOr(resp.headers, "content-type", "")
-  IF strings::contains(ctype, "html") OR ctype = "" THEN
-    LET document AS Node = dom::parse(body)
-    RETURN LoadResult[TRUE, document, dom::title(document), "", secure, 1, 1]
+  IF NOT (strings::contains(ctype, "html") OR ctype = "") THEN
+    RETURN LoadResult[TRUE, dom::textDocument(body), "", "", secure, 1, 1]
   END IF
-  RETURN LoadResult[TRUE, dom::textDocument(body), "", "", secure, 1, 1]
+  MUT document AS Node = dom::parse(body)
+  LET links AS List OF String = dom::styleLinks(document)
+  MUT cssTexts AS List OF String = []
+  MUT loaded AS Integer = 1
+  LET total AS Integer = 1 + len(links)
+  FOR EACH href IN links
+    LET css AS String = fetchCss(u, href) TRAP(e)
+      RECOVER ""
+    END TRAP
+    IF css <> "" THEN
+      cssTexts = collections::append(cssTexts, css)
+      loaded = loaded + 1
+    END IF
+  NEXT
+  document = dom::attachCss(document, cssTexts)
+  RETURN LoadResult[TRUE, document, dom::title(document), "", secure, loaded, total]
 END FUNC
 
 ' Fetch a URL, following up to 10 redirects, then parse it into a DOM. Any
@@ -104,7 +128,7 @@ EXPORT ISOLATED FUNC fetch(worker AS ThreadWorker OF String TO LoadResult, rawUr
     LET resp AS http::Response = http::read(u)
     LET loc AS String = collections::getOr(resp.headers, "location", "")
     IF NOT isRedirect(resp) OR loc = "" THEN
-      RETURN pageResult(resp, u.scheme = "https")
+      RETURN pageResult(resp, u, u.scheme = "https")
     END IF
     href = resolveLocation(u, loc)
   NEXT

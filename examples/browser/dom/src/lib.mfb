@@ -12,6 +12,7 @@
 ' lower to native code across a package boundary (see the browser README).
 
 IMPORT collections
+IMPORT strings
 
 EXPORT TYPE ElementNode
   tag AS String
@@ -23,16 +24,28 @@ EXPORT TYPE TextNode
   text AS String
 END TYPE
 
+' One parsed CSS rule as a DOM node: a selector and its property map (see
+' parseCss in css.mfb). A Node variant — not a separate record — so a consumer
+' package can read its fields (a transitively-imported record is opaque to a
+' consumer's codegen; a union variant's layout arrives with the union).
+EXPORT TYPE StyleNode
+  selector AS String
+  props AS Map OF String TO String
+END TYPE
+
 EXPORT TYPE HeaderNode
   title AS String
   scripts AS List OF String
   styles AS List OF String
+  css AS List OF String
+  rules AS List OF Node
 END TYPE
 
 EXPORT UNION Node
   ElementNode
   TextNode
   HeaderNode
+  StyleNode
 END UNION
 
 ' ----- constructors (widen a member record to Node via a typed binding) -----
@@ -51,21 +64,86 @@ EXPORT FUNC textNode(s AS String) AS Node
   RETURN n
 END FUNC
 
-EXPORT FUNC headerNode(title AS String, scripts AS List OF String, styles AS List OF String) AS Node
-  LET n AS Node = HeaderNode[title, scripts, styles]
+EXPORT FUNC styleNode(selector AS String, props AS Map OF String TO String) AS Node
+  LET n AS Node = StyleNode[selector, props]
+  RETURN n
+END FUNC
+
+EXPORT FUNC headerNode(title AS String, scripts AS List OF String, styles AS List OF String, css AS List OF String, rules AS List OF Node) AS Node
+  LET n AS Node = HeaderNode[title, scripts, styles, css, rules]
   RETURN n
 END FUNC
 
 ' A valid but empty document, for error/placeholder states.
 EXPORT FUNC emptyDocument() AS Node
-  LET header AS Node = headerNode("", [], [])
+  LET header AS Node = headerNode("", [], [], [], [])
   RETURN element("#document", emptyAttrs(), [header])
 END FUNC
 
 ' Wrap plain (non-HTML) text as a one-text-node document.
 EXPORT FUNC textDocument(s AS String) AS Node
-  LET header AS Node = headerNode("", [], [])
+  LET header AS Node = headerNode("", [], [], [], [])
   RETURN element("#document", emptyAttrs(), [header, textNode(s)])
+END FUNC
+
+' The external stylesheet links recorded on the header (the `styles` entries that
+' are real hrefs, not "(inline …)" markers) — the URLs a caller should fetch.
+EXPORT FUNC styleLinks(doc AS Node) AS List OF String
+  MATCH doc
+    CASE ElementNode(e)
+      FOR EACH child IN e.children
+        MATCH child
+          CASE HeaderNode(h)
+            MUT out AS List OF String = []
+            FOR EACH ref IN h.styles
+              IF NOT strings::startsWith(ref, "(") THEN
+                out = collections::append(out, ref)
+              END IF
+            NEXT
+            RETURN out
+          CASE ELSE
+        END MATCH
+      NEXT
+      RETURN []
+    CASE ELSE
+      RETURN []
+  END MATCH
+END FUNC
+
+' Return the document with `extra` stylesheet bodies appended to its header: each
+' raw text is kept in `css` and parsed into `rules` (records are immutable, so the
+' header — the document's first child — is rebuilt). Used after a caller fetches
+' the external stylesheets.
+EXPORT FUNC attachCss(doc AS Node, extra AS List OF String) AS Node
+  MATCH doc
+    CASE ElementNode(e)
+      MUT newKids AS List OF Node = []
+      MUT patched AS Boolean = FALSE
+      FOR EACH child IN e.children
+        IF NOT patched THEN
+          MATCH child
+            CASE HeaderNode(h)
+              MUT css AS List OF String = h.css
+              MUT rules AS List OF Node = h.rules
+              FOR EACH text IN extra
+                css = collections::append(css, text)
+                FOR EACH rule IN parseCss(text)
+                  rules = collections::append(rules, rule)
+                NEXT
+              NEXT
+              newKids = collections::append(newKids, headerNode(h.title, h.scripts, h.styles, css, rules))
+              patched = TRUE
+            CASE ELSE
+              newKids = collections::append(newKids, child)
+          END MATCH
+        ELSE
+          newKids = collections::append(newKids, child)
+        END IF
+      NEXT
+      RETURN element(e.tag, e.attrs, newKids)
+    CASE ELSE
+      RETURN doc
+  END MATCH
 END FUNC
 
 ' The page title: the HeaderNode child's title, or "" if there is none. Reads

@@ -151,9 +151,18 @@ EXPORT FUNC tree(root AS Node, width AS Integer) AS String
           lines = collections::append(lines, indent & "\"" & clip(tx, 60) & "\"")
         END IF
       CASE HeaderNode(h)
-        lines = collections::append(lines, indent & "#head  title=\"" & clip(h.title, 40) & "\"  scripts=" & toString(len(h.scripts)) & "  styles=" & toString(len(h.styles)))
+        lines = collections::append(lines, indent & "#head  title=\"" & clip(h.title, 40) & "\"  scripts=" & toString(len(h.scripts)) & "  styles=" & toString(len(h.styles)) & "  css=" & toString(len(h.css)) & "  rules=" & toString(len(h.rules)))
       CASE ELSE
     END MATCH
   LOOP
+  ' The CSS rules (dom renders them — a consumer cannot iterate the StyleNodes).
+  LET cssLines AS List OF String = dom::styleLines(root)
+  IF len(cssLines) > 0 THEN
+    lines = collections::append(lines, "")
+    lines = collections::append(lines, "CSS rules (" & toString(len(cssLines)) & "):")
+    FOR EACH cssLine IN cssLines
+      lines = collections::append(lines, "  " & clip(cssLine, width - 2))
+    NEXT
+  END IF
   RETURN wrap(strings::join(lines, "\n"), width)
 END FUNC
