@@ -1,0 +1,19 @@
+{
+  "name": "dom",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "The browser example's DOM: Node/ElementNode/TextNode/HeaderNode types and a forgiving iterative HTML parser producing a document Node.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "config": {
+    "stdinLogCap": 4194304
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "display",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "Renders a dom::Node: render(node,width) -> readable text, tree(node,width) -> an indented DOM tree. Iterative (no recursion over the imported union).",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "config": {
+    "stdinLogCap": 4194304
+  },
+  "packages": [
+    {
+      "name": "dom",
+      "version": "=0.1.0",
+      "source": "file:packages/dom.mfp"
+    }
+  ]
+}

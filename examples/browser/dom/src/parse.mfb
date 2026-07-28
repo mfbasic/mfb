@@ -1,0 +1,332 @@
+' dom/parse — a forgiving, iterative HTML → Node parser.
+'
+' It scans with strings::find/mid (not char-by-char) and builds the tree with an
+' explicit frame stack rather than recursion. <script>/<style>/comments are
+' dropped from the tree (their src/href/inline markers are collected into the
+' HeaderNode); <title> text is captured into the header; block/inline tags become
+' ElementNodes; text between tags becomes TextNodes. Malformed input never fails
+' — unclosed tags are assembled at end of input.
+
+IMPORT collections
+IMPORT encoding
+IMPORT strings
+
+' One open element while parsing: its tag, attributes, and children so far.
+TYPE Frame
+  tag AS String
+  attrs AS Map OF String TO String
+  kids AS List OF Node
+END TYPE
+
+' The most nodes parse() will build before stopping. Each node allocates (a Map
+' per element, list growth), and the runtime arena's free list is quadratic under
+' that churn (bug in the arena, tracked by the benchmark), so an unbounded parse
+' of a huge page would hang. Past the cap the tree is truncated.
+FUNC maxNodes() AS Integer
+  RETURN 2000
+END FUNC
+
+' ----- scanning helpers -----
+
+FUNC findFrom(s AS String, needle AS String, start AS Integer) AS Integer
+  LET idx AS Integer = strings::find(s, needle, start) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN idx
+END FUNC
+
+FUNC matchAt(html AS String, i AS Integer, needle AS String) AS Boolean
+  IF i < 0 THEN RETURN FALSE
+  IF i + len(needle) > len(html) THEN RETURN FALSE
+  RETURN strings::mid(html, i, len(needle)) = needle
+END FUNC
+
+FUNC isSpace(ch AS String) AS Boolean
+  RETURN ch = " " OR ch = "\t" OR ch = "\n" OR ch = "\r"
+END FUNC
+
+FUNC isNameChar(ch AS String) AS Boolean
+  IF ch = "" THEN RETURN FALSE
+  RETURN strings::contains("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", ch)
+END FUNC
+
+FUNC tagName(html AS String, i AS Integer) AS String
+  MUT j AS Integer = i
+  MUT name AS String = ""
+  LET n AS Integer = len(html)
+  DO WHILE j < n
+    LET ch AS String = strings::mid(html, j, 1)
+    IF isNameChar(ch) THEN
+      name = name & ch
+      j = j + 1
+    ELSE
+      EXIT DO
+    END IF
+  LOOP
+  RETURN strings::lower(name)
+END FUNC
+
+' Position just past the ">" of the next "</name>" close tag, or -1.
+FUNC findCloseTag(html AS String, name AS String, start AS Integer) AS Integer
+  MUT s AS Integer = start
+  LET n AS Integer = len(html)
+  DO WHILE s < n
+    LET p AS Integer = findFrom(html, "</", s)
+    IF p < 0 THEN RETURN -1
+    IF tagName(html, p + 2) = name THEN
+      LET gt AS Integer = findFrom(html, ">", p)
+      IF gt < 0 THEN RETURN -1
+      RETURN gt + 1
+    END IF
+    s = p + 2
+  LOOP
+  RETURN -1
+END FUNC
+
+' Position of the "<" of the next "</name>" close tag, or -1 (so the caller can
+' slice the element's inner text before it).
+FUNC findCloseTagStart(html AS String, name AS String, start AS Integer) AS Integer
+  MUT s AS Integer = start
+  LET n AS Integer = len(html)
+  DO WHILE s < n
+    LET p AS Integer = findFrom(html, "</", s)
+    IF p < 0 THEN RETURN -1
+    IF tagName(html, p + 2) = name THEN RETURN p
+    s = p + 2
+  LOOP
+  RETURN -1
+END FUNC
+
+' Void (self-closing) HTML elements: no children, never opened as a frame.
+FUNC isVoid(name AS String) AS Boolean
+  RETURN name = "area" OR name = "base" OR name = "br" OR name = "col" OR name = "embed" OR name = "hr" OR name = "img" OR name = "input" OR name = "link" OR name = "meta" OR name = "param" OR name = "source" OR name = "track" OR name = "wbr"
+END FUNC
+
+' Decode character references in a text/attribute run (fallback on a bad entity).
+FUNC cleanText(s AS String) AS String
+  IF NOT strings::contains(s, "&") THEN RETURN s
+  LET d AS String = encoding::htmlUnescape(s) TRAP(e)
+    RECOVER s
+  END TRAP
+  RETURN d
+END FUNC
+
+' ----- attribute parsing -----
+
+FUNC parseAttrs(s AS String) AS Map OF String TO String
+  MUT m AS Map OF String TO String = Map OF String TO String {}
+  MUT i AS Integer = 0
+  LET n AS Integer = len(s)
+  DO WHILE i < n
+    ' Skip separators (whitespace, stray "/").
+    DO WHILE i < n
+      LET ch AS String = strings::mid(s, i, 1)
+      IF isSpace(ch) OR ch = "/" THEN
+        i = i + 1
+      ELSE
+        EXIT DO
+      END IF
+    LOOP
+    IF i >= n THEN EXIT DO
+    ' Read the attribute name.
+    MUT nm AS String = ""
+    DO WHILE i < n
+      LET ch AS String = strings::mid(s, i, 1)
+      IF ch = "=" OR isSpace(ch) OR ch = "/" THEN
+        EXIT DO
+      END IF
+      nm = nm & ch
+      i = i + 1
+    LOOP
+    IF nm = "" THEN
+      i = i + 1
+    ELSE
+      DO WHILE i < n AND isSpace(strings::mid(s, i, 1))
+        i = i + 1
+      LOOP
+      IF i < n AND strings::mid(s, i, 1) = "=" THEN
+        i = i + 1
+        DO WHILE i < n AND isSpace(strings::mid(s, i, 1))
+          i = i + 1
+        LOOP
+        MUT val AS String = ""
+        IF i < n AND (strings::mid(s, i, 1) = "\"" OR strings::mid(s, i, 1) = "'") THEN
+          LET q AS String = strings::mid(s, i, 1)
+          i = i + 1
+          DO WHILE i < n AND strings::mid(s, i, 1) <> q
+            val = val & strings::mid(s, i, 1)
+            i = i + 1
+          LOOP
+          IF i < n THEN
+            i = i + 1
+          END IF
+        ELSE
+          DO WHILE i < n AND NOT isSpace(strings::mid(s, i, 1))
+            val = val & strings::mid(s, i, 1)
+            i = i + 1
+          LOOP
+        END IF
+        m = collections::set(m, strings::lower(nm), cleanText(val))
+      ELSE
+        m = collections::set(m, strings::lower(nm), "")
+      END IF
+    END IF
+  LOOP
+  RETURN m
+END FUNC
+
+' ----- tree building (all iterative over an explicit stack) -----
+
+' Append a child to the innermost open frame.
+FUNC pushKid(stack AS List OF Frame, kid AS Node) AS List OF Frame
+  LET i AS Integer = len(stack) - 1
+  LET top AS Frame = collections::get(stack, i)
+  LET updated AS Frame = WITH top { kids := collections::append(top.kids, kid) }
+  RETURN collections::set(stack, i, updated)
+END FUNC
+
+' Close a tag: pop frames (assembling each into an ElementNode of its parent)
+' until the matching open tag is popped. A stray close with no match is ignored.
+FUNC closeTag(stack AS List OF Frame, name AS String) AS List OF Frame
+  MUT k AS Integer = -1
+  MUT s AS Integer = len(stack) - 1
+  DO WHILE s >= 1
+    IF collections::get(stack, s).tag = name THEN
+      k = s
+      EXIT DO
+    END IF
+    s = s - 1
+  LOOP
+  IF k < 1 THEN RETURN stack
+  MUT st AS List OF Frame = stack
+  DO WHILE len(st) - 1 >= k
+    LET top AS Frame = collections::get(st, len(st) - 1)
+    st = collections::removeAt(st, len(st) - 1)
+    st = pushKid(st, element(top.tag, top.attrs, top.kids))
+  LOOP
+  RETURN st
+END FUNC
+
+' Parse HTML into a "#document" ElementNode whose first child is the HeaderNode.
+EXPORT FUNC parse(html AS String) AS Node
+  MUT stack AS List OF Frame = [Frame["#root", parseAttrs(""), []]]
+  MUT pageTitle AS String = ""
+  MUT scripts AS List OF String = []
+  MUT styles AS List OF String = []
+  MUT css AS List OF String = []
+  MUT rules AS List OF Node = []
+  MUT inTitle AS Boolean = FALSE
+  MUT nodeCount AS Integer = 0
+  MUT pos AS Integer = 0
+  LET n AS Integer = len(html)
+
+  DO WHILE pos < n AND nodeCount < maxNodes()
+    LET lt AS Integer = findFrom(html, "<", pos)
+    IF lt < 0 THEN
+      IF inTitle THEN
+        pageTitle = pageTitle & strings::mid(html, pos, n - pos)
+      ELSE
+        stack = pushKid(stack, textNode(cleanText(strings::mid(html, pos, n - pos))))
+        nodeCount = nodeCount + 1
+      END IF
+      pos = n
+    ELSE
+      IF lt > pos THEN
+        LET run AS String = strings::mid(html, pos, lt - pos)
+        IF inTitle THEN
+          pageTitle = pageTitle & run
+        ELSE
+          stack = pushKid(stack, textNode(cleanText(run)))
+          nodeCount = nodeCount + 1
+        END IF
+      END IF
+
+      IF lt + 1 >= n THEN
+        pos = n
+      ELSE
+        LET c AS String = strings::mid(html, lt + 1, 1)
+        IF c = "!" THEN
+          IF matchAt(html, lt + 2, "--") THEN
+            LET e AS Integer = findFrom(html, "-->", lt)
+            IF e < 0 THEN pos = n ELSE pos = e + 3
+          ELSE
+            LET gt AS Integer = findFrom(html, ">", lt)
+            IF gt < 0 THEN pos = n ELSE pos = gt + 1
+          END IF
+        ELSE
+          LET isClose AS Boolean = (c = "/")
+          MUT nameStart AS Integer = lt + 1
+          IF isClose THEN nameStart = lt + 2
+          LET name AS String = tagName(html, nameStart)
+          LET gt AS Integer = findFrom(html, ">", lt)
+          IF gt < 0 THEN
+            pos = n
+          ELSE
+            LET inner AS String = strings::mid(html, nameStart + len(name), gt - (nameStart + len(name)))
+            IF name = "title" THEN
+              inTitle = NOT isClose
+              pos = gt + 1
+            ELSEIF name = "script" AND NOT isClose THEN
+              LET a AS Map OF String TO String = parseAttrs(inner)
+              LET src AS String = collections::getOr(a, "src", "")
+              IF src <> "" THEN
+                scripts = collections::append(scripts, src)
+              ELSE
+                scripts = collections::append(scripts, "(inline script)")
+              END IF
+              LET e AS Integer = findCloseTag(html, "script", lt + 1)
+              IF e < 0 THEN pos = n ELSE pos = e
+            ELSEIF name = "style" AND NOT isClose THEN
+              styles = collections::append(styles, "(inline style)")
+              ' Capture the inline CSS text (between this ">" and "</style>") and
+              ' parse it into rules.
+              LET closeStart AS Integer = findCloseTagStart(html, "style", lt + 1)
+              IF closeStart < 0 THEN
+                pos = n
+              ELSE
+                LET cssText AS String = strings::mid(html, gt + 1, closeStart - (gt + 1))
+                css = collections::append(css, cssText)
+                FOR EACH rule IN parseCss(cssText)
+                  rules = collections::append(rules, rule)
+                NEXT
+                LET afterClose AS Integer = findFrom(html, ">", closeStart)
+                IF afterClose < 0 THEN pos = n ELSE pos = afterClose + 1
+              END IF
+            ELSEIF name = "link" AND NOT isClose THEN
+              LET a AS Map OF String TO String = parseAttrs(inner)
+              IF strings::contains(strings::lower(collections::getOr(a, "rel", "")), "stylesheet") THEN
+                styles = collections::append(styles, collections::getOr(a, "href", "(stylesheet)"))
+              END IF
+              pos = gt + 1
+            ELSEIF isVoid(name) AND NOT isClose THEN
+              stack = pushKid(stack, element(name, parseAttrs(inner), []))
+              nodeCount = nodeCount + 1
+              pos = gt + 1
+            ELSEIF isClose THEN
+              stack = closeTag(stack, name)
+              pos = gt + 1
+            ELSE
+              stack = collections::append(stack, Frame[name, parseAttrs(inner), []])
+              nodeCount = nodeCount + 1
+              pos = gt + 1
+            END IF
+          END IF
+        END IF
+      END IF
+    END IF
+  LOOP
+
+  ' Assemble any still-open frames (unclosed tags) up to the root.
+  DO WHILE len(stack) > 1
+    LET top AS Frame = collections::get(stack, len(stack) - 1)
+    stack = collections::removeAt(stack, len(stack) - 1)
+    stack = pushKid(stack, element(top.tag, top.attrs, top.kids))
+  LOOP
+
+  LET root AS Frame = collections::get(stack, 0)
+  MUT docKids AS List OF Node = [headerNode(cleanText(strings::trim(pageTitle)), scripts, styles, css, rules)]
+  FOR EACH k IN root.kids
+    docKids = collections::append(docKids, k)
+  NEXT
+  RETURN element("#document", parseAttrs(""), docKids)
+END FUNC

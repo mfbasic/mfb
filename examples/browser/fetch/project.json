@@ -1,0 +1,26 @@
+{
+  "name": "fetch",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "description": "The browser example's network worker: an ISOLATED thread worker that fetches a URL (following redirects) and parses it into a dom::Node document.",
+  "sources": [
+    {
+      "root": "src",
+      "role": "package",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "config": {
+    "stdinLogCap": 4194304
+  },
+  "packages": [
+    {
+      "name": "dom",
+      "version": "=0.1.0",
+      "source": "file:packages/dom.mfp"
+    }
+  ]
+}

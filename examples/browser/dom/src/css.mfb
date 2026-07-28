@@ -1,0 +1,133 @@
+' dom/css — a forgiving CSS parser: text -> a list of StyleRule (selector +
+' property map). Not a full CSS parser: it strips /* */ comments, splits on
+' { … }, and reads `prop: value;` declarations. A comma-separated selector list
+' (`.a, .b { … }`) becomes one rule per selector sharing the properties. At-rules
+' (`@media …`) are skipped rather than descended into.
+
+IMPORT collections
+IMPORT strings
+
+' Most rules parseCss collects before stopping (bounds the arena churn a big
+' stylesheet would create, like the DOM node cap).
+FUNC maxCssRules() AS Integer
+  RETURN 4000
+END FUNC
+
+FUNC cssFindFrom(s AS String, needle AS String, start AS Integer) AS Integer
+  LET idx AS Integer = strings::find(s, needle, start) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN idx
+END FUNC
+
+' Remove /* … */ comments, joining the surviving spans in one pass.
+FUNC stripCssComments(text AS String) AS String
+  IF NOT strings::contains(text, "/*") THEN RETURN text
+  MUT parts AS List OF String = []
+  MUT pos AS Integer = 0
+  LET n AS Integer = len(text)
+  DO WHILE pos < n
+    LET start AS Integer = cssFindFrom(text, "/*", pos)
+    IF start < 0 THEN
+      parts = collections::append(parts, strings::mid(text, pos, n - pos))
+      pos = n
+    ELSE
+      parts = collections::append(parts, strings::mid(text, pos, start - pos))
+      LET stop AS Integer = cssFindFrom(text, "*/", start + 2)
+      IF stop < 0 THEN
+        pos = n
+      ELSE
+        pos = stop + 2
+      END IF
+    END IF
+  LOOP
+  RETURN strings::join(parts, "")
+END FUNC
+
+' Parse a declaration block ("color: red; font-size: 14px") into a property map.
+FUNC parseDeclarations(block AS String) AS Map OF String TO String
+  MUT props AS Map OF String TO String = Map OF String TO String {}
+  FOR EACH decl IN strings::split(block, ";")
+    LET colon AS Integer = cssFindFrom(decl, ":", 0)
+    IF colon >= 0 THEN
+      LET prop AS String = strings::trim(strings::mid(decl, 0, colon))
+      LET value AS String = strings::trim(strings::mid(decl, colon + 1, len(decl) - (colon + 1)))
+      IF prop <> "" THEN
+        props = collections::set(props, strings::lower(prop), value)
+      END IF
+    END IF
+  NEXT
+  RETURN props
+END FUNC
+
+' Format a StyleNode as `selector { prop: value; … }` (any other node → ""). Done
+' here because iterating a Map that came from an imported type's field yields
+' Unknown-typed keys in a consumer package; dom owns the type, so it is fine.
+EXPORT FUNC formatStyle(node AS Node) AS String
+  MATCH node
+    CASE StyleNode(s)
+      MUT decls AS String = ""
+      FOR EACH key IN collections::keys(s.props)
+        IF decls <> "" THEN
+          decls = decls & "; "
+        END IF
+        decls = decls & key & ": " & collections::getOr(s.props, key, "")
+      NEXT
+      RETURN s.selector & " { " & decls & " }"
+    CASE ELSE
+      RETURN ""
+  END MATCH
+END FUNC
+
+' Every CSS rule of the document, each formatted as `selector { … }`. Returns
+' plain strings so a consumer never has to iterate the StyleNodes itself (an
+' imported type's fields are opaque to a consumer's codegen).
+EXPORT FUNC styleLines(doc AS Node) AS List OF String
+  MUT out AS List OF String = []
+  MATCH doc
+    CASE ElementNode(e)
+      FOR EACH child IN e.children
+        MATCH child
+          CASE HeaderNode(h)
+            FOR EACH ruleNode IN h.rules
+              out = collections::append(out, formatStyle(ruleNode))
+            NEXT
+          CASE ELSE
+        END MATCH
+      NEXT
+    CASE ELSE
+  END MATCH
+  RETURN out
+END FUNC
+
+' Parse a stylesheet into StyleNodes (one Node per rule).
+EXPORT FUNC parseCss(text AS String) AS List OF Node
+  MUT rules AS List OF Node = []
+  LET clean AS String = stripCssComments(text)
+  MUT pos AS Integer = 0
+  LET n AS Integer = len(clean)
+  DO WHILE pos < n AND len(rules) < maxCssRules()
+    LET brace AS Integer = cssFindFrom(clean, "{", pos)
+    IF brace < 0 THEN
+      EXIT DO
+    END IF
+    LET selectorText AS String = strings::trim(strings::mid(clean, pos, brace - pos))
+    LET close AS Integer = cssFindFrom(clean, "}", brace)
+    IF close < 0 THEN
+      EXIT DO
+    END IF
+    LET block AS String = strings::mid(clean, brace + 1, close - (brace + 1))
+    pos = close + 1
+    ' Skip at-rules (their block may nest; a full parser would descend).
+    IF NOT strings::startsWith(selectorText, "@") THEN
+      LET props AS Map OF String TO String = parseDeclarations(block)
+      FOR EACH sel IN strings::split(selectorText, ",")
+        LET one AS String = strings::trim(sel)
+        IF one <> "" THEN
+          rules = collections::append(rules, styleNode(one, props))
+        END IF
+      NEXT
+    END IF
+  LOOP
+  RETURN rules
+END FUNC

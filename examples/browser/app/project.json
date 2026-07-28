@@ -7,16 +7,30 @@
     {
       "root": "src",
       "role": "main",
-      "include": ["**/*.mfb"]
+      "include": [
+        "**/*.mfb"
+      ]
     }
   ],
   "packages": [
     {
-      "name": "backend",
+      "name": "dom",
       "version": "=0.1.0",
-      "source": "file:packages/backend.mfp"
+      "source": "file:packages/dom.mfp"
+    },
+    {
+      "name": "fetch",
+      "version": "=0.1.0",
+      "source": "file:packages/fetch.mfp"
+    },
+    {
+      "name": "display",
+      "version": "=0.1.0",
+      "source": "file:packages/display.mfp"
     }
   ],
   "entry": "main",
-  "targets": ["native"]
+  "targets": [
+    "native"
+  ]
 }

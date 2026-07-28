@@ -886,3 +886,117 @@ pub(super) fn lower_builtin_function_wrapper(
         stack_slots,
     })
 }
+
+/// The per-type thread-transfer deep-copy function (bug-391). Takes a pointer to
+/// a value of `type_` (a recursive type) in the first argument register and
+/// returns a pointer to a fresh, independent copy in the current arena. Its body
+/// is `emit_thread_copy_real`, whose recursive sub-edges call *these* functions,
+/// so the deep copy recurses at run time over the finite data instead of at
+/// compile time over the (infinite) type.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn lower_thread_copy_function(
+    type_: &str,
+    symbol: &str,
+    function_symbols: &HashMap<String, String>,
+    functions: &HashMap<String, &NirFunction>,
+    package_return_types: &HashMap<String, String>,
+    platform_imports: &HashMap<String, String>,
+    globals: &HashMap<String, GlobalValue>,
+    string_symbols: &HashMap<String, String>,
+    type_model: TypeModel,
+) -> Result<CodeFunction, String> {
+    let param = CodeParam {
+        name: "source".to_string(),
+        type_: type_.to_string(),
+        location: abi::argument_register(0)?,
+    };
+    let mut builder = CodeBuilder {
+        current_symbol: symbol.to_string(),
+        function_symbols,
+        functions,
+        package_return_types,
+        platform_imports,
+        globals,
+        type_model,
+        string_symbols,
+        locals: HashMap::new(),
+        instructions: vec![abi::label("entry")],
+        relocations: Vec::new(),
+        stack_slots: Vec::new(),
+        used_callee_saved: Vec::new(),
+        stack_size: 0,
+        next_register: 8,
+        next_vreg: 0,
+        vreg_eager: Vec::new(),
+        next_fp_register: 0,
+        next_fp_vreg: 0,
+        fp_vreg_eager: Vec::new(),
+        float_residents: HashMap::new(),
+        promoted_float_locals: HashMap::new(),
+        address_taken_locals: HashSet::new(),
+        regalloc_kind: regalloc::active_kind(),
+        regalloc_error: None,
+        next_label: 0,
+        trap: None,
+        loop_stack: Vec::new(),
+        active_cleanups: Vec::new(),
+        cleanup_scope_starts: Vec::new(),
+        pending_result_slots: None,
+        escaping_value_slot: None,
+        error_arena_restore_slot: None,
+        raw_result_capture: None,
+        trap_discard_error_results: HashSet::new(),
+        raw_result_discard_error: false,
+        emitting_error_route: false,
+        building_error_block: false,
+        current_file: String::new(),
+        current_loc: NirSourceLoc::default(),
+        resource_owners: HashMap::new(),
+        owner_collections: HashSet::new(),
+        owned_list_heads: HashMap::new(),
+        owned_value_slots: Vec::new(),
+        pending_temp_frees: Vec::new(),
+        for_each_iterable_locals: Vec::new(),
+        string_capacity_slots: HashMap::new(),
+        math_pool_base_vreg: None,
+        vector_natives: HashMap::new(),
+        next_vector_native: 0,
+        promoted_vector_locals: HashMap::new(),
+        promotable_vector_locals: HashSet::new(),
+        integer_lower_bounds: HashMap::new(),
+        integer_strict_upper: std::collections::HashSet::new(),
+    };
+
+    // Capture the incoming source pointer in a vreg (spilled across the copy's
+    // internal calls), deep-copy it, and return the fresh pointer.
+    let source = builder.allocate_register()?;
+    builder.emit(abi::move_register(&source, &param.location));
+    let result = builder.emit_thread_copy_real(type_, &source)?;
+    builder.emit(abi::move_register(abi::return_register(), &result));
+    builder.emit(abi::return_());
+
+    builder.run_register_allocation()?;
+    let mut instructions = builder.instructions;
+    let is_x86 = mir::active_backend().register_model().arena_base()
+        == crate::arch::x86_64::regmodel::ARENA_BASE_REGISTER;
+    peephole::forward_stores_to_loads(&mut instructions, is_x86);
+    peephole::remove_fp_shuttles(&mut instructions, mir::active_backend().register_model());
+    let mut stack_slots = builder.stack_slots;
+    let frame = finalize_frame(
+        &mut instructions,
+        &mut stack_slots,
+        builder.stack_size,
+        builder.used_callee_saved,
+    );
+
+    Ok(CodeFunction {
+        name: format!("thread_copy.{type_}"),
+        symbol: symbol.to_string(),
+        params: vec![param],
+        returns: type_.to_string(),
+        frame,
+        instructions,
+        relocations: builder.relocations,
+        stack_slots,
+    })
+}

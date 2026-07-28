@@ -75,6 +75,7 @@ mod builder_collection_layout;
 use builder_collection_layout::{
     byte_list_block_kind, byte_list_entry_stride, kind2_payload_size, list_block_kind,
     list_element_is_fixed_width, list_entry_stride, push_collection_data_base_from_capacity,
+    recursive_transfer_types, thread_copy_symbol, type_participates_in_cycle,
 };
 mod builder_collection_queries;
 mod builder_collection_query;
@@ -1265,6 +1266,37 @@ pub(crate) fn lower_module_for_platform(
     for (name, type_, symbol) in builtin_function_refs(module) {
         code_functions.push(lower_builtin_function_wrapper(
             &name,
+            &type_,
+            &symbol,
+            &function_symbols,
+            &functions,
+            &package_return_types,
+            &platform_imports,
+            &globals,
+            &string_symbols,
+            type_model.clone(),
+        )?);
+    }
+    // A per-type runtime deep-copy function for every recursive type, so a
+    // recursive value (e.g. `dom::Node`) can be transferred out of a worker arena
+    // — `copy_value_to_current_arena` routes such a value's copy to a call to
+    // `thread_copy_symbol(type)` rather than recursing over the type inline
+    // (bug-391). The functions reference one another for their sub-edges; the
+    // set is closed under that reference.
+    let recursive_copy_types = recursive_transfer_types(&type_model);
+    // Their `arena_alloc`-failure path builds an error with an empty message, so
+    // the empty-string data object must exist even if the module's own code did
+    // not otherwise require it.
+    if !recursive_copy_types.is_empty()
+        && !data_objects
+            .iter()
+            .any(|object| object.symbol == EMPTY_STRING_SYMBOL)
+    {
+        data_objects.push(string_data_object(EMPTY_STRING_SYMBOL, String::new()));
+    }
+    for type_ in recursive_copy_types {
+        let symbol = thread_copy_symbol(&type_);
+        code_functions.push(lower_thread_copy_function(
             &type_,
             &symbol,
             &function_symbols,

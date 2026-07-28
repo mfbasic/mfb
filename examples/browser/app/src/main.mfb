@@ -1,5 +1,7 @@
-IMPORT backend
 IMPORT collections
+IMPORT display
+IMPORT dom
+IMPORT fetch
 IMPORT io
 IMPORT strings
 IMPORT term
@@ -33,15 +35,18 @@ IMPORT thread
 ' Controls:
 '   Q / q      quit
 '   G / g      enter Address Mode
+'   R / r      (Display Mode) switch to Raw Mode — the parsed DOM as a tree
+'   D / d      (Raw Mode) switch back to Display Mode
 '   In Address Mode: type to edit the URL, Backspace deletes, Enter loads the
 '                    URL and returns to Display Mode, Esc cancels.
-'   Up / Down  (Display Mode) scroll the loaded content one line at a time.
+'   Up / Down  scroll the content one line at a time.
 '
 ' On a load error of any kind the error message is shown in the content area.
 '
-' The fetch itself (and the backend::LoadResult record it returns) lives in the
-' imported `backend` package, because thread::start requires an ISOLATED worker
-' from a different package than the caller.
+' The work is split across three imported packages: `dom` (the Node types +
+' HTML parser), `fetch` (the ISOLATED thread worker that fetches + parses into a
+' document Node — thread::start needs the worker in an imported package), and
+' `display` (renders a Node to readable text or an indented tree).
 
 ' ----- small numeric helpers (no built-in min/max) -----
 
@@ -186,7 +191,7 @@ END FUNC
 ' Draw the top bar, both rules, the footer, and place the cursor. The top bar
 ' shows the URL being edited in Address Mode ("[ind] HREF: <url>") and the page
 ' title, right-aligned, in Display Mode ("[ind]            <title>").
-SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, filesLoaded AS Integer, filesTotal AS Integer)
+SUB drawChrome(size AS TermSize, addressMode AS Boolean, rawMode AS Boolean, url AS String, title AS String, loadState AS String, secure AS Boolean, spinner AS Integer, filesLoaded AS Integer, filesTotal AS Integer)
   LET cols AS Integer = size.columns
   LET rows AS Integer = size.rows
   LET ind AS String = indicatorText(loadState, secure, spinner)
@@ -212,7 +217,8 @@ SUB drawChrome(size AS TermSize, addressMode AS Boolean, url AS String, title AS
 
   ' Row H-1: footer controls.
   LET rightPart AS String = "Files: " & toString(filesLoaded) & "/" & toString(filesTotal)
-  MUT leftPart AS String = "[Q]uit  [G]o"
+  MUT leftPart AS String = "[Q]uit  [G]o  [R]aw"
+  IF rawMode THEN leftPart = "[Q]uit  [G]o  [D]ocument"
   IF addressMode THEN leftPart = "[Esc] Cancel  [Enter] Go"
   term::setBackground(30, 40, 60)
   term::setForeground(225, 233, 255)
@@ -264,15 +270,27 @@ FUNC main AS Integer
 
   MUT running AS Boolean = TRUE
   MUT addressMode AS Boolean = FALSE
+  MUT rawMode AS Boolean = FALSE
   MUT url AS String = ""
   MUT pageTitle AS String = ""
-  MUT content AS String = welcomeText()
   MUT scroll AS Integer = 0
   MUT loadState AS String = "idle"
   MUT secure AS Boolean = FALSE
   MUT spinner AS Integer = 0
   MUT filesLoaded AS Integer = 0
   MUT filesTotal AS Integer = 0
+
+  ' The loaded document, and the text derived from it. `content` is what gets
+  ' wrapped and drawn: display::render(doc) in Display Mode, display::tree(doc)
+  ' in Raw Mode, or `fallback` (welcome/error text) when no page is loaded.
+  ' display takes the width, so content is recomputed on load, mode switch, and
+  ' resize — tracked by needRecontent / lastContentWidth.
+  MUT pageDoc AS Node = dom::emptyDocument()
+  MUT haveDom AS Boolean = FALSE
+  MUT fallback AS String = welcomeText()
+  MUT content AS String = welcomeText()
+  MUT needRecontent AS Boolean = TRUE
+  MUT lastContentWidth AS Integer = -1
 
   ' Cached layout. `wrapped` holds `content` laid out at `wrapWidth` columns;
   ' it is recomputed only when the page text or the width changes (needRewrap).
@@ -312,6 +330,23 @@ FUNC main AS Integer
         lastRows = rows
       END IF
 
+      ' Recompute the rendered text from the DOM when the page, the mode, or the
+      ' width changed (display:: lays out to the current width).
+      IF needRecontent OR cols <> lastContentWidth THEN
+        IF haveDom THEN
+          IF rawMode THEN
+            content = display::tree(pageDoc, cols)
+          ELSE
+            content = display::render(pageDoc, cols)
+          END IF
+        ELSE
+          content = fallback
+        END IF
+        lastContentWidth = cols
+        needRecontent = FALSE
+        needRewrap = TRUE
+      END IF
+
       ' Re-wrap only when the page text or the column width changed.
       IF needRewrap OR cols <> wrapWidth THEN
         wrapped = wrapContent(content, cols)
@@ -331,7 +366,7 @@ FUNC main AS Integer
         contentDirty = TRUE
       END IF
 
-      drawChrome(size, addressMode, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+      drawChrome(size, addressMode, rawMode, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
       IF contentDirty THEN
         drawContent(size, wrapped, scroll)
         contentDirty = FALSE
@@ -353,14 +388,14 @@ FUNC main AS Integer
         pageTitle = ""
         LET target AS String = strings::trim(url)
         LET loadingLines AS List OF String = wrapContent("Loading " & target & " ...", cols)
-        drawChrome(size, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+        drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
         drawContent(size, loadingLines, 0)
         term::sync()
 
-        LET worker AS Thread OF String TO LoadResult = thread::start(backend::fetch, target)
+        LET worker AS Thread OF String TO LoadResult = thread::start(fetch::fetch, target)
         DO WHILE thread::isRunning(worker)
           spinner = spinner + 1
-          drawChrome(size, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
+          drawChrome(size, FALSE, FALSE, url, pageTitle, loadState, secure, spinner, filesLoaded, filesTotal)
           term::sync()
           ' Wait up to one frame for a key; Q aborts the load and quits.
           IF ready(100) THEN
@@ -377,14 +412,24 @@ FUNC main AS Integer
           ' Not aborted: take the result. (On abort the handle drops here,
           ' cancelling and detaching the worker so quitting is immediate.)
           LET page AS LoadResult = thread::waitFor(worker)
-          ' The title goes in the top bar (Display Mode); the body fills content.
-          pageTitle = page.title
-          content = page.content
+          ' The worker parsed the page into a DOM and deep-copied it back here.
+          ' The title goes in the top bar; the document drives the content. A new
+          ' page opens in Display Mode. On error there is no DOM, so the error
+          ' message shows via `fallback`.
+          haveDom = page.ok
+          IF page.ok THEN
+            pageDoc = page.document
+            pageTitle = page.title
+          ELSE
+            fallback = page.message
+            pageTitle = ""
+          END IF
+          rawMode = FALSE
           secure = page.secure
           filesLoaded = page.filesLoaded
           filesTotal = page.filesTotal
           scroll = 0
-          needRewrap = TRUE
+          needRecontent = TRUE
           contentDirty = TRUE
           IF page.ok THEN
             loadState = "ok"
@@ -402,10 +447,19 @@ FUNC main AS Integer
         url = url & key
       END IF
     ELSE
+      ' Display Mode or Raw Mode.
       IF key = "q" OR key = "Q" OR key = "EOF" THEN
         running = FALSE
       ELSEIF key = "g" OR key = "G" THEN
         addressMode = TRUE
+      ELSEIF (key = "r" OR key = "R") AND haveDom AND NOT rawMode THEN
+        rawMode = TRUE
+        scroll = 0
+        needRecontent = TRUE
+      ELSEIF (key = "d" OR key = "D") AND rawMode THEN
+        rawMode = FALSE
+        scroll = 0
+        needRecontent = TRUE
       ELSEIF key = "UP" THEN
         IF scroll > 0 THEN
           scroll = scroll - 1
