@@ -214,6 +214,7 @@ impl NativeBackend for Backend {
         app_version: Option<&str>,
         vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
+        progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String> {
         write_executable(
             project_dir,
@@ -226,6 +227,7 @@ impl NativeBackend for Backend {
             app_version,
             vendors_native_libraries,
             stdin_log_cap,
+            progress,
         )
     }
 
@@ -292,17 +294,22 @@ fn write_executable(
     app_version: Option<&str>,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
+    progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
+    progress("lowering module");
     let module = lower::lower_project(ir, target.name(), packages, build_mode, stdin_log_cap)?;
     validate::validate_nir(&module)?;
     validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    progress("planning + regalloc");
     let native_plan = plan::lower_module(&module)?;
     native_plan.validate()?;
     os::macos::validate_native_object_plan(&native_plan)?;
+    progress("emitting native code");
     let native_code = code::lower_module(&module, &native_plan, packages)?;
     native_code.validate()?;
+    progress("encoding image");
     let mut image = arch::aarch64::encode::encode(&native_code)?;
     image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
     // plan-46-D §4.4: point the loader at wherever this output shape puts its
@@ -321,6 +328,7 @@ fn write_executable(
             _ => os::MACHO_CONSOLE_VENDOR_RPATH.to_string(),
         }];
     }
+    progress("linking executable");
     match build_mode {
         // App mode (plan-04-macos-app.md §5.2) emits a `.app` bundle whose AppKit
         // `_main` bootstrap targets a window; console mode emits a plain `.out`.

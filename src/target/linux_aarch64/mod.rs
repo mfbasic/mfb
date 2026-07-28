@@ -53,6 +53,7 @@ impl NativeBackend for Backend {
         app_version: Option<&str>,
         vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
+        progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String> {
         write_executable(
             project_dir,
@@ -65,6 +66,7 @@ impl NativeBackend for Backend {
             app_version,
             vendors_native_libraries,
             stdin_log_cap,
+            progress,
         )
     }
 
@@ -192,7 +194,9 @@ fn write_executable(
     app_version: Option<&str>,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
+    progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
+    progress("lowering module");
     let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap)?;
     let app_mode = build_mode.is_app();
     // plan-56-B §4.1: app mode is no longer glibc-only. GTK4 exists in the musl
@@ -201,12 +205,17 @@ fn write_executable(
     // console build emits one `.out` per libc.
     let flavors: &[LinuxFlavor] = &LinuxFlavor::ALL;
     let mut paths = Vec::new();
+    // bug-393: the codegen sub-stages after lowering run once per libc flavor, so
+    // these lines repeat per flavor — informative, not a bug.
     for &flavor in flavors {
+        progress("planning + regalloc");
         let native_plan = plan::lower_module(&module, flavor)?;
         native_plan.validate()?;
         os::linux::validate_native_object_plan(&native_plan)?;
+        progress("emitting native code");
         let native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
         native_code.validate()?;
+        progress("encoding image");
         let mut image = arch::aarch64::encode::encode(&native_code)?;
         image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
         // plan-46-D §4.2: point the loader at the `vendor/` directory beside the
@@ -227,6 +236,7 @@ fn write_executable(
                 crate::os::ELF_VENDOR_RPATH.to_string()
             }];
         }
+        progress("linking executable");
         paths.push(if app_mode {
             // bug-248's `app_version` gains its second consumer here (the
             // `.desktop` `X-AppImage-Version`), so a missing one is an internal

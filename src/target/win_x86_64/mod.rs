@@ -260,16 +260,22 @@ impl NativeBackend for Backend {
         app_version: Option<&str>,
         _vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
+        progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String> {
+        progress("lowering module");
         let module =
             lower_validated_module(ir, &self.target(), packages, build_mode, stdin_log_cap)?;
+        progress("planning + regalloc");
         let native_plan = plan::lower_module(&module)?;
         native_plan.validate()?;
         os::windows::validate_native_object_plan(&native_plan)?;
+        progress("emitting native code");
         let native_code = code::lower_module(&module, &native_plan, packages)?;
         native_code.validate()?;
+        progress("encoding image");
         let mut image = crate::arch::x86_64::encode::encode(&native_code)?;
         image.signing_metadata = signing_metadata.map(|m| m.to_vec());
+        progress("linking executable");
         // plan-66-I: app mode emits a GUI-subsystem PE; icon/version are threaded
         // toward the writer for the plan-66-K `.rsrc` resource section.
         let path = os::windows::write_linked_executable(

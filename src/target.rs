@@ -133,6 +133,11 @@ pub(crate) trait NativeBackend: Sync {
         // plan-15 D3: stdin broadcast-log backpressure cap from the manifest
         // `"config"` section, or `None` to bake `STDIN_LOG_CAP_DEFAULT`.
         stdin_log_cap: Option<u64>,
+        // bug-393: a live progress sink called at each codegen sub-stage boundary
+        // (lower → plan/regalloc → code emit → encode → link). The CLI passes a
+        // closure that prints at Verbose and no-ops otherwise, so the backend
+        // stays decoupled from verbosity and emitted bytes never depend on it.
+        progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String>;
     fn write_nir(
         &self,
@@ -284,6 +289,7 @@ pub fn write_executable(
     app_version: Option<&str>,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
+    progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
     let backend = backend_for(target)?;
     if !backend.capabilities().executable {
@@ -303,6 +309,7 @@ pub fn write_executable(
         app_version,
         vendors_native_libraries,
         stdin_log_cap,
+        progress,
     )
 }
 

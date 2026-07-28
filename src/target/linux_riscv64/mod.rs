@@ -59,6 +59,7 @@ impl NativeBackend for Backend {
         app_version: Option<&str>,
         vendors_native_libraries: bool,
         stdin_log_cap: Option<u64>,
+        progress: &dyn Fn(&str),
     ) -> Result<Vec<PathBuf>, String> {
         // App icons are macOS-only (plan-22); the Linux/GTK backend ignores it.
         let _ = app_icon;
@@ -73,6 +74,7 @@ impl NativeBackend for Backend {
             build_mode,
             vendors_native_libraries,
             stdin_log_cap,
+            progress,
         )
     }
 
@@ -172,7 +174,9 @@ fn write_executable(
     build_mode: NativeBuildMode,
     vendors_native_libraries: bool,
     stdin_log_cap: Option<u64>,
+    progress: &dyn Fn(&str),
 ) -> Result<Vec<PathBuf>, String> {
+    progress("lowering module");
     let module = lower_validated_module(ir, target, packages, build_mode, stdin_log_cap)?;
     // The console build emits one executable per libc world — `<name>-glibc.out`
     // (libc.so.6, /lib64/ld-linux-riscv64.so.2) and `<name>-musl.out`
@@ -193,12 +197,17 @@ fn write_executable(
     }
     let flavors: &[LinuxFlavor] = &LinuxFlavor::ALL;
     let mut paths = Vec::new();
+    // bug-393: the codegen sub-stages after lowering run once per libc flavor, so
+    // these lines repeat per flavor — informative, not a bug.
     for &flavor in flavors {
+        progress("planning + regalloc");
         let native_plan = plan::lower_module(&module, flavor)?;
         native_plan.validate()?;
         os::linux::validate_native_object_plan(&native_plan)?;
+        progress("emitting native code");
         let native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
         native_code.validate()?;
+        progress("encoding image");
         let mut image = arch::riscv64::encode::encode(&native_code)?;
         image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
         // plan-46-D §4.2: point the loader at the `vendor/` directory beside the
@@ -209,6 +218,7 @@ fn write_executable(
         if vendors_native_libraries {
             image.rpaths = vec![crate::os::ELF_VENDOR_RPATH.to_string()];
         }
+        progress("linking executable");
         paths.push(os::linux::write_linked_executable(
             project_dir,
             &ir.name,

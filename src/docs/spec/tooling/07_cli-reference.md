@@ -209,7 +209,15 @@ deterministic context line to **stderr** before the pipeline runs — `Building
 **stdout**. `-q`/`--quiet` suppresses the summary, restoring an artifact-line-only
 output. `-v`/`--verbose` additionally prints a `phase <name> <N>ms` timing line
 (integer milliseconds, stderr) for each front-end stage — `parse`, `resolve`,
-`verify`, `codegen+link` — as a lightweight build profiler. The two flags are
+`verify`, `codegen+link` — as a lightweight build profiler. Because the
+`codegen+link` timing is a post-hoc total (printed only once the stage completes)
+and that stage can run for a minute-plus on a large program, `-v` also streams a
+live `codegen: <stage>` line (stderr) as codegen enters each `write_executable`
+sub-stage — `lowering module`, `planning + regalloc`, `emitting native code`,
+`encoding image`, `linking executable` — so a long build is visibly progressing
+and the slow sub-stage is named rather than looking like a hang (backends that
+emit one binary per libc flavor repeat the post-lowering lines per
+flavor).[[src/target.rs:write_executable]] The two flags are
 mutually exclusive (`mfb build accepts at most one of -q / -v`). Only the
 `println!`/`eprintln!` progress is level-gated; the timing brackets always run so
 `-v` and the default take an identical path into codegen. `mfb test`, `mfb repo

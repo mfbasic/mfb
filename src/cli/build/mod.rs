@@ -74,6 +74,19 @@ impl Reporter {
             eprintln!("phase {name} {}ms", dt.as_millis());
         }
     }
+
+    /// One live `codegen: <stage>` line, printed as a `write_executable`
+    /// sub-stage is entered — Verbose only, on stderr (bug-393). Unlike
+    /// [`Reporter::phase`], which is a post-hoc total printed once the whole
+    /// stage completes, these stream *during* codegen so a minute-plus build is
+    /// visibly progressing and the slow sub-stage is named. The backend calls it
+    /// unconditionally through a closure; the level gate lives here, so codegen
+    /// bytes never depend on verbosity.
+    fn progress(&self, stage: &str) {
+        if self.level == Verbosity::Verbose {
+            eprintln!("codegen: {stage}");
+        }
+    }
 }
 
 pub(crate) struct BuildOptions {
@@ -533,6 +546,11 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 return Err(());
             }
             let codegen_start = std::time::Instant::now();
+            // bug-393: stream live codegen sub-stage lines during the otherwise
+            // opaque `write_executable` block. The closure gates on verbosity via
+            // the reporter, so backends call `progress(...)` unconditionally and
+            // Normal/Quiet stay silent.
+            let progress = |stage: &str| reporter.progress(stage);
             let executable_paths = target::write_executable(
                 output_dir,
                 &ir,
@@ -553,6 +571,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 !vendored.is_empty(),
                 // plan-15 D3: bake the manifest `"config".stdinLogCap` (or the default).
                 crate::manifest::stdin_log_cap(&manifest),
+                &progress,
             )
             .map_err(|err| {
                 eprintln!("error: {err}");
