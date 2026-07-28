@@ -64,6 +64,35 @@ built and found:
    silently changes which staging moves it emits. The `linux_gtk` tokenization and
    that pass are entangled and must move together.
 
+### Feasibility verdict (the doc's byte-identity premise is disproven)
+
+The doc's central claim is that the stream can name registers with ISA-neutral role
+tokens, no AArch64 spelling survives, and **every emitted byte is unchanged**. That
+is **not achievable** as a token-representation change, for a structural reason:
+
+- A single neutral token cannot carry the AArch64 result-reuse idiom. A value is
+  *produced* as a call/op **result** (`%ret0`/`x0`) and later *consumed* as a call
+  **argument**. On AArch64 both roles are `x0`, so the builder emits ONE `x0` and no
+  move. On x86 the result is `rax` and the argument is `rdi`, so a `mov rdi, rax` is
+  required. The token can name only the source role (`%ret0`) or the dest role
+  (`%arg0`) — neither is correct on *both* ISAs without an inserted move.
+- The move can only be inserted per-ISA (x86 needs it, AArch64 must not grow bytes).
+  That per-ISA move insertion **is** `remap_x86_abi`'s job. Pushing it upstream as an
+  explicit `mov %argK, %retK` at every reuse site adds a `mov x0,x0` on AArch64 —
+  and there is **no AArch64/RISC-V redundant-`mov xN,xN` elision pass** (verified:
+  the only "elide" logic is overflow-check elision), so those no-ops would change
+  AArch64/RISC-V bytes. The builder already stages *many* args precisely via
+  `move_register(ARG[k], src)`; the residue is exactly the reuse cases where adding
+  a move breaks AArch64 byte-identity.
+
+So the fixpoint is not a deletable redundant leak — it is irreducible x86-specific
+register-assignment work, **unless** a *new* mechanism is built: emit explicit arg
+staging in the shared lowering **and** add an exact AArch64/RISC-V redundant-move
+elision pass so the added `mov xN,xN` nets to zero there. That is a separate
+architectural project (a `write-plan`, ≥ the reverted bug-85 scope), which is
+precisely what bug-341 D5 meant by "needs its own plan, not a cleanup bug." bug-387
+as scoped (a token-representation refactor) cannot deliver the goal byte-identically.
+
 **Consequence / revised scope.** Deleting the fixpoint requires the shared lowering
 (the builder + shared codegen) to emit x86-*precise* role tokens — emit `%argK`
 (or an explicit `mov %argK, %retK`) wherever an AArch64 result register is reused
