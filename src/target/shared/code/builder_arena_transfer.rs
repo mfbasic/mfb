@@ -288,6 +288,38 @@ impl CodeBuilder<'_> {
         type_: &str,
         source: &str,
     ) -> Result<String, String> {
+        // A recursive value (e.g. `dom::Node`, whose `ElementNode.children` is
+        // `List OF Node`) is a pointer-linked graph; copying it inline would make
+        // the code generator recurse over the *type* without bound (bug-391).
+        // Route it through a per-type runtime deep-copy function instead, so the
+        // recursion runs at run time over the finite *data* and terminates. Every
+        // such function's body is `emit_thread_copy_real`, whose own field/element
+        // edges come back here — so a recursive sub-edge becomes a call, not more
+        // inline code. Non-recursive values are unaffected (copied inline as before).
+        if type_participates_in_cycle(&self.type_model, type_) {
+            return self.emit_thread_copy_call(type_, source);
+        }
+        self.emit_thread_copy_real(type_, source)
+    }
+
+    /// Call the per-type deep-copy function (`thread_copy_symbol`), passing
+    /// `source` in the first argument register and returning the copied pointer.
+    fn emit_thread_copy_call(&mut self, type_: &str, source: &str) -> Result<String, String> {
+        let symbol = thread_copy_symbol(type_);
+        self.emit(abi::move_register(abi::ARG[0], source));
+        self.emit_symbol_call(&symbol);
+        let result = self.allocate_register()?;
+        self.emit(abi::move_register(&result, abi::return_register()));
+        Ok(result)
+    }
+
+    /// The concrete per-shape deep copy. Used inline for a non-recursive value,
+    /// and as the body of each per-type copy function for a recursive one.
+    pub(super) fn emit_thread_copy_real(
+        &mut self,
+        type_: &str,
+        source: &str,
+    ) -> Result<String, String> {
         match type_ {
             "Nothing" | "Boolean" | "Byte" | "Integer" | "Float" | "Fixed" | "Money" | "Scalar" => {
                 let result = self.allocate_register()?;
@@ -327,10 +359,53 @@ impl CodeBuilder<'_> {
             other if self.type_model.union_names.contains(other) => {
                 self.copy_union_to_current_arena(other, source)
             }
+            // A non-flat record (its fields embed pointers — a recursive field, a
+            // nested non-flat record/collection). Deep-copy the block, then fix up
+            // its pointer fields (bug-391). A flat record was handled by the flat
+            // arm above; this arm exists for the non-flat case only.
+            other if self.type_model.record_fields.contains_key(other) => {
+                self.copy_record_to_current_arena(other, source)
+            }
             other => Err(format!(
                 "native thread transfer cannot copy value of type '{other}'"
             )),
         }
+    }
+
+    /// Deep-copy a non-flat record: size it, `arena_alloc`, whole-block `memcpy`
+    /// (fixed slots + inlined flat fields), then deep-copy its pointer fields so
+    /// nothing aliases the source arena. Twin of `copy_union_to_current_arena`.
+    fn copy_record_to_current_arena(&mut self, type_: &str, source: &str) -> Result<String, String> {
+        let source_slot = self.allocate_stack_object("thread_copy_record_source", 8);
+        let size_slot = self.allocate_stack_object("thread_copy_record_size", 8);
+        let result_slot = self.allocate_stack_object("thread_copy_record_result", 8);
+        let alloc_ok = self.label("thread_copy_record_alloc_ok");
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
+        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+        self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit(abi::move_immediate(abi::ARG[1], "Integer", "8"));
+        self.emit_arena_alloc_call();
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(abi::RET[1], abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), size_slot));
+        self.emit_copy_bytes(abi::RET[1], &scratch9, &scratch13, "thread_copy_record_raw");
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
+        self.copy_record_fields_into_existing(type_, &scratch9, &scratch10)?;
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
     }
 
     /// Materialize a thread-sendable resource handle (e.g. `File`) into the

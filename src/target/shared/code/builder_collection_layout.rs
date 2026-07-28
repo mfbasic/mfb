@@ -2523,6 +2523,94 @@ pub(super) fn byte_list_block_kind() -> usize {
     list_block_kind("Byte")
 }
 
+/// The immediate structural components of a type — the types reachable in one
+/// step: a record/variant's field types, a union's variant types, a collection's
+/// payload types, a `Result`'s success type. Scalars, `String`, and resources
+/// have none. Used to detect recursive types for thread-transfer deep copy
+/// (bug-391): a recursive value is a pointer-linked graph that inline copy
+/// codegen cannot reproduce without unbounded compile-time recursion.
+pub(super) fn type_components(model: &TypeModel, type_: &str) -> Vec<String> {
+    if let Some(fields) = model.record_fields.get(type_) {
+        return fields.iter().map(|(_, ft)| ft.clone()).collect();
+    }
+    if let Some(fields) = model.union_variant_fields.get(type_) {
+        return fields.iter().map(|(_, ft)| ft.clone()).collect();
+    }
+    if model.union_names.contains(type_) {
+        return model.variants_for_union(type_).cloned().collect();
+    }
+    if let Some(element) = list_element_type(type_) {
+        return vec![element];
+    }
+    if let Some((key, value)) = map_type_parts(type_) {
+        return vec![key, value];
+    }
+    if let Some(payload) = type_.strip_prefix("Result OF ") {
+        return vec![payload.to_string()];
+    }
+    Vec::new()
+}
+
+/// True when copying `type_` can transitively re-encounter `type_` itself — it
+/// participates in a recursive type definition (e.g. `dom::Node`, whose
+/// `ElementNode.children` is `List OF Node`). Such a value needs a per-type
+/// runtime copy function rather than inline copy codegen.
+pub(super) fn type_participates_in_cycle(model: &TypeModel, type_: &str) -> bool {
+    let mut stack = type_components(model, type_);
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    while let Some(current) = stack.pop() {
+        if current == type_ {
+            return true;
+        }
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        stack.extend(type_components(model, &current));
+    }
+    false
+}
+
+/// Every type in the program that participates in a cycle: the set that needs a
+/// runtime thread-transfer deep-copy function emitted (bug-391).
+pub(super) fn recursive_transfer_types(model: &TypeModel) -> std::collections::BTreeSet<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut result: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut stack: Vec<String> = model
+        .record_fields
+        .keys()
+        .cloned()
+        .chain(model.union_names.iter().cloned())
+        .collect();
+    while let Some(current) = stack.pop() {
+        if !seen.insert(current.clone()) {
+            continue;
+        }
+        if type_participates_in_cycle(model, &current) {
+            result.insert(current.clone());
+        }
+        stack.extend(type_components(model, &current));
+    }
+    result
+}
+
+/// The internal symbol of the per-type thread-transfer deep-copy function.
+pub(super) fn thread_copy_symbol(type_: &str) -> String {
+    let mut sanitized = String::new();
+    for ch in type_.chars() {
+        if ch.is_ascii_alphanumeric() {
+            sanitized.push(ch);
+        } else {
+            sanitized.push('_');
+        }
+    }
+    let mut hash: u64 = 1469598103934665603;
+    for byte in type_.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(1099511628211);
+    }
+    format!("_mfb_thread_copy_{sanitized}_{hash:016x}")
+}
+
 #[cfg(test)]
 mod kind2_layout_tests {
     use super::*;
