@@ -1,14 +1,90 @@
 # bug-387: the "neutral" MIR stream carries AArch64 physical register names, forcing every non-AArch64 backend to un-AArch64 the stream before encoding
 
-Last updated: 2026-07-25
-Effort: x-large (1d–3d)
+Last updated: 2026-07-28
+Effort: x-large — REVISED UPWARD to multi-day / needs its own plan (see the
+2026-07-28 finding below). The original 1d–3d estimate rested on a Phase-1 premise
+that is now disproven.
 Severity: LOW
 Class: Footgun / Other (drifted abstraction)
 
 Status: Open — Phase 1 (audit + byte-identity oracle) and Phase 2 for the **macOS**
-platform emitters landed on `main` (byte-identical, verified); the x86-reachable
-`linux_gtk` tokenization + the `remap_x86_abi` fixpoint deletion are deferred (see
-Phases 2–3 and the linux_gtk blocker). Paused at the user's direction after the
+platform emitters landed on `main` (byte-identical, verified). A 2026-07-28 session
+added the **windows-x86_64 byte-identity goldens** the fixpoint deletion needs
+(commit below) and then, with a machine-checked cross-check, **disproved the
+Phase-1 premise that the shared lowering is "token-clean"** — the `remap_x86_abi`
+fixpoint is load-bearing for *every* program, not just `linux_gtk`. The fixpoint
+deletion is therefore the full plan-34-B Phase-4 / bug-85 shared-lowering rework,
+not the "tokenize `linux_gtk` + delete the fixpoint" that Phase 1 scoped. See
+**"2026-07-28 finding"** below. Remains paused pending its own plan.
+
+## 2026-07-28 finding — the fixpoint is load-bearing for the shared lowering (Phase-1 premise disproven)
+
+A session set out to finish the fixpoint deletion with a proper byte-identity gate
+and, in the process, **proved the Phase-1 audit's central claim wrong**. What was
+built and found:
+
+1. **Windows byte-identity coverage added first (LANDED, byte-identical).** The
+   tree carried **zero** `windows-x86_64` goldens, yet `remap_x86_abi` has a live
+   Win64 arm (`X86Abi::Win64`, wired via `Win64Backend::select`) that the fixpoint
+   deletion rewrites — a silent-regression gap of exactly the bug-85 class. Added
+   `windows-x86_64.ncodesum` goldens to the 20 (of 23) `tests/byte-identity/*`
+   fixtures that build for Windows + `windows-x86_64.app.ncodesum` for the 3 app
+   fixtures. `windows -ncode` is deterministic; `artifact-gate.sh` now checks 1499
+   goldens at `diffs=0`. (Three fixtures skip Windows as pre-existing backend gaps:
+   `os.resourcePath`, the `GetProcessHeap` thread import, and `link-const-pins`'
+   missing windows `libraries.c` locator — clean diagnostics, not codegen bugs.)
+
+2. **A machine-checked equivalence gate.** `select_x86` was restructured to defer
+   the ABI role tokens (`%argN`/`%retN`/`%sysargN`/`%sysnr`/`%sysret`) into
+   `remap_x86_abi`, add a context-free direct map `map_token_direct(token, abi)`,
+   and *cross-check* it against the CFG inference for **every** token operand of
+   **every** function across the whole exe-oracle corpus (`assert_eq!`, plus an
+   `MFB_BUG387_AUDIT` mode that reports all divergences with the emitter site
+   instead of panicking on the first). This is byte-identical by construction
+   (the inference's result is still what is written).
+
+3. **Result: the direct map ≠ the fixpoint, pervasively, in the SHARED lowering.**
+   The 3 app fixtures alone produced **610** divergences. The dominant idiom
+   (`%ret0` → the direct `rax` but the fixpoint's `rdi`, ×158; `%ret3` → `rsi` vs
+   `rcx`, ×33; the `%ret1`/`%ret2` error-Result staging quartet): a value the
+   builder computes *into* `%ret0`/`x0` (e.g. `AddImm dst=%ret0 src=%v429 imm=9`,
+   `MovImm dst=%ret0 value=1`) and that then **flows into a call as its argument**.
+   On AArch64 the result register `x0` and the call's first argument `x0` are the
+   *same register*, so the builder emits one `x0` (tokenized `%ret0`) and relies on
+   the x86 fixpoint to re-color it `rdi`. **The token does not carry "then reused as
+   a call arg."** Run in assert mode, every x86/Windows program's build panics on
+   the first such site — i.e. the fixpoint is load-bearing for the shared lowering,
+   universally. **Phase 1's "shared lowering is already token-clean" is false for
+   the purpose of deleting the fixpoint.**
+
+4. **Even tokenizing `linux_gtk` is not a clean byte-noop.** Tokenizing `app_io.rs`
+   changed the `linux-x86_64` app-ncode (while macOS/linux-aarch64/windows stayed
+   identical): `stage_result_reuse_x86` (`linux_gtk/mod.rs`) detects the literal
+   `"x0"` to insert its `mov x0,x0` staging, so replacing `"x0"` with a token
+   silently changes which staging moves it emits. The `linux_gtk` tokenization and
+   that pass are entangled and must move together.
+
+**Consequence / revised scope.** Deleting the fixpoint requires the shared lowering
+(the builder + shared codegen) to emit x86-*precise* role tokens — emit `%argK`
+(or an explicit `mov %argK, %retK`) wherever an AArch64 result register is reused
+as a call argument — at the *thousands* of sites the fixpoint currently fixes up.
+That is precisely plan-34-B Phase 4, which bug-85 reverted for breaking every
+x86-64 program. It is a multi-phase project of its own, gated at every step by the
+cross-check (drive divergences to zero) + the full exe-oracle/app-ncode corpus
+byte-identity, **not** the Blast-Radius-seed refactor this doc originally scoped.
+
+**Reproducible gate left in place for the next attempt** (no compiler source
+committed — the cross-check was reverted to keep `main` byte-identical and off the
+hot path): `/tmp/bug387/oracle-{linux-x86_64,windows-x86_64,linux-riscv64,linux-aarch64}.txt`
++ `app-ncode-base.txt` baselines, `scripts/exe-oracle.sh` (target-generic), and
+`scripts/bug387-gate.sh` (app-ncode × 4 targets + optional full corpus). The
+cross-check itself is ~60 lines: defer the ABI role tokens in `select_x86`, add
+`map_token_direct`, and `assert_eq!(map_token_direct(tok), inference)` in
+`remap_x86_abi`'s rewrite loop (audit-mode env to list all sites).
+
+## Original status (pre-2026-07-28)
+
+Paused at the user's direction after the
 per-use-site raw-vs-token complexity on the untested GTK-x86 path was found.
 Regression Test: the three encoder suites
 (`src/arch/{aarch64,x86_64,riscv64}/encode/tests.rs`) plus
@@ -380,6 +456,13 @@ Acceptance (revised): macOS emitters tokenized & byte-identical **(met)**; linux
 Commit: `bug-387 Phase 2 (macos): tokenize platform-emitter scratch/parking/fp`
 
 ### Phase 3 — delete the compensation layers the tokens made dead
+
+> **BLOCKED — see the 2026-07-28 finding above.** This phase cannot proceed as
+> written: the fixpoint is load-bearing for the shared lowering (not just
+> `linux_gtk`), so deleting it first requires the shared lowering to emit
+> x86-precise role tokens (the plan-34-B Phase-4 / bug-85 rework). Needs its own
+> plan; the cross-check gate to drive it is described above.
+
 
 - [ ] Delete `remap_x86_abi`'s fixpoint (`:270–303`) and any role-recovery it
       fed, now that boundaries arrive as tokens.
