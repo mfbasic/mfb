@@ -5,8 +5,42 @@ Effort: x-large (1d–3d)
 Severity: MEDIUM
 Class: Correctness
 
-Status: Open
-Regression Test: tests/... (a thread worker returning a recursive union / a record embedding one — see Phase 1)
+Status: FIXED
+Regression Test: tests/rt_recursive_thread_transfer.rs
+
+## STATUS: FIXED
+
+The transfer copier now emits a **per-type runtime deep-copy function** for every
+recursive type and routes a recursive edge to a *call* to it, so the copy
+recurses at run time over the finite data rather than at compile time over the
+(infinite) type. Landed as:
+
+- `src/target/shared/code/builder_collection_layout.rs` — `type_components`,
+  `type_participates_in_cycle`, `recursive_transfer_types`, `thread_copy_symbol`
+  (detect recursive types + their closure; name the copy function).
+- `src/target/shared/code/builder_arena_transfer.rs` — `copy_value_to_current_arena`
+  routes a recursive type to `emit_thread_copy_call` (a call to `thread_copy_symbol`)
+  and otherwise to `emit_thread_copy_real` (the per-shape body, now including the
+  previously-missing **non-flat record** arm, `copy_record_to_current_arena`).
+- `src/target/shared/code/function_lowering.rs` — `lower_thread_copy_function`
+  emits each per-type copy function (source ptr in arg0 → fresh ptr in the return
+  register; its body is `emit_thread_copy_real`, whose sub-edges call the peers).
+- `src/target/shared/code/mod.rs` — the driver emits one copy function per
+  `recursive_transfer_types(&type_model)` entry, and ensures the empty-string data
+  object exists (the alloc-failure path builds an empty-message error).
+
+Verified on macos-aarch64: `tests/rt_recursive_thread_transfer.rs` passes (a bare
+`Node` **and** a record embedding one both transfer and read back correctly after
+the worker arena is reclaimed — proving a real deep copy, not aliasing); full
+`cargo test` green; the `examples/browser` `fetch` worker now returns the parsed
+DOM `Node` across the thread and the app renders it.
+
+Deviations from the written design: (1) implemented the **full** feature, not the
+interim diagnostic; (2) no shared "needed types" registry was threaded — the
+driver emits a copy function for **every** recursive type in the type model
+(closed under component references) rather than only transferred ones, which is
+simpler and stays byte-identical for programs with no recursive types
+(`recursive_transfer_types` is empty → no functions, unchanged code path).
 
 A `thread::start` worker whose result type is a **recursive** value — a self-referential
 union like `Node = ElementNode | TextNode` where `ElementNode.children : List OF Node`,
