@@ -1,6 +1,6 @@
 # plan-65: Benchmark coverage — critical-feature hot paths to add
 
-Last updated: 2026-07-25
+Last updated: 2026-07-28 (Theme 3 landed; plan complete)
 Effort: medium (each benchmark is a self-contained `test_*` in all three languages)
 Companion to `planning/plan-64-benchmark-perf.md` (the fix plan).
 
@@ -33,11 +33,11 @@ today (verified against `mfb man`). Theme 3 (set) has one, and it gates only The
 | # | Prerequisite | Check | Status (2026-07-25) |
 |---|---|---|---|
 | P1 | `crypto::` / `json::` / `csv::` members exist | `mfb man crypto sha256` / `mfb man json stringify` / `mfb man csv stringify` all resolve | **MET** — Themes 1 & 2 landed |
-| P2 | **Theme 3 only** — `Set OF T` operations exist (literal + add/contains/remove/union/intersect from plan-63-B/C) | `grep -n 'Set(Box<Type>)' src/syntaxcheck/mod.rs` returns a hit (plan-63-A type shape landed) **and** the B/C ops exist | **NOT MET** — the grep returns no hit; plan-63-A/B/C/D are all still in `planning/` (none archived), no `Set OF T` literal/op codegen in `src/`. Theme 3 cannot be authored. |
+| P2 | **Theme 3 only** — `Set OF T` operations exist (literal + add/contains/remove/union/intersect from plan-63-B/C) | `grep -n 'Set(Box<Type>)' src/syntaxcheck/mod.rs` returns a hit (plan-63-A type shape landed) **and** the B/C ops exist | **MET (2026-07-28)** — `grep -n 'Set(Box<Type>)' src/syntaxcheck/mod.rs` → `42:    Set(Box<Type>),`; plan-63-A/B/C/D all landed and were archived to `planning/completed/` (commit `6e8765a87`), shipping the `Set OF T { … }` literal plus `collections::` add/remove/contains/toList/toSet/union/intersection/difference/symmetricDifference/isSubset/isSuperset/isDisjoint (verified via `mfb man`). Theme 3 authored — see Status + Correction C4. |
 
-**P2 is a cross-plan dependency on plan-63-B/C, which is a precondition, never scope.** Theme 3
-stays deferred until plan-63-B/C land Set operations; re-run the P2 check then. Themes 1 & 2 are
-independent of P2 and are complete (see Status).
+**P2 was a cross-plan dependency on plan-63-B/C, a precondition never absorbed as scope.** It is now
+satisfied — plan-63 (A–D) landed and archived. Theme 3 is authored (see Status). Themes 1 & 2 are
+independent of P2 and were already complete.
 
 ## Design rules (match the existing suite)
 
@@ -146,17 +146,22 @@ the shape `json::stringify`/`csv::stringify` document.
     csv`. Cross-language (Python `csv.writer`, C libcsv or hand-rolled). API:
     `csv::stringify`. Arena-gated (plan-64-A) for the per-call String churn.
 
-### Theme 3 — `Set OF T` (deferred group `set`) — tracks plan-63 (not yet operational)
+### Theme 3 — `Set OF T` (group `set`) — tracks plan-63 — LANDED 2026-07-28
 
-`Set OF T` (plan-63) is a new built-in collection type, but plan-63-A ships **only the
-front-end type shape** — no literal, no operations, no codegen. **There is nothing to
-benchmark yet.** When plan-63-B/C land the literal + operations (add/contains/remove/union/
-intersect/size), add a `set` group mirroring the `map` intkey/intchurn rows: build/`contains`
-sweep over Integer and String elements, steady-state add/remove churn, and set-algebra
-(union/intersect/difference) over two sets — cross-language (Python `set`, C hash-set), all
-checksum-matched. **Do not author these rows until plan-63 operations exist** (verify
-member names against the shipped surface first). This theme is a placeholder so the Set
-throughput gate is not forgotten.
+`Set OF T` (plan-63) is a new built-in collection type. plan-63 A–D have all landed and been
+archived; plan-63-D pre-added the **mfb** `benchmark/mfb/src/setops.mfb` with two rows, and this
+plan completed the cross-language parity contract (C + Python peers + README). Shipped rows:
+
+- **set build** — grow a `Set OF Integer` by 20 000 `add`s (half duplicates, exercising the
+  idempotent hash-probe hit path), then sum a `contains` membership sweep. API: `collections::add`,
+  `collections::contains`, `len`. Checksum 20000.
+- **set ops** — one coverage row over the whole Set surface on two moderate sets: the native
+  `add`/`remove`/`contains`/`toList` and the source-generic algebra `union`/`intersection`/
+  `difference`/`symmetricDifference`/`isSubset`/`isSuperset`/`isDisjoint`/`toSet`. Checksum 6006.
+
+Cross-language: Python built-in `set`, C open-addressing integer hash set — both byte-identical to
+the mfb runtime. (Correction C4 records why the shipped 2-row design supersedes this section's
+original Int+String+churn sketch: the parity contract mirrors the archived mfb rows exactly.)
 
 ## Rollout / phasing
 
@@ -171,33 +176,42 @@ throughput gate is not forgotten.
   hash churn (6), ed25519 (7), json stringify (8) + round-trip (9), csv stringify (10) —
   authored tiny with `TODO(plan-64-A)`, bumped to realistic N in the commit that lands A,
   doubling as its acceptance gate (must jump from tiny to realistic and stay linear).
-- **Deferred (with plan-63-B/C):** the `set` group (Theme 3) — added when Set operations ship.
-  Verified deferred: `plan-63-B`/`plan-63-C` are still in `planning/` (not landed), so Set
-  has no literal/operations to benchmark yet.
+- **Deferred (with plan-63-B/C) — NOW LANDED (2026-07-28):** the `set` group (Theme 3). plan-63
+  (A–D) landed and archived to `planning/completed/`, so P2 is MET. plan-63-D pre-landed the mfb-side
+  rows (`setops.mfb`); Theme 3 completed them into the cross-language parity contract — C
+  (`c/setopsbench.{c,h}`, an open-addressing int hash set) and Python (`python/setopsbench.py`,
+  built-in `set`) peers, wired into `main.c`/`main.py`/`run.sh` and the README coverage table, with
+  byte-identical checksums (`build` 20000, `ops` 6006). See Correction C4.
 - Each new row lands in all three languages simultaneously with a matching checksum, updates
   `benchmark/README.md`'s coverage table, and keeps the git-ignored logs regenerable via
   `benchmark/run.sh --run 50`.
 
-## Status (executed 2026-07-25)
+## Status (Themes 1&2 executed 2026-07-25; Theme 3 executed 2026-07-28)
 
-All non-deferred rows landed. Themes 1 and 2 (10 benchmarks) are implemented in all three
-languages, wired into every driver (`main.mfb` / `main.c` / `main.py`), the C build list
-(`run.sh`), and the README coverage table. Theme 3 (Set) remains deferred (prerequisite not
-met — see Rollout).
+All rows landed — the plan is complete. Themes 1 and 2 (10 benchmarks) and Theme 3 (2 benchmarks)
+are implemented in all three languages, wired into every driver (`main.mfb` / `main.c` / `main.py`),
+the C build list (`run.sh`), and the README coverage table. Theme 3's prerequisite (P2 — plan-63
+Set operations) is now MET (plan-63 A–D landed + archived), so the previously-deferred `set` group
+is authored.
 
 - `[x]` **Theme 1 — crypto** (`benchmark/{mfb/src/crypto.mfb,c/cryptobench.{c,h},python/cryptobench.py}`):
   sha256, sha512, hmac, pbkdf2, cte, churn, ed25519. C hand-rolls the FIPS/RFC cores; ed25519
   is mfb+python (C `--`).
 - `[x]` **Theme 2 — serialize** (`benchmark/{mfb/src/serialize.mfb,c/serializebench.{c,h},python/serializebench.py}`):
   json, roundtrip, csv. JSON via vendored parson (C); csv hand-rolled to mfb's rules.
-- `[ ]` **Theme 3 — set:** deferred until plan-63-B/C land Set operations. Not authored.
+- `[x]` **Theme 3 — set** (`benchmark/{mfb/src/setops.mfb,c/setopsbench.{c,h},python/setopsbench.py}`):
+  `build` (grow-by-`add` hash-probe + membership sweep) and `ops` (the full set-algebra surface).
+  The mfb rows shipped early with plan-63-D; this plan added the C peer (open-addressing int hash
+  set) and Python peer (built-in `set`), wired them into `main.c`/`main.py`/`run.sh` + the README
+  coverage table, and proved cross-language checksum parity. See Correction C4.
 
-**Verification:** `./benchmark/run.sh` builds all four targets and runs clean (exit 0) at
-`--run 1` and `--run 10`. Every new row's checksum is byte-identical across mfb / c-O0 / c-O2 /
-python (crypto rows 4×; ed25519 2× = mfb+python, C prints `--`; serialize rows 4×): sha256
-320768, sha512 17144, hmac 30216, pbkdf2 4581, cte 8192, churn 67103, ed25519 8105 (= 8104 sig
-byte-sum + 1 verify), serialize json/roundtrip 532, csv 236. The mfb `crypto::` software core is
-thus proven byte-identical to `hashlib`/`hmac`/pyca and the C reference.
+**Verification:** `MFB=…/target/debug/mfb ./benchmark/run.sh --run 1` builds all four targets and runs
+clean (exit 0). Every new row's checksum is byte-identical across mfb / c-O0 / c-O2 / python (crypto
+rows 4×; ed25519 2× = mfb+python, C prints `--`; serialize rows 4×; **set rows 4×**): sha256 320768,
+sha512 17144, hmac 30216, pbkdf2 4581, cte 8192, churn 67103, ed25519 8105 (= 8104 sig byte-sum + 1
+verify), serialize json/roundtrip 532, csv 236, **set build 20000, set ops 6006**. The mfb `crypto::`
+software core is thus proven byte-identical to `hashlib`/`hmac`/pyca and the C reference, and the
+`Set OF T` runtime byte-identical to Python's `set` and the C open-addressing hash set.
 
 ## Corrections
 
@@ -220,6 +234,26 @@ thus proven byte-identical to `hashlib`/`hmac`/pyca and the C reference.
   there is no derive-public-from-seed builtin (only the random `generateEd25519`). The matching
   public key was computed once via pyca for the fixed seed and hardcoded so `ed25519Verify` runs
   deterministically. Signature byte-sum (8104) verified identical between mfb and pyca.
+- **C4 — Theme 3 (set) un-deferred; mfb rows pre-landed by plan-63-D; parity contract completed here
+  (2026-07-28).** When this plan was authored, P2 read NOT MET (plan-63 unlanded). Re-running the gate
+  found it MET: `grep -n 'Set(Box<Type>)' src/syntaxcheck/mod.rs` → `42:    Set(Box<Type>),`, and
+  plan-63 A–D had landed and been archived to `planning/completed/` (commit `6e8765a87`; note the
+  `old-plans/` → `completed/` rename in `0d04fda7c`). plan-63-D had also already added the **mfb-only**
+  `benchmark/mfb/src/setops.mfb` with two rows — `set_build` (grow-by-`add` + membership sweep,
+  checksum 20000) and `set_ops` (full set algebra, checksum 6006) — wired into `main.mfb`, but with
+  **no C/Python peer and no README row**, so plan-65's cross-language parity contract (Design rules)
+  was unmet. Theme 3 was completed by mirroring those exact two rows: `c/setopsbench.{c,h}` (an
+  open-addressing integer hash set) and `python/setopsbench.py` (built-in `set`), registered in
+  `c/main.c`, `python/main.py`, `run.sh`'s C source list, and the README surface table + prose. The
+  shipped 2-row design (Integer `build` + full-surface `ops`) supersedes this plan's original Theme-3
+  sketch (which also mentioned a String-element sweep and a dedicated add/remove churn row): the
+  archived plan-63-D is authoritative for the mfb surface, and the README parity contract requires the
+  three languages do the *same* materialized work, so the peers mirror the shipped rows exactly rather
+  than fork new mfb rows. All four targets print `set_build = 20000` / `set_ops = 6006` byte-identically
+  at `--run 1` (exit 0). (Observation, not a defect: the mfb `set build` row is arena-sensitive — 15.9 s
+  in the debug suite vs ≤0.3 ms for the C/Python peers — the same plan-64-A quadratic free-list path
+  documented in C1; plan-63-D shipped it at N=20000 and it completes cleanly, so it is mirrored as-is,
+  not re-tuned by this plan.)
 - **C3 — csv Python peer is hand-rolled, not `csv.writer`.** The plan suggested `csv.writer` for
   the Python csv peer, but `csv.writer` appends a line terminator after the final row, which
   breaks length-checksum parity with mfb's no-trailing-newline `csv::stringify`. The Python peer

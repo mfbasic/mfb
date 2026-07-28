@@ -38,6 +38,7 @@
 #include "regexbench.h"
 #include "scalarbench.h"
 #include "serializebench.h"
+#include "setopsbench.h"
 #include "strbuildbench.h"
 #include "stringbench.h"
 #include "vectorbench.h"
@@ -696,6 +697,8 @@ int main(int argc, char **argv) {
   run_map_group();
 
   run_mapchurn_group();
+
+  run_setops_group();
 
   run_string_group();
   test_string_unibig();

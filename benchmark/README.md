@@ -27,6 +27,7 @@ for each package lives on its own (the same split in all three):
 | `dispatch*.*`       | `dispatch`        | control-flow dispatch: union + `MATCH` tag-dispatch expression eval, and inline-`TRAP` error recovery |
 | `crypto*.*`         | `crypto`          | `crypto::` hashes (SHA-256/512), HMAC-SHA-256, PBKDF2, constant-time compare, a fresh-message hash churn, and deterministic Ed25519 sign+verify — the portable software core over `bits`, cross-checked against `hashlib`/`hmac`/pyca |
 | `serialize*.*`      | `serialize`       | `json::stringify` / `csv::stringify` — the encode direction (recursive tree walk + escape + number/field rendering) complementary to the `parse` group |
+| `setops*.*`         | `set`             | the `Set OF T` collection type (plan-63): grow-by-`add` hash-probe `build` + membership sweep, and an `ops` row over the full set algebra (`union`/`intersection`/`difference`/`symmetricDifference`/`isSubset`/`isSuperset`/`isDisjoint`/`toList`/`toSet`/`remove`) — cross-checked against Python `set` and a C open-addressing hash set |
 
 In addition to that per-member surface, a second set of **pattern-throughput**
 groups (plan-40) exercises the hot paths real programs hit — sustained churn,
@@ -74,6 +75,17 @@ benchmarks the encode direction the `parse` group never touched: `json`
 the length of the emitted text (order-independent, so it matches even when json
 object members emit in a different order); the canonical inputs use only ASCII
 strings and integers so every compact serializer produces the same length.
+
+The `set` group is the first benchmark of the `Set OF T` collection type
+(plan-63): `build` grows a `Set OF Integer` by 20 000 `add`s (half of them
+duplicates, so the idempotent hash-probe hit path is exercised) then sums a
+membership sweep, and `ops` drives the entire set surface — `add`/`remove`/
+`contains`, the source-generic algebra (`union`/`intersection`/`difference`/
+`symmetricDifference`), the predicates (`isSubset`/`isSuperset`/`isDisjoint`),
+and a `toList`+`toSet` round-trip — over two moderate sets. Each row folds set
+sizes into an integer checksum (`build` 20000, `ops` 6006) that matches the mfb
+runtime, Python's built-in `set`, and the C open-addressing hash set bit-for-bit,
+so the cross-language checksum is the proof of correctness.
 
 Only two crypto rows measure at realistic sizes today — `sha256` and `cte`, whose
 transients stay in the arena quick bins and whose per-call cost is flat across the

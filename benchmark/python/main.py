@@ -33,6 +33,7 @@ import re
 import regexbench
 import scalarbench
 import serializebench
+import setopsbench
 import stringbench
 import strbuildbench
 import sys
@@ -793,6 +794,9 @@ def main():
 
     # mapchurn group (grow/churn/iterate)
     churnbench.run_mapchurn(RUN, now_ns, record)
+
+    # set group (Set OF T build/contains + full set-algebra surface)
+    setopsbench.run_all(RUN, now_ns, record)
 
     # string group (concat/case/search/slice/unicode)
     stringbench.run_all(RUN, now_ns, record)
