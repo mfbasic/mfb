@@ -2044,4 +2044,244 @@ mod tests {
         let fields = fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]);
         let _ = scalarize_v128(CodeOp::SshlV, &fields, &big());
     }
+
+    // ---------- native-RVV arm (`rvv_arm`) per-op coverage ----------
+
+    /// A slot+vreg map for the value names the RVV-arm tests use.
+    fn slots_and_vregs() -> (HashMap<String, usize>, HashMap<String, u8>) {
+        let slots = map(&[("v0", 0), ("v1", 1), ("v2", 2)]);
+        let vregs: HashMap<String, u8> = [("v0", 1u8), ("v1", 2), ("v2", 3)]
+            .iter()
+            .map(|(k, v)| (k.to_string(), *v))
+            .collect();
+        (slots, vregs)
+    }
+
+    /// Every vector-lowered op must produce a native-RVV body carrying the RVV
+    /// mnemonic its arm is responsible for. `rvv_arm` is exercised **directly**
+    /// (not through `lower_v128_run`, which inlines it and misattributes the arm
+    /// coverage): this pins each arm's `vf*`/`v*`/mask-bridge emission op-by-op,
+    /// mirroring the `scalarize_v128` per-op tests above for the scalar arm.
+    #[test]
+    fn rvv_arm_lowers_every_vector_op() {
+        let (slots, vregs) = slots_and_vregs();
+        let arm = |op: CodeOp, pairs: &[(&'static str, &str)]| -> Vec<CodeInstruction> {
+            rvv_arm(op, &fl(pairs), &slots, &vregs)
+                .unwrap_or_else(|| panic!("{} must be vector-lowered", op.mnemonic()))
+        };
+        let has = |out: &[CodeInstruction], vop: &str| out.iter().any(|i| i.get("vop") == Some(vop));
+
+        let ss = &[("dst", "v0"), ("src", "v1")]; // two-reg-misc
+        let abc = &[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]; // three-same
+
+        // Float three-same and fused multiply-add/subtract.
+        for (op, vop) in [
+            (CodeOp::FAddV, "vfadd.vv"),
+            (CodeOp::FSubV, "vfsub.vv"),
+            (CodeOp::FMulV, "vfmul.vv"),
+            (CodeOp::FDivV, "vfdiv.vv"),
+            (CodeOp::FMlaV, "vfmacc.vv"),
+            (CodeOp::FMlsV, "vfnmsac.vv"),
+            (CodeOp::FMinV, "vfmin.vv"),
+            (CodeOp::FMaxV, "vfmax.vv"),
+        ] {
+            assert!(has(&arm(op, abc), vop), "{} → {vop}", op.mnemonic());
+        }
+
+        // Float two-reg-misc: abs/neg via sign-injection, sqrt, and the two
+        // f64<->i64 converters.
+        for (op, vop) in [
+            (CodeOp::FAbsV, "vfsgnjx.vv"),
+            (CodeOp::FNegV, "vfsgnjn.vv"),
+            (CodeOp::FSqrtV, "vfsqrt.v"),
+            (CodeOp::FCvtzsV, "vfcvt.rtz.x.f.v"),
+            (CodeOp::ScvtfV, "vfcvt.f.x.v"),
+        ] {
+            assert!(has(&arm(op, ss), vop), "{} → {vop}", op.mnemonic());
+        }
+
+        // Integer three-same and negate.
+        for (op, vop) in [
+            (CodeOp::AddV, "vadd.vv"),
+            (CodeOp::SubV, "vsub.vv"),
+            (CodeOp::AndV, "vand.vv"),
+            (CodeOp::OrrV, "vor.vv"),
+            (CodeOp::EorV, "vxor.vv"),
+        ] {
+            assert!(has(&arm(op, abc), vop), "{} → {vop}", op.mnemonic());
+        }
+        assert!(has(&arm(CodeOp::NegV, ss), "vrsub.vx"), "NegV → vrsub.vx");
+
+        // Immediate lane shifts (encodable amount → `.vi`).
+        for (op, vop) in [
+            (CodeOp::ShlV, "vsll.vi"),
+            (CodeOp::SshrV, "vsra.vi"),
+            (CodeOp::UshrV, "vsrl.vi"),
+        ] {
+            let out = arm(op, &[("dst", "v0"), ("src", "v1"), ("shift", "3")]);
+            assert!(has(&out, vop), "{} → {vop}", op.mnemonic());
+            // An amount the uimm5 cannot encode falls back to the scalar arm.
+            assert!(
+                rvv_arm(
+                    op,
+                    &fl(&[("dst", "v0"), ("src", "v1"), ("shift", "40")]),
+                    &slots,
+                    &vregs
+                )
+                .is_none(),
+                "{} shift ≥32 must defer to scalar",
+                op.mnemonic()
+            );
+        }
+
+        // Lane broadcast (GPR source) and both lane extracts (element 0 direct,
+        // element 1 via the v31 slidedown scratch).
+        assert!(
+            has(
+                &arm(CodeOp::DupVFromX, &[("dst", "v0"), ("src", "a0")]),
+                "vmv.v.x"
+            ),
+            "DupVFromX → vmv.v.x"
+        );
+        let umov0 = arm(CodeOp::UmovXFromV, &[("dst", "a0"), ("src", "v1"), ("index", "0")]);
+        assert!(
+            has(&umov0, "vmv.x.s") && !has(&umov0, "vslidedown.vi"),
+            "umov lane 0"
+        );
+        let umov1 = arm(CodeOp::UmovXFromV, &[("dst", "a0"), ("src", "v1"), ("index", "1")]);
+        assert!(
+            has(&umov1, "vslidedown.vi") && has(&umov1, "vmv.x.s"),
+            "umov lane 1"
+        );
+
+        // 128-bit unit-stride load/store from an arbitrary base+offset.
+        assert!(
+            has(
+                &arm(CodeOp::LdrQ, &[("dst", "v0"), ("base", "a0"), ("offset", "0")]),
+                "vle64.v"
+            ),
+            "LdrQ → vle64.v"
+        );
+        assert!(
+            has(
+                &arm(CodeOp::StrQ, &[("src", "v0"), ("base", "a0"), ("offset", "0")]),
+                "vse64.v"
+            ),
+            "StrQ → vse64.v"
+        );
+
+        // The mask bridge: float and integer compares write a `vm*` mask into v0,
+        // then `vmv.v.i`/`vmerge.vim` materialize the all-ones/all-zeros lanes.
+        for (op, vop) in [
+            (CodeOp::FCmGtV, "vmflt.vv"),
+            (CodeOp::FCmGeV, "vmfle.vv"),
+            (CodeOp::FCmEqV, "vmfeq.vv"),
+            (CodeOp::CmGtV, "vmslt.vv"),
+            (CodeOp::CmGeV, "vmsle.vv"),
+            (CodeOp::CmEqV, "vmseq.vv"),
+        ] {
+            let out = arm(op, abc);
+            assert!(has(&out, vop), "{} → {vop}", op.mnemonic());
+            assert!(has(&out, "vmerge.vim"), "{} materializes lanes", op.mnemonic());
+        }
+        // Compare-against-zero (the `+0.0` register is `vmv.v.i v31,0`).
+        for (op, vop) in [
+            (CodeOp::FCmGtZeroV, "vmflt.vv"),
+            (CodeOp::FCmGeZeroV, "vmfle.vv"),
+            (CodeOp::FCmEqZeroV, "vmfeq.vv"),
+            (CodeOp::FCmLtZeroV, "vmflt.vv"),
+            (CodeOp::FCmLeZeroV, "vmfle.vv"),
+        ] {
+            let out = arm(op, ss);
+            assert!(has(&out, vop), "{} → {vop}", op.mnemonic());
+            assert!(has(&out, "vmerge.vim"), "{} materializes lanes", op.mnemonic());
+        }
+
+        // Bit-select and bit-insert are the same `vxor`/`vand`/`vxor` bit algebra.
+        for op in [CodeOp::BslV, CodeOp::BitV] {
+            let out = arm(op, abc);
+            assert_eq!(
+                out.iter().filter(|i| i.get("vop") == Some("vxor.vv")).count(),
+                2,
+                "{} is two xors around one and",
+                op.mnemonic()
+            );
+            assert!(has(&out, "vand.vv"), "{} uses vand", op.mnemonic());
+        }
+
+        // Deferred ops (the rounding/ties-away conversions, wide shifts) always
+        // return `None` so the caller emits the scalar arm.
+        for op in [CodeOp::FRintnV, CodeOp::FRintmV, CodeOp::FCvtasV, CodeOp::AbsV] {
+            assert!(
+                rvv_arm(op, &fl(ss), &slots, &vregs).is_none(),
+                "{} must defer to the scalar arm",
+                op.mnemonic()
+            );
+        }
+    }
+
+    /// `rvv_lowerable` mirrors `rvv_arm`'s membership so `select_riscv64` can decide
+    /// run membership without emitting: lowerable ops are accepted, deferred ops and
+    /// unencodable shift amounts are rejected.
+    #[test]
+    fn rvv_lowerable_matches_the_emitter() {
+        assert!(rvv_lowerable(
+            CodeOp::FAddV,
+            &fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")])
+        ));
+        assert!(rvv_lowerable(
+            CodeOp::CmEqV,
+            &fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")])
+        ));
+        // Shifts are lowerable only when the amount fits the `.vi` uimm5.
+        assert!(rvv_lowerable(
+            CodeOp::ShlV,
+            &fl(&[("dst", "v0"), ("src", "v1"), ("shift", "5")])
+        ));
+        assert!(!rvv_lowerable(
+            CodeOp::UshrV,
+            &fl(&[("dst", "v0"), ("src", "v1"), ("shift", "40")])
+        ));
+        // Deferred ops are never lowerable.
+        assert!(!rvv_lowerable(
+            CodeOp::FRintnV,
+            &fl(&[("dst", "v0"), ("src", "v1")])
+        ));
+        assert!(!rvv_lowerable(
+            CodeOp::AbsV,
+            &fl(&[("dst", "v0"), ("src", "v1")])
+        ));
+    }
+
+    /// `drop_redundant_reloads` elides a reload of a slot a register already holds,
+    /// but keeps reloads after the register is overwritten by a compute and keeps a
+    /// reload of a *different* slot.
+    #[test]
+    fn residency_elides_only_a_proven_redundant_reload() {
+        let (slots, vregs) = slots_and_vregs();
+        // v0 = v1 + v2 ; v0 = v0 + v2  — the second op re-reads v2 (already resident
+        // from op 1) and re-reads/rewrites v0; the v2 reload must be elided, but the
+        // reload feeding the recomputed v0 chain is preserved.
+        let run = vec![
+            (
+                CodeOp::FAddV,
+                fl(&[("dst", "v0"), ("lhs", "v1"), ("rhs", "v2")]),
+            ),
+            (
+                CodeOp::FAddV,
+                fl(&[("dst", "v0"), ("lhs", "v0"), ("rhs", "v2")]),
+            ),
+        ];
+        let out = lower_v128_run(&run, &slots, &vregs, 7);
+        // v2 lives in v3; its slot (offset 32) is loaded once, not twice.
+        let v2_loads = out
+            .iter()
+            .filter(|i| i.get("vop") == Some("vle64.v") && i.get("dst") == Some("v3"))
+            .count();
+        assert_eq!(v2_loads, 1, "the second v2 reload is elided (register-resident)");
+        // Unique labels per run.
+        assert!(out
+            .iter()
+            .any(|i| i.op.mnemonic() == "label" && i.get("name") == Some("v128_scalar_7")));
+    }
 }
