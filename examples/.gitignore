@@ -2,4 +2,4 @@
 *.out
 
 # backend package build artifact (the installed copy lives in app/packages/)
-browser/backend/*.mfp
+browser/*/*.mfp

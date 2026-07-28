@@ -1,0 +1,87 @@
+' dom — a small HTML DOM for the browser example.
+'
+' Node is a union of three record variants:
+'   ElementNode  a tag with attributes and child Nodes (the tree spine)
+'   TextNode     a run of text
+'   HeaderNode   a summary of the page <head>: title + script/style references
+'
+' parse() (in parse.mfb) turns HTML into a document: an ElementNode tagged
+' "#document" whose first child is the HeaderNode and whose remaining children
+' are the parsed body tree. The whole package is iterative — it never recurses
+' over Node — because a recursive function over an imported union does not yet
+' lower to native code across a package boundary (see the browser README).
+
+IMPORT collections
+
+EXPORT TYPE ElementNode
+  tag AS String
+  attrs AS Map OF String TO String
+  children AS List OF Node
+END TYPE
+
+EXPORT TYPE TextNode
+  text AS String
+END TYPE
+
+EXPORT TYPE HeaderNode
+  title AS String
+  scripts AS List OF String
+  styles AS List OF String
+END TYPE
+
+EXPORT UNION Node
+  ElementNode
+  TextNode
+  HeaderNode
+END UNION
+
+' ----- constructors (widen a member record to Node via a typed binding) -----
+
+FUNC emptyAttrs() AS Map OF String TO String
+  RETURN Map OF String TO String {}
+END FUNC
+
+EXPORT FUNC element(tag AS String, attrs AS Map OF String TO String, children AS List OF Node) AS Node
+  LET n AS Node = ElementNode[tag, attrs, children]
+  RETURN n
+END FUNC
+
+EXPORT FUNC textNode(s AS String) AS Node
+  LET n AS Node = TextNode[s]
+  RETURN n
+END FUNC
+
+EXPORT FUNC headerNode(title AS String, scripts AS List OF String, styles AS List OF String) AS Node
+  LET n AS Node = HeaderNode[title, scripts, styles]
+  RETURN n
+END FUNC
+
+' A valid but empty document, for error/placeholder states.
+EXPORT FUNC emptyDocument() AS Node
+  LET header AS Node = headerNode("", [], [])
+  RETURN element("#document", emptyAttrs(), [header])
+END FUNC
+
+' Wrap plain (non-HTML) text as a one-text-node document.
+EXPORT FUNC textDocument(s AS String) AS Node
+  LET header AS Node = headerNode("", [], [])
+  RETURN element("#document", emptyAttrs(), [header, textNode(s)])
+END FUNC
+
+' The page title: the HeaderNode child's title, or "" if there is none. Reads
+' the document's direct children only — no recursion.
+EXPORT FUNC title(doc AS Node) AS String
+  MATCH doc
+    CASE ElementNode(e)
+      FOR EACH child IN e.children
+        MATCH child
+          CASE HeaderNode(h)
+            RETURN h.title
+          CASE ELSE
+        END MATCH
+      NEXT
+      RETURN ""
+    CASE ELSE
+      RETURN ""
+  END MATCH
+END FUNC

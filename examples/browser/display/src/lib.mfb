@@ -1,0 +1,159 @@
+' display — render a dom::Node to text.
+'
+'   render(node, width)  the readable page text, wrapped to width
+'   tree(node, width)     an indented DOM tree (for a "raw" view)
+'
+' Both walk the tree iteratively with an explicit stack — a recursive function
+' over the imported Node union does not lower to native code across a package
+' boundary (see the browser README). Every MATCH on the imported (open) Node
+' union carries a CASE ELSE, as the language requires.
+
+IMPORT collections
+IMPORT dom
+IMPORT regex
+IMPORT strings
+
+FUNC maxOf(a AS Integer, b AS Integer) AS Integer
+  IF a > b THEN RETURN a
+  RETURN b
+END FUNC
+
+FUNC minOf(a AS Integer, b AS Integer) AS Integer
+  IF a < b THEN RETURN a
+  RETURN b
+END FUNC
+
+' Tags that force a line break in the rendered text.
+FUNC isBlock(name AS String) AS Boolean
+  RETURN name = "p" OR name = "div" OR name = "br" OR name = "hr" OR name = "li" OR name = "ul" OR name = "ol" OR name = "tr" OR name = "table" OR name = "h1" OR name = "h2" OR name = "h3" OR name = "h4" OR name = "h5" OR name = "h6" OR name = "section" OR name = "article" OR name = "header" OR name = "footer" OR name = "nav" OR name = "aside" OR name = "main" OR name = "blockquote" OR name = "pre" OR name = "figure" OR name = "figcaption" OR name = "dl" OR name = "dd" OR name = "dt" OR name = "form"
+END FUNC
+
+' Tags whose subtree contributes nothing to the readable text.
+FUNC skipTag(name AS String) AS Boolean
+  RETURN name = "head" OR name = "script" OR name = "style" OR name = "noscript" OR name = "meta" OR name = "link" OR name = "title"
+END FUNC
+
+' Collapse whitespace runs and trim blank lines.
+FUNC tidy(s AS String) AS String
+  MUT t AS String = strings::replace(s, "\t", " ")
+  t = strings::replace(t, "\r", "")
+  t = regex::replace(t, " +", " ")
+  t = regex::replace(t, " ?\n ?", "\n")
+  t = regex::replace(t, "\n{3,}", "\n\n")
+  RETURN strings::trim(t)
+END FUNC
+
+' Collapse a run to a single line (for the tree view's text/attr display).
+FUNC collapse(s AS String) AS String
+  MUT t AS String = strings::replace(s, "\n", " ")
+  t = strings::replace(t, "\t", " ")
+  t = strings::replace(t, "\r", " ")
+  RETURN regex::replace(t, " +", " ")
+END FUNC
+
+' Truncate with an ellipsis.
+FUNC clip(s AS String, width AS Integer) AS String
+  IF len(s) <= width THEN RETURN s
+  RETURN strings::mid(s, 0, maxOf(0, width - 1)) & "…"
+END FUNC
+
+' Hard-wrap each newline-delimited line to `width` columns.
+FUNC wrap(s AS String, width AS Integer) AS String
+  LET w AS Integer = maxOf(1, width)
+  MUT out AS List OF String = []
+  FOR EACH line IN strings::split(s, "\n")
+    IF len(line) <= w THEN
+      out = collections::append(out, line)
+    ELSE
+      MUT start AS Integer = 0
+      DO WHILE start < len(line)
+        LET count AS Integer = minOf(w, len(line) - start)
+        out = collections::append(out, strings::mid(line, start, count))
+        start = start + count
+      LOOP
+    END IF
+  NEXT
+  RETURN strings::join(out, "\n")
+END FUNC
+
+' The readable page text: a pre-order walk emitting text, breaking lines on
+' block tags, skipping the header and non-visible subtrees.
+EXPORT FUNC render(root AS Node, width AS Integer) AS String
+  MUT parts AS List OF String = []
+  MUT stack AS List OF Node = [root]
+  DO WHILE len(stack) > 0
+    LET i AS Integer = len(stack) - 1
+    LET node AS Node = collections::get(stack, i)
+    stack = collections::removeAt(stack, i)
+    MATCH node
+      CASE ElementNode(e)
+        IF NOT skipTag(e.tag) THEN
+          IF isBlock(e.tag) THEN
+            parts = collections::append(parts, "\n")
+          END IF
+          MUT j AS Integer = len(e.children) - 1
+          DO WHILE j >= 0
+            stack = collections::append(stack, collections::get(e.children, j))
+            j = j - 1
+          LOOP
+        END IF
+      CASE TextNode(t)
+        parts = collections::append(parts, t.text)
+      CASE HeaderNode(h)
+        ' the header carries no visible text
+      CASE ELSE
+    END MATCH
+  LOOP
+  RETURN wrap(tidy(strings::join(parts, "")), width)
+END FUNC
+
+' One node's attribute summary for the tree view (id / class / href only).
+FUNC attrsBrief(attrs AS Map OF String TO String) AS String
+  MUT out AS String = ""
+  IF collections::hasKey(attrs, "id") THEN
+    out = out & " id=" & collections::getOr(attrs, "id", "")
+  END IF
+  IF collections::hasKey(attrs, "class") THEN
+    out = out & " class=" & clip(collections::getOr(attrs, "class", ""), 24)
+  END IF
+  IF collections::hasKey(attrs, "href") THEN
+    out = out & " href=" & clip(collections::getOr(attrs, "href", ""), 40)
+  END IF
+  RETURN out
+END FUNC
+
+' One frame of the tree walk: a node and its indent depth.
+TYPE Walk
+  node AS Node
+  depth AS Integer
+END TYPE
+
+' An indented text rendering of the DOM tree itself (the "raw" view).
+EXPORT FUNC tree(root AS Node, width AS Integer) AS String
+  MUT lines AS List OF String = []
+  MUT stack AS List OF Walk = [Walk[root, 0]]
+  DO WHILE len(stack) > 0
+    LET i AS Integer = len(stack) - 1
+    LET w AS Walk = collections::get(stack, i)
+    stack = collections::removeAt(stack, i)
+    LET indent AS String = strings::repeat("  ", w.depth)
+    MATCH w.node
+      CASE ElementNode(e)
+        lines = collections::append(lines, indent & "<" & e.tag & attrsBrief(e.attrs) & ">")
+        MUT j AS Integer = len(e.children) - 1
+        DO WHILE j >= 0
+          stack = collections::append(stack, Walk[collections::get(e.children, j), w.depth + 1])
+          j = j - 1
+        LOOP
+      CASE TextNode(t)
+        LET tx AS String = strings::trim(collapse(t.text))
+        IF tx <> "" THEN
+          lines = collections::append(lines, indent & "\"" & clip(tx, 60) & "\"")
+        END IF
+      CASE HeaderNode(h)
+        lines = collections::append(lines, indent & "#head  title=\"" & clip(h.title, 40) & "\"  scripts=" & toString(len(h.scripts)) & "  styles=" & toString(len(h.styles)))
+      CASE ELSE
+    END MATCH
+  LOOP
+  RETURN wrap(strings::join(lines, "\n"), width)
+END FUNC
