@@ -1039,8 +1039,11 @@ fixtures pass):**
 | **D3-chunks** | native `chunks` (8-byte elems, const size) — direct nested-block build | list chunks | 5.5 → **0.9 (COMPLETE**, beats Py) | `13fcc99d0` |
 | **D1-groupBy** | native `groupBy` (8-byte T/V, Integer key) — inline hash + top-level buckets, kills O(bucket²) | listchurn nested | 70.8 → **13.3 (5.3×)** | `34024b800` |
 | **D4-partition** | native `partition` (8-byte elems) — filter-into-two reserved lists + `emit_build_inlined_record`; **+ fixed a pre-existing `.mfb` callback-FAIL swallow** (route predicate through `transform`) | list partition | 6.09 → **~3.6 (COMPLETE**, ≤5 ms) | `af75ab381` |
+| **A1** (+A2 subsumed) | single-pass `arena_flush_coalesce` (merge-sort by address → one-pass coalesce → re-park) replaces the O(M²) per-chunk flush drain; **+ empty-free-list flush gate** for pure-small workloads | datetime civil (+serialize/regex/map arena rows) | 973.9 → **0.92 (COMPLETE**, flat @50) | `4247e8330`, `d8535233f` |
+| **A3-csv** | fused range-decode of unquoted fields (`__csv_decodeRange`, no intermediate list) | parse csv | 5.85 → **5.33** | `60ca5b281` |
+| **I2** | inline-TRAP error-elision — IR drops dead `Bind err` + bare tag-only Result when `err` unused | dispatch trap (isolated) | 9.37 → **3.52 (2.66×)** | `599162d6a` |
 
-**9 sub-plans landed (D fully done: D1/D2/D3/D4).** Native-codegen technique proven and reused
+**12 sub-plans landed (A fully done: A1/A2/A3; D fully done: D1/D2/D3/D4).** Native-codegen technique proven and reused
 across D2/C2/D3: monomorphized-target dispatch gate (`#collections_<fn>$…`), FUNC-pointer
 callbacks (`emit_direct_callable_branch` + `emit_callback_failure_exit`), and direct kind-2 /
 nested-block construction (`emit_write_list_header_from_registers`, VALUE_OFFSET/LENGTH entries),
@@ -1077,11 +1080,17 @@ pass; correctness bar per `.ai/compiler.md` governs):**
   the guard is control flow the pure-expression inline mechanism can't express, and
   Integer/Fixed `length` needs `isqrt` not `sqrt`. J3 (project/reject/reflect) IS pure
   arithmetic but is not on the `vector math` hot path.
-- **A1/A2** (arena allocator machine-code) — **highest blast radius in the plan** (a bug
-  corrupts every heap); the residual `datetime civil` max 938 ms + csv/iso/dispatch-trap-climb
-  wait on it. **B** (borrow-on-get) — deep escape analysis. **F2/F3** (string split/join/set
-  in-place) — intricate shift+offset-fixup for ≤1 ms benchmark impact. **C-C1**/A3-csv
-  (needs a range-decode primitive).
+- ~~**A1/A2** (arena mixed-transient-churn quadratic)~~ — **LANDED** `4247e8330` + `d8535233f`
+  (A2 subsumed by the plan-25-A large-bins + A1's short address-ordered list; A3-csv/datetime
+  mitigations also landed). Single-pass `arena_flush_coalesce` replaced the O(M²) flush drain;
+  `datetime civil` 973.9 → 0.92 ms flat @50, and every mixed-size arena row (serialize
+  roundtrip/regex capture/parse regex/map int_ops) collapsed to near-linear. The residual max
+  938 ms cited earlier for `datetime civil` was the pre-A1 number — A1's empty-free-list flush
+  gate flattened it. This was the highest-blast-radius surface in the plan; verified via
+  unchanged checksums + full `cargo test` + `artifact-gate.sh` 0 diffs + 42 regenerated codegen
+  goldens.
+- **B** (borrow-on-get) — deep escape analysis. **F2/F3** (string split/join/set
+  in-place) — intricate shift+offset-fixup for ≤1 ms benchmark impact.
 - **Rejected with proof this session: K** (bignum — algorithm change unfair vs C's bit-serial
   mod) and **G3** (native `toScalars` — measured *slower* 411 vs 388 ms, and toScalars isn't
   `listchurn`'s bottleneck). Both really want L2.
