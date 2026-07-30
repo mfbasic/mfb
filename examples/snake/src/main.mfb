@@ -1,0 +1,309 @@
+IMPORT collections
+IMPORT io
+IMPORT math
+IMPORT strings
+IMPORT term
+
+' Snake - a bounded terminal game built on the term:: TUI module.
+'
+' Build and run it from an interactive terminal:
+'   mfb build examples/snake
+'   ./examples/snake/snake.out
+'
+' Controls:
+'   Arrow keys / WASD   turn
+'   space               pause / resume
+'   r                   restart
+'   q                   quit
+'
+' The board resizes with the terminal. Resizing starts a fresh game because the
+' old snake may no longer fit inside the new walls.
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+TYPE Direction
+  dx AS Integer
+  dy AS Integer
+END TYPE
+
+FUNC frameDelayMs AS Integer
+  RETURN 95
+END FUNC
+
+FUNC pointEq(a AS Point, b AS Point) AS Boolean
+  RETURN a.x = b.x AND a.y = b.y
+END FUNC
+
+FUNC fit(s AS String, width AS Integer) AS String
+  IF width <= 0 THEN RETURN ""
+  IF len(s) > width THEN RETURN strings::mid(s, 0, width)
+  MUT r AS String = s
+  DO WHILE len(r) < width
+    r = r & " "
+  LOOP
+  RETURN r
+END FUNC
+
+FUNC repeatChar(ch AS String, count AS Integer) AS String
+  MUT s AS String = ""
+  FOR i = 0 TO count - 1
+    s = s & ch
+  NEXT
+  RETURN s
+END FUNC
+
+FUNC initialSnake(gridW AS Integer, gridH AS Integer) AS List OF Point
+  LET cx AS Integer = gridW / 2
+  LET cy AS Integer = gridH / 2
+  RETURN [Point[cx, cy], Point[cx - 1, cy], Point[cx - 2, cy]]
+END FUNC
+
+FUNC containsPoint(points AS List OF Point, p AS Point) AS Boolean
+  FOR EACH candidate IN points
+    IF pointEq(candidate, p) THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+' Like containsPoint, but only scans the first `limit` entries. This lets a
+' non-growing snake move into the square its tail is leaving this tick.
+FUNC containsPointBefore(points AS List OF Point, p AS Point, limit AS Integer) AS Boolean
+  IF limit <= 0 THEN RETURN FALSE
+  FOR i = 0 TO limit - 1
+    IF pointEq(collections::get(points, i), p) THEN RETURN TRUE
+  NEXT
+  RETURN FALSE
+END FUNC
+
+FUNC spawnFood(gridW AS Integer, gridH AS Integer, snake AS List OF Point) AS Point
+  IF len(snake) >= gridW * gridH THEN RETURN Point[-1, -1]
+
+  MUT p AS Point = Point[0, 0]
+  DO
+    p = Point[math::rand(0, gridW - 1), math::rand(0, gridH - 1)]
+  LOOP UNTIL NOT containsPoint(snake, p)
+  RETURN p
+END FUNC
+
+FUNC cellGlyph(x AS Integer, y AS Integer, snake AS List OF Point, food AS Point) AS String
+  LET p AS Point = Point[x, y]
+  IF len(snake) > 0 AND pointEq(collections::get(snake, 0), p) THEN RETURN "@"
+  IF pointEq(food, p) THEN RETURN "*"
+  IF containsPointBefore(snake, p, len(snake)) THEN RETURN "O"
+  RETURN " "
+END FUNC
+
+SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS Integer)
+  term::setForeground(120, 180, 220)
+  term::moveTo(0, 0)
+  io::write("+" & repeatChar("-", gridW) & "+")
+
+  FOR y = 0 TO gridH - 1
+    MUT row AS String = "|"
+    FOR x = 0 TO gridW - 1
+      row = row & cellGlyph(x, y, snake, food)
+    NEXT
+    row = row & "|"
+    term::moveTo(y + 1, 0)
+    io::write(row)
+  NEXT
+
+  term::moveTo(gridH + 1, 0)
+  io::write("+" & repeatChar("-", gridW) & "+")
+END SUB
+
+SUB drawStatus(cols AS Integer, gridH AS Integer, score AS Integer, best AS Integer, paused AS Boolean, gameOver AS Boolean, won AS Boolean)
+  MUT s AS String = " Snake  Score " & toString(score) & "  Best " & toString(best)
+  IF won THEN
+    s = s & "  YOU WIN - r restart  q quit"
+  ELSEIF gameOver THEN
+    s = s & "  GAME OVER - r restart  q quit"
+  ELSEIF paused THEN
+    s = s & "  PAUSED - space resume"
+  ELSE
+    s = s & "  Arrows/WASD turn  space pause  r restart  q quit"
+  END IF
+
+  term::setBold(TRUE)
+  term::setForeground(20, 25, 30)
+  term::setBackground(200, 225, 160)
+  term::moveTo(gridH + 2, 0)
+  io::write(fit(s, cols - 1))
+  term::setBackground(0, 0, 0)
+  term::setForeground(255, 255, 255)
+  term::setBold(FALSE)
+END SUB
+
+FUNC getChar AS String
+  LET c AS String = io::readChar() TRAP(e)
+    RECOVER ""
+  END TRAP
+  RETURN c
+END FUNC
+
+FUNC ready(ms AS Integer) AS Boolean
+  LET r AS Boolean = io::pollInput(ms) TRAP(e)
+    RECOVER FALSE
+  END TRAP
+  RETURN r
+END FUNC
+
+FUNC readKey AS String
+  LET c AS String = getChar()
+  IF c = "" THEN RETURN "EOF"
+  IF c = "\u{1B}" THEN
+    IF NOT ready(30) THEN RETURN "ESC"
+    LET c2 AS String = getChar()
+    IF c2 = "[" OR c2 = "O" THEN
+      LET c3 AS String = getChar()
+      IF c3 = "A" THEN RETURN "UP"
+      IF c3 = "B" THEN RETURN "DOWN"
+      IF c3 = "C" THEN RETURN "RIGHT"
+      IF c3 = "D" THEN RETURN "LEFT"
+    END IF
+    RETURN "ESC"
+  END IF
+  RETURN c
+END FUNC
+
+FUNC directionFor(key AS String, current AS Direction) AS Direction
+  IF (key = "UP" OR key = "w" OR key = "W") AND current.dy <> 1 THEN RETURN Direction[0, -1]
+  IF (key = "DOWN" OR key = "s" OR key = "S") AND current.dy <> -1 THEN RETURN Direction[0, 1]
+  IF (key = "LEFT" OR key = "a" OR key = "A") AND current.dx <> 1 THEN RETURN Direction[-1, 0]
+  IF (key = "RIGHT" OR key = "d" OR key = "D") AND current.dx <> -1 THEN RETURN Direction[1, 0]
+  RETURN current
+END FUNC
+
+FUNC stepSnake(snake AS List OF Point, dir AS Direction, food AS Point) AS List OF Point
+  LET head AS Point = collections::get(snake, 0)
+  LET nextHead AS Point = Point[head.x + dir.dx, head.y + dir.dy]
+  LET grows AS Boolean = pointEq(nextHead, food)
+  MUT nextSnake AS List OF Point = collections::prepend(snake, nextHead)
+  IF NOT grows THEN
+    nextSnake = collections::removeAt(nextSnake, len(nextSnake) - 1)
+  END IF
+  RETURN nextSnake
+END FUNC
+
+FUNC main AS Integer
+  IF NOT io::isOutputTerminal() OR NOT io::isInputTerminal() THEN
+    io::printError("snake: run this from an interactive terminal.")
+    RETURN 1
+  END IF
+
+  term::on()
+  term::hideCursor()
+
+  MUT gridW AS Integer = 0
+  MUT gridH AS Integer = 0
+  MUT snake AS List OF Point = []
+  MUT food AS Point = Point[-1, -1]
+  MUT dir AS Direction = Direction[1, 0]
+  MUT score AS Integer = 0
+  MUT best AS Integer = 0
+  MUT paused AS Boolean = FALSE
+  MUT gameOver AS Boolean = FALSE
+  MUT won AS Boolean = FALSE
+  MUT running AS Boolean = TRUE
+  MUT dirty AS Boolean = TRUE
+
+  DO WHILE running
+    LET size AS TermSize = term::terminalSize() TRAP(e)
+      EXIT DO
+    END TRAP
+    MUT newW AS Integer = size.columns - 2
+    MUT newH AS Integer = size.rows - 3
+
+    IF newW < 10 OR newH < 6 THEN
+      term::clear()
+      term::setForeground(255, 255, 255)
+      term::moveTo(0, 0)
+      io::write("Make the terminal at least 12 columns by 9 rows. Press q to quit.")
+      term::sync()
+      IF ready(100) THEN
+        LET smallKey AS String = readKey()
+        IF smallKey = "q" OR smallKey = "Q" OR smallKey = "EOF" THEN running = FALSE
+      END IF
+      CONTINUE DO
+    END IF
+
+    IF newW <> gridW OR newH <> gridH THEN
+      gridW = newW
+      gridH = newH
+      snake = initialSnake(gridW, gridH)
+      food = spawnFood(gridW, gridH, snake)
+      dir = Direction[1, 0]
+      score = 0
+      paused = FALSE
+      gameOver = FALSE
+      won = FALSE
+      dirty = TRUE
+    END IF
+
+    IF dirty THEN
+      term::clear()
+      dirty = FALSE
+    END IF
+
+    drawBoard(snake, food, gridW, gridH)
+    drawStatus(size.columns, gridH, score, best, paused, gameOver, won)
+    term::sync()
+
+    IF ready(frameDelayMs()) THEN
+      LET key AS String = readKey()
+      IF key = "q" OR key = "Q" OR key = "EOF" THEN
+        running = FALSE
+      ELSEIF key = " " THEN
+        paused = NOT paused
+      ELSEIF key = "r" OR key = "R" THEN
+        snake = initialSnake(gridW, gridH)
+        food = spawnFood(gridW, gridH, snake)
+        dir = Direction[1, 0]
+        score = 0
+        paused = FALSE
+        gameOver = FALSE
+        won = FALSE
+        dirty = TRUE
+      ELSEIF NOT paused AND NOT gameOver AND NOT won THEN
+        dir = directionFor(key, dir)
+      END IF
+    ELSEIF NOT paused AND NOT gameOver AND NOT won THEN
+      LET head AS Point = collections::get(snake, 0)
+      LET nextHead AS Point = Point[head.x + dir.dx, head.y + dir.dy]
+      LET grows AS Boolean = pointEq(nextHead, food)
+      MUT selfLimit AS Integer = len(snake)
+      IF NOT grows THEN selfLimit = selfLimit - 1
+
+      IF nextHead.x < 0 OR nextHead.x >= gridW OR nextHead.y < 0 OR nextHead.y >= gridH OR containsPointBefore(snake, nextHead, selfLimit) THEN
+        gameOver = TRUE
+      ELSE
+        snake = stepSnake(snake, dir, food)
+        IF grows THEN
+          score = score + 1
+          IF score > best THEN best = score
+          IF len(snake) >= gridW * gridH THEN
+            won = TRUE
+            food = Point[-1, -1]
+          ELSE
+            food = spawnFood(gridW, gridH, snake)
+          END IF
+        END IF
+      END IF
+    END IF
+  LOOP
+
+  term::showCursor()
+  term::off()
+  io::print("Thanks for playing Snake!")
+  RETURN 0
+
+  TRAP(e)
+    term::showCursor()
+    term::off()
+    io::printError("snake: " & e.message)
+    RETURN 1
+  END TRAP
+END FUNC
