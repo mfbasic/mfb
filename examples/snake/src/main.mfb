@@ -47,14 +47,6 @@ FUNC fit(s AS String, width AS Integer) AS String
   RETURN r
 END FUNC
 
-FUNC repeatChar(ch AS String, count AS Integer) AS String
-  MUT s AS String = ""
-  FOR i = 0 TO count - 1
-    s = s & ch
-  NEXT
-  RETURN s
-END FUNC
-
 FUNC initialSnake(gridW AS Integer, gridH AS Integer) AS List OF Point
   LET cx AS Integer = gridW / 2
   LET cy AS Integer = gridH / 2
@@ -88,31 +80,43 @@ FUNC spawnFood(gridW AS Integer, gridH AS Integer, snake AS List OF Point) AS Po
   RETURN p
 END FUNC
 
-FUNC cellGlyph(x AS Integer, y AS Integer, snake AS List OF Point, food AS Point) AS String
-  LET p AS Point = Point[x, y]
-  IF len(snake) > 0 AND pointEq(collections::get(snake, 0), p) THEN RETURN "@"
-  IF pointEq(food, p) THEN RETURN "*"
-  IF containsPointBefore(snake, p, len(snake)) THEN RETURN "O"
-  RETURN " "
-END FUNC
-
 SUB drawBoard(snake AS List OF Point, food AS Point, gridW AS Integer, gridH AS Integer)
-  term::setForeground(120, 180, 220)
-  term::moveTo(0, 0)
-  io::write("+" & repeatChar("-", gridW) & "+")
+  term::clear()
 
-  FOR y = 0 TO gridH - 1
-    MUT row AS String = "|"
-    FOR x = 0 TO gridW - 1
-      row = row & cellGlyph(x, y, snake, food)
-    NEXT
-    row = row & "|"
-    term::moveTo(y + 1, 0)
-    io::write(row)
+  term::setForeground(120, 180, 220)
+  term::drawBox(LineStyle.Light, 0, 0, gridW + 1, gridH + 1)
+
+  term::setForeground(245, 170, 70)
+  IF food.x >= 0 THEN
+    term::drawGlyph(food.x + 1, food.y + 1, 42)
+  END IF
+
+  term::setForeground(110, 230, 135)
+  term::setBold(TRUE)
+  FOR i = 1 TO len(snake) - 1
+    LET a AS Point = collections::get(snake, i - 1)
+    LET b AS Point = collections::get(snake, i)
+    IF a.y = b.y THEN
+      IF a.x < b.x THEN
+        term::drawHLine(LineStyle.Heavy, a.y + 1, a.x + 1, b.x + 1)
+      ELSE
+        term::drawHLine(LineStyle.Heavy, a.y + 1, b.x + 1, a.x + 1)
+      END IF
+    ELSEIF a.x = b.x THEN
+      IF a.y < b.y THEN
+        term::drawVLine(LineStyle.Heavy, a.x + 1, a.y + 1, b.y + 1)
+      ELSE
+        term::drawVLine(LineStyle.Heavy, a.x + 1, b.y + 1, a.y + 1)
+      END IF
+    END IF
   NEXT
 
-  term::moveTo(gridH + 1, 0)
-  io::write("+" & repeatChar("-", gridW) & "+")
+  IF len(snake) > 0 THEN
+    LET head AS Point = collections::get(snake, 0)
+    term::setForeground(235, 255, 235)
+    term::drawGlyph(head.x + 1, head.y + 1, 64)
+  END IF
+  term::setBold(FALSE)
 END SUB
 
 SUB drawStatus(cols AS Integer, gridH AS Integer, score AS Integer, best AS Integer, paused AS Boolean, gameOver AS Boolean, won AS Boolean)
