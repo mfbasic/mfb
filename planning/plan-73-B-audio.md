@@ -182,7 +182,7 @@ tests green; `cargo test` green; `artifact-gate` diffs=0. NOTE — omit=block is
 behavioral change proven by codegen byte-identity only (no CI audio device); the
 runtime block/return is not exercised in CI (explicit device-free limitation, per
 the Validation section).
-Commit: —
+Commit: cccb619bc
 
 ## Validation Plan
 
