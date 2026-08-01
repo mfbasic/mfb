@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: IN PROGRESS (356 / 402 files reviewed)
+Status: IN PROGRESS (363 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -754,15 +754,15 @@ call.)
 
 **`src/testing/`**
 
-- [ ] `src/testing/coverage.rs` (420 loc)
+- [x] `src/testing/coverage.rs` (420 loc) — clean
 
 **`src/testing/desugar/`**
 
-- [ ] `src/testing/desugar/coverage.rs` (462 loc)
-- [ ] `src/testing/desugar/driver.rs` (182 loc)
-- [ ] `src/testing/desugar/expect.rs` (186 loc)
-- [ ] `src/testing/desugar/mod.rs` (246 loc)
-- [ ] `src/testing/desugar/placement.rs` (209 loc)
+- [x] `src/testing/desugar/coverage.rs` (462 loc) — clean
+- [x] `src/testing/desugar/driver.rs` (182 loc) — clean
+- [x] `src/testing/desugar/expect.rs` (186 loc) — clean
+- [x] `src/testing/desugar/mod.rs` (246 loc) — clean
+- [x] `src/testing/desugar/placement.rs` (209 loc) — clean
 
 **`src/unicode/`**
 
@@ -821,4 +821,4 @@ call.)
 
 **`.` (repo root)**
 
-- [ ] `build.rs` (365 loc)
+- [x] `build.rs` (365 loc) — clean
