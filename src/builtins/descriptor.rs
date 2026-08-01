@@ -452,6 +452,85 @@ impl DefaultResolver {
     }
 }
 
+/// A deterministic, ordered collection of builtin package descriptors.
+///
+/// Backed by a static slice rather than a `HashMap` so iteration and lookup are
+/// order-preserving and allocation-free; the overview keeps a `HashMap` on the
+/// table only if measurement ever proves lookup cost matters. Lookup is by
+/// module name and by fully qualified function name (`"bits.band"`).
+pub(crate) struct BuiltinRegistry {
+    modules: &'static [&'static BuiltinModule],
+}
+
+impl BuiltinRegistry {
+    pub(crate) const fn new(modules: &'static [&'static BuiltinModule]) -> BuiltinRegistry {
+        BuiltinRegistry { modules }
+    }
+
+    /// The descriptor modules in registration order.
+    pub(crate) fn modules(&self) -> &'static [&'static BuiltinModule] {
+        self.modules
+    }
+
+    /// The module with this package name, consulting modules in order (the
+    /// first match wins, mirroring the dispatcher's package order).
+    pub(crate) fn module(&self, name: &str) -> Option<&'static BuiltinModule> {
+        self.modules
+            .iter()
+            .copied()
+            .find(|module| module.name == name)
+    }
+
+    /// The `(module, function)` owning a fully qualified call name, or `None`.
+    pub(crate) fn function(
+        &self,
+        qualified: &str,
+    ) -> Option<(&'static BuiltinModule, &'static BuiltinFunction)> {
+        self.modules.iter().copied().find_map(|module| {
+            module
+                .function(qualified)
+                .map(|function| (module, function))
+        })
+    }
+
+    /// The first duplicated package name, if any — two modules sharing a name
+    /// make `module()` order-dependent and are an authoring error. `None` means
+    /// the registry's module names are unique.
+    pub(crate) fn duplicate_module_name(&self) -> Option<&'static str> {
+        for (index, module) in self.modules.iter().enumerate() {
+            if self.modules[..index]
+                .iter()
+                .any(|earlier| earlier.name == module.name)
+            {
+                return Some(module.name);
+            }
+        }
+        None
+    }
+
+    /// The first fully qualified function name owned by more than one module —
+    /// which would make `function()` order-dependent. `None` means every
+    /// function name is claimed by at most one module.
+    pub(crate) fn duplicate_function_name(&self) -> Option<&'static str> {
+        let mut seen: Vec<&'static str> = Vec::new();
+        for module in self.modules {
+            for function in module.functions {
+                if seen.contains(&function.name) {
+                    return Some(function.name);
+                }
+                seen.push(function.name);
+            }
+        }
+        None
+    }
+}
+
+/// The production registry. Empty in plan-72-A: no package is migrated yet, so
+/// every adapter in `mod.rs` that consults it falls back to the legacy
+/// per-package helper. Each letter B..AA appends its `&<PKG>` here; BB then
+/// deletes the legacy helpers the adapters fall back to.
+pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[]);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -524,9 +603,64 @@ mod tests {
         },
     };
 
+    // One builtin type of each kind, so the registry describes primitives,
+    // opaque handles, records (with fields), and enums uniformly.
+    const TEST_TYPES: &[BuiltinType] = &[
+        BuiltinType {
+            name: "TCount",
+            kind: TypeKind::Primitive,
+            fields: &[],
+        },
+        BuiltinType {
+            name: "THandle",
+            kind: TypeKind::Opaque,
+            fields: &[],
+        },
+        BuiltinType {
+            name: "TPoint",
+            kind: TypeKind::Record,
+            fields: &[("x", "Integer"), ("y", "Integer")],
+        },
+        BuiltinType {
+            name: "TMode",
+            kind: TypeKind::Enum,
+            fields: &[],
+        },
+    ];
+
     const TEST_MODULE: BuiltinModule = BuiltinModule {
         name: "t",
         functions: &[ADD, EMIT, PICK],
+        types: TEST_TYPES,
+        // A real source loader (borrowed from `app`) so the source rule and
+        // loader fields are exercised end to end without a bespoke stub.
+        source: Some(BuiltinSource {
+            rule: InjectionRule::WhenImported,
+            loader: crate::builtins::app::source_file,
+        }),
+        resolver: None,
+    };
+
+    // A second data-only module, so registry lookup order and multi-module
+    // behavior can be exercised.
+    const OTHER_ADD: BuiltinFunction = BuiltinFunction {
+        name: "u.add",
+        doc_slug: "add",
+        overloads: &[BuiltinOverload {
+            params: &[Parameter::required("a", "Integer")],
+            return_type: ReturnType::Fixed("Integer"),
+        }],
+        implementation: Implementation::Same,
+        lowering: Lowering::Inline,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    };
+
+    const OTHER_MODULE: BuiltinModule = BuiltinModule {
+        name: "u",
+        functions: &[OTHER_ADD],
         types: &[],
         source: None,
         resolver: None,
@@ -644,5 +778,114 @@ mod tests {
         assert_eq!(DefaultResolver::expected_arguments(&TEST_MODULE, "t.nope"), None);
         assert_eq!(DefaultResolver::implementation_name(&TEST_MODULE, "t.nope"), None);
         assert!(DefaultResolver::default_padding(&TEST_MODULE, "t.nope", 0).is_empty());
+    }
+
+    // ---- A2: registry shell -------------------------------------------------
+
+    static TEST_REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[&TEST_MODULE, &OTHER_MODULE]);
+
+    #[test]
+    fn registry_module_lookup_in_order() {
+        assert_eq!(TEST_REGISTRY.modules().len(), 2);
+        // Registration order is preserved.
+        assert_eq!(TEST_REGISTRY.modules()[0].name, "t");
+        assert_eq!(TEST_REGISTRY.modules()[1].name, "u");
+        assert!(TEST_REGISTRY.module("t").is_some());
+        assert!(TEST_REGISTRY.module("u").is_some());
+    }
+
+    #[test]
+    fn registry_unknown_module_is_none() {
+        assert!(TEST_REGISTRY.module("missing").is_none());
+        assert!(TEST_REGISTRY.module("").is_none());
+    }
+
+    #[test]
+    fn registry_function_lookup_by_qualified_name() {
+        let (module, function) = TEST_REGISTRY.function("t.emit").expect("t.emit is registered");
+        assert_eq!(module.name, "t");
+        assert_eq!(function.name, "t.emit");
+        // A function owned by the second module resolves to it.
+        let (module, function) = TEST_REGISTRY.function("u.add").expect("u.add is registered");
+        assert_eq!(module.name, "u");
+        assert_eq!(function.name, "u.add");
+    }
+
+    #[test]
+    fn registry_unknown_function_is_none() {
+        assert!(TEST_REGISTRY.function("t.missing").is_none());
+        assert!(TEST_REGISTRY.function("missing.add").is_none());
+        assert!(TEST_REGISTRY.function("add").is_none());
+    }
+
+    #[test]
+    fn registry_names_are_unique() {
+        // The well-formed test registry has no duplicate module or function names.
+        assert_eq!(TEST_REGISTRY.duplicate_module_name(), None);
+        assert_eq!(TEST_REGISTRY.duplicate_function_name(), None);
+
+        // A registry that lists a module name twice is flagged.
+        static DUP_MODULES: BuiltinRegistry =
+            BuiltinRegistry::new(&[&TEST_MODULE, &TEST_MODULE]);
+        assert_eq!(DUP_MODULES.duplicate_module_name(), Some("t"));
+
+        // Two distinct modules sharing a fully qualified function name are
+        // flagged (constructed so the module names differ but a function collides).
+        assert_eq!(COLLIDING_REGISTRY.duplicate_function_name(), Some("t.add"));
+    }
+
+    // A module whose name differs from `t` but which re-declares `t.add`,
+    // producing a fully qualified function-name collision across modules.
+    const COLLIDING_MODULE: BuiltinModule = BuiltinModule {
+        name: "t2",
+        functions: &[ADD],
+        types: &[],
+        source: None,
+        resolver: None,
+    };
+    static COLLIDING_REGISTRY: BuiltinRegistry =
+        BuiltinRegistry::new(&[&TEST_MODULE, &COLLIDING_MODULE]);
+
+    #[test]
+    fn production_registry_is_empty_in_letter_a() {
+        // No package is migrated in A, so the production registry is empty and
+        // the mod.rs adapters always fall back to legacy helpers.
+        assert!(REGISTRY.modules().is_empty());
+        assert!(REGISTRY.module("bits").is_none());
+        assert!(REGISTRY.function("bits.band").is_none());
+    }
+
+    #[test]
+    fn descriptor_fields_are_well_formed() {
+        // Read the facets not on the resolution path (doc_slug, lowering, flags,
+        // builtin types, source) so their invariants are asserted and they are
+        // live in the test build.
+        for module in TEST_REGISTRY.modules() {
+            for function in module.functions {
+                assert!(!function.doc_slug.is_empty(), "{}", function.name);
+                assert!(matches!(function.lowering, Lowering::Helper | Lowering::Inline));
+                assert!(!function.flags.internal_only);
+                assert!(!function.flags.return_type_overloaded);
+                assert!(!function.overloads.is_empty(), "{}", function.name);
+            }
+        }
+
+        // Builtin types of each kind, with record fields populated only on the
+        // record.
+        let point = TEST_MODULE
+            .types
+            .iter()
+            .find(|ty| ty.name == "TPoint")
+            .expect("TPoint present");
+        assert_eq!(point.kind, TypeKind::Record);
+        assert_eq!(point.fields, &[("x", "Integer"), ("y", "Integer")]);
+        assert!(TEST_MODULE.types.iter().any(|ty| ty.kind == TypeKind::Primitive));
+        assert!(TEST_MODULE.types.iter().any(|ty| ty.kind == TypeKind::Opaque));
+        assert!(TEST_MODULE.types.iter().any(|ty| ty.kind == TypeKind::Enum));
+
+        // The source rule and loader are reachable and the loader parses.
+        let source = TEST_MODULE.source.expect("test module has a source");
+        assert_eq!(source.rule, InjectionRule::WhenImported);
+        assert!((source.loader)().is_ok());
     }
 }

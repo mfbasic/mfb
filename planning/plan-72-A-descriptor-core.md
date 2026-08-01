@@ -59,20 +59,26 @@ functions that can become the compatibility bridge.
 Acceptance: `cargo test` passes, and descriptor tests prove the API can derive
 the metadata currently split across `arity`, `expected_arguments`,
 `argument_types`, `call_param_names`, and `call_return_type_name`.
-Commit: —
+Commit: 4bdcc0e89
 
 ### Phase A2 — registry shell
 
-- [ ] Add `BuiltinRegistry` as a deterministic static-slice wrapper; lookup by
-      module name and by fully qualified function name.
-- [ ] Add a test-only descriptor module and a test-only registry that exercises
+- [x] Add `BuiltinRegistry` as a deterministic static-slice wrapper; lookup by
+      module name and by fully qualified function name (`descriptor.rs`), plus
+      `duplicate_module_name`/`duplicate_function_name` guards and an empty
+      production `REGISTRY` static (letters B..AA append their `&<PKG>`).
+- [x] Add a test-only descriptor module and a test-only registry that exercises
       lookup order, unknown modules, unknown functions, and duplicate-name guard
-      behavior.
-- [ ] Add adapter helper functions in `src/builtins/mod.rs` that can query
-      registry descriptors but currently fall back to existing package helpers.
+      behavior (7 registry tests, incl. a colliding registry).
+- [x] Add adapter helper functions in `src/builtins/mod.rs`
+      (`registry_is_call`/`registry_arity`/`registry_return_type_name`/
+      `registry_expected_arguments`) that query registry descriptors but fall
+      back to existing package helpers; empty production registry ⇒ fallback ⇒
+      byte-identical to legacy. 2 adapter tests prove both branches.
 
 Acceptance: `cargo test` passes; no production package behavior is routed
-through descriptors yet.
+through descriptors yet (production `REGISTRY` is empty; adapters unused until
+letter B wires them).
 Commit: —
 
 ### Phase A3 — parity harness
