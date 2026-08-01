@@ -1833,7 +1833,15 @@ impl CodeBuilder<'_> {
                 type_: "Integer".to_string(),
                 value: "128".to_string(),
             });
-        } else if matches!(target, "net.accept" | "net.poll") && helper_args.len() == 1 {
+        } else if target == "net.poll" && helper_args.len() == 1 {
+            // plan-73-C: an omitted `net::poll` timeout blocks until the socket is
+            // readable (the convention's readiness-query omit rule). Pad with the
+            // unbounded sentinel; the poll helper routes it to a -1 (infinite) poll.
+            helper_args.push(NirValue::Const {
+                type_: "Integer".to_string(),
+                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
+            });
+        } else if target == "net.accept" && helper_args.len() == 1 {
             helper_args.push(NirValue::Const {
                 type_: "Integer".to_string(),
                 value: "0".to_string(),

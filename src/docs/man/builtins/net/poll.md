@@ -32,12 +32,14 @@ socket is borrowed and inspected only: no data is consumed, so a `TRUE` result
 leaves the bytes in place for the next read.
 [[src/target/shared/code/net/poll.rs:lower_net_poll_helper]]
 
-`timeoutMs` bounds the wait, in milliseconds. When it is omitted the compiler
-supplies `0`, which makes `poll` a non-blocking check that returns immediately
-with the socket's current readiness. A positive value waits up to that long. A
-negative `timeoutMs` is rejected with `ErrInvalidArgument` rather than being
-treated as "wait forever". Because the host `poll` takes a C `int`, a value above
-2147483647 is clamped to that, which is roughly 24 days.
+`timeoutMs` bounds the wait, in milliseconds, following the language timeout
+convention (see `mfb spec language builtin-functions` → "Timeout convention").
+When it is **omitted, `poll` blocks** until the socket becomes readable and then
+returns `TRUE` (omit = unbounded). `0` is a non-blocking check that returns
+immediately with the socket's current readiness (the old omitted behavior — pass
+`, 0` for it). A positive value waits up to that long. A negative `timeoutMs` is
+rejected with `ErrInvalidArgument`. Because the host `poll` takes a C `int`, a
+value above 2147483647 is clamped to that, which is roughly 24 days.
 [[src/target/shared/code/builder_values.rs:net_connect_is_address_form]]
 [[src/target/shared/code/net/poll.rs:lower_net_poll_helper]]
 
@@ -57,19 +59,20 @@ block may wait. [[src/target/shared/code/net/poll.rs:lower_net_poll_helper]]
 
 **`net::poll(sock AS Socket) AS Boolean`**
 
-Checks readiness immediately and returns without waiting — the omitted
-`timeoutMs` is filled with `0`.
+Blocks until the socket becomes readable, then returns `TRUE` (omitted
+`timeoutMs` = unbounded wait). For the old immediate check, pass `, 0`.
 
 **`net::poll(sock AS Socket, timeoutMs AS Integer) AS Boolean`**
 
-Waits at most `timeoutMs` milliseconds for the socket to become readable.
+Waits at most `timeoutMs` milliseconds for the socket to become readable; `0` is
+a non-blocking check.
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `sock` | `Socket` | An open connected socket, as returned by `net::connectTcp` or `net::accept`. It is borrowed and inspected for readiness only; no data is read and the handle is not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | Optional, defaulting to `0` for an immediate non-blocking check. A positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_poll_helper]] |
+| `timeoutMs` | `Integer` | Optional. Omit to block until the socket is readable; `0` is an immediate non-blocking check; a positive value waits up to that many milliseconds, clamped to `2147483647`. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_poll_helper]] |
 
 ## Return value
 
@@ -86,7 +89,8 @@ Waits at most `timeoutMs` milliseconds for the socket to become readable.
 
 ## Examples
 
-Check whether data is waiting, without blocking:
+Check whether data is waiting, without blocking (pass `0` for the immediate
+check — omitting the timeout would instead block until the socket is readable):
 
 ```
 IMPORT net
@@ -97,7 +101,7 @@ FUNC main AS Integer
   LET bound = net::localAddress(server)
   RES client = net::connectTcp("127.0.0.1", bound.port)
   RES conn = net::accept(server)
-  io::print(toString(net::poll(conn)))
+  io::print(toString(net::poll(conn, 0)))
   RETURN 0
 END FUNC
 ```
@@ -129,3 +133,4 @@ END FUNC
 - `mfb man net accept`
 - `mfb man net connectTcp`
 - `mfb man net close`
+- `mfb spec language builtin-functions` — the timeout convention

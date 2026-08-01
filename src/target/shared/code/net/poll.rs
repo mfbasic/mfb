@@ -28,6 +28,7 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
     let invalid = format!("{symbol}_invalid");
     let poll_retry = format!("{symbol}_poll_retry");
     let timeout_ok = format!("{symbol}_timeout_ok");
+    let poll_infinite = format!("{symbol}_poll_infinite");
     let poll_fail = format!("{symbol}_poll_fail");
     let not_ready = format!("{symbol}_not_ready");
     let done = format!("{symbol}_done");
@@ -35,6 +36,12 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
+        // plan-73-C: an OMITTED timeout is padded with the unbounded sentinel
+        // (i64::MIN) → block until readable, i.e. poll() with a -1 timeout. Any
+        // other negative value is rejected; a non-negative value is clamped below.
+        abi::move_immediate("%v13", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::ARG[1], "%v13"),
+        abi::branch_eq(&poll_infinite),
         // x1 = timeoutMs; reject negative timeouts.
         abi::compare_immediate(abi::ARG[1], "0"),
         abi::branch_lt(&invalid),
@@ -46,6 +53,10 @@ pub(in crate::target::shared::code) fn lower_net_poll_helper(
         abi::compare_registers("%v12", "%v13"),
         abi::branch_le(&timeout_ok),
         abi::move_register("%v12", "%v13"),
+        abi::branch(&timeout_ok),
+        // Unbounded (omit) form: -1 makes poll() block until the socket is readable.
+        abi::label(&poll_infinite),
+        abi::bitwise_not("%v12", abi::ZERO),
         abi::label(&timeout_ok),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_CLOSED),
         abi::compare_immediate("%v9", "0"),

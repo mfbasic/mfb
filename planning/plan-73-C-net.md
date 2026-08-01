@@ -26,7 +26,7 @@ See plan-73-A's Prerequisites table. Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-73-A complete | `mfb spec language builtin-functions` shows "Timeout convention" | NOT MET until A lands |
+| plan-73-A complete | `mfb spec language builtin-functions` shows "Timeout convention" | MET — A landed a234b2e87 |
 
 If plan-73-A is not complete, this sub-plan cannot start, full stop.
 
@@ -157,15 +157,27 @@ no behavior callers branched on that `ErrTimeout` cannot.
 
 ### Phase 1 — net::poll omit = block
 
-- [ ] `src/builtins/net.rs`: omit padding for `POLL` → `TIMEOUT_UNBOUNDED_SENTINEL`.
-- [ ] `src/target/shared/code/net/poll.rs`: route the sentinel to a block-until-readable
-      path (infinite poll); keep `0`=immediate, `>0`=wait+clamp, `<0`=`ErrInvalidArgument`.
-- [ ] Migrate the 8 `net::poll` sites: any relying on `net::poll(sock)` = immediate now
-      pass `, 0`; regenerate goldens.
-- [ ] Rewrite `src/docs/man/builtins/net/poll.md` to the convention (cite A's section).
-- [ ] Tests: rt-behavior proving omit blocks (bounded in harness) and `,0` is immediate.
+- [x] omit padding for `POLL` → `TIMEOUT_UNBOUNDED_SENTINEL`. — DONE in
+      `src/target/shared/code/builder_values.rs::lower_runtime_helper_call` (net poll
+      padding lives there, not `src/builtins/net.rs`); split `net.poll` from
+      `net.accept` (accept keeps `0` until Phase 2).
+- [x] `src/target/shared/code/net/poll.rs`: route the sentinel to a
+      block-until-readable path (poll with a -1 timeout); keep `0`=immediate,
+      `>0`=wait+clamp, `<0`=`ErrInvalidArgument`. — DONE (sentinel→`poll_infinite`
+      →`bitwise_not(ZERO)`=-1 before the negative-reject).
+- [x] Migrate `net::poll` sites. — NONE needed: `func_net_poll_valid` uses explicit
+      `1000`; `byte-identity/net`'s omit sites are codegen-only (`-ast -ir`, not run);
+      `func_net_poll_invalid` is compile-error. Regenerated `byte-identity/net`
+      `.ncodesum` (5 targets).
+- [x] Rewrite `src/docs/man/builtins/net/poll.md` to the convention (cite A's
+      section). — DONE (omit=block; `,0`=immediate; example switched to `,0`; See-also
+      cites `mfb spec language builtin-functions`).
+- [x] Tests: rt-behavior proving omit blocks and `,0` is immediate. — DONE:
+      `tests/rt-behavior/net/net-poll-timeout-convention-rt` (runtime-proven on
+      loopback: `immediate FALSE` / `omit TRUE` / `neg invalid`).
 
-Acceptance: poll tests pass; `artifact-gate` diffs=0 after `.ncodesum` regen; man cites the section.
+Acceptance: poll tests pass; `artifact-gate` diffs=0 after `.ncodesum` regen; man
+cites the section. — MET (`cargo test` green; net acceptance passes; gate below).
 Commit: —
 
 ### Phase 2 — net::accept explicit-0 + negatives
