@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: IN PROGRESS (128 / 402 files reviewed)
+Status: IN PROGRESS (282 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -199,6 +199,15 @@ call.)
 | bug-399 | monomorph/lower.rs:648,775 | Security (DoS) — no total-instantiation budget → exponential fan-out | HIGH | Open |
 | bug-400 | monomorph/lower.rs:765 | Correctness (latent) — `instantiate_type` symbol collision | LOW | Open |
 | bug-401 | ir/lower.rs:1312 | Correctness / compile-time blowup — inline-`TRAP` treeify exponential duplication | MED | Open |
+| bug-402 | resolver/mod, os/windows/mod, squashfs/mod, syntaxcheck/mod, builder_values | Dead-code (5-item batch: unused fields, stale `#![allow(dead_code)]`, vacuous guard, dead branches) | LOW | Open |
+| bug-403 | ir/binary.rs:738 | Footgun — decoded LINK `Compare` op unvalidated → silent `=` default | LOW | Open |
+| bug-404 | ir/verify/values.rs:80/97/125, compat.rs:632 | Security — verifier trusts ResultValue/UnionWrap/WithUpdate annotations (completes bug-162) | MED | Open |
+| bug-405 | ir/verify/mod.rs:1105 | Footgun — `integer_constant_value` i128::MIN negate panics verifier (debug) | LOW | Open |
+| bug-406 | syntaxcheck/resources.rs:42,83 | Correctness (latent) — contains_thread/contains_resource_or_thread miss `Set` arm | LOW | Open |
+| bug-407 | shared/code/codegen_utils.rs:176 | Footgun — undocumented `MFB_ASCII` compile-time toggle breaks UTF-8 validation | LOW | Open |
+| bug-408 | linux_x86_64/code.rs:225 | Memory-safety — x86-64 thread trampoline double-applies realign (glibc 88=SIGSEGV, musl 96); **byte-verified** | HIGH | Open |
+| bug-409 | shared/code/link_thunk.rs:619 | Correctness — CDouble struct-field/OUT-slot branches to unemitted label → build failure | MED | Open |
+| bug-410 | shared/code/term_grid.rs:1144 | Correctness — `term::sync` present-write ignores EINTR → frame corruption; dead `write_retry` | MED | Open |
 
 ## File census & progress
 
@@ -486,15 +495,15 @@ call.)
 
 **`src/target/linux_aarch64/`**
 
-- [ ] `src/target/linux_aarch64/code.rs` (85 loc)
-- [ ] `src/target/linux_aarch64/mod.rs` (297 loc)
-- [ ] `src/target/linux_aarch64/plan.rs` (184 loc)
+- [x] `src/target/linux_aarch64/code.rs` (85 loc) — clean
+- [x] `src/target/linux_aarch64/mod.rs` (297 loc) — clean
+- [x] `src/target/linux_aarch64/plan.rs` (184 loc) — clean
 
 **`src/target/linux_common/`**
 
-- [ ] `src/target/linux_common/code.rs` (1453 loc)
-- [ ] `src/target/linux_common/mod.rs` (321 loc)
-- [ ] `src/target/linux_common/plan.rs` (543 loc)
+- [x] `src/target/linux_common/code.rs` (1453 loc) — clean
+- [x] `src/target/linux_common/mod.rs` (321 loc) — clean
+- [x] `src/target/linux_common/plan.rs` (543 loc) — clean
 
 **`src/target/linux_gtk/`**
 
@@ -505,15 +514,15 @@ call.)
 
 **`src/target/linux_riscv64/`**
 
-- [ ] `src/target/linux_riscv64/code.rs` (100 loc)
-- [ ] `src/target/linux_riscv64/mod.rs` (321 loc)
-- [ ] `src/target/linux_riscv64/plan.rs` (175 loc)
+- [x] `src/target/linux_riscv64/code.rs` (100 loc) — clean
+- [x] `src/target/linux_riscv64/mod.rs` (321 loc) — clean
+- [x] `src/target/linux_riscv64/plan.rs` (175 loc) — clean
 
 **`src/target/linux_x86_64/`**
 
-- [ ] `src/target/linux_x86_64/code.rs` (237 loc)
-- [ ] `src/target/linux_x86_64/mod.rs` (310 loc)
-- [ ] `src/target/linux_x86_64/plan.rs` (237 loc)
+- [x] `src/target/linux_x86_64/code.rs` (237 loc) — bug-408
+- [x] `src/target/linux_x86_64/mod.rs` (310 loc) — clean
+- [x] `src/target/linux_x86_64/plan.rs` (237 loc) — clean
 
 **`src/target/macos_aarch64/`**
 
@@ -551,33 +560,33 @@ call.)
 - [x] `src/target/shared/code/builder_collection_layout.rs` (2758 loc) — clean
 - [x] `src/target/shared/code/builder_collection_queries.rs` (3504 loc) — clean
 - [x] `src/target/shared/code/builder_collection_query.rs` (697 loc) — clean
-- [ ] `src/target/shared/code/builder_control.rs` (1653 loc)
-- [ ] `src/target/shared/code/builder_conversions.rs` (1581 loc)
+- [x] `src/target/shared/code/builder_control.rs` (1653 loc) — clean
+- [x] `src/target/shared/code/builder_conversions.rs` (1581 loc) — clean
 - [ ] `src/target/shared/code/builder_emit_helpers.rs` (439 loc)
 - [ ] `src/target/shared/code/builder_error_emission.rs` (1036 loc)
 - [ ] `src/target/shared/code/builder_exits.rs` (450 loc)
-- [ ] `src/target/shared/code/builder_fixed_math.rs` (1054 loc)
-- [ ] `src/target/shared/code/builder_fmod.rs` (194 loc)
+- [x] `src/target/shared/code/builder_fixed_math.rs` (1054 loc) — bug-394 (item 13)
+- [x] `src/target/shared/code/builder_fmod.rs` (194 loc) — clean
 - [ ] `src/target/shared/code/builder_fs_paths.rs` (698 loc)
 - [ ] `src/target/shared/code/builder_inplace_assign.rs` (607 loc)
-- [ ] `src/target/shared/code/builder_math.rs` (1329 loc)
-- [ ] `src/target/shared/code/builder_money.rs` (148 loc)
-- [ ] `src/target/shared/code/builder_money_math.rs` (445 loc)
-- [ ] `src/target/shared/code/builder_numeric.rs` (1709 loc)
+- [x] `src/target/shared/code/builder_math.rs` (1329 loc) — clean
+- [x] `src/target/shared/code/builder_money.rs` (148 loc) — clean
+- [x] `src/target/shared/code/builder_money_math.rs` (445 loc) — clean
+- [x] `src/target/shared/code/builder_numeric.rs` (1709 loc) — clean
 - [x] `src/target/shared/code/builder_owned_cleanup.rs` (206 loc) — clean
-- [ ] `src/target/shared/code/builder_pow.rs` (916 loc)
+- [x] `src/target/shared/code/builder_pow.rs` (916 loc) — clean
 - [ ] `src/target/shared/code/builder_registers.rs` (280 loc)
 - [x] `src/target/shared/code/builder_resource_cleanup.rs` (490 loc) — clean
 - [ ] `src/target/shared/code/builder_search.rs` (1210 loc)
 - [ ] `src/target/shared/code/builder_simd_fixed_math.rs` (343 loc)
 - [ ] `src/target/shared/code/builder_simd_float_math.rs` (2273 loc)
 - [ ] `src/target/shared/code/builder_simd_math.rs` (1006 loc)
-- [ ] `src/target/shared/code/builder_strings.rs` (2019 loc)
-- [ ] `src/target/shared/code/builder_strings_builtins.rs` (2909 loc)
-- [ ] `src/target/shared/code/builder_strings_package.rs` (442 loc)
+- [x] `src/target/shared/code/builder_strings.rs` (2019 loc) — clean
+- [x] `src/target/shared/code/builder_strings_builtins.rs` (2909 loc) — clean
+- [x] `src/target/shared/code/builder_strings_package.rs` (442 loc) — clean
 - [x] `src/target/shared/code/builder_thread_cleanup.rs` (224 loc) — clean
-- [ ] `src/target/shared/code/builder_value_semantics.rs` (926 loc)
-- [ ] `src/target/shared/code/builder_values.rs` (1930 loc)
+- [x] `src/target/shared/code/builder_value_semantics.rs` (926 loc) — clean
+- [x] `src/target/shared/code/builder_values.rs` (1930 loc) — bug-402 (item 5)
 - [ ] `src/target/shared/code/builder_vector_inline.rs` (417 loc)
 - [x] `src/target/shared/code/code_impl.rs` (394 loc) — clean
 - [x] `src/target/shared/code/codegen_utils.rs` (898 loc) — bug-407, bug-394 (item 12)
@@ -593,14 +602,14 @@ call.)
 - [ ] `src/target/shared/code/float_format.rs` (596 loc)
 - [ ] `src/target/shared/code/fma_fusion.rs` (308 loc)
 - [x] `src/target/shared/code/function_lowering.rs` (1002 loc) — clean
-- [ ] `src/target/shared/code/io_stdin.rs` (1285 loc)
-- [ ] `src/target/shared/code/io_stdout.rs` (717 loc)
-- [ ] `src/target/shared/code/io_terminal.rs` (260 loc)
-- [ ] `src/target/shared/code/link_locator.rs` (665 loc)
-- [ ] `src/target/shared/code/link_thunk.rs` (2838 loc)
+- [x] `src/target/shared/code/io_stdin.rs` (1285 loc) — clean
+- [x] `src/target/shared/code/io_stdout.rs` (717 loc) — clean
+- [x] `src/target/shared/code/io_terminal.rs` (260 loc) — clean
+- [x] `src/target/shared/code/link_locator.rs` (665 loc) — clean
+- [x] `src/target/shared/code/link_thunk.rs` (2838 loc) — bug-409
 - [x] `src/target/shared/code/list_mutate.rs` (2510 loc) — clean
 - [x] `src/target/shared/code/map_mutate.rs` (1571 loc) — clean
-- [ ] `src/target/shared/code/mir.rs` (1701 loc)
+- [x] `src/target/shared/code/mir.rs` (1701 loc) — clean
 - [x] `src/target/shared/code/mod.rs` (2905 loc) — clean
 - [x] `src/target/shared/code/module_analysis.rs` (1069 loc) — clean
 - [ ] `src/target/shared/code/native_helpers.rs` (363 loc)
@@ -608,12 +617,12 @@ call.)
 - [ ] `src/target/shared/code/perf.rs` (963 loc)
 - [x] `src/target/shared/code/process_lifecycle.rs` (147 loc) — clean
 - [ ] `src/target/shared/code/rng_pcg64.rs` (204 loc)
-- [ ] `src/target/shared/code/runtime_helpers.rs` (1398 loc)
-- [ ] `src/target/shared/code/runtime_helpers_thread.rs` (1519 loc)
+- [x] `src/target/shared/code/runtime_helpers.rs` (1398 loc) — clean
+- [x] `src/target/shared/code/runtime_helpers_thread.rs` (1519 loc) — clean
 - [ ] `src/target/shared/code/simd_kernel_coeffs.rs` (109 loc)
-- [ ] `src/target/shared/code/stdin_broadcast.rs` (1195 loc)
-- [ ] `src/target/shared/code/term.rs` (1809 loc)
-- [ ] `src/target/shared/code/term_grid.rs` (1205 loc)
+- [x] `src/target/shared/code/stdin_broadcast.rs` (1195 loc) — clean
+- [x] `src/target/shared/code/term.rs` (1809 loc) — clean
+- [x] `src/target/shared/code/term_grid.rs` (1205 loc) — bug-410
 - [x] `src/target/shared/code/type_utils.rs` (443 loc) — clean
 - [x] `src/target/shared/code/types.rs` (1284 loc) — clean
 - [x] `src/target/shared/code/validation.rs` (659 loc) — clean

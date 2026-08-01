@@ -133,6 +133,17 @@ count). A maintainer trusting the "count" legend could reintroduce a real defect
 (short data region → name-pointer reads land in the wrong region → wrong sort).
 - Fix: change the legend to "capacity * entry size".
 
+### (13) `src/target/shared/code/builder_fixed_math.rs:399-404` — stale CORDIC doc paragraph
+`emit_fixed_sincos`'s doc opens with a paragraph describing a bare CORDIC-rotation
+primitive ("On entry `cosr` holds the inverse gain and `sinr` is zero; on exit
+`cosr ~= cos(z0)`…"), but `emit_fixed_sincos` also does `theta*2/pi` range reduction
+and k-mod-4 quadrant selection; the correct one-line description follows. Stale
+leftover from the bug-332-E1 CORDIC merge (the sibling `emit_cordic` doc at ~227-236
+has the same artifact — its first sentence describes only vectoring mode of what is
+now a two-mode loop).
+- Fix: drop/rewrite the stale first paragraph on both `emit_fixed_sincos` and
+  `emit_cordic` to match current behavior.
+
 ## Goal
 
 - Each message/comment above matches the behavior of the code it annotates.

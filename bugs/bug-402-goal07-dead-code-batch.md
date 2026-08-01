@@ -66,6 +66,16 @@ when the non-default-after-default and resource-param rules lived in syntaxcheck
   (or restore the intended check if one is still wanted — but the rule now lives in
   ir::verify).
 
+### (5) `src/target/shared/code/builder_values.rs:1354-1361` — unreachable else field-copy loop
+In the `NirValue::UnionWrap` arm, every non-resource (data) variant returns early at
+`builder_values.rs:1285` via `emit_wrap_record_in_union`. Past that point
+`is_resource_variant` is always `true`, so the guard at `:1344`
+(`if is_resource_variant || self.record_has_inline_data(member_type)`) is
+unconditionally true and the `else` field-copy loop at `:1354-1361` (plus the
+`record_has_inline_data` disjunct) is unreachable. Also inert (resource variants set
+`fields = Vec::new()`). Leftover from a pre-early-return refactor.
+- Fix: delete the dead `else` branch and simplify the guard.
+
 ## Goal
 
 - No production field/item is retained solely on a "consumed by a later phase"
