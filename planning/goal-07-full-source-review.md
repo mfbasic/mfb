@@ -222,6 +222,37 @@ call.)
 | bug-422 | builtins/json_package.mfb:331 | **Security — `json::parse` no structural depth cap → deep-nested JSON SIGSEGV (uncatchable); reproduced** | HIGH | Open |
 | bug-423 | builtins/regex_package.mfb:1485 | **Security — `regex::compile` no depth cap → deep-nested pattern SIGSEGV (uncatchable); reproduced** | HIGH | Open |
 
+## Corrections
+
+Deviations from the plan/workflow, recorded per the follow-plan discipline:
+
+- **Worked on `main` directly, not a `worktree-P-07`.** The plan file was
+  *untracked* on `main`, so a worktree forked from `main`'s tip would not have
+  contained it; and this goal is purely additive (new `bugs/bug-NN-*.md` + checkbox
+  ticks), which does not conflict with source. Consistent with the project's git
+  discipline (`AGENTS.md` / `no-git-branches`: commit on the current branch, stage
+  explicit paths). Other agents committed concurrently to `main` during the run
+  (`examples/snake`, `plan-73`, `bug-387`); none touched the paths this goal did.
+- **No acceptance/CI run.** This review modified **zero source lines** (only
+  `bugs/` docs and this checklist), so the compiler/test state is identical to
+  `main`. The acceptance criterion for a review goal is census completeness
+  (402/402) + one bug document per finding — both met — not a code test pass.
+- **Census launch initially missed 5 files.** The directory-group fan-out overlooked
+  `src/target/linux_gtk/**` (4 files) and `src/target/shared/code/error_constants.rs`;
+  caught by re-grepping unchecked boxes before declaring COMPLETE (`grep '^- \[ \]'`),
+  then reviewed (findings: bug-421, bug-394 item 18; error_constants clean).
+- **Numbers 394–423 allocated** (doc's "next free" was 394). 30 bug documents filed.
+- **Prior-fix scope clarifications** (genuinely new, not re-files): bug-398 (Rust
+  `tinyjson` decode) is distinct from bug-302 (the MFBASIC `json::parse` runtime);
+  bug-422/bug-423 are the *structural/compile* depth caps that bug-302 (scalar
+  scanners only) and bug-315 (matcher only) required-but-never-landed — reproduced.
+  bug-408 double-realign vs bug-385's box-proven fix, and bug-404/bug-412 completing
+  the explicitly-deferred audits of bug-162 and bug-380, are each documented in the
+  bug with the reconciling evidence.
+- **Same-class batching** (per "batch trivial same-class findings"): bug-394
+  (18 doc/diagnostic text items), bug-402 (8 dead-code items), bug-415/bug-416
+  (per-module Windows-backend defects), bug-420 (3 registry LOW-security items).
+
 ## File census & progress
 
 402 files, grouped by directory. Check each box as its file is reviewed.
