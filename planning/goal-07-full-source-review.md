@@ -366,30 +366,30 @@ call.)
 
 **`src/ir/`**
 
-- [ ] `src/ir/binary.rs` (1701 loc)
-- [ ] `src/ir/docs.rs` (210 loc)
-- [ ] `src/ir/json.rs` (908 loc)
-- [ ] `src/ir/link.rs` (1201 loc)
+- [x] `src/ir/binary.rs` (1701 loc) — bug-403
+- [x] `src/ir/docs.rs` (210 loc) — clean
+- [x] `src/ir/json.rs` (908 loc) — clean
+- [x] `src/ir/link.rs` (1201 loc) — clean
 - [x] `src/ir/lower.rs` (3697 loc) — bug-401
-- [ ] `src/ir/lower_link.rs` (387 loc)
-- [ ] `src/ir/mod.rs` (99 loc)
-- [ ] `src/ir/op.rs` (128 loc)
-- [ ] `src/ir/package.rs` (303 loc)
-- [ ] `src/ir/resource_escape.rs` (681 loc)
-- [ ] `src/ir/types.rs` (174 loc)
-- [ ] `src/ir/value.rs` (394 loc)
+- [x] `src/ir/lower_link.rs` (387 loc) — clean
+- [x] `src/ir/mod.rs` (99 loc) — clean
+- [x] `src/ir/op.rs` (128 loc) — clean
+- [x] `src/ir/package.rs` (303 loc) — clean
+- [x] `src/ir/resource_escape.rs` (681 loc) — clean
+- [x] `src/ir/types.rs` (174 loc) — clean
+- [x] `src/ir/value.rs` (394 loc) — clean
 
 **`src/ir/verify/`**
 
-- [ ] `src/ir/verify/calls.rs` (403 loc)
-- [ ] `src/ir/verify/compat.rs` (719 loc)
-- [ ] `src/ir/verify/link.rs` (736 loc)
-- [ ] `src/ir/verify/matching.rs` (201 loc)
-- [ ] `src/ir/verify/mod.rs` (1346 loc)
-- [ ] `src/ir/verify/ops.rs` (766 loc)
-- [ ] `src/ir/verify/resources.rs` (480 loc)
-- [ ] `src/ir/verify/types.rs` (203 loc)
-- [ ] `src/ir/verify/values.rs` (822 loc)
+- [x] `src/ir/verify/calls.rs` (403 loc) — clean
+- [x] `src/ir/verify/compat.rs` (719 loc) — bug-404 (check_union_wrap)
+- [x] `src/ir/verify/link.rs` (736 loc) — clean
+- [x] `src/ir/verify/matching.rs` (201 loc) — clean
+- [x] `src/ir/verify/mod.rs` (1346 loc) — bug-405
+- [x] `src/ir/verify/ops.rs` (766 loc) — clean
+- [x] `src/ir/verify/resources.rs` (480 loc) — clean
+- [x] `src/ir/verify/types.rs` (203 loc) — clean
+- [x] `src/ir/verify/values.rs` (822 loc) — bug-404
 
 **`src/manifest/`**
 
@@ -464,9 +464,9 @@ call.)
 
 **`src/resolver/`**
 
-- [ ] `src/resolver/mod.rs` (1091 loc)
-- [ ] `src/resolver/packages.rs` (474 loc)
-- [ ] `src/resolver/resolution.rs` (2358 loc)
+- [x] `src/resolver/mod.rs` (1091 loc) — bug-402 (item 1)
+- [x] `src/resolver/packages.rs` (474 loc) — clean
+- [x] `src/resolver/resolution.rs` (2358 loc) — clean
 
 **`src/rules/`**
 
