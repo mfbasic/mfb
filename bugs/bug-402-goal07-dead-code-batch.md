@@ -31,10 +31,35 @@ read anywhere in the resolver — the only `LinkFnSig` reads are `params`,
 - Fix: delete both fields (and their writes), or — if a concrete near-term consumer
   exists — wire it and replace the justification with a load-bearing reason.
 
+### (2) `src/os/windows/mod.rs:14` — stale module-wide `#![allow(dead_code)]`
+The module doc (lines 6-14) claims the writer's "public surface is unreferenced by
+non-test code — hence the module-scoped `dead_code` allow below" and that
+"plan-47-D removes it". Both are now false: `write_native_object_plan`,
+`validate_native_object_plan`, and `write_linked_executable` are called from the
+production build path (`src/target/win_x86_64/mod.rs:271,281,331`; plan-47/66
+landed). The `#![allow(dead_code)]` at line 14 is a **file-level allow** (the class
+goal-07 flags) that now blanket-suppresses dead-code detection for the entire
+`windows` module (mod.rs, object.rs, link/*), masking any genuinely dead helper
+added later.
+- Fix: remove the module-wide `#![allow(dead_code)]` and the stale doc paragraph;
+  add targeted `#[allow]` only if a specific still-dead item remains (with a
+  load-bearing reason), else let the compiler flag it.
+
+### (3) `src/os/linux/appimage/squashfs/mod.rs:382` — vacuous, unreachable guard
+`if ref_offset(inode_at[0]) as usize > METADATA_BLOCK { ... }` intends to reject a
+root-inode whose in-block offset exceeds the 8192-byte metadata block, but
+`ref_offset(x)` returns `(x % METADATA_BLOCK) as u16` (`mod.rs:234-235`), always
+0..=8191 < `METADATA_BLOCK` (8192). The condition can never be true — dead
+defensive code with a misleading error string that reads as a bounds check but
+validates nothing.
+- Fix: remove the vacuous `if` (the `% METADATA_BLOCK` already bounds the value),
+  or, if a real invariant was intended, check the pre-modulo `stream_offset`.
+
 ## Goal
 
 - No production field/item is retained solely on a "consumed by a later phase"
-  justification; each is either read by real code or deleted.
+  justification; each is either read by real code or deleted. No file-level
+  `#![allow(dead_code)]` masks a whole module.
 
 ### Non-goals
 

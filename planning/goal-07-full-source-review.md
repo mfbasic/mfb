@@ -408,59 +408,59 @@ call.)
 
 **`src/os/`**
 
-- [ ] `src/os/link_encode.rs` (414 loc)
-- [ ] `src/os/mod.rs` (60 loc)
-- [ ] `src/os/note.rs` (121 loc)
-- [ ] `src/os/object_plan.rs` (313 loc)
+- [x] `src/os/link_encode.rs` (414 loc) — clean
+- [x] `src/os/mod.rs` (60 loc) — clean
+- [x] `src/os/note.rs` (121 loc) — clean
+- [x] `src/os/object_plan.rs` (313 loc) — clean
 
 **`src/os/icon/`**
 
-- [ ] `src/os/icon/default_png.rs` (11 loc)
-- [ ] `src/os/icon/mod.rs` (156 loc)
+- [x] `src/os/icon/default_png.rs` (11 loc) — clean
+- [x] `src/os/icon/mod.rs` (156 loc) — clean
 
 **`src/os/linux/`**
 
-- [ ] `src/os/linux/appdir.rs` (369 loc)
-- [ ] `src/os/linux/flavor.rs` (49 loc)
-- [ ] `src/os/linux/mod.rs` (318 loc)
-- [ ] `src/os/linux/object.rs` (763 loc)
+- [x] `src/os/linux/appdir.rs` (369 loc) — clean
+- [x] `src/os/linux/flavor.rs` (49 loc) — clean
+- [x] `src/os/linux/mod.rs` (318 loc) — clean
+- [x] `src/os/linux/object.rs` (763 loc) — clean
 
 **`src/os/linux/appimage/`**
 
-- [ ] `src/os/linux/appimage/mod.rs` (586 loc)
+- [x] `src/os/linux/appimage/mod.rs` (586 loc) — clean
 
 **`src/os/linux/appimage/squashfs/`**
 
-- [ ] `src/os/linux/appimage/squashfs/mod.rs` (675 loc)
+- [x] `src/os/linux/appimage/squashfs/mod.rs` (675 loc) — bug-402 (item 3)
 
 **`src/os/linux/link/`**
 
-- [ ] `src/os/linux/link/elf.rs` (945 loc)
-- [ ] `src/os/linux/link/mod.rs` (524 loc)
+- [x] `src/os/linux/link/elf.rs` (945 loc) — clean
+- [x] `src/os/linux/link/mod.rs` (524 loc) — clean
 
 **`src/os/macos/`**
 
-- [ ] `src/os/macos/icon.rs` (190 loc)
-- [ ] `src/os/macos/mod.rs` (154 loc)
-- [ ] `src/os/macos/object.rs` (1122 loc)
+- [x] `src/os/macos/icon.rs` (190 loc) — clean
+- [x] `src/os/macos/mod.rs` (154 loc) — clean
+- [x] `src/os/macos/object.rs` (1122 loc) — clean
 
 **`src/os/macos/link/`**
 
-- [ ] `src/os/macos/link/commands.rs` (653 loc)
-- [ ] `src/os/macos/link/macho.rs` (395 loc)
-- [ ] `src/os/macos/link/mod.rs` (495 loc)
+- [x] `src/os/macos/link/commands.rs` (653 loc) — clean
+- [x] `src/os/macos/link/macho.rs` (395 loc) — clean
+- [x] `src/os/macos/link/mod.rs` (495 loc) — clean
 
 **`src/os/windows/`**
 
-- [ ] `src/os/windows/mod.rs` (163 loc)
-- [ ] `src/os/windows/object.rs` (922 loc)
+- [x] `src/os/windows/mod.rs` (163 loc) — bug-402 (item 2)
+- [x] `src/os/windows/object.rs` (922 loc) — clean
 
 **`src/os/windows/link/`**
 
-- [ ] `src/os/windows/link/mod.rs` (902 loc)
-- [ ] `src/os/windows/link/pe.rs` (487 loc)
-- [ ] `src/os/windows/link/rsrc.rs` (400 loc)
-- [ ] `src/os/windows/link/spike.rs` (407 loc)
+- [x] `src/os/windows/link/mod.rs` (902 loc) — clean
+- [x] `src/os/windows/link/pe.rs` (487 loc) — clean
+- [x] `src/os/windows/link/rsrc.rs` (400 loc) — clean
+- [x] `src/os/windows/link/spike.rs` (407 loc) — clean (cfg(test)-only)
 
 **`src/resolver/`**
 
