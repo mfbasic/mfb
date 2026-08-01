@@ -55,6 +55,17 @@ validates nothing.
 - Fix: remove the vacuous `if` (the `% METADATA_BLOCK` already bounds the value),
   or, if a real invariant was intended, check the pre-modulo `stream_offset`.
 
+### (4) `src/syntaxcheck/mod.rs:1332-1335,1353` — dead scaffolding in `check_function`
+`let _is_resource = self.is_resource_type(&param_type);` (`mod.rs:1353`) computes a
+side-effect-free value and immediately discards it, and the preceding
+`if param.default.is_some() { seen_default = true; } else if seen_default { }`
+(`mod.rs:1332-1335`) has an empty `else if` body. Both are leftover scaffolding from
+when the non-default-after-default and resource-param rules lived in syntaxcheck
+(relocated to `ir::verify` per plan-20). Neither has any effect.
+- Fix: delete the discarded `_is_resource` binding and the empty `else if` branch
+  (or restore the intended check if one is still wanted — but the rule now lives in
+  ir::verify).
+
 ## Goal
 
 - No production field/item is retained solely on a "consumed by a later phase"

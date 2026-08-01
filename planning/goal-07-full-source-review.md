@@ -475,14 +475,14 @@ call.)
 
 **`src/syntaxcheck/`**
 
-- [ ] `src/syntaxcheck/builtins.rs` (2285 loc)
-- [ ] `src/syntaxcheck/checking.rs` (1378 loc)
-- [ ] `src/syntaxcheck/helpers.rs` (918 loc)
-- [ ] `src/syntaxcheck/inference.rs` (2801 loc)
-- [ ] `src/syntaxcheck/link.rs` (1933 loc)
-- [ ] `src/syntaxcheck/mod.rs` (2848 loc)
-- [ ] `src/syntaxcheck/resources.rs` (836 loc)
-- [ ] `src/syntaxcheck/types.rs` (1028 loc)
+- [x] `src/syntaxcheck/builtins.rs` (2285 loc) — clean
+- [x] `src/syntaxcheck/checking.rs` (1378 loc) — clean
+- [x] `src/syntaxcheck/helpers.rs` (918 loc) — clean
+- [x] `src/syntaxcheck/inference.rs` (2801 loc) — clean
+- [x] `src/syntaxcheck/link.rs` (1933 loc) — clean
+- [x] `src/syntaxcheck/mod.rs` (2848 loc) — bug-402 (item 4)
+- [x] `src/syntaxcheck/resources.rs` (836 loc) — bug-406
+- [x] `src/syntaxcheck/types.rs` (1028 loc) — clean
 
 **`src/target/linux_aarch64/`**
 
@@ -535,10 +535,10 @@ call.)
 
 **`src/target/shared/`**
 
-- [ ] `src/target/shared/abi.rs` (1370 loc)
-- [ ] `src/target/shared/lower.rs` (22 loc)
-- [ ] `src/target/shared/mod.rs` (14 loc)
-- [ ] `src/target/shared/regmodel.rs` (153 loc)
+- [x] `src/target/shared/abi.rs` (1370 loc) — clean
+- [x] `src/target/shared/lower.rs` (22 loc) — clean
+- [x] `src/target/shared/mod.rs` (14 loc) — clean
+- [x] `src/target/shared/regmodel.rs` (153 loc) — clean
 
 **`src/target/shared/code/`**
 
@@ -685,45 +685,45 @@ call.)
 
 **`src/target/shared/nir/`**
 
-- [ ] `src/target/shared/nir/constfold.rs` (131 loc)
-- [ ] `src/target/shared/nir/json.rs` (1096 loc)
-- [ ] `src/target/shared/nir/lower.rs` (560 loc)
-- [ ] `src/target/shared/nir/mod.rs` (407 loc)
-- [ ] `src/target/shared/nir/symbols.rs` (78 loc)
-- [ ] `src/target/shared/nir/visit.rs` (497 loc)
+- [x] `src/target/shared/nir/constfold.rs` (131 loc) — clean
+- [x] `src/target/shared/nir/json.rs` (1096 loc) — clean
+- [x] `src/target/shared/nir/lower.rs` (560 loc) — clean
+- [x] `src/target/shared/nir/mod.rs` (407 loc) — clean
+- [x] `src/target/shared/nir/symbols.rs` (78 loc) — clean
+- [x] `src/target/shared/nir/visit.rs` (497 loc) — clean
 
 **`src/target/shared/plan/`**
 
-- [ ] `src/target/shared/plan/function_builder.rs` (628 loc)
-- [ ] `src/target/shared/plan/json.rs` (182 loc)
-- [ ] `src/target/shared/plan/lower.rs` (224 loc)
-- [ ] `src/target/shared/plan/mod.rs` (527 loc)
-- [ ] `src/target/shared/plan/symbols.rs` (754 loc)
+- [x] `src/target/shared/plan/function_builder.rs` (628 loc) — clean
+- [x] `src/target/shared/plan/json.rs` (182 loc) — clean
+- [x] `src/target/shared/plan/lower.rs` (224 loc) — clean
+- [x] `src/target/shared/plan/mod.rs` (527 loc) — clean
+- [x] `src/target/shared/plan/symbols.rs` (754 loc) — clean
 
 **`src/target/shared/runtime/`**
 
-- [ ] `src/target/shared/runtime/app_specs.rs` (19 loc)
-- [ ] `src/target/shared/runtime/audio_specs.rs` (112 loc)
-- [ ] `src/target/shared/runtime/catalog.rs` (310 loc)
-- [ ] `src/target/shared/runtime/crypto_specs.rs` (64 loc)
-- [ ] `src/target/shared/runtime/datetime_specs.rs` (25 loc)
-- [ ] `src/target/shared/runtime/fs_specs.rs` (223 loc)
-- [ ] `src/target/shared/runtime/io_specs.rs` (99 loc)
-- [ ] `src/target/shared/runtime/mod.rs` (157 loc)
-- [ ] `src/target/shared/runtime/net_specs.rs` (137 loc)
-- [ ] `src/target/shared/runtime/os_specs.rs` (105 loc)
-- [ ] `src/target/shared/runtime/perf_specs.rs` (40 loc)
-- [ ] `src/target/shared/runtime/term_specs.rs` (145 loc)
-- [ ] `src/target/shared/runtime/thread_specs.rs` (114 loc)
-- [ ] `src/target/shared/runtime/tls_specs.rs` (67 loc)
-- [ ] `src/target/shared/runtime/usage.rs` (323 loc)
+- [x] `src/target/shared/runtime/app_specs.rs` (19 loc) — clean
+- [x] `src/target/shared/runtime/audio_specs.rs` (112 loc) — clean
+- [x] `src/target/shared/runtime/catalog.rs` (310 loc) — clean
+- [x] `src/target/shared/runtime/crypto_specs.rs` (64 loc) — clean
+- [x] `src/target/shared/runtime/datetime_specs.rs` (25 loc) — clean
+- [x] `src/target/shared/runtime/fs_specs.rs` (223 loc) — clean
+- [x] `src/target/shared/runtime/io_specs.rs` (99 loc) — clean
+- [x] `src/target/shared/runtime/mod.rs` (157 loc) — clean
+- [x] `src/target/shared/runtime/net_specs.rs` (137 loc) — clean
+- [x] `src/target/shared/runtime/os_specs.rs` (105 loc) — clean
+- [x] `src/target/shared/runtime/perf_specs.rs` (40 loc) — clean
+- [x] `src/target/shared/runtime/term_specs.rs` (145 loc) — clean
+- [x] `src/target/shared/runtime/thread_specs.rs` (114 loc) — clean
+- [x] `src/target/shared/runtime/tls_specs.rs` (67 loc) — clean
+- [x] `src/target/shared/runtime/usage.rs` (323 loc) — clean
 
 **`src/target/shared/validate/`**
 
-- [ ] `src/target/shared/validate/body.rs` (887 loc)
-- [ ] `src/target/shared/validate/capabilities.rs` (293 loc)
-- [ ] `src/target/shared/validate/mod.rs` (437 loc)
-- [ ] `src/target/shared/validate/names.rs` (126 loc)
+- [x] `src/target/shared/validate/body.rs` (887 loc) — clean
+- [x] `src/target/shared/validate/capabilities.rs` (293 loc) — clean
+- [x] `src/target/shared/validate/mod.rs` (437 loc) — clean
+- [x] `src/target/shared/validate/names.rs` (126 loc) — clean
 
 **`src/target/win_x86_64/`**
 
