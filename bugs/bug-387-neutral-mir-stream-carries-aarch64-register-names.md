@@ -1,6 +1,6 @@
 # bug-387: the "neutral" MIR stream carries AArch64 physical register names, forcing every non-AArch64 backend to un-AArch64 the stream before encoding
 
-Last updated: 2026-07-28
+Last updated: 2026-08-01
 Effort: x-large — REVISED UPWARD to multi-day / needs its own plan (see the
 2026-07-28 finding below). The original 1d–3d estimate rested on a Phase-1 premise
 that is now disproven.
@@ -19,6 +19,88 @@ not the "tokenize `linux_gtk` + delete the fixpoint" that Phase 1 scoped. See
 `planning/plan-71-A-fixpoint-crosscheck-census.md` (gate + census first; B onward
 scoped by the census). This bug stays open as the problem statement; plan-71 is the
 execution vehicle.
+
+## TODO — EXACTLY what is left to make the MIR stream neutral (verified against HEAD 2026-08-01)
+
+The goal is NOT achieved today. What IS done: shared lowering (`src/target/shared/**`)
+uses role tokens (`%arg`/`%ret`/`%scratch`) instead of raw `xN` **except** it still
+bakes in AArch64's `ret0==arg0` aliasing; and the macOS platform emitters had their
+scratch/local/fp (not ABI x0-x7) tokenized. Everything below is the remainder. Every
+step is gated byte-identical (`scripts/exe-oracle.sh` ×4 targets + `artifact-gate.sh`
+diffs=0 + the cross-check divergences→0). Do them roughly in order — B must land with
+A or AArch64/RISC-V bytes move.
+
+**A. Make the shared lowering emit x86-precise role tokens (the core; plan-34-B Phase 4 redux).**
+- [ ] Build/restore the cross-check gate in `select_x86`: defer ABI role tokens into
+      `remap_x86_abi`, add `map_token_direct(token, abi)`, and `assert_eq!` it against
+      the CFG inference for every token operand over the whole exe-oracle corpus
+      (`MFB_BUG387_AUDIT` mode lists all divergence sites). This is byte-identical by
+      construction and is the driver for the whole rework.
+- [ ] Run the FULL census (not just the 3 app fixtures — those alone show 610
+      divergences). Land it as `planning/plan-71-A-fixpoint-crosscheck-census.md`.
+- [ ] At every site where a value produced into `%retK`/`x0` is then consumed as a
+      call/syscall argument `%argK`, change the shared lowering to emit the arg role
+      explicitly (either lower directly into `%argK`, or emit an explicit
+      `mov %argK, %retK` staging op). The token must carry the arg role, not rely on
+      x86 to re-derive it. Drive cross-check divergences to **0**.
+
+**B. Add a redundant `mov xN,xN` elision peephole for AArch64 AND RISC-V (REQUIRED by A).**
+- [ ] There is NO general redundant-mov elider today (`riscv64/v128.rs
+      drop_redundant_reloads` is RVV-load-specific, not this). The explicit staging
+      moves from A realize to `mov x0,x0` no-ops on AArch64/RISC-V; without an exact
+      elision pass those extra bytes break byte-identity. Add a peephole that removes
+      exactly `mov xN, xN` (same physical reg) after realization, on both backends.
+- [ ] Prove it nets to zero: `artifact-gate.sh` diffs=0 and `exe-oracle.sh` identical
+      on macos-aarch64, linux-aarch64, linux-riscv64 after A+B together.
+
+**C. Convert the hand-written platform emitters so NO AArch64 spelling survives in the stream.**
+- [ ] `linux_gtk` (the ONLY x86-reachable raw emitter — this is what actually gates
+      the fixpoint deletion): tokenize all raw `x/w/d` literals — `term_draw.rs` 454,
+      `bootstrap.rs` 335, `app_io.rs` 176, `mod.rs` 16 (= **981** at HEAD). This is a
+      per-USE-SITE raw-vs-token split, NOT a rename: app-function bodies go through
+      `finalize_x86_app_function` (needs raw regs for the shared allocator) while
+      shared-helper-injected sequences already use `%scratch` (zero-physical-register
+      invariant, `codegen_utils.rs`). It is also entangled with
+      `stage_result_reuse_x86`'s literal `"x0"` detection — they must move together.
+      Gate: app-ncode × 4 targets (linux_gtk has NO committed goldens — the oracle is
+      the only gate).
+- [ ] `macos_aarch64` app/tls ABI regs `x0`–`x7` (scratch/local/fp already done):
+      `bootstrap.rs` 333, `term_view.rs` 270, `app_io.rs` 229, `tls.rs` 25, `mod.rs` 2
+      (= **859** at HEAD). macOS is aarch64-only, so raw-vs-token is byte-identical
+      either way; fold into the fixpoint pass.
+
+**D. Delete the compensation layers the tokens made dead.**
+- [ ] Delete `remap_x86_abi`'s fixpoint — `src/arch/x86_64/select.rs` the `while changed`
+      loops at `:272` and `:463` and the role-recovery they feed. Now that boundaries
+      arrive as tokens, x86 does a local rewrite.
+- [ ] Remove/converge the x86 un-AArch64 helpers: `abi_boundary_of` (`:23`),
+      `map_scratch_register` (`:36`), `map_abi_register` (`:123`).
+- [ ] Remove the riscv64 remap layer now that no AArch64 spelling reaches it:
+      `remap_riscv_abi` (`:708`), `map_scratch_register` (`:668`), `map_fp_register`
+      (`:689`), `remap_register` (`:726`). This structurally kills the `x31`→`t6`
+      latent-miscompile hazard.
+
+**E. Resolve the AArch64 realization seam.**
+- [ ] `src/arch/aarch64/select.rs:90` — the "Phase 4 tried to delete it" comment: it
+      becomes one of three symmetric per-ISA realizers; delete or restate the comment.
+
+**F. Reconcile the docs with reality.**
+- [ ] `planning/old-plans/plan-34-B-role-named-registers.md` still says "STATUS:
+      COMPLETE (2026-07-10)" with Phase 4 "landed" — false; leave the current status and
+      add a note it it invalid.
+- [ ] Update `src/docs/spec/architecture/` register-role vocabulary.
+
+**G. Full validation (every step, and final).**
+- [ ] Cross-check divergences = 0; `artifact-gate.sh` diffs=0; `exe-oracle.sh`
+      byte-identical on linux-x86_64, windows-x86_64, linux-aarch64, linux-riscv64,
+      macos-aarch64.
+- [ ] Encoder suites `src/arch/{aarch64,x86_64,riscv64}/encode/tests.rs`; `cargo test`;
+      `cargo clippy`; `cargo fmt --check`.
+- [ ] One full `scripts/test-accept.sh` per target (binaries must RUN — a green
+      type-check is NOT sufficient; that is exactly how bug-85 shipped a silent x86
+      miscompile). Zero modified files under any `tests/**/golden/`.
+
+---
 
 ## 2026-07-28 finding — the fixpoint is load-bearing for the shared lowering (Phase-1 premise disproven)
 
