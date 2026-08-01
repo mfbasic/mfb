@@ -237,12 +237,9 @@ pub(crate) const ERR_CONNECTION_CLOSED_CODE: &str = "77070004";
 pub(crate) const ERR_CONNECTION_CLOSED_MESSAGE: &str =
     "Socket peer closed the connection or the connection is no longer usable.";
 pub(crate) const ERR_CONNECTION_CLOSED_SYMBOL: &str = "_mfb_str_error_connection_closed";
-pub(crate) const ERR_READ_TIMEOUT_CODE: &str = "77070005";
-pub(crate) const ERR_READ_TIMEOUT_MESSAGE: &str = "Socket read operation timed out.";
-pub(crate) const ERR_READ_TIMEOUT_SYMBOL: &str = "_mfb_str_error_read_timeout";
-pub(crate) const ERR_WRITE_TIMEOUT_CODE: &str = "77070006";
-pub(crate) const ERR_WRITE_TIMEOUT_MESSAGE: &str = "Socket write operation timed out.";
-pub(crate) const ERR_WRITE_TIMEOUT_SYMBOL: &str = "_mfb_str_error_write_timeout";
+// plan-73-C: `ErrReadTimeout` (77070005) and `ErrWriteTimeout` (77070006) are
+// RETIRED — every net read/write timeout now raises the single `ErrTimeout`
+// (77050008), per the language timeout convention.
 pub(crate) const ERR_MESSAGE_TOO_LARGE_CODE: &str = "77070007";
 pub(crate) const ERR_MESSAGE_TOO_LARGE_MESSAGE: &str =
     "Datagram or message exceeds the requested or supported size.";

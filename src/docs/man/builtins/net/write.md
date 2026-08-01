@@ -39,7 +39,7 @@ at zero. The socket is borrowed and stays open.
 
 Otherwise the call blocks while the send buffer is full, waiting for space or for
 the socket's write timeout to elapse. Use `net::setWriteTimeout` to bound that
-wait; when it elapses the call raises `ErrWriteTimeout`, and because the write
+wait; when it elapses the call raises `ErrTimeout`, and because the write
 loop may already have handed over part of the payload, a timeout can leave the
 stream partially written and unresumable. A signal that interrupts a blocking
 write re-issues it from the unchanged cursor rather than reporting a closed
@@ -67,7 +67,7 @@ convenient than building a `List OF Byte`.
 | --- | --- | --- |
 | `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 | `77070004` | `ErrConnectionClosed` | The peer has closed the connection, or the write fails for a host reason other than a timeout or an interruption. [[src/target/shared/code/error_constants.rs:ERR_CONNECTION_CLOSED_CODE]] |
-| `77070006` | `ErrWriteTimeout` | The socket's write timeout elapsed before the payload could be handed over. Part of it may already have been sent. [[src/target/shared/code/error_constants.rs:ERR_WRITE_TIMEOUT_CODE]] |
+| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the payload could be handed over. Part of it may already have been sent. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
 
 ## Examples
 

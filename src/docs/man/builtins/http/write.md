@@ -114,7 +114,7 @@ an empty map and `method` to `POST`. [[src/builtins/http.rs:arity]]
 
 Connect, DNS, read, write, timeout, and TLS failures are not raised by `write`
 itself: they propagate unchanged from the underlying `net` and `tls` calls (for
-example `ErrAddressNotFound`, `ErrNetworkFailed`, `ErrReadTimeout`, or
+example `ErrAddressNotFound`, `ErrNetworkFailed`, `ErrTimeout`, or
 `ErrTlsFailed`). [[src/builtins/http_package.mfb:__http_exchange]]
 
 ## Examples

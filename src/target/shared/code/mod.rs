@@ -2866,16 +2866,6 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_CONNECTION_CLOSED_SYMBOL,
         ),
         (
-            ERR_READ_TIMEOUT_CODE,
-            ERR_READ_TIMEOUT_MESSAGE,
-            ERR_READ_TIMEOUT_SYMBOL,
-        ),
-        (
-            ERR_WRITE_TIMEOUT_CODE,
-            ERR_WRITE_TIMEOUT_MESSAGE,
-            ERR_WRITE_TIMEOUT_SYMBOL,
-        ),
-        (
             ERR_MESSAGE_TOO_LARGE_CODE,
             ERR_MESSAGE_TOO_LARGE_MESSAGE,
             ERR_MESSAGE_TOO_LARGE_SYMBOL,

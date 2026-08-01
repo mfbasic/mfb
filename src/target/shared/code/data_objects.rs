@@ -296,8 +296,6 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             ERR_ADDRESS_NOT_FOUND_MESSAGE,
             ERR_NETWORK_FAILED_MESSAGE,
             ERR_CONNECTION_CLOSED_MESSAGE,
-            ERR_READ_TIMEOUT_MESSAGE,
-            ERR_WRITE_TIMEOUT_MESSAGE,
             ERR_MESSAGE_TOO_LARGE_MESSAGE,
             ERR_RESOURCE_CLOSED_MESSAGE,
             ERR_RESOURCE_MOVED_MESSAGE,

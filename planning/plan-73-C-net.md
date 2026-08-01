@@ -231,29 +231,44 @@ Commit: 64e39c4ff
 
 Acceptance: connect tests pass; http still bounded (explicit timeout); `artifact-gate`
 diffs=0. — MET (`cargo test` green; 51 net acceptance fixtures pass; standing check
-PASS; gate below).
-Commit: —
+PASS; gate 1507 diffs=0).
+Commit: 5c4c91ac6
 
 ### Phase 4 — set*Timeout flip + ErrTimeout collapse (largest blast radius)
 
-- [ ] Census `ErrReadTimeout`/`ErrWriteTimeout`/77070005/77070006 across src+tests
-      (`grep -rn -E '77070005|77070006|ErrReadTimeout|ErrWriteTimeout' src tests`).
-- [ ] `src/target/shared/code/net/io.rs` + `poll.rs` (set-timeout helper): option `0`
-      → non-blocking; read/write expiry raises `ERR_TIMEOUT_CODE`; remove
-      `ERR_READ_TIMEOUT_CODE`/`ERR_WRITE_TIMEOUT_CODE` and their symbols. Preserve the
-      Winsock `WSAETIMEDOUT`→timeout mapping (bug-109) but map to `ErrTimeout`.
-- [ ] `src/target/shared/code/error_constants.rs`: delete the two codes (no dead
-      constants left). Update `src/target/shared/runtime/net_specs.rs` if it names them.
-- [ ] Migrate every fixture asserting 77070005/77070006 → 77050008, and any relying on
-      `setReadTimeout(s,0)` = unbounded; regenerate goldens.
-- [ ] Rewrite `src/docs/man/builtins/net/{setReadTimeout,setWriteTimeout,read,readText,write,writeText}.md`;
-      update `src/docs/spec/diagnostics/02_error-codes.md` (remove the two codes).
-- [ ] Tests: read on a socket with `setReadTimeout(s,0)` and no data → `ErrTimeout`
-      (77050008); positive timeout expiry → 77050008; `<0`→invalid.
+- [x] Census `ErrReadTimeout`/`ErrWriteTimeout`/77070005/77070006. — DONE: NO `.mfb`
+      fixture asserts the raw codes; one fixture used `errorCode::ErrWriteTimeout`
+      (`bug109_write_timeout`); 4 `.rs` files (error_constants, mod, data_objects, io)
+      and 14 man pages + 2 spec pages referenced them.
+- [x] `net/io.rs` + `poll.rs` set-timeout helper: option `0` → non-blocking;
+      read/write expiry raises `ERR_TIMEOUT_CODE`; remove the two codes/symbols.
+      Preserve the Winsock `WSAETIMEDOUT`→timeout mapping but map to `ErrTimeout`.
+      — DONE: io.rs 4 raise sites → `ERR_TIMEOUT_CODE`/`SYMBOL` (WSAETIMEDOUT arms
+      preserved, now → ErrTimeout); poll.rs set-timeout `0` now installs the smallest
+      nonzero wait (POSIX tv_usec=1µs, Winsock 1ms) so `0` = non-blocking (SO_*TIMEO
+      of 0 is *infinite* in both, so a true 0 could not express it — see Corrections).
+- [x] `error_constants.rs`: deleted `ERR_READ_TIMEOUT_*`/`ERR_WRITE_TIMEOUT_*`; also
+      removed their data objects (`data_objects.rs`) and registry tuples (`mod.rs`).
+      (`net_specs.rs` did not name them.)
+- [x] Migrate fixtures + regenerate goldens. — DONE: `bug109_write_timeout`
+      `errorCode::ErrWriteTimeout` → `errorCode::ErrTimeout` (it genuinely triggers a
+      write timeout → now the runtime proof of the collapse). No fixture relied on
+      `setReadTimeout(s,0)` = unbounded (both `(_,0)` sites only *set* it, never read).
+      Regenerated `byte-identity/net` + `/http` `.ncodesum` (5 targets each).
+- [x] Rewrite the net read/write/set*Timeout + UDP send/receive + http read/write man
+      pages (ErrReadTimeout/ErrWriteTimeout → ErrTimeout; set*Timeout `0`=non-blocking;
+      package.md merged the two rows into the ErrTimeout row); removed the two rows from
+      `spec/diagnostics/02_error-codes.md` (the build-input registry). — DONE.
+- [x] Tests: `setReadTimeout(s,0)` + read no data → `ErrTimeout` (77050008); positive
+      write-timeout expiry → 77050008; `<0`→invalid. — DONE:
+      `net-readtimeout-convention-rt` (`read0 timeout`) + `bug109_write_timeout`
+      (`writeTimeout=TRUE` vs `errorCode::ErrTimeout`); negative already covered by
+      the set*Timeout `<0` path (`func_net_setReadTimeout_invalid`).
 
-Acceptance: all read/write-timeout tests assert 77050008; no reference to
-77070005/77070006 remains (`grep` empty); error-codes spec has neither; `cargo test`
-full green; `artifact-gate` diffs=0; man_citations + spec-citation green.
+Acceptance: read/write-timeout tests assert 77050008; no 77070005/77070006 remains
+(grep empty across src+docs); error-codes spec has neither; `cargo test` full green;
+`artifact-gate` diffs=0; man_citations + spec-citation green. — MET (cargo test green;
+net acceptance + gate below).
 Commit: —
 
 ## Validation Plan
@@ -299,6 +314,23 @@ Commit: —
   any net-helper change must regenerate BOTH `byte-identity/net` AND
   `byte-identity/http` (http uses `connectTcp`, `accept`, `read`/`write`,
   `setReadTimeout`). Phase 1 (poll) did NOT churn http — http doesn't poll.
+
+- **C-C3 (`set*Timeout(s, 0)` = non-blocking is approximated, not literal 0).**
+  The convention says `0` makes reads/writes non-blocking. But POSIX
+  `SO_RCVTIMEO`/`SO_SNDTIMEO` of `{0,0}` — and a Winsock `SO_*TIMEO` DWORD of `0` —
+  mean *infinite* (no timeout), the exact opposite. There is no `SO_*TIMEO` value
+  that means "return immediately". So Phase 4 installs the **smallest nonzero
+  wait** for the `0` case (POSIX `tv_usec = 1` = 1 µs; Winsock `1` ms), giving the
+  convention's observable behavior — a near-immediate `ErrTimeout` when not ready —
+  without switching the socket to `O_NONBLOCK` (which would rework the whole
+  read/write path). A truly-instant `0` is not expressible through `SO_*TIMEO`;
+  this 1 µs / 1 ms floor is the documented, standard idiom.
+
+- **C-C4 (the `0`-vs-refused connect distinction — restated).** Recorded in the
+  Phase 3 notes: `connectTcp(host, port, 0)` to a *refused* localhost port gives
+  `ErrNetworkFailed` (RST), not `ErrTimeout`; `ErrTimeout` needs a filtered/
+  black-holed peer. The plan's Phase-3 test wording ("non-listening → ErrTimeout")
+  is imprecise; the standing `check-net-connect-timeout.sh` uses a real blackhole.
 
 ## Summary
 

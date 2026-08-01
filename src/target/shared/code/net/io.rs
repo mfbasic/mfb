@@ -774,8 +774,8 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     instructions.push(abi::label(&timeout));
     emit_fail(
         symbol,
-        ERR_READ_TIMEOUT_CODE,
-        ERR_READ_TIMEOUT_SYMBOL,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,
@@ -986,8 +986,8 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
     instructions.push(abi::label(&timeout));
     emit_fail(
         symbol,
-        ERR_WRITE_TIMEOUT_CODE,
-        ERR_WRITE_TIMEOUT_SYMBOL,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,
@@ -1762,8 +1762,8 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     instructions.push(abi::label(&timeout));
     emit_fail(
         symbol,
-        ERR_READ_TIMEOUT_CODE,
-        ERR_READ_TIMEOUT_SYMBOL,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,
@@ -2042,8 +2042,8 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     instructions.push(abi::label(&timeout));
     emit_fail(
         symbol,
-        ERR_WRITE_TIMEOUT_CODE,
-        ERR_WRITE_TIMEOUT_SYMBOL,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,

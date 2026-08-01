@@ -38,16 +38,19 @@ rounded up — the value is used as given.
 [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
 
 When the timeout elapses before any data arrives, the pending receive fails with
-`ErrReadTimeout` rather than blocking further. The timeout governs only how long
+`ErrTimeout` rather than blocking further. The timeout governs only how long
 a *single* receive waits for its first data; it does not cap the total time a
 loop of receives may take, and it does not abort a receive that has already
 started delivering bytes.
 
-A `timeoutMs` of `0` disables the timeout, so receives block indefinitely until
-data arrives, the peer closes, or an error occurs. That is also the state of a
-freshly opened socket, so `net::setReadTimeout(sock, 0)` restores the default. A
-negative `timeoutMs` is rejected with `ErrInvalidArgument` rather than being
-treated as "no timeout". [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
+Per the language timeout convention (see `mfb spec language builtin-functions` →
+"Timeout convention"), a `timeoutMs` of `0` makes subsequent receives
+**non-blocking**: a receive with no data ready fails at once with `ErrTimeout`
+rather than waiting. A positive value bounds the wait. A negative `timeoutMs` is
+rejected with `ErrInvalidArgument`. The socket's *initial* state is unbounded
+(a receive blocks until data), but the setter can only bound — it has no "restore
+unbounded" value, so unbounded cannot be re-established through it once a bound is
+set. [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
 
 `net::setReadTimeout` bounds a blocking receive; `net::poll` instead asks whether
 a receive would block at all. They compose: poll for readiness, and keep a
@@ -68,7 +71,7 @@ Bounds `net::receiveFrom` and `net::receiveTextFrom` on a bound UDP socket.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `sock` | `Socket` or `UdpSocket` | The open connected TCP socket or bound UDP socket whose subsequent receives are to be bounded. The handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | The maximum time a subsequent receive may block waiting for data, in milliseconds. `0` disables the timeout, which is the default state of a freshly opened socket. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]] |
+| `timeoutMs` | `Integer` | The maximum time a subsequent receive may block waiting for data, in milliseconds. `0` makes receives non-blocking (immediate `ErrTimeout` when no data is ready); a positive value bounds the wait. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]] |
 
 ## Return value
 
@@ -129,3 +132,4 @@ END FUNC
 - `mfb man net receiveTextFrom`
 - `mfb man net poll`
 - `mfb man net connectTcp`
+- `mfb spec language builtin-functions` — the timeout convention

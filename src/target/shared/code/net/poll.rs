@@ -162,6 +162,7 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
     let closed = format!("{symbol}_closed");
     let invalid = format!("{symbol}_invalid");
     let set_fail = format!("{symbol}_set_fail");
+    let nb_ok = format!("{symbol}_nb_ok");
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![abi::label("entry")];
@@ -184,7 +185,17 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
     // the timeval, byte-identical to the pre-seam sequence.
     let win_timeout = platform.family() == PlatformFamily::Windows;
     let optval_len = if win_timeout {
-        instructions.push(abi::store_u64("%v14", abi::stack_pointer(), TIMEVAL_OFFSET));
+        instructions.extend([
+            abi::store_u64("%v14", abi::stack_pointer(), TIMEVAL_OFFSET),
+            // plan-73-C: `timeoutMs == 0` now means NON-BLOCKING (immediate
+            // `ErrTimeout` when not ready), not "disable". Winsock SO_*TIMEO of 0 is
+            // infinite, so use the smallest expressible wait (1 ms) for the 0 case.
+            abi::compare_immediate("%v14", "0"),
+            abi::branch_ne(&nb_ok),
+            abi::move_immediate("%v13", "Integer", "1"),
+            abi::store_u64("%v13", abi::stack_pointer(), TIMEVAL_OFFSET),
+            abi::label(&nb_ok),
+        ]);
         "4"
     } else {
         instructions.extend([
@@ -194,6 +205,13 @@ pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
             abi::multiply_subtract_registers("%v12", "%v11", "%v10", "%v14"),
             abi::move_immediate("%v13", "Integer", "1000"),
             abi::multiply_registers("%v12", "%v12", "%v13"),
+            // plan-73-C: `timeoutMs == 0` now means NON-BLOCKING, not "disable". A
+            // POSIX SO_*TIMEO of {0,0} is infinite, so use the smallest wait (1 µs =
+            // tv_usec 1) for the 0 case — a near-immediate `ErrTimeout` when not ready.
+            abi::compare_immediate("%v14", "0"),
+            abi::branch_ne(&nb_ok),
+            abi::move_immediate("%v12", "Integer", "1"),
+            abi::label(&nb_ok),
             abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
             abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
         ]);

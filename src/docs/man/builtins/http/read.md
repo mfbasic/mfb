@@ -107,7 +107,7 @@ shorter overloads default `headers` to an empty map and `method` to `GET`.
 
 Connect, DNS, read, write, timeout, and TLS failures are not raised by `read`
 itself: they propagate unchanged from the underlying `net` and `tls` calls (for
-example `ErrAddressNotFound`, `ErrNetworkFailed`, `ErrReadTimeout`, or
+example `ErrAddressNotFound`, `ErrNetworkFailed`, `ErrTimeout`, or
 `ErrTlsFailed`). [[src/builtins/http_package.mfb:__http_exchangeTls]]
 
 ## Examples

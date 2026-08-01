@@ -47,7 +47,7 @@ zero-length datagram, which is a valid UDP message rather than a no-op.
 A successful return means the datagram was accepted by the host for best-effort
 delivery, not that any peer received it. The call may block while the send buffer
 is full; use `net::setWriteTimeout` to bound that wait, after which
-`ErrWriteTimeout` is raised. A payload larger than the path allows is rejected
+`ErrTimeout` is raised. A payload larger than the path allows is rejected
 with `ErrMessageTooLarge` rather than truncated. A signal that interrupts the
 send before any byte left re-issues the identical call — a datagram send is
 all-or-nothing, so a send that already completed is never retried.
@@ -78,7 +78,7 @@ the same `Address`). The text payload of a `DatagramText` is its `value` field.
 | `77030004` | `ErrResourceClosed` | `sock` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 | `77070002` | `ErrAddressNotFound` | The destination host in `address` could not be resolved. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_NOT_FOUND_CODE]] |
 | `77070007` | `ErrMessageTooLarge` | The payload is too large to be sent as a single datagram on this path (the host reports `EMSGSIZE`). [[src/target/shared/code/error_constants.rs:ERR_MESSAGE_TOO_LARGE_CODE]] |
-| `77070006` | `ErrWriteTimeout` | The socket's write timeout elapsed before the datagram could be handed over. [[src/target/shared/code/error_constants.rs:ERR_WRITE_TIMEOUT_CODE]] |
+| `77050008` | `ErrTimeout` | The socket's write timeout elapsed before the datagram could be handed over. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
 | `77070003` | `ErrNetworkFailed` | The send fails for a host reason other than a timeout, an oversized payload, or an interruption. [[src/target/shared/code/error_constants.rs:ERR_NETWORK_FAILED_CODE]] |
 | `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the destination host could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
 

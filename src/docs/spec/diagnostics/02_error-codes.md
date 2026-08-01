@@ -120,8 +120,6 @@ registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 | `7-707-0002` | `77070002` | `ErrAddressNotFound`          | Network host name or address could not be resolved. |
 | `7-707-0003` | `77070003` | `ErrNetworkFailed`            | Network operation failed before a connection was established. |
 | `7-707-0004` | `77070004` | `ErrConnectionClosed`         | Socket peer closed the connection or the connection is no longer usable. |
-| `7-707-0005` | `77070005` | `ErrReadTimeout`              | Socket read operation timed out. |
-| `7-707-0006` | `77070006` | `ErrWriteTimeout`             | Socket write operation timed out. |
 | `7-707-0007` | `77070007` | `ErrMessageTooLarge`          | Datagram or message exceeds the requested or supported size. |
 | `7-705-0010` | `77050010` | `ErrOverflow`                 | Arithmetic overflow or numeric conversion outside the destination range. |
 | `7-703-0006` | `77030006` | `ErrCloseFailed`              | Resource close operation failed. |

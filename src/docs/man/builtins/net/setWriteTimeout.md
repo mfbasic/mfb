@@ -37,19 +37,21 @@ division, so the value is used as given.
 [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
 
 When the timeout elapses before the send can make progress, the pending send
-fails with `ErrWriteTimeout` rather than blocking further. It bounds a single
+fails with `ErrTimeout` rather than blocking further. It bounds a single
 underlying send. That distinction matters for `net::write` and `net::writeText`,
 which loop until the whole payload has been handed over: each iteration is
 separately bounded, and a timeout in the middle of that loop raises
-`ErrWriteTimeout` after part of the payload has already been sent. A partially
+`ErrTimeout` after part of the payload has already been sent. A partially
 written stream cannot be resumed from the error, so treat it as fatal to that
 connection.
 
-A `timeoutMs` of `0` disables the timeout, so sends block indefinitely until the
-data is accepted, the peer closes, or an error occurs. That is also the state of
-a freshly opened socket, so `net::setWriteTimeout(sock, 0)` restores the default.
-A negative `timeoutMs` is rejected with `ErrInvalidArgument` rather than being
-treated as "no timeout".
+Per the language timeout convention (see `mfb spec language builtin-functions` →
+"Timeout convention"), a `timeoutMs` of `0` makes subsequent sends
+**non-blocking**: a send that cannot make progress fails at once with `ErrTimeout`
+rather than waiting for buffer space. A positive value bounds the wait. A negative
+`timeoutMs` is rejected with `ErrInvalidArgument`. The socket's *initial* state is
+unbounded (a send blocks until buffer space frees); the setter can only bound, so
+unbounded cannot be re-established through it once a bound is set.
 [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]]
 
 ## Overloads
@@ -67,7 +69,7 @@ Bounds `net::sendTo` and `net::sendTextTo` on a bound UDP socket.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `sock` | `Socket` or `UdpSocket` | The open connected TCP socket or bound UDP socket whose subsequent sends are to be bounded. The handle is borrowed, not consumed. [[src/builtins/net.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | The maximum time a subsequent send may block waiting for buffer space, in milliseconds. `0` disables the timeout, which is the default state of a freshly opened socket. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]] |
+| `timeoutMs` | `Integer` | The maximum time a subsequent send may block waiting for buffer space, in milliseconds. `0` makes sends non-blocking (immediate `ErrTimeout` when no progress can be made); a positive value bounds the wait. Must not be negative. [[src/target/shared/code/net/poll.rs:lower_net_set_timeout_helper]] |
 
 ## Return value
 
@@ -127,3 +129,4 @@ END FUNC
 - `mfb man net sendTextTo`
 - `mfb man net connectTcp`
 - `mfb man net bindUdp`
+- `mfb spec language builtin-functions` — the timeout convention

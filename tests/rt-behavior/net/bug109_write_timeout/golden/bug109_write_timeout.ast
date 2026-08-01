@@ -68,7 +68,7 @@
       "returnType": "Integer",
       "body": [
       { "kind": "binding", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "call", "callee": "pump", "arguments": [] }, "line": 37 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "writeTimeout=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrWriteTimeout" } }] } }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "writeTimeout=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrTimeout" } }] } }] }, "line": 38 },
       { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
       ]
     }
