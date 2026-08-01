@@ -206,7 +206,7 @@ Establish the convention's runtime constants, landed with a real consumer.
 
 Acceptance: constants build and are referenced by at least the thread helper; no
 new dead constant (`cargo build` warns none); `cargo test` green. — MET.
-Commit: —
+Commit: a234b2e87
 
 ### Phase 2 — Canonical spec section
 
@@ -228,7 +228,7 @@ Write the one convention document.
 
 Acceptance: `mfb spec language builtin-functions` shows the new section; spec
 citation tests green. — MET.
-Commit: —
+Commit: a234b2e87
 
 ### Phase 3 — Thread family migration
 
@@ -283,7 +283,7 @@ Make all four thread waits obey the convention.
 Acceptance: the new rt-behavior test passes; `cargo test` full suite green;
 `scripts/artifact-gate.sh` diffs=0 after golden/`.ncodesum` regen; man_citations
 and spec-citation tests green; `mfb man thread send` shows the new semantics.
-Commit: —
+Commit: a234b2e87
 
 ## Validation Plan
 
