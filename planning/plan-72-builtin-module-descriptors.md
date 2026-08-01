@@ -1,27 +1,29 @@
 # plan-72: builtin module descriptors
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 Overall Effort: huge (> 3d)
 
-This plan replaces the five hand-written package metadata modules `strings`,
-`datetime`, `encoding`, `money`, and `term` with a descriptor-based compiler
-plugin interface: each package exposes one `BuiltinModule` containing its
-functions, types, source companion rule, and optional resolver behavior. The
-single behavioral outcome is that all current calls, named arguments, source
-injection, implementation-name rewrites, builtin type lookups, IR verification,
-runtime helper selection, and generated artifacts remain unchanged while those
-five packages are queried through the descriptor registry instead of package
-specific free-function chains.
+This plan replaces every hand-written package metadata module under
+`src/builtins/` with a descriptor-based compiler plugin interface: each package
+exposes one `BuiltinModule` containing its functions, types, source companion
+rule, and optional resolver behavior. The single behavioral outcome is that all
+current calls, named arguments, source injection, implementation-name rewrites,
+builtin type lookups, IR verification, runtime helper selection, and generated
+artifacts remain unchanged while every builtin package is queried through the
+descriptor registry instead of package-specific free-function chains.
 
-The work is split by landing order. Do not start a later letter until the
-previous letter is complete and committed.
+The work is split by landing order. `A` establishes the descriptor vocabulary
+and registry once. Every subsequent letter migrates exactly one builtin
+package. Do not start a later letter until the previous letter is complete and
+committed, unless the letter is explicitly documented as parallelizable in its
+own file.
 
 References:
 
 - `.ai/compiler.md` — compiler/runtime completion gate and required acceptance
   commands.
 - `bugs/completed/bug-340-builtins-cli-reorg.md` — current known duplication in
-  builtin metadata chains; this plan finishes the cleanup for the five packages.
+  builtin metadata chains; this plan finishes the cleanup for every package.
 - `bugs/completed/bug-349-datetime-named-arg-misbinding.md` — datetime overload
   name binding is fragile and must be preserved by descriptor overload selection.
 - `bugs/completed/bug-173-builtins-syntaxcheck-typecheck-nits.md` — named
@@ -34,9 +36,8 @@ References:
 - `src/ir/verify/compat.rs` and `src/target/shared/code/type_utils.rs` — typed
   return validation seams.
 - `src/docs/spec/architecture/09_modules.md`,
-  `src/docs/spec/language/18_builtin-functions.md`,
-  `src/docs/spec/stdlib/02_datetime.md`,
-  `src/docs/spec/stdlib/13_money.md`.
+  `src/docs/spec/language/18_builtin-functions.md`, and the per-package stdlib
+  spec files under `src/docs/spec/stdlib/`.
 
 ## Prerequisites
 
@@ -45,9 +46,10 @@ before starting.
 
 | Must be true | Command | Status |
 |---|---|---|
-| No existing plan-72 files are present | `find planning planning/completed -type f -name 'plan-72*' \| sort → no output` | MET on 2026-07-31 |
-| The five target builtin modules still exist | `wc -l src/builtins/{strings,datetime,encoding,money,term}.rs → 875, 923, 596, 189, 477` | MET on 2026-07-31 |
-| The descriptor target still excludes already-broader builtin packages | `rg -n '^(pub\\(crate\\) )?fn (is_.*call\|call_param_names\|call_return_type_name\|arity\|resolve_call\|implementation_name\|argument_types\|expected_arguments\|uses_package\|source_file\|augmented_project\|default_argument_padding\|param_types\|builtin_type_fields\|is_builtin_type\|call_param_name_overloads\|resolve_overload_target\|is_overloaded)' src/builtins/{strings,datetime,encoding,money,term}.rs \| wc -l → 48` | MET on 2026-07-31 |
+| Only plan-72 files listed in this overview are present | `find planning planning/completed -type f -name 'plan-72*' \| sort → matches roadmap` | MET on 2026-08-01 |
+| The 26 builtin modules still exist | `ls src/builtins/*.rs \| grep -v mod.rs \| wc -l → 26` | MET on 2026-08-01 |
+| Total builtin descriptor-owned helper population is unchanged for this plan | `grep -cE '^(pub\(crate\) )?fn (is_.*call\|call_param_names\|call_return_type_name\|arity\|resolve_call\|implementation_name\|argument_types\|expected_arguments\|uses_package\|source_file\|augmented_project\|default_argument_padding\|param_types\|builtin_type_fields\|is_builtin_type\|call_param_name_overloads\|resolve_overload_target\|is_overloaded)' src/builtins/*.rs \| awk -F: '{s+=$2} END {print s}' → 209` | MET on 2026-08-01 |
+| Total direct helper call sites across all builtins is unchanged | `rg -o 'builtins::[a-z_]+::[a-zA-Z0-9_]+' src \| wc -l → 449` | MET on 2026-08-01 |
 
 Everything below is written against the world where these hold. If any row
 changes, update the measured-population table in this overview before editing
@@ -55,66 +57,93 @@ code.
 
 ## Goal
 
-- `src/builtins/{strings,datetime,encoding,money,term}.rs` each expose a
-  `pub(crate) static <MODULE>: BuiltinModule`.
+- Every module under `src/builtins/*.rs` (except `mod.rs` and `descriptor.rs`)
+  exposes a `pub(crate) static <MODULE>: BuiltinModule`.
 - Existing consumers query a `BuiltinRegistry`/descriptor API for membership,
   arity, parameter names and aliases, argument types, return types, default
   padding, implementation names, builtin types, and source injection.
 - Compatibility wrappers may survive temporarily during the plan, but the final
-  letter removes the five-package descriptor-duplicating free functions and the
-  direct dispatcher chains they fed.
+  letter (`BB`) removes the descriptor-duplicating free functions and the direct
+  dispatcher chains they fed.
 
 ### Non-goals
 
 - No public language surface change: names, aliases, overloads, arity ranges,
   diagnostics, runtime behavior, and generated AST/IR/native artifacts stay
   unchanged.
-- No blanket migration of all builtin packages. This plan targets exactly
-  `strings`, `datetime`, `encoding`, `money`, and `term`.
 - No golden re-baseline to hide drift. A changed golden is a bug unless the plan
   proves the old golden wrong under AGENTS.md.
-- No string parsing for descriptor-owned parameter or return types. The descriptor
-  is the machine-readable source of truth.
-- No fallback resolver that silently accepts unsupported cases. Unsupported means
-  the descriptor or resolver is incomplete.
+- No string parsing for descriptor-owned parameter or return types. The
+  descriptor is the machine-readable source of truth.
+- No fallback resolver that silently accepts unsupported cases. Unsupported
+  means the descriptor or resolver is incomplete.
 
 ## Current State
 
-The five target modules expose 48 public metadata helper functions
-(`rg ... src/builtins/{strings,datetime,encoding,money,term}.rs | wc -l → 48`)
-over 3,060 lines (`wc -l src/builtins/{strings,datetime,encoding,money,term}.rs
-→ 875+923+596+189+477`). Their consumers make 70 direct calls into those package
-helpers (`rg -o 'builtins::(strings|datetime|encoding|money|term)::...' src |
-wc -l → 70`).
+The 26 builtin modules span 14,860 lines (`wc -l src/builtins/*.rs → 14860
+total`, includes `mod.rs`; per-package LOC in the census table below). They
+export 209 public metadata helper functions across the descriptor-owned surface
+(`grep -cE '^(pub\(crate\) )?fn (is_.*call|...)' src/builtins/*.rs | awk ... →
+209`). Their consumers make 449 direct calls into those package helpers
+(`rg -o 'builtins::[a-z_]+::[a-zA-Z0-9_]+' src | wc -l → 449`).
 
-The central aggregate helpers in `src/builtins/mod.rs:resolve_call_return_type`,
+The central aggregate helpers in `src/builtins/mod.rs` (`resolve_call_return_type`,
 `call_return_type_name`, `is_builtin_call`, `call_param_name_overloads`, and
-`call_param_names` dispatch by explicit package chains. `src/syntaxcheck/builtins.rs`
-already has a value-level `BuiltinPackage` table, but its rows still point at
-module-specific function pointers. `src/ir/lower.rs:builtin_argument_types`,
-`normalize_builtin_call_arguments`, default argument padding, and
-implementation-name selection are the highest-risk consumers because they affect
-runtime IR shape. `src/ir/verify/compat.rs` and
-`src/target/shared/code/type_utils.rs:static_nir_value_type` are secondary return
-type oracles and must be kept in lockstep.
+`call_param_names`) dispatch by explicit package chains for all 26 packages.
+`src/syntaxcheck/builtins.rs` already has a value-level `BuiltinPackage` table,
+but its rows still point at module-specific function pointers.
+`src/ir/lower.rs:builtin_argument_types`, `normalize_builtin_call_arguments`,
+default argument padding, and implementation-name selection are the
+highest-risk consumers because they affect runtime IR shape.
+`src/ir/verify/compat.rs` and `src/target/shared/code/type_utils.rs:static_nir_value_type`
+are secondary return-type oracles and must be kept in lockstep.
 
 Source injection is triplicated in `src/resolver/mod.rs`, `src/syntaxcheck/mod.rs`,
-and `src/ir/lower.rs`, each with the same package ordering. The five target
-packages currently have source companions via `package_source_glue!` for
-`datetime`, `money`, `term`, and `encoding`, while `strings` has custom
-`uses_package` logic for scalar seam references.
+and `src/ir/lower.rs`, each with the same package ordering.
 
-### Measured populations
+### Measured populations (per package)
 
-| What | Count | Command |
-|---|---:|---|
-| Target module LOC | 3,060 | `wc -l src/builtins/{strings,datetime,encoding,money,term}.rs → 875, 923, 596, 189, 477` |
-| Public target metadata helpers | 48 | `rg -n '^(pub\\(crate\\) )?fn (is_.*call\|call_param_names\|call_return_type_name\|arity\|resolve_call\|implementation_name\|argument_types\|expected_arguments\|uses_package\|source_file\|augmented_project\|default_argument_padding\|param_types\|builtin_type_fields\|is_builtin_type\|call_param_name_overloads\|resolve_overload_target\|is_overloaded)' src/builtins/{strings,datetime,encoding,money,term}.rs \| wc -l → 48` |
-| Direct calls into target package helpers | 70 | `rg -o 'builtins::(strings\|datetime\|encoding\|money\|term)::[A-Za-z0-9_]+\|crate::builtins::(strings\|datetime\|encoding\|money\|term)::[A-Za-z0-9_]+' src \| wc -l → 70` |
-| Target package function-name constants and literal references | 167 | `for p in strings datetime encoding money term; do rg -o '"$p\\.[A-Za-z0-9]+"\|const [A-Z0-9_]+: &str = "$p\\.[A-Za-z0-9]+"' src/builtins/$p.rs \| wc -l; done → 41,51,40,5,30` |
-| Target package man pages | 147 | `for p in strings datetime encoding money term; do find src/docs/man/builtins/$p -type f -name '*.md' \| wc -l; done → 39,46,33,4,25` |
-| Target package fixtures | 101 | `find tests/syntax tests/rt-behavior tests/byte-identity -path '*/strings/*' -o -path '*/datetime/*' -o -path '*/encoding/*' -o -path '*/money/*' -o -path '*/term/*' \| grep '/project.json$' \| wc -l → 101` |
-| Fixture split by package | 16/12/29/6/33 | `for p in strings datetime encoding money term; do find tests/syntax tests/rt-behavior tests/byte-identity -path "*/$p/*/project.json" \| wc -l; done → strings 16, datetime 12, encoding 29, money 6, term 33` |
+Columns:
+
+- `LOC` — `wc -l src/builtins/<pkg>.rs`
+- `helpers` — count of descriptor-owned metadata helper `fn`s per the
+  Prerequisites regex
+- `srcglue` — 1 if the module invokes `package_source_glue!`, else 0
+- `btypes` — count of `is_builtin_type` / `builtin_type_fields` / `param_types`
+  fns present
+- `custom` — count of `call_param_name_overloads` / `resolve_overload_target` /
+  `is_overloaded` / `implementation_name` / `default_argument_padding` fns
+- `fixtures` — `find tests/{syntax,rt-behavior,byte-identity} -path
+  '*/<pkg>/*/project.json' | wc -l`
+
+| Letter | Package | LOC | helpers | srcglue | btypes | custom | fixtures |
+|---|---|---:|---:|---:|---:|---:|---:|
+| B | app | 178 | 8 | 1 | 1 | 0 | 6 |
+| C | audio | 738 | 13 | 1 | 2 | 2 | 6 |
+| D | bits | 237 | 6 | 0 | 0 | 0 | 18 |
+| E | collections | 1355 | 10 | 0 | 0 | 0 | 50 |
+| F | crypto | 814 | 12 | 1 | 1 | 2 | 5 |
+| G | csv | 162 | 7 | 1 | 0 | 1 | 2 |
+| H | datetime | 923 | 11 | 1 | 1 | 3 | 12 |
+| I | encoding | 596 | 10 | 1 | 0 | 3 | 29 |
+| J | errorcode | 118 | 0 | 0 | 0 | 0 | 1 |
+| K | fs | 713 | 7 | 0 | 1 | 0 | 98 |
+| L | general | 815 | 6 | 0 | 0 | 0 | 26 |
+| M | http | 581 | 9 | 1 | 1 | 2 | 7 |
+| N | io | 236 | 8 | 0 | 2 | 0 | 31 |
+| O | json | 251 | 8 | 1 | 1 | 1 | 8 |
+| P | math | 616 | 6 | 0 | 0 | 0 | 45 |
+| Q | money | 189 | 8 | 1 | 1 | 0 | 6 |
+| R | net | 725 | 11 | 1 | 2 | 2 | 46 |
+| S | os | 274 | 6 | 0 | 0 | 0 | 35 |
+| T | regex | 298 | 11 | 0 | 0 | 2 | 6 |
+| U | resource | 364 | 0 | 0 | 0 | 0 | 0 |
+| V | strings | 875 | 10 | 0 | 0 | 1 | 16 |
+| W | term | 477 | 9 | 1 | 3 | 0 | 33 |
+| X | testing | 175 | 1 | 0 | 0 | 0 | 8 |
+| Y | thread | 840 | 7 | 0 | 1 | 0 | 0 |
+| Z | tls | 427 | 10 | 0 | 1 | 1 | 13 |
+| AA | vector | 770 | 7 | 1 | 1 | 1 | 23 |
 
 ### Verified properties
 
@@ -129,14 +158,17 @@ packages currently have source companions via `package_source_glue!` for
   companion types (`LineStyle`, `FillStyle`); verified by reading
   `src/builtins/term.rs:is_builtin_type`, `builtin_type_fields`, and
   `package_source_glue!`.
-- The target packages already have byte-identity coverage; verified by
-  `find tests/byte-identity -path '*/{strings,datetime,encoding,money,term}/*/project.json'`
-  returning one project per target package.
+- `errorcode` and `resource` expose zero descriptor-owned helpers today; their
+  letters are documentation-scale, not behavior-scale (still land the
+  `BuiltinModule` static so the registry is exhaustive).
+- Every listed package already has byte-identity or runtime-behavior coverage
+  except `thread` and `resource`; those two letters explicitly call out that
+  their gate is `cargo test` plus targeted syntax fixtures. Verified by the
+  census `fixtures` column above.
 
 ## Design Overview
 
-Add a descriptor model in `src/builtins/mod.rs` or a new
-`src/builtins/descriptor.rs`:
+Add a descriptor model in `src/builtins/descriptor.rs`:
 
 - `BuiltinModule`: package name, functions, builtin types, optional source, and
   resolver.
@@ -160,21 +192,29 @@ lookup cost matters.
 
 Correctness risk concentrates where descriptors replace resolution behavior:
 datetime named-argument overloads, datetime default padding and implementation
-dispatch, encoding typed overloads and monomorph target resolution, term builtin
-type fields, and source injection order. Those land after the core and low-risk
-data-only modules.
+dispatch, encoding typed overloads and monomorph target resolution, audio /
+crypto / http / net / json / vector / tls / regex / strings / csv custom
+behavior surfaces, and source injection order. The per-package letters land in
+alphabetical order so the schedule is predictable; the higher-risk letters
+(H datetime, I encoding, R net, C audio) can be re-ordered if a blocker
+appears, but the descriptor core must still land first.
 
 Rejected alternatives:
 
-- Flip all consumers directly to new data in one change. Rejected because 70
-  direct helper calls and multiple type oracles make regression localization poor
-  (`rg -o ... src | wc -l → 70`).
+- Flip all consumers directly to new data in one change. Rejected because 449
+  direct helper call sites and multiple type oracles make regression
+  localization poor (`rg -o 'builtins::[a-z_]+::[a-zA-Z0-9_]+' src | wc -l →
+  449`).
 - Store only documentation strings and keep parsing them for argument types.
   Rejected because bug-340 already identifies `expected_arguments` parsing as a
   drift surface.
 - Model source companion types only in `.mfb` package source. Rejected because
   `term` already splits `TermColor`/`TermSize` and `LineStyle`/`FillStyle`; the
   descriptor must describe all builtin types uniformly.
+- Bundle multiple packages into a single letter. Rejected because 209 helpers
+  across 26 packages produced too much churn per letter in the previous
+  five-target scoping; per-package letters keep each landing reviewable and
+  give parity tests a clean per-module boundary.
 
 ## Compatibility / Format Impact
 
@@ -185,42 +225,69 @@ as a regression unless proven stale under AGENTS.md.
 
 ## Sub-plan Roadmap
 
-- [plan-72-A](plan-72-A-descriptor-core.md): descriptor types, registry API, and
-  compatibility wrappers with no behavior change.
-- [plan-72-B](plan-72-B-data-modules.md): migrate data-shaped `money`, `term`,
-  and most of `strings`.
-- [plan-72-C](plan-72-C-source-and-type-registry.md): source injection and builtin
-  type lookup through descriptors.
-- [plan-72-D](plan-72-D-custom-resolvers.md): migrate custom `datetime` and
-  `encoding` resolver behavior.
-- [plan-72-E](plan-72-E-delete-free-function-surface.md): switch all direct
-  consumers, remove duplicated five-package helper APIs, and run full validation.
+- [plan-72-A](plan-72-A-descriptor-core.md): descriptor types, registry API,
+  and compatibility wrappers with no behavior change.
+- [plan-72-B](plan-72-B-app.md): migrate `app`.
+- [plan-72-C](plan-72-C-audio.md): migrate `audio`.
+- [plan-72-D](plan-72-D-bits.md): migrate `bits`.
+- [plan-72-E](plan-72-E-collections.md): migrate `collections`.
+- [plan-72-F](plan-72-F-crypto.md): migrate `crypto`.
+- [plan-72-G](plan-72-G-csv.md): migrate `csv`.
+- [plan-72-H](plan-72-H-datetime.md): migrate `datetime` (custom resolver).
+- [plan-72-I](plan-72-I-encoding.md): migrate `encoding` (custom resolver).
+- [plan-72-J](plan-72-J-errorcode.md): migrate `errorcode` (descriptor-only).
+- [plan-72-K](plan-72-K-fs.md): migrate `fs`.
+- [plan-72-L](plan-72-L-general.md): migrate `general`.
+- [plan-72-M](plan-72-M-http.md): migrate `http`.
+- [plan-72-N](plan-72-N-io.md): migrate `io`.
+- [plan-72-O](plan-72-O-json.md): migrate `json`.
+- [plan-72-P](plan-72-P-math.md): migrate `math`.
+- [plan-72-Q](plan-72-Q-money.md): migrate `money`.
+- [plan-72-R](plan-72-R-net.md): migrate `net`.
+- [plan-72-S](plan-72-S-os.md): migrate `os`.
+- [plan-72-T](plan-72-T-regex.md): migrate `regex`.
+- [plan-72-U](plan-72-U-resource.md): migrate `resource` (descriptor-only).
+- [plan-72-V](plan-72-V-strings.md): migrate `strings`.
+- [plan-72-W](plan-72-W-term.md): migrate `term`.
+- [plan-72-X](plan-72-X-testing.md): migrate `testing`.
+- [plan-72-Y](plan-72-Y-thread.md): migrate `thread`.
+- [plan-72-Z](plan-72-Z-tls.md): migrate `tls`.
+- [plan-72-AA](plan-72-AA-vector.md): migrate `vector`.
+- [plan-72-BB](plan-72-BB-aggregate-cleanup.md): delete the duplicated
+  free-function surface, collapse aggregate dispatch to registry iteration, and
+  update spec/man citations.
 
 ## Validation Plan
 
-- Unit tests: descriptor/registry parity tests for every target function,
-  overload, parameter alias, return type, default, implementation name, builtin
-  type, and source injection rule.
+- Unit tests: descriptor/registry parity tests for every package function,
+  overload, parameter alias, return type, default, implementation name,
+  builtin type, and source injection rule.
 - Full Rust suite: `cargo test`.
 - Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
 - Byte identity: run the repo's artifact/byte-identity gate used for native
   codegen changes; if the exact script name has moved, locate it with
   `rg -n 'byte-identity|artifact-gate' scripts tests`.
-- Runtime proof: execute existing `tests/rt-behavior/{strings,datetime,encoding,money,term}`
-  through the acceptance runner and confirm `.run` output is unchanged.
+- Runtime proof: execute existing `tests/rt-behavior/<pkg>` fixtures through
+  the acceptance runner and confirm `.run` output is unchanged for every
+  migrated package.
 - Doc sync: update `src/docs/spec/architecture/09_modules.md` so the builtin
-  metadata source of truth points at descriptors; update stdlib/spec references
-  only if symbol names or citations move.
+  metadata source of truth points at descriptors; update stdlib/spec
+  references only if symbol names or citations move.
 
 ## Open Decisions
 
-- Whether `ParameterType` should immediately use an existing compiler `TypeId` or
-  preserve normalized type strings behind the descriptor API. Recommendation:
+- Whether `ParameterType` should immediately use an existing compiler `TypeId`
+  or preserve normalized type strings behind the descriptor API. Recommendation:
   start with normalized strings in A, because no source inspection in this plan
   found a stable global `TypeId` suitable for static builtin metadata.
-- Whether the registry should include all builtin packages immediately or only
-  the five target modules. Recommendation: only the five target modules for
-  plan-72, with an API shape that can absorb the rest later.
+- Whether packages with zero descriptor-owned helpers today (`errorcode`,
+  `resource`) still deserve a `BuiltinModule` static. Recommendation: yes — the
+  registry stays exhaustive so `BB` can delete the aggregate arms
+  unconditionally.
+- Whether the per-package letters may land out of alphabetical order when a
+  reviewer or bug forces re-scheduling. Recommendation: yes, provided the
+  letter's `Depends on:` header still lists only `plan-72-A`; letters do not
+  depend on each other.
 
 ## Corrections
 
@@ -231,4 +298,4 @@ Filled during execution.
 This is a metadata authority migration, not a language feature. The risk is not
 the descriptor structs; it is keeping every existing resolver, named-argument,
 source-injection, and codegen-target behavior byte-for-byte equivalent while
-removing the duplicated five-package free-function surface.
+removing the duplicated free-function surface across all 26 builtin packages.

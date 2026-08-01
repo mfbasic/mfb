@@ -1,13 +1,14 @@
 # plan-72-A: descriptor core and compatibility wrappers
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 Overall Effort: huge (> 3d)
 Effort: medium (1h-2h)
 Depends on: nothing; re-run plan-72 prerequisites first.
 
 This sub-plan adds the descriptor vocabulary and registry lookup API without
-changing any package behavior. It lands first because every later migration
-depends on a tested compatibility layer.
+changing any package behavior. It lands first because every later per-package
+letter (B through AA) depends on a tested compatibility layer that can serve
+all 26 builtin modules.
 
 References: plan-72 overview, `.ai/compiler.md`, `src/builtins/mod.rs`,
 `src/syntaxcheck/builtins.rs`.
@@ -15,15 +16,19 @@ References: plan-72 overview, `.ai/compiler.md`, `src/builtins/mod.rs`,
 ## Goal
 
 - A `BuiltinModule` descriptor model exists and can answer the same metadata
-  questions as the current five-package helper functions.
+  questions as the current per-package helper functions across all 26
+  packages.
 - The descriptor API is covered by unit tests using a small test module and by
   adapter tests against at least one real package.
 
 ## Non-goals
 
-- Do not migrate any target package table yet except for minimal test fixtures.
+- Do not migrate any real package table yet except for minimal test fixtures.
 - Do not change external aggregate helper behavior.
 - Do not remove existing free functions.
+- Do not tune the descriptor API for one package's shape at the expense of the
+  others; the vocabulary must serve every one of the 26 packages listed in the
+  overview.
 
 ## Current State
 
@@ -74,10 +79,11 @@ Commit: —
       against a legacy helper set for: membership, arity, parameter names,
       parameter-name overloads, return type, expected arguments, argument types,
       implementation name, defaults, and builtin type fields where applicable.
-- [ ] Make the helper support package-specific resolver callbacks so D can reuse
-      it for datetime and encoding.
+- [ ] Make the helper support package-specific resolver callbacks so the
+      custom-resolver letters (`H` datetime, `I` encoding, and any other letter
+      whose census `custom` column is nonzero) can reuse it.
 - [ ] Document in comments that parity tests are the migration gate and must be
-      deleted only after the legacy helpers are gone in E.
+      deleted only after the legacy helpers are gone in `BB`.
 
 Acceptance: `cargo test` passes and the parity helper is used by at least one
 test-only descriptor.
