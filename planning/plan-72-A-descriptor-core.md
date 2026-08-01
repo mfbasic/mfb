@@ -101,7 +101,7 @@ Commit: b347b54e5
 Acceptance: `cargo test` passes and the parity helper is used by at least one
 test-only descriptor (proven against the REAL `bits` legacy helpers via a
 test-fixture `bits` descriptor, plus a synthetic resolver-backed module).
-Commit: —
+Commit: 8c6d00f1a
 
 ## Validation
 
