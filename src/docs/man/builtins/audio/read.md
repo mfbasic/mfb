@@ -132,3 +132,4 @@ END SUB
 - `mfb man audio available`
 - `mfb man audio close`
 - `mfb man audio types`
+- `mfb spec language builtin-functions` — the timeout convention

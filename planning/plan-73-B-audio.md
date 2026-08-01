@@ -153,21 +153,35 @@ it is exactly the kind of per-family special case plan-73 exists to remove.
 
 Acceptance: `artifact-gate` `.ncodesum` regenerated and diffs=0 (1501 goldens, 0
 diffs); `cargo test` green. — MET.
-Commit: —
+Commit: f1d9d0527
 
 ### Phase 2 — Omit = block + docs + fixtures
 
-- [ ] `src/builtins/audio.rs`: pad omitted `timeoutMs` with `TIMEOUT_UNBOUNDED_SENTINEL`;
-      route the sentinel to the block path in each backend (verify one-arg
-      `audio::poll` now blocks; `audio::read` two-arg unchanged).
-- [ ] Migrate the 4 + 4 fixtures/examples: any that relied on `audio::poll(stream)`
-      being immediate now pass `, 0`; regenerate goldens (`scripts/sync-goldens.sh`).
-- [ ] Rewrite `src/docs/man/builtins/audio/{poll,read}.md` to the convention (each
-      citing plan-73-A's section; run `scripts/update_man.sh`) and update
-      `src/docs/spec/stdlib/11_audio.md`.
+- [x] Make one-arg `audio::poll` **block** until ready. — DONE, but NOT via padding
+      `src/builtins/audio.rs` (audio has no padded-timeout path — see B-C1). Instead
+      changed the untimed `Query::Poll` codegen in each backend to block via that
+      backend's proven infinite-wait primitive: alsa `snd_pcm_wait(pcm, -1)`, windows
+      `emit_wait_event(None)` (INFINITE WaitForSingleObject — the same call the
+      blocking read uses), macos an infinite `pthread_cond_wait` loop on the stream
+      cond (mirrors the blocking read/write). `audio::read` two-arg already blocks —
+      unchanged. Removed the now-unreachable immediate `Poll` arms.
+- [x] Migrate fixtures relying on `audio::poll(stream)` being immediate. — NONE:
+      the only `audio::poll(stream)` sites are `byte-identity/audio` (codegen-only,
+      `-ast -ir`, not executed) and syntax fixtures (compile-only). No executed
+      audio fixture exists (no CI device), so nothing changed behaviorally at
+      runtime. Regenerated `byte-identity/audio` `.ncodesum` (all 5 targets).
+- [x] Rewrite `src/docs/man/builtins/audio/{poll,read}.md` to the convention (each
+      citing plan-73-A's section) and update `src/docs/spec/stdlib/11_audio.md`.
+      — DONE (poll.md: one-arg now documented as blocking, `,0`=immediate; both cite
+      `mfb spec language builtin-functions`; stdlib poll paragraph updated). Did NOT
+      run `scripts/update_man.sh` (a regeneration driver that could clobber the hand
+      edits); citations verified green instead.
 
-Acceptance: fixtures pass with new semantics; man/spec cite the canonical section;
-man_citations + spec-citation tests green; `cargo test` + `artifact-gate` green.
+Acceptance: man/spec cite the canonical section; man_citations + spec-citation
+tests green; `cargo test` green; `artifact-gate` diffs=0. NOTE — omit=block is a
+behavioral change proven by codegen byte-identity only (no CI audio device); the
+runtime block/return is not exercised in CI (explicit device-free limitation, per
+the Validation section).
 Commit: —
 
 ## Validation Plan

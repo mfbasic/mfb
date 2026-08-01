@@ -82,9 +82,11 @@ A440. Like `render`, `play` and the sequencer live in the MFBASIC source compani
 
 `audio::available(stream)` [[src/builtins/audio.rs:AVAILABLE]] returns the frames
 that can move immediately without blocking: readable frames for an `AudioInput`,
-writable frames for an `AudioOutput`. `audio::poll(stream)` is exactly
-`available(stream) > 0`; its timed overload waits up to `timeoutMs` for that
-condition. Both meanings are identical across the two backends.
+writable frames for an `AudioOutput`. Per the timeout convention, `audio::poll(stream)`
+(omitted timeout) **blocks** until that condition holds and then returns `TRUE`;
+`audio::poll(stream, 0)` is the immediate `available(stream) > 0` check; and the
+timed overload waits up to `timeoutMs` for the condition. Both meanings are
+identical across the two backends.
 
 ## `xruns`: events, not frames
 

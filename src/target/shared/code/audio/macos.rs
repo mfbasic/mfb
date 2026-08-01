@@ -1295,7 +1295,68 @@ fn lower_query(
         abi::load_u64("%v10", abi::return_register(), H_STATE),
         abi::store_u64("%v10", abi::stack_pointer(), STATE_OFF),
     ]);
-    if let Query::PollTimeout = kind {
+    if let Query::Poll = kind {
+        // plan-73-B: omit=block — poll(stream) waits indefinitely until the stream
+        // is ready (input: ring fill; output: a free buffer), then returns TRUE (the
+        // convention's readiness-query omit rule). Infinite `pthread_cond_wait`, the
+        // same primitive the blocking read/write use; callers wanting the old
+        // immediate check pass `, 0` (pollTimeout).
+        let poll_loop = format!("{symbol}_poll_loop");
+        let poll_ready = format!("{symbol}_poll_ready");
+        let poll_input = format!("{symbol}_poll_input");
+        let poll_have = format!("{symbol}_poll_have");
+        emit_pthread1(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            "pthread_mutex_lock",
+            STATE_OFF,
+            S_MUTEX,
+        )?;
+        instructions.extend([
+            abi::label(&poll_loop),
+            abi::load_u64("%v9", abi::stack_pointer(), HANDLE_OFF),
+            abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+            abi::load_u64("%v11", "%v9", H_KIND),
+            abi::compare_immediate("%v11", KIND_INPUT),
+            abi::branch_eq(&poll_input),
+            abi::load_u64("%v12", "%v10", S_FREE_TOP),
+            abi::branch(&poll_have),
+            abi::label(&poll_input),
+            abi::load_u64("%v12", "%v10", S_RING_FILL),
+            abi::label(&poll_have),
+            abi::compare_immediate("%v12", "0"),
+            abi::branch_ne(&poll_ready),
+            // Not ready: block on the stream condition until the callback signals.
+            abi::add_immediate(abi::return_register(), "%v10", S_COND),
+            abi::add_immediate(abi::ARG[1], "%v10", S_MUTEX),
+        ]);
+        platform.emit_libc_call(
+            "pthread_cond_wait",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
+        instructions.extend([abi::branch(&poll_loop), abi::label(&poll_ready)]);
+        emit_pthread1(
+            &mut EmitCtx {
+                symbol,
+                platform_imports,
+                platform,
+                instructions: &mut instructions,
+                relocations: &mut relocations,
+            },
+            "pthread_mutex_unlock",
+            STATE_OFF,
+            S_MUTEX,
+        )?;
+        instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"));
+    } else if let Query::PollTimeout = kind {
         // pollTimeout(input, timeoutMs): wait up to `timeoutMs` for data (input:
         // ring fill; output: a free buffer), returning TRUE the moment it is
         // available and FALSE at the deadline. Mirrors the timed-read wait but
@@ -1484,18 +1545,11 @@ fn lower_query(
                 abi::stack_pointer(),
                 CAP_OFF,
             )),
-            Query::Poll => {
-                let poll_set = format!("{symbol}_poll_set");
-                instructions.extend([
-                    abi::load_u64("%v9", abi::stack_pointer(), I_OFF),
-                    abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
-                    abi::compare_immediate("%v9", "0"),
-                    abi::branch_eq(&poll_set),
-                    abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
-                    abi::label(&poll_set),
-                ]);
+            // plan-73-B: `Query::Poll` now takes the blocking branch above (omit =
+            // block), so it never reaches this immediate-read path.
+            Query::Poll | Query::PollTimeout => {
+                unreachable!("poll/pollTimeout handled above")
             }
-            Query::PollTimeout => unreachable!("pollTimeout handled above"),
         }
     }
     instructions.extend([

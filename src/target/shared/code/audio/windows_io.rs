@@ -685,7 +685,7 @@ fn lower_query(
                 abi::load_u64(RESULT_VALUE_REGISTER, "%v10", W_XRUNS),
             ]);
         }
-        Query::Available | Query::Poll => {
+        Query::Available => {
             ins.extend([
                 abi::load_u64("%v9", abi::stack_pointer(), STATE_OFF),
                 abi::store_u64(abi::ZERO, "%v9", W_OUT0),
@@ -711,26 +711,25 @@ fn lower_query(
                 abi::label(&is_input),
                 abi::move_register("%v10", "%v11"),
                 abi::label(&have_avail),
+                abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
+                abi::multiply_registers(RESULT_VALUE_REGISTER, "%v10", "%v13"),
             ]);
-            match kind {
-                Query::Available => {
-                    ins.extend([
-                        abi::load_u64("%v13", abi::stack_pointer(), BPF_OFF),
-                        abi::multiply_registers(RESULT_VALUE_REGISTER, "%v10", "%v13"),
-                    ]);
-                }
-                Query::Poll => {
-                    let set = format!("{symbol}_pollset");
-                    ins.extend([
-                        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
-                        abi::compare_immediate("%v10", "0"),
-                        abi::branch_eq(&set),
-                        abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
-                        abi::label(&set),
-                    ]);
-                }
-                _ => unreachable!(),
-            }
+        }
+        Query::Poll => {
+            // plan-73-B: omit=block — wait indefinitely (INFINITE
+            // WaitForSingleObject on the stream's buffer event) until the stream is
+            // ready, then return TRUE (the convention's readiness-query omit rule).
+            // Reuses the same infinite-wait primitive the blocking read uses.
+            // Callers wanting the old immediate check pass `, 0` (PollTimeout).
+            emit_wait_event(symbol, None, platform_imports, platform, &mut ins, &mut rel)?;
+            let set = format!("{symbol}_pollset");
+            ins.extend([
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
+                abi::compare_immediate(abi::return_register(), "0"),
+                abi::branch_ne(&set),
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
+                abi::label(&set),
+            ]);
         }
         Query::PollTimeout => {
             // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a

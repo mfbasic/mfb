@@ -1675,7 +1675,7 @@ fn lower_query(
                 abi::label(&clamp),
             ]);
         }
-        Query::Available | Query::Poll => {
+        Query::Available => {
             emit_dlopen(
                 &mut EmitCtx {
                     symbol,
@@ -1711,19 +1711,54 @@ fn lower_query(
                 abi::branch_ge(&clamp),
                 abi::move_immediate("%v12", "Integer", "0"),
                 abi::label(&clamp),
+                abi::move_register(RESULT_VALUE_REGISTER, "%v12"),
             ]);
-            if let Query::Poll = kind {
-                let set = format!("{symbol}_poll_set");
-                instructions.extend([
-                    abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
-                    abi::compare_immediate("%v12", "0"),
-                    abi::branch_eq(&set),
-                    abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
-                    abi::label(&set),
-                ]);
-            } else {
-                instructions.push(abi::move_register(RESULT_VALUE_REGISTER, "%v12"));
-            }
+        }
+        Query::Poll => {
+            // plan-73-B: omit=block — `snd_pcm_wait(pcm, -1)` blocks indefinitely
+            // until the PCM is ready for I/O, then return TRUE (the convention's
+            // readiness-query omit rule). `-1` is the infinite timeout, formed with
+            // bitwise-not of zero (encoder-safe, no negative immediate). Callers
+            // wanting the old immediate check pass `, 0` (pollTimeout).
+            emit_dlopen(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                &unavailable,
+            )?;
+            emit_alsa_call(
+                &mut EmitCtx {
+                    symbol,
+                    platform_imports,
+                    platform,
+                    instructions: &mut instructions,
+                    relocations: &mut relocations,
+                },
+                "snd_pcm_wait",
+                &unavailable,
+                false,
+                |ins, _relocs| {
+                    ins.extend([
+                        abi::load_u64("%v10", abi::stack_pointer(), STATE_OFF),
+                        abi::load_u64(abi::return_register(), "%v10", S_OSOBJECT),
+                        abi::bitwise_not(abi::ARG[1], abi::ZERO), // -1 = infinite
+                    ]);
+                },
+            )?;
+            // snd_pcm_wait returns 1 = ready (for an infinite wait it blocks until
+            // then); < 0 = error → FALSE.
+            let set = format!("{symbol}_poll_set");
+            instructions.extend([
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
+                abi::compare_immediate(abi::return_register(), "1"),
+                abi::branch_ne(&set),
+                abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "1"),
+                abi::label(&set),
+            ]);
         }
         Query::PollTimeout => {
             // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a

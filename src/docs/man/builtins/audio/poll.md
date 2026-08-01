@@ -36,12 +36,14 @@ counters. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shar
 The stream is borrowed, not consumed — the handle stays open and must still be
 closed with `audio::close` or by lexical drop. [[src/builtins/audio.rs:consumes_argument]]
 
-The one-argument form tests readiness immediately and never blocks. The
-two-argument form waits up to `timeoutMs` milliseconds for the stream to become
-ready, returning `TRUE` the moment it is and `FALSE` at the deadline; a
-`timeoutMs` of `0` is a non-blocking test. Per the language timeout convention, a
-**negative** `timeoutMs` now raises `ErrInvalidArgument` and a positive value is
-clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
+`audio::poll` follows the language timeout convention (see
+`mfb spec language builtin-functions` → "Timeout convention"). The one-argument
+form **blocks** until the stream is ready, then returns `TRUE` (omit = unbounded).
+The two-argument form waits up to `timeoutMs` milliseconds, returning `TRUE` the
+moment the stream is ready and `FALSE` at the deadline; a `timeoutMs` of `0` is a
+non-blocking test (the old one-argument behavior — callers wanting an immediate
+check pass `, 0`). A **negative** `timeoutMs` raises `ErrInvalidArgument`; a
+positive value is clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
 
 Polling never fails on the stream itself. A stream that has already been closed
 (or a defaulted handle) polls as `FALSE` rather than raising an error, so `poll`
@@ -61,14 +63,15 @@ resolved. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]][[src/target/share
 
 **`audio::poll(stream)`**
 
-Test readiness immediately without blocking. Equivalent to
-`audio::available(stream) > 0`. [[src/target/shared/code/audio/macos.rs:lower_query]]
+Block until the stream is ready, then return `TRUE` (omit = unbounded wait).
+[[src/target/shared/code/audio/macos.rs:lower_query]]
 
 **`audio::poll(stream, timeoutMs)`**
 
 Wait up to `timeoutMs` milliseconds for the stream to become ready, returning as
-soon as it is. A `timeoutMs` of `0` polls without blocking. This form lowers to a
-distinct internal body. [[src/builtins/audio.rs:implementation_name]]
+soon as it is. A `timeoutMs` of `0` polls without blocking (an immediate check); a
+negative value raises `ErrInvalidArgument`. This form lowers to a distinct
+internal body. [[src/builtins/audio.rs:implementation_name]]
 
 ## Parameters
 
@@ -128,3 +131,4 @@ END SUB
 - `mfb man audio openInput`
 - `mfb man audio close`
 - `mfb man audio types`
+- `mfb spec language builtin-functions` — the timeout convention
