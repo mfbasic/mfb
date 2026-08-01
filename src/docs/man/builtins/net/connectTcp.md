@@ -43,15 +43,19 @@ handed back as connected. A signal that interrupts the poll re-issues it instead
 of surfacing a spurious error.
 [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
 
-`timeoutMs` selects that deadline. A positive value is honored as given. A
-`timeoutMs` that is omitted, zero, or negative does **not** block indefinitely:
-it is replaced with a bounded built-in default of 120000 milliseconds, so a
-black-holed peer or a firewall silently dropping the handshake cannot wedge the
-calling thread forever. The default comfortably exceeds any real TCP handshake,
-so in practice only an unreachable peer ever reaches it. Either way the failure
-is reported as `ErrTimeout`, and the pending descriptor and the resolver results
-are released first. Because `poll` takes a C `int`, a deadline above 2147483647
-milliseconds is clamped to that value.
+`timeoutMs` selects that deadline, following the language timeout convention (see
+`mfb spec language builtin-functions` → "Timeout convention"). When it is
+**omitted the connect blocks** until the connection completes or the OS refuses it
+(there is no built-in bounded default any more). `0` is one immediate,
+non-blocking attempt: it succeeds if the connect completes at once, otherwise it
+raises `ErrTimeout` without waiting. A positive value bounds the attempt and
+raises `ErrTimeout` on the deadline. A negative `timeoutMs` raises
+`ErrInvalidArgument`. On any failure the pending descriptor and the resolver
+results are released first. Because `poll` takes a C `int`, a deadline above
+2147483647 milliseconds is clamped to that value. **A caller that must not wedge
+on a black-holed peer must pass a positive `timeoutMs`** — the former 120000 ms
+safety default is gone.
+[[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
 [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]]
 
 The four overloads do not share a positional layout: `timeoutMs` is parameter 2
@@ -70,7 +74,8 @@ and write it with `net::read`, `net::readText`, `net::write`, and
 
 **`net::connectTcp(host AS String, port AS Integer) AS Socket`**
 
-Resolves `host` and connects on `port` using the bounded default deadline.
+Resolves `host` and connects on `port`, blocking until the connection completes
+or the OS refuses it (omitted `timeoutMs` = unbounded).
 
 **`net::connectTcp(host AS String, port AS Integer, timeoutMs AS Integer) AS Socket`**
 
@@ -79,8 +84,8 @@ does not complete within `timeoutMs`.
 
 **`net::connectTcp(address AS Address) AS Socket`**
 
-Connects to the `host` and `port` carried by `address`, using the bounded default
-deadline. This is the form for an `Address` obtained from `net::lookup`.
+Connects to the `host` and `port` carried by `address`, blocking until the
+connection completes or the OS refuses it (omitted `timeoutMs` = unbounded). This is the form for an `Address` obtained from `net::lookup`.
 
 **`net::connectTcp(address AS Address, timeoutMs AS Integer) AS Socket`**
 
@@ -94,7 +99,7 @@ if the attempt exceeds `timeoutMs`. Here `timeoutMs` is parameter 1, not 2.
 | `host` | `String` | The peer's host name or textual IP address. Passed to the host resolver; a name with no address record raises an error. [[src/builtins/net.rs:call_param_name_overloads]] |
 | `port` | `Integer` | The TCP port to connect to on the peer. Written directly into the resolved address. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]] |
 | `address` | `Address` | A destination record supplying both the peer host and the peer port, typically from `net::lookup`. Replaces the separate `host` and `port` arguments. [[src/builtins/net.rs:builtin_type_fields]] |
-| `timeoutMs` | `Integer` | Optional. The maximum time the connection attempt may take, in milliseconds. A positive value bounds the attempt and raises `ErrTimeout` when it elapses; omitted, zero, or negative applies the bounded 120000 ms default instead of blocking forever. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]] |
+| `timeoutMs` | `Integer` | Optional. The maximum time the connection attempt may take, in milliseconds. Omit to block until the connection resolves; `0` is one immediate attempt (`ErrTimeout` unless it completes at once); a positive value bounds the attempt and raises `ErrTimeout` when it elapses (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`. [[src/target/shared/code/net/mod.rs:lower_net_endpoint_helper]] |
 
 ## Return value
 
@@ -107,7 +112,8 @@ if the attempt exceeds `timeoutMs`. Here `timeoutMs` is parameter 1, not 2.
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77070002` | `ErrAddressNotFound` | The host could not be resolved — it is malformed, or it has no address record. [[src/target/shared/code/error_constants.rs:ERR_ADDRESS_NOT_FOUND_CODE]] |
-| `77050008` | `ErrTimeout` | The connection did not complete before its deadline: either the positive `timeoutMs` given, or the bounded default applied when none was. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77050008` | `ErrTimeout` | The connection did not complete before its deadline: immediately when `timeoutMs` is `0` and the connect is not instant, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 | `77070003` | `ErrNetworkFailed` | The socket could not be created, or the connection failed outright — the peer refused it, the network is unreachable, or the readiness poll failed for a reason other than an interruption. [[src/target/shared/code/error_constants.rs:ERR_NETWORK_FAILED_CODE]] |
 | `77010001` | `ErrOutOfMemory` | The NUL-terminated copy of the host or the `Socket` handle record could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
 
@@ -154,3 +160,4 @@ END FUNC
 - `mfb man net write`
 - `mfb man net remoteAddress`
 - `mfb man net close`
+- `mfb spec language builtin-functions` — the timeout convention

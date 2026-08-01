@@ -1,0 +1,40 @@
+' plan-73-C: net::connectTcp timeout convention (deterministic parts).
+'  - connectTcp(host, port) with the timeout OMITTED blocks until connected; a live
+'    listener accepts, so it succeeds (proving omit routes to block, not the old
+'    120s bounded default).
+'  - connectTcp(host, port, -1) -> ErrInvalidArgument (rejected up front).
+' The 0 = one-immediate-attempt -> ErrTimeout path against a black-holed peer is
+' covered by the standing check scripts/check-net-connect-timeout.sh (a refused
+' localhost port would instead give ErrNetworkFailed — see plan Corrections).
+IMPORT net
+IMPORT io
+
+' connectTcp(host, port, -1) -> ErrInvalidArgument.
+FUNC connectNegativeInvalid(port AS Integer) AS Integer
+  RES c = net::connectTcp("127.0.0.1", port, -1)
+  net::close(c)
+  RETURN 1
+  TRAP(err)
+    IF err.code = 77050002 THEN
+      RETURN 0
+    END IF
+    io::print("connect-neg wrong " & toString(err.code))
+    RETURN 2
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  RES server = net::listenTcp("127.0.0.1", 0)
+  LET bound = net::localAddress(server)
+
+  ' Omitted timeout: blocks until connected. The listener is up, so it connects.
+  RES client = net::connectTcp("127.0.0.1", bound.port)
+  io::print("connect-omit ok")
+  net::close(client)
+
+  IF connectNegativeInvalid(bound.port) <> 0 THEN
+    RETURN 1
+  END IF
+  io::print("connect-neg invalid")
+  RETURN 0
+END FUNC

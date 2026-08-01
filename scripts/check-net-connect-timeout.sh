@@ -57,7 +57,7 @@ IMPORT net
 IMPORT io
 
 FUNC tryConnect(port AS Integer) AS Integer
-  LET sock = net::connectTcp("127.0.0.1", port, $CONNECT_TIMEOUT_MS)
+  RES sock = net::connectTcp("127.0.0.1", port, $CONNECT_TIMEOUT_MS)
   net::close(sock)
   RETURN 0
 END FUNC

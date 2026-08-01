@@ -444,14 +444,10 @@ fn lower_net_endpoint_helper(
                                      // — the real port is patched into sin_port afterward). bug-113.
     const SERVICE_OFFSET: usize = 144;
     const SERVICE_STR_OFFSET: usize = 152; // holds the bytes "0\0…"
-                                           // bug-261: a non-positive `timeoutMs` no longer blocks indefinitely. Instead
-                                           // of a plain blocking connect (which a black-holed peer or a firewall dropping
-                                           // SYNs wedges past any reasonable deadline), the non-positive case falls
-                                           // through to the same non-blocking-connect + `poll` machinery the positive
-                                           // case uses, seeded with this bounded default. 120 s comfortably exceeds any
-                                           // real TCP handshake while still bounding the wedge (docs already state the
-                                           // default "is not guaranteed to be unbounded").
-    const DEFAULT_CONNECT_TIMEOUT_MS: &str = "120000";
+    // plan-73-C: the former bounded `DEFAULT_CONNECT_TIMEOUT_MS` (120 s, bug-261) is
+    // removed. Under the timeout convention an omitted connect timeout BLOCKS until
+    // the connection resolves (like every other omit); a caller that must bound the
+    // wedge passes a positive `timeoutMs` (http does, via `__HTTP_CONNECT_TIMEOUT_MS`).
 
     let null_host = format!("{symbol}_null_host");
     let resolved = format!("{symbol}_resolved");
@@ -459,6 +455,8 @@ fn lower_net_endpoint_helper(
     let socket_fail = format!("{symbol}_socket_fail");
     let op_fail = format!("{symbol}_op_fail");
     let connect_use_timeout = format!("{symbol}_connect_use_timeout");
+    let connect_invalid = format!("{symbol}_connect_invalid");
+    let connect_ts_ok = format!("{symbol}_connect_ts_ok");
     let nb_connected = format!("{symbol}_nb_connected");
     let connect_poll_retry = format!("{symbol}_connect_poll_retry");
     let connect_poll_ready = format!("{symbol}_connect_poll_ready");
@@ -485,6 +483,23 @@ fn lower_net_endpoint_helper(
             abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
             abi::store_u64(abi::ARG[1], abi::stack_pointer(), PORT_OFFSET),
             abi::store_u64(abi::ARG[2], abi::stack_pointer(), EXTRA_OFFSET),
+        ]);
+    }
+    if !listen {
+        // plan-73-C: validate the connect `timeoutMs` up front, before the resolver
+        // or socket is allocated, so a rejection leaks nothing. The omitted overload
+        // pads the unbounded sentinel (allowed → block); any OTHER negative is
+        // `ErrInvalidArgument`. `0`/`> 0` pass through (the sentinel is converted to a
+        // -1 infinite poll at the connect wait; `EXTRA_OFFSET` is the backlog for the
+        // listen path, which does not take this check).
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), EXTRA_OFFSET),
+            abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_eq(&connect_ts_ok),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_lt(&connect_invalid),
+            abi::label(&connect_ts_ok),
         ]);
     }
     emit_hints(HINTS_OFFSET, listen, SOCK_STREAM, &mut instructions);
@@ -645,17 +660,22 @@ fn lower_net_endpoint_helper(
             abi::branch_lt(&op_fail),
         ]);
     } else {
-        // Every connect now takes the non-blocking-connect + `poll` path: a
-        // positive `timeoutMs` is honored as-is; a non-positive one (including the
-        // omitted-argument overload, which passes 0) is replaced with the bounded
-        // `DEFAULT_CONNECT_TIMEOUT_MS` so it can no longer wedge the thread forever
-        // (bug-261). Blocking mode is restored on success.
+        // plan-73-C timeout convention. Every connect takes the non-blocking-connect
+        // + `poll` path: the OMITTED overload padded the unbounded sentinel → block
+        // until the connection resolves, i.e. poll() with a -1 timeout; `0` is one
+        // immediate, non-blocking attempt (poll with a 0 timeout → `ErrTimeout`
+        // unless it completed at once); a positive value is honored (clamped to
+        // INT_MAX below). Negatives were rejected up front. The former bounded
+        // `DEFAULT_CONNECT_TIMEOUT_MS` safety default is gone — callers own the
+        // never-wedge property by passing a positive timeout (http does, via
+        // `__HTTP_CONNECT_TIMEOUT_MS`). Blocking mode is restored on success.
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), EXTRA_OFFSET),
-            abi::compare_immediate("%v9", "0"),
-            abi::branch_gt(&connect_use_timeout),
-            // Non-positive: seed the bounded default deadline, then fall through.
-            abi::move_immediate("%v9", "Integer", DEFAULT_CONNECT_TIMEOUT_MS),
+            abi::move_immediate("%v10", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+            abi::compare_registers("%v9", "%v10"),
+            abi::branch_ne(&connect_use_timeout),
+            // Omitted: convert the sentinel to -1 so poll() below blocks indefinitely.
+            abi::bitwise_not("%v9", abi::ZERO),
             abi::store_u64("%v9", abi::stack_pointer(), EXTRA_OFFSET),
             abi::label(&connect_use_timeout),
         ]);
@@ -866,6 +886,21 @@ fn lower_net_endpoint_helper(
     // closes the socket fd (loaded from FD_OFFSET below) before falling through to
     // socket_fail, which frees the addrinfo — so no fd or addrinfo leaks on the
     // error paths (bug-268 / OS-06: the earlier "fd leaks" note was stale).
+    // plan-73-C: a negative (non-sentinel) connect `timeoutMs` → ErrInvalidArgument.
+    // Reached from the up-front check before any socket/resolver allocation, so there
+    // is nothing to clean up. Emitted only on the connect path (listen never branches
+    // here) to keep the listen codegen byte-identical.
+    if !listen {
+        instructions.push(abi::label(&connect_invalid));
+        emit_fail(
+            symbol,
+            ERR_INVALID_ARGUMENT_CODE,
+            ERR_INVALID_ARGUMENT_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+    }
     instructions.push(abi::label(&op_fail));
     instructions.push(abi::load_u64(
         abi::return_register(),

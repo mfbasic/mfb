@@ -199,22 +199,39 @@ Commit: 7c4857d5f
       loopback: `accept0 timeout` / `accept-neg invalid` / `accept-omit ok`).
 
 Acceptance: accept tests pass; `artifact-gate` diffs=0; `cargo test` green. — MET
-(`cargo test` green; net acceptance passes; gate below).
-Commit: —
+(`cargo test` green; 50 net acceptance fixtures pass; gate 1505 diffs=0).
+Commit: 64e39c4ff
 
 ### Phase 3 — net::connectTcp
 
-- [ ] Confirm http passes an explicit connect timeout (`grep __HTTP_CONNECT_TIMEOUT_MS src/builtins/http_package.mfb`).
-- [ ] `src/target/shared/code/net/mod.rs`: remove `DEFAULT_CONNECT_TIMEOUT_MS` and its
-      `≤0→default` path; sentinel→block, `0`→one non-blocking attempt (`ErrTimeout`),
-      `<0`→`ErrInvalidArgument`, `>0` bounded. `src/builtins/net.rs`: omit padding → sentinel.
-- [ ] Migrate the 38 `connectTcp` sites (most pass positive timeouts — unaffected;
-      flip only omit/`0`/negative sites); regenerate goldens.
-- [ ] Rewrite `src/docs/man/builtins/net/connectTcp.md` (cite the section; note callers
-      own the never-wedge property).
-- [ ] Tests: `connectTcp(host,port,0)` to a non-listening port → `ErrTimeout`; `<0`→invalid.
+- [x] Confirm http passes an explicit connect timeout. — DONE:
+      `http_package.mfb:314` `net::connectTcp(url.host, url.port, __HTTP_CONNECT_TIMEOUT_MS)`
+      (30000ms) and `:343` `tls::connect(..., __HTTP_CONNECT_TIMEOUT_MS, ...)`, so
+      removing the default does not un-bound http.
+- [x] `src/target/shared/code/net/mod.rs`: remove `DEFAULT_CONNECT_TIMEOUT_MS` and its
+      `≤0→default` path; sentinel→block (poll -1), `0`→one non-blocking attempt
+      (poll 0 → `ErrTimeout`), `<0`→`ErrInvalidArgument`, `>0` bounded (clamp).
+      — DONE: negative-reject up front (before socket/resolver, leak-free, guarded to
+      `!listen`); sentinel→-1 at the connect wait; `connect_invalid` path added.
+      Padding → sentinel in `builder_values.rs` (not `src/builtins/net.rs`).
+- [x] Migrate `connectTcp` sites. — NONE flip: the only literal-`0` site is
+      `func_net_connectTcp_invalid` (4-arg too-many, compile-error); all omit sites
+      target live loopback listeners (connect fast, no hang). Regenerated
+      `byte-identity/net` AND `byte-identity/http` `.ncodesum` (http embeds connectTcp).
+- [x] Rewrite `src/docs/man/builtins/net/connectTcp.md` (cite the section; callers own
+      the never-wedge property). — DONE.
+- [x] Tests: `connectTcp(...,0)`→`ErrTimeout`; `<0`→invalid; omit→block. — DONE:
+      `net-connect-timeout-convention-rt` (runtime-proven: `connect-omit ok` /
+      `connect-neg invalid`) + the standing `scripts/check-net-connect-timeout.sh`
+      (PASS: bounded connect → `ErrTimeout` in 1s against a blackhole). Also FIXED a
+      pre-existing bug in that script (`LET sock` → `RES sock`; a `Socket` needs `RES`).
+      NOTE (correction): the plan's "`0` to a *non-listening* port → `ErrTimeout`" is
+      imprecise — a refused localhost port gives `ErrNetworkFailed` (RST); `ErrTimeout`
+      requires a *filtered/black-holed* peer (what the standing check uses).
 
-Acceptance: connect tests pass; http fixtures still pass (still bounded); `artifact-gate` diffs=0.
+Acceptance: connect tests pass; http still bounded (explicit timeout); `artifact-gate`
+diffs=0. — MET (`cargo test` green; 51 net acceptance fixtures pass; standing check
+PASS; gate below).
 Commit: —
 
 ### Phase 4 — set*Timeout flip + ErrTimeout collapse (largest blast radius)

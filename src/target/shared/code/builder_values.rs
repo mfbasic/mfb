@@ -1819,13 +1819,16 @@ impl CodeBuilder<'_> {
         } else if target == "net.connectTcp" {
             // `connectTcp(Address, timeoutMs?)` keeps its single Address argument
             // and is routed to the `net.connectTcpAddr` helper below; the
-            // `connectTcp(host, port, timeoutMs?)` form fills the default timeout.
+            // `connectTcp(host, port, timeoutMs?)` form is 3-arg. The only ever-missing
+            // argument is the trailing `timeoutMs`; plan-73-C pads it with the
+            // unbounded sentinel so an omitted connect timeout BLOCKS until the
+            // connection resolves (was the 120s DEFAULT_CONNECT_TIMEOUT_MS).
             let is_address = self.net_connect_is_address_form(args);
             let target_args = if is_address { 2 } else { 3 };
             while helper_args.len() < target_args {
                 helper_args.push(NirValue::Const {
                     type_: "Integer".to_string(),
-                    value: "0".to_string(),
+                    value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
                 });
             }
         } else if target == "net.listenTcp" && helper_args.len() == 2 {
