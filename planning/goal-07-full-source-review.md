@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: IN PROGRESS (363 / 402 files reviewed)
+Status: IN PROGRESS (378 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -216,6 +216,8 @@ call.)
 | bug-416 | audio/windows_io.rs:706,557,382, windows.rs:23 | Correctness/mem — WASAPI `available` bytes-not-frames + capture data loss + mix OOB + doc (4-item) | MED | Open |
 | bug-417 | win_x86_64/code.rs:38 | Correctness — `FIONBIO` constant corrupted (0x8004547E vs 0x8004667E); sockets never non-blocking; **verified** | MED | Open |
 | bug-418 | win_x86_64/app/mod.rs:798 | Memory-safety — transcript NUL store past 64 KiB wbuf on ≥32 KiB print (arena OOB) | MED | Open |
+| bug-419 | repository/src/server.rs:953,2534 | Security — challenge/signing rate-limit keyed on unauth `owner` → targeted account lockout | MED | Open |
+| bug-420 | repository/src/server.rs:1697, client.rs:65, store.rs:1592 | Security — org admin→owner escalation + client redirect SSRF + fuzzy-search DoS (3-item) | LOW | Open |
 
 ## File census & progress
 
@@ -798,24 +800,24 @@ call.)
 
 **`repository/src/`**
 
-- [ ] `repository/src/abi.rs` (1063 loc)
-- [ ] `repository/src/backfill.rs` (656 loc)
-- [ ] `repository/src/blobstore.rs` (936 loc)
-- [ ] `repository/src/client.rs` (4074 loc)
-- [ ] `repository/src/crypto.rs` (398 loc)
-- [ ] `repository/src/gc.rs` (1166 loc)
-- [ ] `repository/src/lib.rs` (19 loc)
-- [ ] `repository/src/local.rs` (926 loc)
-- [ ] `repository/src/log.rs` (368 loc)
-- [ ] `repository/src/main.rs` (1188 loc)
-- [ ] `repository/src/package.rs` (840 loc)
-- [ ] `repository/src/server.rs` (8831 loc)
-- [ ] `repository/src/store.rs` (5621 loc)
-- [ ] `repository/src/validation.rs` (172 loc)
+- [x] `repository/src/abi.rs` (1063 loc) — clean
+- [x] `repository/src/backfill.rs` (656 loc) — clean
+- [x] `repository/src/blobstore.rs` (936 loc) — clean
+- [x] `repository/src/client.rs` (4074 loc) — bug-420 (item 2)
+- [x] `repository/src/crypto.rs` (398 loc) — clean
+- [x] `repository/src/gc.rs` (1166 loc) — clean
+- [x] `repository/src/lib.rs` (19 loc) — clean
+- [x] `repository/src/local.rs` (926 loc) — clean
+- [x] `repository/src/log.rs` (368 loc) — clean
+- [x] `repository/src/main.rs` (1188 loc) — clean
+- [x] `repository/src/package.rs` (840 loc) — clean
+- [x] `repository/src/server.rs` (8831 loc) — bug-419, bug-420 (item 1)
+- [x] `repository/src/store.rs` (5621 loc) — bug-420 (items 1, 3)
+- [x] `repository/src/validation.rs` (172 loc) — clean
 
 **`repository/src/web/`**
 
-- [ ] `repository/src/web/mod.rs` (1082 loc)
+- [x] `repository/src/web/mod.rs` (1082 loc) — clean
 
 ### root build script (1 file)
 
