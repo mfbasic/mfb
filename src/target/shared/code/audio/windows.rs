@@ -128,7 +128,9 @@ const FINAL_LIST_OFF: usize = 184; // read timeout: right-sized result
 const GOTBYTES_OFF: usize = 192;
 const CSTR_OFF: usize = 200; // wstr->string scratch (source pointer save)
 
-const TIMEOUT_MAX: &str = "86400000"; // 24h, matches the other backends
+// plan-73-B: the convention clamps a too-large `timeoutMs` to INT_MAX (the
+// deadline math takes a C `int`) rather than raising the old 24h cap.
+const TIMEOUT_CLAMP_MS: &str = "2147483647";
 
 // --- GUID / CLSID / IID data objects (Windows GUID byte order) --------------
 fn guid_symbol(name: &str) -> String {

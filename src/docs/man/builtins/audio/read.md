@@ -35,12 +35,13 @@ consumed — the handle stays open and must still be closed with `audio::close`
 or by lexical drop. [[src/builtins/audio.rs:consumes_argument]]
 
 `frames` must be in `1..=1048576`: a value below `1` or above `1048576` raises
-`ErrInvalidArgument` before capture begins. The timed form additionally caps
-`timeoutMs` at `86400000` (24 hours) — a larger value raises
-`ErrInvalidArgument`. Only that upper bound is enforced; a `timeoutMs` of `0`
-(or any non-positive value) is accepted and returns immediately with whatever
-whole frames are already buffered, exactly like a poll.
-[[src/target/shared/code/audio/macos.rs:READ_FRAMES_MAX]][[src/target/shared/code/audio/alsa.rs:TIMEOUT_MAX]]
+`ErrInvalidArgument` before capture begins. The timed form's `timeoutMs` follows
+the language timeout convention (see `mfb spec language builtin-functions` →
+"Timeout convention"): a **negative** value raises `ErrInvalidArgument`; `0`
+returns immediately with whatever whole frames are already buffered (a poll); a
+positive value waits up to that many milliseconds, **clamped to `2147483647`**
+(the deadline math takes a C `int`) rather than raising the former 24-hour cap.
+[[src/target/shared/code/audio/macos.rs:READ_FRAMES_MAX]][[src/target/shared/code/audio/alsa.rs:TIMEOUT_CLAMP_MS]]
 
 The two-argument form blocks until exactly `frames` frames are captured. The
 three-argument form returns early when `timeoutMs` elapses, yielding only whole
@@ -81,7 +82,7 @@ immediately with whatever whole frames are already buffered, without blocking.
 | --- | --- | --- |
 | `input` | `AudioInput` | An open capture stream, from `audio::openInput`. Borrowed, not consumed. Reading after close raises `ErrAudioDevice`. [[src/builtins/audio.rs:consumes_argument]] |
 | `frames` | `Integer` | Number of frames to capture. Must be in `1..=1048576`. [[src/target/shared/code/audio/macos.rs:READ_FRAMES_MAX]] |
-| `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). Must not exceed `86400000` (24 hours); `0` or any non-positive value returns immediately with whatever is buffered. [[src/target/shared/code/audio/macos.rs:TIMEOUT_MAX]] |
+| `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). A negative value raises `ErrInvalidArgument`; `0` returns immediately with whatever is buffered; a positive value is clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:TIMEOUT_CLAMP_MS]] |
 
 ## Return value
 
@@ -93,7 +94,7 @@ immediately with whatever whole frames are already buffered, without blocking.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050002` | `ErrInvalidArgument` | `frames` is below `1` or above `1048576`, or (timed form) `timeoutMs` exceeds `86400000`. [[src/target/shared/code/audio/macos.rs:READ_FRAMES_MAX]][[src/target/shared/code/audio/alsa.rs:TIMEOUT_MAX]] |
+| `77050002` | `ErrInvalidArgument` | `frames` is below `1` or above `1048576`, or (timed form) `timeoutMs` is negative. [[src/target/shared/code/audio/macos.rs:READ_FRAMES_MAX]][[src/target/shared/code/audio/alsa.rs:TIMEOUT_CLAMP_MS]] |
 | `77050018` | `ErrAudioDevice` | The stream is already closed, or the device failed during capture. [[src/target/shared/code/audio/macos.rs:lower_read]][[src/target/shared/code/audio/alsa.rs:lower_read]] |
 | `77050017` | `ErrAudioUnavailable` | Linux only: `libasound.so.2` (or a required symbol) could not be resolved at runtime. [[src/target/shared/code/audio/alsa.rs:emit_dlopen]] |
 | `77010001` | `ErrOutOfMemory` | Allocation of the result byte list failed. [[src/target/shared/code/audio/macos.rs:lower_read]][[src/target/shared/code/audio/alsa.rs:lower_read]] |

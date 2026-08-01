@@ -135,8 +135,10 @@ starts where alsa-lib is absent, and every `audio::` call there raises
   stream operation failed.
 - `ErrInvalidArgument` (`7-705-0002`) — a parameter is out of range: `sampleRate`
   outside `8000..192000`, `channels` other than 1 or 2, `bufferFrames` outside
-  `64..8192`, `read` `frames` outside `1..1048576`, `timeoutMs` outside
-  `0..86400000`, or a `write` length that is not a nonzero whole number of frames.
+  `64..8192`, `read` `frames` outside `1..1048576`, a **negative** `timeoutMs`
+  (a too-large `timeoutMs` is clamped to `2147483647`, not rejected — the language
+  timeout convention), or a `write` length that is not a nonzero whole number of
+  frames.
 
 The two audio codes are registered in the constant registry by the diagnostics
 topic; see `mfb spec diagnostics error-codes`.

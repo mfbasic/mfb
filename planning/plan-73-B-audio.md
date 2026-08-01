@@ -22,9 +22,18 @@ See plan-73-A's Prerequisites table (whole-feature gate). Additionally:
 
 | Must be true | Command | Status |
 |---|---|---|
-| plan-73-A complete (convention + constants + spec section landed) | `git log --oneline | grep plan-73-A` and `mfb spec language builtin-functions` shows "Timeout convention" | NOT MET until A lands |
+| plan-73-A complete (convention + constants + spec section landed) | `git log --oneline | grep plan-73-A` and `mfb spec language builtin-functions` shows "Timeout convention" | MET — A landed a234b2e87 (in worktree-P-73); `mfb spec language builtin-functions` shows §18.4 |
 
 If plan-73-A is not complete, this sub-plan cannot start, full stop.
+
+> **Correction (B-C1): audio uses distinct internal names, not padded timeouts.**
+> Unlike thread/net, `audio::poll`/`audio::read` do NOT pad an omitted timeout —
+> the descriptor routes the omit form to a *separate* internal call
+> (`audio.poll`/`audio.read`) and the timed form to `audio.pollTimeout`/
+> `audio.readTimeout` (`src/builtins/audio.rs` `internal_name`, verified via `lower_audio_*`
+> dispatchers). So "omit = block" (Phase 2) is implemented by changing what the
+> untimed `audio.poll` codegen DOES (immediate→block), not by swapping a padded
+> value. `TIMEOUT_UNBOUNDED_SENTINEL` is therefore not used by audio.
 
 ## 1. Goal
 
@@ -121,16 +130,29 @@ it is exactly the kind of per-family special case plan-73 exists to remove.
 
 ### Phase 1 — Negative-reject + clamp
 
-- [ ] Add a single negative-`timeoutMs` → `ErrInvalidArgument` check for
-      `audio::poll` and `audio::read` (shared entry preferred; cite `net::poll`'s
-      check as the pattern). Remove per-backend "not range-checked" behavior.
-- [ ] Replace the `86400000`-raises path with a clamp to `2147483647` in
-      `alsa.rs`, `macos.rs`, `windows.rs`/`windows_io.rs`.
-- [ ] Tests: unit/validation test that negative → `ErrInvalidArgument`; a codegen
-      test/golden proving the clamp.
+- [x] Add a negative-`timeoutMs` → `ErrInvalidArgument` check for `audio::poll`
+      (`pollTimeout`) and `audio::read` (`readTimeout`), mirroring `net::poll`.
+      — DONE per-backend (not a single shared entry: each backend's timed path owns
+      its own prologue; the descriptor has no shared runtime check site — see B-C1).
+      alsa `lower_read`+`lower_query`(PollTimeout), macos `lower_read`+`lower_query`,
+      windows_io `lower_read`+`lower_query`. Added an `invalid`→`ErrInvalidArgument`
+      path to each `lower_query` (guarded to `PollTimeout` so other queries stay
+      byte-identical).
+- [x] Replace the `86400000`-raises path with a clamp to `2147483647` in
+      `alsa.rs`, `macos.rs`, `windows.rs`/`windows_io.rs`. — DONE: renamed
+      `TIMEOUT_MAX`(86400000) → `TIMEOUT_CLAMP_MS`("2147483647") in each backend;
+      the timed read/poll now clamps (compare/branch_le/move) and stores the clamped
+      value back before the wait, instead of raising.
+- [x] Tests: codegen golden proving the reject+clamp. — DONE: regenerated
+      `byte-identity/audio` `.ncodesum` for all 5 targets (the fixture covers
+      `read(_, _, N)` and `poll(_, N)`). NOTE — no CI audio device, so the
+      negative-reject/clamp are proven by codegen byte-identity, NOT runtime
+      (device-free limitation, per the plan's Validation section). A unit
+      "validation" test is not applicable: the check is emitted runtime code, not a
+      compile-time diagnostic.
 
-Acceptance: negative rejected in tests; `artifact-gate` `.ncodesum` regenerated and
-diffs=0; `cargo test` green.
+Acceptance: `artifact-gate` `.ncodesum` regenerated and diffs=0 (1501 goldens, 0
+diffs); `cargo test` green. — MET.
 Commit: —
 
 ### Phase 2 — Omit = block + docs + fixtures

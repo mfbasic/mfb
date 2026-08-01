@@ -1255,6 +1255,7 @@ fn lower_query(
     let is_input = format!("{symbol}_input");
     let have = format!("{symbol}_have");
     let closed = format!("{symbol}_closed");
+    let invalid = format!("{symbol}_invalid");
     let done = format!("{symbol}_done");
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
@@ -1270,6 +1271,20 @@ fn lower_query(
             abi::stack_pointer(),
             TIMEOUT_OFF,
         ));
+        // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a
+        // too-large one to INT_MAX, storing the clamped value back for the deadline.
+        let timeout_clamped = format!("{symbol}_pt_clamped");
+        instructions.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_lt(&invalid),
+            abi::move_immediate("%v11", "Integer", TIMEOUT_CLAMP_MS),
+            abi::compare_registers("%v9", "%v11"),
+            abi::branch_le(&timeout_clamped),
+            abi::move_register("%v9", "%v11"),
+            abi::label(&timeout_clamped),
+            abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
+        ]);
     }
     instructions.extend([
         // Closed-resource guard: a defaulted/closed handle has an invalid (null)
@@ -1490,9 +1505,23 @@ fn lower_query(
         abi::label(&closed),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
-        abi::label(&done),
-        abi::return_(),
     ]);
+    // plan-73-B: negative `timeoutMs` on `pollTimeout` → ErrInvalidArgument. Only
+    // `PollTimeout` branches here, so guard it to keep the other queries' codegen
+    // byte-identical.
+    if matches!(kind, Query::PollTimeout) {
+        instructions.push(abi::branch(&done));
+        instructions.push(abi::label(&invalid));
+        emit_fail(
+            symbol,
+            ERR_INVALID_ARGUMENT_CODE,
+            ERR_INVALID_ARGUMENT_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+    }
+    instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], F);
     Ok((frame, instructions, relocations, stack_slots))
 }
@@ -1628,7 +1657,9 @@ const PRECHK_SIZE: usize = 456;
 const PRECHK_ID: usize = 464;
 const RINGCAP_OFF: usize = 472;
 const MAPSIZE_OFF: usize = 480;
-const TIMEOUT_MAX: &str = "86400000";
+// plan-73-B: the convention clamps a too-large `timeoutMs` to INT_MAX (the
+// deadline math takes a C `int`) rather than raising the old 24h cap.
+const TIMEOUT_CLAMP_MS: &str = "2147483647";
 
 /// openInput(sampleRate, channels, bufferFrames) or the device overload.
 fn lower_open_input(
@@ -2036,11 +2067,20 @@ fn lower_read(
         abi::store_u64("%v12", abi::stack_pointer(), NEED_OFF),
     ]);
     if timeout {
+        // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a
+        // too-large one to INT_MAX rather than raising, then store the clamped value
+        // back for the deadline math below. Mirrors net::poll's clamp.
+        let timeout_clamped = format!("{symbol}_timeout_clamped");
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
-            abi::move_immediate("%v11", "Integer", TIMEOUT_MAX),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_lt(&invalid),
+            abi::move_immediate("%v11", "Integer", TIMEOUT_CLAMP_MS),
             abi::compare_registers("%v9", "%v11"),
-            abi::branch_gt(&invalid),
+            abi::branch_le(&timeout_clamped),
+            abi::move_register("%v9", "%v11"),
+            abi::label(&timeout_clamped),
+            abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
         ]);
     }
     // Allocate the result (sized for the full request) before the lock, and cache

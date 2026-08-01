@@ -290,7 +290,9 @@ fn emit_call_fnptr(instructions: &mut Vec<CodeInstruction>, returns_pointer: boo
 // Upper bound on a timed `audio::read` (plan-33-A §3.5). The open-parameter
 // ranges and `READ_FRAMES_MAX` are shared in `common` (bug-330); this bound is
 // ALSA-only, so it stays here.
-const TIMEOUT_MAX: &str = "86400000"; // 24h, matches the macOS timed-read bound
+// plan-73-B: the convention clamps a too-large `timeoutMs` to INT_MAX (the host
+// deadline math takes a C `int`) rather than raising the old 24h cap.
+const TIMEOUT_CLAMP_MS: &str = "2147483647";
 
 /// dlsym `name` into `FNPTR_OFF`, stage the args via `stage`, call it, and leave
 /// the (sign-extended) result in the return register.
@@ -1278,11 +1280,20 @@ fn lower_read(
         abi::store_u64("%v12", abi::stack_pointer(), NEED_OFF),
     ]);
     if timeout {
+        // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a
+        // too-large one to INT_MAX rather than raising, then store the clamped value
+        // back for the deadline math below. Mirrors net::poll's clamp.
+        let timeout_clamped = format!("{symbol}_timeout_clamped");
         instructions.extend([
             abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
-            abi::move_immediate("%v11", "Integer", TIMEOUT_MAX),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_lt(&invalid),
+            abi::move_immediate("%v11", "Integer", TIMEOUT_CLAMP_MS),
             abi::compare_registers("%v9", "%v11"),
-            abi::branch_gt(&invalid),
+            abi::branch_le(&timeout_clamped),
+            abi::move_register("%v9", "%v11"),
+            abi::label(&timeout_clamped),
+            abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
         ]);
     }
     emit_alloc_byte_list(
@@ -1632,6 +1643,7 @@ fn lower_query(
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     let unavailable = format!("{symbol}_unavailable");
+    let invalid = format!("{symbol}_invalid");
     let closed = format!("{symbol}_closed");
     let clamp = format!("{symbol}_clamp");
     let done = format!("{symbol}_done");
@@ -1714,6 +1726,22 @@ fn lower_query(
             }
         }
         Query::PollTimeout => {
+            // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a
+            // too-large one to INT_MAX (`snd_pcm_wait` takes a C `int`). The value
+            // was spilled to FRAMES_OFF at entry; store the clamped value back so the
+            // wait call reloads it.
+            let timeout_clamped = format!("{symbol}_pt_clamped");
+            instructions.extend([
+                abi::load_u64("%v9", abi::stack_pointer(), FRAMES_OFF),
+                abi::compare_immediate("%v9", "0"),
+                abi::branch_lt(&invalid),
+                abi::move_immediate("%v11", "Integer", TIMEOUT_CLAMP_MS),
+                abi::compare_registers("%v9", "%v11"),
+                abi::branch_le(&timeout_clamped),
+                abi::move_register("%v9", "%v11"),
+                abi::label(&timeout_clamped),
+                abi::store_u64("%v9", abi::stack_pointer(), FRAMES_OFF),
+            ]);
             emit_dlopen(
                 &mut EmitCtx {
                     symbol,
@@ -1772,6 +1800,20 @@ fn lower_query(
         &mut relocations,
         &done,
     );
+    // plan-73-B: negative `timeoutMs` on `pollTimeout` → ErrInvalidArgument. Only
+    // `PollTimeout` branches here, so emitting the path for the other queries would
+    // needlessly perturb their byte-identical codegen.
+    if matches!(kind, Query::PollTimeout) {
+        instructions.push(abi::label(&invalid));
+        emit_fail(
+            symbol,
+            ERR_INVALID_ARGUMENT_CODE,
+            ERR_INVALID_ARGUMENT_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
+    }
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
     let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME);

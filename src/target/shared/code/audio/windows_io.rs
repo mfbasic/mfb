@@ -478,11 +478,20 @@ fn lower_read(
         abi::store_u64("%v12", abi::stack_pointer(), NEED_OFF),
     ]);
     if timeout {
+        // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a
+        // too-large one to INT_MAX rather than raising, then store the clamped value
+        // back for the wait below. Mirrors net::poll's clamp.
+        let timeout_clamped = format!("{symbol}_timeout_clamped");
         ins.extend([
             abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
-            abi::move_immediate("%v11", "Integer", TIMEOUT_MAX),
+            abi::compare_immediate("%v9", "0"),
+            abi::branch_lt(&invalid),
+            abi::move_immediate("%v11", "Integer", TIMEOUT_CLAMP_MS),
             abi::compare_registers("%v9", "%v11"),
-            abi::branch_gt(&invalid),
+            abi::branch_le(&timeout_clamped),
+            abi::move_register("%v9", "%v11"),
+            abi::label(&timeout_clamped),
+            abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
         ]);
     }
     emit_alloc_byte_list(symbol, "main", NEED_OFF, LIST_OFF, &alloc_fail, &mut ins, &mut rel);
@@ -654,6 +663,7 @@ fn lower_query(
     platform: &dyn CodegenPlatform,
 ) -> HelperResult {
     let closed = format!("{symbol}_closed");
+    let invalid = format!("{symbol}_invalid");
     let done = format!("{symbol}_done");
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
@@ -723,6 +733,20 @@ fn lower_query(
             }
         }
         Query::PollTimeout => {
+            // plan-73-B: reject a negative `timeoutMs` (ErrInvalidArgument); clamp a
+            // too-large one to INT_MAX, storing the clamped value back for the wait.
+            let timeout_clamped = format!("{symbol}_pt_clamped");
+            ins.extend([
+                abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
+                abi::compare_immediate("%v9", "0"),
+                abi::branch_lt(&invalid),
+                abi::move_immediate("%v11", "Integer", TIMEOUT_CLAMP_MS),
+                abi::compare_registers("%v9", "%v11"),
+                abi::branch_le(&timeout_clamped),
+                abi::move_register("%v9", "%v11"),
+                abi::label(&timeout_clamped),
+                abi::store_u64("%v9", abi::stack_pointer(), TIMEOUT_OFF),
+            ]);
             emit_wait_event(symbol, Some(TIMEOUT_OFF), platform_imports, platform, &mut ins, &mut rel)?;
             let set = format!("{symbol}_ptset");
             ins.extend([
@@ -741,9 +765,21 @@ fn lower_query(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
-        abi::label(&done),
-        abi::return_(),
     ]);
+    // plan-73-B: negative `timeoutMs` on `pollTimeout` → ErrInvalidArgument. Guarded
+    // to PollTimeout so the other queries' codegen stays byte-identical.
+    if matches!(kind, Query::PollTimeout) {
+        ins.push(abi::label(&invalid));
+        emit_fail(
+            symbol,
+            ERR_INVALID_ARGUMENT_CODE,
+            ERR_INVALID_ARGUMENT_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
+    }
+    ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME);
     Ok((frame, ins, rel, slots))
 }

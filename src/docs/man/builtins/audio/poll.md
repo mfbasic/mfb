@@ -39,12 +39,14 @@ closed with `audio::close` or by lexical drop. [[src/builtins/audio.rs:consumes_
 The one-argument form tests readiness immediately and never blocks. The
 two-argument form waits up to `timeoutMs` milliseconds for the stream to become
 ready, returning `TRUE` the moment it is and `FALSE` at the deadline; a
-`timeoutMs` of `0` is a non-blocking test. `timeoutMs` is not range-checked —
-any `Integer` is accepted. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
+`timeoutMs` of `0` is a non-blocking test. Per the language timeout convention, a
+**negative** `timeoutMs` now raises `ErrInvalidArgument` and a positive value is
+clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
 
 Polling never fails on the stream itself. A stream that has already been closed
 (or a defaulted handle) polls as `FALSE` rather than raising an error, so `poll`
-is always safe to call. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
+is always safe to call. The one exception is a negative `timeoutMs` on the timed
+form, which raises `ErrInvalidArgument`. [[src/target/shared/code/audio/macos.rs:lower_query]][[src/target/shared/code/audio/alsa.rs:lower_query]]
 
 On macOS the counters are maintained by the Core Audio callback thread and read
 under the stream mutex; the timed form waits on the stream condition variable
@@ -73,7 +75,7 @@ distinct internal body. [[src/builtins/audio.rs:implementation_name]]
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `stream` | `AudioInput` or `AudioOutput` | An open capture or playback stream, from `audio::openInput`/`audio::openOutput`. Borrowed, not consumed. A closed handle polls as `FALSE`. [[src/builtins/audio.rs:resolve_call]][[src/builtins/audio.rs:consumes_argument]] |
-| `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). `0` is a non-blocking test; not range-checked. [[src/target/shared/code/audio/macos.rs:lower_query]] |
+| `timeoutMs` | `Integer` | Maximum wait in milliseconds (timed overload only). `0` is a non-blocking test; a negative value raises `ErrInvalidArgument`; a positive value is clamped to `2147483647`. [[src/target/shared/code/audio/macos.rs:lower_query]] |
 
 ## Return value
 
