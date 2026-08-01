@@ -32,8 +32,23 @@ absolute string replaces the base, and `../` components walk upward, a hostile
 2. if that file exists and parses, recursively decode it and splice its type
    definitions into the malicious package's view (depth-capped at 64).
 
+**There are TWO sibling sites with this identical unvalidated-`owner`→`dir.join`
+pattern** (both found during goal-07, same root cause, same fix):
+
+1. `src/binary_repr/mod.rs:614` — `read_package_type_exports_resolved` (detailed
+   below).
+2. `src/manifest/package.rs:377` — `verify_foreign_type_abi_consistency` does
+   `let owner_path = dir.join(format!("{}.mfp", fref.owner));` where `dir =
+   package.parent()` and `fref.owner` is an arbitrary string decoded from an
+   untrusted dependency `.mfp` (`read_package_foreign_type_refs` →
+   `ForeignTypeRef.owner`, `binary_repr/reader.rs:665`, unvalidated). Reached on the
+   normal build path — `external_package_function_types_from_files`
+   (`package.rs:404`) is called from `src/cli/build/mod.rs:483/:697/:813` over every
+   installed dependency `.mfp`. Same `../`/absolute traversal → existence oracle +
+   attacker-triggered read of an out-of-`packages/` `.mfp`.
+
 This is the same missing-guard class as bug-58 / bug-195 (a package/dependency
-name path-joined without `validate_package_name`), at a **new site the earlier
+name path-joined without `validate_package_name`), at **new sites the earlier
 fixes never touched**. The sibling native-library locator `source` field, which
 also feeds a path join, IS re-validated here — `sections.rs:978` calls
 `crate::manifest::libraries::source_is_bare(&source)` with a comment explaining a
@@ -91,12 +106,14 @@ is never run through `validate_package_name` / `source_is_bare`.
 
 ## Blast Radius
 
-- `src/binary_repr/mod.rs:614` — fixed by this bug (add bare-name validation of
-  `owner` before the join).
-- `src/binary_repr/sections.rs:978` (`source` locator) — already guarded; the
-  model to copy.
-- Any other consumer of `foreign_owner` — none found beyond the resolver above
-  (grep: `foreign_owner` is only read at `mod.rs:597/608` in the same function).
+- `src/binary_repr/mod.rs:614` (`read_package_type_exports_resolved`) — fixed by
+  this bug (add bare-name validation of `owner` before the join).
+- `src/manifest/package.rs:377` (`verify_foreign_type_abi_consistency`) — the
+  second site, same unvalidated `fref.owner`→`dir.join` pattern; fixed the same way.
+- `src/binary_repr/sections.rs:978` (`source` locator) — already guarded via
+  `source_is_bare`; the model to copy.
+- Any other consumer of `foreign_owner` / `fref.owner` — none found beyond the two
+  resolvers above.
 
 ## Suggested fix (test-first, NOT landed in goal-07)
 

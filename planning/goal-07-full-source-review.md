@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: NOT STARTED (0 / 402 files reviewed)
+Status: IN PROGRESS (128 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -191,7 +191,14 @@ call.)
 
 | Bug | File(s) | Class | Severity | Status |
 |-----|---------|-------|----------|--------|
-| _(none yet)_ | | | | |
+| bug-394 | ast/doc_items, builtins/collections+net, x86_64/encode/emitter, riscv64/v128, cli/help, cli/resolve, cli/build/native_libs, rules/table, unicode/runtime_tables | Docs/text + 1 latent bounds (11-item batch) | LOW | Open |
+| bug-395 | binary_repr/mod.rs:614, manifest/package.rs:377 | Security (path traversal / `.mfp` existence oracle via unvalidated `foreign_owner`) | MED | Open |
+| bug-396 | ast/scope_privates.rs:340 | Correctness (latent) — `StateAssign.resource` not rewritten by private-rename | LOW | Open |
+| bug-397 | x86_64/encode/emitter.rs:643 | Memory-safety (latent) — `cmp`/`cmp_imm` missing zero-token guard | LOW | Open |
+| bug-398 | cli/resolve, manifest/mod, audit/lockfile + ~all `parse::<JsonValue>` sites | Security (DoS) — tinyjson unbounded recursion on untrusted JSON | MED | Open |
+| bug-399 | monomorph/lower.rs:648,775 | Security (DoS) — no total-instantiation budget → exponential fan-out | HIGH | Open |
+| bug-400 | monomorph/lower.rs:765 | Correctness (latent) — `instantiate_type` symbol collision | LOW | Open |
+| bug-401 | ir/lower.rs:1312 | Correctness / compile-time blowup — inline-`TRAP` treeify exponential duplication | MED | Open |
 
 ## File census & progress
 
@@ -255,107 +262,107 @@ call.)
 
 **`src/ast/`**
 
-- [ ] `src/ast/build.rs` (241 loc)
-- [ ] `src/ast/doc_items.rs` (355 loc)
-- [ ] `src/ast/expr.rs` (1100 loc)
-- [ ] `src/ast/items.rs` (612 loc)
-- [ ] `src/ast/lexical.rs` (127 loc)
-- [ ] `src/ast/link_items.rs` (846 loc)
-- [ ] `src/ast/manifest.rs` (591 loc)
-- [ ] `src/ast/mod.rs` (41 loc)
-- [ ] `src/ast/overloads.rs` (50 loc)
-- [ ] `src/ast/parser.rs` (349 loc)
-- [ ] `src/ast/pipeline.rs` (265 loc)
-- [ ] `src/ast/scope_privates.rs` (940 loc)
-- [ ] `src/ast/serialize.rs` (1708 loc)
-- [ ] `src/ast/stmt.rs` (797 loc)
-- [ ] `src/ast/testing.rs` (154 loc)
-- [ ] `src/ast/types.rs` (815 loc)
+- [x] `src/ast/build.rs` (241 loc) — clean
+- [x] `src/ast/doc_items.rs` (355 loc) — bug-394 (item 1)
+- [x] `src/ast/expr.rs` (1100 loc) — clean
+- [x] `src/ast/items.rs` (612 loc) — clean
+- [x] `src/ast/lexical.rs` (127 loc) — clean
+- [x] `src/ast/link_items.rs` (846 loc) — clean
+- [x] `src/ast/manifest.rs` (591 loc) — clean
+- [x] `src/ast/mod.rs` (41 loc) — clean
+- [x] `src/ast/overloads.rs` (50 loc) — clean
+- [x] `src/ast/parser.rs` (349 loc) — clean
+- [x] `src/ast/pipeline.rs` (265 loc) — clean
+- [x] `src/ast/scope_privates.rs` (940 loc) — bug-396
+- [x] `src/ast/serialize.rs` (1708 loc) — clean
+- [x] `src/ast/stmt.rs` (797 loc) — clean
+- [x] `src/ast/testing.rs` (154 loc) — clean
+- [x] `src/ast/types.rs` (815 loc) — clean
 
 **`src/audit/`**
 
-- [ ] `src/audit/json.rs` (639 loc)
-- [ ] `src/audit/mod.rs` (298 loc)
-- [ ] `src/audit/report.rs` (553 loc)
-- [ ] `src/audit/text.rs` (442 loc)
+- [x] `src/audit/json.rs` (639 loc) — clean
+- [x] `src/audit/mod.rs` (298 loc) — clean
+- [x] `src/audit/report.rs` (553 loc) — clean
+- [x] `src/audit/text.rs` (442 loc) — clean
 
 **`src/audit/collect/`**
 
-- [ ] `src/audit/collect/dependencies.rs` (220 loc)
-- [ ] `src/audit/collect/findings.rs` (594 loc)
-- [ ] `src/audit/collect/lockfile.rs` (192 loc)
-- [ ] `src/audit/collect/mod.rs` (190 loc)
-- [ ] `src/audit/collect/project.rs` (535 loc)
-- [ ] `src/audit/collect/source.rs` (1388 loc)
+- [x] `src/audit/collect/dependencies.rs` (220 loc) — clean
+- [x] `src/audit/collect/findings.rs` (594 loc) — clean
+- [x] `src/audit/collect/lockfile.rs` (192 loc) — bug-398
+- [x] `src/audit/collect/mod.rs` (190 loc) — clean
+- [x] `src/audit/collect/project.rs` (535 loc) — clean
+- [x] `src/audit/collect/source.rs` (1388 loc) — clean
 
 **`src/binary_repr/`**
 
-- [ ] `src/binary_repr/builder.rs` (288 loc)
-- [ ] `src/binary_repr/mod.rs` (930 loc)
-- [ ] `src/binary_repr/reader.rs` (1445 loc)
-- [ ] `src/binary_repr/sections.rs` (1318 loc)
-- [ ] `src/binary_repr/util.rs` (304 loc)
-- [ ] `src/binary_repr/writer.rs` (1256 loc)
+- [x] `src/binary_repr/builder.rs` (288 loc) — clean
+- [x] `src/binary_repr/mod.rs` (930 loc) — bug-395
+- [x] `src/binary_repr/reader.rs` (1445 loc) — clean
+- [x] `src/binary_repr/sections.rs` (1318 loc) — clean
+- [x] `src/binary_repr/util.rs` (304 loc) — clean
+- [x] `src/binary_repr/writer.rs` (1256 loc) — clean
 
 **`src/builtins/`**
 
-- [ ] `src/builtins/app.rs` (178 loc)
-- [ ] `src/builtins/audio.rs` (738 loc)
-- [ ] `src/builtins/bits.rs` (237 loc)
-- [ ] `src/builtins/collections.rs` (1355 loc)
-- [ ] `src/builtins/crypto.rs` (814 loc)
-- [ ] `src/builtins/csv.rs` (162 loc)
-- [ ] `src/builtins/datetime.rs` (923 loc)
-- [ ] `src/builtins/encoding.rs` (596 loc)
-- [ ] `src/builtins/errorcode.rs` (118 loc)
-- [ ] `src/builtins/fs.rs` (713 loc)
-- [ ] `src/builtins/general.rs` (815 loc)
-- [ ] `src/builtins/http.rs` (581 loc)
-- [ ] `src/builtins/io.rs` (236 loc)
-- [ ] `src/builtins/json.rs` (251 loc)
-- [ ] `src/builtins/math.rs` (616 loc)
-- [ ] `src/builtins/mod.rs` (1113 loc)
-- [ ] `src/builtins/money.rs` (189 loc)
-- [ ] `src/builtins/net.rs` (725 loc)
-- [ ] `src/builtins/os.rs` (274 loc)
-- [ ] `src/builtins/regex.rs` (298 loc)
-- [ ] `src/builtins/resource.rs` (364 loc)
-- [ ] `src/builtins/strings.rs` (875 loc)
-- [ ] `src/builtins/term.rs` (477 loc)
-- [ ] `src/builtins/testing.rs` (175 loc)
-- [ ] `src/builtins/thread.rs` (840 loc)
-- [ ] `src/builtins/tls.rs` (427 loc)
-- [ ] `src/builtins/vector.rs` (770 loc)
+- [x] `src/builtins/app.rs` (178 loc) — clean
+- [x] `src/builtins/audio.rs` (738 loc) — clean
+- [x] `src/builtins/bits.rs` (237 loc) — clean
+- [x] `src/builtins/collections.rs` (1355 loc) — bug-394 (item 2)
+- [x] `src/builtins/crypto.rs` (814 loc) — clean
+- [x] `src/builtins/csv.rs` (162 loc) — clean
+- [x] `src/builtins/datetime.rs` (923 loc) — clean
+- [x] `src/builtins/encoding.rs` (596 loc) — clean
+- [x] `src/builtins/errorcode.rs` (118 loc) — clean
+- [x] `src/builtins/fs.rs` (713 loc) — clean
+- [x] `src/builtins/general.rs` (815 loc) — clean
+- [x] `src/builtins/http.rs` (581 loc) — clean
+- [x] `src/builtins/io.rs` (236 loc) — clean
+- [x] `src/builtins/json.rs` (251 loc) — clean
+- [x] `src/builtins/math.rs` (616 loc) — clean
+- [x] `src/builtins/mod.rs` (1113 loc) — clean
+- [x] `src/builtins/money.rs` (189 loc) — clean
+- [x] `src/builtins/net.rs` (725 loc) — bug-394 (item 3)
+- [x] `src/builtins/os.rs` (274 loc) — clean
+- [x] `src/builtins/regex.rs` (298 loc) — clean
+- [x] `src/builtins/resource.rs` (364 loc) — clean
+- [x] `src/builtins/strings.rs` (875 loc) — clean
+- [x] `src/builtins/term.rs` (477 loc) — clean
+- [x] `src/builtins/testing.rs` (175 loc) — clean
+- [x] `src/builtins/thread.rs` (840 loc) — clean
+- [x] `src/builtins/tls.rs` (427 loc) — clean
+- [x] `src/builtins/vector.rs` (770 loc) — clean
 
 **`src/cli/`**
 
-- [ ] `src/cli/dispatch.rs` (241 loc)
-- [ ] `src/cli/doc.rs` (237 loc)
-- [ ] `src/cli/fmt.rs` (286 loc)
-- [ ] `src/cli/help.rs` (224 loc)
-- [ ] `src/cli/init.rs` (344 loc)
-- [ ] `src/cli/man.rs` (478 loc)
-- [ ] `src/cli/mod.rs` (512 loc)
-- [ ] `src/cli/pkg.rs` (3296 loc)
-- [ ] `src/cli/repo.rs` (616 loc)
-- [ ] `src/cli/resolve.rs` (1741 loc)
-- [ ] `src/cli/spec.rs` (342 loc)
-- [ ] `src/cli/version.rs` (120 loc)
+- [x] `src/cli/dispatch.rs` (241 loc) — clean
+- [x] `src/cli/doc.rs` (237 loc) — clean
+- [x] `src/cli/fmt.rs` (286 loc) — clean
+- [x] `src/cli/help.rs` (224 loc) — bug-394 (item 6)
+- [x] `src/cli/init.rs` (344 loc) — clean
+- [x] `src/cli/man.rs` (478 loc) — clean
+- [x] `src/cli/mod.rs` (512 loc) — clean
+- [x] `src/cli/pkg.rs` (3296 loc) — clean
+- [x] `src/cli/repo.rs` (616 loc) — clean
+- [x] `src/cli/resolve.rs` (1741 loc) — bug-398, bug-394 (item 7)
+- [x] `src/cli/spec.rs` (342 loc) — clean
+- [x] `src/cli/version.rs` (120 loc) — clean
 
 **`src/cli/build/`**
 
-- [ ] `src/cli/build/mod.rs` (3566 loc)
-- [ ] `src/cli/build/native_libs.rs` (418 loc)
-- [ ] `src/cli/build/options.rs` (156 loc)
-- [ ] `src/cli/build/packages.rs` (244 loc)
-- [ ] `src/cli/build/resources.rs` (136 loc)
-- [ ] `src/cli/build/signing.rs` (200 loc)
-- [ ] `src/cli/build/test_mode.rs` (65 loc)
+- [x] `src/cli/build/mod.rs` (3566 loc) — clean
+- [x] `src/cli/build/native_libs.rs` (418 loc) — bug-394 (items 8, 9)
+- [x] `src/cli/build/options.rs` (156 loc) — clean
+- [x] `src/cli/build/packages.rs` (244 loc) — clean
+- [x] `src/cli/build/resources.rs` (136 loc) — clean
+- [x] `src/cli/build/signing.rs` (200 loc) — clean
+- [x] `src/cli/build/test_mode.rs` (65 loc) — clean
 
 **`src/doc/`**
 
-- [ ] `src/doc/html.rs` (734 loc)
-- [ ] `src/doc/mod.rs` (402 loc)
+- [x] `src/doc/html.rs` (734 loc) — clean
+- [x] `src/doc/mod.rs` (402 loc) — clean
 
 **`src/ir/`**
 
@@ -363,7 +370,7 @@ call.)
 - [ ] `src/ir/docs.rs` (210 loc)
 - [ ] `src/ir/json.rs` (908 loc)
 - [ ] `src/ir/link.rs` (1201 loc)
-- [ ] `src/ir/lower.rs` (3697 loc)
+- [x] `src/ir/lower.rs` (3697 loc) — bug-401
 - [ ] `src/ir/lower_link.rs` (387 loc)
 - [ ] `src/ir/mod.rs` (99 loc)
 - [ ] `src/ir/op.rs` (128 loc)
@@ -386,18 +393,18 @@ call.)
 
 **`src/manifest/`**
 
-- [ ] `src/manifest/entry.rs` (280 loc)
-- [ ] `src/manifest/json_edit.rs` (533 loc)
-- [ ] `src/manifest/libraries.rs` (911 loc)
-- [ ] `src/manifest/mod.rs` (2284 loc)
-- [ ] `src/manifest/package.rs` (1609 loc)
-- [ ] `src/manifest/url.rs` (61 loc)
+- [x] `src/manifest/entry.rs` (280 loc) — clean
+- [x] `src/manifest/json_edit.rs` (533 loc) — clean
+- [x] `src/manifest/libraries.rs` (911 loc) — clean
+- [x] `src/manifest/mod.rs` (2284 loc) — bug-398
+- [x] `src/manifest/package.rs` (1609 loc) — bug-395 (2nd site)
+- [x] `src/manifest/url.rs` (61 loc) — clean
 
 **`src/monomorph/`**
 
-- [ ] `src/monomorph/helpers.rs` (977 loc)
-- [ ] `src/monomorph/lower.rs` (2893 loc)
-- [ ] `src/monomorph/mod.rs` (108 loc)
+- [x] `src/monomorph/helpers.rs` (977 loc) — clean
+- [x] `src/monomorph/lower.rs` (2893 loc) — bug-399, bug-400
+- [x] `src/monomorph/mod.rs` (108 loc) — clean
 
 **`src/os/`**
 
@@ -463,8 +470,8 @@ call.)
 
 **`src/rules/`**
 
-- [ ] `src/rules/mod.rs` (317 loc)
-- [ ] `src/rules/table.rs` (1476 loc)
+- [x] `src/rules/mod.rs` (317 loc) — clean
+- [x] `src/rules/table.rs` (1476 loc) — bug-394 (item 10)
 
 **`src/syntaxcheck/`**
 
@@ -742,9 +749,9 @@ call.)
 
 **`src/unicode/`**
 
-- [ ] `src/unicode/backend.rs` (66 loc)
-- [ ] `src/unicode/mod.rs` (5 loc)
-- [ ] `src/unicode/runtime_tables.rs` (573 loc)
+- [x] `src/unicode/backend.rs` (66 loc) — clean
+- [x] `src/unicode/mod.rs` (5 loc) — clean
+- [x] `src/unicode/runtime_tables.rs` (573 loc) — bug-394 (item 11)
 
 ### `src/builtins/*.mfb` — hand-written stdlib packages (19 files)
 

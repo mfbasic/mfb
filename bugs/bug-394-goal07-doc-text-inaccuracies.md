@@ -103,6 +103,27 @@ is unimplemented pre-51)." plan-51..66 (Linux app/AppImage) are complete/merged,
 the arm is now live on every Linux `--app` build (tested at mod.rs:1836-1843).
 - Fix: drop the "unimplemented pre-51 / never reaches" claim.
 
+### (10) `src/rules/table.rs:717` — retired-code comment contradicts a live reuse
+The comment says `// 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in
+plan-26-C: ... The code is not reused.` But `2-203-0102` IS reused: line 640
+assigns it to `TYPE_INSTANTIATION_TOO_DEEP`, and the embedded spec confirms it
+(`src/docs/spec/diagnostics/01_rule-codes.md:99,:373`). The identical boilerplate is
+correct for the parallel `2-208-0007` case (line 1467, genuinely skipped) — a
+copy-paste comment error.
+- Fix: correct the line-717 comment to reflect that `2-203-0102` is reused by
+  `TYPE_INSTANTIATION_TOO_DEEP` (or remove the "not reused" claim).
+
+### (11) `src/unicode/runtime_tables.rs:108` — unchecked `stage1` index (latent panic, not text)
+`property_for_codepoint(codepoint: u32)` indexes `tables.stage1[(codepoint >> 8) as
+usize]` with no bounds guard; `stage1.len()` is 4352 (valid for `codepoint` ≤
+0x10FFFF), so any `codepoint > 0x10FFFF` panics OOB. Latent only: the fn carries a
+documented `#[allow(dead_code)]` (bug-326-D4) with no production caller (the emitted
+runtime does its own lookup); reachable only if a future caller passes an
+out-of-range `u32`. (Included here as a batched LOW latent nit; it is a bounds
+guard, not a text fix.)
+- Fix: clamp/guard `codepoint > 0x10FFFF` (return the default property) before the
+  index, matching the runtime's own behavior.
+
 ## Goal
 
 - Each message/comment above matches the behavior of the code it annotates.
