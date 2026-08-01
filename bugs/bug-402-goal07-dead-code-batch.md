@@ -76,6 +76,14 @@ unconditionally true and the `else` field-copy loop at `:1354-1361` (plus the
 `fields = Vec::new()`). Leftover from a pre-early-return refactor.
 - Fix: delete the dead `else` branch and simplify the guard.
 
+### (6) `src/target/shared/code/builder_simd_float_math.rs:517` — dead exp-setup broadcast
+In `emit_float_kernel_setup`, the `Exp` arm emits `broadcast_i64(&k.v23, -1022)`, but
+`k.v23` is never read anywhere in `emit_exp_body` (:1499-1629; exp uses v16-v21,
+v24-v29). `-1022` was the old subnormal-flush bound (bug-130), replaced by the
+two-step `2^n1·2^n2` scaling + v25/v26 saturation. The setup line is residual and
+emits a wasted broadcast on every `math::exp` call.
+- Fix: delete the dead `broadcast_i64(&k.v23, -1022)` in the Exp setup arm.
+
 ## Goal
 
 - No production field/item is retained solely on a "consumed by a later phase"

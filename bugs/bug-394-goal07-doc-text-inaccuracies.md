@@ -144,6 +144,14 @@ now a two-mode loop).
 - Fix: drop/rewrite the stale first paragraph on both `emit_fixed_sincos` and
   `emit_cordic` to match current behavior.
 
+### (14) `src/target/shared/code/builder_simd_fixed_math.rs:118` — stale "x0 digit counter" comment
+`emit_fixed_sqrt_vector`'s header comment says "Uses `x0` as the (shared) digit
+counter and physical `v1..v7`…", but the code (`:156`) allocates the digit counter
+via `self.allocate_register()` (an allocator-placed vreg per plan-34-B, per its own
+inline comment at :154-155). The "x0 digit counter" half is stale; "physical v1..v7"
+is still accurate.
+- Fix: update the header comment to say the digit counter is an allocator vreg.
+
 ## Goal
 
 - Each message/comment above matches the behavior of the code it annotates.

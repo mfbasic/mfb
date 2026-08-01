@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: IN PROGRESS (282 / 402 files reviewed)
+Status: IN PROGRESS (314 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -208,6 +208,7 @@ call.)
 | bug-408 | linux_x86_64/code.rs:225 | Memory-safety — x86-64 thread trampoline double-applies realign (glibc 88=SIGSEGV, musl 96); **byte-verified** | HIGH | Open |
 | bug-409 | shared/code/link_thunk.rs:619 | Correctness — CDouble struct-field/OUT-slot branches to unemitted label → build failure | MED | Open |
 | bug-410 | shared/code/term_grid.rs:1144 | Correctness — `term::sync` present-write ignores EINTR → frame corruption; dead `write_retry` | MED | Open |
+| bug-411 | shared/code/datetime.rs:72 | Correctness — `WIN_FILETIME_MAX_UNIX_SEC` ~1000× too large, defeats FILETIME overflow guard | LOW | Open |
 
 ## File census & progress
 
@@ -555,52 +556,52 @@ call.)
 - [x] `src/target/shared/code/architecture_guards.rs` (141 loc) — clean
 - [x] `src/target/shared/code/arena.rs` (1201 loc) — clean
 - [x] `src/target/shared/code/builder_arena_transfer.rs` (1131 loc) — clean
-- [ ] `src/target/shared/code/builder_bits.rs` (313 loc)
+- [x] `src/target/shared/code/builder_bits.rs` (313 loc) — clean
 - [x] `src/target/shared/code/builder_collection_compare.rs` (552 loc) — clean
 - [x] `src/target/shared/code/builder_collection_layout.rs` (2758 loc) — clean
 - [x] `src/target/shared/code/builder_collection_queries.rs` (3504 loc) — clean
 - [x] `src/target/shared/code/builder_collection_query.rs` (697 loc) — clean
 - [x] `src/target/shared/code/builder_control.rs` (1653 loc) — clean
 - [x] `src/target/shared/code/builder_conversions.rs` (1581 loc) — clean
-- [ ] `src/target/shared/code/builder_emit_helpers.rs` (439 loc)
-- [ ] `src/target/shared/code/builder_error_emission.rs` (1036 loc)
-- [ ] `src/target/shared/code/builder_exits.rs` (450 loc)
+- [x] `src/target/shared/code/builder_emit_helpers.rs` (439 loc) — clean
+- [x] `src/target/shared/code/builder_error_emission.rs` (1036 loc) — clean
+- [x] `src/target/shared/code/builder_exits.rs` (450 loc) — clean
 - [x] `src/target/shared/code/builder_fixed_math.rs` (1054 loc) — bug-394 (item 13)
 - [x] `src/target/shared/code/builder_fmod.rs` (194 loc) — clean
-- [ ] `src/target/shared/code/builder_fs_paths.rs` (698 loc)
-- [ ] `src/target/shared/code/builder_inplace_assign.rs` (607 loc)
+- [x] `src/target/shared/code/builder_fs_paths.rs` (698 loc) — clean
+- [x] `src/target/shared/code/builder_inplace_assign.rs` (607 loc) — clean
 - [x] `src/target/shared/code/builder_math.rs` (1329 loc) — clean
 - [x] `src/target/shared/code/builder_money.rs` (148 loc) — clean
 - [x] `src/target/shared/code/builder_money_math.rs` (445 loc) — clean
 - [x] `src/target/shared/code/builder_numeric.rs` (1709 loc) — clean
 - [x] `src/target/shared/code/builder_owned_cleanup.rs` (206 loc) — clean
 - [x] `src/target/shared/code/builder_pow.rs` (916 loc) — clean
-- [ ] `src/target/shared/code/builder_registers.rs` (280 loc)
+- [x] `src/target/shared/code/builder_registers.rs` (280 loc) — clean
 - [x] `src/target/shared/code/builder_resource_cleanup.rs` (490 loc) — clean
-- [ ] `src/target/shared/code/builder_search.rs` (1210 loc)
-- [ ] `src/target/shared/code/builder_simd_fixed_math.rs` (343 loc)
-- [ ] `src/target/shared/code/builder_simd_float_math.rs` (2273 loc)
-- [ ] `src/target/shared/code/builder_simd_math.rs` (1006 loc)
+- [x] `src/target/shared/code/builder_search.rs` (1210 loc) — clean
+- [x] `src/target/shared/code/builder_simd_fixed_math.rs` (343 loc) — bug-394 (item 14)
+- [x] `src/target/shared/code/builder_simd_float_math.rs` (2273 loc) — bug-402 (item 6)
+- [x] `src/target/shared/code/builder_simd_math.rs` (1006 loc) — clean
 - [x] `src/target/shared/code/builder_strings.rs` (2019 loc) — clean
 - [x] `src/target/shared/code/builder_strings_builtins.rs` (2909 loc) — clean
 - [x] `src/target/shared/code/builder_strings_package.rs` (442 loc) — clean
 - [x] `src/target/shared/code/builder_thread_cleanup.rs` (224 loc) — clean
 - [x] `src/target/shared/code/builder_value_semantics.rs` (926 loc) — clean
 - [x] `src/target/shared/code/builder_values.rs` (1930 loc) — bug-402 (item 5)
-- [ ] `src/target/shared/code/builder_vector_inline.rs` (417 loc)
+- [x] `src/target/shared/code/builder_vector_inline.rs` (417 loc) — clean
 - [x] `src/target/shared/code/code_impl.rs` (394 loc) — clean
 - [x] `src/target/shared/code/codegen_utils.rs` (898 loc) — bug-407, bug-394 (item 12)
 - [x] `src/target/shared/code/collection_buffer.rs` (477 loc) — clean
 - [x] `src/target/shared/code/collection_mutate.rs` (477 loc) — clean
-- [ ] `src/target/shared/code/crypto.rs` (218 loc)
-- [ ] `src/target/shared/code/crypto_ec.rs` (127 loc)
-- [ ] `src/target/shared/code/data_objects.rs` (1328 loc)
-- [ ] `src/target/shared/code/datetime.rs` (357 loc)
+- [x] `src/target/shared/code/crypto.rs` (218 loc) — clean
+- [x] `src/target/shared/code/crypto_ec.rs` (127 loc) — clean
+- [x] `src/target/shared/code/data_objects.rs` (1328 loc) — clean
+- [x] `src/target/shared/code/datetime.rs` (357 loc) — bug-411
 - [x] `src/target/shared/code/entry.rs` (1247 loc) — clean
 - [ ] `src/target/shared/code/error_constants.rs` (1005 loc)
 - [x] `src/target/shared/code/error_result.rs` (129 loc) — clean
-- [ ] `src/target/shared/code/float_format.rs` (596 loc)
-- [ ] `src/target/shared/code/fma_fusion.rs` (308 loc)
+- [x] `src/target/shared/code/float_format.rs` (596 loc) — clean
+- [x] `src/target/shared/code/fma_fusion.rs` (308 loc) — clean
 - [x] `src/target/shared/code/function_lowering.rs` (1002 loc) — clean
 - [x] `src/target/shared/code/io_stdin.rs` (1285 loc) — clean
 - [x] `src/target/shared/code/io_stdout.rs` (717 loc) — clean
@@ -612,14 +613,14 @@ call.)
 - [x] `src/target/shared/code/mir.rs` (1701 loc) — clean
 - [x] `src/target/shared/code/mod.rs` (2905 loc) — clean
 - [x] `src/target/shared/code/module_analysis.rs` (1069 loc) — clean
-- [ ] `src/target/shared/code/native_helpers.rs` (363 loc)
-- [ ] `src/target/shared/code/peephole.rs` (532 loc)
-- [ ] `src/target/shared/code/perf.rs` (963 loc)
+- [x] `src/target/shared/code/native_helpers.rs` (363 loc) — clean
+- [x] `src/target/shared/code/peephole.rs` (532 loc) — clean
+- [x] `src/target/shared/code/perf.rs` (963 loc) — clean
 - [x] `src/target/shared/code/process_lifecycle.rs` (147 loc) — clean
-- [ ] `src/target/shared/code/rng_pcg64.rs` (204 loc)
+- [x] `src/target/shared/code/rng_pcg64.rs` (204 loc) — clean
 - [x] `src/target/shared/code/runtime_helpers.rs` (1398 loc) — clean
 - [x] `src/target/shared/code/runtime_helpers_thread.rs` (1519 loc) — clean
-- [ ] `src/target/shared/code/simd_kernel_coeffs.rs` (109 loc)
+- [x] `src/target/shared/code/simd_kernel_coeffs.rs` (109 loc) — clean
 - [x] `src/target/shared/code/stdin_broadcast.rs` (1195 loc) — clean
 - [x] `src/target/shared/code/term.rs` (1809 loc) — clean
 - [x] `src/target/shared/code/term_grid.rs` (1205 loc) — bug-410
@@ -647,16 +648,16 @@ call.)
 
 **`src/target/shared/code/fs/`**
 
-- [ ] `src/target/shared/code/fs/atomic.rs` (1571 loc)
-- [ ] `src/target/shared/code/fs/io.rs` (2747 loc)
-- [ ] `src/target/shared/code/fs/mod.rs` (231 loc)
-- [ ] `src/target/shared/code/fs/paths.rs` (1767 loc)
+- [x] `src/target/shared/code/fs/atomic.rs` (1571 loc) — clean
+- [x] `src/target/shared/code/fs/io.rs` (2747 loc) — clean
+- [x] `src/target/shared/code/fs/mod.rs` (231 loc) — clean
+- [x] `src/target/shared/code/fs/paths.rs` (1767 loc) — clean
 
 **`src/target/shared/code/net/`**
 
-- [ ] `src/target/shared/code/net/io.rs` (2093 loc)
-- [ ] `src/target/shared/code/net/mod.rs` (997 loc)
-- [ ] `src/target/shared/code/net/poll.rs` (265 loc)
+- [x] `src/target/shared/code/net/io.rs` (2093 loc) — clean
+- [x] `src/target/shared/code/net/mod.rs` (997 loc) — clean
+- [x] `src/target/shared/code/net/poll.rs` (265 loc) — clean
 
 **`src/target/shared/code/os/`**
 
@@ -667,8 +668,8 @@ call.)
 
 **`src/target/shared/code/private/`**
 
-- [ ] `src/target/shared/code/private/mod.rs` (1 loc)
-- [ ] `src/target/shared/code/private/unicode.rs` (1071 loc)
+- [x] `src/target/shared/code/private/mod.rs` (1 loc) — clean
+- [x] `src/target/shared/code/private/unicode.rs` (1071 loc) — clean
 
 **`src/target/shared/code/regalloc/`**
 
