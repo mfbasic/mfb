@@ -124,6 +124,15 @@ guard, not a text fix.)
 - Fix: clamp/guard `codepoint > 0x10FFFF` (return the default property) before the
   index, matching the runtime's own behavior.
 
+### (12) `src/target/shared/code/codegen_utils.rs:22-23` — stale register-legend comment
+The legend for `lower_sort_string_list_helper` says `x11 = data region base
+(entries base + count * entry size)`, but the code (lines 44-48, and its own inline
+comment) computes the data-region base from `COLLECTION_OFFSET_CAPACITY`
+(`entries base + capacity * entry size`) — correct for a grown list (capacity >
+count). A maintainer trusting the "count" legend could reintroduce a real defect
+(short data region → name-pointer reads land in the wrong region → wrong sort).
+- Fix: change the legend to "capacity * entry size".
+
 ## Goal
 
 - Each message/comment above matches the behavior of the code it annotates.

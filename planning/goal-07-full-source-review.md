@@ -542,8 +542,8 @@ call.)
 
 **`src/target/shared/code/`**
 
-- [ ] `src/target/shared/code/app.rs` (130 loc)
-- [ ] `src/target/shared/code/architecture_guards.rs` (141 loc)
+- [x] `src/target/shared/code/app.rs` (130 loc) — clean
+- [x] `src/target/shared/code/architecture_guards.rs` (141 loc) — clean
 - [ ] `src/target/shared/code/arena.rs` (1201 loc)
 - [ ] `src/target/shared/code/builder_arena_transfer.rs` (1131 loc)
 - [ ] `src/target/shared/code/builder_bits.rs` (313 loc)
@@ -579,20 +579,20 @@ call.)
 - [ ] `src/target/shared/code/builder_value_semantics.rs` (926 loc)
 - [ ] `src/target/shared/code/builder_values.rs` (1930 loc)
 - [ ] `src/target/shared/code/builder_vector_inline.rs` (417 loc)
-- [ ] `src/target/shared/code/code_impl.rs` (394 loc)
-- [ ] `src/target/shared/code/codegen_utils.rs` (898 loc)
+- [x] `src/target/shared/code/code_impl.rs` (394 loc) — clean
+- [x] `src/target/shared/code/codegen_utils.rs` (898 loc) — bug-407, bug-394 (item 12)
 - [ ] `src/target/shared/code/collection_buffer.rs` (477 loc)
 - [ ] `src/target/shared/code/collection_mutate.rs` (477 loc)
 - [ ] `src/target/shared/code/crypto.rs` (218 loc)
 - [ ] `src/target/shared/code/crypto_ec.rs` (127 loc)
 - [ ] `src/target/shared/code/data_objects.rs` (1328 loc)
 - [ ] `src/target/shared/code/datetime.rs` (357 loc)
-- [ ] `src/target/shared/code/entry.rs` (1247 loc)
+- [x] `src/target/shared/code/entry.rs` (1247 loc) — clean
 - [ ] `src/target/shared/code/error_constants.rs` (1005 loc)
-- [ ] `src/target/shared/code/error_result.rs` (129 loc)
+- [x] `src/target/shared/code/error_result.rs` (129 loc) — clean
 - [ ] `src/target/shared/code/float_format.rs` (596 loc)
 - [ ] `src/target/shared/code/fma_fusion.rs` (308 loc)
-- [ ] `src/target/shared/code/function_lowering.rs` (1002 loc)
+- [x] `src/target/shared/code/function_lowering.rs` (1002 loc) — clean
 - [ ] `src/target/shared/code/io_stdin.rs` (1285 loc)
 - [ ] `src/target/shared/code/io_stdout.rs` (717 loc)
 - [ ] `src/target/shared/code/io_terminal.rs` (260 loc)
@@ -601,12 +601,12 @@ call.)
 - [ ] `src/target/shared/code/list_mutate.rs` (2510 loc)
 - [ ] `src/target/shared/code/map_mutate.rs` (1571 loc)
 - [ ] `src/target/shared/code/mir.rs` (1701 loc)
-- [ ] `src/target/shared/code/mod.rs` (2905 loc)
-- [ ] `src/target/shared/code/module_analysis.rs` (1069 loc)
+- [x] `src/target/shared/code/mod.rs` (2905 loc) — clean
+- [x] `src/target/shared/code/module_analysis.rs` (1069 loc) — clean
 - [ ] `src/target/shared/code/native_helpers.rs` (363 loc)
 - [ ] `src/target/shared/code/peephole.rs` (532 loc)
 - [ ] `src/target/shared/code/perf.rs` (963 loc)
-- [ ] `src/target/shared/code/process_lifecycle.rs` (147 loc)
+- [x] `src/target/shared/code/process_lifecycle.rs` (147 loc) — clean
 - [ ] `src/target/shared/code/rng_pcg64.rs` (204 loc)
 - [ ] `src/target/shared/code/runtime_helpers.rs` (1398 loc)
 - [ ] `src/target/shared/code/runtime_helpers_thread.rs` (1519 loc)
@@ -614,9 +614,9 @@ call.)
 - [ ] `src/target/shared/code/stdin_broadcast.rs` (1195 loc)
 - [ ] `src/target/shared/code/term.rs` (1809 loc)
 - [ ] `src/target/shared/code/term_grid.rs` (1205 loc)
-- [ ] `src/target/shared/code/type_utils.rs` (443 loc)
-- [ ] `src/target/shared/code/types.rs` (1284 loc)
-- [ ] `src/target/shared/code/validation.rs` (659 loc)
+- [x] `src/target/shared/code/type_utils.rs` (443 loc) — clean
+- [x] `src/target/shared/code/types.rs` (1284 loc) — clean
+- [x] `src/target/shared/code/validation.rs` (659 loc) — clean
 
 **`src/target/shared/code/audio/`**
 
