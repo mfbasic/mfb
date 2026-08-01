@@ -41,18 +41,20 @@ functions that can become the compatibility bridge.
 
 ### Phase A1 — descriptor vocabulary
 
-- [ ] Add `src/builtins/descriptor.rs` and wire `mod descriptor; pub(crate) use`
-      exports from `src/builtins/mod.rs`.
-- [ ] Define `BuiltinModule`, `BuiltinFunction`, `BuiltinOverload`, `Parameter`,
+- [x] Add `src/builtins/descriptor.rs` and wire `mod descriptor;` into
+      `src/builtins/mod.rs` (placed in alphabetical position after `datetime`).
+      No `pub(crate) use` re-export needed: consumers reach items via
+      `builtins::descriptor::*` and none is used outside the module yet.
+- [x] Define `BuiltinModule`, `BuiltinFunction`, `BuiltinOverload`, `Parameter`,
       `ParameterType`, `ReturnType`, `DefaultValue`, `Implementation`,
       `Lowering`, `BuiltinFlags`, `BuiltinType`, `TypeKind`, `BuiltinSource`,
       `InjectionRule`, and `BuiltinResolver`.
-- [ ] Provide `DefaultResolver` methods for data-only modules: contains,
+- [x] Provide `DefaultResolver` methods for data-only modules: contains,
       arity, parameter names, argument type list, fixed return type, expected
       argument rendering, implementation name, and default padding.
-- [ ] Tests: add focused `#[cfg(test)]` tests in `descriptor.rs` for aliases,
+- [x] Tests: add focused `#[cfg(test)]` tests in `descriptor.rs` for aliases,
       min/max arity, fixed return resolution, default rendering, and unresolved
-      calls.
+      calls (9 tests, all passing).
 
 Acceptance: `cargo test` passes, and descriptor tests prove the API can derive
 the metadata currently split across `arity`, `expected_arguments`,

@@ -5,6 +5,7 @@ pub(crate) mod collections;
 pub(crate) mod crypto;
 pub(crate) mod csv;
 pub(crate) mod datetime;
+pub(crate) mod descriptor;
 pub(crate) mod encoding;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
