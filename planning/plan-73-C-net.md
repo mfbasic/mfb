@@ -268,8 +268,8 @@ Commit: 5c4c91ac6
 Acceptance: read/write-timeout tests assert 77050008; no 77070005/77070006 remains
 (grep empty across src+docs); error-codes spec has neither; `cargo test` full green;
 `artifact-gate` diffs=0; man_citations + spec-citation green. — MET (cargo test green;
-net acceptance + gate below).
-Commit: —
+net acceptance pass; targeted byte-identity check contained to net/http).
+Commit: 176539a53
 
 ## Validation Plan
 
