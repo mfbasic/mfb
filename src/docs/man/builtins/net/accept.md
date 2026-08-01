@@ -31,11 +31,14 @@ Each call accepts a single connection, so a server loops over `accept` to serve
 clients as they arrive. The listener is *borrowed*, not consumed: it stays open
 and usable for further accepts. [[src/builtins/net.rs:consumes_argument]]
 
-The optional `timeoutMs` bounds how long the call waits for a client, in
-milliseconds. When it is omitted the compiler supplies `0`, and a `timeoutMs` of
-zero or less takes the plain blocking path: the call waits indefinitely for a
-connection. A positive `timeoutMs` instead polls the listener for readiness
-against that deadline and raises `ErrTimeout` if no client arrives first.
+The optional `timeoutMs` follows the language timeout convention (see
+`mfb spec language builtin-functions` → "Timeout convention"). When it is
+**omitted the call blocks** indefinitely until a client connects. `0` is one
+immediate attempt: it returns a pending connection if one is already queued,
+otherwise it raises `ErrTimeout` without waiting. A positive `timeoutMs` polls
+the listener against that deadline (clamped to `2147483647`) and raises
+`ErrTimeout` if no client arrives first. A negative `timeoutMs` raises
+`ErrInvalidArgument`.
 [[src/target/shared/code/builder_values.rs:net_connect_is_address_form]]
 [[src/target/shared/code/net/io.rs:lower_net_accept_helper]]
 
@@ -61,21 +64,21 @@ earlier with `net::close`. Read and write it with `net::read`, `net::readText`,
 
 **`net::accept(listener AS Listener) AS Socket`**
 
-Blocks until a client connects and returns the connected `Socket`. The omitted
-`timeoutMs` is filled with `0`, which selects the unbounded blocking path.
+Blocks until a client connects and returns the connected `Socket` (omitted
+`timeoutMs` = unbounded wait).
 
 **`net::accept(listener AS Listener, timeoutMs AS Integer) AS Socket`**
 
 Waits at most `timeoutMs` milliseconds for a pending connection and raises
-`ErrTimeout` if none arrives. A zero or negative `timeoutMs` is equivalent to the
-one-argument form and blocks indefinitely.
+`ErrTimeout` if none arrives. `0` is one immediate attempt (`ErrTimeout` when no
+connection is already pending); a negative value raises `ErrInvalidArgument`.
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `listener` | `Listener` | An open listener in the listening state, as returned by `net::listenTcp`. It is borrowed, not consumed, and remains available for further `accept` calls. [[src/builtins/net.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | Optional. The maximum time to wait for a pending connection, in milliseconds. A positive value that elapses with no connection raises `ErrTimeout`; omitted, zero, or negative blocks indefinitely. [[src/target/shared/code/net/io.rs:lower_net_accept_helper]] |
+| `timeoutMs` | `Integer` | Optional. The maximum time to wait for a pending connection, in milliseconds. Omit to block indefinitely; `0` is one immediate attempt (`ErrTimeout` if none pending); a positive value that elapses raises `ErrTimeout` (clamped to `2147483647`); a negative value raises `ErrInvalidArgument`. [[src/target/shared/code/net/io.rs:lower_net_accept_helper]] |
 
 ## Return value
 
@@ -87,7 +90,8 @@ one-argument form and blocks indefinitely.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77050008` | `ErrTimeout` | A positive `timeoutMs` was given and no connection arrived before the deadline elapsed. The unbounded form never raises this. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77050008` | `ErrTimeout` | No connection arrived before the deadline: immediately when `timeoutMs` is `0` and none is pending, or after a positive `timeoutMs` elapsed. The omitted (unbounded) form never raises this. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
 | `77070003` | `ErrNetworkFailed` | The underlying `accept` or readiness `poll` fails for a host reason other than an interruption, an `EAGAIN` re-poll, or the deadline. [[src/target/shared/code/error_constants.rs:ERR_NETWORK_FAILED_CODE]] |
 | `77030004` | `ErrResourceClosed` | `listener` has already been closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 | `77010001` | `ErrOutOfMemory` | The `Socket` handle record for the accepted connection could not be allocated. [[src/target/shared/code/error_constants.rs:ERR_OUT_OF_MEMORY_CODE]] |
@@ -138,3 +142,4 @@ END FUNC
 - `mfb man net close`
 - `mfb man net localAddress`
 - `mfb man net remoteAddress`
+- `mfb spec language builtin-functions` — the timeout convention

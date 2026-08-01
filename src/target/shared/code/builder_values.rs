@@ -1842,9 +1842,14 @@ impl CodeBuilder<'_> {
                 value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if target == "net.accept" && helper_args.len() == 1 {
+            // plan-73-C: an omitted `net::accept` timeout blocks until a client
+            // arrives (the convention's producing-call omit rule). Pad with the
+            // unbounded sentinel; the accept helper routes it to the block path,
+            // treats `0` as one immediate attempt (`ErrTimeout` if none pending),
+            // and rejects other negatives.
             helper_args.push(NirValue::Const {
                 type_: "Integer".to_string(),
-                value: "0".to_string(),
+                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         }
         let result_type = self

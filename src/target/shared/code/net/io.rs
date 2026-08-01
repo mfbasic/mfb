@@ -108,6 +108,8 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     let accept_retry = format!("{symbol}_accept_retry");
     let accept_poll_retry = format!("{symbol}_accept_poll_retry");
     let accept_timeout = format!("{symbol}_accept_timeout");
+    let accept_ts_ok = format!("{symbol}_accept_ts_ok");
+    let accept_invalid = format!("{symbol}_accept_invalid");
     let accept_fail = format!("{symbol}_accept_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let done = format!("{symbol}_done");
@@ -121,14 +123,28 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         abi::branch_ne(&closed),
         abi::load_u64("%v9", abi::return_register(), FILE_OFFSET_FD),
         abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
-        // Bounded wait (bug-185): with a positive timeoutMs, poll(POLLIN) on the
-        // listener before accepting so a caller-supplied deadline is honored instead
-        // of blocking forever. `timeoutMs <= 0` (including the omitted-argument
-        // overload, which passes 0) keeps the plain blocking accept below.
+        // plan-73-C timeout convention. Bounded wait (bug-185): poll(POLLIN) on the
+        // listener before accepting so a caller-supplied deadline is honored. The
+        // OMITTED overload pads the unbounded sentinel (i64::MIN) → the plain
+        // block-forever accept below; `0` = one immediate attempt (poll with a 0
+        // timeout → `ErrTimeout` when no client is pending); `> 0` = bounded (clamped
+        // to INT_MAX, since poll takes a C `int`); any other negative =
+        // `ErrInvalidArgument`.
         abi::store_u64(abi::ZERO, abi::stack_pointer(), RESTORE_FLAGS_OFFSET),
         abi::load_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::move_immediate("%v11", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_eq(&accept_retry),
         abi::compare_immediate("%v10", "0"),
-        abi::branch_le(&accept_retry),
+        abi::branch_lt(&accept_invalid),
+        // Clamp a too-large timeout to INT_MAX for the poll below, then continue on
+        // the bounded path (0 → an immediate, non-blocking poll).
+        abi::move_immediate("%v11", "Integer", "2147483647"),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_le(&accept_ts_ok),
+        abi::move_register("%v10", "%v11"),
+        abi::label(&accept_ts_ok),
+        abi::store_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
     // bug-314 H2: on the BOUNDED path only, put the listener in non-blocking mode.
     // The bug-185 wait polls POLLIN and then issues a *blocking* accept, so if the
@@ -339,6 +355,17 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         symbol,
         ERR_RESOURCE_CLOSED_CODE,
         ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    // plan-73-C: a negative (non-sentinel) `timeoutMs` → ErrInvalidArgument. Reached
+    // from the prologue before any non-blocking-mode change, so no flags to restore.
+    instructions.push(abi::label(&accept_invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
         &mut instructions,
         &mut relocations,
         &done,

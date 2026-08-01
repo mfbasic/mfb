@@ -177,19 +177,29 @@ no behavior callers branched on that `ErrTimeout` cannot.
       loopback: `immediate FALSE` / `omit TRUE` / `neg invalid`).
 
 Acceptance: poll tests pass; `artifact-gate` diffs=0 after `.ncodesum` regen; man
-cites the section. — MET (`cargo test` green; net acceptance passes; gate below).
-Commit: —
+cites the section. — MET (`cargo test` green; net acceptance passes; gate 1503 diffs=0).
+Commit: 7c4857d5f
 
 ### Phase 2 — net::accept explicit-0 + negatives
 
-- [ ] `src/builtins/net.rs`: `ACCEPT` omit padding → sentinel; reject negatives.
-- [ ] `src/target/shared/code/net/io.rs`: sentinel→block, `0`→one attempt (`ErrTimeout`),
-      `>0`→wait then `ErrTimeout`, `<0`→`ErrInvalidArgument`.
-- [ ] Migrate the 19 `net::accept` sites; regenerate goldens.
-- [ ] Rewrite `src/docs/man/builtins/net/accept.md` (cite the section).
-- [ ] Tests: `accept(l,0)`→`ErrTimeout` when none pending; omit blocks; `<0`→invalid.
+- [x] `ACCEPT` omit padding → sentinel. — DONE in `builder_values.rs` (net accept
+      padding lives there, not `src/builtins/net.rs`).
+- [x] `src/target/shared/code/net/io.rs`: sentinel→block (`accept_retry`), `0`→one
+      attempt (bounded poll with a 0 timeout → `ErrTimeout`), `>0`→wait then
+      `ErrTimeout` (clamped to INT_MAX), `<0`→`ErrInvalidArgument` (new `accept_invalid`
+      path). — DONE.
+- [x] Migrate `net::accept` sites. — NONE flip: `grep` shows no `accept(_, 0)` or
+      `accept(_, -N)` literal site; all 20 sites omit (still block) or pass a positive
+      value (unchanged). Regenerated `byte-identity/net` `.ncodesum` (5 targets).
+- [x] Rewrite `src/docs/man/builtins/net/accept.md` (cite the section). — DONE
+      (omit=block, `0`=immediate `ErrTimeout`, `<0`=`ErrInvalidArgument`, clamp;
+      See-also cites `mfb spec language builtin-functions`).
+- [x] Tests: `accept(l,0)`→`ErrTimeout`; omit blocks; `<0`→invalid. — DONE:
+      `tests/rt-behavior/net/net-accept-timeout-convention-rt` (runtime-proven on
+      loopback: `accept0 timeout` / `accept-neg invalid` / `accept-omit ok`).
 
-Acceptance: accept tests pass; `artifact-gate` diffs=0; `cargo test` green.
+Acceptance: accept tests pass; `artifact-gate` diffs=0; `cargo test` green. — MET
+(`cargo test` green; net acceptance passes; gate below).
 Commit: —
 
 ### Phase 3 — net::connectTcp
@@ -255,7 +265,23 @@ Commit: —
 
 ## Corrections
 
-<Filled during execution.>
+- **C-C1 (net padding + accept helper live in codegen, not `src/builtins/net.rs`).**
+  The plan's Phase 1/2 said to change `src/builtins/net.rs` for the `POLL`/`ACCEPT`
+  omit padding. The padding actually lives in
+  `src/target/shared/code/builder_values.rs::lower_runtime_helper_call` (the
+  `net.poll`/`net.accept` 1-arg branches), and the accept timeout logic in
+  `src/target/shared/code/net/io.rs::lower_net_accept_helper`. `src/builtins/net.rs`
+  is descriptor-only. Fixed in place.
+
+- **C-C2 (a shared net-helper change churns OTHER packages' byte-identity goldens).**
+  Phase 2 changed the `net::accept` runtime helper. `http_package.mfb` calls
+  `net::accept(listener)` (line 1138), so `byte-identity/http`'s program embeds the
+  accept helper and its `.ncode` changed too — the first C Phase 2 gate reported 5
+  DIFFs, all `byte-identity/http` (across targets). Regenerated `byte-identity/http`
+  `.ncodesum` for all 5 targets alongside `byte-identity/net`. Lesson for Phase 3/4:
+  any net-helper change must regenerate BOTH `byte-identity/net` AND
+  `byte-identity/http` (http uses `connectTcp`, `accept`, `read`/`write`,
+  `setReadTimeout`). Phase 1 (poll) did NOT churn http — http doesn't poll.
 
 ## Summary
 
