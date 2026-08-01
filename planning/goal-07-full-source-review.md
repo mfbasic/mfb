@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: IN PROGRESS (378 / 402 files reviewed)
+Status: IN PROGRESS (393 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -517,10 +517,10 @@ call.)
 
 **`src/target/linux_gtk/`**
 
-- [ ] `src/target/linux_gtk/app_io.rs` (623 loc)
-- [ ] `src/target/linux_gtk/bootstrap.rs` (1001 loc)
-- [ ] `src/target/linux_gtk/mod.rs` (1162 loc)
-- [ ] `src/target/linux_gtk/term_draw.rs` (817 loc)
+- [x] `src/target/linux_gtk/app_io.rs` (623 loc) — clean
+- [x] `src/target/linux_gtk/bootstrap.rs` (1001 loc) — bug-421
+- [x] `src/target/linux_gtk/mod.rs` (1162 loc) — clean
+- [x] `src/target/linux_gtk/term_draw.rs` (817 loc) — bug-394 (item 18)
 
 **`src/target/linux_riscv64/`**
 
@@ -607,7 +607,7 @@ call.)
 - [x] `src/target/shared/code/data_objects.rs` (1328 loc) — clean
 - [x] `src/target/shared/code/datetime.rs` (357 loc) — bug-411
 - [x] `src/target/shared/code/entry.rs` (1247 loc) — clean
-- [ ] `src/target/shared/code/error_constants.rs` (1005 loc)
+- [x] `src/target/shared/code/error_constants.rs` (1005 loc) — clean
 - [x] `src/target/shared/code/error_result.rs` (129 loc) — clean
 - [x] `src/target/shared/code/float_format.rs` (596 loc) — clean
 - [x] `src/target/shared/code/fma_fusion.rs` (308 loc) — clean
@@ -776,25 +776,25 @@ call.)
 
 **`src/builtins/`**
 
-- [ ] `src/builtins/app_package.mfb` (27 loc)
-- [ ] `src/builtins/audio_mml.mfb` (496 loc)
-- [ ] `src/builtins/audio_render.mfb` (112 loc)
-- [ ] `src/builtins/collections_package.mfb` (448 loc)
+- [x] `src/builtins/app_package.mfb` (27 loc) — clean
+- [x] `src/builtins/audio_mml.mfb` (496 loc) — bug-394 (item 17)
+- [x] `src/builtins/audio_render.mfb` (112 loc) — clean
+- [x] `src/builtins/collections_package.mfb` (448 loc) — clean
 - [ ] `src/builtins/crypto_aead.mfb` (697 loc)
 - [ ] `src/builtins/crypto_ecdsa.mfb` (120 loc)
 - [ ] `src/builtins/crypto_ed25519.mfb` (567 loc)
 - [ ] `src/builtins/crypto_hash.mfb` (765 loc)
 - [ ] `src/builtins/crypto_util.mfb` (114 loc)
-- [ ] `src/builtins/csv_package.mfb` (235 loc)
-- [ ] `src/builtins/datetime_package.mfb` (1116 loc)
+- [x] `src/builtins/csv_package.mfb` (235 loc) — clean
+- [x] `src/builtins/datetime_package.mfb` (1116 loc) — clean
 - [ ] `src/builtins/encoding_package.mfb` (1273 loc)
 - [ ] `src/builtins/http_package.mfb` (1215 loc)
 - [ ] `src/builtins/json_package.mfb` (820 loc)
-- [ ] `src/builtins/money_package.mfb` (26 loc)
-- [ ] `src/builtins/net_package.mfb` (338 loc)
+- [x] `src/builtins/money_package.mfb` (26 loc) — clean
+- [x] `src/builtins/net_package.mfb` (338 loc) — clean
 - [ ] `src/builtins/regex_package.mfb` (1957 loc)
-- [ ] `src/builtins/strings_package.mfb` (101 loc)
-- [ ] `src/builtins/term_package.mfb` (60 loc)
+- [x] `src/builtins/strings_package.mfb` (101 loc) — clean
+- [x] `src/builtins/term_package.mfb` (60 loc) — clean
 
 ### `repository/src/**` — mfb-repo registry server + client (15 files)
 

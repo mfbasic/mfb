@@ -170,6 +170,22 @@ risk), and the comment's rationale is factually wrong.
 - Fix: correct the comment to reference `SYSTEM_FIXED_FONT`; separately consider
   measuring the actual font metrics for cell sizing (cosmetic, out of scope here).
 
+### (17) `src/builtins/audio_mml.mfb:4` — "whitespace-separated" but splits on space only
+The header (lines 4-5) says "A track is a whitespace-separated string of tokens;
+every token is separated by whitespace", but `__audio_mmlTokens` (line 272) splits
+only on the literal space: `strings::split(mml, " ")`. Tab/newline-separated tokens
+are NOT split (the run becomes one token → ErrInvalidArgument). The `audio::play`
+man page correctly says "splits on the space character", so the source header is the
+outlier.
+- Fix: change the header to "space-separated" to match the code and man page.
+
+### (18) `src/target/linux_gtk/term_draw.rs:388` — wrong surface-size comment
+`emit_term_init_helper`'s doc says the font cell is measured "via a throwaway 1x1
+image surface", but the code (:406-409) creates an 8×8 surface
+(`cairo_image_surface_create(ARGB32, 8, 8)`). Surface size doesn't affect the
+measured font extents, so cosmetic — but the stated dimension is wrong.
+- Fix: change "1x1" to "8x8" in the comment.
+
 ## Goal
 
 - Each message/comment above matches the behavior of the code it annotates.
