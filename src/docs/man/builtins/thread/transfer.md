@@ -66,10 +66,14 @@ the resource, so — unlike a `RES` parameter, which is an opaque non-escaping a
 resource and is deep-copied into the receiving thread's arena, so the accepted
 handle owns an independent copy. [[src/ir/verify/calls.rs:check_thread_transfer_state]] [[src/builtins/thread.rs:resolve_call]]
 
-`timeoutMs` bounds the wait for space on a full destination resource queue and
-defaults to `0`, filled in during lowering. `0` does not wait and fails at once
-with `ErrTimeout`; a positive value waits that many milliseconds against an
-absolute deadline; a negative value is rejected with `ErrInvalidArgument`. The
+`timeoutMs` bounds the wait for space on a full destination resource queue,
+following the language timeout convention (see
+`mfb spec language builtin-functions` → "Timeout convention"). **Omitting it
+blocks** until a slot frees or the queue/thread closes (lowering pads the unbounded
+sentinel). `0` makes one immediate attempt and fails at once with `ErrTimeout` when
+full; a positive value waits that many milliseconds against an absolute deadline;
+a negative value (other than the internal sentinel) is rejected with
+`ErrInvalidArgument`. The
 call is a cancellation point on the same terms as `thread::send`: it re-checks the
 thread state and cancelled flag inside the wait loop, so a blocked transfer wakes
 and fails with `ErrInterrupted` when the worker is cancelled, completes, or the
@@ -96,7 +100,7 @@ Worker-side transfer onto the parent-visible outbound resource queue. Fails with
 | --- | --- | --- |
 | `t` (also `thread`) | `Thread OF Msg RES Res TO Out` or `ThreadWorker OF Msg RES Res TO Out` | The handle whose resource-plane queue receives the resource. Must declare a `RES` plane. Borrowed, not consumed. [[src/builtins/thread.rs:call_param_names]] |
 | `res` (also `resource`) | `Res` | The resource to move. Its base resource type must match the plane's, and its `STATE` must equal the plane's `STATE`. **Consumed** on success; still owned by the sender on failure. [[src/builtins/thread.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | Optional, default `0`. Milliseconds to wait for space on a full resource queue. `0` fails immediately with `ErrTimeout`; a positive value waits that long; a negative value is rejected. |
+| `timeoutMs` | `Integer` | Optional. Milliseconds to wait for space on a full resource queue. Omit to block until space frees; `0` makes one immediate attempt and fails with `ErrTimeout` if full; a positive value waits that long; a negative value is rejected. |
 
 ## Return value
 
@@ -109,7 +113,7 @@ Worker-side transfer onto the parent-visible outbound resource queue. Fails with
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77050008` | `ErrTimeout` | The destination resource queue is full and space did not free up before `timeoutMs` elapsed — immediately when `timeoutMs` is `0`. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77050008` | `ErrTimeout` | The destination resource queue is full and space did not free up before the deadline — immediately when `timeoutMs` is `0`. (Omitting `timeoutMs` blocks instead of raising this.) [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
 | `77050009` | `ErrInterrupted` | Cancellation was requested for the worker, the worker has completed (parent-side), or the destination resource queue has been marked closed. [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]] |
 | `77030004` | `ErrResourceClosed` | Parent-side only: the `Thread` handle is already closed, for example after `thread::waitFor`. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 
@@ -169,3 +173,4 @@ END FUNC
 - `mfb man thread receive`
 - `mfb man thread start`
 - `mfb spec language resource-management`
+- `mfb spec language builtin-functions` — the timeout convention

@@ -112,6 +112,49 @@ types, so a user overload can never shadow a type the built-in already handles. 
 The reserved check covers exactly the set `{ error }`,
 enforced when the resolver inserts a function. [[src/builtins/general.rs:reserved_builtin_name]] [[src/resolver/mod.rs:insert_function]]
 
+## 18.4 Timeout convention
+
+Every built-in that can **wait** takes an optional trailing `timeoutMs AS Integer`
+and interprets it **identically**. This is the one normative rule; a family's only
+freedom is whether a given function is a *readiness query* or a *producing call*
+(defined below). There is no per-package variation in the meaning of the value.
+
+| `timeoutMs` | Meaning | Readiness query returns | Producing call does |
+|---|---|---|---|
+| omitted | unbounded — block until the event or a terminal condition (closed / cancelled / EOF / OS refusal) | (n/a — waits) | (n/a — waits) |
+| `0` | one immediate, non-blocking attempt | current-state value (`FALSE` / `-1`) | the event if already available, else `ErrTimeout` |
+| `> 0` | wait up to that many ms, clamped to `2147483647` where the host takes a C `int` | not-ready value on the deadline | `ErrTimeout` on the deadline |
+| `< 0` | rejected | `ErrInvalidArgument` (77050002) | `ErrInvalidArgument` (77050002) |
+
+- A **readiness query** has a not-ready value to return (`FALSE` for a
+  `Boolean` poll, `-1`, etc.): `net::poll`, `audio::poll`.
+- A **producing call** yields a resource, message, connection, or bytes and has
+  no not-ready value, so an unmet deadline is an error: `net::accept`,
+  `net::connectTcp`, `net::read`/`readText`/`write`/`writeText` (under a socket
+  read/write timeout), `tls::connect`, `tls::accept`, `audio::read`,
+  `thread::send`, `thread::receive`, `thread::transfer`, `thread::accept`.
+- **Expiry raises exactly one error, `ErrTimeout` (77050008)**, for every
+  producing call. There is no family-specific expiry code. (`net` read/write
+  formerly raised `ErrReadTimeout`/`ErrWriteTimeout`; thread `receive`/`accept`
+  at `0` formerly raised `ErrNotFound`. Both were retired for this convention.)
+- The **socket-option setters** `net::setReadTimeout`/`net::setWriteTimeout` bind
+  a socket's subsequent read/write deadline rather than waiting themselves: `0`
+  makes those operations non-blocking (immediate `ErrTimeout` when not ready),
+  `> 0` bounds them, `< 0` is `ErrInvalidArgument`. A fresh socket is unbounded;
+  the setter can only bound, so unbounded is not restorable through it.
+
+Omitting the argument is implemented by padding it with the internal
+"wait unbounded" sentinel (the `i64::MIN` bit pattern); each family's wait helper
+routes that sentinel to its block-forever path and rejects every other negative
+value. [[src/target/shared/code/error_constants.rs:TIMEOUT_UNBOUNDED_SENTINEL]]
+
+**Conforming functions** (every waiting built-in obeys the table above):
+`net::poll`, `net::accept`, `net::connectTcp`, `net::setReadTimeout`,
+`net::setWriteTimeout`, `net::read`, `net::readText`, `net::write`,
+`net::writeText`, `tls::connect`, `tls::accept`, `audio::poll`, `audio::read`,
+`thread::send`, `thread::receive`, `thread::transfer`, `thread::accept`.
+Conformance was completed across the codebase in one pass; `thread` was the pilot.
+
 ## See Also
 
 * ./mfb spec language types — the numeric conversions (`toInt`/`toFloat`/`toFixed`/…) these built-ins perform

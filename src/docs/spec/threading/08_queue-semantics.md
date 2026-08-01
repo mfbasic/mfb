@@ -47,24 +47,31 @@ flat-block deep copy used for data-plane values.
 Timeouts differ between the writing side (`thread::send`, `thread::transfer`) and
 the reading side (`thread::receive`, `thread::accept`).
 
-For `thread::send` and `thread::transfer`, `timeoutMs = 0` (the default) means
-non-blocking, a positive timeout waits up to that many milliseconds, and a negative
-timeout is invalid.
+All four waits obey the language **timeout convention** (see
+`./mfb spec language builtin-functions` → "Timeout convention"): **omitting**
+`timeoutMs` blocks unboundedly, `0` is one immediate attempt, a positive value
+waits up to that many milliseconds, and a negative value is `ErrInvalidArgument`.
+
+For `thread::send` and `thread::transfer` (producing calls), omitting `timeoutMs`
+**blocks** until the destination queue has space or it/the thread closes; `0`
+enqueues if there is room and otherwise fails at once with `ErrTimeout`; a positive
+timeout waits up to that many milliseconds then fails with `ErrTimeout`.
 
 `thread::receive` and `thread::accept` take **two forms** (identical on the parent
 `Thread` and worker `ThreadWorker` handle). Omitting `timeoutMs` **blocks**: the
 call waits until a message/resource arrives, the queue is closed, or the worker is
-cancelled. Supplying `timeoutMs` requires a value `>= 0`: `0` is a non-blocking poll
-(fails at once with `ErrNotFound` when empty) and a positive value waits up to that
-many milliseconds (`ErrTimeout` on expiry). A negative explicit `timeoutMs` is
-rejected with `ErrInvalidArgument` — to wait indefinitely, omit the argument. A
-blocking read that observes cancellation of the worker fails with `ErrInterrupted`;
-a blocking parent read wakes with `ErrNotFound` when the worker completes or closes
-its outbound queue, so it never waits forever. (Internally the no-timeout form is
-lowered by padding the missing `timeoutMs` with an unreachable block sentinel,
-`i64::MIN`; the queue-read helper waits indefinitely on exactly that value and
-rejects every other negative timeout, so no explicit value can request the
-indefinite wait.)
+cancelled. Supplying `timeoutMs` requires a value `>= 0`: `0` is one immediate
+attempt (fails with `ErrTimeout` when the still-open queue is empty) and a positive
+value waits up to that many milliseconds (`ErrTimeout` on expiry). A negative
+explicit `timeoutMs` is rejected with `ErrInvalidArgument` — to wait indefinitely,
+omit the argument. A blocking read that observes cancellation of the worker fails
+with `ErrInterrupted`; a blocking parent read wakes with `ErrNotFound` when the
+worker completes or closes its outbound queue, so it never waits forever —
+`ErrNotFound` marks a *terminally* empty queue, distinct from an unmet deadline's
+`ErrTimeout`. (Internally the no-timeout form is lowered by padding the missing
+`timeoutMs` with the unbounded block sentinel, `i64::MIN`; each queue helper waits
+indefinitely on exactly that value and rejects every other negative timeout, so no
+explicit value can request the indefinite wait.)
 
 For `thread::send` and `thread::transfer`, ownership transfer is atomic with
 enqueue success:

@@ -1776,22 +1776,31 @@ impl CodeBuilder<'_> {
                     value: "64".to_string(),
                 });
             }
-        } else if target == "thread.send" && helper_args.len() == 2 {
+        } else if matches!(target, "thread.send" | "thread.transferResource")
+            && helper_args.len() == 2
+        {
+            // plan-73-A: the no-timeout `thread::send(t, x)` / `thread::transfer(t, r)`
+            // form BLOCKS until the queue has space (the timeout convention's
+            // omit=unbounded rule). Pad the missing `timeoutMs` with the block
+            // sentinel (i64::MIN); the queue-write helper waits indefinitely on it and
+            // rejects every other negative timeout. Before plan-73 `send` padded `0`
+            // (immediate `ErrTimeout` when full) and `transferResource` was NOT padded
+            // at all — its timeout arg was uninitialised (plan-73-A Corrections C2).
             helper_args.push(NirValue::Const {
                 type_: "Integer".to_string(),
-                value: "0".to_string(),
+                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if matches!(target, "thread.receive" | "thread.acceptResource")
             && helper_args.len() == 1
         {
-            // bug-181: the no-arg `thread::receive(t)` / `thread::accept(t)` overload
-            // blocks. Pad the missing `timeoutMs` with the unreachable block sentinel
-            // (i64::MIN); the queue-read helper waits indefinitely on it and rejects
-            // every other negative timeout. (`accept` had no padding before, so its
-            // no-arg blocking form is enabled here.)
+            // bug-181 / plan-73-A: the no-timeout `thread::receive(t)` /
+            // `thread::accept(t)` overload blocks. Pad the missing `timeoutMs` with the
+            // unbounded sentinel (i64::MIN); the queue-read helper waits indefinitely
+            // on it and rejects every other negative timeout. (`accept` had no padding
+            // before, so its no-arg blocking form is enabled here.)
             helper_args.push(NirValue::Const {
                 type_: "Integer".to_string(),
-                value: THREAD_RECEIVE_BLOCK_SENTINEL.to_string(),
+                value: TIMEOUT_UNBOUNDED_SENTINEL.to_string(),
             });
         } else if matches!(target, "thread.openStdIn" | "thread.closeStdIn")
             && helper_args.is_empty()

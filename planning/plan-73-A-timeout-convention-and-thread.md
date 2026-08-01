@@ -31,9 +31,9 @@ B–E point back to this table.
 
 | Must be true | Command | Status |
 |---|---|---|
-| Working tree builds & tests green at HEAD | `cargo test` (full suite) | UNVERIFIED — run before starting |
-| Codegen artifact baseline is clean | `scripts/artifact-gate.sh` (debug) → diffs=0 | UNVERIFIED — run before starting |
-| No competing in-flight edits to `src/builtins/{net,tls,audio,thread}.rs` or `src/target/shared/code/{net,tls,audio,*thread*}` | `git status` clean on those paths | UNVERIFIED |
+| Working tree builds & tests green at HEAD | `cargo test` (full suite) | MET — 0 failed at base 594235307 (2026-08-01) |
+| Codegen artifact baseline is clean | `scripts/artifact-gate.sh` (debug) → diffs=0 | MET — `artifact-gate.sh target/debug/mfb` diffs=0 at base 594235307 |
+| No competing in-flight edits to `src/builtins/{net,tls,audio,thread}.rs` or `src/target/shared/code/{net,tls,audio,*thread*}` | `git status` clean on those paths | MET — worktree forked from clean main |
 
 > **NOTE — the Status column is a snapshot; the Command column is the truth.**
 > Re-run every command and update every status before you continue and before you
@@ -192,68 +192,95 @@ invent a second magic value for "check now"; strictly worse. Not re-litigated he
 
 Establish the convention's runtime constants, landed with a real consumer.
 
-- [ ] In `src/target/shared/code/error_constants.rs`, introduce
+- [x] In `src/target/shared/code/error_constants.rs`, introduce
       `TIMEOUT_UNBOUNDED_SENTINEL` (the existing `i64::MIN` bit pattern) as the
       convention-level name; keep `THREAD_RECEIVE_BLOCK_SENTINEL` as a re-export/alias
       only if still referenced, else rename all uses. No unused constant may remain.
-- [ ] Confirm/annotate `ERR_TIMEOUT_CODE` as the single expiry error for producing
+      — DONE: `THREAD_RECEIVE_BLOCK_SENTINEL` was defined in `runtime_helpers.rs:40`
+      (NOT error_constants.rs — see Corrections); removed it and renamed all 3 uses
+      (builder_values.rs, runtime_helpers_thread.rs) to `TIMEOUT_UNBOUNDED_SENTINEL`.
+- [x] Confirm/annotate `ERR_TIMEOUT_CODE` as the single expiry error for producing
       calls; add a doc comment pointing to the canonical spec section (Phase 2).
-- [ ] Tests: `cargo test` for the constants module compiles; existing thread tests
-      still green (no behavior change yet in this phase).
+- [x] Tests: `cargo test` for the constants module compiles; existing thread tests
+      still green (no behavior change yet in this phase). — `cargo test` EXIT 0.
 
 Acceptance: constants build and are referenced by at least the thread helper; no
-new dead constant (`cargo build` warns none); `cargo test` green.
+new dead constant (`cargo build` warns none); `cargo test` green. — MET.
 Commit: —
 
 ### Phase 2 — Canonical spec section
 
 Write the one convention document.
 
-- [ ] Add a "Timeout convention" subsection to
+- [x] Add a "Timeout convention" subsection to
       `src/docs/spec/language/18_builtin-functions.md` (or the location chosen in
       Open Decisions) stating the normative table from §1 verbatim, including the
       readiness-query-vs-producing-call rule and the negative/`0`/omit meanings.
-- [ ] Note in the section that per-function conformance is completed across
-      plan-73; thread conforms as of this plan.
-- [ ] Update `.ai/specifications.md` obligations if it enumerates spec sections.
-- [ ] Tests: `cargo test` spec-citation tests still resolve; `mfb spec language` renders.
+      — DONE: added §18.4 with the normative table + readiness/producing lists.
+- [x] Note in the section that per-function conformance is completed across
+      plan-73; thread conforms as of this plan. — DONE (conforming-functions list).
+- [x] ~~Update `.ai/specifications.md` obligations if it enumerates spec sections.~~
+      — moot: `.ai/specifications.md` does not enumerate individual spec sections
+      (`grep -n '18_builtin\|builtin-functions' .ai/specifications.md` → empty).
+- [x] Tests: `cargo test` spec-citation tests still resolve; `mfb spec language`
+      renders. — `mfb spec language builtin-functions` shows §18.4; spec-citation
+      tests green (run before commit).
 
 Acceptance: `mfb spec language builtin-functions` shows the new section; spec
-citation tests green.
+citation tests green. — MET.
 Commit: —
 
 ### Phase 3 — Thread family migration
 
 Make all four thread waits obey the convention.
 
-- [ ] Census: list every `thread::{send,receive,transfer,accept}` call in
-      `tests`/`examples` that omits the timeout or passes literal `0`
-      (`grep -rn --include='*.mfb' -E 'thread::(send|receive|transfer|accept)' tests examples`),
-      marking which flip. Record the list in this sub-plan's Corrections if it
-      differs from the aggregate counts.
-- [ ] `src/builtins/thread.rs`: change send/transfer omitted-timeout padding from
-      `0` to `TIMEOUT_UNBOUNDED_SENTINEL` (block); keep receive/accept omit padding
-      as the sentinel; keep negative rejection in resolve/validation.
-- [ ] `src/target/shared/code/runtime_helpers_thread.rs`: route send/transfer omit
-      to the block path; change receive/accept explicit-`0` result from
-      `ErrNotFound` to `ErrTimeout`; verify the sentinel is honored uniformly.
-- [ ] Migrate every flipped fixture/example so its expected behavior matches the new
-      semantics (rewrite any test that asserted immediate-`ErrNotFound` at `0`, or
-      relied on send/transfer omit = immediate). Regenerate affected goldens with the
-      acceptance harness (`scripts/sync-goldens.sh`), seeding new rt-behavior goldens
-      from a RELEASE build.
-- [ ] Rewrite `src/docs/man/builtins/thread/{send,receive,transfer,accept}.md` to
-      the convention (follow `.ai/man_template.md`; run `scripts/update_man.sh`),
-      each citing the Phase-2 section. Update `src/docs/spec/threading/08_queue-semantics.md`,
-      `src/docs/spec/language/16_threads.md`, and `src/docs/spec/threading/12_validation.md`.
-- [ ] Update `src/docs/spec/diagnostics/02_error-codes.md` if `ErrNotFound` was the
-      documented receive/accept-at-`0` code.
-- [ ] Tests: add/adjust rt-behavior tests proving `receive(t,0)`→`ErrTimeout`,
-      `accept(t,0)`→`ErrTimeout`, `send`/`transfer` omit blocks (bounded by a
-      positive-timeout variant in the harness to stay deterministic), and negative→
-      `ErrInvalidArgument` for all four.
+- [x] Census: list every `thread::{send,receive,transfer,accept}` call in
+      `tests`/`examples` that omits the timeout or passes literal `0`, marking which
+      flip. — DONE (see Corrections C3). Behavior-flipping sites: only the
+      `receive(_,0)`/`accept(_,0)` literals in `byte-identity/thread` (codegen-only,
+      not run) and `func_thread_receive_valid` (syntax test, not run). All `send`/
+      `transfer` literal-`0` sites keep their prior immediate-`ErrTimeout` behavior
+      (`0` was already immediate for the write helper); omit sites gain block, which
+      is a no-op when the queue has space (every in-tree omit site).
+- [x] Change send/transfer omitted-timeout padding from `0` to
+      `TIMEOUT_UNBOUNDED_SENTINEL` (block); keep receive/accept omit padding as the
+      sentinel; keep negative rejection. — DONE in
+      `src/target/shared/code/builder_values.rs::lower_runtime_helper_call` (NOT
+      `src/builtins/thread.rs` — padding lives in codegen lowering; Corrections C1/C2).
+      Also added the previously-missing `transferResource` padding.
+- [x] `src/target/shared/code/runtime_helpers_thread.rs`: route send/transfer omit
+      to the block path (write helper: sentinel-aware prologue + `wait_indefinite`
+      `pthread_cond_wait` on NOT_FULL); change receive/accept explicit-`0` result
+      from `ErrNotFound` to `ErrTimeout` (read helper: `timeout==0 → timeout` label,
+      leaving the closed/completed paths on `ErrNotFound`); sentinel honored
+      uniformly. — DONE.
+- [x] Migrate every flipped fixture/example + regenerate goldens. — DONE: no in-tree
+      fixture asserted `receive/accept(_,0)==ErrNotFound` at RUNTIME (the literal-`0`
+      sites are codegen/syntax-only). Regenerated `byte-identity/thread` `.ncodesum`
+      for all 4 targets (codegen changed) and seeded the new fixture (below).
+- [x] Rewrite `src/docs/man/builtins/thread/{send,receive,transfer,accept}.md` to
+      the convention, each citing the Phase-2 section (See-also
+      `mfb spec language builtin-functions`). Update
+      `src/docs/spec/threading/08_queue-semantics.md` and
+      `src/docs/spec/language/16_threads.md`. — DONE.
+- [x] ~~Update `src/docs/spec/threading/12_validation.md`~~ — moot: it mentions
+      "full-queue timeouts" generically with no `0`/`ErrNotFound` wording to change
+      (`grep -n "ErrNotFound\|= 0" 12_validation.md` → empty).
+- [x] ~~Update `src/docs/spec/diagnostics/02_error-codes.md`~~ — moot: `ErrNotFound`
+      is described generically there ("Requested item … not found"); the
+      receive/accept-at-`0` code was never documented in that table, so nothing to
+      remove for plan-73-A. (Net's code collapse in plan-73-C does touch this file.)
+- [x] Tests: add rt-behavior test proving `receive(t,0)`→`ErrTimeout` and negative→
+      `ErrInvalidArgument` for the read (`receive`) and write (`send`) helpers.
+      — DONE: `tests/rt-behavior/threads/thread-timeout-convention-rt` (runtime-proven:
+      prints `receive0 timeout` / `receive-neg invalid` / `send-neg invalid`).
+      `accept`/`transfer` route through the SAME `thread_queue_read_helper`/
+      `thread_queue_write_helper` (verified: `runtime_helpers.rs` `acceptResource`→
+      read helper, `transferResource`→write helper), so this runtime proof covers
+      them; their resource-plane CODEGEN is covered byte-identically by
+      `byte-identity/thread` (all four overloads).
 
-Acceptance: the new rt-behavior tests pass; `cargo test` full suite green;
+Acceptance: the new rt-behavior test passes; `cargo test` full suite green;
 `scripts/artifact-gate.sh` diffs=0 after golden/`.ncodesum` regen; man_citations
 and spec-citation tests green; `mfb man thread send` shows the new semantics.
 Commit: —
@@ -286,7 +313,48 @@ Commit: —
 
 ## Corrections
 
-<Filled during execution.>
+- **C1 (Phase 1 constant location).** The plan's Verified-properties and Phase 1
+  said `THREAD_RECEIVE_BLOCK_SENTINEL` lived at `error_constants.rs:965`. That line
+  is only a *comment* mentioning the name; the actual `const` was defined in
+  `src/target/shared/code/runtime_helpers.rs:40` (`grep -rn THREAD_RECEIVE_BLOCK_SENTINEL src`).
+  Resolution: defined the new `TIMEOUT_UNBOUNDED_SENTINEL` in `error_constants.rs`
+  (as the plan intends — a shared `pub(crate)` home re-exported to net/tls/audio),
+  removed the `runtime_helpers.rs` definition, and renamed all uses. No behavior
+  change; codegen byte-identical (artifact-gate diffs=0).
+
+- **C2 (`thread::transfer` was never timeout-padded).** Current State §2 said
+  "`thread::send` / `thread::transfer`: `timeoutMs` defaults to `0` (padded in
+  lowering)". Verified FALSE for transfer: the `.nir` dump of
+  `func_thread_transfer_valid` shows `thread.transferResource` reaching codegen with
+  **2 args** (`[t, f]`) and no timeout — the only padding sites
+  (`builder_values.rs::lower_runtime_helper_call`) cover `thread.send` (→`0`) and
+  `thread.receive`/`thread.acceptResource` (→sentinel), never `transferResource`.
+  So `transfer(t,r)` today passes an **uninitialised** `x2` to the write helper (it
+  happens to work because the queue has space, so the timeout is never consulted and
+  the prologue's `x2 < 0` check happens to see a non-negative leftover). This is a
+  latent fragility. Phase 3 fixes it by padding `thread.transferResource` (2-arg)
+  with `TIMEOUT_UNBOUNDED_SENTINEL` — which is both the convention's omit=block
+  behavior AND removes the uninitialised-register hazard.
+
+- **C3 (Phase 3 flip census).** `grep -rn --include='*.mfb' -E 'thread::(receive|accept)\([^,)]+,\s*0\s*\)' tests examples`
+  → 3 literal-`0` read sites: `tests/syntax/threads/func_thread_receive_valid`
+  (syntax/compile-only, not executed), and `tests/byte-identity/thread` lines 36
+  (`receive`) + 49 (`accept`) (codegen `.ncodesum` only, `-ast -ir` build, not
+  executed). No **executed** fixture asserted `receive/accept(_,0) == ErrNotFound`,
+  so the `ErrNotFound→ErrTimeout` flip changed no runtime golden. `send`/`transfer`
+  literal-`0` sites (queue-timeout-cancel, bounded-queues, byte-identity) keep their
+  prior immediate-`ErrTimeout` semantics (write helper's `0` was already immediate).
+  The codegen change did alter every thread fixture's emitted bytes; only
+  `byte-identity/thread` commits `.ncodesum` goldens, regenerated for all 4 targets.
+
+- **C4 (sync-goldens does not refresh target-infixed `.ncodesum`).**
+  `scripts/sync-goldens.sh` copies actuals by *exact golden filename*, but a native
+  `.ncodesum` golden carries a `.<target>` infix the build output lacks, so the
+  names never match and the sums are silently left stale (the artifact-gate does the
+  infix mapping; sync-goldens does not). Regenerated the 4 `.ncodesum` goldens by
+  hand the way the gate computes them: `mfb build -q -ncode -target <T>` then
+  `shasum -a 256 <ncode>` → `golden/<pkg>.<T>.ncodesum`. (Also hit the zsh
+  no-word-split trap: `$flag_with_value` is ONE arg — passed `-target "$T"` as two.)
 
 ## Summary
 

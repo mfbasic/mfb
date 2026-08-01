@@ -29,16 +29,6 @@ pub(super) const THREAD_STATE_RUNNING: &str = "0";
 pub(super) const THREAD_STATE_COMPLETED: &str = "1";
 pub(super) const THREAD_STATE_CLOSED: &str = "2";
 
-// bug-181: the no-arg `thread::receive(t)` / `thread::accept(t)` overload blocks
-// indefinitely. The 1-arg lowering pads the missing `timeoutMs` with this
-// unreachable sentinel — `i64::MIN` as its `u64` bit pattern (0x8000000000000000).
-// The queue-read helper waits forever on exactly this value and rejects every other
-// negative `timeoutMs` with `ErrInvalidArgument`; because a valid explicit timeout
-// is always `>= 0`, no user-supplied value can collide with the block sentinel. The
-// immediate encoder parses `u64`, so the sentinel is spelled as the unsigned decimal
-// of i64::MIN's bit pattern rather than a signed `-9223372036854775808`.
-pub(super) const THREAD_RECEIVE_BLOCK_SENTINEL: &str = "9223372036854775808";
-
 pub(super) const THREAD_QUEUE_NOT_EMPTY_OFFSET: usize = 64;
 pub(super) const THREAD_QUEUE_NOT_FULL_OFFSET: usize = 128;
 pub(super) const THREAD_QUEUE_CAPACITY_OFFSET: usize = 192;

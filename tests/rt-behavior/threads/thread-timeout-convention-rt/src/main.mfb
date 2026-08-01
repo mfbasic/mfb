@@ -1,0 +1,71 @@
+' plan-73-A: proves the timeout convention on the thread data plane.
+'
+' The worker `waitForCancelForever` blocks on its inbound queue and never emits,
+' so from the parent side the outbound queue is EMPTY but still OPEN — the exact
+' state the convention distinguishes: a `0` timeout is one immediate attempt that
+' raises `ErrTimeout` (77050008), NOT `ErrNotFound` (which is reserved for a
+' terminally-closed queue). A negative explicit timeout is `ErrInvalidArgument`
+' (77050002) on both the read (`receive`) and write (`send`) helper.
+IMPORT io
+IMPORT thread
+IMPORT thread_runtime_workers
+
+' receive(t, 0) on an empty, still-open outbound queue -> ErrTimeout.
+FUNC expectReceiveZeroTimeout(t AS Thread OF String TO Integer) AS Integer
+  LET v AS String = thread::receive(t, 0)
+  io::print("unexpected receive value")
+  RETURN 1
+  TRAP(err)
+    IF err.code = 77050008 THEN
+      io::print("receive0 timeout")
+      RETURN 0
+    END IF
+    io::print("receive0 wrong " & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC
+
+' receive(t, -1) -> ErrInvalidArgument (read-helper prologue).
+FUNC expectReceiveNegativeInvalid(t AS Thread OF String TO Integer) AS Integer
+  LET v AS String = thread::receive(t, -1)
+  io::print("unexpected receive neg value")
+  RETURN 1
+  TRAP(err)
+    IF err.code = 77050002 THEN
+      io::print("receive-neg invalid")
+      RETURN 0
+    END IF
+    io::print("receive-neg wrong " & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC
+
+' send(t, x, -1) -> ErrInvalidArgument (write-helper prologue).
+FUNC expectSendNegativeInvalid(t AS Thread OF String TO Integer) AS Integer
+  thread::send(t, "x", -1)
+  io::print("unexpected send neg")
+  RETURN 1
+  TRAP(err)
+    IF err.code = 77050002 THEN
+      io::print("send-neg invalid")
+      RETURN 0
+    END IF
+    io::print("send-neg wrong " & toString(err.code))
+    RETURN 1
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET t AS Thread OF String TO Integer = thread::start(thread_runtime_workers::waitForCancelForever, "seed", 1, 1)
+  LET a AS Integer = expectReceiveZeroTimeout(t)
+  LET b AS Integer = expectReceiveNegativeInvalid(t)
+  LET c AS Integer = expectSendNegativeInvalid(t)
+  thread::cancel(t)
+  LET r AS Integer = thread::waitFor(t)
+  io::print("done")
+  RETURN a + b + c
+  TRAP(werr)
+    io::print("done")
+    RETURN a + b + c
+  END TRAP
+END FUNC

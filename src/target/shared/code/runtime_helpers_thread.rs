@@ -835,11 +835,13 @@ pub(super) fn thread_queue_write_helper(
     const DATA_SIZE_OFFSET: usize = 56;
 
     let invalid = format!("{symbol}_invalid");
+    let timeout_ok = format!("{symbol}_timeout_ok");
     let closed = format!("{symbol}_closed");
     let interrupted = format!("{symbol}_interrupted");
     let timeout = format!("{symbol}_timeout");
     let wait_loop = format!("{symbol}_wait_loop");
     let wait_timed = format!("{symbol}_wait_timed");
+    let wait_indefinite = format!("{symbol}_wait_indefinite");
     let enqueue = format!("{symbol}_enqueue");
     let tail_wrap = format!("{symbol}_tail_wrap");
     let unlock = format!("{symbol}_unlock");
@@ -851,8 +853,16 @@ pub(super) fn thread_queue_write_helper(
         abi::store_u64(abi::ARG[1], abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64(abi::ARG[2], abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64(abi::ARG[3], abi::stack_pointer(), DATA_SIZE_OFFSET),
+        // plan-73-A: a non-negative `timeoutMs` is a real timeout (0 = one immediate
+        // attempt, N = wait N ms). The unbounded sentinel (i64::MIN) is the omit=block
+        // form and is accepted; any OTHER negative value is rejected with
+        // `ErrInvalidArgument`. Mirrors the read helper's prologue.
         abi::compare_immediate(abi::ARG[2], "0"),
-        abi::branch_lt(&invalid),
+        abi::branch_ge(&timeout_ok),
+        abi::move_immediate("%v9", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
+        abi::compare_registers(abi::ARG[2], "%v9"),
+        abi::branch_ne(&invalid),
+        abi::label(&timeout_ok),
     ]);
     if !parent_send {
         // Re-establish the current-thread register `x20` from the worker's own
@@ -919,7 +929,11 @@ pub(super) fn thread_queue_write_helper(
         abi::branch_lt(&enqueue),
         abi::load_u64("%v12", abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::compare_immediate("%v12", "0"),
+        // plan-73-A: 0 = one immediate attempt (queue full ⇒ `ErrTimeout`); the
+        // unbounded sentinel (< 0) blocks until space; a positive value bounds the
+        // wait against the absolute deadline.
         abi::branch_eq(&timeout),
+        abi::branch_lt(&wait_indefinite),
         abi::label(&wait_timed),
         abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
         abi::move_register(abi::ARG[1], "%v9"),
@@ -938,6 +952,24 @@ pub(super) fn thread_queue_write_helper(
     instructions.extend([
         abi::compare_immediate(abi::RET[0], "0"),
         abi::branch_ne(&timeout),
+        abi::branch(&wait_loop),
+        // Unbounded (omit) form: block on the not-full condition until a slot frees
+        // or the queue/thread closes (re-checked at the top of `wait_loop`).
+        abi::label(&wait_indefinite),
+        abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::move_register(abi::ARG[1], "%v9"),
+    ]);
+    emit_thread_external_call(
+        &mut EmitCtx {
+            symbol,
+            platform_imports,
+            platform,
+            instructions: &mut instructions,
+            relocations: &mut relocations,
+        },
+        "pthread_cond_wait",
+    )?;
+    instructions.extend([
         abi::branch(&wait_loop),
         abi::label(&enqueue),
         abi::load_u64("%v9", abi::stack_pointer(), QUEUE_OFFSET),
@@ -1089,7 +1121,7 @@ pub(super) fn thread_queue_write_helper(
 /// worker's run state for termination.
 ///
 /// bug-181: both modes are waitable. The no-arg `receive`/`accept` overload passes
-/// the block sentinel (`THREAD_RECEIVE_BLOCK_SENTINEL`, i64::MIN) and waits
+/// the block sentinel (`TIMEOUT_UNBOUNDED_SENTINEL`, i64::MIN) and waits
 /// indefinitely; any other negative `timeoutMs` is rejected with
 /// `ErrInvalidArgument`. A parent's indefinite wait is terminated when the worker
 /// completes or closes the queue (the trampoline broadcasts the queue's condvar on
@@ -1157,7 +1189,7 @@ pub(super) fn thread_queue_read_helper(
     instructions.extend([
         abi::compare_immediate(abi::ARG[1], "0"),
         abi::branch_ge(&timeout_ok),
-        abi::move_immediate("%v9", "Integer", THREAD_RECEIVE_BLOCK_SENTINEL),
+        abi::move_immediate("%v9", "Integer", TIMEOUT_UNBOUNDED_SENTINEL),
         abi::compare_registers(abi::ARG[1], "%v9"),
         abi::branch_ne(&invalid),
         abi::label(&timeout_ok),
@@ -1244,7 +1276,11 @@ pub(super) fn thread_queue_read_helper(
     instructions.extend([
         abi::load_u64("%v10", abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::compare_immediate("%v10", "0"),
-        abi::branch_eq(&not_found),
+        // plan-73-A: an explicit `timeoutMs` of 0 on a still-open but empty queue is
+        // one immediate attempt that raises `ErrTimeout` (the convention's `0` =
+        // one-attempt rule), NOT `ErrNotFound`. `ErrNotFound` is reserved above for a
+        // genuinely terminal empty queue (closed flag / completed worker).
+        abi::branch_eq(&timeout),
         abi::branch_lt(&wait_indefinite),
         abi::label(&wait_timed),
         abi::add_immediate(abi::ARG[0], "%v9", THREAD_QUEUE_NOT_EMPTY_OFFSET),

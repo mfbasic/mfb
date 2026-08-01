@@ -149,9 +149,28 @@ pub(crate) const ERR_UNSUPPORTED_CODE: &str = "77050007";
 pub(crate) const ERR_UNSUPPORTED_MESSAGE: &str =
     "Operation is not supported by the implementation or platform.";
 pub(crate) const ERR_UNSUPPORTED_SYMBOL: &str = "_mfb_str_error_unsupported";
+/// The single expiry error for every builtin that can wait. Under the timeout
+/// convention (spec `language builtin-functions` → "Timeout convention"), a
+/// producing call (`accept`/`connect`/`receive`/`transfer`/`send`, or a
+/// read/write past its socket timeout) that reaches its deadline — including an
+/// explicit `timeoutMs` of `0` when the event is not already available — raises
+/// exactly this code. It replaced `ErrNotFound` for thread `receive`/`accept` at
+/// `0` (plan-73-A) and the retired `ErrReadTimeout`/`ErrWriteTimeout` for net
+/// read/write (plan-73-C).
 pub(crate) const ERR_TIMEOUT_CODE: &str = "77050008";
 pub(crate) const ERR_TIMEOUT_MESSAGE: &str = "Operation did not complete before its deadline.";
 pub(crate) const ERR_TIMEOUT_SYMBOL: &str = "_mfb_str_error_timeout";
+
+/// Convention-level "wait unbounded" sentinel for the optional trailing
+/// `timeoutMs AS Integer` shared by every waiting builtin (thread/net/tls/audio).
+/// It is the `i64::MIN` bit pattern spelled as the unsigned decimal the immediate
+/// encoder parses (the encoder reads `u64`, so a signed `-9223372036854775808`
+/// cannot be spelled directly). The lowering pads an *omitted* `timeoutMs` with
+/// this value; each family's wait helper routes it to the block-forever path and
+/// rejects every *other* negative `timeoutMs` with `ErrInvalidArgument`, so no
+/// user-supplied value (always `>= 0`) can collide with it. See the "Timeout
+/// convention" spec section (`mfb spec language builtin-functions`).
+pub(crate) const TIMEOUT_UNBOUNDED_SENTINEL: &str = "9223372036854775808";
 pub(crate) const ERR_INTERRUPTED_CODE: &str = "77050009";
 pub(crate) const ERR_INTERRUPTED_MESSAGE: &str = "Operation was interrupted before completion.";
 pub(crate) const ERR_INTERRUPTED_SYMBOL: &str = "_mfb_str_error_interrupted";
@@ -962,7 +981,7 @@ pub(crate) const COLLECTION_TYPE_STRING: usize = 6;
 pub(crate) const COLLECTION_TYPE_BYTE: usize = 7;
 /// IEEE-754 binary64 bit patterns as the unsigned-decimal `move_immediate`
 /// strings the kernels load (bug-332 G3). `F64_SIGN_BIT` doubles as the
-/// `i64::MIN` pattern; `THREAD_RECEIVE_BLOCK_SENTINEL` is the same bits with an
+/// `i64::MIN` pattern; `TIMEOUT_UNBOUNDED_SENTINEL` is the same bits with an
 /// unrelated meaning and is deliberately kept separate.
 pub(crate) const F64_SIGN_BIT: &str = "9223372036854775808";
 pub(crate) const F64_MANTISSA_MASK: &str = "4503599627370495";

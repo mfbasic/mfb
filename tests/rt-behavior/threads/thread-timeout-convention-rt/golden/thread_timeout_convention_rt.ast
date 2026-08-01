@@ -1,0 +1,148 @@
+{
+  "project": "thread_timeout_convention_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 9 },
+    { "module": "thread", "line": 10 },
+    { "module": "thread_runtime_workers", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "expectReceiveZeroTimeout",
+      "line": 14,
+      "params": [
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 14 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "number", "value": "0" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected receive value" }] }, "line": 16 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 17 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 18,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77050008" } },
+        "line": 19,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "receive0 timeout" }] }, "line": 20 },
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "receive0 wrong " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 24 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "expectReceiveNegativeInvalid",
+      "line": 29,
+      "params": [
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 29 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "String", "value": { "kind": "call", "callee": "thread.receive", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected receive neg value" }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 32 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 33,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77050002" } },
+        "line": 34,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "receive-neg invalid" }] }, "line": 35 },
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 36 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "receive-neg wrong " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 39 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "expectSendNegativeInvalid",
+      "line": 44,
+      "params": [
+      { "name": "t", "type": "Thread OF String TO Integer", "default": null, "line": 44 }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.send", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "string", "value": "x" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "unexpected send neg" }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 47 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 48,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "number", "value": "77050002" } },
+        "line": 49,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "send-neg invalid" }] }, "line": 50 },
+        { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 51 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "send-neg wrong " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }] }, "line": 53 },
+      { "kind": "return", "value": { "kind": "number", "value": "1" }, "line": 54 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "isolated": false,
+      "name": "main",
+      "line": 58,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF String TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "thread_runtime_workers.waitForCancelForever" }, { "kind": "string", "value": "seed" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 59 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "callee": "expectReceiveZeroTimeout", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 60 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "callee": "expectReceiveNegativeInvalid", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 61 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "callee": "expectSendNegativeInvalid", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 62 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.cancel", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 63 },
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 65 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "line": 66 }
+      ],
+      "trap": {
+      "name": "werr",
+      "line": 67,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "done" }] }, "line": 68 },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "line": 69 }
+      ]
+    }
+    }
+    ]
+  }
+  ]
+}

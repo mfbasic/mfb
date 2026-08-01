@@ -50,14 +50,17 @@ thread on its next read, rather than leaking.
 [[src/syntaxcheck/types.rs:thread_argument_mode]] [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]]
 
 `timeoutMs` bounds how long the call waits for space when the destination queue is
-already full; it defaults to `0`, filled in during lowering. With `timeoutMs = 0`
-the call does not wait: it enqueues if there is room and otherwise fails at once
-with `ErrTimeout`. A positive value waits up to that many milliseconds on the
-queue's *not-full* condition against an absolute deadline computed from the
-monotonic-style clock, then fails with `ErrTimeout`. A negative value is rejected
-with `ErrInvalidArgument` before anything else happens. When there is room, the
-message is enqueued immediately regardless of `timeoutMs`.
-[[src/target/shared/code/runtime_helpers_thread.rs:emit_thread_deadline]]
+already full, following the language timeout convention (see
+`mfb spec language builtin-functions` → "Timeout convention"). **Omitting it
+blocks**: lowering pads the unbounded sentinel and the call waits indefinitely on
+the queue's *not-full* condition until a slot frees or the queue/thread closes.
+With `timeoutMs = 0` the call makes one immediate attempt: it enqueues if there is
+room and otherwise fails at once with `ErrTimeout`. A positive value waits up to
+that many milliseconds against an absolute deadline computed from the
+monotonic-style clock, then fails with `ErrTimeout`. A negative value (other than
+the internal sentinel) is rejected with `ErrInvalidArgument` before anything else
+happens. When there is room, the message is enqueued immediately regardless of
+`timeoutMs`. [[src/target/shared/code/runtime_helpers_thread.rs:emit_thread_deadline]]
 
 The call is a cancellation point. Before each attempt it re-checks the thread's
 state: a parent-side send finds the handle *closed* and fails with
@@ -88,7 +91,7 @@ Worker-side send onto the parent-visible outbound queue. Fails with
 | --- | --- | --- |
 | `t` (also `thread`) | `Thread OF Msg TO Out` or `ThreadWorker OF Msg TO Out` | The handle whose data-plane queue receives the message. A parent handle targets the worker's inbound queue; a worker handle targets the outbound queue the parent reads. Borrowed, not consumed. [[src/builtins/thread.rs:call_param_names]] |
 | `data` (also `value`) | `Msg` | The message to enqueue. Must equal the thread's `Msg` type (a handle typed `Unknown` accepts any value) and must be thread-sendable. Moved into the call. [[src/builtins/thread.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | Optional, default `0`. Milliseconds to wait for queue space when the destination queue is full. `0` does not wait and fails immediately with `ErrTimeout`; a positive value waits that long; a negative value is rejected. |
+| `timeoutMs` | `Integer` | Optional. Milliseconds to wait for queue space when the destination queue is full. Omit to block until space frees; `0` makes one immediate attempt and fails with `ErrTimeout` if full; a positive value waits that long; a negative value is rejected. |
 
 ## Return value
 
@@ -101,7 +104,7 @@ Worker-side send onto the parent-visible outbound queue. Fails with
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | `timeoutMs` is negative. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77050008` | `ErrTimeout` | The destination queue is full and space did not become available before `timeoutMs` elapsed — immediately when `timeoutMs` is `0`. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77050008` | `ErrTimeout` | The destination queue is full and space did not become available before the deadline — immediately when `timeoutMs` is `0`. (Omitting `timeoutMs` blocks instead of raising this.) [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
 | `77050009` | `ErrInterrupted` | Cancellation was requested for the worker, the worker has completed (parent-side), or the destination queue has been marked closed. [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]] |
 | `77030004` | `ErrResourceClosed` | Parent-side only: the `Thread` handle is already closed, for example after `thread::waitFor`. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 
@@ -115,7 +118,7 @@ accepts any value; `timeoutMs`, when supplied, must be `Integer`. A resource-typ
 
 ## Examples
 
-Send a message from the parent without waiting for queue space, then read the
+Send a message from the parent (blocking until the queue has room), then read the
 worker's reply:
 
 ```
@@ -148,3 +151,4 @@ END FUNC
 - `mfb man thread transfer`
 - `mfb man thread start`
 - `mfb man thread cancel`
+- `mfb spec language builtin-functions` — the timeout convention

@@ -52,23 +52,27 @@ proceed. The accepted resource is owned by the receiving side and is closed by
 lexical drop at scope exit unless closed earlier.
 [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_read_helper]]
 
-There are two forms, sharing the read machinery with `thread::receive`. Omitting
-`timeoutMs` **blocks**: lowering passes an unreachable sentinel timeout and the
-helper waits indefinitely until a resource arrives, the queue closes, or
-cancellation is observed. Supplying `timeoutMs` bounds the wait and it must be
-`>= 0`: `0` does not wait, a positive value waits that many milliseconds against
-an absolute deadline. A negative explicit `timeoutMs` is rejected with
-`ErrInvalidArgument` — omit the argument to wait indefinitely.
+It shares the read machinery with `thread::receive` and follows the language
+timeout convention (see `mfb spec language builtin-functions` → "Timeout
+convention"). Omitting `timeoutMs` **blocks**: lowering passes the unbounded
+sentinel timeout and the helper waits indefinitely until a resource arrives, the
+queue closes, or cancellation is observed. `timeoutMs = 0` is one immediate
+attempt: it returns a resource if one is already queued, otherwise it does not
+wait and raises `ErrTimeout`. A positive value waits that many milliseconds
+against an absolute deadline, then raises `ErrTimeout`. A negative explicit
+`timeoutMs` is rejected with `ErrInvalidArgument` — omit the argument to wait
+indefinitely.
 [[src/target/shared/code/builder_values.rs:lower_runtime_helper_call]] [[src/target/shared/code/runtime_helpers_thread.rs:ThreadReadMode]]
 
 When no resource is available the reason decides the error, checked in this order:
 on a worker handle a set cancelled flag gives `ErrInterrupted`; a queue marked
 closed gives `ErrNotFound`; on a parent handle a closed thread state gives
-`ErrResourceClosed` and a completed worker gives `ErrNotFound`; `timeoutMs = 0`
-gives `ErrNotFound`; and an expired positive `timeoutMs` gives `ErrTimeout`. Both
-resource queues are closed and broadcast by `thread::cancel`, by dropping a
-running parent handle, and on worker exit, so a blocking `accept` always wakes
-rather than hanging.
+`ErrResourceClosed` and a completed worker gives `ErrNotFound`; then `timeoutMs = 0`
+on a still-open empty queue gives `ErrTimeout` and an expired positive `timeoutMs`
+gives `ErrTimeout`. `ErrNotFound` thus signals a *terminally* empty resource queue,
+not an unmet deadline. Both resource queues are closed and broadcast by
+`thread::cancel`, by dropping a running parent handle, and on worker exit, so a
+blocking `accept` always wakes rather than hanging.
 [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_read_helper]] [[src/target/shared/code/runtime_helpers_thread.rs:emit_close_resource_queues]]
 
 ## Overloads
@@ -80,16 +84,17 @@ closes, or cancellation is observed.
 
 **`thread::accept(t, timeoutMs AS Integer) AS Res`**
 
-Bounded accept on either handle kind: `timeoutMs` must be `>= 0`; `0` polls once
-and fails with `ErrNotFound` when the queue is empty, a positive value waits that
-long and then fails with `ErrTimeout`. [[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
+Bounded accept on either handle kind: `timeoutMs` must be `>= 0`; `0` is one
+immediate attempt that fails with `ErrTimeout` when the (still-open) queue is
+empty, a positive value waits that long and then fails with `ErrTimeout`.
+[[src/builtins/thread.rs:resolve_call]] [[src/builtins/thread.rs:arity]]
 
 ## Parameters
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `t` (also `thread`) | `Thread OF Msg RES Res TO Out` or `ThreadWorker OF Msg RES Res TO Out` | The handle whose resource-plane queue is read. Must declare a `RES` plane. Borrowed, not consumed. [[src/builtins/thread.rs:call_param_names]] |
-| `timeoutMs` | `Integer` | Optional. Omit to block until a resource arrives, the queue closes, or cancellation is observed. When supplied it must be `>= 0`: `0` does not wait, a positive value waits that many milliseconds. A negative value is rejected with `ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]] |
+| `timeoutMs` | `Integer` | Optional. Omit to block until a resource arrives, the queue closes, or cancellation is observed. When supplied it must be `>= 0`: `0` is one immediate attempt (`ErrTimeout` if the open queue is empty), a positive value waits that many milliseconds. A negative value is rejected with `ErrInvalidArgument`. [[src/builtins/thread.rs:call_param_names]] |
 
 ## Return value
 
@@ -102,8 +107,8 @@ long and then fails with `ErrTimeout`. [[src/builtins/thread.rs:resolve_call]] [
 | Code | Name | Raised when |
 | --- | --- | --- |
 | `77050002` | `ErrInvalidArgument` | An explicit `timeoutMs` is negative. Omit the argument to wait indefinitely. [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
-| `77050004` | `ErrNotFound` | No resource is available and none will be waited for: `timeoutMs` is `0` and the queue is empty, the resource queue has been closed, or (parent-side) the worker has completed with an empty outbound resource queue. [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
-| `77050008` | `ErrTimeout` | The resource queue stayed empty until a positive `timeoutMs` elapsed. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
+| `77050004` | `ErrNotFound` | The resource queue is *terminally* empty: it has been closed, or (parent-side) the worker has completed with an empty outbound resource queue. [[src/target/shared/code/error_constants.rs:ERR_NOT_FOUND_CODE]] |
+| `77050008` | `ErrTimeout` | The still-open resource queue stayed empty past the deadline: immediately when `timeoutMs` is `0`, or after a positive `timeoutMs` elapsed. [[src/target/shared/code/error_constants.rs:ERR_TIMEOUT_CODE]] |
 | `77050009` | `ErrInterrupted` | Worker-side only: cancellation has been requested for this worker. [[src/target/shared/code/error_constants.rs:ERR_INTERRUPTED_CODE]] |
 | `77030004` | `ErrResourceClosed` | Parent-side only: the thread's state is closed while its outbound resource queue is not flagged closed. [[src/target/shared/code/error_constants.rs:ERR_RESOURCE_CLOSED_CODE]] |
 
@@ -172,3 +177,4 @@ END FUNC
 - `mfb man thread send`
 - `mfb man thread start`
 - `mfb spec language resource-management`
+- `mfb spec language builtin-functions` — the timeout convention
