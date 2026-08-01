@@ -79,22 +79,28 @@ Commit: 4bdcc0e89
 Acceptance: `cargo test` passes; no production package behavior is routed
 through descriptors yet (production `REGISTRY` is empty; adapters unused until
 letter B wires them).
-Commit: —
+Commit: b347b54e5
 
 ### Phase A3 — parity harness
 
-- [ ] Add a reusable parity test helper that compares a descriptor-backed module
+- [x] Add a reusable parity test helper (`descriptor::parity::assert_parity`
+      with `LegacySet`/`ResolverSample`) that compares a descriptor-backed module
       against a legacy helper set for: membership, arity, parameter names,
-      parameter-name overloads, return type, expected arguments, argument types,
-      implementation name, defaults, and builtin type fields where applicable.
-- [ ] Make the helper support package-specific resolver callbacks so the
+      parameter-name overloads (`DefaultResolver::param_name_overloads`), return
+      type, expected arguments, argument types, implementation name, defaults
+      (over every provided count), and builtin type fields where applicable.
+- [x] Make the helper support package-specific resolver callbacks: it drives the
+      module's `BuiltinResolver` for argument-dependent return type,
+      implementation, padding, and overload target via `ResolverSample`s, so the
       custom-resolver letters (`H` datetime, `I` encoding, and any other letter
-      whose census `custom` column is nonzero) can reuse it.
-- [ ] Document in comments that parity tests are the migration gate and must be
-      deleted only after the legacy helpers are gone in `BB`.
+      whose census `custom` column is nonzero) reuse it.
+- [x] Document in comments that parity tests are the migration gate and must be
+      deleted only after the legacy helpers are gone in `BB` (see the `parity`
+      module doc comment).
 
 Acceptance: `cargo test` passes and the parity helper is used by at least one
-test-only descriptor.
+test-only descriptor (proven against the REAL `bits` legacy helpers via a
+test-fixture `bits` descriptor, plus a synthetic resolver-backed module).
 Commit: —
 
 ## Validation
@@ -106,4 +112,27 @@ Commit: —
 
 ## Corrections
 
-Filled during execution.
+- **A1 `pub(crate) use` re-export dropped.** The A1 task said "wire `mod
+  descriptor; pub(crate) use` exports from `src/builtins/mod.rs`." Only `mod
+  descriptor;` was added; no `pub(crate) use` re-export exists because nothing
+  outside the module consumes descriptor items in letter A — the mod.rs adapters
+  and tests reach them via the `descriptor::` path. A re-export of unused names
+  would be dead code (AGENTS.md: no blanket dead-code). Later letters can add
+  targeted re-exports when a real consumer appears. Evidence: `grep -n 'use
+  descriptor' src/builtins/mod.rs` (adapters use `descriptor::BuiltinRegistry`
+  etc. by path).
+- **Added `DefaultResolver::param_name_overloads`.** A1's method list did not
+  name it, but A3's parity task requires "parameter-name overloads" parity, so
+  the derivation was added to `DefaultResolver` (per-overload canonical param
+  names) and asserted by the resolver-backed parity test. Append-only task.
+- **Dead-code discipline.** Descriptor items unused in production in letter A are
+  covered by a module-level `#![cfg_attr(not(test), allow(dead_code))]`
+  (precedent: `syntaxcheck::builtins::BuiltinPackage::name`) and the mod.rs
+  adapters by per-item `#[cfg_attr(not(test), allow(dead_code))]`. Non-test build
+  is warning-clean (`cargo build --bin mfb 2>&1 | grep -c '^warning' → 0`); every
+  descriptor item is exercised by the unit/registry/parity tests so the test
+  build is also clean of descriptor/mod warnings.
+- **Pre-existing warnings left untouched.** Three unrelated `unused`/`unused_mut`
+  warnings (`src/ast/serialize.rs:1651`, `src/testing/desugar/coverage.rs:297`,
+  `src/os/windows/link/spike.rs:157`) exist in the test build in files this plan
+  never touches; out of scope for A.

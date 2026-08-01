@@ -375,6 +375,25 @@ impl DefaultResolver {
         )
     }
 
+    /// Per-overload canonical parameter-name lists — legacy
+    /// `call_param_name_overloads`. Each entry is one overload's parameter names
+    /// (canonical spelling only), so a call whose overloads place a name at
+    /// different positions (`net::connectTcp`'s `timeoutMs`) is described
+    /// faithfully rather than merged. `None` for an unknown call.
+    pub(crate) fn param_name_overloads(
+        module: &BuiltinModule,
+        name: &str,
+    ) -> Option<Vec<Vec<&'static str>>> {
+        let function = module.function(name)?;
+        Some(
+            function
+                .overloads
+                .iter()
+                .map(|overload| overload.params.iter().map(|param| param.name).collect())
+                .collect(),
+        )
+    }
+
     /// The canonical overload's per-position expected type names — legacy
     /// `argument_types`.
     pub(crate) fn argument_types(module: &BuiltinModule, name: &str) -> Option<Vec<&'static str>> {
@@ -530,6 +549,204 @@ impl BuiltinRegistry {
 /// per-package helper. Each letter B..AA appends its `&<PKG>` here; BB then
 /// deletes the legacy helpers the adapters fall back to.
 pub(crate) static REGISTRY: BuiltinRegistry = BuiltinRegistry::new(&[]);
+
+/// The migration parity harness (plan-72).
+///
+/// A descriptor migration is correct only if the descriptor answers every
+/// metadata question exactly as the hand-written legacy helpers do. This module
+/// is the gate that proves it, per package: each letter B..AA authors its
+/// package's `BuiltinModule`, wires a [`LegacySet`] to that package's real
+/// legacy helper functions, and calls [`assert_parity`] over every call the
+/// package owns. A resolver-backed package additionally supplies
+/// [`ResolverSample`]s so the custom hooks (`H` datetime, `I` encoding, and any
+/// letter whose census `custom` column is nonzero) are checked against the same
+/// legacy answers.
+///
+/// **These parity tests are the migration gate. Do not delete them until the
+/// legacy helpers themselves are gone in letter BB** — while both the descriptor
+/// and the legacy free function exist, this harness is the only thing pinning
+/// them equal.
+#[cfg(test)]
+pub(crate) mod parity {
+    use super::*;
+
+    /// A package's legacy helper functions, normalized to comparable return
+    /// shapes. The required rows exist for every package; the optional rows are
+    /// present only when the package has that facet (`argument_types`,
+    /// `implementation_name`, `default_argument_padding`, per-overload param
+    /// names, builtin type fields). A caller wraps its real helpers in closures
+    /// that adapt their native signatures (e.g. `&'static str` →
+    /// `String`) to these.
+    pub(crate) struct LegacySet<'a> {
+        pub is_call: &'a dyn Fn(&str) -> bool,
+        pub arity: &'a dyn Fn(&str) -> Option<(usize, usize)>,
+        pub param_names: &'a dyn Fn(&str) -> Option<Vec<Vec<&'static str>>>,
+        pub return_type_name: &'a dyn Fn(&str) -> Option<&'static str>,
+        pub expected_arguments: &'a dyn Fn(&str) -> Option<String>,
+        pub param_name_overloads: Option<&'a dyn Fn(&str) -> Option<Vec<Vec<&'static str>>>>,
+        pub argument_types: Option<&'a dyn Fn(&str) -> Option<Vec<&'static str>>>,
+        pub implementation_name: Option<&'a dyn Fn(&str) -> Option<&'static str>>,
+        pub default_padding: Option<&'a dyn Fn(&str, usize) -> Vec<(&'static str, &'static str)>>,
+        pub builtin_type_fields:
+            Option<&'a dyn Fn(&str) -> Option<&'static [(&'static str, &'static str)]>>,
+    }
+
+    /// One argument-dependent probe for a resolver-backed package: a call, a
+    /// concrete argument-type list, and the answers the legacy resolver gives
+    /// for those arguments. `assert_parity` drives the module's
+    /// [`BuiltinResolver`] with these and asserts equality.
+    pub(crate) struct ResolverSample<'a> {
+        pub call: &'a str,
+        pub arg_types: &'a [&'a str],
+        pub expected_return: Option<&'a str>,
+        pub expected_impl: Option<&'a str>,
+        pub expected_padding: Option<Vec<(&'static str, &'static str)>>,
+        pub expected_overload_target: Option<&'a str>,
+    }
+
+    fn arg_type_vec(arg_types: &[&str]) -> Vec<String> {
+        arg_types.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Assert the descriptor `module` answers the same as the `legacy` helper
+    /// set for every call in `calls`, and — for a resolver-backed module — the
+    /// same as the legacy resolver for every `resolver_samples` probe.
+    pub(crate) fn assert_parity(
+        module: &BuiltinModule,
+        calls: &[&str],
+        legacy: &LegacySet,
+        resolver_samples: &[ResolverSample],
+    ) {
+        for &call in calls {
+            assert_eq!(
+                DefaultResolver::contains(module, call),
+                (legacy.is_call)(call),
+                "membership parity for {call}"
+            );
+            assert_eq!(
+                DefaultResolver::arity(module, call),
+                (legacy.arity)(call),
+                "arity parity for {call}"
+            );
+            assert_eq!(
+                DefaultResolver::param_names(module, call),
+                (legacy.param_names)(call),
+                "param-name parity for {call}"
+            );
+            // Data-only return type. A resolver-backed call's return is
+            // argument-dependent and is checked through `resolver_samples`.
+            if module.resolver.is_none() {
+                assert_eq!(
+                    DefaultResolver::return_type_name(module, call),
+                    (legacy.return_type_name)(call),
+                    "return-type parity for {call}"
+                );
+            }
+            assert_eq!(
+                DefaultResolver::expected_arguments(module, call),
+                (legacy.expected_arguments)(call),
+                "expected-arguments parity for {call}"
+            );
+            if let Some(overloads) = legacy.param_name_overloads {
+                assert_eq!(
+                    DefaultResolver::param_name_overloads(module, call),
+                    overloads(call),
+                    "param-name-overload parity for {call}"
+                );
+            }
+            if let Some(argument_types) = legacy.argument_types {
+                assert_eq!(
+                    DefaultResolver::argument_types(module, call),
+                    argument_types(call),
+                    "argument-type parity for {call}"
+                );
+            }
+            if let Some(implementation_name) = legacy.implementation_name {
+                if module.resolver.is_none() {
+                    assert_eq!(
+                        DefaultResolver::implementation_name(module, call),
+                        implementation_name(call),
+                        "implementation-name parity for {call}"
+                    );
+                }
+            }
+            if let Some(default_padding) = legacy.default_padding {
+                if module.resolver.is_none() {
+                    let (_, max) = DefaultResolver::arity(module, call).unwrap_or((0, 0));
+                    for provided in 0..=max {
+                        assert_eq!(
+                            DefaultResolver::default_padding(module, call, provided),
+                            default_padding(call, provided),
+                            "default-padding parity for {call} at {provided} args"
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(builtin_type_fields) = legacy.builtin_type_fields {
+            for ty in module.types {
+                assert_eq!(
+                    Some(ty.fields),
+                    builtin_type_fields(ty.name),
+                    "builtin-type-field parity for {}",
+                    ty.name
+                );
+            }
+        }
+
+        // Resolver-backed argument-dependent answers.
+        let resolver = module.resolver;
+        for sample in resolver_samples {
+            let resolver = resolver.expect("resolver samples require a module resolver");
+            let arg_types = arg_type_vec(sample.arg_types);
+            if let Some(expected) = sample.expected_return {
+                assert_eq!(
+                    resolver
+                        .resolve_return_type(module, sample.call, &arg_types)
+                        .as_deref(),
+                    Some(expected),
+                    "resolver return parity for {} {:?}",
+                    sample.call,
+                    sample.arg_types
+                );
+            }
+            if let Some(expected) = sample.expected_impl {
+                assert_eq!(
+                    resolver
+                        .implementation_name(module, sample.call, &arg_types)
+                        .as_deref(),
+                    Some(expected),
+                    "resolver implementation parity for {} {:?}",
+                    sample.call,
+                    sample.arg_types
+                );
+            }
+            if let Some(expected) = &sample.expected_padding {
+                assert_eq!(
+                    resolver
+                        .default_padding(module, sample.call, sample.arg_types.len())
+                        .as_ref(),
+                    Some(expected),
+                    "resolver padding parity for {} {:?}",
+                    sample.call,
+                    sample.arg_types
+                );
+            }
+            if let Some(expected) = sample.expected_overload_target {
+                assert_eq!(
+                    resolver
+                        .resolve_overload_target(module, sample.call, &arg_types)
+                        .as_deref(),
+                    Some(expected),
+                    "resolver overload-target parity for {} {:?}",
+                    sample.call,
+                    sample.arg_types
+                );
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -887,5 +1104,298 @@ mod tests {
         let source = TEST_MODULE.source.expect("test module has a source");
         assert_eq!(source.rule, InjectionRule::WhenImported);
         assert!((source.loader)().is_ok());
+    }
+
+    // ---- A3: parity harness against the real `bits` package ----------------
+    //
+    // `bits` is fully data-only (census: helpers 6, srcglue/btypes/custom 0), so
+    // a hand-authored descriptor for it must reproduce every legacy answer with
+    // `DefaultResolver` alone. This is a test-only fixture descriptor (allowed by
+    // A's non-goals) proving the vocabulary serves a *real* package; the real
+    // `bits` migration is letter D.
+
+    const BITS_AB: &[Parameter] = &[
+        Parameter::required("a", "Integer"),
+        Parameter::required("b", "Integer"),
+    ];
+    const BITS_A: &[Parameter] = &[Parameter::required("a", "Integer")];
+    const BITS_VC: &[Parameter] = &[
+        Parameter::required("value", "Integer"),
+        Parameter::required("count", "Integer"),
+    ];
+    const BITS_V: &[Parameter] = &[Parameter::required("value", "Integer")];
+
+    const OV_AB: &[BuiltinOverload] = &[BuiltinOverload {
+        params: BITS_AB,
+        return_type: ReturnType::Fixed("Integer"),
+    }];
+    const OV_A: &[BuiltinOverload] = &[BuiltinOverload {
+        params: BITS_A,
+        return_type: ReturnType::Fixed("Integer"),
+    }];
+    const OV_VC: &[BuiltinOverload] = &[BuiltinOverload {
+        params: BITS_VC,
+        return_type: ReturnType::Fixed("Integer"),
+    }];
+    const OV_V: &[BuiltinOverload] = &[BuiltinOverload {
+        params: BITS_V,
+        return_type: ReturnType::Fixed("Integer"),
+    }];
+
+    const fn bits_fn(
+        name: &'static str,
+        slug: &'static str,
+        overloads: &'static [BuiltinOverload],
+    ) -> BuiltinFunction {
+        BuiltinFunction {
+            name,
+            doc_slug: slug,
+            overloads,
+            implementation: Implementation::Same,
+            lowering: Lowering::Inline,
+            flags: BuiltinFlags {
+                internal_only: false,
+                return_type_overloaded: false,
+            },
+        }
+    }
+
+    const BITS_FUNCTIONS: &[BuiltinFunction] = &[
+        bits_fn("bits.band", "band", OV_AB),
+        bits_fn("bits.bor", "bor", OV_AB),
+        bits_fn("bits.bxor", "bxor", OV_AB),
+        bits_fn("bits.bnot", "bnot", OV_A),
+        bits_fn("bits.sl", "sl", OV_VC),
+        bits_fn("bits.sr", "sr", OV_VC),
+        bits_fn("bits.sra", "sra", OV_VC),
+        bits_fn("bits.rl32", "rl32", OV_VC),
+        bits_fn("bits.rr32", "rr32", OV_VC),
+        bits_fn("bits.rl64", "rl64", OV_VC),
+        bits_fn("bits.rr64", "rr64", OV_VC),
+        bits_fn("bits.clz", "clz", OV_V),
+        bits_fn("bits.ctz", "ctz", OV_V),
+        bits_fn("bits.popCount", "popCount", OV_V),
+        bits_fn("bits.bswap16", "bswap16", OV_V),
+        bits_fn("bits.bswap32", "bswap32", OV_V),
+        bits_fn("bits.bswap64", "bswap64", OV_V),
+    ];
+
+    const BITS_MODULE: BuiltinModule = BuiltinModule {
+        name: "bits",
+        functions: BITS_FUNCTIONS,
+        types: &[],
+        source: None,
+        resolver: None,
+    };
+
+    #[test]
+    fn bits_descriptor_matches_legacy_helpers() {
+        use crate::builtins::bits;
+
+        let calls: Vec<&str> = BITS_FUNCTIONS.iter().map(|f| f.name).collect();
+        let legacy = parity::LegacySet {
+            is_call: &bits::is_bits_call,
+            arity: &bits::arity,
+            param_names: &|name| {
+                bits::call_param_names(name)
+                    .map(|rows| rows.iter().map(|row| row.to_vec()).collect())
+            },
+            return_type_name: &bits::call_return_type_name,
+            expected_arguments: &|name| bits::expected_arguments(name).map(str::to_string),
+            // bits is single-overload with no rewrite, argument-type helper, or
+            // default padding, and contributes no builtin types.
+            param_name_overloads: None,
+            argument_types: None,
+            implementation_name: None,
+            default_padding: None,
+            builtin_type_fields: None,
+        };
+        // Include a name bits does not own, to pin the negative membership case.
+        let mut probe = calls.clone();
+        probe.push("bits.nope");
+        parity::assert_parity(&BITS_MODULE, &probe, &legacy, &[]);
+    }
+
+    // ---- A3: parity harness exercising resolver callbacks ------------------
+    //
+    // A synthetic module with a two-overload function, an argument-type-dependent
+    // return/implementation/padding, an overload-target monomorph, a record
+    // builtin type, and a `WhenUsed` source — the shape the custom-resolver
+    // letters (`H` datetime, `I` encoding) present. This proves the harness
+    // drives a package's `BuiltinResolver` and asserts its answers against the
+    // legacy resolver, and exercises the optional `LegacySet` facets `bits` lacks.
+
+    struct SResolver;
+    impl BuiltinResolver for SResolver {
+        fn resolve_return_type(
+            &self,
+            _module: &BuiltinModule,
+            name: &str,
+            arg_types: &[String],
+        ) -> Option<String> {
+            if name != "s.pick" {
+                return None;
+            }
+            Some(
+                if arg_types.first().map(String::as_str) == Some("String") {
+                    "String"
+                } else {
+                    "Integer"
+                }
+                .to_string(),
+            )
+        }
+
+        fn implementation_name(
+            &self,
+            _module: &BuiltinModule,
+            name: &str,
+            arg_types: &[String],
+        ) -> Option<String> {
+            if name != "s.pick" {
+                return None;
+            }
+            Some(if arg_types.len() >= 2 {
+                "__s_pick2".to_string()
+            } else {
+                "__s_pick1".to_string()
+            })
+        }
+
+        fn default_padding(
+            &self,
+            _module: &BuiltinModule,
+            name: &str,
+            provided: usize,
+        ) -> Option<Vec<(&'static str, &'static str)>> {
+            if name != "s.pick" {
+                return None;
+            }
+            Some(if provided < 2 {
+                vec![("Integer", "0")]
+            } else {
+                vec![]
+            })
+        }
+
+        fn resolve_overload_target(
+            &self,
+            _module: &BuiltinModule,
+            name: &str,
+            arg_types: &[String],
+        ) -> Option<String> {
+            if name != "s.pick" {
+                return None;
+            }
+            Some(if arg_types.len() >= 2 {
+                "s.pick#1".to_string()
+            } else {
+                "s.pick#0".to_string()
+            })
+        }
+
+        fn uses_source(
+            &self,
+            _module: &BuiltinModule,
+            _project: &crate::ast::AstProject,
+        ) -> Option<bool> {
+            Some(true)
+        }
+    }
+    static S_RESOLVER: SResolver = SResolver;
+
+    const S_OV0: &[Parameter] = &[Parameter::required("a", "Integer")];
+    const S_OV1: &[Parameter] = &[
+        Parameter::required("a", "Integer"),
+        Parameter::required("b", "Integer"),
+    ];
+    const S_OVERLOADS: &[BuiltinOverload] = &[
+        BuiltinOverload {
+            params: S_OV0,
+            return_type: ReturnType::Custom,
+        },
+        BuiltinOverload {
+            params: S_OV1,
+            return_type: ReturnType::Custom,
+        },
+    ];
+    const S_PICK: BuiltinFunction = BuiltinFunction {
+        name: "s.pick",
+        doc_slug: "pick",
+        overloads: S_OVERLOADS,
+        implementation: Implementation::Custom,
+        lowering: Lowering::Helper,
+        flags: BuiltinFlags {
+            internal_only: false,
+            return_type_overloaded: false,
+        },
+    };
+    const S_TYPES: &[BuiltinType] = &[BuiltinType {
+        name: "SPoint",
+        kind: TypeKind::Record,
+        fields: &[("x", "Integer"), ("y", "Integer")],
+    }];
+    const S_MODULE: BuiltinModule = BuiltinModule {
+        name: "s",
+        functions: &[S_PICK],
+        types: S_TYPES,
+        source: Some(BuiltinSource {
+            rule: InjectionRule::WhenUsed,
+            loader: crate::builtins::app::source_file,
+        }),
+        resolver: Some(&S_RESOLVER),
+    };
+
+    #[test]
+    fn resolver_backed_descriptor_matches_legacy_resolver() {
+        let legacy = parity::LegacySet {
+            is_call: &|name| name == "s.pick",
+            arity: &|name| (name == "s.pick").then_some((1, 2)),
+            param_names: &|name| (name == "s.pick").then(|| vec![vec!["a"]]),
+            // Return type is resolver-owned, so this row is not asserted for a
+            // resolver-backed module; supply the data-only default anyway.
+            return_type_name: &|_| None,
+            expected_arguments: &|name| (name == "s.pick").then(|| "Integer".to_string()),
+            param_name_overloads: Some(&|name| {
+                (name == "s.pick").then(|| vec![vec!["a"], vec!["a", "b"]])
+            }),
+            argument_types: Some(&|name| (name == "s.pick").then(|| vec!["Integer"])),
+            implementation_name: Some(&|_| None),
+            default_padding: Some(&|_, _| Vec::new()),
+            builtin_type_fields: Some(&|name| match name {
+                "SPoint" => Some(&[("x", "Integer"), ("y", "Integer")][..]),
+                _ => None,
+            }),
+        };
+        let samples = [
+            parity::ResolverSample {
+                call: "s.pick",
+                arg_types: &["Integer"],
+                expected_return: Some("Integer"),
+                expected_impl: Some("__s_pick1"),
+                expected_padding: Some(vec![("Integer", "0")]),
+                expected_overload_target: Some("s.pick#0"),
+            },
+            parity::ResolverSample {
+                call: "s.pick",
+                arg_types: &["Integer", "Integer"],
+                expected_return: Some("Integer"),
+                expected_impl: Some("__s_pick2"),
+                expected_padding: Some(vec![]),
+                expected_overload_target: Some("s.pick#1"),
+            },
+        ];
+        parity::assert_parity(&S_MODULE, &["s.pick"], &legacy, &samples);
+
+        // The `WhenUsed` source rule and its custom use predicate are reachable.
+        let project = crate::ast::AstProject {
+            name: String::new(),
+            files: Vec::new(),
+        };
+        assert_eq!(S_MODULE.source.expect("s has source").rule, InjectionRule::WhenUsed);
+        assert_eq!(
+            S_RESOLVER.uses_source(&S_MODULE, &project),
+            Some(true)
+        );
     }
 }
