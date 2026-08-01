@@ -1,7 +1,7 @@
 # goal-07: Full platform source review (fresh pass) — file-by-file bug hunt
 
 Last updated: 2026-07-28
-Status: IN PROGRESS (314 / 402 files reviewed)
+Status: IN PROGRESS (356 / 402 files reviewed)
 
 A fresh, independent pass over the entire shipped platform: the compiler
 (`src/**` Rust), the MFBASIC-source standard library (`src/builtins/*.mfb`),
@@ -209,6 +209,13 @@ call.)
 | bug-409 | shared/code/link_thunk.rs:619 | Correctness — CDouble struct-field/OUT-slot branches to unemitted label → build failure | MED | Open |
 | bug-410 | shared/code/term_grid.rs:1144 | Correctness — `term::sync` present-write ignores EINTR → frame corruption; dead `write_retry` | MED | Open |
 | bug-411 | shared/code/datetime.rs:72 | Correctness — `WIN_FILETIME_MAX_UNIX_SEC` ~1000× too large, defeats FILETIME overflow guard | LOW | Open |
+| bug-412 | tls/macos/server.rs:1518 | Resource-safety — accept/closeListener cancel without drain (bug-380-class UAF) | LOW | Open |
+| bug-413 | tls/schannel_io.rs:155 | **Security — Schannel `pwszServerName` at wrong offset → hostname verification skipped (TLS MITM); ABI-verified** | HIGH | Open |
+| bug-414 | tls/schannel_impl.rs:192, schannel_read_close.rs:33 | Correctness — Windows `tls::connect` ignores `timeoutMs`; `read` skips `maxBytes>0` (2-item) | MED | Open |
+| bug-415 | crypto_ec/cng_sign_verify.rs:424 | Correctness/mem/resource — CNG verify malformed-key wrong result + DER OOB + handle leak (3-item) | MED | Open |
+| bug-416 | audio/windows_io.rs:706,557,382, windows.rs:23 | Correctness/mem — WASAPI `available` bytes-not-frames + capture data loss + mix OOB + doc (4-item) | MED | Open |
+| bug-417 | win_x86_64/code.rs:38 | Correctness — `FIONBIO` constant corrupted (0x8004547E vs 0x8004667E); sockets never non-blocking; **verified** | MED | Open |
+| bug-418 | win_x86_64/app/mod.rs:798 | Memory-safety — transcript NUL store past 64 KiB wbuf on ≥32 KiB print (arena OOB) | MED | Open |
 
 ## File census & progress
 
@@ -527,21 +534,21 @@ call.)
 
 **`src/target/macos_aarch64/`**
 
-- [ ] `src/target/macos_aarch64/code.rs` (881 loc)
-- [ ] `src/target/macos_aarch64/mod.rs` (455 loc)
-- [ ] `src/target/macos_aarch64/plan.rs` (875 loc)
-- [ ] `src/target/macos_aarch64/tls.rs` (230 loc)
+- [x] `src/target/macos_aarch64/code.rs` (881 loc) — clean
+- [x] `src/target/macos_aarch64/mod.rs` (455 loc) — clean
+- [x] `src/target/macos_aarch64/plan.rs` (875 loc) — clean
+- [x] `src/target/macos_aarch64/tls.rs` (230 loc) — clean
 
 **`src/target/macos_aarch64/app/`**
 
-- [ ] `src/target/macos_aarch64/app/app_io.rs` (1563 loc)
-- [ ] `src/target/macos_aarch64/app/bootstrap.rs` (1349 loc)
-- [ ] `src/target/macos_aarch64/app/mod.rs` (967 loc)
-- [ ] `src/target/macos_aarch64/app/term_view.rs` (2823 loc)
+- [x] `src/target/macos_aarch64/app/app_io.rs` (1563 loc) — clean
+- [x] `src/target/macos_aarch64/app/bootstrap.rs` (1349 loc) — clean
+- [x] `src/target/macos_aarch64/app/mod.rs` (967 loc) — clean
+- [x] `src/target/macos_aarch64/app/term_view.rs` (2823 loc) — clean
 
 **`src/target/package_mfp/`**
 
-- [ ] `src/target/package_mfp/mod.rs` (575 loc)
+- [x] `src/target/package_mfp/mod.rs` (575 loc) — clean
 
 **`src/target/shared/`**
 
@@ -630,21 +637,21 @@ call.)
 
 **`src/target/shared/code/audio/`**
 
-- [ ] `src/target/shared/code/audio/alsa.rs` (2339 loc)
-- [ ] `src/target/shared/code/audio/common.rs` (68 loc)
-- [ ] `src/target/shared/code/audio/macos.rs` (2910 loc)
-- [ ] `src/target/shared/code/audio/mod.rs` (235 loc)
-- [ ] `src/target/shared/code/audio/windows.rs` (255 loc)
-- [ ] `src/target/shared/code/audio/windows_devices.rs` (327 loc)
-- [ ] `src/target/shared/code/audio/windows_io.rs` (749 loc)
-- [ ] `src/target/shared/code/audio/windows_open.rs` (527 loc)
+- [x] `src/target/shared/code/audio/alsa.rs` (2339 loc) — clean
+- [x] `src/target/shared/code/audio/common.rs` (68 loc) — clean
+- [x] `src/target/shared/code/audio/macos.rs` (2910 loc) — clean
+- [x] `src/target/shared/code/audio/mod.rs` (235 loc) — clean
+- [x] `src/target/shared/code/audio/windows.rs` (255 loc) — bug-416 (item 4)
+- [x] `src/target/shared/code/audio/windows_devices.rs` (327 loc) — clean
+- [x] `src/target/shared/code/audio/windows_io.rs` (749 loc) — bug-416 (items 1-3)
+- [x] `src/target/shared/code/audio/windows_open.rs` (527 loc) — clean
 
 **`src/target/shared/code/crypto_ec/`**
 
-- [ ] `src/target/shared/code/crypto_ec/cng.rs` (424 loc)
-- [ ] `src/target/shared/code/crypto_ec/cng_sign_verify.rs` (511 loc)
-- [ ] `src/target/shared/code/crypto_ec/macos.rs` (1419 loc)
-- [ ] `src/target/shared/code/crypto_ec/openssl.rs` (1678 loc)
+- [x] `src/target/shared/code/crypto_ec/cng.rs` (424 loc) — clean
+- [x] `src/target/shared/code/crypto_ec/cng_sign_verify.rs` (511 loc) — bug-415
+- [x] `src/target/shared/code/crypto_ec/macos.rs` (1419 loc) — clean
+- [x] `src/target/shared/code/crypto_ec/openssl.rs` (1678 loc) — clean
 
 **`src/target/shared/code/fs/`**
 
@@ -661,10 +668,10 @@ call.)
 
 **`src/target/shared/code/os/`**
 
-- [ ] `src/target/shared/code/os/env.rs` (776 loc)
-- [ ] `src/target/shared/code/os/introspect.rs` (537 loc)
-- [ ] `src/target/shared/code/os/mod.rs` (367 loc)
-- [ ] `src/target/shared/code/os/paths.rs` (516 loc)
+- [x] `src/target/shared/code/os/env.rs` (776 loc) — bug-394 (item 15)
+- [x] `src/target/shared/code/os/introspect.rs` (537 loc) — clean
+- [x] `src/target/shared/code/os/mod.rs` (367 loc) — clean
+- [x] `src/target/shared/code/os/paths.rs` (516 loc) — bug-402 (item 7)
 
 **`src/target/shared/code/private/`**
 
@@ -673,25 +680,25 @@ call.)
 
 **`src/target/shared/code/regalloc/`**
 
-- [ ] `src/target/shared/code/regalloc/analysis.rs` (715 loc)
-- [ ] `src/target/shared/code/regalloc/linear_scan.rs` (402 loc)
-- [ ] `src/target/shared/code/regalloc/mod.rs` (399 loc)
+- [x] `src/target/shared/code/regalloc/analysis.rs` (715 loc) — clean
+- [x] `src/target/shared/code/regalloc/linear_scan.rs` (402 loc) — clean
+- [x] `src/target/shared/code/regalloc/mod.rs` (399 loc) — clean
 
 **`src/target/shared/code/tls/`**
 
-- [ ] `src/target/shared/code/tls/mod.rs` (432 loc)
-- [ ] `src/target/shared/code/tls/openssl.rs` (2573 loc)
-- [ ] `src/target/shared/code/tls/schannel.rs` (227 loc)
-- [ ] `src/target/shared/code/tls/schannel_impl.rs` (491 loc)
-- [ ] `src/target/shared/code/tls/schannel_io.rs` (339 loc)
-- [ ] `src/target/shared/code/tls/schannel_read_close.rs` (466 loc)
-- [ ] `src/target/shared/code/tls/schannel_server.rs` (959 loc)
+- [x] `src/target/shared/code/tls/mod.rs` (432 loc) — clean
+- [x] `src/target/shared/code/tls/openssl.rs` (2573 loc) — clean
+- [x] `src/target/shared/code/tls/schannel.rs` (227 loc) — clean
+- [x] `src/target/shared/code/tls/schannel_impl.rs` (491 loc) — bug-414 (item 1)
+- [x] `src/target/shared/code/tls/schannel_io.rs` (339 loc) — bug-413
+- [x] `src/target/shared/code/tls/schannel_read_close.rs` (466 loc) — bug-414 (item 2)
+- [x] `src/target/shared/code/tls/schannel_server.rs` (959 loc) — clean
 
 **`src/target/shared/code/tls/macos/`**
 
-- [ ] `src/target/shared/code/tls/macos/client.rs` (1490 loc)
-- [ ] `src/target/shared/code/tls/macos/mod.rs` (589 loc)
-- [ ] `src/target/shared/code/tls/macos/server.rs` (1788 loc)
+- [x] `src/target/shared/code/tls/macos/client.rs` (1490 loc) — clean
+- [x] `src/target/shared/code/tls/macos/mod.rs` (589 loc) — clean
+- [x] `src/target/shared/code/tls/macos/server.rs` (1788 loc) — bug-412
 
 **`src/target/shared/nir/`**
 
@@ -737,13 +744,13 @@ call.)
 
 **`src/target/win_x86_64/`**
 
-- [ ] `src/target/win_x86_64/code.rs` (2916 loc)
-- [ ] `src/target/win_x86_64/mod.rs` (394 loc)
-- [ ] `src/target/win_x86_64/plan.rs` (564 loc)
+- [x] `src/target/win_x86_64/code.rs` (2916 loc) — bug-417
+- [x] `src/target/win_x86_64/mod.rs` (394 loc) — clean
+- [x] `src/target/win_x86_64/plan.rs` (564 loc) — clean
 
 **`src/target/win_x86_64/app/`**
 
-- [ ] `src/target/win_x86_64/app/mod.rs` (1672 loc)
+- [x] `src/target/win_x86_64/app/mod.rs` (1672 loc) — bug-418, bug-402 (item 8), bug-394 (item 16)
 
 **`src/testing/`**
 

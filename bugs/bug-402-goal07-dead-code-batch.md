@@ -84,6 +84,30 @@ two-step `2^n1·2^n2` scaling + v25/v26 saturation. The setup line is residual a
 emits a wasted broadcast on every `math::exp` call.
 - Fix: delete the dead `broadcast_i64(&k.v23, -1022)` in the Exp setup arm.
 
+### (7) `src/target/shared/code/os/paths.rs:88` — `unreachable!` landmine invited by a live WindowsApp arm
+`emit_executable_path_into` has `PlatformFamily::Windows => unreachable!("47-D owns
+the Windows executable path")` (:88-90). `lower_executable_path` early-returns to
+the Windows wide-string path before calling it, but `lower_resource_path` (:204)
+does **not** early-return for Windows — it calls `emit_executable_path_into`
+unconditionally (:305). Meanwhile `resource_base_offset` (:190) has a live
+`NativeBuildMode::WindowsApp` arm (plan-66-I/J) returning `(1, "")`, signaling
+intent to support `os.resourcePath` on Windows. Today this is unreachable only
+because `"os.resourcePath"` is absent from `win_x86_64`'s `RUNTIME_CALLS` (so
+`validate_capabilities` rejects it first). The moment someone adds it to that list —
+a one-line change the WindowsApp arm invites — `os::resourcePath` on Windows ICEs
+the compiler with a raw `unreachable!` instead of a diagnostic; the Windows exe-path
+arm was never wired.
+- Fix: wire a real Windows arm in `emit_executable_path_into` (or make
+  `lower_resource_path` early-return for Windows like `lower_executable_path` does),
+  so opening the capability gate can't ICE.
+
+### (8) `src/target/win_x86_64/app/mod.rs:56` — unused writable global `TUI_FONT_SYM`
+`TUI_FONT_SYM` ("cached monospace HFONT") is declared and gets a `writable_qword`
+in `app_mode_data_objects` (:1404) but is never written or read — `emit_term_on`
+fetches the font via `GetStockObject(16)` + `SelectObject` without caching it. Dead
+writable data (8 wasted bytes) and the "cached … HFONT" claim is inaccurate.
+- Fix: delete `TUI_FONT_SYM` and its `writable_qword`, or actually cache the HFONT.
+
 ## Goal
 
 - No production field/item is retained solely on a "consumed by a later phase"

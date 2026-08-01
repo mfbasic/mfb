@@ -152,6 +152,24 @@ inline comment at :154-155). The "x0 digit counter" half is stale; "physical v1.
 is still accurate.
 - Fix: update the header comment to say the digit counter is an allocator vreg.
 
+### (15) `src/target/shared/code/os/env.rs:35` — doc paragraph on the wrong function
+`env_lock_fns`'s doc (lines 35-46) opens with three lines describing a *different*
+function — "Acquire the env/pwd lock: `pthread_mutex_lock(...)`. Emitted at helper
+entry, after incoming `String*` arguments have been saved into vregs…" — which
+describes `emit_env_lock` (line 48, itself undocumented). The `env_lock_fns` text
+only begins at line 38.
+- Fix: move the acquire-and-emit paragraph to `emit_env_lock`; leave `env_lock_fns`
+  its name-lookup description.
+
+### (16) `src/target/win_x86_64/app/mod.rs:52` — wrong Consolas-metrics comment
+`const TUI_CELL_W: usize = 8; // px per cell (matches the Consolas metrics we
+request)` — but no Consolas font is requested; `emit_term_on` selects
+`GetStockObject(SYSTEM_FIXED_FONT = 16)` (:1147). The hardcoded 8×16 cell metrics are
+not guaranteed to match the system fixed font's glyph advance (cosmetic grid-align
+risk), and the comment's rationale is factually wrong.
+- Fix: correct the comment to reference `SYSTEM_FIXED_FONT`; separately consider
+  measuring the actual font metrics for cell sizing (cosmetic, out of scope here).
+
 ## Goal
 
 - Each message/comment above matches the behavior of the code it annotates.
